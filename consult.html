@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Book Consultation | Decentralized Technology Solutions</title>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha512-SzlrxWriCO2XJl4nQ3xkp9Wafn8gfNV5Bmqe5H9OMg1Fx5hJno3C+wRK5UJ+vI0GXq5p5kNDOM+OPoqHzt+M1w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="assets/css/style.css">
   <style>
     .question-card { background: rgba(255,255,255,0.05); padding:1.5rem; border-radius:15px; margin-bottom:1.5rem; }
@@ -19,6 +20,16 @@
   <header>
     <div class="container nav-container">
       <h1 class="logo">DTS</h1>
+      <button id="nav-toggle" class="nav-toggle" aria-label="Toggle navigation"><i class="fas fa-bars"></i></button>
+      <nav>
+        <ul class="nav-links" id="nav-links">
+          <li><a href="index.html#hero">Home</a></li>
+          <li><a href="index.html#services">Services</a></li>
+          <li><a href="index.html#process">Process</a></li>
+          <li><a href="index.html#portfolio">Portfolio</a></li>
+          <li><a href="index.html#testimonials">Testimonials</a></li>
+        </ul>
+      </nav>
     </div>
   </header>
 
@@ -77,8 +88,17 @@
     </div>
   </section>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/vanilla-tilt/1.7.2/vanilla-tilt.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tsparticles/3.1.1/tsparticles.min.js"></script>
   <script>
+    // Mobile nav toggle (replicating behaviour from main.js)
+    document.getElementById('nav-toggle').addEventListener('click', ()=>{
+      document.getElementById('nav-links').classList.toggle('open');
+    });
+    document.querySelectorAll('#nav-links a').forEach(a=>a.addEventListener('click',()=>document.getElementById('nav-links').classList.remove('open')));
+
     tsParticles.load('tsparticles', { fpsLimit:60, particles:{ number:{value:90,density:{enable:true,area:800}}, color:{value:['#14ff00','#00ffff']}, shape:{type:'circle'}, opacity:{value:0.4}, size:{value:3}, links:{enable:true,color:'#fff',opacity:0.1}, move:{enable:true,speed:1.5,outMode:'out'} } });
 
     const form = document.getElementById('consult-form');

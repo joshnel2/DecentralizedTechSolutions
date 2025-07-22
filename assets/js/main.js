@@ -70,6 +70,17 @@ links.forEach(link => {
 // Update footer year
 document.getElementById('year').textContent = new Date().getFullYear();
 
+// Mobile nav toggle
+const navToggleBtn = document.getElementById('nav-toggle');
+const navLinksList = document.getElementById('nav-links');
+if (navToggleBtn && navLinksList) {
+  navToggleBtn.addEventListener('click', () => {
+    navLinksList.classList.toggle('open');
+  });
+  // Close nav when a link is clicked (optional)
+  navLinksList.querySelectorAll('a').forEach(link => link.addEventListener('click', () => navLinksList.classList.remove('open')));
+}
+
 // ----------------- Custom Animations & Interactions -----------------
 if (typeof gsap !== 'undefined') {
   gsap.registerPlugin(ScrollTrigger);

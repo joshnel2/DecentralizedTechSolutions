@@ -358,3 +358,38 @@ body::before {
     padding: 4rem 0;
   }
 }
+
+/* Navigation Toggle (mobile) */
+.nav-toggle {
+  display: none;
+  background: none;
+  border: none;
+  color: #14ff00;
+  font-size: 1.8rem;
+  cursor: pointer;
+  z-index: 1100;
+}
+
+@media (max-width: 768px) {
+  /* Header & Nav */
+  .nav-toggle { display: block; }
+  .nav-links {
+    position: fixed;
+    top: 70px;
+    right: -100%;
+    flex-direction: column;
+    gap: 1.25rem;
+    background: rgba(0,0,0,0.9);
+    backdrop-filter: blur(8px);
+    width: 70%;
+    max-width: 300px;
+    height: calc(100% - 70px);
+    padding: 2rem 1.5rem;
+    transition: right 0.4s ease;
+  }
+  .nav-links.open { right: 0; }
+  .section { padding: 4rem 0; }
+}
+
+/* Hero top padding to offset fixed header */
+.section-hero { padding-top: 80px; }
