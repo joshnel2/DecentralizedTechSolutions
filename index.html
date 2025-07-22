@@ -1,0 +1,147 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Decentralized Technology Solutions | AI & Web3 Development</title>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha512-SzlrxWriCO2XJl4nQ3xkp9Wafn8gfNV5Bmqe5H9OMg1Fx5hJno3C+wRK5UJ+vI0GXq5p5kNDOM+OPoqHzt+M1w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <!-- AOS (Animate On Scroll) CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.css" integrity="sha512-Ho3oHOKo+ctD6Abfs7/EIDty1pHniqAVbnm5ZFRxC2k8kGZKB5rb7q5iR3w40CIovwpIWUvBVPBcfyyKZ0G7mA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <!-- Local Styles -->
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <!-- Animated particle background -->
+  <div id="tsparticles"></div>
+
+  <!-- Header / Navigation -->
+  <header>
+    <div class="container nav-container">
+      <h1 class="logo">DTS</h1>
+      <nav>
+        <ul class="nav-links">
+          <li><a href="#hero">Home</a></li>
+          <li><a href="#services">Services</a></li>
+          <li><a href="#about">Why Us</a></li>
+          <li><a href="#contact">Contact</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section id="hero" class="section-hero">
+    <div class="container hero-content" data-aos="fade-up" data-aos-duration="1200">
+      <h2 class="company-name">Decentralized Technology Solutions</h2>
+      <h3 class="tagline"><span id="typed"></span></h3>
+      <p class="subtitle">Led by Joshua Nelson — Building bleeding-edge digital products powered by AI and Web3.</p>
+      <a href="#contact" class="btn-primary">Start Your Project</a>
+    </div>
+  </section>
+
+  <!-- Why Us Section -->
+  <section id="about" class="section section-light" data-aos="fade-up">
+    <div class="container">
+      <h2 class="section-title">Why Choose DTS?</h2>
+      <div class="reasons-grid">
+        <div class="reason-card">
+          <i class="fas fa-brain"></i>
+          <h3>AI-First Approach</h3>
+          <p>We integrate advanced machine learning to unlock unprecedented business value.</p>
+        </div>
+        <div class="reason-card">
+          <i class="fas fa-cubes"></i>
+          <h3>Web3 Pioneers</h3>
+          <p>From smart contracts to decentralized apps—we engineer secure blockchain solutions.</p>
+        </div>
+        <div class="reason-card">
+          <i class="fas fa-rocket"></i>
+          <h3>Speed & Precision</h3>
+          <p>Rapid prototyping and agile delivery turn your vision into reality faster than ever.</p>
+        </div>
+        <div class="reason-card">
+          <i class="fas fa-handshake-angle"></i>
+          <h3>Partnership Mindset</h3>
+          <p>We collaborate closely and transparently—your success is our metric.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Services Section -->
+  <section id="services" class="section section-dark" data-aos="fade-up">
+    <div class="container">
+      <h2 class="section-title">Our Expertise</h2>
+      <div class="services-grid">
+        <div class="service-card">
+          <i class="fas fa-robot"></i>
+          <h3>AI Integrations</h3>
+          <p>Custom chatbots, NLP pipelines, computer vision, and more—tailored to your domain.</p>
+        </div>
+        <div class="service-card">
+          <i class="fas fa-globe"></i>
+          <h3>Web Development</h3>
+          <p>High-performance websites & PWAs with modern stacks such as Next.js and React.</p>
+        </div>
+        <div class="service-card">
+          <i class="fas fa-link"></i>
+          <h3>Smart Contracts</h3>
+          <p>Audited, secure blockchain contracts and tokenomics designs for your crypto ventures.</p>
+        </div>
+        <div class="service-card">
+          <i class="fas fa-mobile-alt"></i>
+          <h3>App Development</h3>
+          <p>Cross-platform mobile & desktop apps that deliver seamless user experiences.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Contact Section -->
+  <section id="contact" class="section section-light" data-aos="fade-up">
+    <div class="container">
+      <h2 class="section-title">Let's Build Together</h2>
+      <p>Tell us about your vision and we'll make it reality. Pricing is project-based.</p>
+      <form action="https://formspree.io/f/meqbgvzq" method="POST" class="contact-form">
+        <div class="form-group">
+          <input type="text" name="name" placeholder="Your Name" required>
+        </div>
+        <div class="form-group">
+          <input type="email" name="email" placeholder="Your Email" required>
+        </div>
+        <div class="form-group">
+          <input type="text" name="company" placeholder="Company / Organization (optional)">
+        </div>
+        <div class="form-group">
+          <textarea name="message" rows="6" placeholder="Describe your project..." required></textarea>
+        </div>
+        <button type="submit" class="btn-primary">Send Message</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container footer-container">
+      <p>&copy; <span id="year"></span> Decentralized Technology Solutions. All rights reserved.</p>
+      <div class="social-links">
+        <a href="https://www.linkedin.com/in/joshuanelsonai" target="_blank" aria-label="LinkedIn"><i class="fab fa-linkedin"></i></a>
+        <a href="mailto:contact@dts.ai" aria-label="Email"><i class="fas fa-envelope"></i></a>
+        <a href="https://github.com/DecentralizedTechSolutions" target="_blank" aria-label="GitHub"><i class="fab fa-github"></i></a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- External Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/typed.js/2.0.12/typed.min.js" integrity="sha512-3JW66HRaFCWp7vItbKhSBNpEjsvm+2nlJaYikl4a7GJcp2JnIGLCgkgUiqq5DY21f5ZkYJTzdHHGlXHZSibzdA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tsparticles/3.1.1/tsparticles.min.js" integrity="sha512-biSU1t3rmmYTM0FbZh6iIWdpX4tSQEjUXmOQMSfgO1Q08pphk+PQV8JrJSo6Gac4aXNgXrX2quM6uaQVB2+iBA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.js" integrity="sha512-FoYZJ28M6QOw1KUJgq1tj7i6vlkQSB9ciadf6zDVOm1GKyo07V5dFHBtKG9kK+2IbK9sG+OVZ4uhGeFAQ0Y+hA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <!-- Local Script -->
+  <script src="assets/js/main.js"></script>
+</body>
+</html>
