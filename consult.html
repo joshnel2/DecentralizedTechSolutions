@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Book Consultation | Decentralized Technology Solutions</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <style>
+    .question-card { background: rgba(255,255,255,0.05); padding:1.5rem; border-radius:15px; margin-bottom:1.5rem; }
+    .question-card h4 { margin-bottom:1rem; }
+    .question-card label { display:block; margin:0.5rem 0; cursor:pointer; }
+    #calendar-wrapper { display:none; margin-top:3rem; }
+    iframe { width:100%; height:650px; border:none; }
+  </style>
+</head>
+<body>
+  <div id="tsparticles"></div>
+  <header>
+    <div class="container nav-container">
+      <h1 class="logo">DTS</h1>
+    </div>
+  </header>
+
+  <section class="section-hero">
+    <div class="container hero-content" data-aos="fade-up">
+      <h2 class="company-name">Book a Consultation</h2>
+      <h3 class="tagline">Step 1 · Quick Questionnaire</h3>
+      <p class="subtitle">5 multiple-choice questions so we can tailor the call.</p>
+    </div>
+  </section>
+
+  <section class="section section-light">
+    <div class="container">
+      <form id="consult-form">
+        <div class="question-card">
+          <h4>1. What type of project do you have in mind?</h4>
+          <label><input type="radio" name="projectType" value="AI Solution" required> AI Solution</label>
+          <label><input type="radio" name="projectType" value="Web App"> Web App</label>
+          <label><input type="radio" name="projectType" value="Blockchain"> Blockchain / Smart Contracts</label>
+          <label><input type="radio" name="projectType" value="Automation"> Workflow Automation</label>
+        </div>
+        <div class="question-card">
+          <h4>2. Estimated budget range?</h4>
+          <label><input type="radio" name="budget" value="<10k" required> <$10k</label>
+          <label><input type="radio" name="budget" value="10-50k"> $10k – $50k</label>
+          <label><input type="radio" name="budget" value="50-100k"> $50k – $100k</label>
+          <label><input type="radio" name="budget" value=">100k"> $100k+</label>
+        </div>
+        <div class="question-card">
+          <h4>3. Desired timeline?</h4>
+          <label><input type="radio" name="timeline" value="ASAP" required> ASAP</label>
+          <label><input type="radio" name="timeline" value="1-3 months"> 1-3 months</label>
+          <label><input type="radio" name="timeline" value="3-6 months"> 3-6 months</label>
+          <label><input type="radio" name="timeline" value="Flexible"> Flexible</label>
+        </div>
+        <div class="question-card">
+          <h4>4. Do you already have specifications?</h4>
+          <label><input type="radio" name="specs" value="Yes" required> Yes, detailed spec</label>
+          <label><input type="radio" name="specs" value="Partial"> Partial docs</label>
+          <label><input type="radio" name="specs" value="No"> No, need help scoping</label>
+        </div>
+        <div class="question-card">
+          <h4>5. Preferred call duration?</h4>
+          <label><input type="radio" name="callDuration" value="15" required> 15 min intro</label>
+          <label><input type="radio" name="callDuration" value="30"> 30 min deep-dive</label>
+          <label><input type="radio" name="callDuration" value="60"> 60 min workshop</label>
+        </div>
+        <button type="submit" class="btn-primary">Submit &amp; Pick Time</button>
+      </form>
+
+      <div id="calendar-wrapper">
+        <h3 class="section-title" style="margin-top:3rem;">Step 2 · Select a Time</h3>
+        <!-- Replace src with your Google Calendar Appointment Scheduling embed link -->
+        <iframe src="https://calendar.google.com/calendar/embed?src=your_calendar_embed_url"></iframe>
+      </div>
+    </div>
+  </section>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tsparticles/3.1.1/tsparticles.min.js"></script>
+  <script>
+    tsParticles.load('tsparticles', { fpsLimit:60, particles:{ number:{value:90,density:{enable:true,area:800}}, color:{value:['#14ff00','#00ffff']}, shape:{type:'circle'}, opacity:{value:0.4}, size:{value:3}, links:{enable:true,color:'#fff',opacity:0.1}, move:{enable:true,speed:1.5,outMode:'out'} } });
+
+    const form = document.getElementById('consult-form');
+    form.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(form).entries());
+      try {
+        await fetch('https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec', {
+          method:'POST',
+          mode:'no-cors',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(data)
+        });
+      } catch(err){ console.warn('Sheet logging failed', err); }
+      document.getElementById('calendar-wrapper').style.display='block';
+      form.style.display='none';
+      // scroll to calendar
+      document.getElementById('calendar-wrapper').scrollIntoView({behavior:'smooth'});
+    });
+  </script>
+</body>
+</html>
