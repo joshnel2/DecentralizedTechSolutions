@@ -71,6 +71,8 @@ header {
 
 /* Buttons */
 .btn-primary {
+  position: relative;
+  overflow: hidden;
   display: inline-block;
   padding: 0.75rem 2rem;
   border-radius: 8px;
@@ -83,6 +85,29 @@ header {
 .btn-primary:hover {
   transform: translateY(-3px);
   box-shadow: 0 10px 20px rgba(20, 255, 0, 0.5);
+}
+/* Ripple hover effect */
+.btn-primary::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 0;
+  height: 0;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  transition: width 0.4s ease, height 0.4s ease, opacity 0.6s ease;
+  pointer-events: none;
+}
+.btn-primary:hover::after {
+  width: 200%;
+  height: 500%;
+  opacity: 0;
+}
+
+.tilt {
+  will-change: transform;
 }
 
 /* Hero */
