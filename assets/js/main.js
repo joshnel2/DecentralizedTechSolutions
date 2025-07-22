@@ -1,18 +1,20 @@
 
-// Initialize Typed.js for animated tagline
-const typed = new Typed('#typed', {
-  strings: [
-    'AI Integrations',
-    'Smart Contracts',
-    'Next-Gen Websites',
-    'Scalable Data Hosting',
-    'Complex Apps & Automations'
-  ],
-  typeSpeed: 80,
-  backSpeed: 40,
-  backDelay: 2000,
-  loop: true
-});
+// Initialize Typed.js for animated tagline if placeholder exists
+if (document.getElementById('typed')) {
+  new Typed('#typed', {
+    strings: [
+      'AI Integrations',
+      'Smart Contracts',
+      'Next-Gen Websites',
+      'Scalable Data Hosting',
+      'Complex Apps & Automations'
+    ],
+    typeSpeed: 80,
+    backSpeed: 40,
+    backDelay: 2000,
+    loop: true
+  });
+}
 
 // Initialize tsParticles for dynamic background
 (async () => {
