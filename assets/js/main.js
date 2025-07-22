@@ -4,8 +4,8 @@ const typed = new Typed('#typed', {
   strings: [
     'AI Integrations',
     'Smart Contracts',
-    'World-class Websites',
-    'Data Hosting & Infrastructure'
+    'Next-Gen Websites',
+    'Scalable Data Hosting'
   ],
   typeSpeed: 80,
   backSpeed: 40,
@@ -19,25 +19,25 @@ const typed = new Typed('#typed', {
     fpsLimit: 60,
     fullScreen: { enable: false },
     particles: {
-      number: { value: 80, density: { enable: true, area: 800 } },
-      color: { value: "#00ffaa" },
+      number: { value: 120, density: { enable: true, area: 800 } },
+      color: { value: ["#14ff00", "#00ffff", "#ff00ff"] },
       links: {
         enable: true,
-        distance: 150,
-        color: "#00ffaa",
-        opacity: 0.4,
+        distance: 140,
+        color: "#ffffff",
+        opacity: 0.25,
         width: 1
       },
       move: {
         enable: true,
-        speed: 2,
+        speed: 3,
         direction: "none",
         random: false,
         straight: false,
         outMode: "out"
       },
       shape: { type: "circle" },
-      opacity: { value: 0.4 },
+      opacity: { value: 0.5 },
       size: { value: 3 }
     },
     interactivity: {
