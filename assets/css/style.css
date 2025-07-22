@@ -272,6 +272,83 @@ body::before {
   padding-left: 0;
 }
 
+/* Portfolio Grid */
+.portfolio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
+}
+.portfolio-item {
+  position: relative;
+  padding-top: 65%; /* 16:9 ratio */
+  border-radius: 15px;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+  cursor: pointer;
+  transition: transform 0.4s ease;
+}
+.portfolio-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.portfolio-item:hover {
+  transform: translateY(-8px);
+}
+.portfolio-item:hover::after {
+  opacity: 1;
+}
+.portfolio-item .overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 1rem;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 1.1rem;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 2;
+}
+.portfolio-item:hover .overlay {
+  opacity: 1;
+}
+
+/* Testimonials */
+.testimonial-card {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2rem 1.5rem;
+  border-radius: 15px;
+  max-width: 650px;
+  margin: 0 auto;
+  text-align: center;
+  line-height: 1.7;
+}
+.testimonial-card p {
+  font-style: italic;
+  margin-bottom: 1.25rem;
+}
+.testimonial-card h4 {
+  font-weight: 600;
+  color: #14ff00;
+}
+
+/* Swiper pagination bullets */
+.swiper-pagination-bullet {
+  background: rgba(255, 255, 255, 0.4);
+  opacity: 1;
+}
+.swiper-pagination-bullet-active {
+  background: #14ff00;
+}
+
 /* Media Queries */
 @media (max-width: 768px) {
   .nav-links {

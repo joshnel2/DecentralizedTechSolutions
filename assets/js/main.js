@@ -69,3 +69,50 @@ links.forEach(link => {
 
 // Update footer year
 document.getElementById('year').textContent = new Date().getFullYear();
+
+// ----------------- Custom Animations & Interactions -----------------
+if (typeof gsap !== 'undefined') {
+  gsap.registerPlugin(ScrollTrigger);
+  // Reveal cards & tiles on scroll
+  gsap.utils.toArray('.reason-card, .service-card, .portfolio-item, .testimonial-card').forEach((el, i) => {
+    gsap.from(el, {
+      y: 40,
+      opacity: 0,
+      duration: 0.6,
+      delay: i * 0.05,
+      scrollTrigger: {
+        trigger: el,
+        start: 'top 85%',
+        toggleActions: 'play none none reverse'
+      }
+    });
+  });
+}
+
+// Tilt hover effect
+if (typeof VanillaTilt !== 'undefined') {
+  VanillaTilt.init(document.querySelectorAll('.portfolio-item, .service-card, .reason-card'), {
+    max: 15,
+    speed: 450,
+    glare: true,
+    'max-glare': 0.25
+  });
+}
+
+// Testimonials carousel
+if (typeof Swiper !== 'undefined') {
+  new Swiper('.testimonial-swiper', {
+    loop: true,
+    autoHeight: true,
+    grabCursor: true,
+    pagination: {
+      el: '.swiper-pagination',
+      clickable: true
+    },
+    autoplay: {
+      delay: 5000,
+      disableOnInteraction: false
+    }
+  });
+}
+// -------------------------------------------------------------------
