@@ -70,9 +70,22 @@ links.forEach(link => {
 // Update footer year
 document.getElementById('year').textContent = new Date().getFullYear();
 
-// Mobile nav toggle
-const navToggleBtn = document.getElementById('nav-toggle');
-const navLinksList = document.getElementById('nav-links');
+// Mobile nav toggle (auto-init if markup missing on legacy pages)
+let navToggleBtn = document.getElementById('nav-toggle');
+let navLinksList = document.getElementById('nav-links') || document.querySelector('.nav-links');
+
+if (!navToggleBtn && navLinksList) {
+  // Build toggle button on the fly (for pages without updated header)
+  navToggleBtn = document.createElement('button');
+  navToggleBtn.id = 'nav-toggle';
+  navToggleBtn.className = 'nav-toggle';
+  navToggleBtn.setAttribute('aria-label', 'Toggle navigation');
+  navToggleBtn.innerHTML = '<i class="fas fa-bars"></i>';
+  // Insert it before navLinksList’s parent (nav container)
+  const navContainer = navLinksList.closest('.nav-container');
+  if (navContainer) navContainer.insertBefore(navToggleBtn, navContainer.firstChild.nextSibling);
+}
+
 if (navToggleBtn && navLinksList) {
   navToggleBtn.addEventListener('click', () => {
     navLinksList.classList.toggle('open');
