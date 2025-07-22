@@ -36,7 +36,7 @@
   <section class="section-hero">
     <div class="container hero-content" data-aos="fade-up">
       <h2 class="company-name">Book a Consultation</h2>
-      <h3 class="tagline">Step 1 · Quick Questionnaire</h3>
+      <h3 class="tagline"><span id="typed"></span></h3>
       <p class="subtitle">5 multiple-choice questions so we can tailor the call.</p>
     </div>
   </section>
@@ -88,10 +88,18 @@
     </div>
   </section>
 
+  <!-- Animation libs -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Swiper/9.4.1/swiper-bundle.min.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/vanilla-tilt/1.7.2/vanilla-tilt.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Swiper/9.4.1/swiper-bundle.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tsparticles/3.1.1/tsparticles.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/typed.js/2.0.12/typed.min.js"></script>
+  <script src="assets/js/main.js"></script>
+  <script>
+    new Typed('#typed', { strings:['Quick Questionnaire'], typeSpeed:70, backSpeed:40, loop:true });
+  </script>
   <script>
     // Mobile nav toggle (replicating behaviour from main.js)
     document.getElementById('nav-toggle').addEventListener('click', ()=>{
