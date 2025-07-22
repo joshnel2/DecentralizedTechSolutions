@@ -87,6 +87,8 @@ if (!navToggleBtn && navLinksList) {
 }
 
 if (navToggleBtn && navLinksList) {
+  // Remove residual 'open' class on fresh page load
+  navLinksList.classList.remove('open');
   navToggleBtn.addEventListener('click', () => {
     navLinksList.classList.toggle('open');
   });
