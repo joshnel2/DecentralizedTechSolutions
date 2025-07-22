@@ -140,3 +140,40 @@ if (typeof Swiper !== 'undefined') {
   });
 }
 // -------------------------------------------------------------------
+
+// ----------- Utility: Lazy-load CDN assets if missing -----------
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+function loadStyle(href) {
+  if (document.querySelector(`link[href="${href}"]`)) return;
+  const l = document.createElement('link');
+  l.rel = 'stylesheet';
+  l.href = href;
+  document.head.appendChild(l);
+}
+
+(async () => {
+  // Ensure GSAP & ScrollTrigger
+  if (typeof gsap === 'undefined') {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js');
+  }
+  // Ensure VanillaTilt
+  if (typeof VanillaTilt === 'undefined') {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/vanilla-tilt/1.7.2/vanilla-tilt.min.js');
+  }
+  // Ensure Swiper
+  if (typeof Swiper === 'undefined') {
+    loadStyle('https://cdnjs.cloudflare.com/ajax/libs/Swiper/9.4.1/swiper-bundle.min.css');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/Swiper/9.4.1/swiper-bundle.min.js');
+  }
+})();
+// ----------------------------------------------------------------
