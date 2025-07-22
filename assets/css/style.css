@@ -9,10 +9,10 @@ html {
   scroll-behavior: smooth;
 }
 body {
-  font-family: 'Poppins', sans-serif;
+  font-family: 'Inter', sans-serif;
   line-height: 1.6;
-  color: #f2f2f2;
-  background: radial-gradient(circle at 30% 30%, #0f0f19 0%, #08080d 100%);
+  color: #ffffff;
+  background: #000000;
   overflow-x: hidden;
 }
 
@@ -51,7 +51,7 @@ header {
 .logo {
   font-family: 'Orbitron', sans-serif;
   font-size: 1.8rem;
-  color: #00ffaa;
+  color: #14ff00;
   letter-spacing: 2px;
 }
 .nav-links {
@@ -66,23 +66,23 @@ header {
   transition: color 0.3s ease;
 }
 .nav-links a:hover {
-  color: #00ffaa;
+  color: #14ff00;
 }
 
 /* Buttons */
 .btn-primary {
   display: inline-block;
   padding: 0.75rem 2rem;
-  border-radius: 50px;
-  border: 2px solid #00ffaa;
-  color: #0f0f19;
-  background: #00ffaa;
+  border-radius: 8px;
+  border: 2px solid #14ff00;
+  color: #000000;
+  background: #14ff00;
   font-weight: 600;
   transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 .btn-primary:hover {
   transform: translateY(-3px);
-  box-shadow: 0 10px 20px rgba(0, 255, 170, 0.5);
+  box-shadow: 0 10px 20px rgba(20, 255, 0, 0.5);
 }
 
 /* Hero */
@@ -96,9 +96,10 @@ header {
 }
 .hero-content .company-name {
   font-family: 'Orbitron', sans-serif;
-  font-size: clamp(2rem, 7vw, 4rem);
-  color: #00ffaa;
+  font-size: clamp(2.5rem, 8vw, 5rem);
+  color: #14ff00;
   margin-bottom: 0.5rem;
+  letter-spacing: 1px;
 }
 .tagline {
   font-size: clamp(1.25rem, 4vw, 2rem);
@@ -126,7 +127,7 @@ header {
   font-family: 'Orbitron', sans-serif;
   font-size: 2.5rem;
   margin-bottom: 3rem;
-  color: #00ffaa;
+  color: #14ff00;
 }
 
 /* Cards Grid */
@@ -144,12 +145,12 @@ header {
 }
 .reason-card:hover, .service-card:hover {
   transform: translateY(-8px);
-  box-shadow: 0 15px 25px rgba(0, 255, 170, 0.2);
+  box-shadow: 0 15px 25px rgba(20, 255, 0, 0.2);
 }
 .reason-card i, .service-card i {
   font-size: 2rem;
   margin-bottom: 1rem;
-  color: #00ffaa;
+  color: #14ff00;
 }
 
 /* Contact Form */
@@ -175,7 +176,7 @@ header {
 .form-group input:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #00ffaa;
+  border-color: #14ff00;
 }
 
 /* Footer */
@@ -197,7 +198,7 @@ header {
   transition: color 0.3s ease;
 }
 .social-links a:hover {
-  color: #00ffaa;
+  color: #14ff00;
 }
 
 /* Media Queries */

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Website Development | Joshua Nelson Development</title>
+  <title>Get in Touch | Joshua Nelson Development</title>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha512-SzlrxWriCO2XJl4nQ3xkp9Wafn8gfNV5Bmqe5H9OMg1Fx5hJno3C+wRK5UJ+vI0GXq5p5kNDOM+OPoqHzt+M1w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.css" integrity="sha512-Ho3oHOKo+ctD6Abfs7/EIDty1pHniqAVbnm5ZFRxC2k8kGZKB5rb7q5iR3w40CIovwpIWUvBVPBcfyyKZ0G7mA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
@@ -31,66 +31,30 @@
 
   <section class="section-hero">
     <div class="container hero-content" data-aos="fade-up">
-      <h2 class="company-name">Website Development</h2>
+      <h2 class="company-name">Contact Joshua</h2>
       <h3 class="tagline"><span id="typed"></span></h3>
-      <p class="subtitle">Crafting lightning-fast, responsive websites that captivate and convert.</p>
-      <a href="contact.html" class="btn-primary">Start Your Website</a>
+      <p class="subtitle">Let's discuss how AI can elevate your next project.</p>
     </div>
   </section>
 
   <section class="section section-light" data-aos="fade-up">
     <div class="container">
-      <h2 class="section-title">What We Build</h2>
-      <div class="services-grid">
-        <div class="service-card">
-          <i class="fas fa-laptop-code"></i>
-          <h3>Responsive Design</h3>
-          <p>Pixel-perfect experiences on every device, from mobile to 8K displays.</p>
+      <h2 class="section-title">Send a Message</h2>
+      <form action="https://formspree.io/f/meqbgvzq" method="POST" class="contact-form">
+        <div class="form-group">
+          <input type="text" name="name" placeholder="Your Name" required>
         </div>
-        <div class="service-card">
-          <i class="fas fa-rocket"></i>
-          <h3>Performance Optimization</h3>
-          <p>Blazing-fast load times with Lighthouse scores that leave competitors in the dust.</p>
+        <div class="form-group">
+          <input type="email" name="email" placeholder="Your Email" required>
         </div>
-        <div class="service-card">
-          <i class="fas fa-sitemap"></i>
-          <h3>CMS & Headless</h3>
-          <p>Seamless content management with WordPress, Sanity, Strapi, or custom headless setups.</p>
+        <div class="form-group">
+          <input type="text" name="company" placeholder="Company / Organization (optional)">
         </div>
-        <div class="service-card">
-          <i class="fas fa-shopping-cart"></i>
-          <h3>E-commerce</h3>
-          <p>Conversion-focused online stores powered by Shopify, WooCommerce, or custom stacks.</p>
+        <div class="form-group">
+          <textarea name="message" rows="6" placeholder="Describe your project..." required></textarea>
         </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="section section-dark" data-aos="fade-up">
-    <div class="container">
-      <h2 class="section-title">Process</h2>
-      <div class="reasons-grid">
-        <div class="reason-card">
-          <i class="fas fa-lightbulb"></i>
-          <h3>Discovery</h3>
-          <p>Deep-dive into brand, users, and goals to shape a winning strategy.</p>
-        </div>
-        <div class="reason-card">
-          <i class="fas fa-pencil-ruler"></i>
-          <h3>Design</h3>
-          <p>UX & UI prototypes that marry aesthetics with usability.</p>
-        </div>
-        <div class="reason-card">
-          <i class="fas fa-code"></i>
-          <h3>Build</h3>
-          <p>Modern frameworks like Next.js, React, and Astro for maintainable codebases.</p>
-        </div>
-        <div class="reason-card">
-          <i class="fas fa-rocket"></i>
-          <h3>Launch & Iterate</h3>
-          <p>SEO, analytics, and continuous improvements post-launch for sustained growth.</p>
-        </div>
-      </div>
+        <button type="submit" class="btn-primary">Send Message</button>
+      </form>
     </div>
   </section>
 
@@ -110,7 +74,7 @@
   <script src="assets/js/main.js"></script>
   <script>
     new Typed('#typed', {
-      strings: ['Responsive Web Apps', 'SEO-First Design', 'Next-Gen UX'],
+      strings: ['Let\'s collaborate', 'Build with AI', 'Launch fast'],
       typeSpeed: 80,
       backSpeed: 40,
       backDelay: 2000,
