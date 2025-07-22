@@ -5,7 +5,8 @@ const typed = new Typed('#typed', {
     'AI Integrations',
     'Smart Contracts',
     'Next-Gen Websites',
-    'Scalable Data Hosting'
+    'Scalable Data Hosting',
+    'Complex Apps & Automations'
   ],
   typeSpeed: 80,
   backSpeed: 40,
