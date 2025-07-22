@@ -130,6 +130,20 @@
       backDelay: 2000,
       loop: true
     });
+
+    tsParticles.load('tsparticles', {
+      fpsLimit: 60,
+      particles: {
+        number: { value: 110, density: { enable: true, area: 800 } },
+        color: { value: ['#00ffff', '#14ff00'] },
+        shape: { type: 'square' },
+        opacity: { value: 0.5 },
+        size: { value: 3 },
+        links: { enable: false },
+        move: { enable: true, speed: 1.5, outMode: 'out' }
+      },
+      background: { color: '#000000' }
+    });
   </script>
 </body>
 </html>

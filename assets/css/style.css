@@ -156,10 +156,19 @@ header {
 /* Contact Form */
 .contact-form {
   max-width: 600px;
-  margin: 0 auto;
+  margin: 2rem auto 0 auto; /* added top margin for spacing */
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+}
+
+/* Optional divider */
+.divider {
+  width: 60px;
+  height: 4px;
+  background: #14ff00;
+  margin: 2rem auto;
+  border-radius: 3px;
 }
 .form-group input,
 .form-group textarea {
