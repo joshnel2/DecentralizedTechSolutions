@@ -3,9 +3,9 @@
 const typed = new Typed('#typed', {
   strings: [
     'AI Integrations',
-    'Web3 & Smart Contracts',
+    'Smart Contracts',
     'World-class Websites',
-    'Cutting-edge Apps'
+    'Data Hosting & Infrastructure'
   ],
   typeSpeed: 80,
   backSpeed: 40,
