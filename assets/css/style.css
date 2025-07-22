@@ -158,8 +158,9 @@ header {
 /* Cards Grid */
 .reasons-grid, .services-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 2rem;
+  align-items: stretch;
 }
 .reason-card, .service-card {
   background: rgba(255, 255, 255, 0.05);
@@ -167,7 +168,14 @@ header {
   text-align: center;
   border-radius: 15px;
   transition: transform 0.4s ease, box-shadow 0.4s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  height: 100%;
 }
+/* Ensure icons and headings do not push other content */
+.reason-card h3, .service-card h3 { margin: 0.75rem 0 0.5rem; }
+.reason-card p, .service-card p { margin-top: auto; }
 .reason-card:hover, .service-card:hover {
   transform: translateY(-8px);
   box-shadow: 0 15px 25px rgba(20, 255, 0, 0.2);
