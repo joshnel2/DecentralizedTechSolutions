@@ -1,0 +1,20 @@
+{
+  "name": "dts-site",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "gsap": "^3.12.2",
+    "tsparticles-engine": "^3.1.1",
+    "tsparticles": "^3.1.1",
+    "swiper": "^8.4.7"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "sass": "^1.69.5"
+  }
+}
