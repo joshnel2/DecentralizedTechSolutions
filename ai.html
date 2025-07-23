@@ -128,13 +128,15 @@
   <script>
     gsap.registerPlugin(ScrollTrigger);
     // Overwrite typed strings specifically for this page
-    new Typed('#typed', {
-      strings: ['Custom AI Solutions', 'Machine Learning Excellence', 'Your Data, Supercharged'],
-      typeSpeed: 80,
-      backSpeed: 40,
-      backDelay: 2000,
-      loop: true
-    });
+    if (document.querySelector('#typed') && window.Typed) {
+      new Typed('#typed', {
+        strings: ['Custom AI Solutions', 'Machine Learning Excellence', 'Your Data, Supercharged'],
+        typeSpeed: 80,
+        backSpeed: 40,
+        backDelay: 2000,
+        loop: true
+      });
+    }
 
     // AI-specific particle effects
     tsParticles.load('tsparticles', {

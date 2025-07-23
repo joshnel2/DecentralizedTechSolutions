@@ -29,14 +29,6 @@
     </div>
   </header>
 
-  <section class="section-hero">
-    <div class="container hero-content" data-aos="fade-up">
-      <h2 class="company-name">Smart Contracts</h2>
-      <h3 class="tagline"><span id="typed"></span></h3>
-      <p class="subtitle">Secure, efficient, and audit-ready blockchain development.</p>
-    </div>
-  </section>
-
   <section class="section section-light service-intro" data-aos="fade-up">
     <div class="container">
       <h2 class="section-title">Services</h2>
@@ -122,13 +114,15 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.js" integrity="sha512-FoYZJ28M6QOw1KUJgq1tj7i6vlkQSB9ciadf6zDVOm1GKyo07V5dFHBtKG9kK+2IbK9sG+OVZ4uhGeFAQ0Y+hA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="assets/js/main.js"></script>
   <script>
-    new Typed('#typed', {
-      strings: ['Audited Contracts', 'Solid Tokenomics', 'Launch Your Protocol'],
-      typeSpeed: 80,
-      backSpeed: 40,
-      backDelay: 2000,
-      loop: true
-    });
+    if (document.querySelector('#typed') && window.Typed) {
+      new Typed('#typed', {
+        strings: ['Audited Contracts', 'Solid Tokenomics', 'Launch Your Protocol'],
+        typeSpeed: 80,
+        backSpeed: 40,
+        backDelay: 2000,
+        loop: true
+      });
+    }
 
     tsParticles.load('tsparticles', {
       fpsLimit: 60,
