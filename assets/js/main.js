@@ -73,5 +73,15 @@ links.forEach(link => {
   });
 });
 
+// Mobile nav toggle
+const menuToggle = document.querySelector('.menu-toggle');
+const navLinksContainer = document.querySelector('.nav-links');
+if (menuToggle && navLinksContainer) {
+  menuToggle.addEventListener('click', () => {
+    navLinksContainer.classList.toggle('open');
+    menuToggle.classList.toggle('active');
+  });
+}
+
 // Update footer year
 document.getElementById('year').textContent = new Date().getFullYear();
