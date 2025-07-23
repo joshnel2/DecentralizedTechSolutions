@@ -6,6 +6,7 @@
   <title>Book Consultation | Decentralized Technology Solutions</title>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.css" integrity="sha512-Ho3oHOKo+ctD6Abfs7/EIDty1pHniqAVbnm5ZFRxC2k8kGZKB5rb7q5iR3w40CIovwpIWUvBVPBcfyyKZ0G7mA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <style>
     .question-card { background: rgba(255,255,255,0.05); padding:1.5rem; border-radius:15px; margin-bottom:1.5rem; }
     .question-card h4 { margin-bottom:1rem; }
@@ -78,8 +79,12 @@
   </section>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tsparticles/3.1.1/tsparticles.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/typed.js/2.0.12/typed.min.js" integrity="sha512-3JW66HRaFCWp7vItbKhSBNpEjsvm+2nlJaYikl4a7GJcp2JnIGLCgkgUiqq5DY21f5ZkYJTzdHHGlXHZSibzdA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.js" integrity="sha512-FoYZJ28M6QOw1KUJgq1tj7i6vlkQSB9ciadf6zDVOm1GKyo07V5dFHBtKG9kK+2IbK9sG+OVZ4uhGeFAQ0Y+hA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script>
     tsParticles.load('tsparticles', { fpsLimit:60, particles:{ number:{value:90,density:{enable:true,area:800}}, color:{value:['#14ff00','#00ffff']}, shape:{type:'circle'}, opacity:{value:0.4}, size:{value:3}, links:{enable:true,color:'#fff',opacity:0.1}, move:{enable:true,speed:1.5,outMode:'out'} } });
+
+    AOS.init({ once: true });
 
     const form = document.getElementById('consult-form');
     form.addEventListener('submit', async (e)=>{
