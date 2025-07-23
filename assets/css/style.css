@@ -180,6 +180,7 @@ header {
   flex-direction: column;
   justify-content: flex-start;
   height: 100%;
+  min-height: 300px;
 }
 /* Ensure icons and headings do not push other content */
 .reason-card h3, .service-card h3 { margin: 0.75rem 0 0.5rem; }

@@ -85,3 +85,66 @@ if (menuToggle && navLinksContainer) {
 
 // Update footer year
 document.getElementById('year').textContent = new Date().getFullYear();
+
+// Utility to lazy-load external scripts
+function loadScript(url) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = url;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+// Enhance interactions & reveal animations
+(async () => {
+  // Respect reduced-motion user preference
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (prefersReducedMotion) return;
+
+  // Dynamically load GSAP + ScrollTrigger if not already present
+  if (!window.gsap) {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js');
+  }
+  if (!window.ScrollTrigger) {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js');
+  }
+  if (!window.gsap) return; // bail safely
+
+  gsap.registerPlugin(window.ScrollTrigger ?? {});
+
+  // Hero parallax entrance
+  const heroHeading = document.querySelector('.company-name');
+  if (heroHeading) {
+    gsap.from(heroHeading, { y: 80, opacity: 0, duration: 1.1, ease: 'power3.out' });
+  }
+
+  // Generic reveal for section titles
+  gsap.utils.toArray('.section-title').forEach((title) => {
+    gsap.from(title, {
+      y: 40,
+      opacity: 0,
+      duration: 0.8,
+      ease: 'power3.out',
+      scrollTrigger: { trigger: title, start: 'top 85%' }
+    });
+  });
+
+  // Staggered cards animation
+  gsap.utils.toArray('.service-card, .reason-card').forEach((card) => {
+    gsap.from(card, {
+      y: 30,
+      opacity: 0,
+      duration: 0.6,
+      ease: 'power2.out',
+      scrollTrigger: { trigger: card, start: 'top 90%' }
+    });
+  });
+
+  // Button ripple via GSAP scale effect (collaborates with existing ::after)
+  gsap.utils.toArray('.btn-primary').forEach((btn) => {
+    btn.addEventListener('mouseenter', () => gsap.to(btn, { scale: 1.03, duration: 0.2, ease: 'power1.out' }));
+    btn.addEventListener('mouseleave', () => gsap.to(btn, { scale: 1, duration: 0.2, ease: 'power1.out' }));
+  });
+})();
