@@ -281,6 +281,32 @@ body::before {
   padding-left: 0;
 }
 
+/* Success Metrics Strip */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 2rem;
+  text-align: center;
+  align-items: center;
+}
+.metric-card {
+  background: rgba(255,255,255,0.04);
+  padding: 1.5rem 1rem;
+  border-radius: 12px;
+  backdrop-filter: blur(4px);
+}
+.metric-number {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 2.5rem;
+  color: #14ff00;
+  display: block;
+}
+.metric-label {
+  margin-top: 0.35rem;
+  font-size: 0.95rem;
+  color: #f2f2f2;
+}
+
 /* Media Queries */
 @media (max-width: 768px) {
   .menu-toggle { display: block; }

@@ -147,4 +147,26 @@ function loadScript(url) {
     btn.addEventListener('mouseenter', () => gsap.to(btn, { scale: 1.03, duration: 0.2, ease: 'power1.out' }));
     btn.addEventListener('mouseleave', () => gsap.to(btn, { scale: 1, duration: 0.2, ease: 'power1.out' }));
   });
+
+  // Success metrics counting animation
+  const counters = document.querySelectorAll('.metric-number');
+  counters.forEach((counter) => {
+    const updateCount = () => {
+      const target = +counter.dataset.count;
+      const current = +counter.innerText.replace(/[^0-9]/g, '') || 0;
+      const increment = Math.ceil(target / 60);
+      if (current < target) {
+        counter.innerText = current + increment;
+        requestAnimationFrame(updateCount);
+      } else {
+        counter.innerText = target;
+      }
+    };
+    ScrollTrigger.create({
+      trigger: counter,
+      start: 'top 85%',
+      once: true,
+      onEnter: updateCount
+    });
+  });
 })();
