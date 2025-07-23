@@ -1,18 +1,20 @@
 
-// Initialize Typed.js for animated tagline
-const typed = new Typed('#typed', {
-  strings: [
-    'AI Integrations',
-    'Smart Contracts',
-    'Next-Gen Websites',
-    'Scalable Data Hosting',
-    'Complex Apps & Automations'
-  ],
-  typeSpeed: 80,
-  backSpeed: 40,
-  backDelay: 2000,
-  loop: true
-});
+// Initialize Typed.js only if library and target element are available
+if (window.Typed && document.querySelector('#typed')) {
+  new Typed('#typed', {
+    strings: [
+      'AI Integrations',
+      'Smart Contracts',
+      'Next-Gen Websites',
+      'Scalable Data Hosting',
+      'Complex Apps & Automations'
+    ],
+    typeSpeed: 80,
+    backSpeed: 40,
+    backDelay: 2000,
+    loop: true
+  });
+}
 
 // Initialize tsParticles for dynamic background
 (async () => {
@@ -55,8 +57,10 @@ const typed = new Typed('#typed', {
   });
 })();
 
-// Initialize AOS library
-AOS.init({ once: true });
+// Initialize AOS if available
+if (window.AOS) {
+  AOS.init({ once: true });
+}
 
 // Smooth scroll for nav links
 const links = document.querySelectorAll('nav a[href^="#"]');
