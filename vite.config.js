@@ -6,7 +6,15 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: 'index.html',
-        ai: 'ai.html'
+        ai: 'ai.html',
+        apps: 'apps.html',
+        business: 'business.html',
+        consult: 'consult.html',
+        contact: 'contact.html',
+        ethereal: 'ethereal.html',
+        hosting: 'hosting.html',
+        smartcontracts: 'smartcontracts.html',
+        websites: 'websites.html'
       }
     }
   }
