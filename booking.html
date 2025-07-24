@@ -60,19 +60,21 @@
     }
 
     async function loadSlots(){
-      const res=await fetch('/api/availability');
-      const {available=[]}=await res.json();
-      // keep only next 7 days
-      const now=new Date();
-      const end=new Date(now);end.setDate(now.getDate()+7);
-      const week=available.filter(iso=>{const d=new Date(iso);return d>=now&&d<=end;});
-      const grouped=groupByDate(week);
-      renderSlots(grouped);
       const title=document.getElementById('slots-title');
-      if(Object.keys(grouped).length===0){
-        title.textContent='No slots available right now. Please check back soon.';
-      } else {
-        title.textContent='Available Slots';
+      try {
+        const res=await fetch('/api/availability');
+        if(!res.ok){ throw new Error(await res.text()); }
+        const {available=[]}=await res.json();
+        // keep only next 7 days
+        const now=new Date();
+        const end=new Date(now);end.setDate(now.getDate()+7);
+        const week=available.filter(iso=>{const d=new Date(iso);return d>=now&&d<=end;});
+        const grouped=groupByDate(week);
+        renderSlots(grouped);
+        title.textContent = Object.keys(grouped).length===0 ? 'No slots available right now. Please check back soon.' : 'Available Slots';
+      } catch(err){
+        console.error('loadSlots error', err);
+        title.textContent='Error loading slots';
       }
     }
 
