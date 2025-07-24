@@ -24,6 +24,7 @@
         <input type="time" id="time-input" step="900" required>
         <button id="add-slot-btn" class="btn-primary">Add Slot</button>
       </div>
+      <button id="generate-week-btn" class="btn-primary" style="margin-top:1rem;">Generate Next Week (9am-5pm)</button>
     </section>
 
     <section style="margin-top:3rem;">
@@ -112,6 +113,25 @@
     }
 
     document.getElementById('add-slot-btn').addEventListener('click', addSlot);
+
+    document.getElementById('generate-week-btn').addEventListener('click', async ()=>{
+      const slots=[];
+      const now=new Date();
+      const start=new Date(now.getFullYear(),now.getMonth(),now.getDate()+((1+7-now.getDay())%7)); // next Monday
+      for(let d=0;d<5;d++){
+        const day=new Date(start);
+        day.setDate(start.getDate()+d);
+        for(let h=9;h<17;h++){
+          for(let m=0;m<60;m+=15){
+            const slot=new Date(day);
+            slot.setHours(h,m,0,0);
+            slots.push(slot.toISOString());
+          }
+        }
+      }
+      await fetch('/api/availability',{method:'POST',headers,body:JSON.stringify({slots})});
+      fetchAvailability();
+    });
 
     // initial
     fetchAvailability();

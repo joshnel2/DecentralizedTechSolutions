@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Consultation Confirmed | DTS</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <style>
+    .prep-list { text-align:left; max-width:600px; margin:2rem auto; line-height:1.8; }
+  </style>
+</head>
+<body>
+  <div id="tsparticles"></div>
+  <header><div class="container nav-container"><h1 class="logo">DTS</h1></div></header>
+  <section class="section-hero">
+    <div class="container hero-content" data-aos="fade-up">
+      <h2 class="company-name">Consultation Confirmed</h2>
+      <h3 class="tagline" id="confirm-line">You will receive a call at ...</h3>
+      <p class="subtitle">Please have the following ready so we can make the most of our 15-minute call:</p>
+      <ul class="prep-list">
+        <li><strong>Project goals & vision</strong> – a concise overview of what you want to achieve with AI / Web3.</li>
+        <li><strong>Current challenges</strong> – pain points or bottlenecks you hope technology will solve.</li>
+        <li><strong>Existing assets</strong> – any codebase, datasets, brand guidelines, or documentation.</li>
+        <li><strong>Budget range & timeline</strong> – rough figures help us propose realistic solutions.</li>
+        <li><strong>Stakeholders & decision-makers</strong> – who will be involved in approvals.</li>
+        <li><strong>Success metrics</strong> – how you’ll measure the ROI of this project.</li>
+      </ul>
+      <a href="index.html" class="btn-primary">Back to Home</a>
+    </div>
+  </section>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tsparticles/3.1.1/tsparticles.min.js"></script>
+  <script>
+    tsParticles.load('tsparticles',{fpsLimit:60,particles:{number:{value:90,density:{enable:true,area:800}},color:{value:['#14ff00','#00ffff']},shape:{type:'circle'},opacity:{value:0.4},size:{value:3},links:{enable:true,color:'#fff',opacity:0.1},move:{enable:true,speed:1.5,outMode:'out'}}});
+    const params=new URLSearchParams(location.search);
+    const slot=params.get('slot')||localStorage.getItem('lastSlot');
+    if(slot){ document.getElementById('confirm-line').textContent=`You will receive a call at ${new Date(slot).toLocaleString()}`; }
+  </script>
+</body>
+</html>

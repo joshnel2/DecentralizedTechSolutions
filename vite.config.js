@@ -13,7 +13,9 @@ export default defineConfig({
         main: 'index.html',
         ai: 'ai.html',
         consult: 'consult.html',
-        admin: 'admin.html'
+        admin: 'admin.html',
+        booking: 'booking.html',
+        confirmation: 'confirmation.html'
       }
     }
   }
