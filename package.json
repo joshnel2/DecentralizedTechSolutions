@@ -9,6 +9,7 @@
     "server": "node server.js",
     "start": "npm-run-all --parallel dev server"
   },
+  "type": "commonjs",
   "dependencies": {
     "gsap": "^3.12.2",
     "tsparticles": "^3.1.1",
