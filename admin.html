@@ -24,7 +24,8 @@
         <input type="time" id="time-input" step="900" required>
         <button id="add-slot-btn" class="btn-primary">Add Slot</button>
       </div>
-      <button id="generate-week-btn" class="btn-primary" style="margin-top:1rem;">Generate Next Week (9am-5pm)</button>
+      <button id="generate-week-btn" class="btn-primary" style="margin-top:1rem;">Generate Next Week (3 random slots / day)</button>
+      <button id="clear-slots-btn" class="btn-primary" style="margin-top:1rem;background:#ff4d4d;border-color:#ff4d4d;">Remove All Slots</button>
     </section>
 
     <section style="margin-top:3rem;">
@@ -114,22 +115,40 @@
 
     document.getElementById('add-slot-btn').addEventListener('click', addSlot);
 
+    function randInt(max){return Math.floor(Math.random()*max);}
+
     document.getElementById('generate-week-btn').addEventListener('click', async ()=>{
       const slots=[];
       const now=new Date();
-      const start=new Date(now.getFullYear(),now.getMonth(),now.getDate()+((1+7-now.getDay())%7)); // next Monday
-      for(let d=0;d<5;d++){
+      // next Monday (assuming Sunday=0)
+      const start=new Date(now.getFullYear(),now.getMonth(),now.getDate()+((1+7-now.getDay())%7));
+      for(let d=0;d<5;d++){ // Mon-Fri
         const day=new Date(start);
         day.setDate(start.getDate()+d);
-        for(let h=9;h<17;h++){
-          for(let m=0;m<60;m+=15){
-            const slot=new Date(day);
-            slot.setHours(h,m,0,0);
-            slots.push(slot.toISOString());
-          }
+        const chosenTimes=new Set();
+        while(chosenTimes.size<3){
+          const hour=12+randInt(6); // 12-17 inclusive
+          const minute=[0,15,30,45][randInt(4)];
+          chosenTimes.add(hour+':'+minute);
         }
+        chosenTimes.forEach(time=>{
+          const [h,m]=time.split(':');
+          const slot=new Date(day);
+          slot.setHours(parseInt(h),parseInt(m),0,0);
+          slots.push(slot.toISOString());
+        });
       }
       await fetch('/api/availability',{method:'POST',headers,body:JSON.stringify({slots})});
+      fetchAvailability();
+    });
+
+    document.getElementById('clear-slots-btn').addEventListener('click', async ()=>{
+      const res = await fetch('/api/availability');
+      const data = await res.json();
+      const { available=[] } = data;
+      for(const slot of available){
+        await fetch('/api/availability',{method:'DELETE',headers,body:JSON.stringify({slot})});
+      }
       fetchAvailability();
     });
 
