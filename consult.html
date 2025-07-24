@@ -98,14 +98,21 @@
         console.error('Failed fetching slots', err);
       }
 
-      // Build slot radio inputs
+      // Build slot radio inputs + contact fields
       if(slots.length){
-        slotForm.innerHTML = slots.map((s,i)=>
+        const slotOptions = slots.map((s,i)=>
           `<label style="display:block;margin:0.5rem 0;">
              <input type="radio" name="slot" value="${s.id}" ${i===0?'checked':''}>
              ${s.date} · ${s.time}
-           </label>`
-        ).join('') + '<button type="submit" class="btn-primary" style="margin-top:1rem;">Confirm Booking</button>';
+           </label>`).join('');
+
+        const contactFields = `
+          <div style="margin-top:1rem;">
+            <input type="text"  name="clientName"  placeholder="Your Name"     required style="width:100%;padding:0.5rem;margin-bottom:0.5rem;">
+            <input type="tel"   name="clientPhone" placeholder="Phone Number" required style="width:100%;padding:0.5rem;margin-bottom:0.5rem;">
+          </div>`;
+
+        slotForm.innerHTML = slotOptions + contactFields + '<button type="submit" class="btn-primary" style="margin-top:0.5rem;">Confirm Booking</button>';
       } else {
         slotForm.innerHTML = '<p>No slots available. Please check back later.</p>';
       }
@@ -118,9 +125,12 @@
       // Second step — pick slot & send data
       slotForm.onsubmit = async (ev)=>{
         ev.preventDefault();
-        const slotId = new FormData(slotForm).get('slot');
+        const fd = new FormData(slotForm);
+        const slotId      = fd.get('slot');
+        const clientName  = fd.get('clientName');
+        const clientPhone = fd.get('clientPhone');
         if(!slotId) return;
-        const payload = {...answers, slotId};
+        const payload = {...answers, slotId, clientName, clientPhone};
         try {
           await fetch(SCRIPT_URL, {
             method:'POST',
