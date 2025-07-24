@@ -108,6 +108,18 @@ app.get('/api/bookings', (req, res) => {
   res.json({ bookings: loadBookings() });
 });
 
+// Pretty URLs for HTML pages (e.g., /admin -> admin.html)
+app.get('/:page', (req, res, next) => {
+  const page = req.params.page;
+  // ignore api and assets
+  if (page.startsWith('api') || page.includes('.')) return next();
+  const filePath = path.join(__dirname, `${page}.html`);
+  if (fs.existsSync(filePath)) {
+    return res.sendFile(filePath);
+  }
+  return next();
+});
+
 app.listen(PORT, () => {
   console.log(`Consultation scheduler running on http://localhost:${PORT}`);
 });
