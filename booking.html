@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Book a Time Slot | DTS</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <style>
+    /* Minimal styling – tweak or merge with your site stylesheet */
+    body { font-family: "Inter", sans-serif; background: #0b0b0b; color: #f5f5f5; }
+    #slots { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 1rem; }
+    #slots li { background: rgba(255,255,255,0.08); padding: 1rem; border-radius: 8px; cursor: pointer; transition: background .2s; }
+    #slots li:hover { background: rgba(255,255,255,0.15); }
+    #slots li.selected { outline: 2px solid #14ff00; }
+    #book-wrapper { margin-top: 2rem; max-width: 420px; }
+    input, button { width: 100%; padding: 0.75rem 1rem; border: none; border-radius: 5px; margin-top: 0.75rem; font-size: 1rem; }
+    button { background: #14ff00; color: #000; font-weight: 600; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="container" style="padding:2rem 1rem;">
+    <h1 style="margin-bottom:1rem;">Choose a Time Slot</h1>
+    <ul id="slots"></ul>
+
+    <div id="book-wrapper" style="display:none;">
+      <h2>Confirm your booking</h2>
+      <form id="book-form">
+        <input type="text"   name="name"  placeholder="Name"   required />
+        <input type="email"  name="email" placeholder="Email"  required />
+        <input type="tel"    name="phone" placeholder="Phone"         />
+        <button type="submit">Book Slot</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // Replace with the Web App URL you get after deploying the Apps Script
+    const API_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
+
+    const slotsUL   = document.getElementById("slots");
+    const bookWrap  = document.getElementById("book-wrapper");
+    const bookForm  = document.getElementById("book-form");
+
+    let selectedSlot = null;
+
+    async function fetchSlots() {
+      const res = await fetch(API_URL);
+      const slots = await res.json();
+      renderSlots(slots);
+    }
+
+    function renderSlots(slots) {
+      slotsUL.innerHTML = "";
+      if (!slots.length) {
+        slotsUL.innerHTML = "<p>All slots are currently booked. Check back later!</p>";
+        return;
+      }
+      slots.forEach((slot) => {
+        const li = document.createElement("li");
+        li.textContent = `${slot.date} // ${slot.start} – ${slot.end}`;
+        li.onclick = () => selectSlot(slot, li);
+        slotsUL.appendChild(li);
+      });
+    }
+
+    function selectSlot(slot, liEl) {
+      selectedSlot = slot;
+      // visual highlight
+      document.querySelectorAll("#slots li").forEach((li) => li.classList.remove("selected"));
+      liEl.classList.add("selected");
+      bookWrap.style.display = "block";
+    }
+
+    bookForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!selectedSlot) return alert("Please choose a slot first.");
+      const formData = Object.fromEntries(new FormData(bookForm).entries());
+      formData.slotId = selectedSlot.id;
+
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+
+      if (res.ok) {
+        alert("Booking confirmed! Check your email for details.");
+        bookForm.reset();
+        bookWrap.style.display = "none";
+        fetchSlots(); // refresh list – your slot should disappear
+      } else if (res.status === 409) {
+        alert("Sorry, someone just booked that slot. Please choose another.");
+        fetchSlots();
+      } else {
+        alert("Something went wrong. Try again later.");
+      }
+    });
+
+    fetchSlots();
+  </script>
+</body>
+</html>
