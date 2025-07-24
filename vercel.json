@@ -1,0 +1,7 @@
+{
+  "rewrites": [
+    { "source": "/admin", "destination": "/admin.html" },
+    { "source": "/booking", "destination": "/booking.html" },
+    { "source": "/confirmation", "destination": "/confirmation.html" }
+  ]
+}
