@@ -33,7 +33,7 @@
   <section class="section section-light">
     <div class="container" id="booking-wrapper">
       <div id="slots-section">
-        <p style="text-align:center;">Loading available times…</p>
+        <h3 class="section-title" id="slots-title">Loading slots…</h3>
       </div>
 
       <form id="book-form" class="contact-form">
@@ -68,7 +68,12 @@
       const week=available.filter(iso=>{const d=new Date(iso);return d>=now&&d<=end;});
       const grouped=groupByDate(week);
       renderSlots(grouped);
-      if(Object.keys(grouped).length===0){slotSection.innerHTML='<p style="text-align:center">No slots available right now. Please check back soon.</p>'}
+      const title=document.getElementById('slots-title');
+      if(Object.keys(grouped).length===0){
+        title.textContent='No slots available right now. Please check back soon.';
+      } else {
+        title.textContent='Available Slots';
+      }
     }
 
     function renderSlots(grouped){
