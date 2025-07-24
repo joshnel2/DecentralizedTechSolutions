@@ -66,10 +66,9 @@
         <button type="submit" class="btn-primary">Submit &amp; Pick Time</button>
       </form>
 
-      <div id="calendar-wrapper">
+      <div id="slots-wrapper" style="display:none;">
         <h3 class="section-title" style="margin-top:3rem;">Step 2 · Select a Time</h3>
-        <!-- Replace src with your Google Calendar Appointment Scheduling embed link -->
-        <iframe src="https://calendar.google.com/calendar/embed?src=your_calendar_embed_url"></iframe>
+        <form id="slot-form"></form>
       </div>
     </div>
   </section>
@@ -78,22 +77,62 @@
   <script>
     tsParticles.load('tsparticles', { fpsLimit:60, particles:{ number:{value:90,density:{enable:true,area:800}}, color:{value:['#14ff00','#00ffff']}, shape:{type:'circle'}, opacity:{value:0.4}, size:{value:3}, links:{enable:true,color:'#fff',opacity:0.1}, move:{enable:true,speed:1.5,outMode:'out'} } });
 
+    const SCRIPT_URL = 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec'; // ✏️ replace with your deployment URL
+
     const form = document.getElementById('consult-form');
+    const slotWrapper = document.getElementById('slots-wrapper');
+    const slotForm   = document.getElementById('slot-form');
+
+    // First step — questionnaire
     form.addEventListener('submit', async (e)=>{
       e.preventDefault();
-      const data = Object.fromEntries(new FormData(form).entries());
+      const answers = Object.fromEntries(new FormData(form).entries());
+
+      // Fetch available slots from Apps Script (GET ?action=slots)
+      let slots = [];
       try {
-        await fetch('https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec', {
-          method:'POST',
-          mode:'no-cors',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify(data)
-        });
-      } catch(err){ console.warn('Sheet logging failed', err); }
-      document.getElementById('calendar-wrapper').style.display='block';
+        const res = await fetch(`${SCRIPT_URL}?action=slots`);
+        const json = await res.json();
+        slots = json.slots || [];
+      } catch(err){
+        console.error('Failed fetching slots', err);
+      }
+
+      // Build slot radio inputs
+      if(slots.length){
+        slotForm.innerHTML = slots.map((s,i)=>
+          `<label style="display:block;margin:0.5rem 0;">
+             <input type="radio" name="slot" value="${s.id}" ${i===0?'checked':''}>
+             ${s.date} · ${s.time}
+           </label>`
+        ).join('') + '<button type="submit" class="btn-primary" style="margin-top:1rem;">Confirm Booking</button>';
+      } else {
+        slotForm.innerHTML = '<p>No slots available. Please check back later.</p>';
+      }
+
+      // Move to step-2 UI
       form.style.display='none';
-      // scroll to calendar
-      document.getElementById('calendar-wrapper').scrollIntoView({behavior:'smooth'});
+      slotWrapper.style.display='block';
+      slotWrapper.scrollIntoView({behavior:'smooth'});
+
+      // Second step — pick slot & send data
+      slotForm.onsubmit = async (ev)=>{
+        ev.preventDefault();
+        const slotId = new FormData(slotForm).get('slot');
+        if(!slotId) return;
+        const payload = {...answers, slotId};
+        try {
+          await fetch(SCRIPT_URL, {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify(payload)
+          });
+          slotForm.innerHTML = '<p>✅ Booked! Check your inbox for confirmation.</p>';
+        } catch(err){
+          console.error('Booking failed', err);
+          slotForm.innerHTML = '<p>❌ Booking failed. Please try again.</p>';
+        }
+      };
     });
   </script>
 </body>
