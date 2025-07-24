@@ -10,16 +10,18 @@ module.exports = async (req, res) => {
   }
 
   // Auth for mutations
-  if (req.headers['x-admin-token'] !== ADMIN_PASSWORD) {
+  if (['POST','DELETE'].includes(method) && req.headers['x-admin-token'] !== ADMIN_PASSWORD) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
   if (method === 'POST' || method === 'DELETE') {
     const buffers = [];
-    for await (const chunk of req) buffers.push(chunk);
-    const raw = Buffer.concat(buffers).toString() || '{}';
-    let body;
-    try { body = JSON.parse(raw); } catch { body = {}; }
+    let body = req.body;
+    if (!body) {
+      for await (const chunk of req) buffers.push(chunk);
+      const raw = Buffer.concat(buffers).toString() || '{}';
+      try { body = JSON.parse(raw); } catch { body = {}; }
+    }
 
     if (method === 'POST') {
       const { slots = [] } = body;
