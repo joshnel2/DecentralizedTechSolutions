@@ -1,7 +1,7 @@
 
 # Decentralized Technology Solutions – Marketing Site
 
-A sleek, animated landing page showcasing the AI-driven and Web3-focused development services offered by **Joshua Nelson**.
+A sleek, animated landing page showcasing the AI-driven and Web3-focused development services offered by **Joshua Nelson**.,
 
 ## 🧑‍💻 Live Preview
 Open `index.html` in your browser – everything is client-side and deployable as a static site (GitHub Pages, Netlify, Vercel, etc.).
