@@ -66,6 +66,9 @@
           <label><input type="radio" name="callDuration" value="30"> 30 min deep-dive</label>
           <label><input type="radio" name="callDuration" value="60"> 60 min workshop</label>
         </div>
+        <div class="form-group">
+          <input type="tel" name="phone" placeholder="Phone Number" required>
+        </div>
         <button type="submit" class="btn-primary">Submit &amp; Pick Time</button>
       </form>
 
@@ -94,7 +97,7 @@
       wrapper.style.display='block';
       loadingText.textContent = 'Loading available times…';
       try {
-        const res = await fetch('/api/slots');
+        const res = await fetch('/api/availability');
         const { available } = await res.json();
         loadingText.remove();
         available.forEach(slotISO=>{

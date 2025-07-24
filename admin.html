@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin – Consultation Scheduler</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <style>
+    body { padding-top: 5rem; }
+    table { width:100%; border-collapse: collapse; margin-top:1rem; }
+    th, td { border:1px solid rgba(255,255,255,0.1); padding:0.5rem; text-align:left; }
+    th { background: rgba(255,255,255,0.1); }
+    #admin-wrapper { max-width:900px; margin:0 auto; }
+  </style>
+</head>
+<body>
+  <div id="admin-wrapper" class="container">
+    <h1 class="section-title">Admin Dashboard</h1>
+    <section style="margin-top:2rem;">
+      <h2 class="section-title" style="font-size:1.5rem;">Add Availability Slot (15-min)</h2>
+      <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+        <input type="date" id="date-input" required>
+        <input type="time" id="time-input" step="900" required>
+        <button id="add-slot-btn" class="btn-primary">Add Slot</button>
+      </div>
+    </section>
+
+    <section style="margin-top:3rem;">
+      <h2 class="section-title" style="font-size:1.5rem;">Current Availability</h2>
+      <ul id="availability-list"></ul>
+    </section>
+
+    <section style="margin-top:3rem;">
+      <h2 class="section-title" style="font-size:1.5rem;">Bookings</h2>
+      <table id="bookings-table">
+        <thead>
+          <tr><th>Name</th><th>Email</th><th>Phone</th><th>When</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </div>
+
+  <script>
+    const tokenKey = 'adminToken';
+    let adminToken = localStorage.getItem(tokenKey);
+    if(adminToken !== 'Tennis345!') {
+      adminToken = prompt('Enter admin password:');
+      if(adminToken !== 'Tennis345!') {
+        alert('Incorrect password');
+        location.href = '/';
+      }
+      localStorage.setItem(tokenKey, adminToken);
+    }
+
+    const headers = { 'Content-Type':'application/json', 'x-admin-token': adminToken };
+
+    async function fetchAvailability() {
+      const res = await fetch('/api/availability', { headers });
+      const { available } = await res.json();
+      renderAvailability(available);
+    }
+
+    async function fetchBookings() {
+      const res = await fetch('/api/bookings', { headers });
+      const { bookings } = await res.json();
+      renderBookings(bookings);
+    }
+
+    function renderAvailability(slots) {
+      const list = document.getElementById('availability-list');
+      list.innerHTML = '';
+      slots.forEach(slot => {
+        const li = document.createElement('li');
+        li.textContent = new Date(slot).toLocaleString();
+        const delBtn = document.createElement('button');
+        delBtn.textContent = 'Remove';
+        delBtn.style.marginLeft = '1rem';
+        delBtn.addEventListener('click', ()=> removeSlot(slot));
+        li.appendChild(delBtn);
+        list.appendChild(li);
+      });
+    }
+
+    function renderBookings(bookings) {
+      const tbody = document.querySelector('#bookings-table tbody');
+      tbody.innerHTML = '';
+      bookings.sort((a,b)=> new Date(a.slot) - new Date(b.slot)).forEach(b => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${b.name}</td><td>${b.email}</td><td>${b.phone}</td><td>${new Date(b.slot).toLocaleString()}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function addSlot() {
+      const date = document.getElementById('date-input').value;
+      const time = document.getElementById('time-input').value;
+      if(!date || !time) return alert('Pick date & time');
+      const iso = new Date(`${date}T${time}`).toISOString();
+      await fetch('/api/availability', {
+        method:'POST', headers, body: JSON.stringify({ slots:[iso] })
+      });
+      await fetchAvailability();
+    }
+
+    async function removeSlot(slot) {
+      await fetch('/api/availability', {
+        method:'DELETE', headers, body: JSON.stringify({ slot })
+      });
+      await fetchAvailability();
+    }
+
+    document.getElementById('add-slot-btn').addEventListener('click', addSlot);
+
+    // initial
+    fetchAvailability();
+    fetchBookings();
+  </script>
+</body>
+</html>

@@ -11,7 +11,9 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: 'index.html',
-        ai: 'ai.html'
+        ai: 'ai.html',
+        consult: 'consult.html',
+        admin: 'admin.html'
       }
     }
   }
