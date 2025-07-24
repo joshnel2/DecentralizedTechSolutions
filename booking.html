@@ -20,11 +20,55 @@
 </head>
 <body>
   <div class="container" style="padding:2rem 1rem;">
-    <h1 style="margin-bottom:1rem;">Choose a Time Slot</h1>
-    <ul id="slots"></ul>
+    <!-- STEP 1 · Questionnaire -->
+  <section id="questionnaire-section" class="section-light" style="margin-bottom:2rem;">
+    <h2>Step 1 · Quick Questionnaire</h2>
+    <p style="opacity:.8;">Tell us a bit about your project so we can prepare.</p>
+    <form id="questionnaire-form">
+      <div class="question-card">
+        <h4>1. What type of project do you have in mind?</h4>
+        <label><input type="radio" name="projectType" value="AI Solution" required> AI Solution</label>
+        <label><input type="radio" name="projectType" value="Web App"> Web App</label>
+        <label><input type="radio" name="projectType" value="Blockchain"> Blockchain / Smart Contracts</label>
+        <label><input type="radio" name="projectType" value="Automation"> Workflow Automation</label>
+      </div>
+      <div class="question-card">
+        <h4>2. Estimated budget range?</h4>
+        <label><input type="radio" name="budget" value="<10k" required> &lt;$10k</label>
+        <label><input type="radio" name="budget" value="10-50k"> $10k – $50k</label>
+        <label><input type="radio" name="budget" value="50-100k"> $50k – $100k</label>
+        <label><input type="radio" name="budget" value=">100k"> $100k+</label>
+      </div>
+      <div class="question-card">
+        <h4>3. Desired timeline?</h4>
+        <label><input type="radio" name="timeline" value="ASAP" required> ASAP</label>
+        <label><input type="radio" name="timeline" value="1-3 months"> 1-3 months</label>
+        <label><input type="radio" name="timeline" value="3-6 months"> 3-6 months</label>
+        <label><input type="radio" name="timeline" value="Flexible"> Flexible</label>
+      </div>
+      <div class="question-card">
+        <h4>4. Do you already have specifications?</h4>
+        <label><input type="radio" name="specs" value="Yes" required> Yes, detailed spec</label>
+        <label><input type="radio" name="specs" value="Partial"> Partial docs</label>
+        <label><input type="radio" name="specs" value="No"> No, need help scoping</label>
+      </div>
+      <div class="question-card">
+        <h4>5. Preferred call duration?</h4>
+        <label><input type="radio" name="callDuration" value="15" required> 15 min intro</label>
+        <label><input type="radio" name="callDuration" value="30"> 30 min deep-dive</label>
+        <label><input type="radio" name="callDuration" value="60"> 60 min workshop</label>
+      </div>
+      <button type="submit" class="btn-primary">Submit &amp; Pick Time</button>
+    </form>
+  </section>
+
+  <!-- STEP 2 · Slot selection + booking -->
+  <section id="slot-section" style="display:none;">
+    <h2>Step 2 · Select a Time</h2>
+    <ul id="slots" style="margin-top:1.5rem;"></ul>
 
     <div id="book-wrapper" style="display:none;">
-      <h2>Confirm your booking</h2>
+      <h2 style="margin-top:2rem;">Step 3 · Confirm your booking</h2>
       <form id="book-form">
         <input type="text"   name="name"  placeholder="Name"   required />
         <input type="email"  name="email" placeholder="Email"  required />
@@ -32,17 +76,29 @@
         <button type="submit">Book Slot</button>
       </form>
     </div>
+  </section>
   </div>
 
   <script>
-    // Replace with the Web App URL you get after deploying the Apps Script
     const API_URL = "https://script.google.com/macros/s/AKfycbwc52wBkhJeTjaHI4oGIJm7LXqcvexfs-o8HKIafZxCiiTjNgo9x9xzD_6WW1jGgDkG2Q/exec";
 
-    const slotsUL   = document.getElementById("slots");
-    const bookWrap  = document.getElementById("book-wrapper");
-    const bookForm  = document.getElementById("book-form");
+    const questionnaireForm = document.getElementById("questionnaire-form");
+    const slotSection       = document.getElementById("slot-section");
+    const slotsUL           = document.getElementById("slots");
+    const bookWrap          = document.getElementById("book-wrapper");
+    const bookForm          = document.getElementById("book-form");
 
-    let selectedSlot = null;
+    let questionnaireData = {};
+    let selectedSlot      = null;
+
+    questionnaireForm.addEventListener("submit", e => {
+      e.preventDefault();
+      questionnaireData = Object.fromEntries(new FormData(questionnaireForm).entries());
+      questionnaireForm.style.display = "none";
+      slotSection.style.display = "block";
+      fetchSlots();
+      slotSection.scrollIntoView({behavior:'smooth'});
+    });
 
     async function fetchSlots() {
       const res = await fetch(API_URL);
@@ -66,29 +122,32 @@
 
     function selectSlot(slot, liEl) {
       selectedSlot = slot;
-      // visual highlight
       document.querySelectorAll("#slots li").forEach((li) => li.classList.remove("selected"));
       liEl.classList.add("selected");
       bookWrap.style.display = "block";
+      bookForm.scrollIntoView({behavior:'smooth'});
     }
 
     bookForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       if (!selectedSlot) return alert("Please choose a slot first.");
       const formData = Object.fromEntries(new FormData(bookForm).entries());
-      formData.slotId = selectedSlot.id;
+
+      const payload = {
+        ...questionnaireData,
+        ...formData,
+        slotId: selectedSlot.id
+      };
 
       const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       if (res.ok) {
-        alert("Booking confirmed! Check your email for details.");
-        bookForm.reset();
-        bookWrap.style.display = "none";
-        fetchSlots(); // refresh list – your slot should disappear
+        alert("Booking confirmed! We look forward to speaking with you.");
+        window.location.reload();
       } else if (res.status === 409) {
         alert("Sorry, someone just booked that slot. Please choose another.");
         fetchSlots();
@@ -96,8 +155,6 @@
         alert("Something went wrong. Try again later.");
       }
     });
-
-    fetchSlots();
   </script>
 </body>
 </html>
