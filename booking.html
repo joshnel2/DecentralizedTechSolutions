@@ -9,13 +9,22 @@
   <style>
     /* Minimal styling – tweak or merge with your site stylesheet */
     body { font-family: "Inter", sans-serif; background: #0b0b0b; color: #f5f5f5; }
-    #slots { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 1rem; }
-    #slots li { background: rgba(255,255,255,0.08); padding: 1rem; border-radius: 8px; cursor: pointer; transition: background .2s; }
-    #slots li:hover { background: rgba(255,255,255,0.15); }
-    #slots li.selected { outline: 2px solid #14ff00; }
+    /* Added better spacing for sections */
+    section { max-width: 820px; margin: 0 auto; }
+    .question-card { background: rgba(255,255,255,0.05); padding: 1rem 1.5rem; border-radius: 8px; margin-bottom: 1.25rem; }
+    .question-card h4 { margin-bottom: 0.5rem; font-size: 1.05rem; }
+    .question-card label { display: block; margin: 0.35rem 0; cursor: pointer; }
+
+    #slots { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap: 1rem; }
+    #slots li { background: rgba(255,255,255,0.08); padding: 1.25rem; border-radius: 8px; cursor: pointer; transition: background .2s, transform .2s; text-align:center; }
+    #slots li:hover { background: rgba(255,255,255,0.15); transform: translateY(-2px); }
+    #slots li.selected { outline: 2px solid #14ff00; background: rgba(20,255,0,0.12); }
+
     #book-wrapper { margin-top: 2rem; max-width: 420px; }
     input, button { width: 100%; padding: 0.75rem 1rem; border: none; border-radius: 5px; margin-top: 0.75rem; font-size: 1rem; }
+    input { background:#1a1a1a; color:#f5f5f5; }
     button { background: #14ff00; color: #000; font-weight: 600; cursor: pointer; }
+    button:hover { filter:brightness(1.1); }
   </style>
 </head>
 <body>
@@ -62,7 +71,7 @@
   </div>
 
   <script>
-    const API_URL = "https://script.google.com/macros/s/AKfycbwqoXlxuaRbVoJhyd1PO80yVUuWLPp5gmF_0d6sQ2CsGSSHuP0IruGkLdEfRP6w6t0jHQ/exec";
+    const API_URL = "https://script.google.com/macros/s/AKfycbzW_OGWq8jdYeJRX54Oj3otXCw2k23rblR9xem6VVqgpBcOJfXL8l31t_oXRzRsXWIATQ/exec";
 
     const questionnaireForm = document.getElementById("questionnaire-form");
     const slotSection       = document.getElementById("slot-section");
