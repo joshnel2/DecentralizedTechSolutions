@@ -5,7 +5,7 @@ Google Apps Script to back the booking feature.
    - Tab 1: "TimeSlots" with headers in row 1 exactly like:
        id | date | start | end | status
    - Tab 2: "Bookings" with headers:
-       slotId | name | email | phone | projectType | specs | callDuration | timestamp
+       slotId | name | email | phone | projectType | specs | timestamp
    The admin enters rows in the TimeSlots tab leaving status blank. Rows become available slots.
 
 2. In the sheet choose Extensions → Apps Script, paste this code, then Deploy → New deployment → Web app.
@@ -36,7 +36,7 @@ function doGet() {
 }
 
 /**
- * POST body: { slotId, name, email, phone, projectType, specs, callDuration }
+ * POST body: { slotId, name, email, phone, projectType, specs }
  * Marks the slot as BOOKED and logs the booking.
  */
 function doPost(e) {
@@ -59,7 +59,6 @@ function doPost(e) {
     data.phone,
     data.projectType || '',
     data.specs || '',
-    data.callDuration || '',
     new Date()
   ]);
 
