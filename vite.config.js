@@ -13,6 +13,7 @@ export default defineConfig({
         contact: 'contact.html',
         ethereal: 'ethereal.html',
         hosting: 'hosting.html',
+        booking: 'booking.html',
         smartcontracts: 'smartcontracts.html',
         websites: 'websites.html'
       }
