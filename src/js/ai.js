@@ -1,13 +1,11 @@
-import { gsap } from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { loadFull } from 'tsparticles';
-import Swiper, { Navigation, Pagination } from 'swiper';
-
+// Using global GSAP and ScrollTrigger from CDN
 // Register GSAP plugin
-gsap.registerPlugin(ScrollTrigger);
+if (window.gsap && window.ScrollTrigger) {
+  gsap.registerPlugin(ScrollTrigger);
+}
 
 // --- Particles ---
-loadFull().then(({ tsParticles }) => {
+if (window.tsParticles) {
   tsParticles.load('tsparticles', {
     fpsLimit: 60,
     particles: {
@@ -20,7 +18,7 @@ loadFull().then(({ tsParticles }) => {
       move: { enable: true, speed: 2, outMode: 'out' }
     }
   });
-});
+}
 
 // --- R&D Timeline animation ---
 const steps = document.querySelectorAll('.timeline-step');
@@ -38,14 +36,15 @@ steps.forEach((step, index) => {
 });
 
 // --- Swiper carousel ---
-Swiper.use([Navigation, Pagination]);
-new Swiper('.model-swiper', {
-  slidesPerView: 1,
-  spaceBetween: 20,
-  loop: true,
-  pagination: { el: '.swiper-pagination', clickable: true },
-  navigation: {
-    nextEl: '.swiper-button-next',
-    prevEl: '.swiper-button-prev'
-  }
-});
+if (window.Swiper && document.querySelector('.model-swiper')) {
+  new Swiper('.model-swiper', {
+    slidesPerView: 1,
+    spaceBetween: 20,
+    loop: true,
+    pagination: { el: '.swiper-pagination', clickable: true },
+    navigation: {
+      nextEl: '.swiper-button-next',
+      prevEl: '.swiper-button-prev'
+    }
+  });
+}
