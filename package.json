@@ -1,8 +1,8 @@
 {
-  "name": "esg-compliance-report",
+  "name": "invoiceforge",
   "version": "1.0.0",
   "private": true,
-  "description": "ESG Compliance Report Generator for Restaurant Industry",
+  "description": "Professional Invoice Generator - Create beautiful invoices instantly for $2.99/download",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

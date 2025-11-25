@@ -1,96 +1,71 @@
-# ESG Compliance Report Generator
+# ⚡ InvoiceForge
 
-**Regulatory Compliance Auditor Tool — Restaurant Industry**
+**Professional Invoice Generator** — Create beautiful invoices instantly for $2.99 per download.
 
-A structured, professional tool for generating ESG (Environmental, Social, Governance) compliance reports for local restaurant operations.
+## 💰 Revenue Model
 
----
+- **Price**: $2.99 per invoice PDF download
+- **Payment**: Stripe Checkout (supports all major cards, Apple Pay, Google Pay)
+- **No subscription required** — Pay only when you download
+- **Zero data stored** — All invoice data stays in user's browser
 
-## Purpose
+## 🚀 Features
 
-This application enables restaurant operators and compliance officers to:
+- Beautiful, professional invoice templates
+- Live preview as you type
+- PDF generation (client-side with jsPDF)
+- Multi-currency support (USD, EUR, GBP, CAD, AUD)
+- Tax and discount calculations
+- Data persistence in localStorage
+- Mobile-responsive design
+- No signup required
 
-- Input operational data across Environmental, Social, and Governance categories
-- Track data completion status in real-time
-- Generate ready-to-file compliance reports
-- Export reports in HTML or JSON format
-- Identify compliance flags and receive actionable recommendations
+## 💳 Setting Up Stripe (Production)
 
----
+1. Create a Stripe account at https://stripe.com
+2. Get your publishable key from the Stripe Dashboard
+3. Update `CONFIG.stripePublishableKey` in `src/app.js`
+4. Set `CONFIG.demoMode` to `false`
+5. Create a backend endpoint `/api/create-checkout-session` that:
+   - Creates a Stripe Checkout session with the product price
+   - Returns the session ID to redirect the user
 
-## Data Categories
+Example backend (Node.js):
 
-### Entity Information
-- Legal business name, EIN, entity type
-- Business address and regulatory jurisdiction
-- Reporting period and location count
+```javascript
+const stripe = require('stripe')('sk_live_YOUR_SECRET_KEY');
 
-### Environmental (E)
-- Energy consumption (electricity, natural gas)
-- Renewable energy usage
-- Water usage and recycling
-- Waste management (solid, recycled, composted)
-- Grease disposal and food donation programs
-- Refrigerant types and leak incidents
-- HVAC maintenance schedules
+app.post('/api/create-checkout-session', async (req, res) => {
+  const session = await stripe.checkout.sessions.create({
+    payment_method_types: ['card'],
+    line_items: [{
+      price_data: {
+        currency: 'usd',
+        product_data: {
+          name: 'Professional Invoice PDF',
+        },
+        unit_amount: 299, // $2.99 in cents
+      },
+      quantity: 1,
+    }],
+    mode: 'payment',
+    success_url: 'https://yourdomain.com/?payment=success',
+    cancel_url: 'https://yourdomain.com/',
+  });
+  
+  res.json({ id: session.id });
+});
+```
 
-### Social (S)
-- Workforce composition (full-time, part-time)
-- Minimum wage compliance
-- Benefits (health insurance, paid leave)
-- Training certifications (food handler, allergen, anti-harassment)
-- OSHA incidents and workers' compensation claims
-
-### Governance (G)
-- Business licenses and permits
-- Health department inspections and scores
-- Insurance coverage (liability, workers' comp, property)
-- Employee handbook and ethics policies
-- Data privacy documentation
-
----
-
-## Compliance Scoring
-
-The system calculates scores (0-100) for each ESG category:
-
-| Rating | Score Range |
-|--------|-------------|
-| EXCELLENT | 90-100 |
-| GOOD | 80-89 |
-| SATISFACTORY | 70-79 |
-| NEEDS IMPROVEMENT | 60-69 |
-| NON-COMPLIANT | 0-59 |
-
----
-
-## Compliance Flags
-
-Reports automatically flag issues by severity:
-
-- **CRITICAL** — Immediate regulatory action required
-- **WARNING** — Significant compliance risk
-- **ADVISORY** — Improvement opportunity
-
----
-
-## Getting Started
-
-### Development
+## 🛠️ Development
 
 ```bash
 # Install dependencies
 npm install
 
-# Start development server
+# Run development server
 npm run dev
 
-# Open http://localhost:5173
-```
-
-### Production Build
-
-```bash
 # Build for production
 npm run build
 
@@ -98,35 +73,28 @@ npm run build
 npm run preview
 ```
 
----
+## 📈 Marketing Tips
 
-## Export Formats
+1. **SEO Keywords**: "free invoice generator", "invoice maker", "create invoice online"
+2. **Target Audience**: Freelancers, small businesses, contractors
+3. **Value Proposition**: No signup, no subscription, professional quality
+4. **Conversion Optimization**: 
+   - Users create invoices for FREE
+   - Only pay when they want to download
+   - Low price point ($2.99) reduces friction
 
-### HTML Report
-- Printable, styled document
-- Signature block for authorization
-- Full compliance flags and recommendations
+## 📁 Project Structure
 
-### JSON Report
-- Machine-readable structured data
-- Complete data model with scores and flags
-- Suitable for API integration or archival
+```
+├── index.html          # Main HTML file
+├── src/
+│   ├── app.js         # JavaScript application logic
+│   └── style.scss     # Styles (compiled by Vite)
+├── assets/
+│   └── favicon.svg    # App icon
+└── package.json       # Dependencies
+```
 
----
+## 📄 License
 
-## Tech Stack
-
-- **Vanilla JavaScript** — No framework dependencies
-- **SCSS** — Modular, maintainable styles
-- **Vite** — Fast build tooling
-- **LocalStorage** — Client-side data persistence
-
----
-
-## Disclaimer
-
-This tool generates reports based on self-reported data and does not constitute legal advice or an official regulatory audit. Verify all information with appropriate regulatory authorities.
-
----
-
-**Version 1.0** | Restaurant Industry ESG Standards
+MIT — Use this to make money!

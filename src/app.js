@@ -1,905 +1,788 @@
 /**
- * ESG Compliance Report Generator
- * Restaurant Industry — Regulatory Compliance Auditor Tool
+ * InvoiceForge — Professional Invoice Generator
+ * Makes money by charging $2.99 per PDF download via Stripe
  */
 
-// Required fields configuration
-const REQUIRED_FIELDS = {
-  entity: ['business-name', 'ein', 'entity-type', 'address', 'jurisdiction', 'report-period', 'locations'],
-  environmental: ['electricity-kwh', 'natural-gas', 'water-gallons', 'waste-solid'],
-  social: ['total-employees', 'full-time', 'part-time', 'min-wage-compliance', 'food-handler-cert', 'osha-incidents'],
-  governance: ['business-license', 'food-service-permit', 'health-permit', 'health-inspection-score', 'health-inspection-date', 'liability-insurance', 'workers-comp-insurance']
+// Configuration
+const CONFIG = {
+  price: 2.99,
+  currency: 'usd',
+  productName: 'Professional Invoice PDF',
+  // Replace with your Stripe publishable key for production
+  // For testing, this demo mode will simulate payment
+  stripePublishableKey: 'pk_test_REPLACE_WITH_YOUR_KEY',
+  // For production, create a Stripe Checkout session via your backend
+  // This demo simulates the flow client-side
+  demoMode: true
 };
 
-// State management
-const state = {
-  data: {},
-  completion: {
-    entity: 0,
-    environmental: 0,
-    social: 0,
-    governance: 0
-  }
+// Currency symbols
+const CURRENCY_SYMBOLS = {
+  USD: '$',
+  EUR: '€',
+  GBP: '£',
+  CAD: 'C$',
+  AUD: 'A$'
 };
+
+// State
+let invoiceItems = [];
+let itemIdCounter = 0;
 
 // DOM Elements
 const elements = {
-  navItems: document.querySelectorAll('.nav-item'),
-  panels: document.querySelectorAll('.panel'),
-  completionFill: document.getElementById('completion-fill'),
-  completionPercent: document.getElementById('completion-percent'),
-  btnClear: document.getElementById('btn-clear'),
-  btnExport: document.getElementById('btn-export'),
-  btnGenerate: document.getElementById('btn-generate'),
-  reportOutput: document.getElementById('report-output'),
-  validationGrid: document.getElementById('validation-grid'),
-  currentDate: document.getElementById('current-date')
+  itemsContainer: document.getElementById('items-container'),
+  addItemBtn: document.getElementById('add-item'),
+  invoicePreview: document.getElementById('invoice-preview'),
+  downloadBtn: document.getElementById('btn-download'),
+  previewRefreshBtn: document.getElementById('btn-preview-refresh'),
+  paymentModal: document.getElementById('payment-modal'),
+  successModal: document.getElementById('success-modal'),
+  modalCloseBtn: document.getElementById('modal-close'),
+  payStripeBtn: document.getElementById('btn-pay-stripe'),
+  progressFill: document.getElementById('progress-fill'),
+  progressText: document.getElementById('progress-text'),
+  previewSubtotal: document.getElementById('preview-subtotal'),
+  previewTax: document.getElementById('preview-tax'),
+  previewDiscount: document.getElementById('preview-discount'),
+  previewTotal: document.getElementById('preview-total')
 };
 
 // Initialize
 function init() {
-  setupNavigation();
-  setupFormListeners();
-  setupButtons();
-  setCurrentDate();
-  updateValidationSummary();
+  setDefaultDates();
+  setupEventListeners();
+  addItem(); // Start with one item
+  updatePreview();
   loadSavedData();
 }
 
-// Navigation
-function setupNavigation() {
-  elements.navItems.forEach(item => {
-    item.addEventListener('click', () => {
-      const section = item.dataset.section;
-      
-      // Update nav
-      elements.navItems.forEach(nav => nav.classList.remove('active'));
-      item.classList.add('active');
-      
-      // Update panels
-      elements.panels.forEach(panel => panel.classList.remove('active'));
-      document.getElementById(`section-${section}`).classList.add('active');
-    });
-  });
+// Set default dates
+function setDefaultDates() {
+  const today = new Date();
+  const dueDate = new Date(today);
+  dueDate.setDate(dueDate.getDate() + 30);
+  
+  document.getElementById('invoice-date').value = formatDateForInput(today);
+  document.getElementById('due-date').value = formatDateForInput(dueDate);
+  
+  // Generate default invoice number
+  const invoiceNum = `INV-${String(Math.floor(Math.random() * 9999) + 1).padStart(4, '0')}`;
+  document.getElementById('invoice-number').value = invoiceNum;
 }
 
-// Form Listeners
-function setupFormListeners() {
-  const inputs = document.querySelectorAll('input, select');
+function formatDateForInput(date) {
+  return date.toISOString().split('T')[0];
+}
+
+function formatDateForDisplay(dateStr) {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+// Setup event listeners
+function setupEventListeners() {
+  // Add item button
+  elements.addItemBtn.addEventListener('click', addItem);
+  
+  // Form inputs - live preview update
+  const inputs = document.querySelectorAll('input, select, textarea');
   inputs.forEach(input => {
-    input.addEventListener('change', () => {
-      saveFieldData(input);
-      calculateCompletion();
-      updateValidationSummary();
-    });
     input.addEventListener('input', () => {
-      if (input.tagName === 'INPUT') {
-        saveFieldData(input);
-        calculateCompletion();
-      }
+      saveData();
+      updatePreview();
+    });
+    input.addEventListener('change', () => {
+      saveData();
+      updatePreview();
     });
   });
+  
+  // Download button
+  elements.downloadBtn.addEventListener('click', showPaymentModal);
+  
+  // Preview refresh
+  elements.previewRefreshBtn.addEventListener('click', updatePreview);
+  
+  // Modal close
+  elements.modalCloseBtn.addEventListener('click', hidePaymentModal);
+  elements.paymentModal.addEventListener('click', (e) => {
+    if (e.target === elements.paymentModal) hidePaymentModal();
+  });
+  
+  // Pay button
+  elements.payStripeBtn.addEventListener('click', processPayment);
 }
 
-// Save field data
-function saveFieldData(input) {
-  state.data[input.id] = input.value;
-  localStorage.setItem('esg-data', JSON.stringify(state.data));
+// Add line item
+function addItem() {
+  const itemId = ++itemIdCounter;
+  invoiceItems.push({ id: itemId, description: '', quantity: 1, rate: 0 });
+  
+  const row = document.createElement('div');
+  row.className = 'item-row';
+  row.dataset.itemId = itemId;
+  row.innerHTML = `
+    <input type="text" class="item-desc" placeholder="Description of service or product" data-field="description">
+    <input type="number" class="item-qty" value="1" min="1" step="1" data-field="quantity">
+    <input type="number" class="item-rate" placeholder="0.00" min="0" step="0.01" data-field="rate">
+    <input type="text" class="item-amount" readonly value="${getCurrencySymbol()}0.00">
+    <button type="button" class="btn-remove" title="Remove item">&times;</button>
+  `;
+  
+  elements.itemsContainer.appendChild(row);
+  
+  // Add event listeners to new inputs
+  const inputs = row.querySelectorAll('input:not([readonly])');
+  inputs.forEach(input => {
+    input.addEventListener('input', () => handleItemChange(itemId, input));
+    input.addEventListener('change', () => handleItemChange(itemId, input));
+  });
+  
+  // Remove button
+  row.querySelector('.btn-remove').addEventListener('click', () => removeItem(itemId));
+  
+  updatePreview();
+}
+
+// Handle item changes
+function handleItemChange(itemId, input) {
+  const item = invoiceItems.find(i => i.id === itemId);
+  if (!item) return;
+  
+  const field = input.dataset.field;
+  let value = input.value;
+  
+  if (field === 'quantity') {
+    value = parseInt(value) || 0;
+  } else if (field === 'rate') {
+    value = parseFloat(value) || 0;
+  }
+  
+  item[field] = value;
+  
+  // Update amount display
+  const row = input.closest('.item-row');
+  const amountInput = row.querySelector('.item-amount');
+  const amount = (item.quantity || 0) * (item.rate || 0);
+  amountInput.value = `${getCurrencySymbol()}${amount.toFixed(2)}`;
+  
+  saveData();
+  updatePreview();
+}
+
+// Remove item
+function removeItem(itemId) {
+  invoiceItems = invoiceItems.filter(i => i.id !== itemId);
+  const row = document.querySelector(`.item-row[data-item-id="${itemId}"]`);
+  if (row) {
+    row.remove();
+  }
+  
+  // Ensure at least one item exists
+  if (invoiceItems.length === 0) {
+    addItem();
+  }
+  
+  saveData();
+  updatePreview();
+}
+
+// Get currency symbol
+function getCurrencySymbol() {
+  const currency = document.getElementById('currency').value;
+  return CURRENCY_SYMBOLS[currency] || '$';
+}
+
+// Calculate totals
+function calculateTotals() {
+  const symbol = getCurrencySymbol();
+  
+  const subtotal = invoiceItems.reduce((sum, item) => {
+    return sum + ((item.quantity || 0) * (item.rate || 0));
+  }, 0);
+  
+  const taxRate = parseFloat(document.getElementById('tax-rate').value) || 0;
+  const taxAmount = subtotal * (taxRate / 100);
+  
+  const discount = parseFloat(document.getElementById('discount').value) || 0;
+  
+  const total = subtotal + taxAmount - discount;
+  
+  return {
+    subtotal,
+    taxRate,
+    taxAmount,
+    discount,
+    total,
+    symbol
+  };
+}
+
+// Update preview
+function updatePreview() {
+  const data = getFormData();
+  const totals = calculateTotals();
+  const symbol = totals.symbol;
+  
+  // Update totals summary
+  elements.previewSubtotal.textContent = `${symbol}${totals.subtotal.toFixed(2)}`;
+  elements.previewTax.textContent = `${symbol}${totals.taxAmount.toFixed(2)}`;
+  elements.previewDiscount.textContent = `-${symbol}${totals.discount.toFixed(2)}`;
+  elements.previewTotal.textContent = `${symbol}${totals.total.toFixed(2)}`;
+  
+  // Build items HTML
+  const itemsHtml = invoiceItems
+    .filter(item => item.description || item.rate > 0)
+    .map(item => {
+      const amount = (item.quantity || 0) * (item.rate || 0);
+      return `
+        <tr>
+          <td>${escapeHtml(item.description) || 'Item'}</td>
+          <td>${item.quantity || 0}</td>
+          <td>${symbol}${(item.rate || 0).toFixed(2)}</td>
+          <td>${symbol}${amount.toFixed(2)}</td>
+        </tr>
+      `;
+    }).join('');
+  
+  // Build preview HTML
+  elements.invoicePreview.innerHTML = `
+    <div class="preview-header-section">
+      <div class="preview-from">
+        <h1>${escapeHtml(data.fromName) || 'Your Business'}</h1>
+        ${data.fromEmail ? `<p>${escapeHtml(data.fromEmail)}</p>` : ''}
+        ${data.fromAddress ? `<p>${escapeHtml(data.fromAddress).replace(/\n/g, '<br>')}</p>` : ''}
+        ${data.fromPhone ? `<p>${escapeHtml(data.fromPhone)}</p>` : ''}
+        ${data.fromWebsite ? `<p>${escapeHtml(data.fromWebsite)}</p>` : ''}
+      </div>
+      <div class="preview-invoice-info">
+        <div class="invoice-title">INVOICE</div>
+        <p><strong>#${escapeHtml(data.invoiceNumber) || 'INV-0001'}</strong></p>
+        <p>Date: ${formatDateForDisplay(data.invoiceDate)}</p>
+        ${data.dueDate ? `<p>Due: ${formatDateForDisplay(data.dueDate)}</p>` : ''}
+      </div>
+    </div>
+    
+    <div class="preview-bill-to">
+      <h2>Bill To</h2>
+      <p><strong>${escapeHtml(data.toName) || 'Client Name'}</strong></p>
+      ${data.toEmail ? `<p>${escapeHtml(data.toEmail)}</p>` : ''}
+      ${data.toAddress ? `<p>${escapeHtml(data.toAddress).replace(/\n/g, '<br>')}</p>` : ''}
+    </div>
+    
+    <table class="preview-items-table">
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th>Qty</th>
+          <th>Rate</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${itemsHtml || '<tr><td colspan="4" style="text-align: center; color: #9ca3af;">Add line items above</td></tr>'}
+      </tbody>
+    </table>
+    
+    <div class="preview-totals">
+      <div class="total-line">
+        <span>Subtotal</span>
+        <span>${symbol}${totals.subtotal.toFixed(2)}</span>
+      </div>
+      ${totals.taxRate > 0 ? `
+        <div class="total-line">
+          <span>Tax (${totals.taxRate}%)</span>
+          <span>${symbol}${totals.taxAmount.toFixed(2)}</span>
+        </div>
+      ` : ''}
+      ${totals.discount > 0 ? `
+        <div class="total-line">
+          <span>Discount</span>
+          <span>-${symbol}${totals.discount.toFixed(2)}</span>
+        </div>
+      ` : ''}
+      <div class="total-line grand-total">
+        <span>Total Due</span>
+        <span>${symbol}${totals.total.toFixed(2)}</span>
+      </div>
+    </div>
+    
+    ${data.notes ? `
+      <div class="preview-notes">
+        <h3>Notes</h3>
+        <p>${escapeHtml(data.notes)}</p>
+      </div>
+    ` : ''}
+  `;
+}
+
+// Get form data
+function getFormData() {
+  return {
+    fromName: document.getElementById('from-name').value,
+    fromEmail: document.getElementById('from-email').value,
+    fromAddress: document.getElementById('from-address').value,
+    fromPhone: document.getElementById('from-phone').value,
+    fromWebsite: document.getElementById('from-website').value,
+    toName: document.getElementById('to-name').value,
+    toEmail: document.getElementById('to-email').value,
+    toAddress: document.getElementById('to-address').value,
+    invoiceNumber: document.getElementById('invoice-number').value,
+    invoiceDate: document.getElementById('invoice-date').value,
+    dueDate: document.getElementById('due-date').value,
+    currency: document.getElementById('currency').value,
+    taxRate: document.getElementById('tax-rate').value,
+    discount: document.getElementById('discount').value,
+    notes: document.getElementById('notes').value
+  };
+}
+
+// Escape HTML
+function escapeHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// Save data to localStorage
+function saveData() {
+  const data = {
+    formData: getFormData(),
+    items: invoiceItems
+  };
+  localStorage.setItem('invoiceforge-data', JSON.stringify(data));
 }
 
 // Load saved data
 function loadSavedData() {
-  const saved = localStorage.getItem('esg-data');
-  if (saved) {
-    state.data = JSON.parse(saved);
-    Object.entries(state.data).forEach(([id, value]) => {
-      const element = document.getElementById(id);
-      if (element) {
-        element.value = value;
-      }
-    });
-    calculateCompletion();
-    updateValidationSummary();
-  }
-}
-
-// Calculate completion percentage
-function calculateCompletion() {
-  let totalRequired = 0;
-  let totalFilled = 0;
-
-  Object.entries(REQUIRED_FIELDS).forEach(([section, fields]) => {
-    let sectionFilled = 0;
-    fields.forEach(fieldId => {
-      totalRequired++;
-      const element = document.getElementById(fieldId);
-      if (element && element.value && element.value.trim() !== '') {
-        totalFilled++;
-        sectionFilled++;
-      }
-    });
-    state.completion[section] = Math.round((sectionFilled / fields.length) * 100);
+  const saved = localStorage.getItem('invoiceforge-data');
+  if (!saved) return;
+  
+  try {
+    const data = JSON.parse(saved);
     
-    // Update section status
-    const statusEl = document.getElementById(`status-${section}`);
-    if (statusEl) {
-      if (state.completion[section] === 100) {
-        statusEl.textContent = 'Complete';
-        statusEl.className = 'panel-status complete';
-      } else if (state.completion[section] > 0) {
-        statusEl.textContent = `${state.completion[section]}%`;
-        statusEl.className = 'panel-status partial';
-      } else {
-        statusEl.textContent = 'Incomplete';
-        statusEl.className = 'panel-status';
-      }
+    // Restore form fields
+    if (data.formData) {
+      Object.entries(data.formData).forEach(([key, value]) => {
+        const fieldMap = {
+          fromName: 'from-name',
+          fromEmail: 'from-email',
+          fromAddress: 'from-address',
+          fromPhone: 'from-phone',
+          fromWebsite: 'from-website',
+          toName: 'to-name',
+          toEmail: 'to-email',
+          toAddress: 'to-address',
+          invoiceNumber: 'invoice-number',
+          invoiceDate: 'invoice-date',
+          dueDate: 'due-date',
+          currency: 'currency',
+          taxRate: 'tax-rate',
+          discount: 'discount',
+          notes: 'notes'
+        };
+        
+        const elementId = fieldMap[key];
+        if (elementId) {
+          const el = document.getElementById(elementId);
+          if (el && value) {
+            el.value = value;
+          }
+        }
+      });
     }
     
-    // Update nav indicator
-    const navItem = document.querySelector(`.nav-item[data-section="${section}"]`);
-    if (navItem) {
-      const icon = navItem.querySelector('.nav-icon');
-      if (state.completion[section] === 100) {
-        icon.textContent = '✓';
-        icon.style.color = 'var(--color-success)';
-      } else if (state.completion[section] > 0) {
-        icon.textContent = '●';
-        icon.style.color = 'var(--color-warning)';
-      } else {
-        icon.textContent = '●';
-        icon.style.color = 'var(--color-muted)';
-      }
+    // Restore items
+    if (data.items && data.items.length > 0) {
+      // Clear existing items
+      elements.itemsContainer.innerHTML = '';
+      invoiceItems = [];
+      itemIdCounter = 0;
+      
+      // Add saved items
+      data.items.forEach(item => {
+        addItem();
+        const lastItem = invoiceItems[invoiceItems.length - 1];
+        lastItem.description = item.description;
+        lastItem.quantity = item.quantity;
+        lastItem.rate = item.rate;
+        
+        // Update input values
+        const row = document.querySelector(`.item-row[data-item-id="${lastItem.id}"]`);
+        if (row) {
+          row.querySelector('.item-desc').value = item.description || '';
+          row.querySelector('.item-qty').value = item.quantity || 1;
+          row.querySelector('.item-rate').value = item.rate || '';
+          const amount = (item.quantity || 0) * (item.rate || 0);
+          row.querySelector('.item-amount').value = `${getCurrencySymbol()}${amount.toFixed(2)}`;
+        }
+      });
     }
-  });
-
-  const overallPercent = Math.round((totalFilled / totalRequired) * 100);
-  elements.completionFill.style.width = `${overallPercent}%`;
-  elements.completionPercent.textContent = `${overallPercent}%`;
-  
-  // Enable/disable generate button
-  const allComplete = Object.values(state.completion).every(v => v === 100);
-  elements.btnGenerate.disabled = !allComplete;
-  elements.btnExport.disabled = !allComplete;
-  
-  if (overallPercent === 100) {
-    elements.completionFill.style.background = 'var(--color-success)';
-  } else if (overallPercent > 50) {
-    elements.completionFill.style.background = 'var(--color-warning)';
-  }
-}
-
-// Update validation summary
-function updateValidationSummary() {
-  const sections = [
-    { key: 'entity', name: 'Entity Information', icon: '◆' },
-    { key: 'environmental', name: 'Environmental (E)', icon: 'E' },
-    { key: 'social', name: 'Social (S)', icon: 'S' },
-    { key: 'governance', name: 'Governance (G)', icon: 'G' }
-  ];
-  
-  elements.validationGrid.innerHTML = sections.map(section => {
-    const fields = REQUIRED_FIELDS[section.key];
-    const missing = fields.filter(id => {
-      const el = document.getElementById(id);
-      return !el || !el.value || el.value.trim() === '';
-    });
     
-    const status = missing.length === 0 ? 'complete' : 
-                   missing.length < fields.length ? 'partial' : 'missing';
-    
-    return `
-      <div class="validation-item ${status}">
-        <div class="validation-header">
-          <span class="validation-icon">${section.icon}</span>
-          <span class="validation-name">${section.name}</span>
-          <span class="validation-status">${
-            status === 'complete' ? '✓ Complete' :
-            status === 'partial' ? `${fields.length - missing.length}/${fields.length}` :
-            '✗ Missing'
-          }</span>
-        </div>
-        ${missing.length > 0 ? `
-          <div class="validation-missing">
-            <span class="missing-label">Missing:</span>
-            ${missing.map(id => `<span class="missing-field">${formatFieldName(id)}</span>`).join('')}
-          </div>
-        ` : ''}
-      </div>
-    `;
-  }).join('');
-}
-
-// Format field name for display
-function formatFieldName(id) {
-  return id.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-}
-
-// Button handlers
-function setupButtons() {
-  elements.btnClear.addEventListener('click', clearAllData);
-  elements.btnGenerate.addEventListener('click', generateReport);
-  elements.btnExport.addEventListener('click', exportReport);
-}
-
-// Clear all data
-function clearAllData() {
-  if (confirm('Clear all entered data? This cannot be undone.')) {
-    state.data = {};
-    localStorage.removeItem('esg-data');
-    document.querySelectorAll('input, select').forEach(el => {
-      el.value = '';
-    });
-    elements.reportOutput.innerHTML = '';
-    calculateCompletion();
-    updateValidationSummary();
+    updatePreview();
+  } catch (e) {
+    console.error('Error loading saved data:', e);
   }
 }
 
-// Set current date
-function setCurrentDate() {
-  const now = new Date();
-  elements.currentDate.textContent = now.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
+// Show payment modal
+function showPaymentModal() {
+  // Validate required fields
+  const fromName = document.getElementById('from-name').value.trim();
+  const toName = document.getElementById('to-name').value.trim();
+  const invoiceNumber = document.getElementById('invoice-number').value.trim();
+  const invoiceDate = document.getElementById('invoice-date').value;
+  
+  const errors = [];
+  if (!fromName) errors.push('Business Name');
+  if (!toName) errors.push('Client Name');
+  if (!invoiceNumber) errors.push('Invoice Number');
+  if (!invoiceDate) errors.push('Invoice Date');
+  
+  // Check if there are any items with content
+  const hasItems = invoiceItems.some(item => item.description && item.rate > 0);
+  if (!hasItems) errors.push('At least one line item');
+  
+  if (errors.length > 0) {
+    alert(`Please fill in the required fields:\n\n• ${errors.join('\n• ')}`);
+    return;
+  }
+  
+  elements.paymentModal.classList.add('active');
+}
+
+// Hide payment modal
+function hidePaymentModal() {
+  elements.paymentModal.classList.remove('active');
+}
+
+// Process payment
+async function processPayment() {
+  if (CONFIG.demoMode) {
+    // Demo mode - simulate payment and generate PDF
+    hidePaymentModal();
+    showSuccessModal();
+    await simulatePaymentAndDownload();
+  } else {
+    // Production mode - redirect to Stripe Checkout
+    // You would create a checkout session via your backend
+    try {
+      const stripe = Stripe(CONFIG.stripePublishableKey);
+      
+      // Call your backend to create checkout session
+      const response = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          price: CONFIG.price,
+          currency: CONFIG.currency,
+          productName: CONFIG.productName
+        })
+      });
+      
+      const session = await response.json();
+      
+      // Redirect to Stripe Checkout
+      const result = await stripe.redirectToCheckout({
+        sessionId: session.id
+      });
+      
+      if (result.error) {
+        alert(result.error.message);
+      }
+    } catch (error) {
+      console.error('Payment error:', error);
+      alert('Payment failed. Please try again.');
+    }
+  }
+}
+
+// Show success modal
+function showSuccessModal() {
+  elements.successModal.classList.add('active');
+}
+
+// Hide success modal
+function hideSuccessModal() {
+  elements.successModal.classList.remove('active');
+}
+
+// Simulate payment and download
+async function simulatePaymentAndDownload() {
+  const progressFill = elements.progressFill;
+  const progressText = elements.progressText;
+  
+  // Simulate progress
+  progressFill.style.width = '20%';
+  progressText.textContent = 'Processing payment...';
+  await sleep(500);
+  
+  progressFill.style.width = '50%';
+  progressText.textContent = 'Payment successful!';
+  await sleep(500);
+  
+  progressFill.style.width = '75%';
+  progressText.textContent = 'Generating PDF...';
+  await sleep(500);
+  
+  // Generate and download PDF
+  await generatePDF();
+  
+  progressFill.style.width = '100%';
+  progressText.textContent = 'Download complete!';
+  
+  await sleep(1000);
+  hideSuccessModal();
+  progressFill.style.width = '0%';
+}
+
+// Generate PDF
+async function generatePDF() {
+  const { jsPDF } = window.jspdf;
+  const data = getFormData();
+  const totals = calculateTotals();
+  const symbol = totals.symbol;
+  
+  // Create PDF
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4'
   });
+  
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 20;
+  const contentWidth = pageWidth - (margin * 2);
+  
+  // Colors
+  const primaryColor = [37, 99, 235];
+  const textColor = [31, 41, 55];
+  const mutedColor = [107, 114, 128];
+  
+  // Header
+  doc.setFontSize(24);
+  doc.setTextColor(...primaryColor);
+  doc.setFont('helvetica', 'bold');
+  doc.text(data.fromName || 'Your Business', margin, 25);
+  
+  // From info
+  doc.setFontSize(10);
+  doc.setTextColor(...mutedColor);
+  doc.setFont('helvetica', 'normal');
+  let yPos = 32;
+  
+  if (data.fromEmail) {
+    doc.text(data.fromEmail, margin, yPos);
+    yPos += 5;
+  }
+  if (data.fromAddress) {
+    const addressLines = data.fromAddress.split('\n');
+    addressLines.forEach(line => {
+      doc.text(line, margin, yPos);
+      yPos += 5;
+    });
+  }
+  if (data.fromPhone) {
+    doc.text(data.fromPhone, margin, yPos);
+    yPos += 5;
+  }
+  if (data.fromWebsite) {
+    doc.text(data.fromWebsite, margin, yPos);
+  }
+  
+  // Invoice title & number (right side)
+  doc.setFontSize(28);
+  doc.setTextColor(...textColor);
+  doc.setFont('helvetica', 'bold');
+  doc.text('INVOICE', pageWidth - margin, 25, { align: 'right' });
+  
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`#${data.invoiceNumber || 'INV-0001'}`, pageWidth - margin, 33, { align: 'right' });
+  
+  doc.setFontSize(10);
+  doc.setTextColor(...mutedColor);
+  doc.text(`Date: ${formatDateForDisplay(data.invoiceDate)}`, pageWidth - margin, 42, { align: 'right' });
+  if (data.dueDate) {
+    doc.text(`Due: ${formatDateForDisplay(data.dueDate)}`, pageWidth - margin, 48, { align: 'right' });
+  }
+  
+  // Divider line
+  doc.setDrawColor(...primaryColor);
+  doc.setLineWidth(0.5);
+  doc.line(margin, 58, pageWidth - margin, 58);
+  
+  // Bill To section
+  yPos = 70;
+  doc.setFontSize(9);
+  doc.setTextColor(...mutedColor);
+  doc.setFont('helvetica', 'bold');
+  doc.text('BILL TO', margin, yPos);
+  
+  yPos += 7;
+  doc.setFontSize(12);
+  doc.setTextColor(...textColor);
+  doc.setFont('helvetica', 'bold');
+  doc.text(data.toName || 'Client Name', margin, yPos);
+  
+  yPos += 6;
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...mutedColor);
+  
+  if (data.toEmail) {
+    doc.text(data.toEmail, margin, yPos);
+    yPos += 5;
+  }
+  if (data.toAddress) {
+    const addressLines = data.toAddress.split('\n');
+    addressLines.forEach(line => {
+      doc.text(line, margin, yPos);
+      yPos += 5;
+    });
+  }
+  
+  // Items table
+  yPos = Math.max(yPos + 10, 110);
+  
+  // Table header
+  doc.setFillColor(248, 250, 252);
+  doc.rect(margin, yPos - 5, contentWidth, 10, 'F');
+  
+  doc.setFontSize(8);
+  doc.setTextColor(...mutedColor);
+  doc.setFont('helvetica', 'bold');
+  doc.text('DESCRIPTION', margin + 3, yPos);
+  doc.text('QTY', margin + 100, yPos);
+  doc.text('RATE', margin + 120, yPos);
+  doc.text('AMOUNT', pageWidth - margin - 3, yPos, { align: 'right' });
+  
+  yPos += 8;
+  
+  // Table rows
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...textColor);
+  doc.setFontSize(10);
+  
+  invoiceItems.filter(item => item.description || item.rate > 0).forEach(item => {
+    const amount = (item.quantity || 0) * (item.rate || 0);
+    
+    doc.text(item.description || 'Item', margin + 3, yPos);
+    doc.text(String(item.quantity || 0), margin + 100, yPos);
+    doc.text(`${symbol}${(item.rate || 0).toFixed(2)}`, margin + 120, yPos);
+    doc.text(`${symbol}${amount.toFixed(2)}`, pageWidth - margin - 3, yPos, { align: 'right' });
+    
+    // Row line
+    doc.setDrawColor(229, 231, 235);
+    doc.setLineWidth(0.1);
+    doc.line(margin, yPos + 3, pageWidth - margin, yPos + 3);
+    
+    yPos += 10;
+  });
+  
+  // Totals section
+  yPos += 10;
+  const totalsX = pageWidth - margin - 60;
+  
+  doc.setFontSize(10);
+  doc.setTextColor(...mutedColor);
+  doc.text('Subtotal', totalsX, yPos);
+  doc.setTextColor(...textColor);
+  doc.text(`${symbol}${totals.subtotal.toFixed(2)}`, pageWidth - margin, yPos, { align: 'right' });
+  
+  if (totals.taxRate > 0) {
+    yPos += 7;
+    doc.setTextColor(...mutedColor);
+    doc.text(`Tax (${totals.taxRate}%)`, totalsX, yPos);
+    doc.setTextColor(...textColor);
+    doc.text(`${symbol}${totals.taxAmount.toFixed(2)}`, pageWidth - margin, yPos, { align: 'right' });
+  }
+  
+  if (totals.discount > 0) {
+    yPos += 7;
+    doc.setTextColor(...mutedColor);
+    doc.text('Discount', totalsX, yPos);
+    doc.setTextColor(...textColor);
+    doc.text(`-${symbol}${totals.discount.toFixed(2)}`, pageWidth - margin, yPos, { align: 'right' });
+  }
+  
+  // Total due
+  yPos += 10;
+  doc.setDrawColor(...primaryColor);
+  doc.setLineWidth(0.5);
+  doc.line(totalsX - 5, yPos - 3, pageWidth - margin, yPos - 3);
+  
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(...textColor);
+  doc.text('Total Due', totalsX, yPos + 4);
+  doc.setTextColor(...primaryColor);
+  doc.text(`${symbol}${totals.total.toFixed(2)}`, pageWidth - margin, yPos + 4, { align: 'right' });
+  
+  // Notes section
+  if (data.notes) {
+    yPos += 25;
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(margin, yPos - 5, contentWidth, 30, 3, 3, 'F');
+    
+    doc.setFontSize(8);
+    doc.setTextColor(...mutedColor);
+    doc.setFont('helvetica', 'bold');
+    doc.text('NOTES', margin + 5, yPos);
+    
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...textColor);
+    const noteLines = doc.splitTextToSize(data.notes, contentWidth - 10);
+    doc.text(noteLines, margin + 5, yPos + 6);
+  }
+  
+  // Footer
+  const footerY = doc.internal.pageSize.getHeight() - 15;
+  doc.setFontSize(8);
+  doc.setTextColor(...mutedColor);
+  doc.text('Generated by InvoiceForge', pageWidth / 2, footerY, { align: 'center' });
+  
+  // Save PDF
+  const fileName = `Invoice-${data.invoiceNumber || 'INV-0001'}.pdf`;
+  doc.save(fileName);
 }
 
-// Generate Report
-function generateReport() {
-  const format = document.getElementById('report-format').value;
-  const includeRecs = document.getElementById('include-recommendations').value === 'yes';
-  
-  const report = compileReportData();
-  
-  if (format === 'json') {
-    elements.reportOutput.innerHTML = `
-      <div class="report-json">
-        <pre>${JSON.stringify(report, null, 2)}</pre>
-      </div>
-    `;
-  } else {
-    elements.reportOutput.innerHTML = renderHTMLReport(report, includeRecs);
-  }
+// Utility: sleep
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Compile report data
-function compileReportData() {
-  const d = state.data;
-  
-  // Calculate ESG scores
-  const envScore = calculateEnvironmentalScore(d);
-  const socScore = calculateSocialScore(d);
-  const govScore = calculateGovernanceScore(d);
-  const overallScore = Math.round((envScore + socScore + govScore) / 3);
-  
-  return {
-    meta: {
-      reportType: 'ESG Compliance Report',
-      generatedAt: new Date().toISOString(),
-      reportingPeriod: d['report-period'],
-      version: '1.0'
-    },
-    entity: {
-      legalName: d['business-name'],
-      dba: d['dba-name'] || null,
-      ein: d['ein'],
-      entityType: d['entity-type'],
-      address: d['address'],
-      jurisdiction: d['jurisdiction'],
-      locations: parseInt(d['locations']),
-      seatingCapacity: d['seating-capacity'] ? parseInt(d['seating-capacity']) : null
-    },
-    scores: {
-      overall: overallScore,
-      environmental: envScore,
-      social: socScore,
-      governance: govScore,
-      rating: getComplianceRating(overallScore)
-    },
-    environmental: {
-      energy: {
-        electricityKwh: parseFloat(d['electricity-kwh']),
-        naturalGasTherms: parseFloat(d['natural-gas']),
-        renewablePercent: d['renewable-percent'] ? parseFloat(d['renewable-percent']) : 0,
-        energyStarEquipment: d['energy-star'] || 'unknown'
-      },
-      water: {
-        totalGallons: parseFloat(d['water-gallons']),
-        recycledPercent: d['water-recycled'] ? parseFloat(d['water-recycled']) : 0,
-        lowFlowFixtures: d['low-flow'] || 'unknown'
-      },
-      waste: {
-        solidWasteLbs: parseFloat(d['waste-solid']),
-        recycledPercent: d['waste-recycled'] ? parseFloat(d['waste-recycled']) : 0,
-        compostedPercent: d['waste-composted'] ? parseFloat(d['waste-composted']) : 0,
-        greaseDisposal: d['grease-disposal'] || 'unknown',
-        foodDonation: d['food-donation'] || 'unknown'
-      },
-      refrigerants: {
-        type: d['refrigerant-type'] || 'unknown',
-        leaksReported: d['refrigerant-leaks'] ? parseInt(d['refrigerant-leaks']) : 0,
-        hvacMaintenance: d['hvac-maintenance'] || 'unknown'
-      }
-    },
-    social: {
-      workforce: {
-        totalEmployees: parseInt(d['total-employees']),
-        fullTime: parseInt(d['full-time']),
-        partTime: parseInt(d['part-time']),
-        turnoverRate: d['turnover-rate'] ? parseFloat(d['turnover-rate']) : null
-      },
-      compensation: {
-        minWageCompliance: d['min-wage-compliance'] === 'yes',
-        avgHourlyWage: d['avg-hourly-wage'] ? parseFloat(d['avg-hourly-wage']) : null,
-        tipPoolPolicy: d['tip-pool'] || 'unknown',
-        healthInsurance: d['health-insurance'] || 'unknown',
-        paidLeave: d['paid-leave'] || 'unknown'
-      },
-      training: {
-        foodHandlerCert: d['food-handler-cert'],
-        allergenTraining: d['allergen-training'] || 'unknown',
-        harassmentTraining: d['harassment-training'] || 'unknown'
-      },
-      safety: {
-        oshaIncidents: parseInt(d['osha-incidents']),
-        workersCompClaims: d['workers-comp-claims'] ? parseInt(d['workers-comp-claims']) : 0,
-        safetyInspectionsPassed: d['safety-inspections'] ? parseInt(d['safety-inspections']) : null
-      }
-    },
-    governance: {
-      licenses: {
-        businessLicense: d['business-license'],
-        foodServicePermit: d['food-service-permit'],
-        liquorLicense: d['liquor-license'] || 'na',
-        firePermit: d['fire-permit'] || 'unknown',
-        healthPermit: d['health-permit']
-      },
-      inspections: {
-        healthScore: parseInt(d['health-inspection-score']),
-        inspectionDate: d['health-inspection-date'],
-        criticalViolations: d['critical-violations'] ? parseInt(d['critical-violations']) : 0,
-        nonCriticalViolations: d['non-critical-violations'] ? parseInt(d['non-critical-violations']) : 0
-      },
-      insurance: {
-        generalLiability: d['liability-insurance'],
-        workersComp: d['workers-comp-insurance'],
-        property: d['property-insurance'] || 'unknown'
-      },
-      policies: {
-        employeeHandbook: d['employee-handbook'] || 'unknown',
-        ethicsPolicy: d['ethics-policy'] || 'unknown',
-        dataPrivacy: d['data-privacy'] || 'unknown'
-      }
-    },
-    flags: generateComplianceFlags(d)
-  };
-}
+// Terms and Privacy (simple alerts for demo)
+window.showTerms = function() {
+  alert('Terms of Service\n\n• InvoiceForge provides a tool to create invoice PDFs.\n• Payment of $2.99 is required per download.\n• We do not store your invoice data.\n• All payments are processed securely via Stripe.\n• No refunds for downloaded invoices.\n• Service provided as-is without warranty.');
+};
 
-// Calculate Environmental Score
-function calculateEnvironmentalScore(d) {
-  let score = 70; // Base score
-  
-  // Renewable energy bonus
-  const renewable = parseFloat(d['renewable-percent']) || 0;
-  score += renewable * 0.1;
-  
-  // Energy Star equipment
-  if (d['energy-star'] === 'full') score += 5;
-  else if (d['energy-star'] === 'majority') score += 3;
-  
-  // Water recycling
-  const waterRecycled = parseFloat(d['water-recycled']) || 0;
-  score += waterRecycled * 0.05;
-  
-  // Low-flow fixtures
-  if (d['low-flow'] === 'yes') score += 3;
-  
-  // Waste management
-  const recycled = parseFloat(d['waste-recycled']) || 0;
-  const composted = parseFloat(d['waste-composted']) || 0;
-  score += (recycled + composted) * 0.05;
-  
-  // Food donation
-  if (d['food-donation'] === 'yes') score += 3;
-  
-  // Refrigerant penalties
-  const leaks = parseInt(d['refrigerant-leaks']) || 0;
-  score -= leaks * 5;
-  
-  // HVAC maintenance
-  if (d['hvac-maintenance'] === 'monthly' || d['hvac-maintenance'] === 'quarterly') score += 2;
-  else if (d['hvac-maintenance'] === 'none') score -= 5;
-  
-  return Math.min(100, Math.max(0, Math.round(score)));
-}
+window.showPrivacy = function() {
+  alert('Privacy Policy\n\n• We do not store your invoice data on our servers.\n• Invoice data is stored only in your browser\'s local storage.\n• Payment processing is handled by Stripe.\n• We do not sell or share any user data.\n• Contact support@invoiceforge.app for questions.');
+};
 
-// Calculate Social Score
-function calculateSocialScore(d) {
-  let score = 70;
-  
-  // Minimum wage compliance
-  if (d['min-wage-compliance'] !== 'yes') score -= 30;
-  
-  // Benefits
-  if (d['health-insurance'] === 'all') score += 5;
-  else if (d['health-insurance'] === 'full') score += 3;
-  
-  if (d['paid-leave'] === 'full') score += 5;
-  else if (d['paid-leave'] === 'none') score -= 5;
-  
-  // Training
-  if (d['food-handler-cert'] === 'all') score += 5;
-  else if (d['food-handler-cert'] === 'none') score -= 10;
-  
-  if (d['harassment-training'] === 'annual') score += 3;
-  
-  // Safety incidents
-  const oshaIncidents = parseInt(d['osha-incidents']) || 0;
-  score -= oshaIncidents * 10;
-  
-  // Turnover rate impact
-  const turnover = parseFloat(d['turnover-rate']) || 0;
-  if (turnover > 100) score -= 5;
-  if (turnover > 150) score -= 5;
-  
-  return Math.min(100, Math.max(0, Math.round(score)));
-}
-
-// Calculate Governance Score
-function calculateGovernanceScore(d) {
-  let score = 80;
-  
-  // License penalties
-  if (d['business-license'] !== 'current') score -= 15;
-  if (d['food-service-permit'] !== 'current') score -= 15;
-  if (d['health-permit'] !== 'current') score -= 15;
-  
-  // Health inspection
-  const healthScore = parseInt(d['health-inspection-score']) || 0;
-  if (healthScore >= 90) score += 5;
-  else if (healthScore < 70) score -= 15;
-  else if (healthScore < 80) score -= 5;
-  
-  // Violations
-  const critical = parseInt(d['critical-violations']) || 0;
-  const nonCritical = parseInt(d['non-critical-violations']) || 0;
-  score -= critical * 10;
-  score -= nonCritical * 2;
-  
-  // Insurance
-  if (d['liability-insurance'] !== 'current') score -= 10;
-  if (d['workers-comp-insurance'] !== 'current' && d['workers-comp-insurance'] !== 'exempt') score -= 10;
-  
-  // Policies
-  if (d['employee-handbook'] === 'current') score += 2;
-  if (d['ethics-policy'] === 'documented') score += 2;
-  
-  return Math.min(100, Math.max(0, Math.round(score)));
-}
-
-// Get compliance rating
-function getComplianceRating(score) {
-  if (score >= 90) return 'EXCELLENT';
-  if (score >= 80) return 'GOOD';
-  if (score >= 70) return 'SATISFACTORY';
-  if (score >= 60) return 'NEEDS IMPROVEMENT';
-  return 'NON-COMPLIANT';
-}
-
-// Generate compliance flags
-function generateComplianceFlags(d) {
-  const flags = [];
-  
-  // Critical flags
-  if (d['min-wage-compliance'] !== 'yes') {
-    flags.push({ severity: 'critical', category: 'social', message: 'Minimum wage non-compliance detected' });
+// Check for payment success (when returning from Stripe)
+function checkPaymentSuccess() {
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('payment') === 'success') {
+    // Payment was successful, generate PDF
+    showSuccessModal();
+    simulatePaymentAndDownload().then(() => {
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname);
+    });
   }
-  if (d['business-license'] === 'expired') {
-    flags.push({ severity: 'critical', category: 'governance', message: 'Business license expired' });
-  }
-  if (d['food-service-permit'] === 'expired') {
-    flags.push({ severity: 'critical', category: 'governance', message: 'Food service permit expired' });
-  }
-  if (d['health-permit'] === 'expired') {
-    flags.push({ severity: 'critical', category: 'governance', message: 'Health department permit expired' });
-  }
-  if (d['food-handler-cert'] === 'none') {
-    flags.push({ severity: 'critical', category: 'social', message: 'No food handler certification on record' });
-  }
-  if (d['liability-insurance'] !== 'current') {
-    flags.push({ severity: 'critical', category: 'governance', message: 'General liability insurance not current' });
-  }
-  
-  // Warning flags
-  const healthScore = parseInt(d['health-inspection-score']) || 0;
-  if (healthScore < 70) {
-    flags.push({ severity: 'warning', category: 'governance', message: `Health inspection score below 70 (${healthScore})` });
-  }
-  
-  const criticalViolations = parseInt(d['critical-violations']) || 0;
-  if (criticalViolations > 0) {
-    flags.push({ severity: 'warning', category: 'governance', message: `${criticalViolations} critical violation(s) on record` });
-  }
-  
-  const oshaIncidents = parseInt(d['osha-incidents']) || 0;
-  if (oshaIncidents > 0) {
-    flags.push({ severity: 'warning', category: 'social', message: `${oshaIncidents} OSHA recordable incident(s)` });
-  }
-  
-  const refrigerantLeaks = parseInt(d['refrigerant-leaks']) || 0;
-  if (refrigerantLeaks > 0) {
-    flags.push({ severity: 'warning', category: 'environmental', message: `${refrigerantLeaks} refrigerant leak(s) reported` });
-  }
-  
-  // Advisory flags
-  if (d['renewable-percent'] === '' || parseFloat(d['renewable-percent']) === 0) {
-    flags.push({ severity: 'advisory', category: 'environmental', message: 'No renewable energy usage reported' });
-  }
-  if (d['food-donation'] !== 'yes') {
-    flags.push({ severity: 'advisory', category: 'environmental', message: 'No food donation program in place' });
-  }
-  if (d['harassment-training'] === 'none') {
-    flags.push({ severity: 'advisory', category: 'social', message: 'No anti-harassment training program' });
-  }
-  if (d['employee-handbook'] === 'none' || d['employee-handbook'] === 'outdated') {
-    flags.push({ severity: 'advisory', category: 'governance', message: 'Employee handbook missing or outdated' });
-  }
-  
-  return flags;
-}
-
-// Render HTML Report
-function renderHTMLReport(report, includeRecs) {
-  const ratingClass = report.scores.rating.toLowerCase().replace(' ', '-');
-  
-  return `
-    <div class="compliance-report">
-      <div class="report-header">
-        <div class="report-title-block">
-          <h1>ESG COMPLIANCE REPORT</h1>
-          <p class="report-subtitle">Restaurant Industry — Regulatory Assessment</p>
-        </div>
-        <div class="report-meta">
-          <div class="meta-item">
-            <span class="meta-label">Report Date</span>
-            <span class="meta-value">${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
-          </div>
-          <div class="meta-item">
-            <span class="meta-label">Period</span>
-            <span class="meta-value">${report.meta.reportingPeriod}</span>
-          </div>
-        </div>
-      </div>
-      
-      <div class="report-entity">
-        <h2>Entity Information</h2>
-        <div class="entity-grid">
-          <div class="entity-item"><span class="label">Legal Name:</span> ${report.entity.legalName}</div>
-          ${report.entity.dba ? `<div class="entity-item"><span class="label">DBA:</span> ${report.entity.dba}</div>` : ''}
-          <div class="entity-item"><span class="label">EIN:</span> ${report.entity.ein}</div>
-          <div class="entity-item"><span class="label">Entity Type:</span> ${report.entity.entityType.toUpperCase()}</div>
-          <div class="entity-item full"><span class="label">Address:</span> ${report.entity.address}</div>
-          <div class="entity-item"><span class="label">Jurisdiction:</span> ${report.entity.jurisdiction}</div>
-          <div class="entity-item"><span class="label">Locations:</span> ${report.entity.locations}</div>
-        </div>
-      </div>
-      
-      <div class="report-scores">
-        <h2>ESG Compliance Scores</h2>
-        <div class="scores-grid">
-          <div class="score-card overall">
-            <div class="score-value">${report.scores.overall}</div>
-            <div class="score-label">Overall Score</div>
-            <div class="score-rating ${ratingClass}">${report.scores.rating}</div>
-          </div>
-          <div class="score-card env">
-            <div class="score-value">${report.scores.environmental}</div>
-            <div class="score-label">Environmental</div>
-            <div class="score-indicator" style="width: ${report.scores.environmental}%"></div>
-          </div>
-          <div class="score-card soc">
-            <div class="score-value">${report.scores.social}</div>
-            <div class="score-label">Social</div>
-            <div class="score-indicator" style="width: ${report.scores.social}%"></div>
-          </div>
-          <div class="score-card gov">
-            <div class="score-value">${report.scores.governance}</div>
-            <div class="score-label">Governance</div>
-            <div class="score-indicator" style="width: ${report.scores.governance}%"></div>
-          </div>
-        </div>
-      </div>
-      
-      ${report.flags.length > 0 ? `
-      <div class="report-flags">
-        <h2>Compliance Flags</h2>
-        <div class="flags-list">
-          ${report.flags.map(flag => `
-            <div class="flag-item ${flag.severity}">
-              <span class="flag-severity">${flag.severity.toUpperCase()}</span>
-              <span class="flag-category">[${flag.category.charAt(0).toUpperCase()}]</span>
-              <span class="flag-message">${flag.message}</span>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-      ` : ''}
-      
-      <div class="report-section">
-        <h2>Environmental (E) — Detailed Data</h2>
-        <div class="data-table">
-          <div class="data-row header">
-            <span>Metric</span>
-            <span>Value</span>
-            <span>Status</span>
-          </div>
-          <div class="data-row">
-            <span>Electricity Consumption</span>
-            <span>${report.environmental.energy.electricityKwh.toLocaleString()} kWh</span>
-            <span class="status-neutral">Recorded</span>
-          </div>
-          <div class="data-row">
-            <span>Natural Gas</span>
-            <span>${report.environmental.energy.naturalGasTherms.toLocaleString()} therms</span>
-            <span class="status-neutral">Recorded</span>
-          </div>
-          <div class="data-row">
-            <span>Renewable Energy</span>
-            <span>${report.environmental.energy.renewablePercent}%</span>
-            <span class="${report.environmental.energy.renewablePercent > 0 ? 'status-good' : 'status-neutral'}">${report.environmental.energy.renewablePercent > 0 ? 'Active' : 'None'}</span>
-          </div>
-          <div class="data-row">
-            <span>Water Usage</span>
-            <span>${report.environmental.water.totalGallons.toLocaleString()} gal</span>
-            <span class="status-neutral">Recorded</span>
-          </div>
-          <div class="data-row">
-            <span>Solid Waste</span>
-            <span>${report.environmental.waste.solidWasteLbs.toLocaleString()} lbs</span>
-            <span class="status-neutral">Recorded</span>
-          </div>
-          <div class="data-row">
-            <span>Waste Recycled</span>
-            <span>${report.environmental.waste.recycledPercent}%</span>
-            <span class="${report.environmental.waste.recycledPercent > 30 ? 'status-good' : 'status-neutral'}">${report.environmental.waste.recycledPercent > 30 ? 'Good' : 'Below Target'}</span>
-          </div>
-          <div class="data-row">
-            <span>Food Composted</span>
-            <span>${report.environmental.waste.compostedPercent}%</span>
-            <span class="${report.environmental.waste.compostedPercent > 0 ? 'status-good' : 'status-neutral'}">${report.environmental.waste.compostedPercent > 0 ? 'Active' : 'None'}</span>
-          </div>
-          <div class="data-row">
-            <span>Refrigerant Leaks</span>
-            <span>${report.environmental.refrigerants.leaksReported}</span>
-            <span class="${report.environmental.refrigerants.leaksReported === 0 ? 'status-good' : 'status-bad'}">${report.environmental.refrigerants.leaksReported === 0 ? 'None' : 'Reported'}</span>
-          </div>
-        </div>
-      </div>
-      
-      <div class="report-section">
-        <h2>Social (S) — Detailed Data</h2>
-        <div class="data-table">
-          <div class="data-row header">
-            <span>Metric</span>
-            <span>Value</span>
-            <span>Status</span>
-          </div>
-          <div class="data-row">
-            <span>Total Employees</span>
-            <span>${report.social.workforce.totalEmployees}</span>
-            <span class="status-neutral">Recorded</span>
-          </div>
-          <div class="data-row">
-            <span>Full-Time / Part-Time</span>
-            <span>${report.social.workforce.fullTime} / ${report.social.workforce.partTime}</span>
-            <span class="status-neutral">Recorded</span>
-          </div>
-          <div class="data-row">
-            <span>Minimum Wage Compliance</span>
-            <span>${report.social.compensation.minWageCompliance ? 'Yes' : 'No'}</span>
-            <span class="${report.social.compensation.minWageCompliance ? 'status-good' : 'status-bad'}">${report.social.compensation.minWageCompliance ? 'Compliant' : 'NON-COMPLIANT'}</span>
-          </div>
-          <div class="data-row">
-            <span>Food Handler Certification</span>
-            <span>${report.social.training.foodHandlerCert}</span>
-            <span class="${report.social.training.foodHandlerCert === 'all' ? 'status-good' : report.social.training.foodHandlerCert === 'none' ? 'status-bad' : 'status-warning'}">${report.social.training.foodHandlerCert === 'all' ? 'Full' : report.social.training.foodHandlerCert === 'none' ? 'Missing' : 'Partial'}</span>
-          </div>
-          <div class="data-row">
-            <span>OSHA Recordable Incidents</span>
-            <span>${report.social.safety.oshaIncidents}</span>
-            <span class="${report.social.safety.oshaIncidents === 0 ? 'status-good' : 'status-warning'}">${report.social.safety.oshaIncidents === 0 ? 'None' : 'Recorded'}</span>
-          </div>
-          <div class="data-row">
-            <span>Health Insurance</span>
-            <span>${report.social.compensation.healthInsurance}</span>
-            <span class="${report.social.compensation.healthInsurance === 'all' || report.social.compensation.healthInsurance === 'full' ? 'status-good' : 'status-neutral'}">${report.social.compensation.healthInsurance === 'no' ? 'Not Offered' : 'Offered'}</span>
-          </div>
-        </div>
-      </div>
-      
-      <div class="report-section">
-        <h2>Governance (G) — Detailed Data</h2>
-        <div class="data-table">
-          <div class="data-row header">
-            <span>Metric</span>
-            <span>Value</span>
-            <span>Status</span>
-          </div>
-          <div class="data-row">
-            <span>Business License</span>
-            <span>${report.governance.licenses.businessLicense}</span>
-            <span class="${report.governance.licenses.businessLicense === 'current' ? 'status-good' : 'status-bad'}">${report.governance.licenses.businessLicense === 'current' ? 'Valid' : 'INVALID'}</span>
-          </div>
-          <div class="data-row">
-            <span>Food Service Permit</span>
-            <span>${report.governance.licenses.foodServicePermit}</span>
-            <span class="${report.governance.licenses.foodServicePermit === 'current' ? 'status-good' : 'status-bad'}">${report.governance.licenses.foodServicePermit === 'current' ? 'Valid' : 'INVALID'}</span>
-          </div>
-          <div class="data-row">
-            <span>Health Department Permit</span>
-            <span>${report.governance.licenses.healthPermit}</span>
-            <span class="${report.governance.licenses.healthPermit === 'current' ? 'status-good' : 'status-bad'}">${report.governance.licenses.healthPermit === 'current' ? 'Valid' : 'INVALID'}</span>
-          </div>
-          <div class="data-row">
-            <span>Health Inspection Score</span>
-            <span>${report.governance.inspections.healthScore}/100</span>
-            <span class="${report.governance.inspections.healthScore >= 90 ? 'status-good' : report.governance.inspections.healthScore >= 70 ? 'status-warning' : 'status-bad'}">${report.governance.inspections.healthScore >= 90 ? 'Excellent' : report.governance.inspections.healthScore >= 70 ? 'Passing' : 'FAILING'}</span>
-          </div>
-          <div class="data-row">
-            <span>Inspection Date</span>
-            <span>${new Date(report.governance.inspections.inspectionDate).toLocaleDateString()}</span>
-            <span class="status-neutral">Recorded</span>
-          </div>
-          <div class="data-row">
-            <span>Critical Violations</span>
-            <span>${report.governance.inspections.criticalViolations}</span>
-            <span class="${report.governance.inspections.criticalViolations === 0 ? 'status-good' : 'status-bad'}">${report.governance.inspections.criticalViolations === 0 ? 'None' : 'FLAGGED'}</span>
-          </div>
-          <div class="data-row">
-            <span>General Liability Insurance</span>
-            <span>${report.governance.insurance.generalLiability}</span>
-            <span class="${report.governance.insurance.generalLiability === 'current' ? 'status-good' : 'status-bad'}">${report.governance.insurance.generalLiability === 'current' ? 'Active' : 'INACTIVE'}</span>
-          </div>
-          <div class="data-row">
-            <span>Workers' Compensation</span>
-            <span>${report.governance.insurance.workersComp}</span>
-            <span class="${report.governance.insurance.workersComp === 'current' || report.governance.insurance.workersComp === 'exempt' ? 'status-good' : 'status-bad'}">${report.governance.insurance.workersComp === 'current' ? 'Active' : report.governance.insurance.workersComp === 'exempt' ? 'Exempt' : 'INACTIVE'}</span>
-          </div>
-        </div>
-      </div>
-      
-      ${includeRecs ? renderRecommendations(report) : ''}
-      
-      <div class="report-footer">
-        <div class="footer-disclaimer">
-          <strong>DISCLAIMER:</strong> This report is generated based on self-reported data and does not constitute legal advice or an official regulatory audit. 
-          Verify all information with appropriate regulatory authorities. Report generated by ESG Compliance Report Generator v1.0.
-        </div>
-        <div class="footer-signature">
-          <div class="sig-line"></div>
-          <span>Authorized Representative Signature</span>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-// Render recommendations
-function renderRecommendations(report) {
-  const recs = [];
-  
-  // Environmental recommendations
-  if (report.environmental.energy.renewablePercent < 10) {
-    recs.push({ category: 'E', text: 'Consider sourcing at least 10% of energy from renewable sources to improve environmental score.' });
-  }
-  if (report.environmental.waste.recycledPercent < 30) {
-    recs.push({ category: 'E', text: 'Implement or expand recycling program to achieve 30%+ waste diversion rate.' });
-  }
-  if (report.environmental.waste.compostedPercent === 0) {
-    recs.push({ category: 'E', text: 'Establish food waste composting program to reduce landfill impact.' });
-  }
-  if (report.environmental.refrigerants.leaksReported > 0) {
-    recs.push({ category: 'E', text: 'Address refrigerant leaks immediately and implement preventive maintenance schedule.' });
-  }
-  
-  // Social recommendations
-  if (!report.social.compensation.minWageCompliance) {
-    recs.push({ category: 'S', text: 'URGENT: Address minimum wage compliance immediately to avoid legal penalties.' });
-  }
-  if (report.social.training.foodHandlerCert !== 'all') {
-    recs.push({ category: 'S', text: 'Ensure all food handling staff obtain required certifications.' });
-  }
-  if (report.social.training.harassmentTraining === 'none') {
-    recs.push({ category: 'S', text: 'Implement mandatory anti-harassment training for all employees.' });
-  }
-  if (report.social.safety.oshaIncidents > 0) {
-    recs.push({ category: 'S', text: 'Review and strengthen workplace safety protocols to prevent future incidents.' });
-  }
-  
-  // Governance recommendations
-  if (report.governance.inspections.healthScore < 90) {
-    recs.push({ category: 'G', text: 'Target health inspection score of 90+ through staff training and facility improvements.' });
-  }
-  if (report.governance.inspections.criticalViolations > 0) {
-    recs.push({ category: 'G', text: 'Remediate all critical violations before next scheduled inspection.' });
-  }
-  if (report.governance.policies.employeeHandbook !== 'current') {
-    recs.push({ category: 'G', text: 'Update employee handbook to reflect current policies and legal requirements.' });
-  }
-  
-  if (recs.length === 0) {
-    return '';
-  }
-  
-  return `
-    <div class="report-section recommendations">
-      <h2>Recommendations for Improvement</h2>
-      <div class="recs-list">
-        ${recs.map(rec => `
-          <div class="rec-item">
-            <span class="rec-category">[${rec.category}]</span>
-            <span class="rec-text">${rec.text}</span>
-          </div>
-        `).join('')}
-      </div>
-    </div>
-  `;
-}
-
-// Export report
-function exportReport() {
-  const format = document.getElementById('report-format').value;
-  const report = compileReportData();
-  
-  let content, filename, type;
-  
-  if (format === 'json') {
-    content = JSON.stringify(report, null, 2);
-    filename = `esg-report-${report.entity.legalName.replace(/\s+/g, '-').toLowerCase()}-${report.meta.reportingPeriod}.json`;
-    type = 'application/json';
-  } else {
-    content = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>ESG Compliance Report - ${report.entity.legalName}</title>
-  <style>
-    body { font-family: 'IBM Plex Sans', sans-serif; max-width: 900px; margin: 0 auto; padding: 40px; color: #1a202c; }
-    h1 { color: #1a365d; border-bottom: 3px solid #4ade80; padding-bottom: 10px; }
-    h2 { color: #2d5a87; margin-top: 30px; }
-    .score-card { display: inline-block; padding: 20px; margin: 10px; background: #f8fafc; border-radius: 8px; text-align: center; }
-    .score-value { font-size: 36px; font-weight: bold; color: #1a365d; }
-    .data-table { width: 100%; border-collapse: collapse; margin: 15px 0; }
-    .data-row { display: grid; grid-template-columns: 2fr 1fr 1fr; padding: 10px; border-bottom: 1px solid #e2e8f0; }
-    .data-row.header { background: #1a365d; color: white; font-weight: bold; }
-    .flag-item { padding: 10px; margin: 5px 0; border-radius: 4px; }
-    .flag-item.critical { background: #fee2e2; border-left: 4px solid #dc2626; }
-    .flag-item.warning { background: #fef3c7; border-left: 4px solid #f59e0b; }
-    .flag-item.advisory { background: #e0e7ff; border-left: 4px solid #6366f1; }
-    .status-good { color: #059669; font-weight: bold; }
-    .status-bad { color: #dc2626; font-weight: bold; }
-    .status-warning { color: #d97706; }
-    .footer-disclaimer { margin-top: 40px; padding: 20px; background: #f1f5f9; font-size: 12px; }
-    @media print { body { padding: 20px; } }
-  </style>
-</head>
-<body>
-${renderHTMLReport(report, document.getElementById('include-recommendations').value === 'yes')}
-</body>
-</html>`;
-    filename = `esg-report-${report.entity.legalName.replace(/\s+/g, '-').toLowerCase()}-${report.meta.reportingPeriod}.html`;
-    type = 'text/html';
-  }
-  
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 // Initialize on DOM ready
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => {
+  init();
+  checkPaymentSuccess();
+});
