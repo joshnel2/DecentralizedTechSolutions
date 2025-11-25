@@ -3,109 +3,651 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Blob.io - Eat or Be Eaten</title>
-  <link rel="icon" type="image/svg+xml" href="/assets/favicon-Caj1JGCO.svg">
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet">
-  <script type="module" crossorigin src="/assets/index-D9V_iy4Q.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-DU1M7rYz.css">
+  <title>ESG Compliance Report — Restaurant Industry</title>
+  <link rel="icon" type="image/svg+xml" href="./assets/favicon-BwLKvGFg.svg">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script type="module" crossorigin src="./assets/index-CbsgaZll.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-D7iVqhn2.css">
 </head>
 <body>
-  <!-- Start Screen -->
-  <div id="start-screen" class="screen">
-    <div class="start-container">
-      <h1 class="game-title">BLOB<span>.io</span></h1>
-      <p class="tagline">Eat or Be Eaten</p>
-      
-      <div class="input-group">
-        <input type="text" id="player-name" placeholder="Enter your name" maxlength="15" autocomplete="off">
-      </div>
-      
-      <div class="skin-selector">
-        <p>Choose your skin:</p>
-        <div class="skins">
-          <div class="skin selected" data-skin="gradient1" style="background: linear-gradient(135deg, #FF6B6B, #FFE66D);"></div>
-          <div class="skin" data-skin="gradient2" style="background: linear-gradient(135deg, #4ECDC4, #556270);"></div>
-          <div class="skin" data-skin="gradient3" style="background: linear-gradient(135deg, #A770EF, #CF8BF3);"></div>
-          <div class="skin" data-skin="gradient4" style="background: linear-gradient(135deg, #11998E, #38EF7D);"></div>
-          <div class="skin" data-skin="gradient5" style="background: linear-gradient(135deg, #FC466B, #3F5EFB);"></div>
-          <div class="skin" data-skin="gradient6" style="background: linear-gradient(135deg, #F7971E, #FFD200);"></div>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-brand">
+        <div class="logo">
+          <span class="logo-text">ESG</span>
+          <span class="logo-sub">COMPLY</span>
+        </div>
+        <div class="header-title">
+          <h1>Regulatory Compliance Report Generator</h1>
+          <span class="subtitle">Restaurant Industry — Environmental, Social, Governance</span>
         </div>
       </div>
-      
-      <button id="play-btn" class="play-button">
-        <span>PLAY</span>
-        <div class="button-blob"></div>
-      </button>
-      
-      <div class="controls-info">
-        <p><kbd>Mouse</kbd> Move</p>
-        <p><kbd>Space</kbd> Split</p>
-        <p><kbd>W</kbd> Eject Mass</p>
+      <div class="header-actions">
+        <button id="btn-clear" class="btn btn-secondary">Clear All</button>
+        <button id="btn-export" class="btn btn-primary" disabled>Export Report</button>
       </div>
-    </div>
-    
-    <div class="floating-blobs">
-      <div class="float-blob blob1"></div>
-      <div class="float-blob blob2"></div>
-      <div class="float-blob blob3"></div>
-      <div class="float-blob blob4"></div>
-      <div class="float-blob blob5"></div>
-    </div>
-  </div>
+    </header>
 
-  <!-- Game Screen -->
-  <div id="game-screen" class="screen hidden">
-    <canvas id="game-canvas"></canvas>
-    
-    <!-- HUD -->
-    <div id="hud">
-      <div class="score-display">
-        <span class="label">Score</span>
-        <span id="score">0</span>
-      </div>
-      
-      <div id="leaderboard">
-        <h3>🏆 Leaderboard</h3>
-        <ol id="leaderboard-list"></ol>
-      </div>
-      
-      <div id="minimap">
-        <canvas id="minimap-canvas"></canvas>
-      </div>
-    </div>
-  </div>
+    <!-- Main Content -->
+    <main class="main">
+      <!-- Sidebar Navigation -->
+      <nav class="sidebar">
+        <div class="nav-section">
+          <span class="nav-label">Data Input</span>
+          <button class="nav-item active" data-section="entity">
+            <span class="nav-icon">◆</span>
+            Entity Information
+          </button>
+          <button class="nav-item" data-section="environmental">
+            <span class="nav-icon">●</span>
+            Environmental (E)
+          </button>
+          <button class="nav-item" data-section="social">
+            <span class="nav-icon">●</span>
+            Social (S)
+          </button>
+          <button class="nav-item" data-section="governance">
+            <span class="nav-icon">●</span>
+            Governance (G)
+          </button>
+        </div>
+        <div class="nav-section">
+          <span class="nav-label">Output</span>
+          <button class="nav-item" data-section="report">
+            <span class="nav-icon">▶</span>
+            Generate Report
+          </button>
+        </div>
+        <div class="completion-tracker">
+          <div class="tracker-label">Data Completion</div>
+          <div class="tracker-bar">
+            <div class="tracker-fill" id="completion-fill"></div>
+          </div>
+          <div class="tracker-percent" id="completion-percent">0%</div>
+        </div>
+      </nav>
 
-  <!-- Death Screen -->
-  <div id="death-screen" class="screen hidden">
-    <div class="death-container">
-      <h2 class="death-title">EATEN!</h2>
-      <p class="death-message">You were consumed by <span id="killer-name">???</span></p>
-      
-      <div class="final-stats">
-        <div class="stat">
-          <span class="stat-value" id="final-score">0</span>
-          <span class="stat-label">Final Score</span>
-        </div>
-        <div class="stat">
-          <span class="stat-value" id="max-mass">0</span>
-          <span class="stat-label">Max Mass</span>
-        </div>
-        <div class="stat">
-          <span class="stat-value" id="cells-eaten">0</span>
-          <span class="stat-label">Cells Eaten</span>
-        </div>
-        <div class="stat">
-          <span class="stat-value" id="time-alive">0:00</span>
-          <span class="stat-label">Time Alive</span>
-        </div>
+      <!-- Content Panels -->
+      <div class="content">
+        <!-- Entity Information -->
+        <section id="section-entity" class="panel active">
+          <div class="panel-header">
+            <h2>Entity Information</h2>
+            <span class="panel-status" id="status-entity">Incomplete</span>
+          </div>
+          <div class="panel-body">
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="business-name">Legal Business Name <span class="required">*</span></label>
+                <input type="text" id="business-name" placeholder="e.g., Sunrise Bistro LLC">
+              </div>
+              <div class="form-group">
+                <label for="dba-name">DBA (Doing Business As)</label>
+                <input type="text" id="dba-name" placeholder="e.g., Sunrise Bistro">
+              </div>
+              <div class="form-group">
+                <label for="ein">EIN / Tax ID <span class="required">*</span></label>
+                <input type="text" id="ein" placeholder="XX-XXXXXXX">
+              </div>
+              <div class="form-group">
+                <label for="entity-type">Entity Type <span class="required">*</span></label>
+                <select id="entity-type">
+                  <option value="">Select...</option>
+                  <option value="llc">LLC</option>
+                  <option value="corporation">Corporation</option>
+                  <option value="sole-prop">Sole Proprietorship</option>
+                  <option value="partnership">Partnership</option>
+                  <option value="franchise">Franchise</option>
+                </select>
+              </div>
+              <div class="form-group full-width">
+                <label for="address">Primary Business Address <span class="required">*</span></label>
+                <input type="text" id="address" placeholder="Street, City, State, ZIP">
+              </div>
+              <div class="form-group">
+                <label for="jurisdiction">Regulatory Jurisdiction <span class="required">*</span></label>
+                <select id="jurisdiction">
+                  <option value="">Select State...</option>
+                  <option value="AL">Alabama</option>
+                  <option value="AK">Alaska</option>
+                  <option value="AZ">Arizona</option>
+                  <option value="AR">Arkansas</option>
+                  <option value="CA">California</option>
+                  <option value="CO">Colorado</option>
+                  <option value="CT">Connecticut</option>
+                  <option value="DE">Delaware</option>
+                  <option value="FL">Florida</option>
+                  <option value="GA">Georgia</option>
+                  <option value="HI">Hawaii</option>
+                  <option value="ID">Idaho</option>
+                  <option value="IL">Illinois</option>
+                  <option value="IN">Indiana</option>
+                  <option value="IA">Iowa</option>
+                  <option value="KS">Kansas</option>
+                  <option value="KY">Kentucky</option>
+                  <option value="LA">Louisiana</option>
+                  <option value="ME">Maine</option>
+                  <option value="MD">Maryland</option>
+                  <option value="MA">Massachusetts</option>
+                  <option value="MI">Michigan</option>
+                  <option value="MN">Minnesota</option>
+                  <option value="MS">Mississippi</option>
+                  <option value="MO">Missouri</option>
+                  <option value="MT">Montana</option>
+                  <option value="NE">Nebraska</option>
+                  <option value="NV">Nevada</option>
+                  <option value="NH">New Hampshire</option>
+                  <option value="NJ">New Jersey</option>
+                  <option value="NM">New Mexico</option>
+                  <option value="NY">New York</option>
+                  <option value="NC">North Carolina</option>
+                  <option value="ND">North Dakota</option>
+                  <option value="OH">Ohio</option>
+                  <option value="OK">Oklahoma</option>
+                  <option value="OR">Oregon</option>
+                  <option value="PA">Pennsylvania</option>
+                  <option value="RI">Rhode Island</option>
+                  <option value="SC">South Carolina</option>
+                  <option value="SD">South Dakota</option>
+                  <option value="TN">Tennessee</option>
+                  <option value="TX">Texas</option>
+                  <option value="UT">Utah</option>
+                  <option value="VT">Vermont</option>
+                  <option value="VA">Virginia</option>
+                  <option value="WA">Washington</option>
+                  <option value="WV">West Virginia</option>
+                  <option value="WI">Wisconsin</option>
+                  <option value="WY">Wyoming</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="report-period">Reporting Period <span class="required">*</span></label>
+                <select id="report-period">
+                  <option value="">Select...</option>
+                  <option value="Q1-2025">Q1 2025</option>
+                  <option value="Q2-2025">Q2 2025</option>
+                  <option value="Q3-2025">Q3 2025</option>
+                  <option value="Q4-2025">Q4 2025</option>
+                  <option value="FY-2024">FY 2024</option>
+                  <option value="FY-2025">FY 2025</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="locations">Number of Locations <span class="required">*</span></label>
+                <input type="number" id="locations" min="1" placeholder="1">
+              </div>
+              <div class="form-group">
+                <label for="seating-capacity">Total Seating Capacity</label>
+                <input type="number" id="seating-capacity" min="0" placeholder="e.g., 120">
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Environmental Section -->
+        <section id="section-environmental" class="panel">
+          <div class="panel-header">
+            <h2>Environmental Data (E)</h2>
+            <span class="panel-status" id="status-environmental">Incomplete</span>
+          </div>
+          <div class="panel-body">
+            <div class="data-category">
+              <h3>Energy Consumption</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="electricity-kwh">Electricity (kWh) <span class="required">*</span></label>
+                  <input type="number" id="electricity-kwh" min="0" step="0.01" placeholder="Total kWh">
+                </div>
+                <div class="form-group">
+                  <label for="natural-gas">Natural Gas (therms) <span class="required">*</span></label>
+                  <input type="number" id="natural-gas" min="0" step="0.01" placeholder="Total therms">
+                </div>
+                <div class="form-group">
+                  <label for="renewable-percent">Renewable Energy (%)</label>
+                  <input type="number" id="renewable-percent" min="0" max="100" placeholder="0-100">
+                </div>
+                <div class="form-group">
+                  <label for="energy-star">ENERGY STAR Equipment</label>
+                  <select id="energy-star">
+                    <option value="">Select...</option>
+                    <option value="none">None</option>
+<option value="partial">Partial (&lt; 50%)</option>
+                  <option value="majority">Majority (50-80%)</option>
+                  <option value="full">Full (&gt; 80%)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="data-category">
+              <h3>Water Usage</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="water-gallons">Total Water (gallons) <span class="required">*</span></label>
+                  <input type="number" id="water-gallons" min="0" step="1" placeholder="Total gallons">
+                </div>
+                <div class="form-group">
+                  <label for="water-recycled">Recycled Water (%)</label>
+                  <input type="number" id="water-recycled" min="0" max="100" placeholder="0-100">
+                </div>
+                <div class="form-group">
+                  <label for="low-flow">Low-Flow Fixtures</label>
+                  <select id="low-flow">
+                    <option value="">Select...</option>
+                    <option value="no">No</option>
+                    <option value="partial">Partial</option>
+                    <option value="yes">Yes, All</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="data-category">
+              <h3>Waste Management</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="waste-solid">Solid Waste (lbs) <span class="required">*</span></label>
+                  <input type="number" id="waste-solid" min="0" step="1" placeholder="Total lbs">
+                </div>
+                <div class="form-group">
+                  <label for="waste-recycled">Recycled Waste (%)</label>
+                  <input type="number" id="waste-recycled" min="0" max="100" placeholder="0-100">
+                </div>
+                <div class="form-group">
+                  <label for="waste-composted">Composted Food Waste (%)</label>
+                  <input type="number" id="waste-composted" min="0" max="100" placeholder="0-100">
+                </div>
+                <div class="form-group">
+                  <label for="grease-disposal">Grease Trap Service</label>
+                  <select id="grease-disposal">
+                    <option value="">Select...</option>
+                    <option value="licensed">Licensed Hauler</option>
+                    <option value="self">Self-Managed</option>
+                    <option value="none">Not Applicable</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="food-donation">Food Donation Program</label>
+                  <select id="food-donation">
+                    <option value="">Select...</option>
+                    <option value="yes">Yes, Active</option>
+                    <option value="no">No</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="data-category">
+              <h3>Refrigerants & HVAC</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="refrigerant-type">Primary Refrigerant Type</label>
+                  <select id="refrigerant-type">
+                    <option value="">Select...</option>
+                    <option value="R-134a">R-134a</option>
+                    <option value="R-404A">R-404A</option>
+                    <option value="R-410A">R-410A</option>
+                    <option value="R-290">R-290 (Propane)</option>
+                    <option value="CO2">CO2 (R-744)</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="refrigerant-leaks">Refrigerant Leaks Reported</label>
+                  <input type="number" id="refrigerant-leaks" min="0" placeholder="Number of incidents">
+                </div>
+                <div class="form-group">
+                  <label for="hvac-maintenance">HVAC Maintenance Schedule</label>
+                  <select id="hvac-maintenance">
+                    <option value="">Select...</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="biannual">Bi-Annual</option>
+                    <option value="annual">Annual</option>
+                    <option value="none">None/As Needed</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Social Section -->
+        <section id="section-social" class="panel">
+          <div class="panel-header">
+            <h2>Social Data (S)</h2>
+            <span class="panel-status" id="status-social">Incomplete</span>
+          </div>
+          <div class="panel-body">
+            <div class="data-category">
+              <h3>Workforce Composition</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="total-employees">Total Employees <span class="required">*</span></label>
+                  <input type="number" id="total-employees" min="1" placeholder="Headcount">
+                </div>
+                <div class="form-group">
+                  <label for="full-time">Full-Time Employees <span class="required">*</span></label>
+                  <input type="number" id="full-time" min="0" placeholder="Count">
+                </div>
+                <div class="form-group">
+                  <label for="part-time">Part-Time Employees <span class="required">*</span></label>
+                  <input type="number" id="part-time" min="0" placeholder="Count">
+                </div>
+                <div class="form-group">
+                  <label for="turnover-rate">Annual Turnover Rate (%)</label>
+                  <input type="number" id="turnover-rate" min="0" max="500" step="0.1" placeholder="e.g., 75">
+                </div>
+              </div>
+            </div>
+
+            <div class="data-category">
+              <h3>Compensation & Benefits</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="min-wage-compliance">Minimum Wage Compliance <span class="required">*</span></label>
+                  <select id="min-wage-compliance">
+                    <option value="">Select...</option>
+                    <option value="yes">Yes, Compliant</option>
+                    <option value="no">No, Non-Compliant</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="avg-hourly-wage">Average Hourly Wage ($)</label>
+                  <input type="number" id="avg-hourly-wage" min="0" step="0.01" placeholder="e.g., 15.50">
+                </div>
+                <div class="form-group">
+                  <label for="tip-pool">Tip Pool Policy</label>
+                  <select id="tip-pool">
+                    <option value="">Select...</option>
+                    <option value="none">No Tip Pool</option>
+                    <option value="foh-only">FOH Only</option>
+                    <option value="all-staff">All Staff</option>
+                    <option value="na">N/A (No Tipping)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="health-insurance">Health Insurance Offered</label>
+                  <select id="health-insurance">
+                    <option value="">Select...</option>
+                    <option value="full">Yes, Full-Time</option>
+                    <option value="all">Yes, All Employees</option>
+                    <option value="no">No</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="paid-leave">Paid Leave Policy</label>
+                  <select id="paid-leave">
+                    <option value="">Select...</option>
+                    <option value="full">Full (PTO + Sick + Holiday)</option>
+                    <option value="partial">Partial</option>
+                    <option value="statutory">Statutory Minimum Only</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="data-category">
+              <h3>Training & Certifications</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="food-handler-cert">Food Handler Certification <span class="required">*</span></label>
+                  <select id="food-handler-cert">
+                    <option value="">Select...</option>
+                    <option value="all">All Staff Certified</option>
+                    <option value="partial">Partial Compliance</option>
+                    <option value="manager">Manager Only</option>
+                    <option value="none">Not Certified</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="allergen-training">Allergen Training</label>
+                  <select id="allergen-training">
+                    <option value="">Select...</option>
+                    <option value="yes">Yes, All Staff</option>
+                    <option value="partial">Partial</option>
+                    <option value="no">No</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="harassment-training">Anti-Harassment Training</label>
+                  <select id="harassment-training">
+                    <option value="">Select...</option>
+                    <option value="annual">Annual, All Staff</option>
+                    <option value="onboarding">Onboarding Only</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="data-category">
+              <h3>Health & Safety</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="osha-incidents">OSHA Recordable Incidents <span class="required">*</span></label>
+                  <input type="number" id="osha-incidents" min="0" placeholder="Number">
+                </div>
+                <div class="form-group">
+                  <label for="workers-comp-claims">Workers' Comp Claims</label>
+                  <input type="number" id="workers-comp-claims" min="0" placeholder="Number">
+                </div>
+                <div class="form-group">
+                  <label for="safety-inspections">Safety Inspections Passed</label>
+                  <input type="number" id="safety-inspections" min="0" placeholder="Number">
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Governance Section -->
+        <section id="section-governance" class="panel">
+          <div class="panel-header">
+            <h2>Governance Data (G)</h2>
+            <span class="panel-status" id="status-governance">Incomplete</span>
+          </div>
+          <div class="panel-body">
+            <div class="data-category">
+              <h3>Licenses & Permits</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="business-license">Business License <span class="required">*</span></label>
+                  <select id="business-license">
+                    <option value="">Select...</option>
+                    <option value="current">Current</option>
+                    <option value="expired">Expired</option>
+                    <option value="pending">Pending Renewal</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="food-service-permit">Food Service Permit <span class="required">*</span></label>
+                  <select id="food-service-permit">
+                    <option value="">Select...</option>
+                    <option value="current">Current</option>
+                    <option value="expired">Expired</option>
+                    <option value="pending">Pending</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="liquor-license">Liquor License</label>
+                  <select id="liquor-license">
+                    <option value="">Select...</option>
+                    <option value="current">Current</option>
+                    <option value="expired">Expired</option>
+                    <option value="pending">Pending</option>
+                    <option value="na">N/A (No Alcohol)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="fire-permit">Fire/Safety Permit</label>
+                  <select id="fire-permit">
+                    <option value="">Select...</option>
+                    <option value="current">Current</option>
+                    <option value="expired">Expired</option>
+                    <option value="pending">Pending</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="health-permit">Health Department Permit <span class="required">*</span></label>
+                  <select id="health-permit">
+                    <option value="">Select...</option>
+                    <option value="current">Current</option>
+                    <option value="expired">Expired</option>
+                    <option value="pending">Pending</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="data-category">
+              <h3>Inspections</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="health-inspection-score">Latest Health Inspection Score <span class="required">*</span></label>
+                  <input type="number" id="health-inspection-score" min="0" max="100" placeholder="0-100">
+                </div>
+                <div class="form-group">
+                  <label for="health-inspection-date">Inspection Date <span class="required">*</span></label>
+                  <input type="date" id="health-inspection-date">
+                </div>
+                <div class="form-group">
+                  <label for="critical-violations">Critical Violations</label>
+                  <input type="number" id="critical-violations" min="0" placeholder="Number">
+                </div>
+                <div class="form-group">
+                  <label for="non-critical-violations">Non-Critical Violations</label>
+                  <input type="number" id="non-critical-violations" min="0" placeholder="Number">
+                </div>
+              </div>
+            </div>
+
+            <div class="data-category">
+              <h3>Insurance & Risk</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="liability-insurance">General Liability Insurance <span class="required">*</span></label>
+                  <select id="liability-insurance">
+                    <option value="">Select...</option>
+                    <option value="current">Current</option>
+                    <option value="expired">Expired</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="workers-comp-insurance">Workers' Compensation <span class="required">*</span></label>
+                  <select id="workers-comp-insurance">
+                    <option value="">Select...</option>
+                    <option value="current">Current</option>
+                    <option value="expired">Expired</option>
+                    <option value="exempt">Exempt</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="property-insurance">Property Insurance</label>
+                  <select id="property-insurance">
+                    <option value="">Select...</option>
+                    <option value="current">Current</option>
+                    <option value="expired">Expired</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="data-category">
+              <h3>Policies & Documentation</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="employee-handbook">Employee Handbook</label>
+                  <select id="employee-handbook">
+                    <option value="">Select...</option>
+                    <option value="current">Current (Updated within 1 yr)</option>
+                    <option value="outdated">Outdated</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="ethics-policy">Ethics/Code of Conduct</label>
+                  <select id="ethics-policy">
+                    <option value="">Select...</option>
+                    <option value="documented">Documented & Distributed</option>
+                    <option value="informal">Informal Only</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="data-privacy">Customer Data Privacy Policy</label>
+                  <select id="data-privacy">
+                    <option value="">Select...</option>
+                    <option value="documented">Documented</option>
+                    <option value="none">None</option>
+                    <option value="na">N/A (No Customer Data)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Report Generation Section -->
+        <section id="section-report" class="panel">
+          <div class="panel-header">
+            <h2>Generate Compliance Report</h2>
+          </div>
+          <div class="panel-body">
+            <div class="report-options">
+              <div class="option-group">
+                <h3>Report Configuration</h3>
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="report-format">Output Format</label>
+                    <select id="report-format">
+                      <option value="html">HTML (Viewable)</option>
+                      <option value="json">JSON (Machine-Readable)</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="include-recommendations">Include Recommendations</label>
+                    <select id="include-recommendations">
+                      <option value="yes">Yes</option>
+                      <option value="no">No (Data Only)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="validation-summary" id="validation-summary">
+                <h3>Data Validation Summary</h3>
+                <div class="validation-grid" id="validation-grid">
+                  <!-- Populated by JavaScript -->
+                </div>
+              </div>
+
+              <button id="btn-generate" class="btn btn-generate" disabled>
+                <span class="btn-icon">▶</span>
+                Generate Report
+              </button>
+            </div>
+
+            <div class="report-output" id="report-output">
+              <!-- Report will be rendered here -->
+            </div>
+          </div>
+        </section>
       </div>
-      
-      <button id="respawn-btn" class="play-button">
-        <span>PLAY AGAIN</span>
-      </button>
-      
-      <button id="menu-btn" class="menu-button">Back to Menu</button>
-    </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span>ESG Compliance Report Generator v1.0</span>
+      <span>|</span>
+      <span>Restaurant Industry Standards</span>
+      <span>|</span>
+      <span id="current-date"></span>
+    </footer>
   </div>
 
 </body>
