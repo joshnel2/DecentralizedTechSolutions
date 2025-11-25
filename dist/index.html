@@ -1,140 +1,112 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Decentralized Technology Solutions | AI & Web3 Innovation</title>
-  <!-- Google Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
-  <link rel="icon" type="image/svg+xml" href="/assets/favicon-BQPa-We9.svg">
-  <!-- Font Awesome -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha512-SzlrxWriCO2XJl4nQ3xkp9Wafn8gfNV5Bmqe5H9OMg1Fx5hJno3C+wRK5UJ+vI0GXq5p5kNDOM+OPoqHzt+M1w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-  <!-- AOS (Animate On Scroll) CSS -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.css" integrity="sha512-Ho3oHOKo+ctD6Abfs7/EIDty1pHniqAVbnm5ZFRxC2k8kGZKB5rb7q5iR3w40CIovwpIWUvBVPBcfyyKZ0G7mA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-  <!-- Local Styles -->
-  <script type="module" crossorigin src="/assets/main-CUjJVYSo.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/style-CpNHgtEL.css">
+  <title>Blob.io - Eat or Be Eaten</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon-Caj1JGCO.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet">
+  <script type="module" crossorigin src="/assets/index-D9V_iy4Q.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DU1M7rYz.css">
 </head>
 <body>
-  <!-- Animated particle background -->
-  <div id="tsparticles"></div>
-
-  <!-- Header / Navigation -->
-  <header>
-    <div class="container nav-container">
-      <h1 class="logo">DTS</h1>
-      <nav>
-        <ul class="nav-links">
-          <li><a href="index.html#hero">Home</a></li>
-          <li><a href="index.html#services">Services</a></li>
-          <li><a href="ai.html">AI Integration</a></li>
-          <li><a href="websites.html">Websites</a></li>
-          <li><a href="hosting.html">Data Hosting</a></li>
-          <li><a href="smartcontracts.html">Smart Contracts</a></li>
-        </ul>
-      </nav>
-      <div class="menu-toggle"><i class="fas fa-bars"></i></div>
-    </div>
-  </header>
-
-  <!-- Hero Section -->
-  <section id="hero" class="section-hero">
-    <div class="container hero-content" data-aos="fade-up" data-aos-duration="1200">
-      <h2 class="company-name">Decentralized Technology Solutions</h2>
-      <h3 class="tagline"><span id="typed"></span></h3>
-      <p class="subtitle">Building bleeding-edge digital products powered by AI and Web3.</p>
-      <!-- TODO: Replace YOUR_SCHEDULING_LINK with actual Google Calendar scheduling token -->
-      <a href="https://calendar.google.com/calendar/u/0/selfsched?sstoken=YOUR_SCHEDULING_LINK" target="_blank" class="btn-primary" rel="noopener">Start Your Project</a>
-    </div>
-  </section>
-
-  <!-- Why Us Section -->
-  <section id="about" class="section section-light" data-aos="fade-up">
-    <div class="container">
-      <h2 class="section-title">Why Choose DTS?</h2>
-      <div class="reasons-grid">
-        <div class="reason-card">
-          <i class="fas fa-brain"></i>
-          <h3>AI-First Approach</h3>
-          <p>We integrate advanced machine learning to unlock unprecedented business value.</p>
-        </div>
-        <div class="reason-card">
-          <i class="fas fa-cubes"></i>
-          <h3>Web3 Pioneers</h3>
-          <p>From smart contracts to decentralized apps—we engineer secure blockchain solutions.</p>
-        </div>
-        <div class="reason-card">
-          <i class="fas fa-rocket"></i>
-          <h3>Speed & Precision</h3>
-          <p>Rapid prototyping and agile delivery turn your vision into reality faster than ever.</p>
-        </div>
-        <div class="reason-card">
-          <i class="fas fa-handshake-angle"></i>
-          <h3>Partnership Mindset</h3>
-          <p>We collaborate closely and transparently—your success is our metric.</p>
+  <!-- Start Screen -->
+  <div id="start-screen" class="screen">
+    <div class="start-container">
+      <h1 class="game-title">BLOB<span>.io</span></h1>
+      <p class="tagline">Eat or Be Eaten</p>
+      
+      <div class="input-group">
+        <input type="text" id="player-name" placeholder="Enter your name" maxlength="15" autocomplete="off">
+      </div>
+      
+      <div class="skin-selector">
+        <p>Choose your skin:</p>
+        <div class="skins">
+          <div class="skin selected" data-skin="gradient1" style="background: linear-gradient(135deg, #FF6B6B, #FFE66D);"></div>
+          <div class="skin" data-skin="gradient2" style="background: linear-gradient(135deg, #4ECDC4, #556270);"></div>
+          <div class="skin" data-skin="gradient3" style="background: linear-gradient(135deg, #A770EF, #CF8BF3);"></div>
+          <div class="skin" data-skin="gradient4" style="background: linear-gradient(135deg, #11998E, #38EF7D);"></div>
+          <div class="skin" data-skin="gradient5" style="background: linear-gradient(135deg, #FC466B, #3F5EFB);"></div>
+          <div class="skin" data-skin="gradient6" style="background: linear-gradient(135deg, #F7971E, #FFD200);"></div>
         </div>
       </div>
-    </div>
-  </section>
-
-  <!-- Services Section -->
-  <section id="services" class="section section-dark" data-aos="fade-up">
-    <div class="container">
-      <h2 class="section-title">Our Expertise</h2>
-      <div class="services-grid">
-        <div class="service-card">
-          <i class="fas fa-robot"></i>
-          <h3>AI Integrations</h3>
-          <p>Custom chatbots, NLP pipelines, computer vision, and more—tailored to your domain.</p>
-        </div>
-        <div class="service-card">
-          <i class="fas fa-globe"></i>
-          <h3>Website Development</h3>
-          <p>High-performance, responsive websites optimized for SEO and conversions.</p>
-        </div>
-        <div class="service-card">
-          <i class="fas fa-link"></i>
-          <h3>Smart Contracts</h3>
-          <p>Audited, secure blockchain contracts and tokenomics designs for your crypto ventures.</p>
-        </div>
-        <div class="service-card">
-          <i class="fas fa-database"></i>
-          <h3>Data Hosting</h3>
-          <p>Reliable cloud infrastructure, managed databases & scalable data pipelines.</p>
-        </div>
+      
+      <button id="play-btn" class="play-button">
+        <span>PLAY</span>
+        <div class="button-blob"></div>
+      </button>
+      
+      <div class="controls-info">
+        <p><kbd>Mouse</kbd> Move</p>
+        <p><kbd>Space</kbd> Split</p>
+        <p><kbd>W</kbd> Eject Mass</p>
       </div>
     </div>
-  </section>
-
-  <!-- Consultation CTA instead of form -->
-  <section id="consult-cta" class="section section-light" data-aos="fade-up">
-    <div class="container">
-      <h2 class="section-title">Ready to Discuss Your Project?</h2>
-      <p>Skip the email back-and-forth—book a free strategy consultation in less than a minute.</p>
-      <div class="divider"></div>
-              <!-- TODO: Replace YOUR_SCHEDULING_LINK with actual Google Calendar scheduling token -->
-        <a href="https://calendar.google.com/calendar/u/0/selfsched?sstoken=YOUR_SCHEDULING_LINK" target="_blank" class="btn-primary" rel="noopener">Book Consultation</a>
+    
+    <div class="floating-blobs">
+      <div class="float-blob blob1"></div>
+      <div class="float-blob blob2"></div>
+      <div class="float-blob blob3"></div>
+      <div class="float-blob blob4"></div>
+      <div class="float-blob blob5"></div>
     </div>
-  </section>
+  </div>
 
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="container footer-container">
-      <p>&copy; <span id="year"></span> Decentralized Technology Solutions. All rights reserved.</p>
-      <div class="social-links">
-        <!-- LinkedIn link removed -->
-        <a href="mailto:contact@dts.ai" aria-label="Email"><i class="fas fa-envelope"></i></a>
-        <a href="https://github.com/DecentralizedTechSolutions" target="_blank" aria-label="GitHub"><i class="fab fa-github"></i></a>
+  <!-- Game Screen -->
+  <div id="game-screen" class="screen hidden">
+    <canvas id="game-canvas"></canvas>
+    
+    <!-- HUD -->
+    <div id="hud">
+      <div class="score-display">
+        <span class="label">Score</span>
+        <span id="score">0</span>
+      </div>
+      
+      <div id="leaderboard">
+        <h3>🏆 Leaderboard</h3>
+        <ol id="leaderboard-list"></ol>
+      </div>
+      
+      <div id="minimap">
+        <canvas id="minimap-canvas"></canvas>
       </div>
     </div>
-  </footer>
+  </div>
 
-  <!-- External Libraries -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/typed.js/2.0.12/typed.min.js" integrity="sha512-3JW66HRaFCWp7vItbKhSBNpEjsvm+2nlJaYikl4a7GJcp2JnIGLCgkgUiqq5DY21f5ZkYJTzdHHGlXHZSibzdA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/tsparticles/3.1.1/tsparticles.min.js" integrity="sha512-biSU1t3rmmYTM0FbZh6iIWdpX4tSQEjUXmOQMSfgO1Q08pphk+PQV8JrJSo6Gac4aXNgXrX2quM6uaQVB2+iBA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.js" integrity="sha512-FoYZJ28M6QOw1KUJgq1tj7i6vlkQSB9ciadf6zDVOm1GKyo07V5dFHBtKG9kK+2IbK9sG+OVZ4uhGeFAQ0Y+hA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <!-- Local Script -->
+  <!-- Death Screen -->
+  <div id="death-screen" class="screen hidden">
+    <div class="death-container">
+      <h2 class="death-title">EATEN!</h2>
+      <p class="death-message">You were consumed by <span id="killer-name">???</span></p>
+      
+      <div class="final-stats">
+        <div class="stat">
+          <span class="stat-value" id="final-score">0</span>
+          <span class="stat-label">Final Score</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="max-mass">0</span>
+          <span class="stat-label">Max Mass</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="cells-eaten">0</span>
+          <span class="stat-label">Cells Eaten</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="time-alive">0:00</span>
+          <span class="stat-label">Time Alive</span>
+        </div>
+      </div>
+      
+      <button id="respawn-btn" class="play-button">
+        <span>PLAY AGAIN</span>
+      </button>
+      
+      <button id="menu-btn" class="menu-button">Back to Menu</button>
+    </div>
+  </div>
+
 </body>
 </html>
