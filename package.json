@@ -1,8 +1,8 @@
 {
-  "name": "blob-io-game",
+  "name": "esg-compliance-report",
   "version": "1.0.0",
   "private": true,
-  "description": "An agar.io style web game - eat or be eaten!",
+  "description": "ESG Compliance Report Generator for Restaurant Industry",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
