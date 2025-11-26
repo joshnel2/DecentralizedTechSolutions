@@ -1,6 +1,8 @@
 .firmSettingsPage {
   padding: var(--spacing-xl);
   max-width: 1200px;
+  height: 100%;
+  overflow-y: auto;
 }
 
 .noAccess {
@@ -43,6 +45,7 @@
   display: grid;
   grid-template-columns: 220px 1fr;
   gap: var(--spacing-xl);
+  align-items: start;
 }
 
 .settingsNav {
@@ -50,8 +53,12 @@
   flex-direction: column;
   gap: var(--spacing-xs);
   position: sticky;
-  top: var(--spacing-lg);
+  top: 0;
   height: fit-content;
+  align-self: start;
+  background: var(--bg-primary);
+  padding: var(--spacing-sm) 0;
+  z-index: 10;
 }
 
 .navItem {
@@ -1117,6 +1124,113 @@
 
 .inviteSent p {
   color: var(--text-secondary);
+}
+
+/* Accounts Tab Styles */
+.accountsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-xl);
+}
+
+.accountCard {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-primary);
+  transition: all 0.2s ease;
+}
+
+.accountCard:hover {
+  border-color: var(--gold-primary);
+  transform: translateY(-2px);
+}
+
+.accountCardIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}
+
+.accountCardInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.accountCardLabel {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.accountCardBalance {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.accountCardNote {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.accountCardTrend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-sm);
+}
+
+.accountsSummary {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-primary);
+  padding: var(--spacing-lg);
+}
+
+.accountsSummary h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-md);
+}
+
+.summaryItems {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--spacing-lg);
+}
+
+.summaryItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.summaryLabel {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.summaryValue {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 @media (max-width: 768px) {
