@@ -17,9 +17,12 @@ export function ClientsPage() {
     return clients.filter(client => {
       const matchesSearch = 
         client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        client.email.toLowerCase().includes(searchQuery.toLowerCase())
-      const matchesStatus = statusFilter === 'all' || client.status === statusFilter
-      const matchesType = typeFilter === 'all' || client.type === typeFilter
+        (client.email?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
+      const clientStatus = client.isActive ? 'active' : 'inactive'
+      const matchesStatus = statusFilter === 'all' || clientStatus === statusFilter
+      const matchesType = typeFilter === 'all' || 
+        (typeFilter === 'individual' && client.type === 'person') ||
+        (typeFilter === 'organization' && client.type === 'company')
       return matchesSearch && matchesStatus && matchesType
     }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }, [clients, searchQuery, statusFilter, typeFilter])
@@ -88,16 +91,18 @@ export function ClientsPage() {
             </tr>
           </thead>
           <tbody>
-            {filteredClients.map(client => (
+            {filteredClients.map(client => {
+              const clientStatus = client.isActive ? 'active' : 'inactive'
+              return (
               <tr key={client.id}>
                 <td>
                   <Link to={`/app/clients/${client.id}`} className={styles.nameCell}>
                     <div className={styles.icon}>
-                      {client.type === 'organization' ? <Building2 size={16} /> : <User size={16} />}
+                      {client.type === 'company' ? <Building2 size={16} /> : <User size={16} />}
                     </div>
                     <div>
                       <span className={styles.name}>{client.name}</span>
-                      <span className={styles.subtitle}>{client.city}, {client.state}</span>
+                      <span className={styles.subtitle}>{client.addressCity}, {client.addressState}</span>
                     </div>
                   </Link>
                 </td>
@@ -109,12 +114,12 @@ export function ClientsPage() {
                 </td>
                 <td>
                   <span className={styles.typeTag}>
-                    {client.type}
+                    {client.type === 'company' ? 'Organization' : 'Individual'}
                   </span>
                 </td>
                 <td>
-                  <span className={clsx(styles.statusBadge, styles[client.status])}>
-                    {client.status}
+                  <span className={clsx(styles.statusBadge, styles[clientStatus])}>
+                    {clientStatus}
                   </span>
                 </td>
                 <td>{getMatterCount(client.id)}</td>
@@ -127,7 +132,7 @@ export function ClientsPage() {
                   </button>
                 </td>
               </tr>
-            ))}
+            )})}
           </tbody>
         </table>
 
@@ -155,22 +160,27 @@ export function ClientsPage() {
 
 function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (data: any) => void }) {
   const [formData, setFormData] = useState({
-    type: 'individual',
+    type: 'person' as 'person' | 'company',
+    displayName: '',
     name: '',
     email: '',
     phone: '',
-    address: '',
-    city: '',
-    state: '',
-    zipCode: '',
+    addressStreet: '',
+    addressCity: '',
+    addressState: '',
+    addressZip: '',
     notes: '',
-    tags: [],
-    status: 'active'
+    tags: [] as string[],
+    contactType: 'client' as const,
+    isActive: true
   })
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    onSave(formData)
+    onSave({
+      ...formData,
+      displayName: formData.name
+    })
   }
 
   return (
@@ -185,20 +195,20 @@ function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (dat
             <label>Client Type</label>
             <select
               value={formData.type}
-              onChange={(e) => setFormData({...formData, type: e.target.value})}
+              onChange={(e) => setFormData({...formData, type: e.target.value as 'person' | 'company'})}
             >
-              <option value="individual">Individual</option>
-              <option value="organization">Organization</option>
+              <option value="person">Individual</option>
+              <option value="company">Organization</option>
             </select>
           </div>
 
           <div className={styles.formGroup}>
-            <label>{formData.type === 'organization' ? 'Organization Name' : 'Full Name'}</label>
+            <label>{formData.type === 'company' ? 'Organization Name' : 'Full Name'}</label>
             <input
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({...formData, name: e.target.value})}
-              placeholder={formData.type === 'organization' ? 'Company Name, LLC' : 'John Smith'}
+              placeholder={formData.type === 'company' ? 'Company Name, LLC' : 'John Smith'}
               required
             />
           </div>
@@ -229,8 +239,8 @@ function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (dat
             <label>Address</label>
             <input
               type="text"
-              value={formData.address}
-              onChange={(e) => setFormData({...formData, address: e.target.value})}
+              value={formData.addressStreet}
+              onChange={(e) => setFormData({...formData, addressStreet: e.target.value})}
               placeholder="123 Main Street"
             />
           </div>
@@ -240,8 +250,8 @@ function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (dat
               <label>City</label>
               <input
                 type="text"
-                value={formData.city}
-                onChange={(e) => setFormData({...formData, city: e.target.value})}
+                value={formData.addressCity}
+                onChange={(e) => setFormData({...formData, addressCity: e.target.value})}
                 placeholder="New York"
               />
             </div>
@@ -249,8 +259,8 @@ function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (dat
               <label>State</label>
               <input
                 type="text"
-                value={formData.state}
-                onChange={(e) => setFormData({...formData, state: e.target.value})}
+                value={formData.addressState}
+                onChange={(e) => setFormData({...formData, addressState: e.target.value})}
                 placeholder="NY"
               />
             </div>

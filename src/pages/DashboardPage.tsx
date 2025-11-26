@@ -25,7 +25,7 @@ export function DashboardPage() {
     const monthEnd = endOfMonth(now)
 
     const activeMatters = matters.filter(m => m.status === 'active').length
-    const totalClients = clients.filter(c => c.status === 'active').length
+    const totalClients = clients.filter(c => c.isActive).length
     
     const monthlyEntries = timeEntries.filter(t => {
       const date = parseISO(t.date)

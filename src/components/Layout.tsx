@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Briefcase, Users, Calendar, DollarSign, 
   Clock, BarChart3, Settings, LogOut, ChevronDown,
   Bell, Sparkles, Menu, X, FolderOpen, Shield, Key, UserCircle,
-  Building2, UsersRound, Link2, TrendingUp, Lock
+  Building2, UsersRound, Link2, TrendingUp, Lock, Landmark
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './Layout.module.css'
@@ -17,6 +17,7 @@ const navItems = [
   { path: '/app/clients', label: 'Clients', icon: Users },
   { path: '/app/calendar', label: 'Calendar', icon: Calendar },
   { path: '/app/billing', label: 'Billing', icon: DollarSign },
+  { path: '/app/trust', label: 'Trust/IOLTA', icon: Landmark },
   { path: '/app/time', label: 'Time Tracking', icon: Clock },
   { path: '/app/documents', label: 'Documents', icon: FolderOpen },
   { path: '/app/reports', label: 'Reports', icon: BarChart3 },
@@ -30,6 +31,7 @@ const settingsItems = [
   { path: '/app/settings/team', label: 'Team & Groups', icon: UsersRound },
   { path: '/app/settings/integrations', label: 'Integrations', icon: Link2 },
   { path: '/app/settings/api-keys', label: 'API Keys', icon: Key },
+  { path: '/app/admin', label: 'Firm Admin', icon: Shield },
 ]
 
 export function Layout() {
@@ -183,9 +185,9 @@ export function Layout() {
                         }}
                       >
                         <div className={styles.notifIcon}>
-                          {notif.type === 'ai' && <Sparkles size={14} />}
-                          {notif.type === 'deadline' && <Clock size={14} />}
-                          {notif.type === 'invoice' && <DollarSign size={14} />}
+                          {notif.type === 'ai_insight' && <Sparkles size={14} />}
+                          {notif.type === 'deadline_reminder' && <Clock size={14} />}
+                          {notif.type === 'invoice_overdue' && <DollarSign size={14} />}
                         </div>
                         <div className={styles.notifContent}>
                           <strong>{notif.title}</strong>

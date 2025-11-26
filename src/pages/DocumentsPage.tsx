@@ -1,14 +1,16 @@
 import { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { 
   Plus, Search, FolderOpen, FileText, Upload, Grid, List,
-  MoreVertical, Sparkles, Download, Trash2
+  MoreVertical, Sparkles, Download, Trash2, Wand2
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './DocumentsPage.module.css'
 
 export function DocumentsPage() {
+  const navigate = useNavigate()
   const { documents, matters } = useDataStore()
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
@@ -58,6 +60,13 @@ export function DocumentsPage() {
               <List size={18} />
             </button>
           </div>
+          <button 
+            className={styles.automationBtn}
+            onClick={() => navigate('/app/settings/documents')}
+          >
+            <Wand2 size={18} />
+            Automation
+          </button>
           <button className={styles.primaryBtn}>
             <Upload size={18} />
             Upload

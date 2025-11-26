@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { User, Firm } from '../types'
+import type { User, Firm, UserRole } from '../types'
 
 // Session and security types
 interface Session {
@@ -39,7 +39,7 @@ interface Invitation {
   email: string
   firstName: string
   lastName: string
-  role: User['role']
+  role: UserRole
   invitedBy: string
   invitedAt: string
   expiresAt: string
@@ -120,7 +120,10 @@ const demoUser: User = {
   lastName: 'Mitchell',
   role: 'owner',
   groupIds: ['group-1', 'group-2'],
-  createdAt: '2024-01-01T00:00:00Z'
+  permissions: [],
+  isActive: true,
+  createdAt: '2024-01-01T00:00:00Z',
+  updatedAt: '2024-01-01T00:00:00Z'
 }
 
 const demoFirm: Firm = {
@@ -138,20 +141,30 @@ const demoFirm: Firm = {
     incrementMinutes: 6,
     paymentTerms: 30,
     currency: 'USD'
-  }
+  },
+  createdAt: '2024-01-01T00:00:00Z',
+  updatedAt: '2024-01-01T00:00:00Z'
 }
+
+const createDemoUser = (id: string, email: string, firstName: string, lastName: string, role: UserRole, groupIds: string[], createdAt: string): User => ({
+  id, email, firstName, lastName, role, groupIds,
+  permissions: [],
+  isActive: true,
+  createdAt,
+  updatedAt: createdAt
+})
 
 const demoTeamMembers: User[] = [
   demoUser,
-  { id: 'user-2', email: 'sarah@apexlaw.com', firstName: 'Sarah', lastName: 'Chen', role: 'admin', groupIds: ['group-1'], createdAt: '2024-01-15T00:00:00Z' },
-  { id: 'user-3', email: 'michael@apexlaw.com', firstName: 'Michael', lastName: 'Roberts', role: 'attorney', groupIds: ['group-2'], createdAt: '2024-02-01T00:00:00Z' },
-  { id: 'user-4', email: 'emily@apexlaw.com', firstName: 'Emily', lastName: 'Davis', role: 'paralegal', groupIds: ['group-3'], createdAt: '2024-02-15T00:00:00Z' },
-  { id: 'user-5', email: 'james@apexlaw.com', firstName: 'James', lastName: 'Wilson', role: 'attorney', groupIds: ['group-1', 'group-2'], createdAt: '2024-03-01T00:00:00Z' },
-  { id: 'user-6', email: 'lisa@apexlaw.com', firstName: 'Lisa', lastName: 'Thompson', role: 'staff', groupIds: ['group-3'], createdAt: '2024-03-15T00:00:00Z' }
+  createDemoUser('user-2', 'sarah@apexlaw.com', 'Sarah', 'Chen', 'admin', ['group-1'], '2024-01-15T00:00:00Z'),
+  createDemoUser('user-3', 'michael@apexlaw.com', 'Michael', 'Roberts', 'attorney', ['group-2'], '2024-02-01T00:00:00Z'),
+  createDemoUser('user-4', 'emily@apexlaw.com', 'Emily', 'Davis', 'paralegal', ['group-3'], '2024-02-15T00:00:00Z'),
+  createDemoUser('user-5', 'james@apexlaw.com', 'James', 'Wilson', 'attorney', ['group-1', 'group-2'], '2024-03-01T00:00:00Z'),
+  createDemoUser('user-6', 'lisa@apexlaw.com', 'Lisa', 'Thompson', 'staff', ['group-3'], '2024-03-15T00:00:00Z')
 ]
 
 // Permission definitions by role
-const rolePermissions: Record<User['role'], string[]> = {
+const rolePermissions: Record<UserRole, string[]> = {
   owner: [
     'firm:manage', 'firm:billing', 'firm:delete',
     'users:invite', 'users:manage', 'users:delete',
@@ -197,6 +210,19 @@ const rolePermissions: Record<User['role'], string[]> = {
     'clients:view',
     'documents:view',
     'calendar:view'
+  ],
+  billing: [
+    'matters:view',
+    'clients:view',
+    'billing:create', 'billing:view', 'billing:edit', 'billing:approve',
+    'reports:view', 'reports:create', 'reports:export'
+  ],
+  readonly: [
+    'matters:view',
+    'clients:view',
+    'documents:view',
+    'calendar:view',
+    'reports:view'
   ]
 }
 
@@ -328,6 +354,7 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true })
         await new Promise(resolve => setTimeout(resolve, 1000))
 
+        const now = new Date().toISOString()
         const newUser: User = {
           id: generateId(),
           email: data.email,
@@ -335,7 +362,10 @@ export const useAuthStore = create<AuthState>()(
           lastName: data.lastName,
           role: 'owner',
           groupIds: [],
-          createdAt: new Date().toISOString()
+          permissions: [],
+          isActive: true,
+          createdAt: now,
+          updatedAt: now
         }
 
         set({
@@ -347,6 +377,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       setupFirm: (data) => {
+        const now = new Date().toISOString()
         const firm: Firm = {
           id: generateId(),
           name: data.name || '',
@@ -357,6 +388,8 @@ export const useAuthStore = create<AuthState>()(
             paymentTerms: 30,
             currency: 'USD'
           },
+          createdAt: now,
+          updatedAt: now,
           ...data
         }
 

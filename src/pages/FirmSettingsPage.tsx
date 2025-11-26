@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
 import { 
   Building2, CreditCard, Brain, Shield, Save, Users, Briefcase,
   DollarSign, Clock, Sparkles, CheckCircle2,
   AlertTriangle, Plus, Trash2, Edit2, UserPlus, X,
-  Mail, UserCog, UserMinus, Landmark, Eye, EyeOff
+  Mail, UserCog, UserMinus, Landmark, Eye, EyeOff, Wallet, TrendingUp, PiggyBank
 } from 'lucide-react'
 import styles from './FirmSettingsPage.module.css'
 
@@ -42,8 +42,23 @@ const groupColors = [
 
 export function FirmSettingsPage() {
   const { firm, updateFirm, user } = useAuthStore()
-  const { groups, addGroup, updateGroup, deleteGroup } = useDataStore()
-  const [activeTab, setActiveTab] = useState('general')
+  const { groups, addGroup, updateGroup, deleteGroup, clients, invoices } = useDataStore()
+  const [activeTab, setActiveTab] = useState('accounts')
+  
+  // Calculate account balances
+  const accountBalances = useMemo(() => {
+    const totalRetainers = clients.reduce((sum, c) => sum + (c.clientInfo?.trustBalance || 0), 0)
+    const outstandingAR = invoices
+      .filter(i => i.status !== 'paid' && i.status !== 'void')
+      .reduce((sum, i) => sum + i.amountDue, 0)
+    const operatingBalance = 284750.00
+    
+    return {
+      operating: operatingBalance,
+      trust: totalRetainers || 127500.00,
+      outstanding: outstandingAR || 49750.00
+    }
+  }, [clients, invoices])
   const [saved, setSaved] = useState(false)
 
   // Modal states
@@ -184,6 +199,7 @@ export function FirmSettingsPage() {
   const getUserById = (id: string) => demoUsers.find(u => u.id === id)
 
   const tabs = [
+    { id: 'accounts', label: 'Accounts', icon: Wallet },
     { id: 'general', label: 'Firm Info', icon: Building2 },
     { id: 'users', label: 'Users & Teams', icon: Users },
     { id: 'billing', label: 'Billing & Rates', icon: DollarSign },
@@ -230,6 +246,98 @@ export function FirmSettingsPage() {
 
         {/* Settings Content */}
         <div className={styles.settingsContent}>
+          {/* Accounts Tab */}
+          {activeTab === 'accounts' && (
+            <div className={styles.tabContent}>
+              <div className={styles.section}>
+                <div className={styles.sectionHeader}>
+                  <Wallet size={20} />
+                  <div>
+                    <h2>Account Balances</h2>
+                    <p>Overview of your firm's financial accounts</p>
+                  </div>
+                </div>
+
+                <div className={styles.accountsGrid}>
+                  <div className={styles.accountCard}>
+                    <div className={styles.accountCardIcon} style={{ background: 'rgba(59, 130, 246, 0.15)' }}>
+                      <Landmark size={24} color="#3B82F6" />
+                    </div>
+                    <div className={styles.accountCardInfo}>
+                      <span className={styles.accountCardLabel}>Operating Account</span>
+                      <span className={styles.accountCardBalance} style={{ color: '#3B82F6' }}>
+                        ${accountBalances.operating.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </span>
+                      <span className={styles.accountCardNote}>Primary business account</span>
+                    </div>
+                    <div className={styles.accountCardTrend} style={{ color: '#10B981' }}>
+                      <TrendingUp size={16} />
+                      <span>+2.4%</span>
+                    </div>
+                  </div>
+
+                  <div className={styles.accountCard}>
+                    <div className={styles.accountCardIcon} style={{ background: 'rgba(16, 185, 129, 0.15)' }}>
+                      <PiggyBank size={24} color="#10B981" />
+                    </div>
+                    <div className={styles.accountCardInfo}>
+                      <span className={styles.accountCardLabel}>Trust/IOLTA Account</span>
+                      <span className={styles.accountCardBalance} style={{ color: '#10B981' }}>
+                        ${accountBalances.trust.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </span>
+                      <span className={styles.accountCardNote}>Client trust funds</span>
+                    </div>
+                    <div className={styles.accountCardTrend} style={{ color: '#10B981' }}>
+                      <TrendingUp size={16} />
+                      <span>+5.1%</span>
+                    </div>
+                  </div>
+
+                  <div className={styles.accountCard}>
+                    <div className={styles.accountCardIcon} style={{ background: 'rgba(245, 158, 11, 0.15)' }}>
+                      <DollarSign size={24} color="#F59E0B" />
+                    </div>
+                    <div className={styles.accountCardInfo}>
+                      <span className={styles.accountCardLabel}>Outstanding AR</span>
+                      <span className={styles.accountCardBalance} style={{ color: '#F59E0B' }}>
+                        ${accountBalances.outstanding.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </span>
+                      <span className={styles.accountCardNote}>Accounts receivable</span>
+                    </div>
+                    <div className={styles.accountCardTrend} style={{ color: '#EF4444' }}>
+                      <TrendingUp size={16} style={{ transform: 'rotate(180deg)' }} />
+                      <span>-12.3%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={styles.accountsSummary}>
+                  <h3>Quick Summary</h3>
+                  <div className={styles.summaryItems}>
+                    <div className={styles.summaryItem}>
+                      <span className={styles.summaryLabel}>Total Liquid Assets</span>
+                      <span className={styles.summaryValue}>
+                        ${(accountBalances.operating + accountBalances.trust).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className={styles.summaryItem}>
+                      <span className={styles.summaryLabel}>Collection Rate (MTD)</span>
+                      <span className={styles.summaryValue}>94.2%</span>
+                    </div>
+                    <div className={styles.summaryItem}>
+                      <span className={styles.summaryLabel}>Average Days to Collect</span>
+                      <span className={styles.summaryValue}>18 days</span>
+                    </div>
+                    <div className={styles.summaryItem}>
+                      <span className={styles.summaryLabel}>Last Reconciliation</span>
+                      <span className={styles.summaryValue}>Nov 24, 2025</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* General Tab */}
           {activeTab === 'general' && (
             <div className={styles.tabContent}>

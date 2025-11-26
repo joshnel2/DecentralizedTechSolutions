@@ -137,6 +137,8 @@ export const useAIStore = create<AIState>()(
           }],
           matterId,
           clientId,
+          model: 'gpt-4',
+          createdBy: 'user-1',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         }

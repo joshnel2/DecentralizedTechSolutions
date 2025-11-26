@@ -74,20 +74,20 @@ export function ClientDetailPage() {
 
         <div className={styles.headerMain}>
           <div className={styles.headerIcon}>
-            {client.type === 'organization' ? <Building2 size={28} /> : <User size={28} />}
+            {client.type === 'company' ? <Building2 size={28} /> : <User size={28} />}
           </div>
           <div className={styles.headerInfo}>
             <div className={styles.headerMeta}>
-              <span className={styles.typeTag}>{client.type}</span>
-              <span className={clsx(styles.statusBadge, styles[client.status])}>
-                {client.status}
+              <span className={styles.typeTag}>{client.type === 'company' ? 'Organization' : 'Individual'}</span>
+              <span className={clsx(styles.statusBadge, styles[client.isActive ? 'active' : 'inactive'])}>
+                {client.isActive ? 'Active' : 'Inactive'}
               </span>
             </div>
             <h1>{client.name}</h1>
             <div className={styles.contactInfo}>
               <span><Mail size={14} /> {client.email}</span>
               <span><Phone size={14} /> {client.phone}</span>
-              <span><MapPin size={14} /> {client.city}, {client.state}</span>
+              <span><MapPin size={14} /> {client.addressCity}, {client.addressState}</span>
             </div>
           </div>
         </div>
@@ -155,16 +155,16 @@ export function ClientDetailPage() {
                 </div>
                 <div className={styles.detailItem}>
                   <span className={styles.detailLabel}>Address</span>
-                  <span className={styles.detailValue}>{client.address}</span>
+                  <span className={styles.detailValue}>{client.addressStreet}</span>
                 </div>
                 <div className={styles.detailItem}>
                   <span className={styles.detailLabel}>City, State ZIP</span>
-                  <span className={styles.detailValue}>{client.city}, {client.state} {client.zipCode}</span>
+                  <span className={styles.detailValue}>{client.addressCity}, {client.addressState} {client.addressZip}</span>
                 </div>
-                {client.billingContact && (
+                {client.clientInfo?.billingContact && (
                   <div className={styles.detailItem}>
                     <span className={styles.detailLabel}>Billing Contact</span>
-                    <span className={styles.detailValue}>{client.billingContact}</span>
+                    <span className={styles.detailValue}>{client.clientInfo.billingContact}</span>
                   </div>
                 )}
               </div>

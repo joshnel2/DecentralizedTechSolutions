@@ -1,0 +1,383 @@
+.recoveryBinPage {
+  padding: var(--spacing-xl);
+  max-width: 1200px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  margin-bottom: 2rem;
+}
+
+.headerIcon {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-lg);
+  background: rgba(239, 68, 68, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #EF4444;
+}
+
+.header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #FFFFFF;
+  margin-bottom: 0.375rem;
+}
+
+.header p {
+  color: #94A3B8;
+  font-size: 1rem;
+}
+
+.infoBanner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-md);
+  margin-bottom: 1.5rem;
+}
+
+.infoBanner svg {
+  color: #F59E0B;
+  flex-shrink: 0;
+}
+
+.infoBanner p {
+  color: #CBD5E1;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  flex: 1;
+  min-width: 250px;
+}
+
+.searchBox svg {
+  color: #64748B;
+}
+
+.searchBox input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.searchBox input::placeholder {
+  color: #64748B;
+}
+
+.filters {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.filterSelect {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  position: relative;
+}
+
+.filterSelect svg {
+  color: #64748B;
+}
+
+.filterSelect select {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding-right: 1.5rem;
+  outline: none;
+}
+
+.filterSelect svg:last-child {
+  position: absolute;
+  right: 0.75rem;
+  pointer-events: none;
+}
+
+.recoverSelectedBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--gold-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--bg-primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.recoverSelectedBtn:hover {
+  background: var(--gold-secondary);
+}
+
+.itemsList {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-primary);
+  overflow: hidden;
+}
+
+.listHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-tertiary);
+}
+
+.selectAll {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
+.selectAll input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--gold-primary);
+}
+
+.selectAll span {
+  color: #94A3B8;
+  font-size: 0.875rem;
+}
+
+.itemCount {
+  color: #64748B;
+  font-size: 0.875rem;
+}
+
+.item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.25rem;
+  border-bottom: 1px solid var(--border-primary);
+  transition: background 0.2s ease;
+}
+
+.item:last-child {
+  border-bottom: none;
+}
+
+.item:hover {
+  background: var(--bg-tertiary);
+}
+
+.checkbox {
+  padding-top: 0.125rem;
+}
+
+.checkbox input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--gold-primary);
+  cursor: pointer;
+}
+
+.itemIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.itemContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.itemName {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #FFFFFF;
+  margin-bottom: 0.375rem;
+}
+
+.typeBadge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 100px;
+}
+
+.itemDescription {
+  font-size: 0.85rem;
+  color: #94A3B8;
+  margin: 0 0 0.5rem 0;
+}
+
+.itemMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: #64748B;
+}
+
+.relatedTo {
+  color: var(--gold-primary);
+}
+
+.itemActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.recoverBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 1rem;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-sm);
+  color: #10B981;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.recoverBtn:hover:not(:disabled) {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: #10B981;
+}
+
+.recoverBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.deleteBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  color: #64748B;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.deleteBtn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #EF4444;
+  color: #EF4444;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  text-align: center;
+}
+
+.emptyState svg {
+  color: #64748B;
+  margin-bottom: 1.5rem;
+}
+
+.emptyState h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #FFFFFF;
+  margin-bottom: 0.5rem;
+}
+
+.emptyState p {
+  color: #94A3B8;
+  font-size: 0.9rem;
+  max-width: 400px;
+}
+
+@media (max-width: 768px) {
+  .recoveryBinPage {
+    padding: var(--spacing-lg);
+  }
+
+  .header {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .searchBox {
+    width: 100%;
+  }
+
+  .filters {
+    width: 100%;
+  }
+
+  .filterSelect {
+    flex: 1;
+  }
+
+  .item {
+    flex-wrap: wrap;
+  }
+
+  .itemActions {
+    width: 100%;
+    margin-top: 0.75rem;
+    padding-left: 58px;
+  }
+}

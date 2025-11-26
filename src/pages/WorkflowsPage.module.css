@@ -1,0 +1,58 @@
+.workflowsPage { padding: var(--spacing-xl); max-width: 1400px; }
+.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; }
+.headerLeft { display: flex; align-items: center; gap: 1rem; }
+.headerIcon { width: 56px; height: 56px; border-radius: var(--radius-lg); background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(234, 179, 8, 0.1)); display: flex; align-items: center; justify-content: center; color: #F59E0B; }
+.header h1 { font-size: 1.75rem; font-weight: 700; color: #FFFFFF; margin-bottom: 0.25rem; }
+.header p { color: #94A3B8; font-size: 0.95rem; }
+.primaryBtn { display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1.25rem; background: var(--gold-primary); border: none; border-radius: var(--radius-md); color: var(--bg-primary); font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+.statsBar { display: flex; gap: 2rem; margin-bottom: 2rem; padding: 1rem 1.5rem; background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: var(--radius-lg); }
+.stat { display: flex; align-items: center; gap: 0.5rem; color: #94A3B8; font-size: 0.9rem; }
+.stat svg { color: var(--gold-primary); }
+.workflowsGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 1.25rem; margin-bottom: 3rem; }
+.workflowCard { background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: var(--radius-lg); padding: 1.5rem; transition: all 0.2s; }
+.workflowCard:hover { border-color: rgba(212, 175, 55, 0.3); }
+.workflowCard.inactive { opacity: 0.6; }
+.workflowHeader { display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; }
+.workflowIcon { width: 40px; height: 40px; border-radius: var(--radius-md); background: rgba(245, 158, 11, 0.1); display: flex; align-items: center; justify-content: center; color: #F59E0B; }
+.workflowInfo { flex: 1; }
+.workflowInfo h3 { font-size: 1rem; font-weight: 600; color: #FFFFFF; margin: 0 0 0.25rem 0; }
+.category { font-size: 0.75rem; color: #64748B; }
+.toggleBtn { display: flex; align-items: center; gap: 0.375rem; padding: 0.375rem 0.75rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 100px; color: #EF4444; font-size: 0.75rem; cursor: pointer; }
+.toggleBtn.active { background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: #10B981; }
+.workflowDesc { font-size: 0.85rem; color: #94A3B8; line-height: 1.5; margin: 0 0 1rem 0; }
+.workflowMeta { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-primary); }
+.metaItem { display: flex; align-items: center; gap: 0.375rem; font-size: 0.8rem; color: #64748B; }
+.metaItem svg { color: #94A3B8; }
+.workflowActions { display: flex; gap: 0.5rem; }
+.actionBtn { display: flex; align-items: center; gap: 0.25rem; padding: 0.5rem 0.75rem; background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: var(--radius-sm); color: #94A3B8; font-size: 0.8rem; cursor: pointer; }
+.actionBtn:hover { color: var(--text-primary); border-color: var(--gold-primary); }
+.templatesSection { margin-top: 2rem; }
+.templatesSection h2 { font-size: 1.25rem; font-weight: 600; color: #FFFFFF; margin-bottom: 1.25rem; }
+.templatesGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; }
+.templateCard { background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: var(--radius-lg); padding: 1.5rem; text-align: center; transition: all 0.2s; }
+.templateCard:hover { border-color: rgba(212, 175, 55, 0.3); }
+.templateCard svg { color: var(--gold-primary); margin-bottom: 0.75rem; }
+.templateCard h4 { font-size: 0.95rem; font-weight: 600; color: #FFFFFF; margin: 0 0 0.5rem 0; }
+.templateCard p { font-size: 0.8rem; color: #94A3B8; margin: 0 0 1rem 0; }
+.useBtn { padding: 0.5rem 1rem; background: transparent; border: 1px solid var(--border-primary); border-radius: var(--radius-sm); color: var(--text-primary); font-size: 0.85rem; cursor: pointer; }
+.useBtn:hover { border-color: var(--gold-primary); background: rgba(212, 175, 55, 0.1); }
+.modalOverlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 2rem; }
+.modal { background: var(--bg-secondary); border-radius: var(--radius-lg); border: 1px solid var(--border-primary); width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; }
+.modalHeader { display: flex; align-items: center; justify-content: space-between; padding: 1.5rem; border-bottom: 1px solid var(--border-primary); }
+.modalHeader h2 { font-size: 1.25rem; font-weight: 600; color: #FFFFFF; }
+.closeBtn { background: transparent; border: none; color: #94A3B8; cursor: pointer; }
+.modalForm { padding: 1.5rem; }
+.formGroup { margin-bottom: 1.25rem; }
+.formGroup label { display: block; font-size: 0.875rem; font-weight: 500; color: #94A3B8; margin-bottom: 0.5rem; }
+.formGroup input, .formGroup textarea { width: 100%; padding: 0.75rem 1rem; background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: var(--radius-sm); color: var(--text-primary); font-size: 0.9rem; }
+.triggerGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+.triggerOption { display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1rem; background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: var(--radius-sm); color: #94A3B8; font-size: 0.85rem; cursor: pointer; text-align: left; }
+.triggerOption:hover { border-color: var(--gold-primary); color: var(--text-primary); }
+.actionsBuilder { display: flex; flex-direction: column; gap: 0.5rem; }
+.actionStep { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: var(--radius-sm); color: #E2E8F0; font-size: 0.9rem; }
+.stepNumber { width: 24px; height: 24px; border-radius: 50%; background: var(--gold-primary); color: var(--bg-primary); font-size: 0.75rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.addActionBtn { display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.75rem; background: transparent; border: 1px dashed var(--border-primary); border-radius: var(--radius-sm); color: #64748B; font-size: 0.9rem; cursor: pointer; }
+.addActionBtn:hover { border-color: var(--gold-primary); color: var(--gold-primary); }
+.modalActions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; }
+.cancelBtn { padding: 0.75rem 1.25rem; background: transparent; border: 1px solid var(--border-primary); border-radius: var(--radius-md); color: var(--text-primary); cursor: pointer; }
+@media (max-width: 768px) { .workflowsGrid { grid-template-columns: 1fr; } .triggerGrid { grid-template-columns: 1fr; } }
