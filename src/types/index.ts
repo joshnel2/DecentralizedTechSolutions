@@ -60,10 +60,10 @@ export interface FirmSettings {
   azureOpenAIEndpoint?: string
   azureOpenAIKey?: string
   azureOpenAIDeployment?: string
-  aiEnabled: boolean
-  defaultBillingIncrement: number
-  invoicePrefix: string
-  matterPrefix: string
+  aiEnabled?: boolean
+  defaultBillingIncrement?: number
+  invoicePrefix?: string
+  matterPrefix?: string
 }
 
 export interface Group {
