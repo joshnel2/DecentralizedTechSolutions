@@ -17,6 +17,7 @@ import { ReportsPage } from './pages/ReportsPage'
 import { DocumentsPage } from './pages/DocumentsPage'
 import { AIAssistantPage } from './pages/AIAssistantPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { SettingsHubPage } from './pages/SettingsHubPage'
 import { FirmSettingsPage } from './pages/FirmSettingsPage'
 import { FirmAdminPage } from './pages/FirmAdminPage'
 import { TeamPage } from './pages/TeamPage'
@@ -24,6 +25,13 @@ import { APIKeysPage } from './pages/APIKeysPage'
 import { IntegrationsPage } from './pages/IntegrationsPage'
 import { SecuritySettingsPage } from './pages/SecuritySettingsPage'
 import { FirmAnalyticsPage } from './pages/FirmAnalyticsPage'
+import { TrustAccountingPage } from './pages/TrustAccountingPage'
+import { RecoveryBinPage } from './pages/RecoveryBinPage'
+import { CustomFieldsPage } from './pages/CustomFieldsPage'
+import { CourtRulesPage } from './pages/CourtRulesPage'
+import { TextSnippetsPage } from './pages/TextSnippetsPage'
+import { DocumentAutomationPage } from './pages/DocumentAutomationPage'
+import { WorkflowsPage } from './pages/WorkflowsPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
@@ -76,13 +84,23 @@ export default function App() {
           {/* Analytics */}
           <Route path="analytics" element={<FirmAnalyticsPage />} />
           
-          {/* Settings */}
-          <Route path="settings" element={<SettingsPage />} />
+          {/* Settings Hub */}
+          <Route path="settings" element={<SettingsHubPage />} />
+          <Route path="settings/profile" element={<SettingsPage />} />
           <Route path="settings/security" element={<SecuritySettingsPage />} />
           <Route path="settings/firm" element={<FirmSettingsPage />} />
           <Route path="settings/team" element={<TeamPage />} />
           <Route path="settings/integrations" element={<IntegrationsPage />} />
           <Route path="settings/api-keys" element={<APIKeysPage />} />
+          <Route path="settings/custom-fields" element={<CustomFieldsPage />} />
+          <Route path="settings/recovery-bin" element={<RecoveryBinPage />} />
+          <Route path="settings/court-rules" element={<CourtRulesPage />} />
+          <Route path="settings/snippets" element={<TextSnippetsPage />} />
+          <Route path="settings/documents" element={<DocumentAutomationPage />} />
+          <Route path="settings/workflows" element={<WorkflowsPage />} />
+          
+          {/* Trust Accounting */}
+          <Route path="trust" element={<TrustAccountingPage />} />
           
           {/* Firm Administration */}
           <Route path="admin" element={<FirmAdminPage />} />

@@ -17,6 +17,7 @@ const navItems = [
   { path: '/app/clients', label: 'Clients', icon: Users },
   { path: '/app/calendar', label: 'Calendar', icon: Calendar },
   { path: '/app/billing', label: 'Billing', icon: DollarSign },
+  { path: '/app/trust', label: 'Trust/IOLTA', icon: Landmark },
   { path: '/app/time', label: 'Time Tracking', icon: Clock },
   { path: '/app/documents', label: 'Documents', icon: FolderOpen },
   { path: '/app/reports', label: 'Reports', icon: BarChart3 },
