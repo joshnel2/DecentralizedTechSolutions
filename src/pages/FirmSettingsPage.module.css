@@ -118,12 +118,14 @@
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+  line-height: 1.4;
 }
 
 .sectionHeader p {
   font-size: 0.85rem;
   color: var(--text-secondary);
+  line-height: 1.5;
 }
 
 .headerBtn {
@@ -172,7 +174,8 @@
   font-size: 0.85rem;
   font-weight: 500;
   color: var(--text-secondary);
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+  line-height: 1.4;
 }
 
 .formGroup input,
@@ -304,13 +307,15 @@
   font-size: 0.9rem;
   font-weight: 500;
   color: var(--text-primary);
-  margin-bottom: 2px;
+  margin-bottom: var(--spacing-xs);
+  line-height: 1.4;
 }
 
 .toggleDesc {
   display: block;
   font-size: 0.8rem;
   color: var(--text-tertiary);
+  line-height: 1.5;
 }
 
 .switch {
@@ -402,19 +407,23 @@
   display: block;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 2px;
+  margin-bottom: var(--spacing-xs);
+  line-height: 1.4;
 }
 
 .userTitle {
   display: block;
   font-size: 0.8rem;
   color: var(--text-secondary);
+  line-height: 1.4;
+  margin-bottom: 2px;
 }
 
 .userEmail {
   display: block;
   font-size: 0.75rem;
   color: var(--text-tertiary);
+  line-height: 1.4;
 }
 
 .userRole {
@@ -497,12 +506,13 @@
 .groupName {
   font-weight: 600;
   color: var(--text-primary);
+  line-height: 1.4;
 }
 
 .memberCount {
   font-size: 0.75rem;
   color: var(--text-tertiary);
-  padding: 2px 8px;
+  padding: 4px 10px;
   background: var(--bg-secondary);
   border-radius: var(--radius-full);
 }
@@ -510,7 +520,8 @@
 .groupDesc {
   font-size: 0.85rem;
   color: var(--text-secondary);
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  line-height: 1.5;
 }
 
 .groupMembers {
