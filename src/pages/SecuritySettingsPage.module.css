@@ -25,11 +25,13 @@
   font-size: 1.75rem;
   font-weight: 700;
   color: var(--text-primary);
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+  line-height: 1.3;
 }
 
 .header p {
   color: var(--text-secondary);
+  line-height: 1.5;
 }
 
 /* Security Score */
@@ -70,12 +72,14 @@
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+  line-height: 1.4;
 }
 
 .scoreInfo p {
   color: var(--text-secondary);
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  line-height: 1.5;
 }
 
 .scoreChecks {
@@ -172,12 +176,14 @@
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+  line-height: 1.4;
 }
 
 .sectionHeader p {
   font-size: 0.85rem;
   color: var(--text-secondary);
+  line-height: 1.5;
 }
 
 .sectionHeader > div:first-of-type + div {
@@ -232,12 +238,14 @@
 .methodInfo h4 {
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 2px;
+  margin-bottom: var(--spacing-xs);
+  line-height: 1.4;
 }
 
 .methodInfo p {
   font-size: 0.85rem;
   color: var(--text-tertiary);
+  line-height: 1.5;
 }
 
 .actions {
@@ -316,13 +324,15 @@
   display: block;
   font-weight: 500;
   color: var(--text-primary);
+  line-height: 1.4;
 }
 
 .methodOption small {
   display: block;
   font-size: 0.8rem;
   color: var(--text-tertiary);
-  margin-top: 2px;
+  margin-top: var(--spacing-xs);
+  line-height: 1.5;
 }
 
 .recommended {
@@ -383,7 +393,8 @@
   gap: var(--spacing-sm);
   font-weight: 500;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: var(--spacing-xs);
+  line-height: 1.4;
 }
 
 .currentBadge {
@@ -483,12 +494,14 @@
   font-weight: 500;
   color: var(--text-primary);
   text-transform: capitalize;
-  margin-bottom: 2px;
+  margin-bottom: var(--spacing-xs);
+  line-height: 1.4;
 }
 
 .activityMeta {
   font-size: 0.8rem;
   color: var(--text-tertiary);
+  line-height: 1.5;
 }
 
 /* Password Section */
@@ -505,7 +518,8 @@
   font-size: 0.85rem;
   font-weight: 500;
   color: var(--text-secondary);
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+  line-height: 1.4;
 }
 
 .formGroup input {
@@ -543,12 +557,14 @@
 .dangerItem h4 {
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: var(--spacing-xs);
+  line-height: 1.4;
 }
 
 .dangerItem p {
   font-size: 0.85rem;
   color: var(--text-tertiary);
+  line-height: 1.5;
 }
 
 /* Buttons */
