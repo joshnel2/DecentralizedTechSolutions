@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Briefcase, Users, Calendar, DollarSign, 
   Clock, BarChart3, Settings, LogOut, ChevronDown,
   Bell, Sparkles, Menu, X, FolderOpen, Shield, Key, UserCircle,
-  Building2, UsersRound
+  Building2, UsersRound, Link2, TrendingUp, Lock
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './Layout.module.css'
@@ -20,12 +20,15 @@ const navItems = [
   { path: '/app/time', label: 'Time Tracking', icon: Clock },
   { path: '/app/documents', label: 'Documents', icon: FolderOpen },
   { path: '/app/reports', label: 'Reports', icon: BarChart3 },
+  { path: '/app/analytics', label: 'Analytics', icon: TrendingUp },
 ]
 
 const settingsItems = [
   { path: '/app/settings', label: 'My Settings', icon: UserCircle },
+  { path: '/app/settings/security', label: 'Security', icon: Lock },
   { path: '/app/settings/firm', label: 'Firm Settings', icon: Building2 },
   { path: '/app/settings/team', label: 'Team & Groups', icon: UsersRound },
+  { path: '/app/settings/integrations', label: 'Integrations', icon: Link2 },
   { path: '/app/settings/api-keys', label: 'API Keys', icon: Key },
 ]
 
@@ -219,6 +222,10 @@ export function Layout() {
                     <button onClick={() => { navigate('/app/settings'); setUserMenuOpen(false) }}>
                       <UserCircle size={16} />
                       <span>My Settings</span>
+                    </button>
+                    <button onClick={() => { navigate('/app/settings/security'); setUserMenuOpen(false) }}>
+                      <Lock size={16} />
+                      <span>Security</span>
                     </button>
                     <button onClick={handleLogout} className={styles.logoutBtn}>
                       <LogOut size={16} />

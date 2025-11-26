@@ -20,6 +20,9 @@ import { SettingsPage } from './pages/SettingsPage'
 import { FirmSettingsPage } from './pages/FirmSettingsPage'
 import { TeamPage } from './pages/TeamPage'
 import { APIKeysPage } from './pages/APIKeysPage'
+import { IntegrationsPage } from './pages/IntegrationsPage'
+import { SecuritySettingsPage } from './pages/SecuritySettingsPage'
+import { FirmAnalyticsPage } from './pages/FirmAnalyticsPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
@@ -68,9 +71,16 @@ export default function App() {
           <Route path="reports" element={<ReportsPage />} />
           <Route path="documents" element={<DocumentsPage />} />
           <Route path="ai" element={<AIAssistantPage />} />
+          
+          {/* Analytics */}
+          <Route path="analytics" element={<FirmAnalyticsPage />} />
+          
+          {/* Settings */}
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="settings/security" element={<SecuritySettingsPage />} />
           <Route path="settings/firm" element={<FirmSettingsPage />} />
           <Route path="settings/team" element={<TeamPage />} />
+          <Route path="settings/integrations" element={<IntegrationsPage />} />
           <Route path="settings/api-keys" element={<APIKeysPage />} />
         </Route>
         
