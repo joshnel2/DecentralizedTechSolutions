@@ -707,6 +707,371 @@
   margin-bottom: var(--space-md);
 }
 
+/* Tab Actions */
+.tabActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.eventCardActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* Matter Stages/Workflow Section */
+.stagesSection {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xl);
+}
+
+.sectionHeader h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin: 0;
+}
+
+.stagesTracker {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  overflow-x: auto;
+  padding: var(--space-sm) 0;
+}
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0 var(--space-md);
+  position: relative;
+}
+
+.stageConnector {
+  width: 60px;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+.stage.completed .stageConnector,
+.stage.current .stageConnector {
+  background: var(--apex-gold);
+}
+
+.stageMarker {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--apex-slate);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  color: var(--apex-text);
+  margin-bottom: var(--space-sm);
+  transition: all var(--transition-fast);
+}
+
+.stage.completed .stageMarker {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: var(--apex-success);
+  color: var(--apex-success);
+}
+
+.stage.current .stageMarker {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: var(--apex-gold-bright);
+  color: var(--apex-gold-bright);
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.2);
+}
+
+.stage.upcoming .stageMarker {
+  opacity: 0.5;
+}
+
+.stageName {
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: center;
+  max-width: 80px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage.completed .stageName {
+  color: var(--apex-success);
+}
+
+.stage.current .stageName {
+  color: var(--apex-gold-bright);
+  font-weight: 600;
+}
+
+.stage.upcoming .stageName {
+  color: var(--apex-text);
+  opacity: 0.5;
+}
+
+/* Tasks Tab */
+.tasksTab {
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+.tasksSummary {
+  display: flex;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-xl);
+  padding: var(--space-lg);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+}
+
+.taskStat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+}
+
+.taskStatValue {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--apex-white);
+}
+
+.taskStatLabel {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.tasksList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.taskCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  transition: all var(--transition-fast);
+}
+
+.taskCard:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: translateX(4px);
+}
+
+.taskCard.completed {
+  opacity: 0.7;
+}
+
+.taskCheckbox {
+  color: var(--apex-text);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.taskCompleted {
+  color: var(--apex-success);
+}
+
+.taskContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.taskName {
+  display: block;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--apex-white);
+  margin-bottom: var(--space-xs);
+}
+
+.taskCard.completed .taskName {
+  text-decoration: line-through;
+  color: var(--apex-text);
+}
+
+.taskMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.taskAssignee,
+.taskDue {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
+.taskStatus {
+  flex-shrink: 0;
+}
+
+.taskStatusBadge {
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.taskStatusBadge.completed {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--apex-success);
+}
+
+.taskStatusBadge.in_progress {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3B82F6;
+}
+
+.taskStatusBadge.pending {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--apex-warning);
+}
+
+/* Contacts Tab */
+.contactsTab {
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+.contactsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-lg);
+}
+
+.contactCard {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  transition: all var(--transition-fast);
+}
+
+.contactCard:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+}
+
+.contactCard.clientCard {
+  border-color: rgba(245, 158, 11, 0.2);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, rgba(245, 158, 11, 0.02) 100%);
+}
+
+.contactCardHeader {
+  margin-bottom: var(--space-md);
+}
+
+.contactRole {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--apex-gold-bright);
+  padding: 4px 8px;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: var(--radius-sm);
+}
+
+.contactInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.contactAvatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--apex-midnight);
+  flex-shrink: 0;
+}
+
+.contactInfo > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.contactName {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--apex-white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+a.contactName:hover {
+  color: var(--apex-gold-bright);
+  text-decoration: underline;
+}
+
+.contactEmail {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contactFirm {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
+.contactDetail {
+  font-size: 0.8125rem;
+  color: var(--apex-light);
+  margin-top: var(--space-sm);
+}
+
+.contactDetail span {
+  color: var(--apex-text);
+  font-size: 0.75rem;
+}
+
 @media (max-width: 1024px) {
   .overviewGrid {
     grid-template-columns: 1fr;
@@ -714,6 +1079,20 @@
   
   .quickStats {
     flex-wrap: wrap;
+  }
+  
+  .stagesTracker {
+    justify-content: flex-start;
+    padding-bottom: var(--space-md);
+  }
+  
+  .tasksSummary {
+    flex-direction: column;
+    gap: var(--space-md);
+  }
+  
+  .contactsGrid {
+    grid-template-columns: 1fr;
   }
 }
 

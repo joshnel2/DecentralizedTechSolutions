@@ -42,16 +42,37 @@ export function FirmSetupPage() {
       email: formData.email,
       website: formData.website,
       timezone: formData.timezone,
-      billingRate: formData.billingRate,
-      currency: formData.currency,
+      billingDefaults: {
+        hourlyRate: formData.billingRate,
+        incrementMinutes: 6,
+        currency: formData.currency
+      },
+      azureOpenAI: formData.azureOpenAIEndpoint ? {
+        endpoint: formData.azureOpenAIEndpoint,
+        apiKey: formData.azureOpenAIKey || '',
+        deploymentName: formData.azureOpenAIDeployment || ''
+      } : undefined,
       settings: {
-        azureOpenAIEndpoint: formData.azureOpenAIEndpoint,
-        azureOpenAIKey: formData.azureOpenAIKey,
-        azureOpenAIDeployment: formData.azureOpenAIDeployment,
         aiEnabled: !!formData.azureOpenAIKey,
         defaultBillingIncrement: 6,
-        invoicePrefix: 'INV',
-        matterPrefix: 'MTR'
+        invoiceNumberPrefix: 'INV',
+        matterNumberPrefix: 'MTR',
+        autoGenerateMatterNumbers: true,
+        requireMatterBudget: false,
+        requireConflictCheck: true,
+        defaultPaymentTerms: 30,
+        lateFeeEnabled: false,
+        roundingMethod: 'nearest',
+        requireTimeDescription: true,
+        requireActivityCode: false,
+        allowFutureTimeEntries: false,
+        requireTrustReplenishment: false,
+        sessionTimeoutMinutes: 60,
+        requireMfa: false,
+        passwordMinLength: 8,
+        passwordRequireSpecial: false,
+        aiAutoSummarize: true,
+        aiConflictCheck: true
       }
     })
     
@@ -63,8 +84,11 @@ export function FirmSetupPage() {
       name: 'My Firm',
       email: user?.email || '',
       timezone: 'America/New_York',
-      billingRate: 350,
-      currency: 'USD'
+      billingDefaults: {
+        hourlyRate: 350,
+        incrementMinutes: 6,
+        currency: 'USD'
+      }
     })
     navigate('/app/dashboard')
   }

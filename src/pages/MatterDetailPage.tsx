@@ -5,12 +5,38 @@ import {
   Briefcase, Calendar, DollarSign, Clock, FileText,
   ChevronLeft, Sparkles, Edit2, MoreVertical, Plus,
   CheckCircle2, Scale, Building2, Brain, Loader2, 
-  Copy, RefreshCw, AlertTriangle, TrendingUp
+  Copy, RefreshCw, AlertTriangle, TrendingUp,
+  ListTodo, Users, Tag, ArrowRight, Circle
 } from 'lucide-react'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
 import { AIButton } from '../components/AIButton'
 import styles from './DetailPage.module.css'
+
+// Default stages for matter types
+const matterStages: Record<string, string[]> = {
+  litigation: ['Intake', 'Investigation', 'Pleadings', 'Discovery', 'Motions', 'Trial Prep', 'Trial', 'Post-Trial'],
+  personal_injury: ['Intake', 'Investigation', 'Medical Treatment', 'Demand', 'Negotiation', 'Litigation', 'Settlement'],
+  corporate: ['Engagement', 'Due Diligence', 'Negotiation', 'Documentation', 'Closing', 'Post-Closing'],
+  real_estate: ['Engagement', 'Title Review', 'Due Diligence', 'Negotiation', 'Documentation', 'Closing', 'Post-Closing'],
+  estate_planning: ['Consultation', 'Planning', 'Drafting', 'Review', 'Execution', 'Funding'],
+  default: ['Intake', 'Active', 'In Progress', 'Review', 'Closing']
+}
+
+// Demo tasks for matter
+const demoTasks = [
+  { id: '1', name: 'Review discovery responses', status: 'completed', dueDate: '2024-11-20', assignee: 'John Mitchell' },
+  { id: '2', name: 'Draft motion for summary judgment', status: 'in_progress', dueDate: '2024-11-28', assignee: 'John Mitchell' },
+  { id: '3', name: 'Schedule expert deposition', status: 'pending', dueDate: '2024-12-05', assignee: 'Sarah Chen' },
+  { id: '4', name: 'Prepare trial exhibits', status: 'pending', dueDate: '2024-12-15', assignee: 'Emily Davis' }
+]
+
+// Related contacts for matter
+const relatedContacts = [
+  { id: '1', name: 'Opposing Counsel', role: 'Opposing Counsel', firm: 'Baker & Associates', email: 'jbaker@bakerlaw.com' },
+  { id: '2', name: 'Expert Witness', role: 'Expert Witness', firm: 'Tech Consultants Inc.', email: 'expert@techconsult.com' },
+  { id: '3', name: 'Insurance Adjuster', role: 'Insurance', firm: 'ABC Insurance Co.', email: 'adjuster@abc.com' }
+]
 
 export function MatterDetailPage() {
   const { id } = useParams()
@@ -19,6 +45,7 @@ export function MatterDetailPage() {
   const [aiAnalyzing, setAiAnalyzing] = useState(false)
   const [aiSummary, setAiSummary] = useState<string | null>(null)
   const [showAiPanel, setShowAiPanel] = useState(false)
+  const [currentStage, setCurrentStage] = useState(2) // Default to 3rd stage for demo
 
   const matter = useMemo(() => matters.find(m => m.id === id), [matters, id])
   const client = useMemo(() => clients.find(c => c.id === matter?.clientId), [clients, matter])
@@ -163,14 +190,52 @@ export function MatterDetailPage() {
         </div>
       </div>
 
+      {/* Matter Stages/Workflow - Clio Style */}
+      <div className={styles.stagesContainer}>
+        <div className={styles.stagesHeader}>
+          <span>Matter Workflow</span>
+          <button className={styles.stagesEditBtn}><Edit2 size={14} /></button>
+        </div>
+        <div className={styles.stagesTrack}>
+          {(matterStages[matter.type] || matterStages.default).map((stage, index) => (
+            <div 
+              key={stage}
+              className={clsx(
+                styles.stageItem,
+                index < currentStage && styles.completed,
+                index === currentStage && styles.current,
+                index > currentStage && styles.upcoming
+              )}
+              onClick={() => setCurrentStage(index)}
+            >
+              <div className={styles.stageIndicator}>
+                {index < currentStage ? (
+                  <CheckCircle2 size={16} />
+                ) : index === currentStage ? (
+                  <Circle size={16} className={styles.currentCircle} />
+                ) : (
+                  <Circle size={16} />
+                )}
+              </div>
+              <span className={styles.stageName}>{stage}</span>
+              {index < (matterStages[matter.type] || matterStages.default).length - 1 && (
+                <ArrowRight size={14} className={styles.stageArrow} />
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Tabs */}
       <div className={styles.tabs}>
-        {['overview', 'time', 'billing', 'documents', 'calendar'].map(tab => (
+        {['overview', 'tasks', 'time', 'billing', 'documents', 'calendar', 'contacts'].map(tab => (
           <button
             key={tab}
             className={clsx(styles.tab, activeTab === tab && styles.active)}
             onClick={() => setActiveTab(tab)}
           >
+            {tab === 'tasks' && <ListTodo size={16} />}
+            {tab === 'contacts' && <Users size={16} />}
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
@@ -681,6 +746,143 @@ export function MatterDetailPage() {
                   <p>No events scheduled</p>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Tasks Tab - Clio Style */}
+        {activeTab === 'tasks' && (
+          <div className={styles.tasksTab}>
+            <div className={styles.tabHeader}>
+              <h2>Tasks</h2>
+              <div className={styles.tabActions}>
+                <AIButton 
+                  context="Matter Tasks"
+                  label="AI Prioritize"
+                  prompts={[
+                    { label: 'Prioritize', prompt: 'Prioritize tasks' },
+                    { label: 'Timeline', prompt: 'Create timeline' },
+                    { label: 'Workload', prompt: 'Analyze workload' }
+                  ]}
+                />
+                <button className={styles.primaryBtn}>
+                  <Plus size={18} />
+                  Add Task
+                </button>
+              </div>
+            </div>
+            
+            <div className={styles.tasksSummary}>
+              <div className={styles.taskStat}>
+                <span className={styles.taskStatValue}>{demoTasks.filter(t => t.status === 'completed').length}</span>
+                <span className={styles.taskStatLabel}>Completed</span>
+              </div>
+              <div className={styles.taskStat}>
+                <span className={styles.taskStatValue}>{demoTasks.filter(t => t.status === 'in_progress').length}</span>
+                <span className={styles.taskStatLabel}>In Progress</span>
+              </div>
+              <div className={styles.taskStat}>
+                <span className={styles.taskStatValue}>{demoTasks.filter(t => t.status === 'pending').length}</span>
+                <span className={styles.taskStatLabel}>Pending</span>
+              </div>
+            </div>
+
+            <div className={styles.tasksList}>
+              {demoTasks.map(task => (
+                <div key={task.id} className={clsx(styles.taskCard, styles[task.status])}>
+                  <div className={styles.taskCheckbox}>
+                    {task.status === 'completed' ? (
+                      <CheckCircle2 size={20} className={styles.taskCompleted} />
+                    ) : (
+                      <Circle size={20} />
+                    )}
+                  </div>
+                  <div className={styles.taskContent}>
+                    <span className={styles.taskName}>{task.name}</span>
+                    <div className={styles.taskMeta}>
+                      <span className={styles.taskAssignee}>
+                        <Users size={12} />
+                        {task.assignee}
+                      </span>
+                      <span className={styles.taskDue}>
+                        <Calendar size={12} />
+                        Due: {format(parseISO(task.dueDate), 'MMM d, yyyy')}
+                      </span>
+                    </div>
+                  </div>
+                  <div className={styles.taskStatus}>
+                    <span className={clsx(styles.taskStatusBadge, styles[task.status])}>
+                      {task.status.replace('_', ' ')}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Contacts Tab - Clio Style */}
+        {activeTab === 'contacts' && (
+          <div className={styles.contactsTab}>
+            <div className={styles.tabHeader}>
+              <h2>Related Contacts</h2>
+              <div className={styles.tabActions}>
+                <button className={styles.primaryBtn}>
+                  <Plus size={18} />
+                  Add Contact
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.contactsGrid}>
+              {/* Client Info Card */}
+              <div className={clsx(styles.contactCard, styles.clientCard)}>
+                <div className={styles.contactCardHeader}>
+                  <span className={styles.contactRole}>Client</span>
+                </div>
+                <div className={styles.contactInfo}>
+                  <div className={styles.contactAvatar}>
+                    {client?.name?.[0]}
+                  </div>
+                  <div>
+                    <Link to={`/app/clients/${client?.id}`} className={styles.contactName}>
+                      {client?.name}
+                    </Link>
+                    <span className={styles.contactEmail}>{client?.email}</span>
+                  </div>
+                </div>
+                {client?.phone && (
+                  <div className={styles.contactDetail}>
+                    <span>Phone:</span> {client.phone}
+                  </div>
+                )}
+                {client?.addressStreet && (
+                  <div className={styles.contactDetail}>
+                    <span>Address:</span> {client.addressStreet}
+                  </div>
+                )}
+              </div>
+
+              {/* Related Contacts */}
+              {relatedContacts.map(contact => (
+                <div key={contact.id} className={styles.contactCard}>
+                  <div className={styles.contactCardHeader}>
+                    <span className={styles.contactRole}>{contact.role}</span>
+                  </div>
+                  <div className={styles.contactInfo}>
+                    <div className={styles.contactAvatar}>
+                      {contact.name[0]}
+                    </div>
+                    <div>
+                      <span className={styles.contactName}>{contact.name}</span>
+                      <span className={styles.contactFirm}>{contact.firm}</span>
+                    </div>
+                  </div>
+                  <div className={styles.contactDetail}>
+                    <span>Email:</span> {contact.email}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}

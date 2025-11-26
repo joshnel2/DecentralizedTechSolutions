@@ -78,7 +78,10 @@ export function TimeTrackingPage() {
           billable: true,
           billed: false,
           rate: matter?.billingRate || 450,
-          aiGenerated: false
+          aiGenerated: false,
+          status: 'pending',
+          entryType: 'timer',
+          updatedAt: new Date().toISOString()
         })
       }
       setActiveTimer(null)

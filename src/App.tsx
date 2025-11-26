@@ -18,6 +18,7 @@ import { DocumentsPage } from './pages/DocumentsPage'
 import { AIAssistantPage } from './pages/AIAssistantPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { FirmSettingsPage } from './pages/FirmSettingsPage'
+import { FirmAdminPage } from './pages/FirmAdminPage'
 import { TeamPage } from './pages/TeamPage'
 import { APIKeysPage } from './pages/APIKeysPage'
 import { IntegrationsPage } from './pages/IntegrationsPage'
@@ -82,6 +83,9 @@ export default function App() {
           <Route path="settings/team" element={<TeamPage />} />
           <Route path="settings/integrations" element={<IntegrationsPage />} />
           <Route path="settings/api-keys" element={<APIKeysPage />} />
+          
+          {/* Firm Administration */}
+          <Route path="admin" element={<FirmAdminPage />} />
         </Route>
         
         {/* Catch all */}
