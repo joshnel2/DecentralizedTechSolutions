@@ -1,0 +1,435 @@
+.layout {
+  display: flex;
+  min-height: 100vh;
+  background: var(--apex-midnight);
+}
+
+/* Sidebar */
+.sidebar {
+  width: 260px;
+  background: linear-gradient(180deg, var(--apex-deep) 0%, var(--apex-midnight) 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  transition: width var(--transition-base);
+  position: relative;
+  z-index: 100;
+}
+
+.sidebar.collapsed {
+  width: 72px;
+}
+
+.sidebarHeader {
+  padding: var(--space-lg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.logoIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logoText {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  color: var(--apex-white);
+  letter-spacing: -0.02em;
+}
+
+.toggleBtn {
+  background: none;
+  border: none;
+  color: var(--apex-text);
+  cursor: pointer;
+  padding: var(--space-xs);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.toggleBtn:hover {
+  background: var(--apex-slate);
+  color: var(--apex-white);
+}
+
+/* Navigation */
+.nav {
+  flex: 1;
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  overflow-y: auto;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  text-decoration: none;
+  transition: all var(--transition-fast);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  border: none;
+  background: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+
+.navItem:hover {
+  background: var(--apex-slate);
+  color: var(--apex-light);
+}
+
+.navItem.active {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(245, 158, 11, 0.05) 100%);
+  color: var(--apex-gold-bright);
+  border-left: 2px solid var(--apex-gold);
+  margin-left: -2px;
+}
+
+.aiNav {
+  margin-top: var(--space-sm);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(139, 92, 246, 0.05) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.aiNav:hover {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(139, 92, 246, 0.1) 100%);
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+.aiNav.active {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25) 0%, rgba(139, 92, 246, 0.1) 100%);
+  color: #A78BFA;
+  border-color: rgba(139, 92, 246, 0.4);
+  border-left: 2px solid var(--apex-ai);
+}
+
+.navDivider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.05);
+  margin: var(--space-md) 0;
+}
+
+.settingsSection {
+  display: flex;
+  flex-direction: column;
+}
+
+.chevron {
+  margin-left: auto;
+  transition: transform var(--transition-fast);
+}
+
+.chevron.rotated {
+  transform: rotate(180deg);
+}
+
+.settingsSubmenu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: var(--space-lg);
+  margin-top: var(--space-xs);
+}
+
+.subNavItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  color: var(--apex-subtle);
+  text-decoration: none;
+  font-size: 0.875rem;
+  transition: all var(--transition-fast);
+}
+
+.subNavItem:hover {
+  color: var(--apex-light);
+  background: var(--apex-slate);
+}
+
+.subNavItem.active {
+  color: var(--apex-gold-bright);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.sidebarFooter {
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.firmInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--apex-subtle);
+  font-size: 0.75rem;
+}
+
+/* Main Content Area */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Header */
+.header {
+  height: 64px;
+  padding: 0 var(--space-xl);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+}
+
+.pageTitle {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: var(--apex-white);
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.headerDropdown {
+  position: relative;
+}
+
+.iconBtn {
+  background: none;
+  border: none;
+  color: var(--apex-text);
+  cursor: pointer;
+  padding: var(--space-sm);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.iconBtn:hover {
+  background: var(--apex-slate);
+  color: var(--apex-white);
+}
+
+.badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: var(--apex-error);
+  color: white;
+  font-size: 0.625rem;
+  font-weight: 600;
+  min-width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.userBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  color: var(--apex-light);
+}
+
+.userBtn:hover {
+  background: var(--apex-muted);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  color: var(--apex-midnight);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+.userName {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* Dropdown */
+.dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 280px;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: fadeIn var(--transition-fast) ease;
+  overflow: hidden;
+}
+
+.dropdownHeader {
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dropdownHeader span {
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.dropdownHeader p {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  margin-top: 2px;
+}
+
+.dropdownHeader strong {
+  color: var(--apex-white);
+}
+
+.unreadBadge {
+  font-size: 0.75rem;
+  color: var(--apex-gold-bright);
+  background: rgba(245, 158, 11, 0.1);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.dropdownContent {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.dropdownContent button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: none;
+  border: none;
+  color: var(--apex-light);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  font-size: 0.875rem;
+}
+
+.dropdownContent button:hover {
+  background: var(--apex-slate);
+}
+
+.logoutBtn {
+  color: var(--apex-error) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Notification Items */
+.notifItem {
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.notifItem:hover {
+  background: var(--apex-slate);
+}
+
+.notifItem.unread {
+  background: rgba(245, 158, 11, 0.05);
+}
+
+.notifIcon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: var(--apex-slate);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apex-gold-bright);
+  flex-shrink: 0;
+}
+
+.notifContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.notifContent strong {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--apex-white);
+  margin-bottom: 2px;
+}
+
+.notifContent p {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Main Content */
+.content {
+  flex: 1;
+  padding: var(--space-xl);
+  overflow-y: auto;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}

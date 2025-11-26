@@ -1,0 +1,400 @@
+.teamPage {
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: var(--space-2xl);
+}
+
+.headerLeft h1 {
+  font-family: var(--font-serif);
+  font-size: 1.75rem;
+  font-weight: 400;
+  color: var(--apex-white);
+  margin-bottom: var(--space-sm);
+}
+
+.headerLeft p {
+  color: var(--apex-text);
+}
+
+.headerActions {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.primaryBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.secondaryBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  font-weight: 500;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.section {
+  margin-bottom: var(--space-2xl);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-lg);
+}
+
+.sectionHeader h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.count {
+  font-size: 0.875rem;
+  color: var(--apex-text);
+}
+
+/* Members Grid */
+.membersGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-lg);
+}
+
+.memberCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  transition: all var(--transition-fast);
+}
+
+.memberCard:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.memberAvatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  color: var(--apex-midnight);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.memberInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.memberInfo h3 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: 2px;
+}
+
+.memberInfo p {
+  font-size: 0.8125rem;
+  color: var(--apex-text);
+  margin-bottom: var(--space-sm);
+}
+
+.roleBadge {
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.roleBadge.owner {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--apex-gold-bright);
+}
+
+.roleBadge.admin {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--apex-error);
+}
+
+.roleBadge.attorney {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3B82F6;
+}
+
+.roleBadge.paralegal {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--apex-success);
+}
+
+.roleBadge.staff {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--apex-text);
+}
+
+.menuBtn {
+  background: none;
+  border: none;
+  padding: var(--space-xs);
+  color: var(--apex-text);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.menuBtn:hover {
+  background: var(--apex-slate);
+  color: var(--apex-white);
+}
+
+/* Groups Grid */
+.groupsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-lg);
+}
+
+.groupCard {
+  padding: var(--space-lg);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-left: 3px solid;
+  border-radius: var(--radius-lg);
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.groupColor {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.groupHeader h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.groupDesc {
+  font-size: 0.875rem;
+  color: var(--apex-text);
+  margin-bottom: var(--space-md);
+}
+
+.groupMeta {
+  display: flex;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-md);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.memberCount,
+.permCount {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.groupActions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.groupActions button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  background: var(--apex-slate);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.groupActions button:hover {
+  background: var(--apex-muted);
+  color: var(--apex-white);
+}
+
+.deleteBtn:hover {
+  background: rgba(239, 68, 68, 0.1) !important;
+  color: var(--apex-error) !important;
+}
+
+/* Modal */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  width: 100%;
+  max-width: 480px;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg) var(--space-xl);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.modalHeader h2 {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: var(--apex-white);
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--apex-text);
+  cursor: pointer;
+}
+
+.modalForm {
+  padding: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.formGroup label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--apex-light);
+}
+
+.formGroup input,
+.formGroup select,
+.formGroup textarea {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  font-family: inherit;
+}
+
+.formGroup input:focus,
+.formGroup select:focus,
+.formGroup textarea:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+}
+
+.colorPicker {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.colorOption {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.colorOption.selected {
+  border-color: var(--apex-white);
+  transform: scale(1.1);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.cancelBtn {
+  padding: var(--space-sm) var(--space-lg);
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.saveBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

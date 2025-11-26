@@ -1,0 +1,549 @@
+.calendarPage {
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-xl);
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xl);
+}
+
+.header h1 {
+  font-family: var(--font-serif);
+  font-size: 1.75rem;
+  font-weight: 400;
+  color: var(--apex-white);
+}
+
+.monthNav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.monthNav button {
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.monthNav button:hover {
+  background: var(--apex-muted);
+  color: var(--apex-white);
+}
+
+.currentMonth {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  min-width: 180px;
+  text-align: center;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.viewToggle {
+  display: flex;
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  padding: 4px;
+}
+
+.viewToggle button {
+  padding: var(--space-sm) var(--space-md);
+  background: none;
+  border: none;
+  color: var(--apex-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.viewToggle button:hover {
+  color: var(--apex-light);
+}
+
+.viewToggle button.active {
+  background: var(--apex-gold);
+  color: var(--apex-midnight);
+  font-weight: 600;
+}
+
+.primaryBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.primaryBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+/* Calendar Layout */
+.calendarLayout {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: var(--space-lg);
+}
+
+.calendarMain {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-xl);
+  padding: var(--space-lg);
+}
+
+.calendarGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.weekDay {
+  padding: var(--space-md);
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--apex-text);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--apex-slate);
+}
+
+.calendarDay {
+  min-height: 100px;
+  padding: var(--space-sm);
+  background: var(--apex-deep);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.calendarDay:hover {
+  background: var(--apex-slate);
+}
+
+.calendarDay.otherMonth {
+  opacity: 0.4;
+}
+
+.calendarDay.today .dayNumber {
+  background: var(--apex-gold);
+  color: var(--apex-midnight);
+  border-radius: var(--radius-full);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.calendarDay.selected {
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.dayNumber {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--apex-light);
+  margin-bottom: var(--space-xs);
+}
+
+.dayEvents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.eventDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.moreEvents {
+  font-size: 0.625rem;
+  color: var(--apex-text);
+}
+
+/* Sidebar */
+.sidebar {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-xl);
+  padding: var(--space-lg);
+}
+
+.selectedDatePanel h3,
+.upcomingPanel h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: var(--space-lg);
+}
+
+.selectedEvents {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.eventCard {
+  background: var(--apex-slate);
+  border-left: 3px solid;
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+}
+
+.eventTime {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  margin-bottom: var(--space-xs);
+}
+
+.eventCard h4 {
+  font-size: 0.9375rem;
+  color: var(--apex-white);
+  margin-bottom: var(--space-xs);
+}
+
+.eventCard p {
+  font-size: 0.8125rem;
+  color: var(--apex-text);
+  margin-bottom: var(--space-sm);
+}
+
+.eventLocation {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.eventMatter {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.75rem;
+  color: var(--apex-gold-bright);
+}
+
+.noEvents {
+  text-align: center;
+  padding: var(--space-xl);
+  color: var(--apex-subtle);
+}
+
+.noEvents svg {
+  opacity: 0.3;
+  margin-bottom: var(--space-md);
+}
+
+.noEvents p {
+  margin-bottom: var(--space-md);
+}
+
+.noEvents button {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-gold-bright);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+/* Upcoming List */
+.upcomingList {
+  display: flex;
+  flex-direction: column;
+}
+
+.upcomingItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.upcomingItem:hover {
+  background: var(--apex-slate);
+  margin: 0 calc(var(--space-md) * -1);
+  padding-left: var(--space-md);
+  padding-right: var(--space-md);
+  border-radius: var(--radius-md);
+}
+
+.upcomingItem:last-child {
+  border-bottom: none;
+}
+
+.upcomingDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.upcomingContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.upcomingTitle {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--apex-white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.upcomingDate {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
+.eventType {
+  padding: 4px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: var(--apex-slate);
+  color: var(--apex-text);
+  flex-shrink: 0;
+}
+
+.eventType.deadline {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--apex-error);
+}
+
+.eventType.court_date {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--apex-error);
+}
+
+.eventType.meeting {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3B82F6;
+}
+
+/* Modal */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn var(--transition-fast) ease;
+}
+
+.modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  animation: slideUp var(--transition-base) ease;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg) var(--space-xl);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.modalHeader h2 {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: var(--apex-white);
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--apex-text);
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+
+.modalForm {
+  padding: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  overflow-y: auto;
+  max-height: calc(90vh - 140px);
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.formGroup label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--apex-light);
+}
+
+.formGroup input,
+.formGroup select,
+.formGroup textarea {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  font-family: inherit;
+}
+
+.formGroup input:focus,
+.formGroup select:focus,
+.formGroup textarea:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-lg);
+}
+
+.colorPicker {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.colorOption {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.colorOption.selected {
+  border-color: var(--apex-white);
+  transform: scale(1.1);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.cancelBtn {
+  padding: var(--space-sm) var(--space-lg);
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.cancelBtn:hover {
+  background: var(--apex-slate);
+  color: var(--apex-light);
+}
+
+.saveBtn {
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.saveBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+@media (max-width: 1024px) {
+  .calendarLayout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { 
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

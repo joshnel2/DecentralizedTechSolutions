@@ -1,100 +1,111 @@
-# ⚡ InvoiceForge
+# Apex - AI-Native Legal Practice Management
 
-**Professional Invoice Generator** — Create beautiful invoices instantly for $2.99 per download.
+<p align="center">
+  <img src="public/favicon.svg" width="80" height="80" alt="Apex Logo" />
+</p>
 
-## 💰 Revenue Model
+Apex is a modern, AI-native legal practice management platform designed for forward-thinking law firms. Built with React, TypeScript, and Azure OpenAI integration, it provides comprehensive tools for managing matters, clients, billing, and more.
 
-- **Price**: $2.99 per invoice PDF download
-- **Payment**: Stripe Checkout (supports all major cards, Apple Pay, Google Pay)
-- **No subscription required** — Pay only when you download
-- **Zero data stored** — All invoice data stays in user's browser
+## ✨ Features
 
-## 🚀 Features
+### Core Practice Management
+- **Matters Management** - Track cases, litigation, corporate work, and more with rich metadata
+- **Client Management** - Comprehensive client profiles for individuals and organizations
+- **Calendar & Scheduling** - Deadlines, court dates, meetings, and reminders
+- **Time Tracking** - Quick timers, manual entry, and AI-powered suggestions
+- **Billing & Invoicing** - Hourly, flat fee, contingency, and retainer billing
+- **Document Management** - File storage with AI-powered summaries
 
-- Beautiful, professional invoice templates
-- Live preview as you type
-- PDF generation (client-side with jsPDF)
-- Multi-currency support (USD, EUR, GBP, CAD, AUD)
-- Tax and discount calculations
-- Data persistence in localStorage
-- Mobile-responsive design
-- No signup required
+### AI-Native Features
+- **AI Assistant** - Chat-based interface for legal research, drafting, and analysis
+- **Azure OpenAI Integration** - Secure, enterprise-grade AI capabilities
+- **Document Analysis** - Automatic summarization and key point extraction
+- **Time Entry Suggestions** - AI-generated billable time recommendations
+- **Matter Insights** - Intelligent case analysis and risk assessment
 
-## 💳 Setting Up Stripe (Production)
+### Administration
+- **Team & Groups** - User management with role-based permissions
+- **Firm Settings** - Configure billing rates, prefixes, and preferences
+- **API Keys** - Secure integrations with external systems
+- **Audit Logging** - Track all platform activity
 
-1. Create a Stripe account at https://stripe.com
-2. Get your publishable key from the Stripe Dashboard
-3. Update `CONFIG.stripePublishableKey` in `src/app.js`
-4. Set `CONFIG.demoMode` to `false`
-5. Create a backend endpoint `/api/create-checkout-session` that:
-   - Creates a Stripe Checkout session with the product price
-   - Returns the session ID to redirect the user
+## 🚀 Getting Started
 
-Example backend (Node.js):
+### Prerequisites
+- Node.js 18+
+- npm or yarn
 
-```javascript
-const stripe = require('stripe')('sk_live_YOUR_SECRET_KEY');
-
-app.post('/api/create-checkout-session', async (req, res) => {
-  const session = await stripe.checkout.sessions.create({
-    payment_method_types: ['card'],
-    line_items: [{
-      price_data: {
-        currency: 'usd',
-        product_data: {
-          name: 'Professional Invoice PDF',
-        },
-        unit_amount: 299, // $2.99 in cents
-      },
-      quantity: 1,
-    }],
-    mode: 'payment',
-    success_url: 'https://yourdomain.com/?payment=success',
-    cancel_url: 'https://yourdomain.com/',
-  });
-  
-  res.json({ id: session.id });
-});
-```
-
-## 🛠️ Development
+### Installation
 
 ```bash
+# Clone the repository
+git clone <repository-url>
+
 # Install dependencies
 npm install
 
-# Run development server
+# Start development server
 npm run dev
-
-# Build for production
-npm run build
-
-# Preview production build
-npm run preview
 ```
 
-## 📈 Marketing Tips
+### Demo Account
+Use these credentials to explore the platform:
+- **Email:** admin@apex.law
+- **Password:** apex2024
 
-1. **SEO Keywords**: "free invoice generator", "invoice maker", "create invoice online"
-2. **Target Audience**: Freelancers, small businesses, contractors
-3. **Value Proposition**: No signup, no subscription, professional quality
-4. **Conversion Optimization**: 
-   - Users create invoices for FREE
-   - Only pay when they want to download
-   - Low price point ($2.99) reduces friction
+## 🛠️ Technology Stack
+
+- **Frontend:** React 18, TypeScript, React Router
+- **State Management:** Zustand
+- **Styling:** CSS Modules with CSS Variables
+- **Charts:** Recharts
+- **Icons:** Lucide React
+- **Date Handling:** date-fns
+- **Build Tool:** Vite
 
 ## 📁 Project Structure
 
 ```
-├── index.html          # Main HTML file
-├── src/
-│   ├── app.js         # JavaScript application logic
-│   └── style.scss     # Styles (compiled by Vite)
-├── assets/
-│   └── favicon.svg    # App icon
-└── package.json       # Dependencies
+src/
+├── components/       # Reusable UI components
+├── pages/           # Page components
+├── stores/          # Zustand state stores
+├── styles/          # Global styles
+└── types/           # TypeScript type definitions
 ```
+
+## 🎨 Design System
+
+Apex uses a distinctive midnight & gold color palette with:
+- **Font Families:** Instrument Serif (headings), DM Sans (body), JetBrains Mono (code)
+- **Dark Theme:** Optimized for long working sessions
+- **AI Accent:** Purple tones for AI-related features
+
+### Key CSS Variables
+```css
+--apex-gold: #D97706;
+--apex-deep: #0F172A;
+--apex-ai: #8B5CF6;
+```
+
+## 🔧 Configuration
+
+### Azure OpenAI Setup
+
+1. Navigate to Settings > Firm Settings
+2. Enter your Azure OpenAI credentials:
+   - Endpoint URL
+   - API Key
+   - Deployment Name
 
 ## 📄 License
 
-MIT — Use this to make money!
+This project is proprietary software for Apex Legal Technologies.
+
+## 🤝 Support
+
+For support, please contact support@apex.law
+
+---
+
+Built with ❤️ for modern law firms
