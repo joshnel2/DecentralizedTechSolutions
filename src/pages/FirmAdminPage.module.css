@@ -34,12 +34,12 @@
   font-family: 'Instrument Serif', Georgia, serif;
   font-size: 2rem;
   font-weight: 500;
-  color: var(--apex-text);
+  color: #FFFFFF;
   margin-bottom: 0.25rem;
 }
 
 .headerLeft p {
-  color: var(--apex-muted);
+  color: #94A3B8;
   font-size: 0.9rem;
 }
 
@@ -220,7 +220,7 @@
   text-align: left;
   padding: 1rem 1.25rem;
   background: rgba(0, 0, 0, 0.2);
-  color: var(--apex-muted);
+  color: #94A3B8;
   font-size: 0.8rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -230,7 +230,7 @@
 .table td {
   padding: 1rem 1.25rem;
   border-top: 1px solid rgba(255, 255, 255, 0.04);
-  color: var(--apex-text);
+  color: #E2E8F0;
 }
 
 .table tbody tr:hover {
@@ -265,12 +265,12 @@
 
 .userName {
   font-weight: 500;
-  color: var(--apex-text);
+  color: #FFFFFF;
 }
 
 .userEmail {
   font-size: 0.85rem;
-  color: var(--apex-muted);
+  color: #94A3B8;
 }
 
 /* Badges */
@@ -315,20 +315,20 @@
 
 .groupTag {
   padding: 0.2rem 0.5rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 4px;
   font-size: 0.75rem;
-  color: var(--apex-muted);
+  color: #CBD5E1;
 }
 
 .moreGroups {
-  color: var(--apex-muted);
+  color: #94A3B8;
   font-size: 0.75rem;
 }
 
 .lastActive {
-  color: var(--apex-muted);
+  color: #94A3B8;
   font-size: 0.85rem;
 }
 
@@ -444,12 +444,12 @@
 .columnHeader h3 {
   font-size: 1.1rem;
   font-weight: 600;
-  color: var(--apex-text);
+  color: #FFFFFF;
 }
 
 .hint {
   font-size: 0.8rem;
-  color: var(--apex-muted);
+  color: #94A3B8;
 }
 
 /* Groups List */
@@ -492,17 +492,17 @@
 
 .groupName {
   font-weight: 600;
-  color: var(--apex-text);
+  color: #FFFFFF;
 }
 
 .memberCount {
   font-size: 0.8rem;
-  color: var(--apex-muted);
+  color: #94A3B8;
 }
 
 .groupDesc {
   font-size: 0.85rem;
-  color: var(--apex-muted);
+  color: #CBD5E1;
   margin-bottom: 0.75rem;
 }
 
@@ -514,10 +514,10 @@
 
 .permTag {
   padding: 0.15rem 0.5rem;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 4px;
   font-size: 0.75rem;
-  color: var(--apex-muted);
+  color: #CBD5E1;
   text-transform: capitalize;
 }
 
