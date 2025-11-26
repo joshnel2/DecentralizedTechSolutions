@@ -1,5 +1,5 @@
 .integrationsPage {
-  padding: var(--spacing-lg);
+  padding: var(--spacing-xl);
   max-width: 1400px;
 }
 
@@ -26,18 +26,20 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: 2rem;
 }
 
 .headerLeft h1 {
-  font-size: 1.75rem;
+  font-size: 1.875rem;
   font-weight: 700;
   color: var(--text-primary);
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: 0.625rem;
 }
 
 .headerLeft p {
   color: var(--text-secondary);
+  font-size: 1rem;
+  line-height: 1.6;
 }
 
 .headerStats {
@@ -90,15 +92,16 @@
 }
 
 .bannerContent h3 {
-  font-size: 1rem;
+  font-size: 1.1rem;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: 0.5rem;
 }
 
 .bannerContent p {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: var(--text-secondary);
+  line-height: 1.6;
 }
 
 .bannerBadges {
@@ -194,14 +197,14 @@
 }
 
 .integrationInfo h3 {
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: 0.375rem;
 }
 
 .categoryTag {
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -220,10 +223,10 @@
 }
 
 .integrationDesc {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: var(--text-secondary);
-  margin-bottom: var(--spacing-md);
-  line-height: 1.5;
+  margin-bottom: 1.25rem;
+  line-height: 1.6;
 }
 
 .connectedInfo {
@@ -237,7 +240,7 @@
 }
 
 .accountInfo {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   font-weight: 500;
   color: var(--text-primary);
 }
@@ -245,8 +248,8 @@
 .lastSync {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 0.75rem;
+  gap: 6px;
+  font-size: 0.8rem;
   color: var(--text-tertiary);
 }
 
@@ -368,10 +371,10 @@
 }
 
 .dataFlowCard h4 {
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: 0.875rem;
 }
 
 .dataFlowCard ul {
@@ -381,10 +384,11 @@
 }
 
 .dataFlowCard li {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: var(--text-secondary);
-  padding: var(--spacing-xs) 0;
+  padding: 0.625rem 0;
   border-bottom: 1px solid var(--border-primary);
+  line-height: 1.5;
 }
 
 .dataFlowCard li:last-child {
@@ -410,11 +414,13 @@
   font-size: 1.25rem;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: 0.5rem;
 }
 
 .apiHeader p {
   color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.6;
 }
 
 .apiDocsBtn {

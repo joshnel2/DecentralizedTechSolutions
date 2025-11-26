@@ -98,9 +98,17 @@ export function AIAssistantPage() {
     createConversation()
   }
 
-  const handleModelSelect = (model: AIModel) => {
+  const handleModelSelect = (model: AIModel, initialMessage?: string) => {
     setSelectedModel(model)
-    createConversation()
+    const newConv = createConversation()
+    if (initialMessage) {
+      setInput(initialMessage)
+      // Auto-send the message after a short delay to allow state to update
+      setTimeout(() => {
+        generateResponse(newConv.id, initialMessage)
+        setInput('')
+      }, 100)
+    }
   }
 
   return (
@@ -302,21 +310,21 @@ export function AIAssistantPage() {
                 <div className={styles.quickStart}>
                   <h4>Quick Start</h4>
                   <div className={styles.suggestions}>
-                    <button onClick={() => { handleModelSelect('standard'); setTimeout(() => setInput('Research case law on patent infringement'), 100) }}>
+                    <button onClick={() => handleModelSelect('standard', 'Research case law on patent infringement')}>
                       <Scale size={16} />
                       Research case law on patent infringement
                     </button>
-                    <button onClick={() => { handleModelSelect('standard'); setTimeout(() => setInput('Draft a motion for summary judgment'), 100) }}>
+                    <button onClick={() => handleModelSelect('redline', 'I need to compare two contract versions and identify changes')}>
                       <FileEdit size={16} />
-                      Draft a motion for summary judgment
+                      Compare contract versions with Redline AI
                     </button>
-                    <button onClick={() => { handleModelSelect('standard'); setTimeout(() => setInput('Summarize my active matters'), 100) }}>
-                      <Briefcase size={16} />
-                      Summarize my active matters
+                    <button onClick={() => handleModelSelect('large-docs', 'I have a large document that needs analysis')}>
+                      <Files size={16} />
+                      Analyze large documents
                     </button>
-                    <button onClick={() => { handleModelSelect('standard'); setTimeout(() => setInput('Explain recent changes to employment law'), 100) }}>
-                      <BookOpen size={16} />
-                      Explain recent changes to employment law
+                    <button onClick={() => handleModelSelect('fast', 'Explain recent changes to employment law briefly')}>
+                      <Zap size={16} />
+                      Quick legal question
                     </button>
                   </div>
                 </div>
@@ -329,58 +337,58 @@ export function AIAssistantPage() {
                 <div className={styles.helpSection}>
                   <h3>Getting Started</h3>
                   <div className={styles.helpCards}>
-                    <div className={styles.helpCard}>
+                    <button className={styles.helpCard} onClick={() => handleModelSelect('standard')}>
                       <div className={styles.helpCardIcon}>
                         <MessageCircle size={24} />
                       </div>
                       <h4>Standard Chat</h4>
-                      <p>Best for general legal questions, research queries, case analysis, and drafting assistance. Uses a balanced approach for comprehensive responses.</p>
+                      <p>Best for general legal questions, research queries, case analysis, and drafting assistance.</p>
                       <ul>
                         <li>Legal research and case law lookup</li>
                         <li>Document drafting and review</li>
                         <li>Matter summarization</li>
                         <li>Client communication drafts</li>
                       </ul>
-                    </div>
-                    <div className={styles.helpCard}>
-                      <div className={styles.helpCardIcon} style={{ color: '#EF4444' }}>
+                    </button>
+                    <button className={styles.helpCard} onClick={() => handleModelSelect('redline')}>
+                      <div className={styles.helpCardIcon} style={{ color: '#EF4444', background: 'rgba(239, 68, 68, 0.1)' }}>
                         <FileEdit size={24} />
                       </div>
                       <h4>Redline AI</h4>
-                      <p>Specialized for contract review and comparison. Upload or paste two versions to get detailed markup and analysis.</p>
+                      <p>Specialized for contract review and comparison. Get detailed markup and analysis.</p>
                       <ul>
                         <li>Compare contract versions</li>
                         <li>Identify clause changes</li>
                         <li>Risk assessment</li>
                         <li>Negotiation suggestions</li>
                       </ul>
-                    </div>
-                    <div className={styles.helpCard}>
-                      <div className={styles.helpCardIcon} style={{ color: '#8B5CF6' }}>
+                    </button>
+                    <button className={styles.helpCard} onClick={() => handleModelSelect('large-docs')}>
+                      <div className={styles.helpCardIcon} style={{ color: '#8B5CF6', background: 'rgba(139, 92, 246, 0.1)' }}>
                         <Files size={24} />
                       </div>
                       <h4>Large Documents</h4>
-                      <p>Handles extensive documents up to 100+ pages. Ideal for due diligence, discovery review, and comprehensive analysis.</p>
+                      <p>Handles extensive documents up to 100+ pages for comprehensive analysis.</p>
                       <ul>
                         <li>Due diligence reviews</li>
                         <li>Discovery document analysis</li>
                         <li>Long-form summarization</li>
                         <li>Multi-document comparison</li>
                       </ul>
-                    </div>
-                    <div className={styles.helpCard}>
-                      <div className={styles.helpCardIcon} style={{ color: '#F59E0B' }}>
+                    </button>
+                    <button className={styles.helpCard} onClick={() => handleModelSelect('fast')}>
+                      <div className={styles.helpCardIcon} style={{ color: '#F59E0B', background: 'rgba(245, 158, 11, 0.1)' }}>
                         <Zap size={24} />
                       </div>
                       <h4>Fast</h4>
-                      <p>Quick responses for simple queries. Best when you need a fast answer without extensive analysis.</p>
+                      <p>Quick responses for simple queries when you need a fast answer.</p>
                       <ul>
                         <li>Quick legal questions</li>
                         <li>Simple formatting tasks</li>
                         <li>Brief lookups</li>
                         <li>Fast turnaround needs</li>
                       </ul>
-                    </div>
+                    </button>
                   </div>
                 </div>
 
