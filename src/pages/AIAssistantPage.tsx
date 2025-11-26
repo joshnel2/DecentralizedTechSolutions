@@ -1,20 +1,44 @@
 import { useState, useRef, useEffect } from 'react'
-import { useAIStore, AI_MODELS, type AIModel } from '../stores/aiStore'
+import { useAIStore, type AIModel } from '../stores/aiStore'
 import { useDataStore } from '../stores/dataStore'
 import { 
   Sparkles, Send, Plus, MessageSquare, Trash2, 
-  FileText, Briefcase, Search, Zap, BookOpen,
-  MessageCircle, FileEdit, Files, Bolt, Check, ChevronDown
+  MessageCircle, FileEdit, Files, Zap
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './AIAssistantPage.module.css'
 
-const modelIcons: Record<AIModel, React.ReactNode> = {
-  standard: <MessageCircle size={20} />,
-  redline: <FileEdit size={20} />,
-  'large-docs': <Files size={20} />,
-  fast: <Bolt size={20} />
+// Model configurations for display
+const AI_MODELS = {
+  standard: {
+    id: 'standard' as AIModel,
+    name: 'Standard Chat',
+    description: 'Balanced AI for general legal queries and everyday tasks',
+    icon: <MessageCircle size={24} />,
+    color: '#3B82F6'
+  },
+  redline: {
+    id: 'redline' as AIModel,
+    name: 'Redline AI',
+    description: 'Contract comparison, markup, and clause analysis',
+    icon: <FileEdit size={24} />,
+    color: '#EF4444'
+  },
+  'large-docs': {
+    id: 'large-docs' as AIModel,
+    name: 'Large Documents',
+    description: 'Process lengthy documents, due diligence, discovery',
+    icon: <Files size={24} />,
+    color: '#8B5CF6'
+  },
+  fast: {
+    id: 'fast' as AIModel,
+    name: 'Fast',
+    description: 'Quick responses for simple queries and formatting',
+    icon: <Zap size={24} />,
+    color: '#F59E0B'
+  }
 }
 
 export function AIAssistantPage() {
@@ -31,9 +55,7 @@ export function AIAssistantPage() {
   } = useAIStore()
   const { matters } = useDataStore()
   const [input, setInput] = useState('')
-  const [showModelPicker, setShowModelPicker] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const modelPickerRef = useRef<HTMLDivElement>(null)
 
   const activeConversation = conversations.find(c => c.id === activeConversationId)
   const currentModel = AI_MODELS[selectedModel]
@@ -41,16 +63,6 @@ export function AIAssistantPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeConversation?.messages])
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (modelPickerRef.current && !modelPickerRef.current.contains(event.target as Node)) {
-        setShowModelPicker(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -73,17 +85,8 @@ export function AIAssistantPage() {
 
   const handleModelSelect = (model: AIModel) => {
     setSelectedModel(model)
-    setShowModelPicker(false)
-    // Start new conversation with new model
     createConversation()
   }
-
-  const suggestions = [
-    { icon: Search, text: 'Research case law on patent infringement', category: 'Research' },
-    { icon: FileText, text: 'Draft a motion for summary judgment', category: 'Drafting' },
-    { icon: Briefcase, text: 'Summarize my active matters', category: 'Analysis' },
-    { icon: BookOpen, text: 'Explain recent changes to employment law', category: 'Education' }
-  ]
 
   return (
     <div className={styles.aiPage}>
@@ -93,47 +96,6 @@ export function AIAssistantPage() {
           <Plus size={18} />
           New Chat
         </button>
-
-        {/* Model Selector */}
-        <div className={styles.modelSection}>
-          <h4>AI Model</h4>
-          <div className={styles.modelSelector} ref={modelPickerRef}>
-            <button 
-              className={styles.modelSelectorBtn}
-              onClick={() => setShowModelPicker(!showModelPicker)}
-            >
-              <span className={styles.modelIcon}>{currentModel.icon}</span>
-              <div className={styles.modelInfo}>
-                <span className={styles.modelName}>{currentModel.name}</span>
-                <span className={styles.modelDesc}>{currentModel.bestFor.slice(0, 30)}...</span>
-              </div>
-              <ChevronDown size={16} className={clsx(showModelPicker && styles.rotated)} />
-            </button>
-
-            {showModelPicker && (
-              <div className={styles.modelDropdown}>
-                {(Object.keys(AI_MODELS) as AIModel[]).map((modelId) => {
-                  const model = AI_MODELS[modelId]
-                  const isSelected = selectedModel === modelId
-                  return (
-                    <button
-                      key={modelId}
-                      className={clsx(styles.modelOption, isSelected && styles.selected)}
-                      onClick={() => handleModelSelect(modelId)}
-                    >
-                      <span className={styles.modelOptionIcon}>{model.icon}</span>
-                      <div className={styles.modelOptionInfo}>
-                        <span className={styles.modelOptionName}>{model.name}</span>
-                        <span className={styles.modelOptionDesc}>{model.description}</span>
-                      </div>
-                      {isSelected && <Check size={16} className={styles.checkIcon} />}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        </div>
 
         <div className={styles.conversationsList}>
           <h4>Recent Conversations</h4>
@@ -179,14 +141,20 @@ export function AIAssistantPage() {
         {activeConversation ? (
           <>
             {/* Model indicator bar */}
-            <div className={styles.modelBar}>
-              <span className={styles.modelBarIcon}>{currentModel.icon}</span>
-              <span className={styles.modelBarName}>{currentModel.name}</span>
-              <div className={styles.modelBarCaps}>
-                {currentModel.capabilities.slice(0, 3).map((cap, i) => (
-                  <span key={i} className={styles.capBadge}>{cap}</span>
-                ))}
+            <div className={styles.modelBar} style={{ borderColor: currentModel.color }}>
+              <div className={styles.modelBarIcon} style={{ color: currentModel.color }}>
+                {currentModel.icon}
               </div>
+              <div className={styles.modelBarInfo}>
+                <span className={styles.modelBarName}>{currentModel.name}</span>
+                <span className={styles.modelBarDesc}>{currentModel.description}</span>
+              </div>
+              <button 
+                className={styles.switchModelBtn}
+                onClick={() => setActiveConversation(null)}
+              >
+                Switch Model
+              </button>
             </div>
 
             <div className={styles.messagesContainer}>
@@ -199,7 +167,7 @@ export function AIAssistantPage() {
                   )}
                 >
                   {message.role === 'assistant' && (
-                    <div className={styles.aiAvatar}>
+                    <div className={styles.aiAvatar} style={{ background: `linear-gradient(135deg, ${currentModel.color}, ${currentModel.color}88)` }}>
                       <Sparkles size={16} />
                     </div>
                   )}
@@ -218,7 +186,7 @@ export function AIAssistantPage() {
               ))}
               {isLoading && (
                 <div className={clsx(styles.message, styles.aiMessage)}>
-                  <div className={styles.aiAvatar}>
+                  <div className={styles.aiAvatar} style={{ background: `linear-gradient(135deg, ${currentModel.color}, ${currentModel.color}88)` }}>
                     <Sparkles size={16} />
                   </div>
                   <div className={styles.messageContent}>
@@ -238,7 +206,7 @@ export function AIAssistantPage() {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder={`Ask ${currentModel.name}...`}
+                placeholder={`Message ${currentModel.name}...`}
                 disabled={isLoading}
               />
               <button type="submit" disabled={isLoading || !input.trim()}>
@@ -253,61 +221,48 @@ export function AIAssistantPage() {
             </div>
             <h2>Apex AI Assistant</h2>
             <p>
-              Your AI-powered legal practice assistant. Choose a model to get started.
+              Choose an AI model to get started. Each model is optimized for different tasks.
             </p>
 
             {/* Model Selection Cards */}
             <div className={styles.modelCards}>
-              <h4>Select AI Model</h4>
-              <div className={styles.modelGrid}>
-                {(Object.keys(AI_MODELS) as AIModel[]).map((modelId) => {
-                  const model = AI_MODELS[modelId]
-                  const isSelected = selectedModel === modelId
-                  return (
-                    <button
-                      key={modelId}
-                      className={clsx(styles.modelCard, isSelected && styles.selected)}
-                      onClick={() => handleModelSelect(modelId)}
-                    >
-                      <div className={styles.modelCardHeader}>
-                        <span className={styles.modelCardIcon}>{model.icon}</span>
-                        {isSelected && <Check size={18} className={styles.modelCardCheck} />}
-                      </div>
+              {(Object.keys(AI_MODELS) as AIModel[]).map((modelId) => {
+                const model = AI_MODELS[modelId]
+                return (
+                  <button
+                    key={modelId}
+                    className={styles.modelCard}
+                    onClick={() => handleModelSelect(modelId)}
+                    style={{ '--model-color': model.color } as React.CSSProperties}
+                  >
+                    <div className={styles.modelCardIcon}>
+                      {model.icon}
+                    </div>
+                    <div className={styles.modelCardContent}>
                       <h3>{model.name}</h3>
-                      <p className={styles.modelCardDesc}>{model.description}</p>
-                      <div className={styles.modelCardCaps}>
-                        {model.capabilities.map((cap, i) => (
-                          <span key={i}>{cap}</span>
-                        ))}
-                      </div>
-                      <p className={styles.modelCardBest}>
-                        <strong>Best for:</strong> {model.bestFor}
-                      </p>
-                    </button>
-                  )
-                })}
-              </div>
+                      <p>{model.description}</p>
+                    </div>
+                    <div className={styles.modelCardArrow}>→</div>
+                  </button>
+                )
+              })}
             </div>
 
-            <div className={styles.suggestions}>
-              <h4>Try asking:</h4>
-              <div className={styles.suggestionGrid}>
-                {suggestions.map((s, i) => (
-                  <button
-                    key={i}
-                    className={styles.suggestionCard}
-                    onClick={() => {
-                      createConversation()
-                      setInput(s.text)
-                    }}
-                  >
-                    <div className={styles.suggestionIcon}>
-                      <s.icon size={20} />
-                    </div>
-                    <span className={styles.suggestionText}>{s.text}</span>
-                    <span className={styles.suggestionCategory}>{s.category}</span>
-                  </button>
-                ))}
+            <div className={styles.tryAsking}>
+              <h4>Or try asking:</h4>
+              <div className={styles.suggestions}>
+                <button onClick={() => { handleModelSelect('standard'); setTimeout(() => setInput('Research case law on patent infringement'), 100) }}>
+                  Research case law on patent infringement
+                </button>
+                <button onClick={() => { handleModelSelect('standard'); setTimeout(() => setInput('Draft a motion for summary judgment'), 100) }}>
+                  Draft a motion for summary judgment
+                </button>
+                <button onClick={() => { handleModelSelect('standard'); setTimeout(() => setInput('Summarize my active matters'), 100) }}>
+                  Summarize my active matters
+                </button>
+                <button onClick={() => { handleModelSelect('standard'); setTimeout(() => setInput('Explain recent changes to employment law'), 100) }}>
+                  Explain recent changes to employment law
+                </button>
               </div>
             </div>
           </div>
@@ -328,7 +283,4 @@ function formatMessageContent(content: string): string {
     .replace(/• /g, '&bull; ')
     .replace(/✓/g, '<span style="color: #10B981">✓</span>')
     .replace(/⚠️/g, '<span style="color: #F59E0B">⚠️</span>')
-    .replace(/🔴/g, '<span style="color: #EF4444">●</span>')
-    .replace(/🟡/g, '<span style="color: #F59E0B">●</span>')
-    .replace(/🟢/g, '<span style="color: #10B981">●</span>')
 }
