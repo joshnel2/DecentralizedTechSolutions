@@ -1,0 +1,280 @@
+.reportsPage {
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-xl);
+}
+
+.headerLeft h1 {
+  font-family: var(--font-serif);
+  font-size: 1.75rem;
+  font-weight: 400;
+  color: var(--apex-white);
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.exportSuccess {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--apex-success);
+  font-size: 0.875rem;
+  animation: fadeIn var(--transition-fast) ease;
+}
+
+.exportBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.exportBtn:hover {
+  background: var(--apex-muted);
+}
+
+/* KPI Grid */
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-lg);
+  margin-bottom: var(--space-xl);
+}
+
+.kpiCard {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+}
+
+.kpiIcon {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.kpiContent {
+  display: flex;
+  flex-direction: column;
+}
+
+.kpiValue {
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  line-height: 1.2;
+}
+
+.kpiLabel {
+  font-size: 0.875rem;
+  color: var(--apex-text);
+  margin-bottom: 4px;
+}
+
+.kpiChange {
+  font-size: 0.75rem;
+  color: var(--apex-success);
+}
+
+/* Charts */
+.chartsRow {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-xl);
+}
+
+.chartCard {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
+}
+
+.chartCard h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: var(--space-lg);
+}
+
+.chartContainer {
+  margin: 0 -8px;
+}
+
+.pieContainer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.pieLegend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.legendDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.legendLabel {
+  flex: 1;
+  font-size: 0.8125rem;
+  color: var(--apex-text);
+  text-transform: capitalize;
+}
+
+.legendValue {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+/* Quick Reports */
+.quickReports {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+}
+
+.quickReports h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: var(--space-xs);
+}
+
+.reportHint {
+  font-size: 0.8125rem;
+  color: var(--apex-text);
+  margin-bottom: var(--space-lg);
+}
+
+.reportCards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-md);
+}
+
+.reportCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.reportCard:hover {
+  background: var(--apex-muted);
+}
+
+.reportIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--apex-gold-bright);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.reportInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.reportTitle {
+  display: block;
+  font-weight: 500;
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+}
+
+.reportDesc {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
+.runBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  background: var(--apex-gold);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--apex-midnight);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.runBtn:hover {
+  background: var(--apex-gold-light);
+  transform: translateY(-1px);
+}
+
+@media (max-width: 1200px) {
+  .kpiGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .chartsRow {
+    grid-template-columns: 1fr;
+  }
+  
+  .reportCards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

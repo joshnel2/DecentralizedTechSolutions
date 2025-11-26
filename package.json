@@ -1,15 +1,34 @@
 {
-  "name": "invoiceforge",
+  "name": "apex-legal",
   "version": "1.0.0",
-  "private": true,
-  "description": "Professional Invoice Generator - Create beautiful invoices instantly for $2.99/download",
+  "type": "module",
+  "description": "Apex - AI-Native Legal Practice Management Platform",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.20.0",
+    "zustand": "^4.4.7",
+    "date-fns": "^2.30.0",
+    "recharts": "^2.10.3",
+    "lucide-react": "^0.294.0",
+    "clsx": "^2.0.0"
   },
   "devDependencies": {
-    "sass": "^1.69.5",
-    "vite": "^7.0.6"
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
+    "@vitejs/plugin-react": "^4.2.0",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.0",
+    "eslint": "^8.53.0",
+    "@typescript-eslint/eslint-plugin": "^6.10.0",
+    "@typescript-eslint/parser": "^6.10.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.4"
   }
 }

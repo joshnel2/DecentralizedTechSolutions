@@ -1,0 +1,486 @@
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+/* Welcome Section */
+.welcome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+}
+
+.greeting {
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  font-weight: 400;
+  color: var(--apex-white);
+  margin-bottom: 4px;
+}
+
+.date {
+  color: var(--apex-text);
+  font-size: 0.9375rem;
+}
+
+.aiPrompt {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(139, 92, 246, 0.05) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: var(--radius-full);
+  color: #A78BFA;
+  font-weight: 500;
+  font-size: 0.9375rem;
+  transition: all var(--transition-fast);
+}
+
+.aiPrompt:hover {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25) 0%, rgba(139, 92, 246, 0.1) 100%);
+  border-color: rgba(139, 92, 246, 0.5);
+  transform: translateY(-1px);
+}
+
+/* Stats Grid */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--space-lg);
+}
+
+.statCard {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  transition: all var(--transition-fast);
+}
+
+.statCard:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+}
+
+.statIcon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.statContent {
+  display: flex;
+  flex-direction: column;
+}
+
+.statValue {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  line-height: 1.2;
+}
+
+.statLabel {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  margin-top: 2px;
+}
+
+/* Charts Row */
+.chartsRow {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--space-lg);
+}
+
+.chartCard {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-lg);
+}
+
+.cardHeader h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.cardBadge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(16, 185, 129, 0.1);
+  border-radius: var(--radius-full);
+  color: var(--apex-success);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.chartContainer {
+  margin: 0 -8px;
+}
+
+.pieChartContainer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+}
+
+.pieLegend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  flex: 1;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.legendDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.legendLabel {
+  flex: 1;
+  font-size: 0.8125rem;
+  color: var(--apex-text);
+  text-transform: capitalize;
+}
+
+.legendValue {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.viewAll {
+  font-size: 0.8125rem;
+  color: var(--apex-gold-bright);
+  font-weight: 500;
+}
+
+.viewAll:hover {
+  text-decoration: underline;
+}
+
+/* Bottom Row */
+.bottomRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-lg);
+}
+
+.listCard {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+}
+
+.listContent {
+  display: flex;
+  flex-direction: column;
+}
+
+.listItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all var(--transition-fast);
+  text-decoration: none;
+}
+
+.listItem:last-child {
+  border-bottom: none;
+}
+
+.listItem:hover {
+  background: var(--apex-slate);
+  margin: 0 calc(var(--space-md) * -1);
+  padding-left: var(--space-md);
+  padding-right: var(--space-md);
+  border-radius: var(--radius-md);
+}
+
+.listItemIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--apex-slate);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apex-gold-bright);
+  flex-shrink: 0;
+}
+
+.listItemContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.listItemTitle {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--apex-white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.listItemMeta {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  margin-top: 2px;
+}
+
+.statusBadge {
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.statusBadge.active {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--apex-success);
+}
+
+.statusBadge.pending {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--apex-warning);
+}
+
+.statusBadge.intake {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3B82F6;
+}
+
+.statusBadge.on_hold {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--apex-text);
+}
+
+/* Event Items */
+.eventItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.eventItem:last-child {
+  border-bottom: none;
+}
+
+.eventDate {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: var(--apex-slate);
+  border-left: 3px solid;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.eventMonth {
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--apex-text);
+  letter-spacing: 0.05em;
+}
+
+.eventDay {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  line-height: 1;
+}
+
+.eventType {
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  flex-shrink: 0;
+}
+
+/* Invoice Items */
+.invoiceItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.invoiceItem:last-child {
+  border-bottom: none;
+}
+
+.invoiceAmount {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.amount {
+  display: block;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.invoiceStatus {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.invoiceStatus.sent {
+  color: var(--apex-info);
+}
+
+.invoiceStatus.overdue {
+  color: var(--apex-error);
+}
+
+.invoiceStatus.paid {
+  color: var(--apex-success);
+}
+
+/* AI Banner */
+.aiBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-xl);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(139, 92, 246, 0.02) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: var(--radius-xl);
+}
+
+.aiBannerContent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+}
+
+.aiBannerIcon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(139, 92, 246, 0.1) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #A78BFA;
+}
+
+.aiBannerContent h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: 4px;
+}
+
+.aiBannerContent p {
+  font-size: 0.875rem;
+  color: var(--apex-text);
+}
+
+.aiBannerBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-xl);
+  background: var(--apex-ai);
+  border-radius: var(--radius-md);
+  color: white;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  transition: all var(--transition-fast);
+}
+
+.aiBannerBtn:hover {
+  background: #7C3AED;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-ai);
+}
+
+/* Responsive */
+@media (max-width: 1400px) {
+  .statsGrid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 1200px) {
+  .chartsRow {
+    grid-template-columns: 1fr;
+  }
+  
+  .bottomRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .statsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .aiBanner {
+    flex-direction: column;
+    text-align: center;
+    gap: var(--space-lg);
+  }
+  
+  .aiBannerContent {
+    flex-direction: column;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

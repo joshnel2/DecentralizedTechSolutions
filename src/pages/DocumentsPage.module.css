@@ -1,0 +1,261 @@
+.documentsPage {
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-xl);
+}
+
+.headerLeft {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+}
+
+.headerLeft h1 {
+  font-family: var(--font-serif);
+  font-size: 1.75rem;
+  font-weight: 400;
+  color: var(--apex-white);
+}
+
+.count {
+  font-size: 0.875rem;
+  color: var(--apex-text);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.viewToggle {
+  display: flex;
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  padding: 4px;
+}
+
+.viewToggle button {
+  padding: var(--space-sm);
+  background: none;
+  border: none;
+  color: var(--apex-text);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.viewToggle button.active {
+  background: var(--apex-gold);
+  color: var(--apex-midnight);
+}
+
+.primaryBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.filters {
+  margin-bottom: var(--space-lg);
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  max-width: 400px;
+  color: var(--apex-text);
+}
+
+.searchBox input {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+}
+
+/* Grid View */
+.documentsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-lg);
+}
+
+.docCard {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: all var(--transition-fast);
+}
+
+.docCard:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+}
+
+.docPreview {
+  height: 120px;
+  background: var(--apex-slate);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fileIcon {
+  font-size: 2.5rem;
+}
+
+.docInfo {
+  padding: var(--space-md);
+}
+
+.docName {
+  display: block;
+  font-weight: 500;
+  color: var(--apex-white);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.docMeta {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
+.docMatter {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--apex-gold-bright);
+  margin-top: 4px;
+}
+
+.docActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.aiTag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: rgba(139, 92, 246, 0.1);
+  border-radius: var(--radius-full);
+  color: var(--apex-ai);
+  font-size: 0.6875rem;
+}
+
+.menuBtn {
+  background: none;
+  border: none;
+  padding: 4px;
+  color: var(--apex-text);
+  cursor: pointer;
+}
+
+/* Table View */
+.documentsTable {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.documentsTable table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.documentsTable th {
+  text-align: left;
+  padding: var(--space-md) var(--space-lg);
+  background: var(--apex-slate);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--apex-text);
+  text-transform: uppercase;
+}
+
+.documentsTable td {
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 0.875rem;
+  color: var(--apex-light);
+}
+
+.nameCell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.nameCell .fileIcon {
+  font-size: 1.25rem;
+}
+
+.rowActions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.rowActions button {
+  background: none;
+  border: none;
+  padding: 4px;
+  color: var(--apex-text);
+  cursor: pointer;
+}
+
+.rowActions button:hover {
+  color: var(--apex-white);
+}
+
+.emptyState {
+  text-align: center;
+  padding: var(--space-3xl);
+  color: var(--apex-subtle);
+}
+
+.emptyState svg {
+  opacity: 0.3;
+  margin-bottom: var(--space-lg);
+}
+
+.emptyState h3 {
+  color: var(--apex-white);
+  margin-bottom: var(--space-sm);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

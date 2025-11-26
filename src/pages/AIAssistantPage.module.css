@@ -1,0 +1,417 @@
+.aiPage {
+  display: flex;
+  height: calc(100vh - 128px);
+  margin: calc(var(--space-xl) * -1);
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 280px;
+  background: var(--apex-deep);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-lg);
+}
+
+.newChatBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(139, 92, 246, 0.1) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: var(--radius-md);
+  color: #A78BFA;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-bottom: var(--space-lg);
+}
+
+.newChatBtn:hover {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.3) 0%, rgba(139, 92, 246, 0.15) 100%);
+}
+
+.conversationsList {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.conversationsList h4 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--apex-text);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-md);
+}
+
+.conversationItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-bottom: 4px;
+}
+
+.conversationItem:hover {
+  background: var(--apex-slate);
+  color: var(--apex-light);
+}
+
+.conversationItem.active {
+  background: rgba(139, 92, 246, 0.1);
+  color: #A78BFA;
+}
+
+.convInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.convTitle {
+  display: block;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.convDate {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--apex-subtle);
+}
+
+.deleteBtn {
+  opacity: 0;
+  background: none;
+  border: none;
+  padding: 4px;
+  color: var(--apex-text);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.conversationItem:hover .deleteBtn {
+  opacity: 1;
+}
+
+.deleteBtn:hover {
+  color: var(--apex-error);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.sidebarFooter {
+  padding-top: var(--space-md);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.aiPowered {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+/* Chat Area */
+.chatArea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--apex-midnight);
+}
+
+.messagesContainer {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-xl);
+}
+
+.message {
+  display: flex;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+  max-width: 800px;
+}
+
+.userMessage {
+  flex-direction: row-reverse;
+  margin-left: auto;
+}
+
+.aiAvatar {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(139, 92, 246, 0.1) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #A78BFA;
+  flex-shrink: 0;
+}
+
+.messageContent {
+  max-width: 600px;
+}
+
+.userMessage .messageContent {
+  background: var(--apex-gold);
+  color: var(--apex-midnight);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 var(--radius-lg);
+  padding: var(--space-md) var(--space-lg);
+}
+
+.aiMessage .messageContent {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) 0;
+  padding: var(--space-md) var(--space-lg);
+}
+
+.messageText {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.messageText code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+.messageText pre {
+  background: rgba(0, 0, 0, 0.3);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  margin: var(--space-md) 0;
+}
+
+.messageText pre code {
+  background: none;
+  padding: 0;
+}
+
+.messageTime {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--apex-subtle);
+  margin-top: var(--space-xs);
+}
+
+.userMessage .messageTime {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.typingIndicator {
+  display: flex;
+  gap: 4px;
+  padding: var(--space-sm);
+}
+
+.typingIndicator span {
+  width: 8px;
+  height: 8px;
+  background: var(--apex-ai);
+  border-radius: 50%;
+  animation: bounce 1.4s ease-in-out infinite;
+}
+
+.typingIndicator span:nth-child(2) { animation-delay: 0.2s; }
+.typingIndicator span:nth-child(3) { animation-delay: 0.4s; }
+
+/* Input Area */
+.inputArea {
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-xl);
+  background: var(--apex-deep);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.inputArea input {
+  flex: 1;
+  padding: var(--space-md) var(--space-lg);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+}
+
+.inputArea input:focus {
+  outline: none;
+  border-color: var(--apex-ai);
+}
+
+.inputArea button {
+  padding: var(--space-md);
+  background: var(--apex-ai);
+  border: none;
+  border-radius: var(--radius-lg);
+  color: white;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.inputArea button:hover:not(:disabled) {
+  background: #7C3AED;
+}
+
+.inputArea button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Welcome Screen */
+.welcomeScreen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl);
+  text-align: center;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.welcomeIcon {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(139, 92, 246, 0.1) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #A78BFA;
+  margin-bottom: var(--space-lg);
+  animation: glow 3s ease-in-out infinite;
+}
+
+.welcomeScreen h2 {
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  font-weight: 400;
+  color: var(--apex-white);
+  margin-bottom: var(--space-md);
+}
+
+.welcomeScreen > p {
+  color: var(--apex-text);
+  font-size: 1.125rem;
+  margin-bottom: var(--space-2xl);
+}
+
+.suggestions h4 {
+  font-size: 0.875rem;
+  color: var(--apex-text);
+  margin-bottom: var(--space-lg);
+}
+
+.suggestionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-md);
+  margin-bottom: var(--space-2xl);
+  width: 100%;
+}
+
+.suggestionCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+}
+
+.suggestionCard:hover {
+  border-color: rgba(139, 92, 246, 0.3);
+  transform: translateY(-2px);
+}
+
+.suggestionIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: rgba(139, 92, 246, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #A78BFA;
+}
+
+.suggestionText {
+  font-size: 0.9375rem;
+  color: var(--apex-white);
+}
+
+.suggestionCategory {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.capabilities {
+  display: flex;
+  gap: var(--space-xl);
+}
+
+.capability {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  text-align: left;
+}
+
+.capability svg {
+  color: var(--apex-gold-bright);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.capability strong {
+  display: block;
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  margin-bottom: 4px;
+}
+
+.capability p {
+  font-size: 0.8125rem;
+  color: var(--apex-text);
+}
+
+@keyframes bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
+
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(139, 92, 246, 0.2); }
+  50% { box-shadow: 0 0 40px rgba(139, 92, 246, 0.4); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
