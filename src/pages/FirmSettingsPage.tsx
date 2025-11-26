@@ -1,16 +1,57 @@
 import { useState } from 'react'
 import { useAuthStore } from '../stores/authStore'
+import { useDataStore } from '../stores/dataStore'
 import { 
   Building2, CreditCard, Brain, Shield, Save, Users, Briefcase,
-  FileText, DollarSign, Clock, Sparkles, Key, CheckCircle2,
-  AlertTriangle, Plus, Trash2, Edit2
+  DollarSign, Clock, Sparkles, CheckCircle2,
+  AlertTriangle, Plus, Trash2, Edit2, UserPlus, X, ChevronDown,
+  Mail, UserCog, UserMinus
 } from 'lucide-react'
 import styles from './FirmSettingsPage.module.css'
 
+// Demo users for the firm
+const demoUsers = [
+  { id: 'user-1', firstName: 'John', lastName: 'Mitchell', email: 'john@apexlaw.com', role: 'owner', title: 'Managing Partner' },
+  { id: 'user-2', firstName: 'Sarah', lastName: 'Chen', email: 'sarah@apexlaw.com', role: 'admin', title: 'Partner' },
+  { id: 'user-3', firstName: 'Michael', lastName: 'Roberts', email: 'michael@apexlaw.com', role: 'attorney', title: 'Associate' },
+  { id: 'user-4', firstName: 'Emily', lastName: 'Davis', email: 'emily@apexlaw.com', role: 'paralegal', title: 'Senior Paralegal' },
+  { id: 'user-5', firstName: 'James', lastName: 'Wilson', email: 'james@apexlaw.com', role: 'attorney', title: 'Associate' },
+  { id: 'user-6', firstName: 'Lisa', lastName: 'Thompson', email: 'lisa@apexlaw.com', role: 'staff', title: 'Legal Assistant' }
+]
+
+const permissionOptions = [
+  { id: 'matters:all', label: 'Matters - Full Access' },
+  { id: 'matters:view', label: 'Matters - View Only' },
+  { id: 'documents:all', label: 'Documents - Full Access' },
+  { id: 'documents:view', label: 'Documents - View Only' },
+  { id: 'billing:all', label: 'Billing - Full Access' },
+  { id: 'billing:view', label: 'Billing - View Only' },
+  { id: 'calendar:all', label: 'Calendar - Full Access' },
+  { id: 'calendar:view', label: 'Calendar - View Only' },
+  { id: 'reports:all', label: 'Reports - Full Access' },
+  { id: 'reports:view', label: 'Reports - View Only' },
+  { id: 'admin:settings', label: 'Admin - Firm Settings' },
+  { id: 'admin:users', label: 'Admin - User Management' }
+]
+
+const groupColors = [
+  '#EF4444', '#F97316', '#F59E0B', '#EAB308', '#84CC16',
+  '#22C55E', '#10B981', '#14B8A6', '#06B6D4', '#0EA5E9',
+  '#3B82F6', '#6366F1', '#8B5CF6', '#A855F7', '#D946EF', '#EC4899'
+]
+
 export function FirmSettingsPage() {
   const { firm, updateFirm, user } = useAuthStore()
+  const { groups, addGroup, updateGroup, deleteGroup } = useDataStore()
   const [activeTab, setActiveTab] = useState('general')
   const [saved, setSaved] = useState(false)
+
+  // Modal states
+  const [showNewGroupModal, setShowNewGroupModal] = useState(false)
+  const [showEditGroupModal, setShowEditGroupModal] = useState(false)
+  const [showAddUserModal, setShowAddUserModal] = useState(false)
+  const [showInviteUserModal, setShowInviteUserModal] = useState(false)
+  const [selectedGroup, setSelectedGroup] = useState<any>(null)
 
   const [firmData, setFirmData] = useState({
     name: firm?.name || '',
@@ -123,8 +164,11 @@ export function FirmSettingsPage() {
     }
   }
 
+  const getUserById = (id: string) => demoUsers.find(u => u.id === id)
+
   const tabs = [
     { id: 'general', label: 'Firm Info', icon: Building2 },
+    { id: 'users', label: 'Users & Teams', icon: Users },
     { id: 'billing', label: 'Billing & Rates', icon: DollarSign },
     { id: 'practice', label: 'Practice Areas', icon: Briefcase },
     { id: 'activities', label: 'Activity Codes', icon: Clock },
@@ -148,7 +192,7 @@ export function FirmSettingsPage() {
     <div className={styles.firmSettingsPage}>
       <div className={styles.header}>
         <h1>Firm Settings</h1>
-        <p>Manage your firm's configuration, billing, and AI settings</p>
+        <p>Manage your firm's configuration, users, and AI settings</p>
       </div>
 
       <div className={styles.settingsLayout}>
@@ -280,6 +324,160 @@ export function FirmSettingsPage() {
                     onChange={e => setFirmData({...firmData, taxId: e.target.value})}
                     placeholder="XX-XXXXXXX"
                   />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Users & Teams Tab */}
+          {activeTab === 'users' && (
+            <div className={styles.tabContent}>
+              {/* Users Section */}
+              <div className={styles.section}>
+                <div className={styles.sectionHeader}>
+                  <Users size={20} />
+                  <div>
+                    <h2>Team Members</h2>
+                    <p>Manage users and their roles in your firm</p>
+                  </div>
+                  <button 
+                    className={styles.headerBtn}
+                    onClick={() => setShowInviteUserModal(true)}
+                  >
+                    <UserPlus size={16} />
+                    Invite User
+                  </button>
+                </div>
+
+                <div className={styles.usersList}>
+                  {demoUsers.map(u => (
+                    <div key={u.id} className={styles.userCard}>
+                      <div className={styles.userAvatar}>
+                        {u.firstName[0]}{u.lastName[0]}
+                      </div>
+                      <div className={styles.userInfo}>
+                        <span className={styles.userName}>{u.firstName} {u.lastName}</span>
+                        <span className={styles.userTitle}>{u.title}</span>
+                        <span className={styles.userEmail}>{u.email}</span>
+                      </div>
+                      <div className={styles.userRole}>
+                        <span className={`${styles.roleBadge} ${styles[u.role]}`}>
+                          {u.role}
+                        </span>
+                      </div>
+                      <div className={styles.userActions}>
+                        <button className={styles.iconBtn} title="Edit User">
+                          <Edit2 size={16} />
+                        </button>
+                        {u.role !== 'owner' && (
+                          <button className={styles.iconBtnDanger} title="Remove User">
+                            <UserMinus size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Groups Section */}
+              <div className={styles.section}>
+                <div className={styles.sectionHeader}>
+                  <UserCog size={20} />
+                  <div>
+                    <h2>Groups</h2>
+                    <p>Organize users into groups with shared permissions</p>
+                  </div>
+                  <button 
+                    className={styles.headerBtn}
+                    onClick={() => setShowNewGroupModal(true)}
+                  >
+                    <Plus size={16} />
+                    New Group
+                  </button>
+                </div>
+
+                <div className={styles.groupsList}>
+                  {groups.map(group => (
+                    <div key={group.id} className={styles.groupCard}>
+                      <div 
+                        className={styles.groupColor}
+                        style={{ backgroundColor: group.color }}
+                      />
+                      <div className={styles.groupInfo}>
+                        <div className={styles.groupHeader}>
+                          <span className={styles.groupName}>{group.name}</span>
+                          <span className={styles.memberCount}>
+                            {group.memberIds.length} member{group.memberIds.length !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <p className={styles.groupDesc}>{group.description}</p>
+                        <div className={styles.groupMembers}>
+                          {group.memberIds.slice(0, 5).map(memberId => {
+                            const member = getUserById(memberId)
+                            return member ? (
+                              <div key={memberId} className={styles.memberChip} title={`${member.firstName} ${member.lastName}`}>
+                                {member.firstName[0]}{member.lastName[0]}
+                              </div>
+                            ) : null
+                          })}
+                          {group.memberIds.length > 5 && (
+                            <div className={styles.memberChip}>+{group.memberIds.length - 5}</div>
+                          )}
+                          <button 
+                            className={styles.addMemberBtn}
+                            onClick={() => {
+                              setSelectedGroup(group)
+                              setShowAddUserModal(true)
+                            }}
+                            title="Add member"
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </div>
+                        <div className={styles.groupPermissions}>
+                          {group.permissions.slice(0, 3).map(perm => (
+                            <span key={perm} className={styles.permissionTag}>
+                              {perm.split(':')[0]}
+                            </span>
+                          ))}
+                          {group.permissions.length > 3 && (
+                            <span className={styles.permissionTag}>+{group.permissions.length - 3} more</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className={styles.groupActions}>
+                        <button 
+                          className={styles.iconBtn}
+                          onClick={() => {
+                            setSelectedGroup(group)
+                            setShowEditGroupModal(true)
+                          }}
+                          title="Edit Group"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button 
+                          className={styles.iconBtnDanger}
+                          onClick={() => deleteGroup(group.id)}
+                          title="Delete Group"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {groups.length === 0 && (
+                    <div className={styles.emptyGroups}>
+                      <Users size={48} />
+                      <p>No groups created yet</p>
+                      <button onClick={() => setShowNewGroupModal(true)}>
+                        <Plus size={16} />
+                        Create your first group
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -805,6 +1003,515 @@ export function FirmSettingsPage() {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* New Group Modal */}
+      {showNewGroupModal && (
+        <NewGroupModal 
+          onClose={() => setShowNewGroupModal(false)}
+          onSave={(data) => {
+            addGroup(data)
+            setShowNewGroupModal(false)
+          }}
+          users={demoUsers}
+        />
+      )}
+
+      {/* Edit Group Modal */}
+      {showEditGroupModal && selectedGroup && (
+        <EditGroupModal 
+          group={selectedGroup}
+          onClose={() => {
+            setShowEditGroupModal(false)
+            setSelectedGroup(null)
+          }}
+          onSave={(data) => {
+            updateGroup(selectedGroup.id, data)
+            setShowEditGroupModal(false)
+            setSelectedGroup(null)
+          }}
+          users={demoUsers}
+        />
+      )}
+
+      {/* Add User to Group Modal */}
+      {showAddUserModal && selectedGroup && (
+        <AddUserToGroupModal
+          group={selectedGroup}
+          onClose={() => {
+            setShowAddUserModal(false)
+            setSelectedGroup(null)
+          }}
+          onSave={(memberIds) => {
+            updateGroup(selectedGroup.id, { memberIds })
+            setShowAddUserModal(false)
+            setSelectedGroup(null)
+          }}
+          users={demoUsers}
+        />
+      )}
+
+      {/* Invite User Modal */}
+      {showInviteUserModal && (
+        <InviteUserModal
+          onClose={() => setShowInviteUserModal(false)}
+          onSave={() => setShowInviteUserModal(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+// New Group Modal Component
+interface NewGroupModalProps {
+  onClose: () => void
+  onSave: (data: any) => void
+  users: typeof demoUsers
+}
+
+function NewGroupModal({ onClose, onSave, users }: NewGroupModalProps) {
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    memberIds: [] as string[],
+    permissions: [] as string[],
+    color: groupColors[0]
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (formData.name) {
+      onSave(formData)
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>Create New Group</h2>
+          <button onClick={onClose} className={styles.closeBtn}><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
+          <div className={styles.formGroup}>
+            <label>Group Name *</label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={e => setFormData({...formData, name: e.target.value})}
+              placeholder="e.g., Litigation Team"
+              required
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Description</label>
+            <textarea
+              value={formData.description}
+              onChange={e => setFormData({...formData, description: e.target.value})}
+              placeholder="Brief description of this group's purpose"
+              rows={2}
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Group Color</label>
+            <div className={styles.colorPicker}>
+              {groupColors.map(color => (
+                <button
+                  key={color}
+                  type="button"
+                  className={`${styles.colorOption} ${formData.color === color ? styles.selected : ''}`}
+                  style={{ backgroundColor: color }}
+                  onClick={() => setFormData({...formData, color})}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Members</label>
+            <div className={styles.memberSelect}>
+              {users.map(user => (
+                <label key={user.id} className={styles.memberOption}>
+                  <input
+                    type="checkbox"
+                    checked={formData.memberIds.includes(user.id)}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setFormData({...formData, memberIds: [...formData.memberIds, user.id]})
+                      } else {
+                        setFormData({...formData, memberIds: formData.memberIds.filter(id => id !== user.id)})
+                      }
+                    }}
+                  />
+                  <span>{user.firstName} {user.lastName}</span>
+                  <span className={styles.memberRole}>{user.title}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Permissions</label>
+            <div className={styles.permissionSelect}>
+              {permissionOptions.map(perm => (
+                <label key={perm.id} className={styles.permissionOption}>
+                  <input
+                    type="checkbox"
+                    checked={formData.permissions.includes(perm.id)}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setFormData({...formData, permissions: [...formData.permissions, perm.id]})
+                      } else {
+                        setFormData({...formData, permissions: formData.permissions.filter(id => id !== perm.id)})
+                      }
+                    }}
+                  />
+                  <span>{perm.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn}>Cancel</button>
+            <button type="submit" className={styles.saveBtn}>Create Group</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// Edit Group Modal Component
+interface EditGroupModalProps {
+  group: any
+  onClose: () => void
+  onSave: (data: any) => void
+  users: typeof demoUsers
+}
+
+function EditGroupModal({ group, onClose, onSave, users }: EditGroupModalProps) {
+  const [formData, setFormData] = useState({
+    name: group.name,
+    description: group.description,
+    memberIds: group.memberIds,
+    permissions: group.permissions,
+    color: group.color
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    onSave(formData)
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>Edit Group</h2>
+          <button onClick={onClose} className={styles.closeBtn}><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
+          <div className={styles.formGroup}>
+            <label>Group Name *</label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={e => setFormData({...formData, name: e.target.value})}
+              required
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Description</label>
+            <textarea
+              value={formData.description}
+              onChange={e => setFormData({...formData, description: e.target.value})}
+              rows={2}
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Group Color</label>
+            <div className={styles.colorPicker}>
+              {groupColors.map(color => (
+                <button
+                  key={color}
+                  type="button"
+                  className={`${styles.colorOption} ${formData.color === color ? styles.selected : ''}`}
+                  style={{ backgroundColor: color }}
+                  onClick={() => setFormData({...formData, color})}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Members</label>
+            <div className={styles.memberSelect}>
+              {users.map(user => (
+                <label key={user.id} className={styles.memberOption}>
+                  <input
+                    type="checkbox"
+                    checked={formData.memberIds.includes(user.id)}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setFormData({...formData, memberIds: [...formData.memberIds, user.id]})
+                      } else {
+                        setFormData({...formData, memberIds: formData.memberIds.filter((id: string) => id !== user.id)})
+                      }
+                    }}
+                  />
+                  <span>{user.firstName} {user.lastName}</span>
+                  <span className={styles.memberRole}>{user.title}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Permissions</label>
+            <div className={styles.permissionSelect}>
+              {permissionOptions.map(perm => (
+                <label key={perm.id} className={styles.permissionOption}>
+                  <input
+                    type="checkbox"
+                    checked={formData.permissions.includes(perm.id)}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setFormData({...formData, permissions: [...formData.permissions, perm.id]})
+                      } else {
+                        setFormData({...formData, permissions: formData.permissions.filter((id: string) => id !== perm.id)})
+                      }
+                    }}
+                  />
+                  <span>{perm.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn}>Cancel</button>
+            <button type="submit" className={styles.saveBtn}>Save Changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// Add User to Group Modal
+interface AddUserToGroupModalProps {
+  group: any
+  onClose: () => void
+  onSave: (memberIds: string[]) => void
+  users: typeof demoUsers
+}
+
+function AddUserToGroupModal({ group, onClose, onSave, users }: AddUserToGroupModalProps) {
+  const [memberIds, setMemberIds] = useState<string[]>(group.memberIds)
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    onSave(memberIds)
+  }
+
+  const availableUsers = users.filter(u => !memberIds.includes(u.id))
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>Manage Members - {group.name}</h2>
+          <button onClick={onClose} className={styles.closeBtn}><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
+          <div className={styles.formGroup}>
+            <label>Current Members</label>
+            <div className={styles.currentMembers}>
+              {memberIds.map(id => {
+                const user = users.find(u => u.id === id)
+                return user ? (
+                  <div key={id} className={styles.memberTag}>
+                    <span>{user.firstName} {user.lastName}</span>
+                    <button 
+                      type="button"
+                      onClick={() => setMemberIds(memberIds.filter(m => m !== id))}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : null
+              })}
+              {memberIds.length === 0 && (
+                <span className={styles.noMembers}>No members in this group</span>
+              )}
+            </div>
+          </div>
+
+          {availableUsers.length > 0 && (
+            <div className={styles.formGroup}>
+              <label>Add Members</label>
+              <div className={styles.memberSelect}>
+                {availableUsers.map(user => (
+                  <label key={user.id} className={styles.memberOption}>
+                    <input
+                      type="checkbox"
+                      checked={memberIds.includes(user.id)}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setMemberIds([...memberIds, user.id])
+                        }
+                      }}
+                    />
+                    <span>{user.firstName} {user.lastName}</span>
+                    <span className={styles.memberRole}>{user.title}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn}>Cancel</button>
+            <button type="submit" className={styles.saveBtn}>Save Changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// Invite User Modal
+interface InviteUserModalProps {
+  onClose: () => void
+  onSave: () => void
+}
+
+function InviteUserModal({ onClose, onSave }: InviteUserModalProps) {
+  const [formData, setFormData] = useState({
+    email: '',
+    firstName: '',
+    lastName: '',
+    role: 'attorney',
+    title: '',
+    sendInvite: true
+  })
+  const [sent, setSent] = useState(false)
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setSent(true)
+    setTimeout(() => {
+      onSave()
+    }, 1500)
+  }
+
+  if (sent) {
+    return (
+      <div className={styles.modalOverlay} onClick={onClose}>
+        <div className={styles.modal} onClick={e => e.stopPropagation()}>
+          <div className={styles.inviteSent}>
+            <CheckCircle2 size={48} />
+            <h2>Invitation Sent!</h2>
+            <p>An invitation has been sent to {formData.email}</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>Invite Team Member</h2>
+          <button onClick={onClose} className={styles.closeBtn}><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
+          <div className={styles.formGroup}>
+            <label>Email Address *</label>
+            <input
+              type="email"
+              value={formData.email}
+              onChange={e => setFormData({...formData, email: e.target.value})}
+              placeholder="colleague@email.com"
+              required
+            />
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>First Name *</label>
+              <input
+                type="text"
+                value={formData.firstName}
+                onChange={e => setFormData({...formData, firstName: e.target.value})}
+                required
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Last Name *</label>
+              <input
+                type="text"
+                value={formData.lastName}
+                onChange={e => setFormData({...formData, lastName: e.target.value})}
+                required
+              />
+            </div>
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Role *</label>
+              <select
+                value={formData.role}
+                onChange={e => setFormData({...formData, role: e.target.value})}
+              >
+                <option value="owner">Owner</option>
+                <option value="admin">Admin</option>
+                <option value="attorney">Attorney</option>
+                <option value="paralegal">Paralegal</option>
+                <option value="staff">Staff</option>
+              </select>
+            </div>
+            <div className={styles.formGroup}>
+              <label>Title</label>
+              <input
+                type="text"
+                value={formData.title}
+                onChange={e => setFormData({...formData, title: e.target.value})}
+                placeholder="e.g., Senior Associate"
+              />
+            </div>
+          </div>
+
+          <div className={styles.toggle}>
+            <div>
+              <span className={styles.toggleLabel}>Send Invitation Email</span>
+              <span className={styles.toggleDesc}>User will receive an email to set up their account</span>
+            </div>
+            <label className={styles.switch}>
+              <input
+                type="checkbox"
+                checked={formData.sendInvite}
+                onChange={e => setFormData({...formData, sendInvite: e.target.checked})}
+              />
+              <span className={styles.slider}></span>
+            </label>
+          </div>
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn}>Cancel</button>
+            <button type="submit" className={styles.saveBtn}>
+              <Mail size={16} />
+              Send Invitation
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   )
