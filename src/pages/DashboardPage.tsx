@@ -104,7 +104,7 @@ export function DashboardPage() {
           </h1>
           <p className={styles.date}>{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>
         </div>
-        <Link to="/ai" className={styles.aiPrompt}>
+        <Link to="/app/ai" className={styles.aiPrompt}>
           <Sparkles size={20} />
           <span>Ask AI Assistant</span>
           <ArrowRight size={16} />
@@ -278,13 +278,13 @@ export function DashboardPage() {
         <div className={styles.listCard}>
           <div className={styles.cardHeader}>
             <h3>Recent Matters</h3>
-            <Link to="/matters" className={styles.viewAll}>View all</Link>
+              <Link to="/app/matters" className={styles.viewAll}>View all</Link>
           </div>
           <div className={styles.listContent}>
             {recentMatters.map(matter => (
               <Link 
                 key={matter.id} 
-                to={`/matters/${matter.id}`} 
+                to={`/app/matters/${matter.id}`} 
                 className={styles.listItem}
               >
                 <div className={styles.listItemIcon}>
@@ -308,7 +308,7 @@ export function DashboardPage() {
         <div className={styles.listCard}>
           <div className={styles.cardHeader}>
             <h3>Upcoming Events</h3>
-            <Link to="/calendar" className={styles.viewAll}>View all</Link>
+            <Link to="/app/calendar" className={styles.viewAll}>View all</Link>
           </div>
           <div className={styles.listContent}>
             {upcomingEvents.map(event => (
@@ -349,7 +349,7 @@ export function DashboardPage() {
         <div className={styles.listCard}>
           <div className={styles.cardHeader}>
             <h3>Pending Invoices</h3>
-            <Link to="/billing" className={styles.viewAll}>View all</Link>
+            <Link to="/app/billing" className={styles.viewAll}>View all</Link>
           </div>
           <div className={styles.listContent}>
             {pendingInvoices.map(invoice => (
@@ -386,7 +386,7 @@ export function DashboardPage() {
             <p>Get intelligent analysis of your matters, billing trends, and upcoming deadlines.</p>
           </div>
         </div>
-        <Link to="/ai" className={styles.aiBannerBtn}>
+        <Link to="/app/ai" className={styles.aiBannerBtn}>
           Open AI Assistant
           <ArrowRight size={16} />
         </Link>

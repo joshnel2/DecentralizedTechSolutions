@@ -119,7 +119,7 @@ export function MattersPage() {
             {filteredMatters.map(matter => (
               <tr key={matter.id}>
                 <td>
-                  <Link to={`/matters/${matter.id}`} className={styles.nameCell}>
+                  <Link to={`/app/matters/${matter.id}`} className={styles.nameCell}>
                     <div className={styles.icon}>
                       <Briefcase size={16} />
                     </div>
@@ -135,7 +135,7 @@ export function MattersPage() {
                   </Link>
                 </td>
                 <td>
-                  <Link to={`/clients/${matter.clientId}`} className={styles.link}>
+                  <Link to={`/app/clients/${matter.clientId}`} className={styles.link}>
                     {getClientName(matter.clientId)}
                   </Link>
                 </td>

@@ -208,8 +208,8 @@ export function TimeTrackingPage() {
               {recentEntries.map(entry => (
                 <tr key={entry.id}>
                   <td>{format(parseISO(entry.date), 'MMM d, yyyy')}</td>
-                  <td>
-                    <Link to={`/matters/${entry.matterId}`}>
+                    <td>
+                    <Link to={`/app/matters/${entry.matterId}`}>
                       <div className={styles.matterCell}>
                         <span>{getMatterName(entry.matterId)}</span>
                         <span className={styles.matterNum}>{getMatterNumber(entry.matterId)}</span>

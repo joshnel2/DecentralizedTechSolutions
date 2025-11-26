@@ -91,7 +91,7 @@ export function ClientsPage() {
             {filteredClients.map(client => (
               <tr key={client.id}>
                 <td>
-                  <Link to={`/clients/${client.id}`} className={styles.nameCell}>
+                  <Link to={`/app/clients/${client.id}`} className={styles.nameCell}>
                     <div className={styles.icon}>
                       {client.type === 'organization' ? <Building2 size={16} /> : <User size={16} />}
                     </div>

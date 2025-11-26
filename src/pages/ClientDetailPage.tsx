@@ -48,7 +48,7 @@ export function ClientDetailPage() {
       <div className={styles.notFound}>
         <User size={48} />
         <h2>Client not found</h2>
-        <Link to="/clients">Back to Clients</Link>
+        <Link to="/app/clients">Back to Clients</Link>
       </div>
     )
   }
@@ -58,7 +58,7 @@ export function ClientDetailPage() {
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerTop}>
-          <Link to="/clients" className={styles.backLink}>
+          <Link to="/app/clients" className={styles.backLink}>
             <ChevronLeft size={18} />
             Back to Clients
           </Link>
@@ -187,7 +187,7 @@ export function ClientDetailPage() {
               </div>
               <div className={styles.matterList}>
                 {clientMatters.filter(m => m.status === 'active').slice(0, 5).map(matter => (
-                  <Link key={matter.id} to={`/matters/${matter.id}`} className={styles.matterItem}>
+                  <Link key={matter.id} to={`/app/matters/${matter.id}`} className={styles.matterItem}>
                     <div>
                       <span className={styles.matterName}>{matter.name}</span>
                       <span className={styles.matterNumber}>{matter.number}</span>
@@ -251,7 +251,7 @@ export function ClientDetailPage() {
                   {clientMatters.map(matter => (
                     <tr key={matter.id}>
                       <td>
-                        <Link to={`/matters/${matter.id}`}>
+                        <Link to={`/app/matters/${matter.id}`}>
                           <div>{matter.name}</div>
                           <div style={{ fontSize: '0.75rem', color: 'var(--apex-text)' }}>{matter.number}</div>
                         </Link>
@@ -302,7 +302,7 @@ export function ClientDetailPage() {
                       <tr key={invoice.id}>
                         <td>{invoice.number}</td>
                         <td>
-                          <Link to={`/matters/${matter?.id}`}>{matter?.name}</Link>
+                          <Link to={`/app/matters/${matter?.id}`}>{matter?.name}</Link>
                         </td>
                         <td>{format(parseISO(invoice.issueDate), 'MMM d, yyyy')}</td>
                         <td>{format(parseISO(invoice.dueDate), 'MMM d, yyyy')}</td>

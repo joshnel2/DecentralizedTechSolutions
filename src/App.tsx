@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
 import { Layout } from './components/Layout'
+import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { FirmSetupPage } from './pages/FirmSetupPage'
@@ -28,7 +29,7 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuthStore()
   if (isAuthenticated) {
-    return <Navigate to={user?.firmId ? '/dashboard' : '/setup'} />
+    return <Navigate to={user?.firmId ? '/app/dashboard' : '/setup'} />
   }
   return <>{children}</>
 }
@@ -38,6 +39,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         {/* Public Routes */}
+        <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={
           <PublicRoute><LoginPage /></PublicRoute>
         } />
@@ -51,10 +53,10 @@ export default function App() {
         } />
         
         {/* Protected Routes */}
-        <Route path="/" element={
+        <Route path="/app" element={
           <PrivateRoute><Layout /></PrivateRoute>
         }>
-          <Route index element={<Navigate to="/dashboard" />} />
+          <Route index element={<Navigate to="/app/dashboard" />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="matters" element={<MattersPage />} />
           <Route path="matters/:id" element={<MatterDetailPage />} />
@@ -73,7 +75,7 @@ export default function App() {
         </Route>
         
         {/* Catch all */}
-        <Route path="*" element={<Navigate to="/dashboard" />} />
+        <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </BrowserRouter>
   )

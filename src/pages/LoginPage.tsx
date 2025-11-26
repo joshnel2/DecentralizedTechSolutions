@@ -18,7 +18,7 @@ export function LoginPage() {
     
     try {
       await login(email, password)
-      navigate('/dashboard')
+      navigate('/app/dashboard')
     } catch {
       setError('Invalid email or password')
     }
@@ -29,7 +29,7 @@ export function LoginPage() {
     setPassword('apex2024')
     try {
       await login('admin@apex.law', 'apex2024')
-      navigate('/dashboard')
+      navigate('/app/dashboard')
     } catch {
       setError('Demo login failed')
     }

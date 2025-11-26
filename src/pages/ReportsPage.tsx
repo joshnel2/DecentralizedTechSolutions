@@ -1,8 +1,8 @@
-import { useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useDataStore } from '../stores/dataStore'
 import { 
-  BarChart3, TrendingUp, DollarSign, Clock, Users, Briefcase,
-  Download, Calendar, FileText
+  TrendingUp, DollarSign, Clock, Users, Briefcase,
+  Download, Calendar, FileText, CheckCircle2
 } from 'lucide-react'
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -13,7 +13,133 @@ import styles from './ReportsPage.module.css'
 const COLORS = ['#F59E0B', '#3B82F6', '#10B981', '#8B5CF6', '#EF4444', '#EC4899']
 
 export function ReportsPage() {
-  const { matters, clients, timeEntries, invoices } = useDataStore()
+  const { matters, clients, timeEntries, invoices, expenses } = useDataStore()
+  const [exportMessage, setExportMessage] = useState<string | null>(null)
+
+  // CSV Export Functions
+  const exportToCSV = (data: any[], filename: string, headers: string[]) => {
+    const csvContent = [
+      headers.join(','),
+      ...data.map(row => headers.map(h => {
+        const val = row[h.toLowerCase().replace(/ /g, '')] ?? row[h] ?? ''
+        // Escape commas and quotes
+        if (typeof val === 'string' && (val.includes(',') || val.includes('"'))) {
+          return `"${val.replace(/"/g, '""')}"`
+        }
+        return val
+      }).join(','))
+    ].join('\n')
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`
+    link.click()
+    
+    setExportMessage(`${filename}.csv exported successfully!`)
+    setTimeout(() => setExportMessage(null), 3000)
+  }
+
+  const exportMatters = () => {
+    const data = matters.map(m => ({
+      Number: m.number,
+      Name: m.name,
+      Client: clients.find(c => c.id === m.clientId)?.name || '',
+      Type: m.type.replace(/_/g, ' '),
+      Status: m.status.replace(/_/g, ' '),
+      'Open Date': m.openDate.split('T')[0],
+      'Billing Type': m.billingType,
+      Priority: m.priority
+    }))
+    exportToCSV(data, 'matters_report', ['Number', 'Name', 'Client', 'Type', 'Status', 'Open Date', 'Billing Type', 'Priority'])
+  }
+
+  const exportClients = () => {
+    const data = clients.map(c => ({
+      Name: c.name,
+      Type: c.type,
+      Email: c.email,
+      Phone: c.phone,
+      City: c.city,
+      State: c.state,
+      Status: c.status,
+      'Matters Count': matters.filter(m => m.clientId === c.id).length
+    }))
+    exportToCSV(data, 'clients_report', ['Name', 'Type', 'Email', 'Phone', 'City', 'State', 'Status', 'Matters Count'])
+  }
+
+  const exportBilling = () => {
+    const data = invoices.map(i => ({
+      'Invoice #': i.number,
+      Client: clients.find(c => c.id === i.clientId)?.name || '',
+      Matter: matters.find(m => m.id === i.matterId)?.name || '',
+      'Issue Date': i.issueDate.split('T')[0],
+      'Due Date': i.dueDate.split('T')[0],
+      Total: i.total,
+      Paid: i.amountPaid,
+      Status: i.status
+    }))
+    exportToCSV(data, 'billing_report', ['Invoice #', 'Client', 'Matter', 'Issue Date', 'Due Date', 'Total', 'Paid', 'Status'])
+  }
+
+  const exportTimeEntries = () => {
+    const data = timeEntries.map(t => ({
+      Date: t.date.split('T')[0],
+      Matter: matters.find(m => m.id === t.matterId)?.name || '',
+      Description: t.description,
+      Hours: t.hours,
+      Rate: t.rate,
+      Amount: t.amount,
+      Billable: t.billable ? 'Yes' : 'No',
+      Billed: t.billed ? 'Yes' : 'No'
+    }))
+    exportToCSV(data, 'time_entries_report', ['Date', 'Matter', 'Description', 'Hours', 'Rate', 'Amount', 'Billable', 'Billed'])
+  }
+
+  const exportProductivity = () => {
+    const byMatter = matters.map(m => {
+      const entries = timeEntries.filter(t => t.matterId === m.id)
+      const totalHours = entries.reduce((sum, e) => sum + e.hours, 0)
+      const billableHours = entries.filter(e => e.billable).reduce((sum, e) => sum + e.hours, 0)
+      const revenue = entries.reduce((sum, e) => sum + e.amount, 0)
+      return {
+        Matter: m.name,
+        'Matter Number': m.number,
+        'Total Hours': totalHours.toFixed(1),
+        'Billable Hours': billableHours.toFixed(1),
+        'Utilization %': totalHours > 0 ? ((billableHours / totalHours) * 100).toFixed(1) : '0',
+        Revenue: revenue
+      }
+    })
+    exportToCSV(byMatter, 'productivity_report', ['Matter', 'Matter Number', 'Total Hours', 'Billable Hours', 'Utilization %', 'Revenue'])
+  }
+
+  const exportAging = () => {
+    const outstanding = invoices.filter(i => i.status === 'sent' || i.status === 'overdue').map(i => {
+      const daysOld = Math.floor((Date.now() - new Date(i.issueDate).getTime()) / (1000 * 60 * 60 * 24))
+      return {
+        'Invoice #': i.number,
+        Client: clients.find(c => c.id === i.clientId)?.name || '',
+        'Issue Date': i.issueDate.split('T')[0],
+        'Due Date': i.dueDate.split('T')[0],
+        'Days Outstanding': daysOld,
+        Amount: i.total - i.amountPaid,
+        'Aging Bucket': daysOld <= 30 ? '0-30 days' : daysOld <= 60 ? '31-60 days' : daysOld <= 90 ? '61-90 days' : '90+ days'
+      }
+    })
+    exportToCSV(outstanding, 'aging_report', ['Invoice #', 'Client', 'Issue Date', 'Due Date', 'Days Outstanding', 'Amount', 'Aging Bucket'])
+  }
+
+  const handleRunReport = (reportType: string) => {
+    switch(reportType) {
+      case 'Billing Summary': exportBilling(); break
+      case 'Timekeeper Report': exportTimeEntries(); break
+      case 'Matter Status': exportMatters(); break
+      case 'Client Report': exportClients(); break
+      case 'Aging Report': exportAging(); break
+      case 'Productivity': exportProductivity(); break
+    }
+  }
 
   const revenueByMonth = useMemo(() => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -63,10 +189,18 @@ export function ReportsPage() {
         <div className={styles.headerLeft}>
           <h1>Reports & Analytics</h1>
         </div>
-        <button className={styles.exportBtn}>
-          <Download size={18} />
-          Export Report
-        </button>
+        <div className={styles.headerRight}>
+          {exportMessage && (
+            <span className={styles.exportSuccess}>
+              <CheckCircle2 size={16} />
+              {exportMessage}
+            </span>
+          )}
+          <button className={styles.exportBtn} onClick={exportBilling}>
+            <Download size={18} />
+            Export All
+          </button>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -229,6 +363,7 @@ export function ReportsPage() {
       {/* Quick Reports */}
       <div className={styles.quickReports}>
         <h3>Quick Reports</h3>
+        <p className={styles.reportHint}>Click "Run" to export CSV report</p>
         <div className={styles.reportCards}>
           {[
             { icon: DollarSign, title: 'Billing Summary', desc: 'Monthly billing and collections' },
@@ -246,7 +381,13 @@ export function ReportsPage() {
                 <span className={styles.reportTitle}>{report.title}</span>
                 <span className={styles.reportDesc}>{report.desc}</span>
               </div>
-              <button className={styles.runBtn}>Run</button>
+              <button 
+                className={styles.runBtn}
+                onClick={() => handleRunReport(report.title)}
+              >
+                <Download size={12} />
+                CSV
+              </button>
             </div>
           ))}
         </div>

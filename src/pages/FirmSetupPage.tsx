@@ -55,7 +55,7 @@ export function FirmSetupPage() {
       }
     })
     
-    navigate('/dashboard')
+    navigate('/app/dashboard')
   }
 
   const handleSkip = async () => {
@@ -66,7 +66,7 @@ export function FirmSetupPage() {
       billingRate: 350,
       currency: 'USD'
     })
-    navigate('/dashboard')
+    navigate('/app/dashboard')
   }
 
   return (

@@ -16,6 +16,25 @@
   color: var(--apex-white);
 }
 
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.exportSuccess {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--apex-success);
+  font-size: 0.875rem;
+  animation: fadeIn var(--transition-fast) ease;
+}
+
 .exportBtn {
   display: flex;
   align-items: center;
@@ -162,6 +181,12 @@
   font-size: 1rem;
   font-weight: 600;
   color: var(--apex-white);
+  margin-bottom: var(--space-xs);
+}
+
+.reportHint {
+  font-size: 0.8125rem;
+  color: var(--apex-text);
   margin-bottom: var(--space-lg);
 }
 
@@ -216,6 +241,9 @@
 }
 
 .runBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
   padding: var(--space-xs) var(--space-md);
   background: var(--apex-gold);
   border: none;
@@ -229,6 +257,7 @@
 
 .runBtn:hover {
   background: var(--apex-gold-light);
+  transform: translateY(-1px);
 }
 
 @media (max-width: 1200px) {

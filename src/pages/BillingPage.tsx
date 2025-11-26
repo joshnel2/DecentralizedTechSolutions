@@ -167,12 +167,12 @@ export function BillingPage() {
                       </div>
                     </td>
                     <td>
-                      <Link to={`/clients/${invoice.clientId}`}>
+                      <Link to={`/app/clients/${invoice.clientId}`}>
                         {getClientName(invoice.clientId)}
                       </Link>
                     </td>
                     <td>
-                      <Link to={`/matters/${invoice.matterId}`}>
+                      <Link to={`/app/matters/${invoice.matterId}`}>
                         {getMatterName(invoice.matterId)}
                       </Link>
                     </td>
@@ -229,7 +229,7 @@ export function BillingPage() {
                   <tr key={entry.id}>
                     <td>{format(parseISO(entry.date), 'MMM d, yyyy')}</td>
                     <td>
-                      <Link to={`/matters/${entry.matterId}`}>
+                      <Link to={`/app/matters/${entry.matterId}`}>
                         {getMatterName(entry.matterId)}
                       </Link>
                     </td>
@@ -265,7 +265,7 @@ export function BillingPage() {
                   <tr key={expense.id}>
                     <td>{format(parseISO(expense.date), 'MMM d, yyyy')}</td>
                     <td>
-                      <Link to={`/matters/${expense.matterId}`}>
+                      <Link to={`/app/matters/${expense.matterId}`}>
                         {getMatterName(expense.matterId)}
                       </Link>
                     </td>

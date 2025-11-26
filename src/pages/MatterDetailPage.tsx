@@ -55,7 +55,7 @@ export function MatterDetailPage() {
       <div className={styles.notFound}>
         <Briefcase size={48} />
         <h2>Matter not found</h2>
-        <Link to="/matters">Back to Matters</Link>
+        <Link to="/app/matters">Back to Matters</Link>
       </div>
     )
   }
@@ -65,7 +65,7 @@ export function MatterDetailPage() {
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerTop}>
-          <Link to="/matters" className={styles.backLink}>
+          <Link to="/app/matters" className={styles.backLink}>
             <ChevronLeft size={18} />
             Back to Matters
           </Link>
@@ -154,7 +154,7 @@ export function MatterDetailPage() {
               <div className={styles.detailGrid}>
                 <div className={styles.detailItem}>
                   <span className={styles.detailLabel}>Client</span>
-                  <Link to={`/clients/${client?.id}`} className={styles.detailLink}>
+                  <Link to={`/app/clients/${client?.id}`} className={styles.detailLink}>
                     <Building2 size={14} />
                     {client?.name}
                   </Link>

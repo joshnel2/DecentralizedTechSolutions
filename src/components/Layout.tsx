@@ -12,21 +12,21 @@ import { clsx } from 'clsx'
 import styles from './Layout.module.css'
 
 const navItems = [
-  { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/matters', label: 'Matters', icon: Briefcase },
-  { path: '/clients', label: 'Clients', icon: Users },
-  { path: '/calendar', label: 'Calendar', icon: Calendar },
-  { path: '/billing', label: 'Billing', icon: DollarSign },
-  { path: '/time', label: 'Time Tracking', icon: Clock },
-  { path: '/documents', label: 'Documents', icon: FolderOpen },
-  { path: '/reports', label: 'Reports', icon: BarChart3 },
+  { path: '/app/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/app/matters', label: 'Matters', icon: Briefcase },
+  { path: '/app/clients', label: 'Clients', icon: Users },
+  { path: '/app/calendar', label: 'Calendar', icon: Calendar },
+  { path: '/app/billing', label: 'Billing', icon: DollarSign },
+  { path: '/app/time', label: 'Time Tracking', icon: Clock },
+  { path: '/app/documents', label: 'Documents', icon: FolderOpen },
+  { path: '/app/reports', label: 'Reports', icon: BarChart3 },
 ]
 
 const settingsItems = [
-  { path: '/settings', label: 'My Settings', icon: UserCircle },
-  { path: '/settings/firm', label: 'Firm Settings', icon: Building2 },
-  { path: '/settings/team', label: 'Team & Groups', icon: UsersRound },
-  { path: '/settings/api-keys', label: 'API Keys', icon: Key },
+  { path: '/app/settings', label: 'My Settings', icon: UserCircle },
+  { path: '/app/settings/firm', label: 'Firm Settings', icon: Building2 },
+  { path: '/app/settings/team', label: 'Team & Groups', icon: UsersRound },
+  { path: '/app/settings/api-keys', label: 'API Keys', icon: Key },
 ]
 
 export function Layout() {
@@ -87,7 +87,7 @@ export function Layout() {
           ))}
 
           <NavLink
-            to="/ai"
+            to="/app/ai"
             className={({ isActive }) => clsx(styles.navItem, styles.aiNav, isActive && styles.active)}
           >
             <Sparkles size={20} />
@@ -147,7 +147,7 @@ export function Layout() {
             <h1 className={styles.pageTitle}>
               {navItems.find(i => location.pathname.startsWith(i.path))?.label || 
                settingsItems.find(i => location.pathname === i.path)?.label ||
-               (location.pathname === '/ai' ? 'AI Assistant' : 'Dashboard')}
+               (location.pathname === '/app/ai' ? 'AI Assistant' : 'Dashboard')}
             </h1>
           </div>
 
@@ -216,7 +216,7 @@ export function Layout() {
                     </div>
                   </div>
                   <div className={styles.dropdownContent}>
-                    <button onClick={() => { navigate('/settings'); setUserMenuOpen(false) }}>
+                    <button onClick={() => { navigate('/app/settings'); setUserMenuOpen(false) }}>
                       <UserCircle size={16} />
                       <span>My Settings</span>
                     </button>
