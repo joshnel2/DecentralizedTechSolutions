@@ -3,11 +3,11 @@
   --apex-midnight: #0B0F1A;
   --apex-deep: #0F172A;
   --apex-slate: #1E293B;
-  --apex-muted: #334155;
-  --apex-subtle: #475569;
-  --apex-text: #94A3B8;
-  --apex-light: #CBD5E1;
-  --apex-white: #F1F5F9;
+  --apex-muted: #475569;
+  --apex-subtle: #64748B;
+  --apex-text: #CBD5E1;
+  --apex-light: #E2E8F0;
+  --apex-white: #F8FAFC;
   
   /* Gold Accent Spectrum */
   --apex-gold-dark: #B45309;
@@ -34,9 +34,9 @@
   --bg-primary: var(--apex-midnight);
   --bg-secondary: var(--apex-deep);
   --bg-tertiary: var(--apex-slate);
-  --text-primary: var(--apex-white);
-  --text-secondary: var(--apex-text);
-  --text-tertiary: var(--apex-subtle);
+  --text-primary: #FFFFFF;
+  --text-secondary: #CBD5E1;
+  --text-tertiary: #94A3B8;
   --border-primary: rgba(255, 255, 255, 0.08);
   --border-secondary: rgba(255, 255, 255, 0.12);
   --gold-primary: var(--apex-gold-bright);

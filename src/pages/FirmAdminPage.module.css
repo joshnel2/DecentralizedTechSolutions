@@ -112,14 +112,14 @@
   padding: 0.5rem 0.75rem;
   background: none;
   border: none;
-  color: var(--apex-muted);
+  color: #94A3B8;
   font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .textBtn:hover {
-  color: var(--apex-text);
+  color: #FFFFFF;
 }
 
 .textBtnDanger {
@@ -147,7 +147,7 @@
   padding: 1rem 1.25rem;
   background: none;
   border: none;
-  color: var(--apex-muted);
+  color: #94A3B8;
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
@@ -157,13 +157,13 @@
 }
 
 .tab:hover {
-  color: var(--apex-text);
-  background: rgba(255, 255, 255, 0.03);
+  color: #E2E8F0;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .tab.active {
-  color: var(--apex-gold);
-  border-bottom-color: var(--apex-gold);
+  color: #FBBF24;
+  border-bottom-color: #FBBF24;
 }
 
 /* Tab Content */
