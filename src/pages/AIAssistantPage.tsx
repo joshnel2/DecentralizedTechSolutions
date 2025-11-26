@@ -1,19 +1,29 @@
 import { useState, useRef, useEffect } from 'react'
-import { useAIStore } from '../stores/aiStore'
+import { useAIStore, AI_MODELS, type AIModel } from '../stores/aiStore'
 import { useDataStore } from '../stores/dataStore'
 import { 
   Sparkles, Send, Plus, MessageSquare, Trash2, 
-  FileText, Briefcase, Search, Zap, BookOpen
+  FileText, Briefcase, Search, Zap, BookOpen,
+  MessageCircle, FileEdit, Files, Bolt, Check, ChevronDown
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './AIAssistantPage.module.css'
 
+const modelIcons: Record<AIModel, React.ReactNode> = {
+  standard: <MessageCircle size={20} />,
+  redline: <FileEdit size={20} />,
+  'large-docs': <Files size={20} />,
+  fast: <Bolt size={20} />
+}
+
 export function AIAssistantPage() {
   const { 
     conversations, 
     activeConversationId, 
+    selectedModel,
     isLoading,
+    setSelectedModel,
     createConversation, 
     setActiveConversation,
     generateResponse,
@@ -21,13 +31,26 @@ export function AIAssistantPage() {
   } = useAIStore()
   const { matters } = useDataStore()
   const [input, setInput] = useState('')
+  const [showModelPicker, setShowModelPicker] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const modelPickerRef = useRef<HTMLDivElement>(null)
 
   const activeConversation = conversations.find(c => c.id === activeConversationId)
+  const currentModel = AI_MODELS[selectedModel]
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeConversation?.messages])
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(event.target as Node)) {
+        setShowModelPicker(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -48,6 +71,13 @@ export function AIAssistantPage() {
     createConversation()
   }
 
+  const handleModelSelect = (model: AIModel) => {
+    setSelectedModel(model)
+    setShowModelPicker(false)
+    // Start new conversation with new model
+    createConversation()
+  }
+
   const suggestions = [
     { icon: Search, text: 'Research case law on patent infringement', category: 'Research' },
     { icon: FileText, text: 'Draft a motion for summary judgment', category: 'Drafting' },
@@ -63,6 +93,47 @@ export function AIAssistantPage() {
           <Plus size={18} />
           New Chat
         </button>
+
+        {/* Model Selector */}
+        <div className={styles.modelSection}>
+          <h4>AI Model</h4>
+          <div className={styles.modelSelector} ref={modelPickerRef}>
+            <button 
+              className={styles.modelSelectorBtn}
+              onClick={() => setShowModelPicker(!showModelPicker)}
+            >
+              <span className={styles.modelIcon}>{currentModel.icon}</span>
+              <div className={styles.modelInfo}>
+                <span className={styles.modelName}>{currentModel.name}</span>
+                <span className={styles.modelDesc}>{currentModel.bestFor.slice(0, 30)}...</span>
+              </div>
+              <ChevronDown size={16} className={clsx(showModelPicker && styles.rotated)} />
+            </button>
+
+            {showModelPicker && (
+              <div className={styles.modelDropdown}>
+                {(Object.keys(AI_MODELS) as AIModel[]).map((modelId) => {
+                  const model = AI_MODELS[modelId]
+                  const isSelected = selectedModel === modelId
+                  return (
+                    <button
+                      key={modelId}
+                      className={clsx(styles.modelOption, isSelected && styles.selected)}
+                      onClick={() => handleModelSelect(modelId)}
+                    >
+                      <span className={styles.modelOptionIcon}>{model.icon}</span>
+                      <div className={styles.modelOptionInfo}>
+                        <span className={styles.modelOptionName}>{model.name}</span>
+                        <span className={styles.modelOptionDesc}>{model.description}</span>
+                      </div>
+                      {isSelected && <Check size={16} className={styles.checkIcon} />}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
 
         <div className={styles.conversationsList}>
           <h4>Recent Conversations</h4>
@@ -107,6 +178,17 @@ export function AIAssistantPage() {
       <div className={styles.chatArea}>
         {activeConversation ? (
           <>
+            {/* Model indicator bar */}
+            <div className={styles.modelBar}>
+              <span className={styles.modelBarIcon}>{currentModel.icon}</span>
+              <span className={styles.modelBarName}>{currentModel.name}</span>
+              <div className={styles.modelBarCaps}>
+                {currentModel.capabilities.slice(0, 3).map((cap, i) => (
+                  <span key={i} className={styles.capBadge}>{cap}</span>
+                ))}
+              </div>
+            </div>
+
             <div className={styles.messagesContainer}>
               {activeConversation.messages.map(message => (
                 <div 
@@ -156,7 +238,7 @@ export function AIAssistantPage() {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask anything about your cases, legal research, or drafting..."
+                placeholder={`Ask ${currentModel.name}...`}
                 disabled={isLoading}
               />
               <button type="submit" disabled={isLoading || !input.trim()}>
@@ -171,9 +253,41 @@ export function AIAssistantPage() {
             </div>
             <h2>Apex AI Assistant</h2>
             <p>
-              Your AI-powered legal practice assistant. Get help with research, 
-              drafting, analysis, and more.
+              Your AI-powered legal practice assistant. Choose a model to get started.
             </p>
+
+            {/* Model Selection Cards */}
+            <div className={styles.modelCards}>
+              <h4>Select AI Model</h4>
+              <div className={styles.modelGrid}>
+                {(Object.keys(AI_MODELS) as AIModel[]).map((modelId) => {
+                  const model = AI_MODELS[modelId]
+                  const isSelected = selectedModel === modelId
+                  return (
+                    <button
+                      key={modelId}
+                      className={clsx(styles.modelCard, isSelected && styles.selected)}
+                      onClick={() => handleModelSelect(modelId)}
+                    >
+                      <div className={styles.modelCardHeader}>
+                        <span className={styles.modelCardIcon}>{model.icon}</span>
+                        {isSelected && <Check size={18} className={styles.modelCardCheck} />}
+                      </div>
+                      <h3>{model.name}</h3>
+                      <p className={styles.modelCardDesc}>{model.description}</p>
+                      <div className={styles.modelCardCaps}>
+                        {model.capabilities.map((cap, i) => (
+                          <span key={i}>{cap}</span>
+                        ))}
+                      </div>
+                      <p className={styles.modelCardBest}>
+                        <strong>Best for:</strong> {model.bestFor}
+                      </p>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
 
             <div className={styles.suggestions}>
               <h4>Try asking:</h4>
@@ -196,30 +310,6 @@ export function AIAssistantPage() {
                 ))}
               </div>
             </div>
-
-            <div className={styles.capabilities}>
-              <div className={styles.capability}>
-                <Zap size={18} />
-                <div>
-                  <strong>Legal Research</strong>
-                  <p>Search case law, statutes, and regulations</p>
-                </div>
-              </div>
-              <div className={styles.capability}>
-                <FileText size={18} />
-                <div>
-                  <strong>Document Drafting</strong>
-                  <p>Generate contracts, motions, and correspondence</p>
-                </div>
-              </div>
-              <div className={styles.capability}>
-                <Briefcase size={18} />
-                <div>
-                  <strong>Matter Analysis</strong>
-                  <p>Summarize cases and identify key issues</p>
-                </div>
-              </div>
-            </div>
           </div>
         )}
       </div>
@@ -238,4 +328,7 @@ function formatMessageContent(content: string): string {
     .replace(/• /g, '&bull; ')
     .replace(/✓/g, '<span style="color: #10B981">✓</span>')
     .replace(/⚠️/g, '<span style="color: #F59E0B">⚠️</span>')
+    .replace(/🔴/g, '<span style="color: #EF4444">●</span>')
+    .replace(/🟡/g, '<span style="color: #F59E0B">●</span>')
+    .replace(/🟢/g, '<span style="color: #10B981">●</span>')
 }
