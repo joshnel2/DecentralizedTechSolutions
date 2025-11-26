@@ -16,17 +16,44 @@ export interface Firm {
   name: string
   logo?: string
   address: string
-  city: string
-  state: string
-  zipCode: string
-  phone: string
-  email: string
+  city?: string
+  state?: string
+  zipCode?: string
+  phone?: string
+  email?: string
   website?: string
-  timezone: string
-  billingRate: number
-  currency: string
-  createdAt: string
-  settings: FirmSettings
+  timezone?: string
+  billingRate?: number
+  currency?: string
+  createdAt?: string
+  settings?: FirmSettings
+  billingDefaults?: BillingDefaults
+  azureOpenAI?: AzureOpenAIConfig
+  bankAccount?: BankAccount
+}
+
+export interface BillingDefaults {
+  hourlyRate: number
+  incrementMinutes: number
+  paymentTerms?: number
+  lateFeePercent?: number
+  currency?: string
+  taxRate?: number
+}
+
+export interface AzureOpenAIConfig {
+  endpoint: string
+  apiKey: string
+  deploymentName: string
+}
+
+export interface BankAccount {
+  bankName: string
+  accountName: string
+  accountNumber: string
+  routingNumber: string
+  accountType: 'checking' | 'savings'
+  isVerified: boolean
 }
 
 export interface FirmSettings {
@@ -182,6 +209,17 @@ export interface InvoiceLineItem {
   amount: number
   timeEntryId?: string
   expenseId?: string
+}
+
+// Payment Types
+export interface Payment {
+  id: string
+  invoiceId: string
+  amount: number
+  method: 'check' | 'wire' | 'ach' | 'credit_card' | 'cash'
+  reference?: string
+  date: string
+  createdAt: string
 }
 
 // Calendar Types
