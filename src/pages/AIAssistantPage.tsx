@@ -6,7 +6,7 @@ import {
   Sparkles, Send, Plus, MessageSquare, Trash2, 
   MessageCircle, FileEdit, Files, Zap, Settings,
   User, Briefcase, Scale, BookOpen, HelpCircle,
-  Sliders, Brain, Target, Clock
+  SlidersHorizontal, Brain, Target, Clock
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -268,7 +268,7 @@ export function AIAssistantPage() {
                 className={clsx(styles.tabBtn, activeTab === 'personalize' && styles.active)}
                 onClick={() => setActiveTab('personalize')}
               >
-                <Sliders size={18} />
+                <SlidersHorizontal size={18} />
                 Personalize
               </button>
             </div>
