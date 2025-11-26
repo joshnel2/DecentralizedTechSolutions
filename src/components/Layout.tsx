@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Briefcase, Users, Calendar, DollarSign, 
   Clock, BarChart3, Settings, LogOut, ChevronDown,
   Bell, Sparkles, Menu, X, FolderOpen, Shield, Key, UserCircle,
-  Building2, UsersRound, Link2, TrendingUp, Lock, Wallet, Landmark, PiggyBank
+  Building2, UsersRound, Link2, TrendingUp, Lock, Landmark
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './Layout.module.css'
@@ -36,7 +36,7 @@ const settingsItems = [
 
 export function Layout() {
   const { user, firm, logout } = useAuthStore()
-  const { notifications, clients, invoices } = useDataStore()
+  const { notifications } = useDataStore()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -45,27 +45,6 @@ export function Layout() {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
 
   const unreadCount = notifications.filter(n => !n.read).length
-  
-  // Check if user is admin or owner
-  const isAdmin = user?.role === 'owner' || user?.role === 'admin'
-  
-  // Calculate account balances (demo data)
-  const accountBalances = useMemo(() => {
-    // Sum up trust/retainer balances from clients
-    const totalRetainers = clients.reduce((sum, c) => sum + (c.clientInfo?.trustBalance || 0), 0)
-    // Calculate outstanding AR from invoices
-    const outstandingAR = invoices
-      .filter(i => i.status !== 'paid' && i.status !== 'void')
-      .reduce((sum, i) => sum + i.amountDue, 0)
-    // Demo operating account balance
-    const operatingBalance = 284750.00
-    
-    return {
-      operating: operatingBalance,
-      trust: totalRetainers || 127500.00, // Demo fallback
-      outstanding: outstandingAR || 49750.00 // Demo fallback
-    }
-  }, [clients, invoices])
 
   const handleLogout = () => {
     logout()
@@ -154,51 +133,6 @@ export function Layout() {
             )}
           </div>
         </nav>
-
-        {/* Accounts Section - Admin Only */}
-        {isAdmin && sidebarOpen && (
-          <div className={styles.accountsSection}>
-            <div className={styles.accountsHeader}>
-              <Wallet size={14} />
-              <span>Accounts</span>
-            </div>
-            <div className={styles.accountsList}>
-              <div className={styles.accountItem}>
-                <div className={styles.accountIcon}>
-                  <Landmark size={14} />
-                </div>
-                <div className={styles.accountInfo}>
-                  <span className={styles.accountLabel}>Operating</span>
-                  <span className={styles.accountBalance}>
-                    ${accountBalances.operating.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </div>
-              <div className={styles.accountItem}>
-                <div className={styles.accountIcon} style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10B981' }}>
-                  <PiggyBank size={14} />
-                </div>
-                <div className={styles.accountInfo}>
-                  <span className={styles.accountLabel}>Trust/IOLTA</span>
-                  <span className={styles.accountBalance} style={{ color: '#10B981' }}>
-                    ${accountBalances.trust.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </div>
-              <div className={styles.accountItem}>
-                <div className={styles.accountIcon} style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#F59E0B' }}>
-                  <DollarSign size={14} />
-                </div>
-                <div className={styles.accountInfo}>
-                  <span className={styles.accountLabel}>Outstanding AR</span>
-                  <span className={styles.accountBalance} style={{ color: '#F59E0B' }}>
-                    ${accountBalances.outstanding.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {sidebarOpen && (
           <div className={styles.sidebarFooter}>

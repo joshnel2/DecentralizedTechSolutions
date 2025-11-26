@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
 import { 
   Building2, CreditCard, Brain, Shield, Save, Users, Briefcase,
   DollarSign, Clock, Sparkles, CheckCircle2,
   AlertTriangle, Plus, Trash2, Edit2, UserPlus, X,
-  Mail, UserCog, UserMinus, Landmark, Eye, EyeOff
+  Mail, UserCog, UserMinus, Landmark, Eye, EyeOff, Wallet, TrendingUp, PiggyBank
 } from 'lucide-react'
 import styles from './FirmSettingsPage.module.css'
 
@@ -42,8 +42,23 @@ const groupColors = [
 
 export function FirmSettingsPage() {
   const { firm, updateFirm, user } = useAuthStore()
-  const { groups, addGroup, updateGroup, deleteGroup } = useDataStore()
-  const [activeTab, setActiveTab] = useState('general')
+  const { groups, addGroup, updateGroup, deleteGroup, clients, invoices } = useDataStore()
+  const [activeTab, setActiveTab] = useState('accounts')
+  
+  // Calculate account balances
+  const accountBalances = useMemo(() => {
+    const totalRetainers = clients.reduce((sum, c) => sum + (c.clientInfo?.trustBalance || 0), 0)
+    const outstandingAR = invoices
+      .filter(i => i.status !== 'paid' && i.status !== 'void')
+      .reduce((sum, i) => sum + i.amountDue, 0)
+    const operatingBalance = 284750.00
+    
+    return {
+      operating: operatingBalance,
+      trust: totalRetainers || 127500.00,
+      outstanding: outstandingAR || 49750.00
+    }
+  }, [clients, invoices])
   const [saved, setSaved] = useState(false)
 
   // Modal states
@@ -184,6 +199,7 @@ export function FirmSettingsPage() {
   const getUserById = (id: string) => demoUsers.find(u => u.id === id)
 
   const tabs = [
+    { id: 'accounts', label: 'Accounts', icon: Wallet },
     { id: 'general', label: 'Firm Info', icon: Building2 },
     { id: 'users', label: 'Users & Teams', icon: Users },
     { id: 'billing', label: 'Billing & Rates', icon: DollarSign },
