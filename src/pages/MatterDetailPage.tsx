@@ -2,18 +2,23 @@ import { useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { 
-  Briefcase, Users, Calendar, DollarSign, Clock, FileText,
+  Briefcase, Calendar, DollarSign, Clock, FileText,
   ChevronLeft, Sparkles, Edit2, MoreVertical, Plus,
-  AlertCircle, CheckCircle2, Scale, Building2
+  CheckCircle2, Scale, Building2, Brain, Loader2, 
+  Copy, RefreshCw, AlertTriangle, TrendingUp
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
+import { AIButton } from '../components/AIButton'
 import styles from './DetailPage.module.css'
 
 export function MatterDetailPage() {
   const { id } = useParams()
-  const { matters, clients, timeEntries, invoices, events, documents } = useDataStore()
+  const { matters, clients, timeEntries, invoices, events, documents, updateMatter } = useDataStore()
   const [activeTab, setActiveTab] = useState('overview')
+  const [aiAnalyzing, setAiAnalyzing] = useState(false)
+  const [aiSummary, setAiSummary] = useState<string | null>(null)
+  const [showAiPanel, setShowAiPanel] = useState(false)
 
   const matter = useMemo(() => matters.find(m => m.id === id), [matters, id])
   const client = useMemo(() => clients.find(c => c.id === matter?.clientId), [clients, matter])
@@ -50,6 +55,22 @@ export function MatterDetailPage() {
     return { totalHours, totalBilled, totalUnbilled, invoicedAmount, paidAmount }
   }, [matterTimeEntries, matterInvoices])
 
+  const generateAISummary = async () => {
+    setAiAnalyzing(true)
+    setShowAiPanel(true)
+    
+    // Simulate AI analysis
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    
+    const summaries = [
+      `**Matter Summary: ${matter?.name}**\n\nThis ${matter?.type.replace(/_/g, ' ')} matter for ${client?.name} is currently ${matter?.status.replace(/_/g, ' ')}.\n\n**Key Metrics:**\n• Total billable hours: ${stats.totalHours.toFixed(1)}h\n• Outstanding balance: $${stats.totalUnbilled.toLocaleString()}\n• Collection rate: ${stats.invoicedAmount > 0 ? ((stats.paidAmount / stats.invoicedAmount) * 100).toFixed(0) : 0}%\n\n**Recommendations:**\n1. Review unbilled time entries for invoicing\n2. ${matterEvents.length > 0 ? 'Upcoming deadline requires attention' : 'Consider scheduling next milestone'}\n3. Document organization appears well-maintained`,
+      `**AI Analysis: ${matter?.name}**\n\nCurrent Status: ${matter?.status.replace(/_/g, ' ').toUpperCase()}\n\n**Financial Overview:**\n• Billing rate: $${matter?.billingRate}/hr\n• Hours logged: ${stats.totalHours.toFixed(1)}h\n• Revenue potential: $${stats.totalUnbilled.toLocaleString()}\n\n**Risk Assessment:** LOW\n• No immediate deadlines at risk\n• Client communication appears regular\n• Documentation is current\n\n**Next Steps:**\n• Schedule billing review\n• Update matter status if applicable\n• Review upcoming calendar events`
+    ]
+    
+    setAiSummary(summaries[Math.floor(Math.random() * summaries.length)])
+    setAiAnalyzing(false)
+  }
+
   if (!matter) {
     return (
       <div className={styles.notFound}>
@@ -70,6 +91,17 @@ export function MatterDetailPage() {
             Back to Matters
           </Link>
           <div className={styles.headerActions}>
+            <AIButton 
+              context={`Matter: ${matter.name}`}
+              label="AI Analysis"
+              prompts={[
+                { label: 'Summarize', prompt: 'Summarize this matter' },
+                { label: 'Risk Analysis', prompt: 'Analyze risks' },
+                { label: 'Timeline Review', prompt: 'Review timeline' },
+                { label: 'Billing Insights', prompt: 'Billing analysis' },
+                { label: 'Next Steps', prompt: 'Recommend next steps' }
+              ]}
+            />
             <button className={styles.iconBtn}>
               <Edit2 size={18} />
             </button>
@@ -148,9 +180,93 @@ export function MatterDetailPage() {
       <div className={styles.content}>
         {activeTab === 'overview' && (
           <div className={styles.overviewGrid}>
+            {/* AI Insights Panel - Always visible at top */}
+            <div className={clsx(styles.card, styles.aiCard, styles.fullWidth)}>
+              <div className={styles.aiCardHeader}>
+                <div className={styles.aiCardTitle}>
+                  <Brain size={20} />
+                  <div>
+                    <h3>AI Insights</h3>
+                    <span>Powered by Azure OpenAI</span>
+                  </div>
+                </div>
+                <div className={styles.aiCardActions}>
+                  <button 
+                    className={styles.aiGenerateBtn}
+                    onClick={generateAISummary}
+                    disabled={aiAnalyzing}
+                  >
+                    {aiAnalyzing ? (
+                      <>
+                        <Loader2 size={16} className={styles.spinner} />
+                        Analyzing...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={16} />
+                        Generate Summary
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {(aiSummary || matter.aiSummary) && (
+                <div className={styles.aiContent}>
+                  <div className={styles.aiSummaryText}>
+                    {(aiSummary || matter.aiSummary || '').split('\n').map((line, i) => (
+                      <p key={i}>{line}</p>
+                    ))}
+                  </div>
+                  <div className={styles.aiSummaryActions}>
+                    <button onClick={() => navigator.clipboard.writeText(aiSummary || matter.aiSummary || '')}>
+                      <Copy size={14} /> Copy
+                    </button>
+                    <button onClick={generateAISummary}>
+                      <RefreshCw size={14} /> Regenerate
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {!aiSummary && !matter.aiSummary && !aiAnalyzing && (
+                <div className={styles.aiPlaceholder}>
+                  <Sparkles size={24} />
+                  <p>Click "Generate Summary" to get AI-powered insights about this matter</p>
+                </div>
+              )}
+
+              {/* Quick AI Actions */}
+              <div className={styles.aiQuickActions}>
+                <button className={styles.aiQuickBtn}>
+                  <AlertTriangle size={14} />
+                  Risk Check
+                </button>
+                <button className={styles.aiQuickBtn}>
+                  <TrendingUp size={14} />
+                  Billing Forecast
+                </button>
+                <button className={styles.aiQuickBtn}>
+                  <Calendar size={14} />
+                  Deadline Analysis
+                </button>
+                <button className={styles.aiQuickBtn}>
+                  <FileText size={14} />
+                  Document Summary
+                </button>
+              </div>
+            </div>
+
             {/* Matter Details */}
             <div className={styles.card}>
-              <h3>Matter Details</h3>
+              <div className={styles.cardHeader}>
+                <h3>Matter Details</h3>
+                <AIButton 
+                  context="Matter Details"
+                  variant="icon"
+                  size="sm"
+                />
+              </div>
               <div className={styles.detailGrid}>
                 <div className={styles.detailItem}>
                   <span className={styles.detailLabel}>Client</span>
@@ -196,10 +312,17 @@ export function MatterDetailPage() {
             {/* Court Info */}
             {matter.courtInfo && (
               <div className={styles.card}>
-                <h3>
-                  <Scale size={18} />
-                  Court Information
-                </h3>
+                <div className={styles.cardHeader}>
+                  <h3>
+                    <Scale size={18} />
+                    Court Information
+                  </h3>
+                  <AIButton 
+                    context="Court Information"
+                    variant="icon"
+                    size="sm"
+                  />
+                </div>
                 <div className={styles.detailGrid}>
                   <div className={styles.detailItem}>
                     <span className={styles.detailLabel}>Court</span>
@@ -221,21 +344,6 @@ export function MatterDetailPage() {
               </div>
             )}
 
-            {/* AI Summary */}
-            {matter.aiSummary && (
-              <div className={clsx(styles.card, styles.aiCard)}>
-                <h3>
-                  <Sparkles size={18} />
-                  AI Summary
-                </h3>
-                <p className={styles.aiSummary}>{matter.aiSummary}</p>
-                <button className={styles.aiBtn}>
-                  <Sparkles size={14} />
-                  Generate Updated Analysis
-                </button>
-              </div>
-            )}
-
             {/* Upcoming Events */}
             <div className={styles.card}>
               <div className={styles.cardHeader}>
@@ -243,10 +351,17 @@ export function MatterDetailPage() {
                   <Calendar size={18} />
                   Upcoming Events
                 </h3>
-                <button className={styles.addBtn}>
-                  <Plus size={14} />
-                  Add
-                </button>
+                <div className={styles.cardActions}>
+                  <AIButton 
+                    context="Calendar Events"
+                    variant="icon"
+                    size="sm"
+                  />
+                  <button className={styles.addBtn}>
+                    <Plus size={14} />
+                    Add
+                  </button>
+                </div>
               </div>
               <div className={styles.eventsList}>
                 {matterEvents.slice(0, 3).map(event => (
@@ -276,10 +391,22 @@ export function MatterDetailPage() {
                   <Clock size={18} />
                   Recent Time Entries
                 </h3>
-                <button className={styles.addBtn}>
-                  <Plus size={14} />
-                  Add
-                </button>
+                <div className={styles.cardActions}>
+                  <AIButton 
+                    context="Time Entries"
+                    variant="icon"
+                    size="sm"
+                    prompts={[
+                      { label: 'Summarize', prompt: 'Summarize time entries' },
+                      { label: 'Billing Analysis', prompt: 'Analyze billing patterns' },
+                      { label: 'Efficiency', prompt: 'Review time efficiency' }
+                    ]}
+                  />
+                  <button className={styles.addBtn}>
+                    <Plus size={14} />
+                    Add
+                  </button>
+                </div>
               </div>
               <div className={styles.timeList}>
                 {matterTimeEntries.slice(0, 5).map(entry => (
@@ -308,10 +435,22 @@ export function MatterDetailPage() {
           <div className={styles.timeTab}>
             <div className={styles.tabHeader}>
               <h2>Time Entries</h2>
-              <button className={styles.primaryBtn}>
-                <Plus size={18} />
-                New Time Entry
-              </button>
+              <div className={styles.tabActions}>
+                <AIButton 
+                  context="All Time Entries"
+                  label="AI Analyze"
+                  prompts={[
+                    { label: 'Summarize', prompt: 'Summarize all time' },
+                    { label: 'Patterns', prompt: 'Find patterns' },
+                    { label: 'Optimize', prompt: 'Suggest optimizations' },
+                    { label: 'Invoice Ready', prompt: 'Prepare for invoicing' }
+                  ]}
+                />
+                <button className={styles.primaryBtn}>
+                  <Plus size={18} />
+                  New Time Entry
+                </button>
+              </div>
             </div>
             <div className={styles.tableCard}>
               <table className={styles.table}>
@@ -323,6 +462,7 @@ export function MatterDetailPage() {
                     <th>Rate</th>
                     <th>Amount</th>
                     <th>Status</th>
+                    <th>AI</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -338,6 +478,17 @@ export function MatterDetailPage() {
                           {entry.billed ? 'Billed' : 'Unbilled'}
                         </span>
                       </td>
+                      <td>
+                        <AIButton 
+                          context={entry.description}
+                          variant="icon"
+                          size="sm"
+                          prompts={[
+                            { label: 'Enhance', prompt: 'Enhance description' },
+                            { label: 'Categorize', prompt: 'Suggest category' }
+                          ]}
+                        />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -350,10 +501,22 @@ export function MatterDetailPage() {
           <div className={styles.billingTab}>
             <div className={styles.tabHeader}>
               <h2>Invoices</h2>
-              <button className={styles.primaryBtn}>
-                <Plus size={18} />
-                Create Invoice
-              </button>
+              <div className={styles.tabActions}>
+                <AIButton 
+                  context="Billing & Invoices"
+                  label="AI Insights"
+                  prompts={[
+                    { label: 'Summary', prompt: 'Billing summary' },
+                    { label: 'Collections', prompt: 'Collection analysis' },
+                    { label: 'Forecast', prompt: 'Revenue forecast' },
+                    { label: 'Draft Invoice', prompt: 'Help draft invoice' }
+                  ]}
+                />
+                <button className={styles.primaryBtn}>
+                  <Plus size={18} />
+                  Create Invoice
+                </button>
+              </div>
             </div>
             <div className={styles.tableCard}>
               <table className={styles.table}>
@@ -364,6 +527,7 @@ export function MatterDetailPage() {
                     <th>Due Date</th>
                     <th>Amount</th>
                     <th>Status</th>
+                    <th>AI</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -377,6 +541,13 @@ export function MatterDetailPage() {
                         <span className={clsx(styles.badge, styles[invoice.status])}>
                           {invoice.status}
                         </span>
+                      </td>
+                      <td>
+                        <AIButton 
+                          context={`Invoice ${invoice.number}`}
+                          variant="icon"
+                          size="sm"
+                        />
                       </td>
                     </tr>
                   ))}
@@ -393,10 +564,22 @@ export function MatterDetailPage() {
           <div className={styles.documentsTab}>
             <div className={styles.tabHeader}>
               <h2>Documents</h2>
-              <button className={styles.primaryBtn}>
-                <Plus size={18} />
-                Upload Document
-              </button>
+              <div className={styles.tabActions}>
+                <AIButton 
+                  context="Matter Documents"
+                  label="AI Analyze All"
+                  prompts={[
+                    { label: 'Summarize All', prompt: 'Summarize all documents' },
+                    { label: 'Key Terms', prompt: 'Extract key terms' },
+                    { label: 'Timeline', prompt: 'Create document timeline' },
+                    { label: 'Missing Docs', prompt: 'Identify missing documents' }
+                  ]}
+                />
+                <button className={styles.primaryBtn}>
+                  <Plus size={18} />
+                  Upload Document
+                </button>
+              </div>
             </div>
             <div className={styles.docGrid}>
               {matterDocuments.map(doc => (
@@ -410,6 +593,19 @@ export function MatterDetailPage() {
                       {format(parseISO(doc.uploadedAt), 'MMM d, yyyy')} · 
                       {(doc.size / 1024 / 1024).toFixed(2)} MB
                     </span>
+                  </div>
+                  <div className={styles.docActions}>
+                    <AIButton 
+                      context={doc.name}
+                      variant="icon"
+                      size="sm"
+                      prompts={[
+                        { label: 'Summarize', prompt: 'Summarize document' },
+                        { label: 'Key Points', prompt: 'Extract key points' },
+                        { label: 'Entities', prompt: 'Extract entities' },
+                        { label: 'Risks', prompt: 'Identify risks' }
+                      ]}
+                    />
                   </div>
                   {doc.aiSummary && (
                     <span className={styles.docAi}>
@@ -433,10 +629,22 @@ export function MatterDetailPage() {
           <div className={styles.calendarTab}>
             <div className={styles.tabHeader}>
               <h2>Events & Deadlines</h2>
-              <button className={styles.primaryBtn}>
-                <Plus size={18} />
-                Add Event
-              </button>
+              <div className={styles.tabActions}>
+                <AIButton 
+                  context="Calendar & Deadlines"
+                  label="AI Schedule"
+                  prompts={[
+                    { label: 'Summary', prompt: 'Summarize schedule' },
+                    { label: 'Conflicts', prompt: 'Find conflicts' },
+                    { label: 'Deadlines', prompt: 'Review deadlines' },
+                    { label: 'Suggest', prompt: 'Suggest next meetings' }
+                  ]}
+                />
+                <button className={styles.primaryBtn}>
+                  <Plus size={18} />
+                  Add Event
+                </button>
+              </div>
             </div>
             <div className={styles.eventCards}>
               {matterEvents.map(event => (
@@ -449,9 +657,16 @@ export function MatterDetailPage() {
                     <span className={styles.eventType} style={{ color: event.color }}>
                       {event.type.replace('_', ' ')}
                     </span>
-                    <span className={styles.eventTime}>
-                      {format(parseISO(event.startTime), 'h:mm a')}
-                    </span>
+                    <div className={styles.eventCardActions}>
+                      <AIButton 
+                        context={event.title}
+                        variant="icon"
+                        size="sm"
+                      />
+                      <span className={styles.eventTime}>
+                        {format(parseISO(event.startTime), 'h:mm a')}
+                      </span>
+                    </div>
                   </div>
                   <h4>{event.title}</h4>
                   <p>{format(parseISO(event.startTime), 'EEEE, MMMM d, yyyy')}</p>
