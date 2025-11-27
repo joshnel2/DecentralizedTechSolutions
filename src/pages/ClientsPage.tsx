@@ -21,16 +21,17 @@ export function ClientsPage() {
 
   const filteredClients = useMemo(() => {
     return clients.filter(client => {
+      const clientName = client.name || client.displayName || ''
       const matchesSearch = 
-        client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (client.email?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
-      const clientStatus = client.isActive ? 'active' : 'inactive'
+      const clientStatus = client.isActive !== false ? 'active' : 'inactive'
       const matchesStatus = statusFilter === 'all' || clientStatus === statusFilter
       const matchesType = typeFilter === 'all' || 
         (typeFilter === 'individual' && client.type === 'person') ||
         (typeFilter === 'organization' && client.type === 'company')
       return matchesSearch && matchesStatus && matchesType
-    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    }).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
   }, [clients, searchQuery, statusFilter, typeFilter])
 
   const getMatterCount = (clientId: string) => {
