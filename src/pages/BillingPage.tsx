@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { 
@@ -10,7 +10,16 @@ import { clsx } from 'clsx'
 import styles from './BillingPage.module.css'
 
 export function BillingPage() {
-  const { invoices, clients, matters, timeEntries, expenses } = useDataStore()
+  const { invoices, clients, matters, timeEntries, expenses, fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries } = useDataStore()
+  
+  // Fetch data from API on mount
+  useEffect(() => {
+    fetchInvoices()
+    fetchClients()
+    fetchMatters()
+    fetchTimeEntries()
+  }, [fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries])
+  
   const [activeTab, setActiveTab] = useState('invoices')
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')

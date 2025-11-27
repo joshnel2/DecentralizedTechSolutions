@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
@@ -11,7 +11,13 @@ import { clsx } from 'clsx'
 import styles from './TimeTrackingPage.module.css'
 
 export function TimeTrackingPage() {
-  const { timeEntries, matters, addTimeEntry } = useDataStore()
+  const { timeEntries, matters, addTimeEntry, fetchTimeEntries, fetchMatters } = useDataStore()
+  
+  // Fetch data from API on mount
+  useEffect(() => {
+    fetchTimeEntries()
+    fetchMatters()
+  }, [fetchTimeEntries, fetchMatters])
   const { user } = useAuthStore()
   const [showNewModal, setShowNewModal] = useState(false)
   const [activeTimer, setActiveTimer] = useState<{ matterId: string; startTime: Date } | null>(null)
