@@ -224,6 +224,10 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
       return res.status(400).json({ error: 'Matter name is required' });
     }
 
+    // Convert empty strings to null for UUID fields
+    const safeClientId = clientId && clientId.trim() !== '' ? clientId : null;
+    const safeResponsibleAttorney = responsibleAttorney && responsibleAttorney.trim() !== '' ? responsibleAttorney : req.user.id;
+
     const result = await withTransaction(async (client) => {
       // Generate matter number
       const countResult = await client.query(
@@ -244,8 +248,8 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
         RETURNING *`,
         [
-          req.user.firmId, number, name, description, clientId, type, status, priority,
-          responsibleAttorney || req.user.id, openDate, statuteOfLimitations,
+          req.user.firmId, number, name, description, safeClientId, type, status, priority,
+          safeResponsibleAttorney, openDate, statuteOfLimitations,
           courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
           billingType, billingRate, flatFee, contingencyPercent, retainerAmount,
           budget, tags, conflictCleared, req.user.id

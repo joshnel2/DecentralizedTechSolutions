@@ -134,6 +134,7 @@ router.post('/', authenticate, requirePermission('clients:create'), async (req, 
     const {
       type = 'person',
       displayName,
+      name, // Alternative field name from frontend
       firstName,
       lastName,
       companyName,
@@ -148,9 +149,15 @@ router.post('/', authenticate, requirePermission('clients:create'), async (req, 
       contactType = 'client',
     } = req.body;
 
-    if (!displayName) {
-      return res.status(400).json({ error: 'Display name is required' });
+    // Use displayName or name (frontend sends name sometimes)
+    const clientName = displayName || name;
+    
+    if (!clientName || clientName.trim() === '') {
+      return res.status(400).json({ error: 'Client name is required' });
     }
+
+    // Helper to convert empty strings to null
+    const emptyToNull = (val) => (val && val.trim() !== '') ? val : null;
 
     const result = await query(
       `INSERT INTO clients (
@@ -160,9 +167,10 @@ router.post('/', authenticate, requirePermission('clients:create'), async (req, 
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING *`,
       [
-        req.user.firmId, type, displayName, firstName, lastName, companyName,
-        email, phone, addressStreet, addressCity, addressState, addressZip,
-        notes, tags, contactType, req.user.id
+        req.user.firmId, type, clientName, emptyToNull(firstName), emptyToNull(lastName), emptyToNull(companyName),
+        emptyToNull(email), emptyToNull(phone), emptyToNull(addressStreet), emptyToNull(addressCity), 
+        emptyToNull(addressState), emptyToNull(addressZip),
+        emptyToNull(notes), tags || [], contactType, req.user.id
       ]
     );
 
