@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { 
@@ -11,7 +11,9 @@ import styles from './DocumentsPage.module.css'
 
 export function DocumentsPage() {
   const navigate = useNavigate()
-  const { documents, matters, fetchDocuments, fetchMatters } = useDataStore()
+  const { documents, matters, fetchDocuments, fetchMatters, addDocument } = useDataStore()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isUploading, setIsUploading] = useState(false)
   
   // Fetch data from API on mount
   useEffect(() => {
@@ -21,6 +23,27 @@ export function DocumentsPage() {
   
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    
+    setIsUploading(true)
+    try {
+      for (const file of Array.from(files)) {
+        await addDocument(file, {})
+      }
+      fetchDocuments()
+    } catch (error) {
+      console.error('Upload failed:', error)
+      alert('Failed to upload file. Please try again.')
+    } finally {
+      setIsUploading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
 
   const filteredDocuments = useMemo(() => {
     return documents.filter(doc =>
@@ -74,10 +97,22 @@ export function DocumentsPage() {
             <Wand2 size={18} />
             Automation
           </button>
-          <button className={styles.primaryBtn}>
+          <button 
+            className={styles.primaryBtn} 
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+          >
             <Upload size={18} />
-            Upload
+            {isUploading ? 'Uploading...' : 'Upload'}
           </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            style={{ display: 'none' }}
+            onChange={handleFileUpload}
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp"
+          />
         </div>
       </div>
 
