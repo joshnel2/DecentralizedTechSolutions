@@ -53,6 +53,7 @@ router.get('/', authenticate, requirePermission('clients:view'), async (req, res
       clients: result.rows.map(c => ({
         id: c.id,
         type: c.type,
+        name: c.display_name,
         displayName: c.display_name,
         firstName: c.first_name,
         lastName: c.last_name,
@@ -103,6 +104,7 @@ router.get('/:id', authenticate, requirePermission('clients:view'), async (req, 
     res.json({
       id: c.id,
       type: c.type,
+      name: c.display_name,
       displayName: c.display_name,
       firstName: c.first_name,
       lastName: c.last_name,
@@ -186,6 +188,7 @@ router.post('/', authenticate, requirePermission('clients:create'), async (req, 
     res.status(201).json({
       id: c.id,
       type: c.type,
+      name: c.display_name,
       displayName: c.display_name,
       firstName: c.first_name,
       lastName: c.last_name,
