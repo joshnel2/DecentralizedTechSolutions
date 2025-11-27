@@ -254,20 +254,17 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
 
       const matter = matterResult.rows[0];
 
-      // Add assignments
-      for (const userId of assignedTo) {
-        await client.query(
-          'INSERT INTO matter_assignments (matter_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-          [matter.id, userId]
-        );
-      }
-
-      // Also add responsible attorney if not already assigned
-      if (responsibleAttorney && !assignedTo.includes(responsibleAttorney)) {
-        await client.query(
-          'INSERT INTO matter_assignments (matter_id, user_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-          [matter.id, responsibleAttorney, 'responsible_attorney']
-        );
+      // Add assignments (only if valid UUIDs provided)
+      if (assignedTo && Array.isArray(assignedTo)) {
+        for (const odId of assignedTo) {
+          // Skip invalid user IDs (like 'user-1' placeholder)
+          if (odId && typeof odId === 'string' && odId.length === 36 && odId.includes('-')) {
+            await client.query(
+              'INSERT INTO matter_assignments (matter_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+              [matter.id, odId]
+            );
+          }
+        }
       }
 
       return matter;

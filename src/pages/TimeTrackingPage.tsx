@@ -75,9 +75,9 @@ export function TimeTrackingPage() {
       const hours = timerElapsed / 3600
       if (hours >= 0.1) {
         const matter = matters.find(m => m.id === activeTimer.matterId)
+        if (!user?.id) return // Don't create entry without valid user
         addTimeEntry({
           matterId: activeTimer.matterId,
-          userId: user?.id || 'user-1',
           date: new Date().toISOString(),
           hours: Math.round(hours * 10) / 10,
           description: 'Timer entry',

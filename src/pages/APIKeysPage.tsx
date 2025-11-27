@@ -135,7 +135,7 @@ export function APIKeysPage() {
         <NewKeyModal 
           onClose={() => setShowNewModal(false)}
           onCreate={(data) => {
-            addAPIKey({ ...data, createdBy: user?.id || 'user-1' })
+            addAPIKey({ ...data, createdBy: user?.id })
             setShowNewModal(false)
           }}
         />

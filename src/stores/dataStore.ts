@@ -47,8 +47,8 @@ interface DataState {
   updateMatter: (id: string, data: Partial<Matter>) => Promise<void>
   deleteMatter: (id: string) => Promise<void>
   
-  // Time Entry actions
-  addTimeEntry: (entry: Omit<TimeEntry, 'id' | 'createdAt' | 'amount'>) => Promise<TimeEntry>
+  // Time Entry actions (userId is set automatically by backend from auth token)
+  addTimeEntry: (entry: Omit<TimeEntry, 'id' | 'createdAt' | 'amount' | 'userId'>) => Promise<TimeEntry>
   updateTimeEntry: (id: string, data: Partial<TimeEntry>) => Promise<void>
   deleteTimeEntry: (id: string) => Promise<void>
   
