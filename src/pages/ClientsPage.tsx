@@ -154,9 +154,15 @@ export function ClientsPage() {
       {showNewModal && (
         <NewClientModal 
           onClose={() => setShowNewModal(false)}
-          onSave={(data) => {
-            addClient(data)
-            setShowNewModal(false)
+          onSave={async (data) => {
+            try {
+              await addClient(data)
+              setShowNewModal(false)
+              fetchClients()
+            } catch (error) {
+              console.error('Failed to create client:', error)
+              alert('Failed to create client. Please try again.')
+            }
           }}
         />
       )}
@@ -164,7 +170,8 @@ export function ClientsPage() {
   )
 }
 
-function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (data: any) => void }) {
+function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (data: any) => Promise<void> }) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     type: 'person' as 'person' | 'company',
     displayName: '',
@@ -181,12 +188,18 @@ function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (dat
     isActive: true
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    onSave({
-      ...formData,
-      displayName: formData.name
-    })
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onSave({
+        ...formData,
+        displayName: formData.name
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -283,11 +296,11 @@ function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (dat
           </div>
 
           <div className={styles.modalActions}>
-            <button type="button" onClick={onClose} className={styles.cancelBtn}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
               Cancel
             </button>
-            <button type="submit" className={styles.saveBtn}>
-              Create Client
+            <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Creating...' : 'Create Client'}
             </button>
           </div>
         </form>

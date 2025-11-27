@@ -70,6 +70,15 @@ interface DataState {
   markNotificationRead: (id: string) => void
   clearNotifications: () => void
   
+  // API Key actions (stub - not yet implemented on backend)
+  addAPIKey: (data: any) => Promise<any>
+  deleteAPIKey: (id: string) => Promise<void>
+  
+  // Group actions (stub - uses team API)
+  addGroup: (data: any) => Promise<any>
+  updateGroup: (id: string, data: any) => Promise<void>
+  deleteGroup: (id: string) => Promise<void>
+  
   // Clear all data (for logout)
   clearAll: () => void
 }
@@ -278,6 +287,44 @@ export const useDataStore = create<DataState>()((set, get) => ({
 
   clearNotifications: () => {
     set({ notifications: [] })
+  },
+
+  // API Key actions (stub implementation - full implementation needed when backend supports it)
+  addAPIKey: async (data) => {
+    // For now, create a local API key (won't persist to backend)
+    const newKey = {
+      id: crypto.randomUUID(),
+      ...data,
+      key: `apex_${crypto.randomUUID().replace(/-/g, '')}`,
+      createdAt: new Date().toISOString(),
+    }
+    set(state => ({ apiKeys: [...state.apiKeys, newKey] }))
+    return newKey
+  },
+
+  deleteAPIKey: async (id) => {
+    set(state => ({ apiKeys: state.apiKeys.filter(k => k.id !== id) }))
+  },
+
+  // Group actions (stub implementation)
+  addGroup: async (data) => {
+    const newGroup = {
+      id: crypto.randomUUID(),
+      ...data,
+      createdAt: new Date().toISOString(),
+    }
+    set(state => ({ groups: [...state.groups, newGroup] }))
+    return newGroup
+  },
+
+  updateGroup: async (id, data) => {
+    set(state => ({
+      groups: state.groups.map(g => g.id === id ? { ...g, ...data } : g)
+    }))
+  },
+
+  deleteGroup: async (id) => {
+    set(state => ({ groups: state.groups.filter(g => g.id !== id) }))
   },
 
   // Clear all data

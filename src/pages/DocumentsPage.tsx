@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { 
@@ -11,7 +11,14 @@ import styles from './DocumentsPage.module.css'
 
 export function DocumentsPage() {
   const navigate = useNavigate()
-  const { documents, matters } = useDataStore()
+  const { documents, matters, fetchDocuments, fetchMatters } = useDataStore()
+  
+  // Fetch data from API on mount
+  useEffect(() => {
+    fetchDocuments()
+    fetchMatters()
+  }, [fetchDocuments, fetchMatters])
+  
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
 

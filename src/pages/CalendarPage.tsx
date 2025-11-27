@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useDataStore } from '../stores/dataStore'
 import { 
   ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon,
@@ -12,7 +12,14 @@ import { clsx } from 'clsx'
 import styles from './CalendarPage.module.css'
 
 export function CalendarPage() {
-  const { events, matters, clients, addEvent } = useDataStore()
+  const { events, matters, clients, addEvent, fetchEvents, fetchMatters } = useDataStore()
+  
+  // Fetch data from API on mount
+  useEffect(() => {
+    fetchEvents()
+    fetchMatters()
+  }, [fetchEvents, fetchMatters])
+  
   const [currentDate, setCurrentDate] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [showNewModal, setShowNewModal] = useState(false)
@@ -215,9 +222,15 @@ export function CalendarPage() {
       {showNewModal && (
         <NewEventModal 
           onClose={() => setShowNewModal(false)}
-          onSave={(data) => {
-            addEvent(data)
-            setShowNewModal(false)
+          onSave={async (data) => {
+            try {
+              await addEvent(data)
+              setShowNewModal(false)
+              fetchEvents()
+            } catch (error) {
+              console.error('Failed to create event:', error)
+              alert('Failed to create event. Please try again.')
+            }
           }}
           matters={matters}
           defaultDate={selectedDate}
@@ -227,7 +240,8 @@ export function CalendarPage() {
   )
 }
 
-function NewEventModal({ onClose, onSave, matters, defaultDate }: { onClose: () => void; onSave: (data: any) => void; matters: any[]; defaultDate: Date | null }) {
+function NewEventModal({ onClose, onSave, matters, defaultDate }: { onClose: () => void; onSave: (data: any) => Promise<void>; matters: any[]; defaultDate: Date | null }) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -239,17 +253,22 @@ function NewEventModal({ onClose, onSave, matters, defaultDate }: { onClose: () 
     location: '',
     attendees: [],
     reminders: [{ type: 'notification', minutes: 15 }],
-    color: '#3B82F6',
-    createdBy: 'user-1'
+    color: '#3B82F6'
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    onSave({
-      ...formData,
-      startTime: new Date(formData.startTime).toISOString(),
-      endTime: new Date(formData.endTime).toISOString()
-    })
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onSave({
+        ...formData,
+        startTime: new Date(formData.startTime).toISOString(),
+        endTime: new Date(formData.endTime).toISOString()
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -356,11 +375,11 @@ function NewEventModal({ onClose, onSave, matters, defaultDate }: { onClose: () 
           </div>
 
           <div className={styles.modalActions}>
-            <button type="button" onClick={onClose} className={styles.cancelBtn}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
               Cancel
             </button>
-            <button type="submit" className={styles.saveBtn}>
-              Create Event
+            <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Creating...' : 'Create Event'}
             </button>
           </div>
         </form>

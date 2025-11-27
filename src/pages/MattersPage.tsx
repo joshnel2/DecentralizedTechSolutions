@@ -197,9 +197,16 @@ export function MattersPage() {
       {showNewModal && (
         <NewMatterModal 
           onClose={() => setShowNewModal(false)}
-          onSave={(data) => {
-            addMatter(data)
-            setShowNewModal(false)
+          onSave={async (data) => {
+            try {
+              await addMatter(data)
+              setShowNewModal(false)
+              // Refresh the matters list
+              fetchMatters()
+            } catch (error) {
+              console.error('Failed to create matter:', error)
+              alert('Failed to create matter. Please try again.')
+            }
           }}
           clients={clients}
         />
@@ -210,11 +217,12 @@ export function MattersPage() {
 
 interface NewMatterModalProps {
   onClose: () => void
-  onSave: (data: any) => void
+  onSave: (data: any) => Promise<void>
   clients: any[]
 }
 
 function NewMatterModal({ onClose, onSave, clients }: NewMatterModalProps) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -224,15 +232,19 @@ function NewMatterModal({ onClose, onSave, clients }: NewMatterModalProps) {
     priority: 'medium',
     billingType: 'hourly',
     billingRate: 450,
-    assignedTo: [],
-    responsibleAttorney: 'user-1',
     openDate: new Date().toISOString(),
     tags: []
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    onSave(formData)
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onSave(formData)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -313,11 +325,11 @@ function NewMatterModal({ onClose, onSave, clients }: NewMatterModalProps) {
           </div>
 
           <div className={styles.modalActions}>
-            <button type="button" onClick={onClose} className={styles.cancelBtn}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
               Cancel
             </button>
-            <button type="submit" className={styles.saveBtn}>
-              Create Matter
+            <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Creating...' : 'Create Matter'}
             </button>
           </div>
         </form>

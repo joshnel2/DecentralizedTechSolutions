@@ -250,19 +250,26 @@ export function TimeTrackingPage() {
       {showNewModal && (
         <NewTimeEntryModal 
           onClose={() => setShowNewModal(false)}
-          onSave={(data) => {
-            addTimeEntry(data)
-            setShowNewModal(false)
+          onSave={async (data) => {
+            try {
+              await addTimeEntry(data)
+              setShowNewModal(false)
+              fetchTimeEntries()
+            } catch (error) {
+              console.error('Failed to create time entry:', error)
+              alert('Failed to create time entry. Please try again.')
+            }
           }}
           matters={matters}
-          userId={user?.id || 'user-1'}
+          userId={user?.id || ''}
         />
       )}
     </div>
   )
 }
 
-function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () => void; onSave: (data: any) => void; matters: any[]; userId: string }) {
+function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () => void; onSave: (data: any) => Promise<void>; matters: any[]; userId: string }) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     matterId: matters[0]?.id || '',
     date: format(new Date(), 'yyyy-MM-dd'),
@@ -272,15 +279,20 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
     rate: 450
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    onSave({
-      ...formData,
-      userId,
-      date: new Date(formData.date).toISOString(),
-      billed: false,
-      aiGenerated: false
-    })
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onSave({
+        ...formData,
+        date: new Date(formData.date).toISOString(),
+        billed: false,
+        aiGenerated: false
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -368,11 +380,11 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
           </div>
 
           <div className={styles.modalActions}>
-            <button type="button" onClick={onClose} className={styles.cancelBtn}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
               Cancel
             </button>
-            <button type="submit" className={styles.saveBtn}>
-              Save Entry
+            <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Saving...' : 'Save Entry'}
             </button>
           </div>
         </form>
