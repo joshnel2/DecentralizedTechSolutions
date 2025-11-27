@@ -89,12 +89,33 @@ export function DashboardPage() {
 
   const revenueData = useMemo(() => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    return months.map((month, i) => ({
-      month,
-      revenue: Math.round(50000 + Math.random() * 40000),
-      hours: Math.round(80 + Math.random() * 60)
-    }))
-  }, [])
+    const currentYear = new Date().getFullYear()
+    
+    return months.map((month, i) => {
+      // Filter time entries for this month
+      const monthEntries = timeEntries.filter(t => {
+        const date = parseISO(t.date)
+        return date.getMonth() === i && date.getFullYear() === currentYear
+      })
+      
+      const revenue = monthEntries.reduce((sum, t) => sum + (t.amount || 0), 0)
+      const hours = monthEntries.reduce((sum, t) => sum + (t.hours || 0), 0)
+      
+      return { month, revenue: Math.round(revenue), hours: Math.round(hours) }
+    })
+  }, [timeEntries])
+  
+  // Calculate real growth percentage
+  const revenueGrowth = useMemo(() => {
+    const currentMonth = new Date().getMonth()
+    const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1
+    
+    const currentRev = revenueData[currentMonth]?.revenue || 0
+    const prevRev = revenueData[prevMonth]?.revenue || 0
+    
+    if (prevRev === 0) return currentRev > 0 ? 100 : 0
+    return ((currentRev - prevRev) / prevRev) * 100
+  }, [revenueData])
 
   const pendingInvoices = useMemo(() => {
     return invoices
@@ -188,10 +209,12 @@ export function DashboardPage() {
         <div className={styles.chartCard}>
           <div className={styles.cardHeader}>
             <h3>Revenue & Hours</h3>
-            <div className={styles.cardBadge}>
-              <TrendingUp size={14} />
-              +12.5%
-            </div>
+            {revenueGrowth !== 0 && (
+              <div className={styles.cardBadge} style={{ color: revenueGrowth >= 0 ? '#10B981' : '#EF4444' }}>
+                <TrendingUp size={14} style={{ transform: revenueGrowth < 0 ? 'rotate(180deg)' : 'none' }} />
+                {revenueGrowth >= 0 ? '+' : ''}{revenueGrowth.toFixed(1)}%
+              </div>
+            )}
           </div>
           <div className={styles.chartContainer}>
             <ResponsiveContainer width="100%" height={240}>
