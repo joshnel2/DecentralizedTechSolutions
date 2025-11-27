@@ -159,6 +159,9 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
       return res.status(400).json({ error: 'Client is required' });
     }
 
+    // Convert empty strings to null for UUID fields
+    const safeMatterId = matterId && matterId.trim() !== '' ? matterId : null;
+
     const result = await withTransaction(async (client) => {
       // Generate invoice number
       const countResult = await client.query(
@@ -184,7 +187,7 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
         ) VALUES ($1, $2, $3, $4, 'draft', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING *`,
         [
-          req.user.firmId, number, matterId, clientId, issueDate, dueDate,
+          req.user.firmId, number, safeMatterId, clientId, issueDate, dueDate,
           subtotalFees, subtotalExpenses, taxRate, discountAmount,
           JSON.stringify(lineItems), notes, paymentInstructions, req.user.id
         ]

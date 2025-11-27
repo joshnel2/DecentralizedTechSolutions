@@ -327,8 +327,6 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
     lineItems: [] as any[]
   })
 
-  const clientMatters = matters.filter(m => m.clientId === formData.clientId)
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isSubmitting) return
@@ -373,8 +371,8 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
               onChange={(e) => setFormData({...formData, matterId: e.target.value})}
             >
               <option value="">No specific matter</option>
-              {clientMatters.map(m => (
-                <option key={m.id} value={m.id}>{m.name}</option>
+              {matters.map(m => (
+                <option key={m.id} value={m.id}>{m.name || m.title}</option>
               ))}
             </select>
           </div>
