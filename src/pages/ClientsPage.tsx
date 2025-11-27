@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { Plus, Search, Users, Building2, User, MoreVertical, Sparkles } from 'lucide-react'
@@ -7,8 +7,14 @@ import { clsx } from 'clsx'
 import styles from './ListPages.module.css'
 
 export function ClientsPage() {
-  const { clients, matters, addClient } = useDataStore()
+  const { clients, matters, addClient, fetchClients, fetchMatters } = useDataStore()
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Fetch data when component mounts
+  useEffect(() => {
+    fetchClients()
+    fetchMatters()
+  }, [])
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)

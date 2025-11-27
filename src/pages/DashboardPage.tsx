@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
@@ -17,7 +17,16 @@ const COLORS = ['#F59E0B', '#3B82F6', '#10B981', '#8B5CF6', '#EF4444']
 
 export function DashboardPage() {
   const { user } = useAuthStore()
-  const { matters, clients, timeEntries, invoices, events } = useDataStore()
+  const { matters, clients, timeEntries, invoices, events, fetchMatters, fetchClients, fetchTimeEntries, fetchInvoices, fetchEvents } = useDataStore()
+
+  // Fetch all data when component mounts
+  useEffect(() => {
+    fetchClients()
+    fetchMatters()
+    fetchTimeEntries({})
+    fetchInvoices()
+    fetchEvents({})
+  }, [])
 
   const stats = useMemo(() => {
     const now = new Date()
