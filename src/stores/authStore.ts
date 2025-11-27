@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { authApi, setAccessToken, teamApi } from '../services/api'
 import type { User, Firm, UserRole } from '../types'
 
 // Session and security types
@@ -72,7 +73,10 @@ interface AuthState {
   login: (email: string, password: string) => Promise<{ requires2FA: boolean }>
   verify2FA: (code: string) => Promise<boolean>
   logout: () => void
-  register: (data: { email: string; password: string; firstName: string; lastName: string }) => Promise<void>
+  register: (data: { email: string; password: string; firstName: string; lastName: string; firmName?: string }) => Promise<void>
+  
+  // Session restoration
+  checkAuth: () => Promise<boolean>
   
   // Firm setup
   setupFirm: (data: Partial<Firm>) => void
@@ -93,7 +97,8 @@ interface AuthState {
   revokeAllOtherSessions: () => void
   
   // Team
-  inviteUser: (data: Omit<Invitation, 'id' | 'invitedAt' | 'expiresAt' | 'status' | 'token' | 'invitedBy'>) => Invitation
+  loadTeamMembers: () => Promise<void>
+  inviteUser: (data: Omit<Invitation, 'id' | 'invitedAt' | 'expiresAt' | 'status' | 'token' | 'invitedBy'>) => Promise<Invitation>
   resendInvitation: (invitationId: string) => void
   revokeInvitation: (invitationId: string) => void
   updateTeamMember: (userId: string, data: Partial<User>) => void
@@ -107,61 +112,7 @@ interface AuthState {
   // Audit
   logAction: (action: string, resource: string, resourceId?: string, details?: Record<string, any>) => void
   getAuditLog: (filters?: { userId?: string; resource?: string; startDate?: string; endDate?: string }) => AuditLogEntry[]
-  
-  // Demo
-  loginDemo: () => void
 }
-
-// Demo data
-const demoUser: User = {
-  id: 'user-1',
-  email: 'john@apexlaw.com',
-  firstName: 'John',
-  lastName: 'Mitchell',
-  role: 'owner',
-  groupIds: ['group-1', 'group-2'],
-  permissions: [],
-  isActive: true,
-  createdAt: '2024-01-01T00:00:00Z',
-  updatedAt: '2024-01-01T00:00:00Z'
-}
-
-const demoFirm: Firm = {
-  id: 'firm-1',
-  name: 'Apex Legal Partners LLP',
-  address: '100 Legal Plaza, Suite 500',
-  city: 'New York',
-  state: 'NY',
-  zipCode: '10001',
-  phone: '(212) 555-0100',
-  email: 'info@apexlegal.com',
-  website: 'https://apexlegal.com',
-  billingDefaults: {
-    hourlyRate: 450,
-    incrementMinutes: 6,
-    paymentTerms: 30,
-    currency: 'USD'
-  },
-  createdAt: '2024-01-01T00:00:00Z',
-  updatedAt: '2024-01-01T00:00:00Z'
-}
-
-const createDemoUser = (id: string, email: string, firstName: string, lastName: string, role: UserRole, groupIds: string[], createdAt: string): User => ({
-  id, email, firstName, lastName, role, groupIds,
-  permissions: [],
-  isActive: true,
-  createdAt,
-  updatedAt: createdAt
-})
-
-const demoTeamMembers: User[] = [
-  demoUser,
-  createDemoUser('user-2', 'sarah@apexlaw.com', 'Sarah', 'Chen', 'admin', ['group-1'], '2024-01-15T00:00:00Z'),
-  createDemoUser('user-3', 'michael@apexlaw.com', 'Michael', 'Roberts', 'attorney', ['group-2'], '2024-02-01T00:00:00Z'),
-  createDemoUser('user-4', 'emily@apexlaw.com', 'Emily', 'Davis', 'paralegal', ['group-3'], '2024-02-15T00:00:00Z'),
-  createDemoUser('user-5', 'james@apexlaw.com', 'James', 'Wilson', 'attorney', ['group-1', 'group-2'], '2024-03-01T00:00:00Z'),
-  createDemoUser('user-6', 'lisa@apexlaw.com', 'Lisa', 'Thompson', 'staff', ['group-3'], '2024-03-15T00:00:00Z')
-]
 
 // Permission definitions by role
 const rolePermissions: Record<UserRole, string[]> = {
@@ -226,9 +177,6 @@ const rolePermissions: Record<UserRole, string[]> = {
   ]
 }
 
-const generateId = () => `id-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-const generateToken = () => Array.from({ length: 64 }, () => 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'[Math.floor(Math.random() * 62)]).join('')
-
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
@@ -248,191 +196,232 @@ export const useAuthStore = create<AuthState>()(
       login: async (email: string, password: string) => {
         set({ isLoading: true })
         
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 800))
-        
-        // Demo login check
-        const isValidDemo = email === 'demo@apexlaw.com' || email === 'john@apexlaw.com'
-        
-        if (!isValidDemo && password.length < 6) {
-          set({ isLoading: false })
-          throw new Error('Invalid credentials')
-        }
+        try {
+          const result = await authApi.login(email, password)
+          
+          if (result.requires2FA) {
+            set({ 
+              isLoading: false,
+              twoFactorRequired: true,
+            })
+            return { requires2FA: true }
+          }
 
-        const { twoFactorSetup } = get()
-        
-        if (twoFactorSetup?.enabled) {
-          set({ 
+          const user: User = {
+            id: result.user.id,
+            email: result.user.email,
+            firstName: result.user.firstName,
+            lastName: result.user.lastName,
+            role: result.user.role,
+            groupIds: result.user.groupIds || [],
+            permissions: result.user.permissions || [],
+            isActive: true,
+            createdAt: result.user.createdAt,
+            updatedAt: result.user.createdAt,
+          }
+
+          const firm: Firm = result.firm ? {
+            id: result.firm.id,
+            name: result.firm.name,
+            address: result.firm.address,
+            city: result.firm.city,
+            state: result.firm.state,
+            zipCode: result.firm.zipCode,
+            phone: result.firm.phone,
+            email: result.firm.email,
+            website: result.firm.website,
+            billingDefaults: result.firm.billingDefaults,
+            createdAt: result.firm.createdAt,
+            updatedAt: result.firm.updatedAt,
+          } : null as any
+
+          set({
+            user,
+            firm,
+            isAuthenticated: true,
             isLoading: false,
-            twoFactorRequired: true,
-            user: demoUser,
-            firm: demoFirm
+            twoFactorRequired: false,
+            twoFactorVerified: true,
+            userPermissions: rolePermissions[user.role],
           })
-          return { requires2FA: true }
+
+          // Set the access token for future requests
+          setAccessToken(result.accessToken)
+          
+          return { requires2FA: false }
+        } catch (error) {
+          set({ isLoading: false })
+          throw error
         }
-
-        // Create session
-        const session: Session = {
-          id: generateId(),
-          userId: demoUser.id,
-          deviceInfo: navigator.userAgent,
-          ipAddress: '192.168.1.1',
-          createdAt: new Date().toISOString(),
-          lastActivity: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-          isCurrent: true
-        }
-
-        set({
-          user: demoUser,
-          firm: demoFirm,
-          isAuthenticated: true,
-          isLoading: false,
-          twoFactorRequired: false,
-          twoFactorVerified: true,
-          teamMembers: demoTeamMembers,
-          userPermissions: rolePermissions[demoUser.role],
-          sessions: [session]
-        })
-
-        get().logAction('auth.login', 'session', session.id)
-        
-        return { requires2FA: false }
       },
 
       verify2FA: async (code: string) => {
-        await new Promise(resolve => setTimeout(resolve, 500))
-        
-        // Demo: accept any 6-digit code
+        // TODO: Implement real 2FA verification
         if (code.length === 6) {
-          const session: Session = {
-            id: generateId(),
-            userId: demoUser.id,
-            deviceInfo: navigator.userAgent,
-            ipAddress: '192.168.1.1',
-            createdAt: new Date().toISOString(),
-            lastActivity: new Date().toISOString(),
-            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-            isCurrent: true
-          }
-
           set({
             isAuthenticated: true,
             twoFactorRequired: false,
             twoFactorVerified: true,
-            teamMembers: demoTeamMembers,
-            userPermissions: rolePermissions[demoUser.role],
-            sessions: [session]
           })
-
-          get().logAction('auth.2fa_verified', 'session', session.id)
           return true
         }
-        
         return false
       },
 
-      logout: () => {
-        const { user } = get()
-        if (user) {
-          get().logAction('auth.logout', 'session')
+      logout: async () => {
+        try {
+          await authApi.logout()
+        } catch (error) {
+          console.error('Logout error:', error)
+        } finally {
+          setAccessToken(null)
+          set({
+            user: null,
+            firm: null,
+            isAuthenticated: false,
+            twoFactorRequired: false,
+            twoFactorVerified: false,
+            teamMembers: [],
+            userPermissions: [],
+            sessions: []
+          })
         }
-        
-        set({
-          user: null,
-          firm: null,
-          isAuthenticated: false,
-          twoFactorRequired: false,
-          twoFactorVerified: false,
-          teamMembers: [],
-          userPermissions: [],
-          sessions: []
-        })
       },
 
       register: async (data) => {
         set({ isLoading: true })
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        
+        try {
+          const result = await authApi.register(data)
 
-        const now = new Date().toISOString()
-        const newUser: User = {
-          id: generateId(),
-          email: data.email,
-          firstName: data.firstName,
-          lastName: data.lastName,
-          role: 'owner',
-          groupIds: [],
-          permissions: [],
-          isActive: true,
-          createdAt: now,
-          updatedAt: now
+          const user: User = {
+            id: result.user.id,
+            email: result.user.email,
+            firstName: result.user.firstName,
+            lastName: result.user.lastName,
+            role: result.user.role,
+            groupIds: [],
+            permissions: [],
+            isActive: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+
+          const firm: Firm = result.firm ? {
+            id: result.firm.id,
+            name: result.firm.name,
+            billingDefaults: {
+              hourlyRate: 350,
+              incrementMinutes: 6,
+              paymentTerms: 30,
+              currency: 'USD'
+            },
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          } : null as any
+
+          setAccessToken(result.accessToken)
+
+          set({
+            user,
+            firm,
+            isAuthenticated: true,
+            isLoading: false,
+            userPermissions: rolePermissions['owner']
+          })
+        } catch (error) {
+          set({ isLoading: false })
+          throw error
+        }
+      },
+
+      checkAuth: async () => {
+        try {
+          const result = await authApi.getMe()
+          
+          if (result.user) {
+            const user: User = {
+              id: result.user.id,
+              email: result.user.email,
+              firstName: result.user.firstName,
+              lastName: result.user.lastName,
+              role: result.user.role,
+              groupIds: result.user.groupIds || [],
+              permissions: result.user.permissions || [],
+              isActive: true,
+              createdAt: result.user.createdAt,
+              updatedAt: result.user.createdAt,
+            }
+
+            const firm: Firm = result.firm ? {
+              id: result.firm.id,
+              name: result.firm.name,
+              address: result.firm.address,
+              city: result.firm.city,
+              state: result.firm.state,
+              zipCode: result.firm.zipCode,
+              phone: result.firm.phone,
+              email: result.firm.email,
+              website: result.firm.website,
+              billingDefaults: result.firm.billingDefaults,
+              createdAt: result.firm.createdAt,
+              updatedAt: result.firm.updatedAt,
+            } : null as any
+
+            set({
+              user,
+              firm,
+              isAuthenticated: true,
+              twoFactorVerified: true,
+              userPermissions: rolePermissions[user.role],
+            })
+
+            return true
+          }
+        } catch (error) {
+          console.error('Auth check failed:', error)
         }
 
         set({
-          user: newUser,
-          isAuthenticated: false, // Not fully authenticated until firm is set up
-          isLoading: false,
-          userPermissions: rolePermissions['owner']
+          user: null,
+          firm: null,
+          isAuthenticated: false,
         })
+        return false
       },
 
       setupFirm: (data) => {
-        const now = new Date().toISOString()
-        const firm: Firm = {
-          id: generateId(),
-          name: data.name || '',
-          address: data.address || '',
-          billingDefaults: {
-            hourlyRate: 350,
-            incrementMinutes: 6,
-            paymentTerms: 30,
-            currency: 'USD'
-          },
-          createdAt: now,
-          updatedAt: now,
-          ...data
+        const { firm } = get()
+        if (firm) {
+          set({ firm: { ...firm, ...data } as Firm })
         }
-
-        const { user } = get()
-        
-        set({
-          firm,
-          isAuthenticated: true,
-          teamMembers: user ? [user] : []
-        })
-
-        get().logAction('firm.created', 'firm', firm.id)
       },
 
       updateFirm: (data) => {
         const { firm } = get()
         if (firm) {
-          set({ firm: { ...firm, ...data } })
-          get().logAction('firm.updated', 'firm', firm.id, data)
+          set({ firm: { ...firm, ...data } as Firm })
         }
       },
 
       updateUser: (data) => {
         const { user } = get()
         if (user) {
-          set({ user: { ...user, ...data } })
-          get().logAction('user.updated', 'user', user.id, data)
+          set({ user: { ...user, ...data } as User })
         }
       },
 
       updatePassword: async (currentPassword: string, newPassword: string) => {
-        await new Promise(resolve => setTimeout(resolve, 500))
-        
-        if (newPassword.length >= 8) {
-          get().logAction('user.password_changed', 'user', get().user?.id)
+        try {
+          await authApi.updatePassword(currentPassword, newPassword)
           return true
+        } catch (error) {
+          console.error('Password update failed:', error)
+          return false
         }
-        return false
       },
 
       enable2FA: async (method) => {
-        await new Promise(resolve => setTimeout(resolve, 500))
-        
         const setup: TwoFactorSetup = {
           enabled: true,
           method,
@@ -441,12 +430,11 @@ export const useAuthStore = create<AuthState>()(
         }
 
         set({ twoFactorSetup: setup })
-        get().logAction('user.2fa_enabled', 'user', get().user?.id, { method })
 
         if (method === 'authenticator') {
           return {
             secret: 'JBSWY3DPEHPK3PXP',
-            qrCode: 'otpauth://totp/Apex:demo@apexlaw.com?secret=JBSWY3DPEHPK3PXP&issuer=Apex'
+            qrCode: 'otpauth://totp/Apex:user@apex.law?secret=JBSWY3DPEHPK3PXP&issuer=Apex'
           }
         }
         
@@ -455,7 +443,6 @@ export const useAuthStore = create<AuthState>()(
 
       disable2FA: () => {
         set({ twoFactorSetup: null })
-        get().logAction('user.2fa_disabled', 'user', get().user?.id)
       },
 
       generateBackupCodes: () => {
@@ -467,38 +454,45 @@ export const useAuthStore = create<AuthState>()(
 
       getSessions: () => get().sessions,
 
-      revokeSession: (sessionId: string) => {
-        set(state => ({
-          sessions: state.sessions.filter(s => s.id !== sessionId)
-        }))
-        get().logAction('session.revoked', 'session', sessionId)
-      },
-
-      revokeAllOtherSessions: () => {
-        set(state => ({
-          sessions: state.sessions.filter(s => s.isCurrent)
-        }))
-        get().logAction('session.revoked_all', 'session')
-      },
-
-      inviteUser: (data) => {
-        const { user } = get()
-        const invitation: Invitation = {
-          id: generateId(),
-          ...data,
-          invitedBy: user?.id || '',
-          invitedAt: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-          status: 'pending',
-          token: generateToken()
+      revokeSession: async (sessionId: string) => {
+        try {
+          await authApi.revokeSession(sessionId)
+          set(state => ({
+            sessions: state.sessions.filter(s => s.id !== sessionId)
+          }))
+        } catch (error) {
+          console.error('Revoke session failed:', error)
         }
+      },
 
+      revokeAllOtherSessions: async () => {
+        try {
+          await authApi.revokeAllSessions()
+          set(state => ({
+            sessions: state.sessions.filter(s => s.isCurrent)
+          }))
+        } catch (error) {
+          console.error('Revoke sessions failed:', error)
+        }
+      },
+
+      loadTeamMembers: async () => {
+        try {
+          const result = await teamApi.getMembers()
+          set({ teamMembers: result.teamMembers })
+        } catch (error) {
+          console.error('Load team members failed:', error)
+        }
+      },
+
+      inviteUser: async (data) => {
+        const result = await teamApi.invite(data)
+        const invitation = result.invitation
+        
         set(state => ({
           invitations: [...state.invitations, invitation]
         }))
 
-        get().logAction('user.invited', 'invitation', invitation.id, { email: data.email, role: data.role })
-        
         return invitation
       },
 
@@ -510,32 +504,43 @@ export const useAuthStore = create<AuthState>()(
               : inv
           )
         }))
-        get().logAction('invitation.resent', 'invitation', invitationId)
       },
 
-      revokeInvitation: (invitationId: string) => {
-        set(state => ({
-          invitations: state.invitations.map(inv =>
-            inv.id === invitationId ? { ...inv, status: 'revoked' as const } : inv
-          )
-        }))
-        get().logAction('invitation.revoked', 'invitation', invitationId)
+      revokeInvitation: async (invitationId: string) => {
+        try {
+          await teamApi.revokeInvitation(invitationId)
+          set(state => ({
+            invitations: state.invitations.map(inv =>
+              inv.id === invitationId ? { ...inv, status: 'revoked' as const } : inv
+            )
+          }))
+        } catch (error) {
+          console.error('Revoke invitation failed:', error)
+        }
       },
 
-      updateTeamMember: (userId: string, data: Partial<User>) => {
-        set(state => ({
-          teamMembers: state.teamMembers.map(m =>
-            m.id === userId ? { ...m, ...data } : m
-          )
-        }))
-        get().logAction('user.updated', 'user', userId, data)
+      updateTeamMember: async (userId: string, data: Partial<User>) => {
+        try {
+          await teamApi.updateMember(userId, data)
+          set(state => ({
+            teamMembers: state.teamMembers.map(m =>
+              m.id === userId ? { ...m, ...data } : m
+            )
+          }))
+        } catch (error) {
+          console.error('Update team member failed:', error)
+        }
       },
 
-      removeTeamMember: (userId: string) => {
-        set(state => ({
-          teamMembers: state.teamMembers.filter(m => m.id !== userId)
-        }))
-        get().logAction('user.removed', 'user', userId)
+      removeTeamMember: async (userId: string) => {
+        try {
+          await teamApi.removeMember(userId)
+          set(state => ({
+            teamMembers: state.teamMembers.filter(m => m.id !== userId)
+          }))
+        } catch (error) {
+          console.error('Remove team member failed:', error)
+        }
       },
 
       hasPermission: (permission: string) => {
@@ -548,7 +553,6 @@ export const useAuthStore = create<AuthState>()(
         const { user, hasPermission } = get()
         if (!user) return false
         if (hasPermission('matters:view')) return true
-        // Additional matter-level permission checks would go here
         return false
       },
 
@@ -560,92 +564,19 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logAction: (action: string, resource: string, resourceId?: string, details?: Record<string, any>) => {
-        const { user } = get()
-        const entry: AuditLogEntry = {
-          id: generateId(),
-          userId: user?.id || 'system',
-          action,
-          resource,
-          resourceId,
-          details,
-          ipAddress: '192.168.1.1',
-          userAgent: navigator.userAgent,
-          timestamp: new Date().toISOString()
-        }
-
-        set(state => ({
-          auditLog: [entry, ...state.auditLog].slice(0, 1000) // Keep last 1000 entries
-        }))
+        // Audit logging is now handled server-side
       },
 
       getAuditLog: (filters) => {
-        let log = get().auditLog
-
-        if (filters?.userId) {
-          log = log.filter(e => e.userId === filters.userId)
-        }
-        if (filters?.resource) {
-          log = log.filter(e => e.resource === filters.resource)
-        }
-        if (filters?.startDate) {
-          log = log.filter(e => e.timestamp >= filters.startDate!)
-        }
-        if (filters?.endDate) {
-          log = log.filter(e => e.timestamp <= filters.endDate!)
-        }
-
-        return log
+        // Audit logs are now fetched from the server
+        return []
       },
-
-      loginDemo: () => {
-        const session: Session = {
-          id: generateId(),
-          userId: demoUser.id,
-          deviceInfo: navigator.userAgent,
-          ipAddress: '192.168.1.1',
-          createdAt: new Date().toISOString(),
-          lastActivity: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-          isCurrent: true
-        }
-
-        set({
-          user: demoUser,
-          firm: demoFirm,
-          isAuthenticated: true,
-          isLoading: false,
-          twoFactorRequired: false,
-          twoFactorVerified: true,
-          teamMembers: demoTeamMembers,
-          userPermissions: rolePermissions[demoUser.role],
-          sessions: [session],
-          invitations: [
-            {
-              id: 'inv-1',
-              email: 'newattorney@email.com',
-              firstName: 'Robert',
-              lastName: 'Garcia',
-              role: 'attorney',
-              invitedBy: 'user-1',
-              invitedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-              expiresAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
-              status: 'pending',
-              token: generateToken()
-            }
-          ]
-        })
-      }
     }),
     {
       name: 'apex-auth',
       partialize: (state) => ({
-        user: state.user,
-        firm: state.firm,
+        // Only persist minimal data, full auth state comes from server
         isAuthenticated: state.isAuthenticated,
-        twoFactorSetup: state.twoFactorSetup,
-        teamMembers: state.teamMembers,
-        invitations: state.invitations,
-        userPermissions: state.userPermissions
       })
     }
   )

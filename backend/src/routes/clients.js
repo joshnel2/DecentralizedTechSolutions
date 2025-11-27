@@ -1,0 +1,316 @@
+import { Router } from 'express';
+import { query } from '../db/connection.js';
+import { authenticate, requirePermission } from '../middleware/auth.js';
+
+const router = Router();
+
+// Get all clients
+router.get('/', authenticate, requirePermission('clients:view'), async (req, res) => {
+  try {
+    const { search, type, isActive, limit = 100, offset = 0 } = req.query;
+    
+    let sql = `
+      SELECT c.*, 
+             array_agg(DISTINCT m.id) FILTER (WHERE m.id IS NOT NULL) as matter_ids,
+             COUNT(DISTINCT m.id) as matter_count
+      FROM clients c
+      LEFT JOIN matters m ON m.client_id = c.id
+      WHERE c.firm_id = $1
+    `;
+    const params = [req.user.firmId];
+    let paramIndex = 2;
+
+    if (search) {
+      sql += ` AND (c.display_name ILIKE $${paramIndex} OR c.email ILIKE $${paramIndex})`;
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    if (type) {
+      sql += ` AND c.type = $${paramIndex}`;
+      params.push(type);
+      paramIndex++;
+    }
+
+    if (isActive !== undefined) {
+      sql += ` AND c.is_active = $${paramIndex}`;
+      params.push(isActive === 'true');
+      paramIndex++;
+    }
+
+    sql += ` GROUP BY c.id ORDER BY c.display_name LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(parseInt(limit), parseInt(offset));
+
+    const result = await query(sql, params);
+
+    // Get total count
+    const countResult = await query(
+      'SELECT COUNT(*) FROM clients WHERE firm_id = $1',
+      [req.user.firmId]
+    );
+
+    res.json({
+      clients: result.rows.map(c => ({
+        id: c.id,
+        type: c.type,
+        displayName: c.display_name,
+        firstName: c.first_name,
+        lastName: c.last_name,
+        companyName: c.company_name,
+        email: c.email,
+        phone: c.phone,
+        addressStreet: c.address_street,
+        addressCity: c.address_city,
+        addressState: c.address_state,
+        addressZip: c.address_zip,
+        notes: c.notes,
+        tags: c.tags,
+        contactType: c.contact_type,
+        isActive: c.is_active,
+        matterIds: c.matter_ids || [],
+        matterCount: parseInt(c.matter_count) || 0,
+        createdAt: c.created_at,
+        updatedAt: c.updated_at,
+      })),
+      total: parseInt(countResult.rows[0].count),
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+    });
+  } catch (error) {
+    console.error('Get clients error:', error);
+    res.status(500).json({ error: 'Failed to get clients' });
+  }
+});
+
+// Get single client
+router.get('/:id', authenticate, requirePermission('clients:view'), async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT c.*, 
+              array_agg(DISTINCT m.id) FILTER (WHERE m.id IS NOT NULL) as matter_ids
+       FROM clients c
+       LEFT JOIN matters m ON m.client_id = c.id
+       WHERE c.id = $1 AND c.firm_id = $2
+       GROUP BY c.id`,
+      [req.params.id, req.user.firmId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    const c = result.rows[0];
+    res.json({
+      id: c.id,
+      type: c.type,
+      displayName: c.display_name,
+      firstName: c.first_name,
+      lastName: c.last_name,
+      companyName: c.company_name,
+      email: c.email,
+      phone: c.phone,
+      addressStreet: c.address_street,
+      addressCity: c.address_city,
+      addressState: c.address_state,
+      addressZip: c.address_zip,
+      notes: c.notes,
+      tags: c.tags,
+      contactType: c.contact_type,
+      isActive: c.is_active,
+      matterIds: c.matter_ids || [],
+      createdBy: c.created_by,
+      createdAt: c.created_at,
+      updatedAt: c.updated_at,
+    });
+  } catch (error) {
+    console.error('Get client error:', error);
+    res.status(500).json({ error: 'Failed to get client' });
+  }
+});
+
+// Create client
+router.post('/', authenticate, requirePermission('clients:create'), async (req, res) => {
+  try {
+    const {
+      type = 'person',
+      displayName,
+      firstName,
+      lastName,
+      companyName,
+      email,
+      phone,
+      addressStreet,
+      addressCity,
+      addressState,
+      addressZip,
+      notes,
+      tags = [],
+      contactType = 'client',
+    } = req.body;
+
+    if (!displayName) {
+      return res.status(400).json({ error: 'Display name is required' });
+    }
+
+    const result = await query(
+      `INSERT INTO clients (
+        firm_id, type, display_name, first_name, last_name, company_name,
+        email, phone, address_street, address_city, address_state, address_zip,
+        notes, tags, contact_type, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      RETURNING *`,
+      [
+        req.user.firmId, type, displayName, firstName, lastName, companyName,
+        email, phone, addressStreet, addressCity, addressState, addressZip,
+        notes, tags, contactType, req.user.id
+      ]
+    );
+
+    const c = result.rows[0];
+
+    // Log action
+    await query(
+      `INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
+       VALUES ($1, $2, 'client.created', 'client', $3, $4)`,
+      [req.user.firmId, req.user.id, c.id, JSON.stringify({ displayName })]
+    );
+
+    res.status(201).json({
+      id: c.id,
+      type: c.type,
+      displayName: c.display_name,
+      firstName: c.first_name,
+      lastName: c.last_name,
+      companyName: c.company_name,
+      email: c.email,
+      phone: c.phone,
+      addressStreet: c.address_street,
+      addressCity: c.address_city,
+      addressState: c.address_state,
+      addressZip: c.address_zip,
+      notes: c.notes,
+      tags: c.tags,
+      contactType: c.contact_type,
+      isActive: c.is_active,
+      matterIds: [],
+      createdAt: c.created_at,
+      updatedAt: c.updated_at,
+    });
+  } catch (error) {
+    console.error('Create client error:', error);
+    res.status(500).json({ error: 'Failed to create client' });
+  }
+});
+
+// Update client
+router.put('/:id', authenticate, requirePermission('clients:edit'), async (req, res) => {
+  try {
+    const {
+      type,
+      displayName,
+      firstName,
+      lastName,
+      companyName,
+      email,
+      phone,
+      addressStreet,
+      addressCity,
+      addressState,
+      addressZip,
+      notes,
+      tags,
+      contactType,
+      isActive,
+    } = req.body;
+
+    // Check client exists and belongs to firm
+    const existing = await query(
+      'SELECT id FROM clients WHERE id = $1 AND firm_id = $2',
+      [req.params.id, req.user.firmId]
+    );
+
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    const result = await query(
+      `UPDATE clients SET
+        type = COALESCE($1, type),
+        display_name = COALESCE($2, display_name),
+        first_name = COALESCE($3, first_name),
+        last_name = COALESCE($4, last_name),
+        company_name = COALESCE($5, company_name),
+        email = COALESCE($6, email),
+        phone = COALESCE($7, phone),
+        address_street = COALESCE($8, address_street),
+        address_city = COALESCE($9, address_city),
+        address_state = COALESCE($10, address_state),
+        address_zip = COALESCE($11, address_zip),
+        notes = COALESCE($12, notes),
+        tags = COALESCE($13, tags),
+        contact_type = COALESCE($14, contact_type),
+        is_active = COALESCE($15, is_active)
+      WHERE id = $16
+      RETURNING *`,
+      [
+        type, displayName, firstName, lastName, companyName,
+        email, phone, addressStreet, addressCity, addressState, addressZip,
+        notes, tags, contactType, isActive, req.params.id
+      ]
+    );
+
+    const c = result.rows[0];
+
+    res.json({
+      id: c.id,
+      type: c.type,
+      displayName: c.display_name,
+      firstName: c.first_name,
+      lastName: c.last_name,
+      companyName: c.company_name,
+      email: c.email,
+      phone: c.phone,
+      addressStreet: c.address_street,
+      addressCity: c.address_city,
+      addressState: c.address_state,
+      addressZip: c.address_zip,
+      notes: c.notes,
+      tags: c.tags,
+      contactType: c.contact_type,
+      isActive: c.is_active,
+      createdAt: c.created_at,
+      updatedAt: c.updated_at,
+    });
+  } catch (error) {
+    console.error('Update client error:', error);
+    res.status(500).json({ error: 'Failed to update client' });
+  }
+});
+
+// Delete client
+router.delete('/:id', authenticate, requirePermission('clients:delete'), async (req, res) => {
+  try {
+    const result = await query(
+      'DELETE FROM clients WHERE id = $1 AND firm_id = $2 RETURNING id',
+      [req.params.id, req.user.firmId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    // Log action
+    await query(
+      `INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id)
+       VALUES ($1, $2, 'client.deleted', 'client', $3)`,
+      [req.user.firmId, req.user.id, req.params.id]
+    );
+
+    res.json({ message: 'Client deleted' });
+  } catch (error) {
+    console.error('Delete client error:', error);
+    res.status(500).json({ error: 'Failed to delete client' });
+  }
+});
+
+export default router;
