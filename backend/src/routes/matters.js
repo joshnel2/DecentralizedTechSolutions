@@ -12,6 +12,9 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
       limit = 100, offset = 0 
     } = req.query;
     
+    // Check if user is admin/owner - they see all firm matters
+    const isAdmin = ['owner', 'admin'].includes(req.user.role);
+    
     let sql = `
       SELECT m.*,
              c.display_name as client_name,
@@ -25,6 +28,15 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
     `;
     const params = [req.user.firmId];
     let paramIndex = 2;
+
+    // Non-admins only see matters they're assigned to or responsible for
+    if (!isAdmin) {
+      sql += ` AND (m.responsible_attorney = $${paramIndex} OR EXISTS (
+        SELECT 1 FROM matter_assignments WHERE matter_id = m.id AND user_id = $${paramIndex}
+      ))`;
+      params.push(req.user.id);
+      paramIndex++;
+    }
 
     if (search) {
       sql += ` AND (m.name ILIKE $${paramIndex} OR m.number ILIKE $${paramIndex})`;

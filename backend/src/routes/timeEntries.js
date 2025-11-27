@@ -12,6 +12,9 @@ router.get('/', authenticate, requirePermission('billing:view'), async (req, res
       limit = 100, offset = 0 
     } = req.query;
     
+    // Check if user is admin/owner - they see all firm data
+    const isAdmin = ['owner', 'admin', 'billing'].includes(req.user.role);
+    
     let sql = `
       SELECT te.*,
              m.name as matter_name,
@@ -25,13 +28,21 @@ router.get('/', authenticate, requirePermission('billing:view'), async (req, res
     const params = [req.user.firmId];
     let paramIndex = 2;
 
+    // Non-admins only see their own time entries
+    if (!isAdmin) {
+      sql += ` AND te.user_id = $${paramIndex}`;
+      params.push(req.user.id);
+      paramIndex++;
+    }
+
     if (matterId) {
       sql += ` AND te.matter_id = $${paramIndex}`;
       params.push(matterId);
       paramIndex++;
     }
 
-    if (userId) {
+    // Only filter by userId if admin is looking at a specific user
+    if (userId && isAdmin) {
       sql += ` AND te.user_id = $${paramIndex}`;
       params.push(userId);
       paramIndex++;

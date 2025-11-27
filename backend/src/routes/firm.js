@@ -174,24 +174,36 @@ router.get('/audit-logs', authenticate, requirePermission('audit:view'), async (
 // Dashboard stats
 router.get('/dashboard', authenticate, async (req, res) => {
   try {
+    // Check if user is admin/owner - they see firm-wide stats
+    const isAdmin = ['owner', 'admin', 'billing'].includes(req.user.role);
+    
     const [
       matterStats,
       billingStats,
       recentActivity,
       upcomingDeadlines
     ] = await Promise.all([
-      // Matter stats
-      query(
+      // Matter stats - admins see all, users see assigned
+      isAdmin ? query(
         `SELECT 
           COUNT(*) FILTER (WHERE status = 'active') as active_matters,
           COUNT(*) FILTER (WHERE status = 'pending') as pending_matters,
           COUNT(*) FILTER (WHERE status = 'closed' AND close_date > NOW() - INTERVAL '30 days') as recently_closed
         FROM matters WHERE firm_id = $1`,
         [req.user.firmId]
+      ) : query(
+        `SELECT 
+          COUNT(*) FILTER (WHERE m.status = 'active') as active_matters,
+          COUNT(*) FILTER (WHERE m.status = 'pending') as pending_matters,
+          COUNT(*) FILTER (WHERE m.status = 'closed' AND m.close_date > NOW() - INTERVAL '30 days') as recently_closed
+        FROM matters m
+        LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
+        WHERE m.firm_id = $1 AND (m.responsible_attorney = $2 OR ma.user_id = $2)`,
+        [req.user.firmId, req.user.id]
       ),
       
-      // Billing stats
-      query(
+      // Billing stats - admins see all, users see their own
+      isAdmin ? query(
         `SELECT 
           COALESCE(SUM(amount_due), 0) as outstanding_invoices,
           COALESCE(SUM(CASE WHEN status = 'overdue' THEN amount_due ELSE 0 END), 0) as overdue_amount,
@@ -199,20 +211,34 @@ router.get('/dashboard', authenticate, async (req, res) => {
            WHERE firm_id = $1 AND billed = false AND billable = true) as unbilled_time
         FROM invoices WHERE firm_id = $1 AND status NOT IN ('paid', 'void', 'draft')`,
         [req.user.firmId]
+      ) : query(
+        `SELECT 
+          0 as outstanding_invoices,
+          0 as overdue_amount,
+          COALESCE(SUM(amount), 0) as unbilled_time
+        FROM time_entries WHERE firm_id = $1 AND user_id = $2 AND billed = false AND billable = true`,
+        [req.user.firmId, req.user.id]
       ),
       
-      // Recent activity (last 5 audit logs)
-      query(
+      // Recent activity - admins see all, users see their own
+      isAdmin ? query(
         `SELECT al.*, u.first_name || ' ' || u.last_name as user_name
          FROM audit_logs al
          LEFT JOIN users u ON al.user_id = u.id
          WHERE al.firm_id = $1
          ORDER BY al.created_at DESC LIMIT 5`,
         [req.user.firmId]
+      ) : query(
+        `SELECT al.*, u.first_name || ' ' || u.last_name as user_name
+         FROM audit_logs al
+         LEFT JOIN users u ON al.user_id = u.id
+         WHERE al.firm_id = $1 AND al.user_id = $2
+         ORDER BY al.created_at DESC LIMIT 5`,
+        [req.user.firmId, req.user.id]
       ),
       
-      // Upcoming deadlines (next 7 days)
-      query(
+      // Upcoming deadlines - admins see all, users see relevant
+      isAdmin ? query(
         `SELECT e.*, m.name as matter_name, m.number as matter_number
          FROM calendar_events e
          LEFT JOIN matters m ON e.matter_id = m.id
@@ -221,10 +247,23 @@ router.get('/dashboard', authenticate, async (req, res) => {
            AND e.start_time BETWEEN NOW() AND NOW() + INTERVAL '7 days'
          ORDER BY e.start_time LIMIT 10`,
         [req.user.firmId]
+      ) : query(
+        `SELECT e.*, m.name as matter_name, m.number as matter_number
+         FROM calendar_events e
+         LEFT JOIN matters m ON e.matter_id = m.id
+         WHERE e.firm_id = $1 
+           AND e.type IN ('deadline', 'court_date', 'closing')
+           AND e.start_time BETWEEN NOW() AND NOW() + INTERVAL '7 days'
+           AND (e.created_by = $2 OR e.is_private = false)
+         ORDER BY e.start_time LIMIT 10`,
+        [req.user.firmId, req.user.id]
       )
     ]);
 
     res.json({
+      // Include role info so frontend knows what view they're seeing
+      viewMode: isAdmin ? 'firm' : 'personal',
+      userRole: req.user.role,
       matters: {
         active: parseInt(matterStats.rows[0]?.active_matters || 0),
         pending: parseInt(matterStats.rows[0]?.pending_matters || 0),

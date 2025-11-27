@@ -9,6 +9,9 @@ router.get('/', authenticate, requirePermission('calendar:view'), async (req, re
   try {
     const { startDate, endDate, matterId, type, limit = 100, offset = 0 } = req.query;
     
+    // Check if user is admin/owner - they see all firm events
+    const isAdmin = ['owner', 'admin'].includes(req.user.role);
+    
     let sql = `
       SELECT e.*,
              m.name as matter_name,
@@ -21,6 +24,13 @@ router.get('/', authenticate, requirePermission('calendar:view'), async (req, re
     `;
     const params = [req.user.firmId];
     let paramIndex = 2;
+
+    // Non-admins see events they created, are attending, or non-private events
+    if (!isAdmin) {
+      sql += ` AND (e.created_by = $${paramIndex} OR e.is_private = false OR e.attendees::jsonb ? $${paramIndex + 1})`;
+      params.push(req.user.id, req.user.id);
+      paramIndex += 2;
+    }
 
     if (startDate) {
       sql += ` AND e.start_time >= $${paramIndex}`;
