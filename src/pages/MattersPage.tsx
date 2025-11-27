@@ -12,12 +12,10 @@ import styles from './ListPages.module.css'
 const statusOptions = [
   { value: 'all', label: 'All Statuses' },
   { value: 'active', label: 'Active' },
-  { value: 'intake', label: 'Intake' },
   { value: 'pending', label: 'Pending' },
   { value: 'on_hold', label: 'On Hold' },
-  { value: 'closed_won', label: 'Closed - Won' },
-  { value: 'closed_lost', label: 'Closed - Lost' },
-  { value: 'closed_settled', label: 'Closed - Settled' }
+  { value: 'closed', label: 'Closed' },
+  { value: 'archived', label: 'Archived' }
 ]
 
 const typeOptions = [
@@ -228,7 +226,7 @@ function NewMatterModal({ onClose, onSave, clients }: NewMatterModalProps) {
     description: '',
     clientId: clients[0]?.id || '',
     type: 'litigation',
-    status: 'intake',
+    status: 'active',
     priority: 'medium',
     billingType: 'hourly',
     billingRate: 450,
