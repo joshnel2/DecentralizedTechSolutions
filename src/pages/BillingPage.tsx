@@ -10,7 +10,7 @@ import { clsx } from 'clsx'
 import styles from './BillingPage.module.css'
 
 export function BillingPage() {
-  const { invoices, clients, matters, timeEntries, expenses, fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries } = useDataStore()
+  const { invoices, clients, matters, timeEntries, expenses, fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries, addInvoice } = useDataStore()
   
   // Fetch data from API on mount
   useEffect(() => {
@@ -23,6 +23,7 @@ export function BillingPage() {
   const [activeTab, setActiveTab] = useState('invoices')
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [showNewModal, setShowNewModal] = useState(false)
 
   const stats = useMemo(() => {
     const totalBilled = invoices.reduce((sum, i) => sum + i.total, 0)
@@ -63,11 +64,29 @@ export function BillingPage() {
         <div className={styles.headerLeft}>
           <h1>Billing</h1>
         </div>
-        <button className={styles.primaryBtn}>
+        <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
           <Plus size={18} />
           Create Invoice
         </button>
       </div>
+
+      {showNewModal && (
+        <NewInvoiceModal
+          onClose={() => setShowNewModal(false)}
+          onSave={async (data) => {
+            try {
+              await addInvoice(data)
+              setShowNewModal(false)
+              fetchInvoices()
+            } catch (error) {
+              console.error('Failed to create invoice:', error)
+              alert('Failed to create invoice. Please try again.')
+            }
+          }}
+          clients={clients}
+          matters={matters}
+        />
+      )}
 
       {/* Stats */}
       <div className={styles.statsGrid}>
@@ -288,6 +307,119 @@ export function BillingPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function NewInvoiceModal({ onClose, onSave, clients, matters }: { 
+  onClose: () => void
+  onSave: (data: any) => Promise<void>
+  clients: any[]
+  matters: any[]
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState({
+    clientId: clients[0]?.id || '',
+    matterId: '',
+    issueDate: format(new Date(), 'yyyy-MM-dd'),
+    dueDate: format(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
+    notes: '',
+    lineItems: [] as any[]
+  })
+
+  const clientMatters = matters.filter(m => m.clientId === formData.clientId)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isSubmitting) return
+    if (!formData.clientId) {
+      alert('Please select a client')
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      await onSave(formData)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>Create Invoice</h2>
+          <button onClick={onClose} className={styles.closeBtn}>×</button>
+        </div>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
+          <div className={styles.formGroup}>
+            <label>Client</label>
+            <select
+              value={formData.clientId}
+              onChange={(e) => setFormData({...formData, clientId: e.target.value, matterId: ''})}
+              required
+            >
+              <option value="">Select a client</option>
+              {clients.map(c => (
+                <option key={c.id} value={c.id}>{c.name || c.displayName}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Matter (optional)</label>
+            <select
+              value={formData.matterId}
+              onChange={(e) => setFormData({...formData, matterId: e.target.value})}
+            >
+              <option value="">No specific matter</option>
+              {clientMatters.map(m => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Issue Date</label>
+              <input
+                type="date"
+                value={formData.issueDate}
+                onChange={(e) => setFormData({...formData, issueDate: e.target.value})}
+                required
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Due Date</label>
+              <input
+                type="date"
+                value={formData.dueDate}
+                onChange={(e) => setFormData({...formData, dueDate: e.target.value})}
+                required
+              />
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Notes</label>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({...formData, notes: e.target.value})}
+              placeholder="Invoice notes..."
+              rows={3}
+            />
+          </div>
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+              Cancel
+            </button>
+            <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Creating...' : 'Create Invoice'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
