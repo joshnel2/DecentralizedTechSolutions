@@ -23,25 +23,39 @@ export function DocumentsPage() {
   
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [showUploadModal, setShowUploadModal] = useState(false)
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [selectedMatterId, setSelectedMatterId] = useState('')
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0) return
+    setPendingFiles(Array.from(files))
+    setShowUploadModal(true)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const handleUploadConfirm = async () => {
+    if (pendingFiles.length === 0) return
     
     setIsUploading(true)
     try {
-      for (const file of Array.from(files)) {
-        await addDocument(file, {})
+      for (const file of pendingFiles) {
+        await addDocument(file, { 
+          matterId: selectedMatterId || undefined 
+        })
       }
       fetchDocuments()
+      setShowUploadModal(false)
+      setPendingFiles([])
+      setSelectedMatterId('')
     } catch (error) {
       console.error('Upload failed:', error)
       alert('Failed to upload file. Please try again.')
     } finally {
       setIsUploading(false)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
     }
   }
 
@@ -110,11 +124,64 @@ export function DocumentsPage() {
             type="file"
             multiple
             style={{ display: 'none' }}
-            onChange={handleFileUpload}
+            onChange={handleFileSelect}
             accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp"
           />
         </div>
       </div>
+
+      {showUploadModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowUploadModal(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Upload Documents</h2>
+              <button onClick={() => setShowUploadModal(false)} className={styles.closeBtn}>×</button>
+            </div>
+            <div className={styles.modalForm}>
+              <div className={styles.fileList}>
+                {pendingFiles.map((file, i) => (
+                  <div key={i} className={styles.fileItem}>
+                    <FileText size={16} />
+                    <span>{file.name}</span>
+                    <span className={styles.fileSize}>({(file.size / 1024).toFixed(1)} KB)</span>
+                  </div>
+                ))}
+              </div>
+              
+              <div className={styles.formGroup}>
+                <label>Attach to Matter (optional)</label>
+                <select
+                  value={selectedMatterId}
+                  onChange={(e) => setSelectedMatterId(e.target.value)}
+                >
+                  <option value="">No matter selected</option>
+                  {matters.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className={styles.modalActions}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowUploadModal(false)} 
+                  className={styles.cancelBtn}
+                  disabled={isUploading}
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleUploadConfirm} 
+                  className={styles.saveBtn}
+                  disabled={isUploading}
+                >
+                  {isUploading ? 'Uploading...' : 'Upload'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className={styles.filters}>
         <div className={styles.searchBox}>
