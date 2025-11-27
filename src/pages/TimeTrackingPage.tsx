@@ -271,7 +271,7 @@ export function TimeTrackingPage() {
 function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () => void; onSave: (data: any) => Promise<void>; matters: any[]; userId: string }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
-    matterId: matters[0]?.id || '',
+    matterId: '',
     date: format(new Date(), 'yyyy-MM-dd'),
     hours: 1,
     description: '',
@@ -282,6 +282,14 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isSubmitting) return
+    if (!formData.matterId) {
+      alert('Please select a matter')
+      return
+    }
+    if (!formData.description.trim()) {
+      alert('Please enter a description')
+      return
+    }
     setIsSubmitting(true)
     try {
       await onSave({
@@ -295,6 +303,29 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
     }
   }
 
+  if (matters.length === 0) {
+    return (
+      <div className={styles.modalOverlay} onClick={onClose}>
+        <div className={styles.modal} onClick={e => e.stopPropagation()}>
+          <div className={styles.modalHeader}>
+            <h2>New Time Entry</h2>
+            <button onClick={onClose} className={styles.closeBtn}>×</button>
+          </div>
+          <div className={styles.modalForm}>
+            <p style={{ color: 'var(--apex-text)', textAlign: 'center' }}>
+              You need to create a matter first before logging time.
+            </p>
+            <div className={styles.modalActions}>
+              <button type="button" onClick={onClose} className={styles.cancelBtn}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
@@ -304,7 +335,7 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
         </div>
         <form onSubmit={handleSubmit} className={styles.modalForm}>
           <div className={styles.formGroup}>
-            <label>Matter</label>
+            <label>Matter *</label>
             <select
               value={formData.matterId}
               onChange={(e) => {
@@ -315,7 +346,9 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
                   rate: matter?.billingRate || 450
                 })
               }}
+              required
             >
+              <option value="">Select a matter</option>
               {matters.map((m: any) => (
                 <option key={m.id} value={m.id}>{m.name}</option>
               ))}
