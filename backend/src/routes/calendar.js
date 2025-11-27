@@ -115,6 +115,10 @@ router.post('/', authenticate, requirePermission('calendar:create'), async (req,
       return res.status(400).json({ error: 'Title, start time, and end time are required' });
     }
 
+    // Convert empty strings to null for UUID fields
+    const safeMatterId = matterId && matterId.trim() !== '' ? matterId : null;
+    const safeClientId = clientId && clientId.trim() !== '' ? clientId : null;
+
     const result = await query(
       `INSERT INTO calendar_events (
         firm_id, title, description, type, matter_id, client_id,
@@ -123,7 +127,7 @@ router.post('/', authenticate, requirePermission('calendar:create'), async (req,
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING *`,
       [
-        req.user.firmId, title, description, type, matterId, clientId,
+        req.user.firmId, title, description, type, safeMatterId, safeClientId,
         startTime, endTime, allDay, location, JSON.stringify(attendees),
         JSON.stringify(reminders), color, isPrivate, req.user.id
       ]
