@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
+import { useAIChat } from '../contexts/AIChatContext'
 import { Plus, Search, Users, Building2, User, MoreVertical, Sparkles } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -8,6 +9,7 @@ import styles from './ListPages.module.css'
 
 export function ClientsPage() {
   const { clients, matters, addClient, fetchClients, fetchMatters } = useDataStore()
+  const { openChat } = useAIChat()
   const [searchQuery, setSearchQuery] = useState('')
 
   // Fetch data when component mounts
@@ -45,10 +47,16 @@ export function ClientsPage() {
           <h1>Clients</h1>
           <span className={styles.count}>{clients.length} total</span>
         </div>
-        <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
-          <Plus size={18} />
-          New Client
-        </button>
+        <div className={styles.headerActions}>
+          <button className={styles.aiBtn} onClick={() => openChat()}>
+            <Sparkles size={16} />
+            AI Insights
+          </button>
+          <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
+            <Plus size={18} />
+            New Client
+          </button>
+        </div>
       </div>
 
       <div className={styles.filters}>
