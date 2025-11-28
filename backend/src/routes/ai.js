@@ -64,308 +64,379 @@ async function callAzureOpenAI(messages) {
   return data.choices[0].message.content;
 }
 
-// Build FULL context - the AI always knows everything about you
+// Build FULL context - the AI always knows everything about YOU specifically
 async function buildContext(page, firmId, userId, additionalContext = {}) {
   console.log(`Building FULL AI context for firm: ${firmId}, user: ${userId}, page: ${page}`);
   
   try {
-    // Fetch ALL data the AI needs to be your complete personal assistant
+    // Fetch ALL data the AI needs - prioritizing USER-SPECIFIC data
     const [
       userRes,
-      mattersRes, 
-      clientsRes, 
-      timeEntriesRes, 
-      invoicesRes, 
-      eventsRes, 
-      docsRes,
+      // USER'S OWN DATA
+      myMattersRes,
+      myTimeEntriesRes,
+      myCalendarRes,
+      myDocumentsRes,
+      myInvoicesRes,
+      myUnbilledRes,
+      myStatsRes,
+      // FIRM-WIDE DATA for context
+      allClientsRes, 
       teamRes,
-      urgentMattersRes,
-      overdueInvoicesRes,
-      unbilledRes,
-      recentActivityRes
+      firmStatsRes,
+      overdueInvoicesRes
     ] = await Promise.all([
-      // Current user info
-      query(`SELECT first_name, last_name, email, role FROM users WHERE id = $1`, [userId]),
-      // All active matters with details
+      // Current user info with hourly rate
+      query(`SELECT first_name, last_name, email, role, hourly_rate FROM users WHERE id = $1`, [userId]),
+      
+      // ===== USER'S OWN MATTERS =====
+      // Matters where user is responsible attorney OR assigned to the matter
       query(`
         SELECT m.*, c.display_name as client_name,
-               u.first_name || ' ' || u.last_name as attorney_name,
                (SELECT COALESCE(SUM(hours), 0) FROM time_entries WHERE matter_id = m.id) as total_hours,
-               (SELECT COALESCE(SUM(amount), 0) FROM time_entries WHERE matter_id = m.id AND billable = true) as total_billed
+               (SELECT COALESCE(SUM(amount), 0) FROM time_entries WHERE matter_id = m.id AND billable = true) as total_billed,
+               (SELECT COALESCE(SUM(hours), 0) FROM time_entries WHERE matter_id = m.id AND user_id = $2) as my_hours,
+               (SELECT COALESCE(SUM(amount), 0) FROM time_entries WHERE matter_id = m.id AND user_id = $2 AND billable = true AND billed = false) as my_unbilled
         FROM matters m
         LEFT JOIN clients c ON m.client_id = c.id
-        LEFT JOIN users u ON m.responsible_attorney = u.id
-        WHERE m.firm_id = $1
+        LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
+        WHERE m.firm_id = $1 
+          AND (m.responsible_attorney = $2 OR ma.user_id = $2 OR m.created_by = $2)
+        GROUP BY m.id, c.display_name
         ORDER BY 
           CASE m.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END,
-          m.created_at DESC
-        LIMIT 25
-      `, [firmId]),
-      // All clients
+          m.updated_at DESC
+        LIMIT 50
+      `, [firmId, userId]),
+      
+      // ===== USER'S OWN TIME ENTRIES =====
+      query(`
+        SELECT te.*, m.name as matter_name, m.number as matter_number, c.display_name as client_name
+        FROM time_entries te
+        LEFT JOIN matters m ON te.matter_id = m.id
+        LEFT JOIN clients c ON m.client_id = c.id
+        WHERE te.user_id = $1 AND te.date >= CURRENT_DATE - INTERVAL '60 days'
+        ORDER BY te.date DESC, te.created_at DESC
+        LIMIT 50
+      `, [userId]),
+      
+      // ===== USER'S OWN CALENDAR EVENTS =====
+      query(`
+        SELECT e.*, m.name as matter_name, c.display_name as client_name
+        FROM calendar_events e
+        LEFT JOIN matters m ON e.matter_id = m.id
+        LEFT JOIN clients c ON e.client_id = c.id
+        WHERE e.firm_id = $1 
+          AND (e.created_by = $2 OR e.attendees::text LIKE '%' || $2::text || '%' OR e.is_private = false)
+          AND e.start_time >= NOW() - INTERVAL '7 days'
+          AND e.start_time <= NOW() + INTERVAL '30 days'
+        ORDER BY e.start_time
+        LIMIT 50
+      `, [firmId, userId]),
+      
+      // ===== USER'S OWN DOCUMENTS =====
+      query(`
+        SELECT d.*, m.name as matter_name, c.display_name as client_name
+        FROM documents d
+        LEFT JOIN matters m ON d.matter_id = m.id
+        LEFT JOIN clients c ON d.client_id = c.id
+        WHERE d.firm_id = $1 AND d.uploaded_by = $2
+        ORDER BY d.created_at DESC
+        LIMIT 30
+      `, [firmId, userId]),
+      
+      // ===== USER'S OWN INVOICES (created by user) =====
+      query(`
+        SELECT i.*, c.display_name as client_name, m.name as matter_name
+        FROM invoices i
+        LEFT JOIN clients c ON i.client_id = c.id
+        LEFT JOIN matters m ON i.matter_id = m.id
+        WHERE i.firm_id = $1 AND i.created_by = $2
+        ORDER BY i.created_at DESC
+        LIMIT 30
+      `, [firmId, userId]),
+      
+      // ===== USER'S UNBILLED WORK =====
+      query(`
+        SELECT 
+          COALESCE(SUM(hours), 0) as unbilled_hours,
+          COALESCE(SUM(amount), 0) as unbilled_amount,
+          COUNT(*) as unbilled_entries
+        FROM time_entries
+        WHERE user_id = $1 AND billable = true AND billed = false
+      `, [userId]),
+      
+      // ===== USER'S PRODUCTIVITY STATS =====
+      query(`
+        SELECT 
+          COALESCE(SUM(CASE WHEN date >= DATE_TRUNC('week', CURRENT_DATE) THEN hours ELSE 0 END), 0) as hours_this_week,
+          COALESCE(SUM(CASE WHEN date >= DATE_TRUNC('month', CURRENT_DATE) THEN hours ELSE 0 END), 0) as hours_this_month,
+          COALESCE(SUM(CASE WHEN date >= DATE_TRUNC('month', CURRENT_DATE) AND billable = true THEN amount ELSE 0 END), 0) as revenue_this_month,
+          COALESCE(SUM(CASE WHEN date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 month' AND date < DATE_TRUNC('month', CURRENT_DATE) THEN hours ELSE 0 END), 0) as hours_last_month,
+          COALESCE(AVG(hours), 0) as avg_hours_per_entry,
+          COUNT(DISTINCT date) as days_worked_this_month
+        FROM time_entries
+        WHERE user_id = $1 AND date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 month'
+      `, [userId]),
+      
+      // ===== FIRM CLIENTS (user needs to know about all clients) =====
       query(`
         SELECT c.*, 
                (SELECT COUNT(*) FROM matters WHERE client_id = c.id) as matter_count,
                (SELECT COALESCE(SUM(total), 0) FROM invoices WHERE client_id = c.id) as total_billed,
                (SELECT COALESCE(SUM(amount_due), 0) FROM invoices WHERE client_id = c.id AND status IN ('sent', 'overdue')) as outstanding
         FROM clients c
-        WHERE c.firm_id = $1
+        WHERE c.firm_id = $1 AND c.is_active = true
         ORDER BY c.created_at DESC
-        LIMIT 25
+        LIMIT 50
       `, [firmId]),
-      // Recent time entries (last 30 days)
-      query(`
-        SELECT te.*, m.name as matter_name, m.number as matter_number,
-               u.first_name || ' ' || u.last_name as user_name
-        FROM time_entries te
-        LEFT JOIN matters m ON te.matter_id = m.id
-        LEFT JOIN users u ON te.user_id = u.id
-        WHERE te.firm_id = $1 AND te.date >= CURRENT_DATE - INTERVAL '30 days'
-        ORDER BY te.date DESC, te.created_at DESC
-        LIMIT 30
-      `, [firmId]),
-      // All invoices
-      query(`
-        SELECT i.*, c.display_name as client_name, m.name as matter_name
-        FROM invoices i
-        LEFT JOIN clients c ON i.client_id = c.id
-        LEFT JOIN matters m ON i.matter_id = m.id
-        WHERE i.firm_id = $1
-        ORDER BY i.created_at DESC
-        LIMIT 25
-      `, [firmId]),
-      // Calendar events (past week + next 2 weeks)
-      query(`
-        SELECT e.*, m.name as matter_name
-        FROM calendar_events e
-        LEFT JOIN matters m ON e.matter_id = m.id
-        WHERE e.firm_id = $1 
-          AND e.start_time >= NOW() - INTERVAL '7 days'
-          AND e.start_time <= NOW() + INTERVAL '14 days'
-        ORDER BY e.start_time
-        LIMIT 30
-      `, [firmId]),
-      // Recent documents
-      query(`
-        SELECT d.*, m.name as matter_name, c.display_name as client_name
-        FROM documents d
-        LEFT JOIN matters m ON d.matter_id = m.id
-        LEFT JOIN clients c ON d.client_id = c.id
-        WHERE d.firm_id = $1
-        ORDER BY d.created_at DESC
-        LIMIT 20
-      `, [firmId]),
-      // Team members
+      
+      // ===== TEAM MEMBERS =====
       query(`
         SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.hourly_rate,
-               (SELECT COUNT(*) FROM matters WHERE responsible_attorney = u.id AND status = 'active') as active_matters,
-               (SELECT COALESCE(SUM(hours), 0) FROM time_entries WHERE user_id = u.id AND date >= DATE_TRUNC('month', CURRENT_DATE)) as monthly_hours
+               (SELECT COUNT(*) FROM matters WHERE responsible_attorney = u.id AND status = 'active') as active_matters
         FROM users u
         WHERE u.firm_id = $1 AND u.is_active = true
         ORDER BY u.role, u.first_name
       `, [firmId]),
-      // Urgent/high priority matters
-      query(`
-        SELECT m.name, m.number, m.priority, m.status, c.display_name as client_name
-        FROM matters m
-        LEFT JOIN clients c ON m.client_id = c.id
-        WHERE m.firm_id = $1 AND m.status = 'active' AND m.priority IN ('high', 'urgent')
-        ORDER BY CASE m.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 END
-      `, [firmId]),
-      // Overdue invoices
-      query(`
-        SELECT i.number, i.total, i.amount_due, i.due_date, c.display_name as client_name
-        FROM invoices i
-        LEFT JOIN clients c ON i.client_id = c.id
-        WHERE i.firm_id = $1 AND (i.status = 'overdue' OR (i.status = 'sent' AND i.due_date < CURRENT_DATE))
-        ORDER BY i.due_date
-      `, [firmId]),
-      // Unbilled work summary
+      
+      // ===== FIRM-WIDE STATS =====
       query(`
         SELECT 
-          COALESCE(SUM(hours), 0) as unbilled_hours,
-          COALESCE(SUM(amount), 0) as unbilled_amount
-        FROM time_entries
-        WHERE firm_id = $1 AND billable = true AND billed = false
+          (SELECT COUNT(*) FROM matters WHERE firm_id = $1 AND status = 'active') as total_active_matters,
+          (SELECT COUNT(*) FROM clients WHERE firm_id = $1 AND is_active = true) as total_clients,
+          (SELECT COALESCE(SUM(amount_due), 0) FROM invoices WHERE firm_id = $1 AND status IN ('sent', 'overdue')) as total_outstanding,
+          (SELECT COUNT(*) FROM invoices WHERE firm_id = $1 AND (status = 'overdue' OR (status = 'sent' AND due_date < CURRENT_DATE))) as overdue_invoice_count
       `, [firmId]),
-      // Recent activity for context
+      
+      // ===== OVERDUE INVOICES (for user's matters) =====
       query(`
-        SELECT 'time_entry' as type, te.created_at, te.description as details, m.name as matter_name
-        FROM time_entries te
-        LEFT JOIN matters m ON te.matter_id = m.id
-        WHERE te.firm_id = $1
-        ORDER BY te.created_at DESC
-        LIMIT 10
-      `, [firmId])
+        SELECT i.number, i.total, i.amount_due, i.due_date, c.display_name as client_name, m.name as matter_name
+        FROM invoices i
+        LEFT JOIN clients c ON i.client_id = c.id
+        LEFT JOIN matters m ON i.matter_id = m.id
+        LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
+        WHERE i.firm_id = $1 
+          AND (i.status = 'overdue' OR (i.status = 'sent' AND i.due_date < CURRENT_DATE))
+          AND (m.responsible_attorney = $2 OR ma.user_id = $2 OR i.created_by = $2)
+        ORDER BY i.due_date
+      `, [firmId, userId])
     ]);
 
     const currentUser = userRes.rows[0];
-    const matters = mattersRes.rows;
-    const clients = clientsRes.rows;
-    const timeEntries = timeEntriesRes.rows;
-    const invoices = invoicesRes.rows;
-    const events = eventsRes.rows;
-    const documents = docsRes.rows;
+    
+    // USER'S OWN DATA
+    const myMatters = myMattersRes.rows;
+    const myTimeEntries = myTimeEntriesRes.rows;
+    const myCalendar = myCalendarRes.rows;
+    const myDocuments = myDocumentsRes.rows;
+    const myInvoices = myInvoicesRes.rows;
+    const myUnbilled = myUnbilledRes.rows[0];
+    const myStats = myStatsRes.rows[0];
+    
+    // FIRM DATA
+    const allClients = allClientsRes.rows;
     const team = teamRes.rows;
-    const urgentMatters = urgentMattersRes.rows;
+    const firmStats = firmStatsRes.rows[0];
     const overdueInvoices = overdueInvoicesRes.rows;
-    const unbilled = unbilledRes.rows[0];
 
-    // Calculate key metrics
-    const activeMatters = matters.filter(m => m.status === 'active');
-    const activeClients = clients.filter(c => c.is_active);
-    const thisMonthTime = timeEntries.filter(t => new Date(t.date) >= new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-    const totalHoursThisMonth = thisMonthTime.reduce((sum, t) => sum + parseFloat(t.hours || 0), 0);
-    const totalRevenueThisMonth = thisMonthTime.filter(t => t.billable).reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
-    const totalOutstanding = invoices.filter(i => i.status === 'sent' || i.status === 'overdue').reduce((sum, i) => sum + parseFloat(i.amount_due || 0), 0);
-    const totalOverdue = overdueInvoices.reduce((sum, i) => sum + parseFloat(i.amount_due || 0), 0);
-
-    // Upcoming events
-    const upcomingEvents = events.filter(e => new Date(e.start_time) >= new Date());
-    const todayEvents = upcomingEvents.filter(e => {
+    // Calculate user-specific metrics
+    const myActiveMatters = myMatters.filter(m => m.status === 'active');
+    const myUrgentMatters = myMatters.filter(m => m.status === 'active' && (m.priority === 'urgent' || m.priority === 'high'));
+    const myTotalUnbilled = parseFloat(myUnbilled?.unbilled_amount || 0);
+    const myUnbilledHours = parseFloat(myUnbilled?.unbilled_hours || 0);
+    
+    // Today's events
+    const today = new Date();
+    const todayEvents = myCalendar.filter(e => {
       const eventDate = new Date(e.start_time);
-      const today = new Date();
       return eventDate.toDateString() === today.toDateString();
     });
+    
+    // Upcoming events (next 7 days)
+    const nextWeek = new Date();
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    const upcomingEvents = myCalendar.filter(e => {
+      const eventDate = new Date(e.start_time);
+      return eventDate >= today && eventDate <= nextWeek;
+    });
 
-    // Build comprehensive context
+    // This week's time entries
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    const thisWeekEntries = myTimeEntries.filter(t => new Date(t.date) >= weekStart);
+
+    // Build comprehensive USER-CENTRIC context
     let context = `
 === YOUR PERSONAL AI ASSISTANT ===
-I have complete knowledge of your practice. Here's everything I know:
-
-YOU: ${currentUser?.first_name} ${currentUser?.last_name} (${currentUser?.role})
-CURRENT PAGE: ${page}
+I have COMPLETE knowledge of YOUR practice data. I know everything about your matters, time entries, calendar, invoices, and more.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 PRACTICE OVERVIEW
+👤 ABOUT YOU
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Active Matters: ${activeMatters.length}
-• Active Clients: ${activeClients.length}
-• This Month's Hours: ${totalHoursThisMonth.toFixed(1)}h
-• This Month's Revenue: $${totalRevenueThisMonth.toLocaleString()}
-• Outstanding Invoices: $${totalOutstanding.toLocaleString()}
-• Overdue Amount: $${totalOverdue.toLocaleString()}
-• Unbilled Time: ${parseFloat(unbilled?.unbilled_hours || 0).toFixed(1)}h ($${parseFloat(unbilled?.unbilled_amount || 0).toLocaleString()})
+Name: ${currentUser?.first_name} ${currentUser?.last_name}
+Role: ${currentUser?.role}
+Email: ${currentUser?.email}
+Hourly Rate: $${parseFloat(currentUser?.hourly_rate || 0).toLocaleString()}/hr
+Current Page: ${page}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 YOUR PRODUCTIVITY DASHBOARD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Your Active Matters: ${myActiveMatters.length}
+• Hours This Week: ${parseFloat(myStats?.hours_this_week || 0).toFixed(1)}h
+• Hours This Month: ${parseFloat(myStats?.hours_this_month || 0).toFixed(1)}h
+• Hours Last Month: ${parseFloat(myStats?.hours_last_month || 0).toFixed(1)}h
+• Your Revenue This Month: $${parseFloat(myStats?.revenue_this_month || 0).toLocaleString()}
+• Your Unbilled Time: ${myUnbilledHours.toFixed(1)}h ($${myTotalUnbilled.toLocaleString()})
+• Days Worked This Month: ${myStats?.days_worked_this_month || 0}
 
 `;
 
-    // Urgent alerts
-    if (urgentMatters.length > 0 || overdueInvoices.length > 0 || todayEvents.length > 0) {
+    // Urgent alerts - things that need attention
+    const hasAlerts = myUrgentMatters.length > 0 || overdueInvoices.length > 0 || todayEvents.length > 0 || myTotalUnbilled > 5000;
+    if (hasAlerts) {
       context += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚠️ NEEDS YOUR ATTENTION
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-      if (urgentMatters.length > 0) {
-        context += `\nURGENT MATTERS:\n${urgentMatters.map(m => `• ${m.name} (${m.number}) - ${m.client_name || 'No client'} - ${m.priority.toUpperCase()}`).join('\n')}\n`;
+      if (todayEvents.length > 0) {
+        context += `\n📅 TODAY'S SCHEDULE (${todayEvents.length} events):\n${todayEvents.map(e => `• ${new Date(e.start_time).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}: ${e.title} (${e.type})${e.matter_name ? ` - ${e.matter_name}` : ''}${e.location ? ` @ ${e.location}` : ''}`).join('\n')}\n`;
+      }
+      if (myUrgentMatters.length > 0) {
+        context += `\n🔴 YOUR URGENT/HIGH PRIORITY MATTERS:\n${myUrgentMatters.map(m => `• ${m.name} (${m.number}) - ${m.client_name || 'No client'} - ${m.priority.toUpperCase()}`).join('\n')}\n`;
       }
       if (overdueInvoices.length > 0) {
-        context += `\nOVERDUE INVOICES:\n${overdueInvoices.map(i => `• ${i.number} - ${i.client_name} - $${parseFloat(i.amount_due).toLocaleString()} (due ${new Date(i.due_date).toLocaleDateString()})`).join('\n')}\n`;
+        context += `\n💸 OVERDUE INVOICES (on your matters):\n${overdueInvoices.map(i => `• ${i.number} - ${i.client_name} - $${parseFloat(i.amount_due).toLocaleString()} (due ${new Date(i.due_date).toLocaleDateString()})${i.matter_name ? ` - ${i.matter_name}` : ''}`).join('\n')}\n`;
       }
-      if (todayEvents.length > 0) {
-        context += `\nTODAY'S SCHEDULE:\n${todayEvents.map(e => `• ${new Date(e.start_time).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}: ${e.title} (${e.type})${e.matter_name ? ` - ${e.matter_name}` : ''}`).join('\n')}\n`;
+      if (myTotalUnbilled > 5000) {
+        context += `\n⏰ UNBILLED TIME ALERT: You have $${myTotalUnbilled.toLocaleString()} in unbilled time (${myUnbilledHours.toFixed(1)} hours)\n`;
       }
+      context += '\n';
     }
 
-    // Matters
-    context += `
+    // YOUR MATTERS
+    context += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📁 YOUR MATTERS (${myMatters.length} total, ${myActiveMatters.length} active)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📁 MATTERS (${matters.length} total, ${activeMatters.length} active)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${matters.slice(0, 15).map(m => `• ${m.name} (${m.number})
+${myMatters.length > 0 ? myMatters.slice(0, 20).map(m => `• ${m.name} (${m.number})
   Client: ${m.client_name || 'None'} | Status: ${m.status} | Priority: ${m.priority}
-  Type: ${m.type} | Hours: ${parseFloat(m.total_hours || 0).toFixed(1)}h | Billed: $${parseFloat(m.total_billed || 0).toLocaleString()}`).join('\n\n')}
+  Type: ${m.type || 'General'} | Total Hours: ${parseFloat(m.total_hours || 0).toFixed(1)}h | Your Hours: ${parseFloat(m.my_hours || 0).toFixed(1)}h
+  Your Unbilled: $${parseFloat(m.my_unbilled || 0).toLocaleString()}`).join('\n\n') : 'No matters assigned to you.'}
 `;
 
-    // Clients
+    // YOUR RECENT TIME ENTRIES
     context += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-👥 CLIENTS (${clients.length} total)
+⏱️ YOUR RECENT TIME ENTRIES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${clients.slice(0, 12).map(c => `• ${c.display_name} (${c.type})
-  Matters: ${c.matter_count} | Total Billed: $${parseFloat(c.total_billed || 0).toLocaleString()} | Outstanding: $${parseFloat(c.outstanding || 0).toLocaleString()}`).join('\n')}
+${myTimeEntries.length > 0 ? myTimeEntries.slice(0, 15).map(t => `• ${new Date(t.date).toLocaleDateString()} - ${t.hours}h @ $${parseFloat(t.rate).toLocaleString()}/hr = $${parseFloat(t.amount || 0).toLocaleString()}
+  Matter: ${t.matter_name || 'None'} (${t.matter_number || 'N/A'}) | Client: ${t.client_name || 'None'}
+  ${t.description || 'No description'} ${t.billable ? '(billable)' : '(non-billable)'} ${t.billed ? '[BILLED]' : '[UNBILLED]'}`).join('\n\n') : 'No recent time entries.'}
 `;
 
-    // Recent time entries
+    // YOUR CALENDAR
     context += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⏱️ RECENT TIME ENTRIES
+📅 YOUR UPCOMING SCHEDULE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${timeEntries.slice(0, 10).map(t => `• ${new Date(t.date).toLocaleDateString()} - ${t.hours}h - ${t.matter_name || 'No matter'}
-  ${t.description || 'No description'} (${t.user_name})`).join('\n')}
+${upcomingEvents.length > 0 ? upcomingEvents.slice(0, 15).map(e => `• ${new Date(e.start_time).toLocaleDateString()} ${new Date(e.start_time).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})} - ${new Date(e.end_time).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}: ${e.title}
+  Type: ${e.type}${e.matter_name ? ` | Matter: ${e.matter_name}` : ''}${e.client_name ? ` | Client: ${e.client_name}` : ''}${e.location ? ` | Location: ${e.location}` : ''}
+  ${e.description || ''}`).join('\n\n') : 'No upcoming events.'}
 `;
 
-    // Invoices
+    // YOUR INVOICES
     context += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💰 INVOICES
+💰 YOUR INVOICES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${invoices.slice(0, 10).map(i => `• ${i.number} - ${i.client_name || 'Unknown'} - $${parseFloat(i.total).toLocaleString()} - ${i.status}${i.amount_due > 0 && i.status !== 'paid' ? ` ($${parseFloat(i.amount_due).toLocaleString()} due)` : ''}`).join('\n')}
+${myInvoices.length > 0 ? myInvoices.slice(0, 12).map(i => `• ${i.number} - ${i.client_name || 'Unknown'} - $${parseFloat(i.total).toLocaleString()} - ${i.status.toUpperCase()}
+  Matter: ${i.matter_name || 'N/A'}${i.amount_due > 0 && i.status !== 'paid' ? ` | Due: $${parseFloat(i.amount_due).toLocaleString()}` : ''}${i.due_date ? ` | Due Date: ${new Date(i.due_date).toLocaleDateString()}` : ''}`).join('\n')} : 'No invoices created by you.'}
 `;
 
-    // Calendar
-    context += `
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📅 UPCOMING SCHEDULE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${upcomingEvents.slice(0, 10).map(e => `• ${new Date(e.start_time).toLocaleDateString()} ${new Date(e.start_time).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}: ${e.title}
-  Type: ${e.type}${e.matter_name ? ` | Matter: ${e.matter_name}` : ''}${e.location ? ` | Location: ${e.location}` : ''}`).join('\n')}
-`;
-
-    // Documents
-    if (documents.length > 0) {
+    // YOUR DOCUMENTS
+    if (myDocuments.length > 0) {
       context += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📄 RECENT DOCUMENTS
+📄 YOUR RECENT DOCUMENTS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${documents.slice(0, 8).map(d => `• ${d.name} (${d.type || 'unknown'})${d.matter_name ? ` - ${d.matter_name}` : ''}`).join('\n')}
+${myDocuments.slice(0, 10).map(d => `• ${d.name} (${d.type || 'unknown'})
+  ${d.matter_name ? `Matter: ${d.matter_name}` : ''}${d.client_name ? ` | Client: ${d.client_name}` : ''} | Uploaded: ${new Date(d.uploaded_at).toLocaleDateString()}`).join('\n')}
 `;
     }
 
-    // Team
+    // FIRM-WIDE CONTEXT (for awareness)
+    context += `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏢 FIRM OVERVIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Total Active Matters (Firm): ${firmStats?.total_active_matters || 0}
+• Total Clients: ${firmStats?.total_clients || 0}
+• Firm Outstanding Invoices: $${parseFloat(firmStats?.total_outstanding || 0).toLocaleString()}
+• Overdue Invoices: ${firmStats?.overdue_invoice_count || 0}
+`;
+
+    // ALL CLIENTS (for reference)
+    context += `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👥 FIRM CLIENTS (${allClients.length} total)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${allClients.slice(0, 20).map(c => `• ${c.display_name} (${c.type}) - ${c.matter_count} matters - Outstanding: $${parseFloat(c.outstanding || 0).toLocaleString()}`).join('\n')}
+`;
+
+    // TEAM
     if (team.length > 1) {
       context += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-👨‍💼 TEAM
+👨‍💼 YOUR TEAM
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${team.map(u => `• ${u.first_name} ${u.last_name} (${u.role}) - ${u.active_matters} active matters - ${parseFloat(u.monthly_hours || 0).toFixed(1)}h this month`).join('\n')}
+${team.map(u => `• ${u.first_name} ${u.last_name} (${u.role}) - ${u.active_matters} active matters${u.hourly_rate ? ` - $${parseFloat(u.hourly_rate).toLocaleString()}/hr` : ''}`).join('\n')}
 `;
     }
 
     // Add specific detail if on a detail page
     if (additionalContext.matterId) {
-      const matterDetail = matters.find(m => m.id === additionalContext.matterId);
+      const matterDetail = myMatters.find(m => m.id === additionalContext.matterId);
       if (matterDetail) {
         context += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔍 CURRENTLY VIEWING: ${matterDetail.name}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You're currently looking at this matter in detail.
+You're currently looking at this matter in detail. I can answer any questions about it.
 `;
       }
     }
 
     if (additionalContext.clientId) {
-      const clientDetail = clients.find(c => c.id === additionalContext.clientId);
+      const clientDetail = allClients.find(c => c.id === additionalContext.clientId);
       if (clientDetail) {
         context += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔍 CURRENTLY VIEWING: ${clientDetail.display_name}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You're currently looking at this client's details.
+You're currently looking at this client's details. I can answer any questions about them.
 `;
       }
     }
 
     context += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-I am your personal AI assistant with full knowledge of your practice.
-Ask me anything - I can help with matters, clients, billing, scheduling, analysis, drafting, and more.
+I am YOUR personal AI assistant. I have complete access to YOUR practice data:
+- Your ${myMatters.length} matters (${myActiveMatters.length} active)
+- Your ${myTimeEntries.length} recent time entries  
+- Your ${upcomingEvents.length} upcoming calendar events
+- Your ${myInvoices.length} invoices
+- Your ${myDocuments.length} documents
+- All ${allClients.length} firm clients
+
+Ask me anything about your work, priorities, billing, scheduling, or practice management!
 `;
 
-    console.log('Built FULL context, length:', context.length);
+    console.log('Built USER-SPECIFIC context, length:', context.length);
     return context;
 
   } catch (error) {
-    console.error('Error building full context:', error);
+    console.error('Error building user context:', error);
     return `Error loading your practice data. Please try again. (${error.message})`;
   }
 }
