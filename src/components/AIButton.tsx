@@ -22,7 +22,7 @@ export function AIButton({
 
   const handleClick = () => {
     // Open the AI chat panel with a contextual prompt
-    openChat(`Analyze and provide insights about: ${context}`)
+    openChat()
   }
 
   const buttonClass = `${styles.aiButton} ${styles[variant]} ${styles[size]}`

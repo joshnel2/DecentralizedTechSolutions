@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
+import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Plus, Search, FolderOpen, FileText, Upload, Grid, List,
   MoreVertical, Sparkles, Download, Trash2, Wand2
@@ -11,6 +12,7 @@ import styles from './DocumentsPage.module.css'
 
 export function DocumentsPage() {
   const navigate = useNavigate()
+  const { openChat } = useAIChat()
   const { documents, matters, fetchDocuments, fetchMatters, addDocument } = useDataStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isUploading, setIsUploading] = useState(false)
@@ -22,7 +24,7 @@ export function DocumentsPage() {
   }, [fetchDocuments, fetchMatters])
   
   const [searchQuery, setSearchQuery] = useState('')
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list')
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [selectedMatterId, setSelectedMatterId] = useState('')
@@ -212,12 +214,13 @@ export function DocumentsPage() {
                 )}
               </div>
               <div className={styles.docActions}>
-                {doc.aiSummary && (
-                  <span className={styles.aiTag}>
-                    <Sparkles size={12} />
-                    AI Summary
-                  </span>
-                )}
+                <button 
+                  className={styles.aiAnalyzeBtn}
+                  onClick={() => openChat()}
+                  title="AI Analyze"
+                >
+                  <Sparkles size={14} />
+                </button>
                 <button className={styles.menuBtn}>
                   <MoreVertical size={16} />
                 </button>
@@ -226,47 +229,54 @@ export function DocumentsPage() {
           ))}
         </div>
       ) : (
-        <div className={styles.documentsTable}>
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Matter</th>
-                <th>Size</th>
-                <th>Uploaded</th>
-                <th>AI</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredDocuments.map(doc => (
-                <tr key={doc.id}>
-                  <td>
-                    <div className={styles.nameCell}>
-                      <span className={styles.fileIcon}>{getFileIcon(doc.type)}</span>
-                      <span>{doc.name}</span>
-                    </div>
-                  </td>
-                  <td>{getMatterName(doc.matterId) || '-'}</td>
-                  <td>{formatFileSize(doc.size)}</td>
-                  <td>{format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}</td>
-                  <td>
-                    {doc.aiSummary && (
-                      <span className={styles.aiTag}>
-                        <Sparkles size={12} />
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    <div className={styles.rowActions}>
-                      <button><Download size={16} /></button>
-                      <button><Trash2 size={16} /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className={styles.documentsList}>
+          <div className={styles.listHeader}>
+            <span className={styles.colName}>Document</span>
+            <span className={styles.colMatter}>Matter</span>
+            <span className={styles.colSize}>Size</span>
+            <span className={styles.colDate}>Uploaded</span>
+            <span className={styles.colActions}>Actions</span>
+          </div>
+          {filteredDocuments.map(doc => (
+            <div key={doc.id} className={styles.listRow}>
+              <div className={styles.colName}>
+                <span className={styles.fileIconSmall}>{getFileIcon(doc.type)}</span>
+                <div className={styles.docDetails}>
+                  <span className={styles.docTitle}>{doc.name}</span>
+                  <span className={styles.docType}>{doc.type || 'Unknown type'}</span>
+                </div>
+              </div>
+              <div className={styles.colMatter}>
+                {getMatterName(doc.matterId) ? (
+                  <span className={styles.matterTag}>{getMatterName(doc.matterId)}</span>
+                ) : (
+                  <span className={styles.noMatter}>—</span>
+                )}
+              </div>
+              <div className={styles.colSize}>
+                {formatFileSize(doc.size)}
+              </div>
+              <div className={styles.colDate}>
+                {format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}
+              </div>
+              <div className={styles.colActions}>
+                <button 
+                  className={styles.aiAnalyzeBtn}
+                  onClick={() => openChat()}
+                  title="AI Analyze"
+                >
+                  <Sparkles size={14} />
+                  <span>Analyze</span>
+                </button>
+                <button className={styles.actionBtn} title="Download">
+                  <Download size={16} />
+                </button>
+                <button className={styles.actionBtn} title="Delete">
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

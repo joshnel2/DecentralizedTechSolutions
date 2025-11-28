@@ -440,6 +440,119 @@ ${team.rows.map(u => `- ${u.first_name} ${u.last_name} (${u.role})
         break;
       }
 
+      case 'analytics':
+      case 'reports': {
+        // Firm-wide analytics context - comprehensive view for admins
+        const [revenueRes, hoursRes, teamRes, mattersRes, clientsRes, invoicesRes, trendsRes] = await Promise.all([
+          // Total revenue this month and last month
+          query(`
+            SELECT 
+              COALESCE(SUM(CASE WHEN date >= DATE_TRUNC('month', CURRENT_DATE) THEN amount ELSE 0 END), 0) as this_month,
+              COALESCE(SUM(CASE WHEN date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND date < DATE_TRUNC('month', CURRENT_DATE) THEN amount ELSE 0 END), 0) as last_month
+            FROM time_entries WHERE firm_id = $1 AND billable = true
+          `, [firmId]),
+          // Hours breakdown
+          query(`
+            SELECT 
+              COALESCE(SUM(hours), 0) as total_hours,
+              COALESCE(SUM(CASE WHEN billable THEN hours ELSE 0 END), 0) as billable_hours,
+              COALESCE(SUM(CASE WHEN billed THEN hours ELSE 0 END), 0) as billed_hours
+            FROM time_entries WHERE firm_id = $1 AND date >= DATE_TRUNC('month', CURRENT_DATE)
+          `, [firmId]),
+          // Team productivity
+          query(`
+            SELECT u.first_name, u.last_name, u.role,
+                   COALESCE(SUM(te.hours), 0) as hours,
+                   COALESCE(SUM(te.amount), 0) as revenue
+            FROM users u
+            LEFT JOIN time_entries te ON te.user_id = u.id AND te.date >= DATE_TRUNC('month', CURRENT_DATE)
+            WHERE u.firm_id = $1 AND u.is_active = true
+            GROUP BY u.id, u.first_name, u.last_name, u.role
+            ORDER BY revenue DESC
+          `, [firmId]),
+          // Matters by status
+          query(`
+            SELECT status, COUNT(*) as count FROM matters WHERE firm_id = $1 GROUP BY status
+          `, [firmId]),
+          // Client stats
+          query(`
+            SELECT COUNT(*) as total, COUNT(CASE WHEN is_active THEN 1 END) as active FROM clients WHERE firm_id = $1
+          `, [firmId]),
+          // Invoice stats
+          query(`
+            SELECT 
+              COALESCE(SUM(total), 0) as total_invoiced,
+              COALESCE(SUM(amount_paid), 0) as total_collected,
+              COALESCE(SUM(CASE WHEN status = 'overdue' THEN amount_due ELSE 0 END), 0) as overdue,
+              COUNT(CASE WHEN status = 'overdue' THEN 1 END) as overdue_count
+            FROM invoices WHERE firm_id = $1
+          `, [firmId]),
+          // Monthly trends (last 6 months)
+          query(`
+            SELECT 
+              DATE_TRUNC('month', date) as month,
+              COALESCE(SUM(hours), 0) as hours,
+              COALESCE(SUM(amount), 0) as revenue
+            FROM time_entries 
+            WHERE firm_id = $1 AND date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '5 months')
+            GROUP BY DATE_TRUNC('month', date)
+            ORDER BY month
+          `, [firmId]),
+        ]);
+
+        const revenue = revenueRes.rows[0];
+        const hours = hoursRes.rows[0];
+        const team = teamRes.rows;
+        const matterStats = mattersRes.rows.reduce((acc, r) => ({ ...acc, [r.status]: parseInt(r.count) }), {});
+        const clients = clientsRes.rows[0];
+        const invoices = invoicesRes.rows[0];
+        const trends = trendsRes.rows;
+
+        const revenueGrowth = parseFloat(revenue.last_month) > 0 
+          ? (((parseFloat(revenue.this_month) - parseFloat(revenue.last_month)) / parseFloat(revenue.last_month)) * 100).toFixed(1)
+          : 'N/A';
+        const utilizationRate = parseFloat(hours.total_hours) > 0 
+          ? ((parseFloat(hours.billable_hours) / parseFloat(hours.total_hours)) * 100).toFixed(1)
+          : '0';
+
+        context = `
+[CURRENT PAGE: Firm Analytics]
+
+FIRM-WIDE REVENUE ANALYTICS:
+- This Month's Revenue: $${parseFloat(revenue.this_month).toLocaleString()}
+- Last Month's Revenue: $${parseFloat(revenue.last_month).toLocaleString()}
+- Month-over-Month Growth: ${revenueGrowth}%
+- Total Invoiced (All Time): $${parseFloat(invoices.total_invoiced).toLocaleString()}
+- Total Collected: $${parseFloat(invoices.total_collected).toLocaleString()}
+- Collection Rate: ${parseFloat(invoices.total_invoiced) > 0 ? ((parseFloat(invoices.total_collected) / parseFloat(invoices.total_invoiced)) * 100).toFixed(1) : 0}%
+
+HOURS ANALYTICS (This Month):
+- Total Hours: ${parseFloat(hours.total_hours).toFixed(1)}
+- Billable Hours: ${parseFloat(hours.billable_hours).toFixed(1)}
+- Billed Hours: ${parseFloat(hours.billed_hours).toFixed(1)}
+- Utilization Rate: ${utilizationRate}%
+
+ACCOUNTS RECEIVABLE:
+- Overdue Amount: $${parseFloat(invoices.overdue).toLocaleString()}
+- Overdue Invoices: ${invoices.overdue_count}
+
+MATTER STATUS BREAKDOWN:
+${Object.entries(matterStats).map(([status, count]) => `- ${status}: ${count}`).join('\n')}
+- Total Matters: ${Object.values(matterStats).reduce((a, b) => a + b, 0)}
+
+CLIENT STATISTICS:
+- Total Clients: ${clients.total}
+- Active Clients: ${clients.active}
+
+TEAM PRODUCTIVITY (This Month):
+${team.map((t, i) => `${i + 1}. ${t.first_name} ${t.last_name} (${t.role}): ${parseFloat(t.hours).toFixed(1)} hrs | $${parseFloat(t.revenue).toLocaleString()}`).join('\n')}
+
+MONTHLY TRENDS (Last 6 Months):
+${trends.map(t => `- ${new Date(t.month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}: ${parseFloat(t.hours).toFixed(1)} hrs | $${parseFloat(t.revenue).toLocaleString()}`).join('\n')}
+`;
+        break;
+      }
+
       case 'ai-assistant': {
         // Full AI Studio page - provide comprehensive firm context
         const [mattersRes, clientsRes, timeRes, invoicesRes, eventsRes, docsRes] = await Promise.all([
