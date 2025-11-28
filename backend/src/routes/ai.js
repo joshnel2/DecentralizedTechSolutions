@@ -440,6 +440,82 @@ ${team.rows.map(u => `- ${u.first_name} ${u.last_name} (${u.role})
         break;
       }
 
+      case 'ai-assistant': {
+        // Full AI Studio page - provide comprehensive firm context
+        const [mattersRes, clientsRes, timeRes, invoicesRes, eventsRes, docsRes] = await Promise.all([
+          query(`
+            SELECT m.*, c.display_name as client_name
+            FROM matters m
+            LEFT JOIN clients c ON m.client_id = c.id
+            WHERE m.firm_id = $1 AND m.status = 'active'
+            ORDER BY m.priority DESC, m.created_at DESC
+            LIMIT 15
+          `, [firmId]),
+          query(`SELECT id, display_name, type, email, is_active FROM clients WHERE firm_id = $1 ORDER BY created_at DESC LIMIT 15`, [firmId]),
+          query(`
+            SELECT te.*, m.name as matter_name
+            FROM time_entries te
+            LEFT JOIN matters m ON te.matter_id = m.id
+            WHERE te.firm_id = $1 AND te.date >= CURRENT_DATE - INTERVAL '14 days'
+            ORDER BY te.date DESC
+            LIMIT 20
+          `, [firmId]),
+          query(`SELECT number, status, total, amount_due, due_date FROM invoices WHERE firm_id = $1 ORDER BY created_at DESC LIMIT 15`, [firmId]),
+          query(`
+            SELECT title, start_time, type, location 
+            FROM calendar_events 
+            WHERE firm_id = $1 AND start_time >= NOW() - INTERVAL '7 days'
+            ORDER BY start_time
+            LIMIT 20
+          `, [firmId]),
+          query(`SELECT name, type, created_at FROM documents WHERE firm_id = $1 ORDER BY created_at DESC LIMIT 10`, [firmId]),
+        ]);
+
+        const activeMatters = mattersRes.rows;
+        const clients = clientsRes.rows;
+        const recentTime = timeRes.rows;
+        const invoices = invoicesRes.rows;
+        const events = eventsRes.rows;
+        const docs = docsRes.rows;
+
+        const outstandingInvoices = invoices.filter(i => i.status === 'sent' || i.status === 'overdue');
+        const totalOutstanding = outstandingInvoices.reduce((sum, i) => sum + parseFloat(i.amount_due || 0), 0);
+
+        context = `
+[CURRENT PAGE: AI Assistant - Full Context Mode]
+
+You are the AI Assistant for this law firm. You have comprehensive access to their data.
+
+ACTIVE MATTERS (${activeMatters.length}):
+${activeMatters.map(m => `- ${m.name} (${m.number}) | Client: ${m.client_name || 'None'} | Status: ${m.status} | Priority: ${m.priority} | Type: ${m.type}`).join('\n') || 'No active matters'}
+
+CLIENTS (${clients.length}):
+${clients.map(c => `- ${c.display_name} (${c.type}) - ${c.is_active ? 'Active' : 'Inactive'}`).join('\n') || 'No clients'}
+
+RECENT TIME ENTRIES (last 2 weeks):
+${recentTime.map(t => `- ${new Date(t.date).toLocaleDateString()}: ${t.hours}hrs on ${t.matter_name || 'Unknown'} - ${t.description?.substring(0, 50) || 'No description'}`).join('\n') || 'No recent time entries'}
+
+INVOICES:
+- Outstanding: $${totalOutstanding.toLocaleString()} across ${outstandingInvoices.length} invoices
+${invoices.slice(0, 5).map(i => `- ${i.number}: $${parseFloat(i.total).toLocaleString()} - ${i.status}`).join('\n')}
+
+CALENDAR (recent & upcoming):
+${events.map(e => `- ${new Date(e.start_time).toLocaleDateString()} ${new Date(e.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}: ${e.title} (${e.type})`).join('\n') || 'No events'}
+
+RECENT DOCUMENTS:
+${docs.map(d => `- ${d.name} (${d.type || 'unknown'})`).join('\n') || 'No documents'}
+
+You can help with:
+- Legal research and case analysis
+- Document drafting and review
+- Matter management and strategy
+- Billing insights and time tracking
+- Calendar and deadline management
+- Any questions about the firm's data shown above
+`;
+        break;
+      }
+
       default:
         context = `[CURRENT PAGE: ${page}]\nGeneral firm context - user is browsing the application.`;
     }

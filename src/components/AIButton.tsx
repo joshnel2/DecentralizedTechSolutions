@@ -1,4 +1,4 @@
-import { Sparkles } from 'lucide-react'
+import { Sparkles, X, Loader2 } from 'lucide-react'
 import { useAIChat } from '../contexts/AIChatContext'
 import styles from './AIButton.module.css'
 

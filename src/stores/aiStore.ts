@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { aiApi } from '../services/api'
 import type { AIConversation, AIMessage } from '../types'
 
 // AI Model types for Azure deployments
@@ -191,7 +192,7 @@ export const useAIStore = create<AIState>()(
       },
 
       generateResponse: async (conversationId, userMessage) => {
-        const { addMessage } = get()
+        const { addMessage, conversations, selectedModel } = get()
         
         // Add user message
         addMessage(conversationId, {
@@ -201,15 +202,33 @@ export const useAIStore = create<AIState>()(
         
         set({ isLoading: true })
         
-        // Simulate API delay
-        await new Promise(resolve => setTimeout(resolve, 1500))
-        
-        // Generate and add AI response
-        const response = getAIResponse(userMessage)
-        addMessage(conversationId, {
-          role: 'assistant',
-          content: response
-        })
+        try {
+          // Get conversation history for context
+          const conversation = conversations.find(c => c.id === conversationId)
+          const history = conversation?.messages.map(m => ({
+            role: m.role,
+            content: m.content
+          })) || []
+
+          // Call real AI API
+          const response = await aiApi.chat(
+            userMessage,
+            'ai-assistant', // Use ai-assistant page context
+            { model: selectedModel },
+            history
+          )
+          
+          addMessage(conversationId, {
+            role: 'assistant',
+            content: response.response
+          })
+        } catch (error) {
+          console.error('AI API error:', error)
+          addMessage(conversationId, {
+            role: 'assistant',
+            content: "I'm sorry, I encountered an error processing your request. Please try again."
+          })
+        }
         
         set({ isLoading: false })
       }
