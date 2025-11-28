@@ -326,7 +326,7 @@ ${events.rows.map(e => {
       }
 
       case 'time-tracking': {
-        const [entriesRes, summaryRes] = await Promise.all([
+        const [entriesRes, summaryRes, mattersRes, eventsRes] = await Promise.all([
           query(`
             SELECT te.*, m.name as matter_name, u.first_name || ' ' || u.last_name as user_name
             FROM time_entries te
@@ -345,6 +345,24 @@ ${events.rows.map(e => {
             FROM time_entries
             WHERE firm_id = $1 AND date >= DATE_TRUNC('month', CURRENT_DATE)
           `, [firmId]),
+          query(`
+            SELECT m.id, m.name, m.number, m.billing_type, m.billing_rate, c.display_name as client_name
+            FROM matters m
+            LEFT JOIN clients c ON m.client_id = c.id
+            WHERE m.firm_id = $1 AND m.status = 'active'
+            ORDER BY m.created_at DESC
+            LIMIT 15
+          `, [firmId]),
+          query(`
+            SELECT e.title, e.start_time, e.end_time, e.type, m.name as matter_name
+            FROM calendar_events e
+            LEFT JOIN matters m ON e.matter_id = m.id
+            WHERE e.firm_id = $1 
+              AND e.start_time >= NOW() - INTERVAL '14 days'
+              AND e.start_time <= NOW() + INTERVAL '7 days'
+            ORDER BY e.start_time DESC
+            LIMIT 20
+          `, [firmId]),
         ]);
 
         const summary = summaryRes.rows[0];
@@ -358,10 +376,22 @@ THIS MONTH'S SUMMARY:
 - Total Value: $${parseFloat(summary?.total_amount || 0).toLocaleString()}
 - Billed: $${parseFloat(summary?.billed_amount || 0).toLocaleString()}
 
+ACTIVE MATTERS (for time entry suggestions):
+${mattersRes.rows.length > 0 ? mattersRes.rows.map(m => `- ${m.name} (${m.number}) - ${m.client_name || 'No client'} - ${m.billing_type} ${m.billing_rate ? `$${m.billing_rate}/hr` : ''}`).join('\n') : 'No active matters found. User needs to create matters first.'}
+
+RECENT CALENDAR EVENTS (past 2 weeks + upcoming week):
+${eventsRes.rows.length > 0 ? eventsRes.rows.map(e => {
+  const start = new Date(e.start_time);
+  const duration = e.end_time ? ((new Date(e.end_time) - start) / 3600000).toFixed(1) : '?';
+  return `- ${start.toLocaleDateString()} ${start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}: ${e.title} (${e.type}) - ${duration}hrs${e.matter_name ? ` - Matter: ${e.matter_name}` : ''}`;
+}).join('\n') : 'No recent calendar events found.'}
+
 RECENT TIME ENTRIES:
-${entriesRes.rows.map(e => `- ${new Date(e.date).toLocaleDateString()} | ${e.hours}hrs | $${parseFloat(e.amount || 0).toLocaleString()}
+${entriesRes.rows.length > 0 ? entriesRes.rows.map(e => `- ${new Date(e.date).toLocaleDateString()} | ${e.hours}hrs | $${parseFloat(e.amount || 0).toLocaleString()}
   ${e.matter_name || 'No matter'} | ${e.user_name}
-  ${e.description}`).join('\n\n')}
+  ${e.description}`).join('\n\n') : 'No recent time entries found.'}
+
+SUGGESTION: Compare calendar events with time entries to identify work that may not have been logged yet.
 `;
         break;
       }
