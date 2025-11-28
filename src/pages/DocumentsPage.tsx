@@ -12,7 +12,7 @@ import styles from './DocumentsPage.module.css'
 
 export function DocumentsPage() {
   const navigate = useNavigate()
-  const { openChat } = useAIChat()
+  const { openWithDocument } = useAIChat()
   const { documents, matters, fetchDocuments, fetchMatters, addDocument } = useDataStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isUploading, setIsUploading] = useState(false)
@@ -216,7 +216,15 @@ export function DocumentsPage() {
               <div className={styles.docActions}>
                 <button 
                   className={styles.aiAnalyzeBtn}
-                  onClick={() => openChat()}
+                  onClick={() => openWithDocument({
+                    id: doc.id,
+                    name: doc.name,
+                    type: doc.type,
+                    size: doc.size,
+                    matterId: doc.matterId,
+                    matterName: getMatterName(doc.matterId) || undefined,
+                    uploadedAt: doc.uploadedAt
+                  })}
                   title="AI Analyze"
                 >
                   <Sparkles size={14} />
@@ -262,7 +270,15 @@ export function DocumentsPage() {
               <div className={styles.colActions}>
                 <button 
                   className={styles.aiAnalyzeBtn}
-                  onClick={() => openChat()}
+                  onClick={() => openWithDocument({
+                    id: doc.id,
+                    name: doc.name,
+                    type: doc.type,
+                    size: doc.size,
+                    matterId: doc.matterId,
+                    matterName: getMatterName(doc.matterId) || undefined,
+                    uploadedAt: doc.uploadedAt
+                  })}
                   title="AI Analyze"
                 >
                   <Sparkles size={14} />
