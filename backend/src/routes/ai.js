@@ -283,70 +283,71 @@ CURRENT PAGE: ${page}
       }
     }
 
-    // Matters
+    // ALL Matters - show every single one
     context += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📁 MATTERS (${matters.length} total, ${activeMatters.length} active)
+📁 ALL MATTERS (${matters.length} total, ${activeMatters.length} active)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${matters.slice(0, 15).map(m => `• ${m.name} (${m.number})
+${matters.length === 0 ? 'No matters found in the system.' : matters.map(m => `• ${m.name} (${m.number})
   Client: ${m.client_name || 'None'} | Status: ${m.status} | Priority: ${m.priority}
-  Type: ${m.type} | Hours: ${parseFloat(m.total_hours || 0).toFixed(1)}h | Billed: $${parseFloat(m.total_billed || 0).toLocaleString()}`).join('\n\n')}
+  Type: ${m.type || 'Not specified'} | Hours: ${parseFloat(m.total_hours || 0).toFixed(1)}h | Billed: $${parseFloat(m.total_billed || 0).toLocaleString()}
+  Description: ${m.description || 'No description'}`).join('\n\n')}
 `;
 
-    // Clients
+    // ALL Clients - show every single one
     context += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-👥 CLIENTS (${clients.length} total)
+👥 ALL CLIENTS (${clients.length} total)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${clients.slice(0, 12).map(c => `• ${c.display_name} (${c.type})
-  Matters: ${c.matter_count} | Total Billed: $${parseFloat(c.total_billed || 0).toLocaleString()} | Outstanding: $${parseFloat(c.outstanding || 0).toLocaleString()}`).join('\n')}
+${clients.length === 0 ? 'No clients found in the system.' : clients.map(c => `• ${c.display_name} (${c.type})
+  Email: ${c.email || 'Not provided'} | Phone: ${c.phone || 'Not provided'}
+  Matters: ${c.matter_count} | Total Billed: $${parseFloat(c.total_billed || 0).toLocaleString()} | Outstanding: $${parseFloat(c.outstanding || 0).toLocaleString()}`).join('\n\n')}
 `;
 
-    // Recent time entries
+    // ALL Time entries
     context += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⏱️ RECENT TIME ENTRIES
+⏱️ TIME ENTRIES (Last 90 days - ${timeEntries.length} entries)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${timeEntries.slice(0, 10).map(t => `• ${new Date(t.date).toLocaleDateString()} - ${t.hours}h - ${t.matter_name || 'No matter'}
-  ${t.description || 'No description'} (${t.user_name})`).join('\n')}
+${timeEntries.length === 0 ? 'No time entries in the last 90 days.' : timeEntries.map(t => `• ${new Date(t.date).toLocaleDateString()} - ${t.hours}h @ $${t.rate}/hr = $${parseFloat(t.amount || 0).toLocaleString()} - ${t.matter_name || 'No matter'} (${t.matter_number || 'N/A'})
+  ${t.description || 'No description'} (${t.user_name}) ${t.billable ? '[Billable]' : '[Non-billable]'} ${t.billed ? '[Billed]' : '[Unbilled]'}`).join('\n')}
 `;
 
-    // Invoices
+    // ALL Invoices
     context += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💰 INVOICES
+💰 ALL INVOICES (${invoices.length} total)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${invoices.slice(0, 10).map(i => `• ${i.number} - ${i.client_name || 'Unknown'} - $${parseFloat(i.total).toLocaleString()} - ${i.status}${i.amount_due > 0 && i.status !== 'paid' ? ` ($${parseFloat(i.amount_due).toLocaleString()} due)` : ''}`).join('\n')}
+${invoices.length === 0 ? 'No invoices in the system.' : invoices.map(i => `• ${i.number} - ${i.client_name || 'Unknown'} - ${i.matter_name || 'No matter'}
+  Total: $${parseFloat(i.total || 0).toLocaleString()} | Status: ${i.status} | Due: ${i.due_date ? new Date(i.due_date).toLocaleDateString() : 'Not set'}${i.amount_due > 0 && i.status !== 'paid' ? ` | Amount Due: $${parseFloat(i.amount_due).toLocaleString()}` : ''}`).join('\n')}
 `;
 
     // Calendar
     context += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📅 UPCOMING SCHEDULE
+📅 CALENDAR (${upcomingEvents.length} upcoming events)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${upcomingEvents.slice(0, 10).map(e => `• ${new Date(e.start_time).toLocaleDateString()} ${new Date(e.start_time).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}: ${e.title}
-  Type: ${e.type}${e.matter_name ? ` | Matter: ${e.matter_name}` : ''}${e.location ? ` | Location: ${e.location}` : ''}`).join('\n')}
+${upcomingEvents.length === 0 ? 'No upcoming events scheduled.' : upcomingEvents.map(e => `• ${new Date(e.start_time).toLocaleDateString()} ${new Date(e.start_time).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}: ${e.title}
+  Type: ${e.type}${e.matter_name ? ` | Matter: ${e.matter_name}` : ''}${e.location ? ` | Location: ${e.location}` : ''}${e.description ? `\n  Notes: ${e.description}` : ''}`).join('\n')}
 `;
 
-    // Documents
-    if (documents.length > 0) {
-      context += `
+    // ALL Documents
+    context += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📄 RECENT DOCUMENTS
+📄 ALL DOCUMENTS (${documents.length} total)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${documents.slice(0, 8).map(d => `• ${d.name} (${d.type || 'unknown'})${d.matter_name ? ` - ${d.matter_name}` : ''}`).join('\n')}
+${documents.length === 0 ? 'No documents uploaded.' : documents.map(d => `• ${d.name} (${d.type || 'unknown type'})${d.matter_name ? ` - Matter: ${d.matter_name}` : ''}${d.client_name ? ` - Client: ${d.client_name}` : ''}
+  Status: ${d.status || 'draft'} | Uploaded: ${new Date(d.uploaded_at).toLocaleDateString()}`).join('\n')}
 `;
-    }
 
     // Team
-    if (team.length > 1) {
-      context += `
+    context += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-👨‍💼 TEAM
+👨‍💼 TEAM MEMBERS (${team.length} total)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${team.map(u => `• ${u.first_name} ${u.last_name} (${u.role}) - ${u.active_matters} active matters - ${parseFloat(u.monthly_hours || 0).toFixed(1)}h this month`).join('\n')}
+${team.length === 0 ? 'No team members found.' : team.map(u => `• ${u.first_name} ${u.last_name} (${u.role}) - ${u.email}
+  Hourly Rate: $${u.hourly_rate || 'Not set'} | Active Matters: ${u.active_matters} | Hours This Month: ${parseFloat(u.monthly_hours || 0).toFixed(1)}h`).join('\n')}
 `;
-    }
 
     // Add specific detail if on a detail page
     if (additionalContext.matterId) {
