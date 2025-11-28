@@ -173,12 +173,6 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           </div>
         </div>
 
-        {/* Context indicator */}
-        <div className={styles.contextBar}>
-          <span>Context:</span>
-          <span className={styles.contextPage}>{currentPage.replace('-', ' ')}</span>
-        </div>
-
         {/* Messages */}
         <div className={styles.messages}>
           {messages.length === 0 ? (

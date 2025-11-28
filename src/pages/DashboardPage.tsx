@@ -136,7 +136,7 @@ export function DashboardPage() {
           </h1>
           <p className={styles.date}>{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>
         </div>
-        <button onClick={() => openChat("What should I prioritize today based on my schedule and deadlines?")} className={styles.aiPrompt}>
+        <button onClick={() => openChat()} className={styles.aiPrompt}>
           <Sparkles size={20} />
           <span>Ask AI Assistant</span>
           <ArrowRight size={16} />
