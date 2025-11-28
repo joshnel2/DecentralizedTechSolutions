@@ -442,44 +442,27 @@ ${team.rows.map(u => `- ${u.first_name} ${u.last_name} (${u.role})
 
       case 'analytics':
       case 'reports': {
-        // Firm-wide analytics
         const [mattersRes, revenueRes, teamRes, clientsRes] = await Promise.all([
+          query(`SELECT status, COUNT(*) as count FROM matters WHERE firm_id = $1 GROUP BY status`, [firmId]),
           query(`
-            SELECT status, COUNT(*) as count 
-            FROM matters WHERE firm_id = $1 
-            GROUP BY status
-          `, [firmId]),
-          query(`
-            SELECT 
-              DATE_TRUNC('month', date) as month,
-              SUM(hours) as hours,
-              SUM(amount) as revenue
-            FROM time_entries
-            WHERE firm_id = $1 AND date >= NOW() - INTERVAL '6 months'
-            GROUP BY DATE_TRUNC('month', date)
-            ORDER BY month DESC
+            SELECT DATE_TRUNC('month', date) as month, SUM(hours) as hours, SUM(amount) as revenue
+            FROM time_entries WHERE firm_id = $1 AND date >= NOW() - INTERVAL '6 months'
+            GROUP BY DATE_TRUNC('month', date) ORDER BY month DESC
           `, [firmId]),
           query(`
             SELECT u.first_name || ' ' || u.last_name as name, u.role,
-                   COALESCE(SUM(te.hours), 0) as total_hours,
-                   COALESCE(SUM(te.amount), 0) as total_revenue
+                   COALESCE(SUM(te.hours), 0) as total_hours, COALESCE(SUM(te.amount), 0) as total_revenue
             FROM users u
             LEFT JOIN time_entries te ON te.user_id = u.id AND te.date >= DATE_TRUNC('month', CURRENT_DATE)
             WHERE u.firm_id = $1 AND u.is_active = true
-            GROUP BY u.id, u.first_name, u.last_name, u.role
-            ORDER BY total_revenue DESC
+            GROUP BY u.id, u.first_name, u.last_name, u.role ORDER BY total_revenue DESC
           `, [firmId]),
           query(`
-            SELECT c.display_name,
-                   COUNT(DISTINCT m.id) as matter_count,
-                   COALESCE(SUM(i.total), 0) as total_billed
+            SELECT c.display_name, COUNT(DISTINCT m.id) as matter_count, COALESCE(SUM(i.total), 0) as total_billed
             FROM clients c
             LEFT JOIN matters m ON m.client_id = c.id
             LEFT JOIN invoices i ON i.client_id = c.id
-            WHERE c.firm_id = $1
-            GROUP BY c.id, c.display_name
-            ORDER BY total_billed DESC
-            LIMIT 10
+            WHERE c.firm_id = $1 GROUP BY c.id, c.display_name ORDER BY total_billed DESC LIMIT 10
           `, [firmId]),
         ]);
 
@@ -505,33 +488,25 @@ ${clientsRes.rows.map(c => `- ${c.display_name}: ${c.matter_count} matters / $${
 
       case 'ai-assistant':
       case 'general': {
-        // Broader overview for the dedicated AI page
         const [userRes, mattersRes, clientsRes, urgentRes, upcomingRes, unbilledRes] = await Promise.all([
           query(`SELECT first_name, last_name, role FROM users WHERE id = $1`, [userId]),
           query(`
             SELECT m.name, m.number, m.status, m.priority, c.display_name as client_name
-            FROM matters m
-            LEFT JOIN clients c ON m.client_id = c.id
-            WHERE m.firm_id = $1 AND m.status = 'active'
-            ORDER BY CASE m.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END
-            LIMIT 10
-          `, [firmId]),
-          query(`SELECT display_name, type FROM clients WHERE firm_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 10`, [firmId]),
-          query(`
-            SELECT m.name, m.number, m.priority, c.display_name as client_name
             FROM matters m LEFT JOIN clients c ON m.client_id = c.id
-            WHERE m.firm_id = $1 AND m.status = 'active' AND m.priority IN ('urgent', 'high')
-            LIMIT 5
+            WHERE m.firm_id = $1 AND m.status = 'active'
+            ORDER BY CASE m.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 ELSE 3 END LIMIT 10
+          `, [firmId]),
+          query(`SELECT display_name, type FROM clients WHERE firm_id = $1 AND is_active = true LIMIT 10`, [firmId]),
+          query(`
+            SELECT m.name, m.number, m.priority FROM matters m
+            WHERE m.firm_id = $1 AND m.status = 'active' AND m.priority IN ('urgent', 'high') LIMIT 5
           `, [firmId]),
           query(`
             SELECT title, start_time, type FROM calendar_events
             WHERE firm_id = $1 AND start_time >= NOW() AND start_time < NOW() + INTERVAL '7 days'
             ORDER BY start_time LIMIT 5
           `, [firmId]),
-          query(`
-            SELECT SUM(hours) as hours, SUM(amount) as amount
-            FROM time_entries WHERE firm_id = $1 AND billable = true AND billed = false
-          `, [firmId]),
+          query(`SELECT SUM(hours) as hours, SUM(amount) as amount FROM time_entries WHERE firm_id = $1 AND billable = true AND billed = false`, [firmId]),
         ]);
 
         const user = userRes.rows[0];
@@ -548,15 +523,12 @@ ${mattersRes.rows.map(m => `- ${m.name} (${m.number}) - ${m.client_name || 'No c
 CLIENTS (${clientsRes.rows.length}):
 ${clientsRes.rows.map(c => `- ${c.display_name} (${c.type})`).join('\n') || 'No clients'}
 
-${urgentRes.rows.length > 0 ? `URGENT/HIGH PRIORITY:
-${urgentRes.rows.map(m => `- ${m.name} (${m.number}) - ${m.priority.toUpperCase()}`).join('\n')}` : ''}
+${urgentRes.rows.length > 0 ? `URGENT/HIGH PRIORITY:\n${urgentRes.rows.map(m => `- ${m.name} (${m.number}) - ${m.priority.toUpperCase()}`).join('\n')}` : ''}
 
 UPCOMING (Next 7 Days):
 ${upcomingRes.rows.map(e => `- ${new Date(e.start_time).toLocaleDateString()}: ${e.title} (${e.type})`).join('\n') || 'Nothing scheduled'}
 
 UNBILLED WORK: ${parseFloat(unbilled?.hours || 0).toFixed(1)} hrs ($${parseFloat(unbilled?.amount || 0).toLocaleString()})
-
-I can help you with your matters, clients, billing, calendar, time tracking, and more. Just ask!
 `;
         break;
       }
@@ -676,6 +648,29 @@ router.get('/suggestions', authenticate, async (req, res) => {
       "How many hours this week?",
       "What's my utilization rate?",
       "Any unbilled time I should invoice?",
+      "Suggest time entries I might have missed",
+    ],
+    documents: [
+      "What documents do I have?",
+      "Show documents by matter",
+      "Any documents uploaded this week?",
+    ],
+    team: [
+      "Who's billing the most this month?",
+      "Team workload summary",
+      "Who has capacity for new matters?",
+    ],
+    analytics: [
+      "How's the firm doing this month?",
+      "Compare to last month",
+      "Top performing matters",
+      "Revenue trends",
+    ],
+    'ai-assistant': [
+      "What should I focus on today?",
+      "Give me a practice overview",
+      "What needs my attention?",
+      "Help me plan my week",
     ],
   };
 

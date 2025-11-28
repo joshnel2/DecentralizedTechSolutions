@@ -203,162 +203,7 @@
   cursor: pointer;
 }
 
-/* Professional List View */
-.documentsList {
-  background: var(--apex-deep);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.listHeader {
-  display: grid;
-  grid-template-columns: 2fr 1.2fr 0.6fr 0.8fr 1.4fr;
-  gap: var(--space-md);
-  padding: var(--space-md) var(--space-lg);
-  background: var(--apex-slate);
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--apex-text);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.listRow {
-  display: grid;
-  grid-template-columns: 2fr 1.2fr 0.6fr 0.8fr 1.4fr;
-  gap: var(--space-md);
-  padding: var(--space-md) var(--space-lg);
-  align-items: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-  transition: background var(--transition-fast);
-}
-
-.listRow:last-child {
-  border-bottom: none;
-}
-
-.listRow:hover {
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.colName {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  min-width: 0;
-}
-
-.fileIconSmall {
-  font-size: 1.5rem;
-  flex-shrink: 0;
-}
-
-.docDetails {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.docTitle {
-  font-weight: 500;
-  color: var(--apex-white);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 0.9rem;
-}
-
-.docType {
-  font-size: 0.75rem;
-  color: var(--apex-text);
-  margin-top: 2px;
-}
-
-.colMatter {
-  font-size: 0.875rem;
-}
-
-.matterTag {
-  display: inline-block;
-  padding: 4px 10px;
-  background: rgba(212, 175, 55, 0.1);
-  border: 1px solid rgba(212, 175, 55, 0.2);
-  border-radius: var(--radius-full);
-  color: var(--apex-gold-bright);
-  font-size: 0.75rem;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-}
-
-.noMatter {
-  color: var(--apex-subtle);
-}
-
-.colSize {
-  font-size: 0.8rem;
-  color: var(--apex-text);
-}
-
-.colDate {
-  font-size: 0.8rem;
-  color: var(--apex-text);
-}
-
-.colActions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  justify-content: flex-end;
-}
-
-.aiAnalyzeBtn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(139, 92, 246, 0.05) 100%);
-  border: 1px solid rgba(139, 92, 246, 0.3);
-  border-radius: var(--radius-md);
-  color: #A78BFA;
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  white-space: nowrap;
-}
-
-.aiAnalyzeBtn:hover {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25) 0%, rgba(139, 92, 246, 0.1) 100%);
-  border-color: rgba(139, 92, 246, 0.5);
-  transform: translateY(-1px);
-}
-
-.actionBtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  background: none;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--radius-sm);
-  color: var(--apex-text);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.actionBtn:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.15);
-  color: var(--apex-white);
-}
-
-/* Legacy table styles kept for compatibility */
+/* Table View */
 .documentsTable {
   background: var(--apex-deep);
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -413,6 +258,17 @@
 
 .rowActions button:hover {
   color: var(--apex-white);
+}
+
+.analyzeBtn {
+  background: linear-gradient(135deg, var(--apex-accent), var(--apex-blue)) !important;
+  color: white !important;
+  border-radius: var(--radius-sm);
+  padding: 6px !important;
+}
+
+.analyzeBtn:hover {
+  transform: scale(1.1);
 }
 
 .emptyState {

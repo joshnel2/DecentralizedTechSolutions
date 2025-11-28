@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, FileText } from 'lucide-react'
+import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight } from 'lucide-react'
 import { aiApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import styles from './AIChat.module.css'
@@ -48,12 +48,11 @@ function getContextFromPath(pathname: string): Record<string, any> {
 
 export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps) {
   const location = useLocation()
-  const { initialMessage, documentToAnalyze, clearInitialMessage, clearDocument } = useAIChat()
+  const { initialMessage, clearInitialMessage } = useAIChat()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
-  const [analyzingDoc, setAnalyzingDoc] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -67,29 +66,6 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
       clearInitialMessage()
     }
   }, [isOpen, initialMessage])
-
-  // Handle document analysis
-  useEffect(() => {
-    if (isOpen && documentToAnalyze && !analyzingDoc) {
-      setAnalyzingDoc(documentToAnalyze.id)
-      const docInfo = `Analyze this document: "${documentToAnalyze.name}" (${documentToAnalyze.type}, ${formatFileSize(documentToAnalyze.size)})${documentToAnalyze.matterName ? ` from matter "${documentToAnalyze.matterName}"` : ''}. Uploaded on ${new Date(documentToAnalyze.uploadedAt).toLocaleDateString()}. Please provide a summary, key points, and any recommendations.`
-      sendMessage(docInfo)
-      clearDocument()
-    }
-  }, [isOpen, documentToAnalyze, analyzingDoc])
-
-  // Reset analyzing state when chat closes
-  useEffect(() => {
-    if (!isOpen) {
-      setAnalyzingDoc(null)
-    }
-  }, [isOpen])
-
-  function formatFileSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / 1024 / 1024).toFixed(2)} MB`
-  }
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -195,6 +171,12 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
               <X size={20} />
             </button>
           </div>
+        </div>
+
+        {/* Context indicator */}
+        <div className={styles.contextBar}>
+          <span>Context:</span>
+          <span className={styles.contextPage}>{currentPage.replace('-', ' ')}</span>
         </div>
 
         {/* Messages */}

@@ -94,13 +94,13 @@ export function Layout() {
             </NavLink>
           ))}
 
-          <NavLink
-            to="/app/ai"
-            className={({ isActive }) => clsx(styles.navItem, styles.aiNav, isActive && styles.active)}
+          <button
+            onClick={() => openChat()}
+            className={clsx(styles.navItem, styles.aiNav)}
           >
             <Sparkles size={20} />
             {sidebarOpen && <span>AI Assistant</span>}
-          </NavLink>
+          </button>
 
           <div className={styles.navDivider} />
 

@@ -2,7 +2,6 @@ import { useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
-import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Briefcase, Users, Clock, DollarSign, Calendar, TrendingUp,
   AlertCircle, ArrowRight, Sparkles, FileText, CheckCircle2
@@ -19,7 +18,6 @@ const COLORS = ['#F59E0B', '#3B82F6', '#10B981', '#8B5CF6', '#EF4444']
 export function DashboardPage() {
   const { user } = useAuthStore()
   const { matters, clients, timeEntries, invoices, events, fetchMatters, fetchClients, fetchTimeEntries, fetchInvoices, fetchEvents } = useDataStore()
-  const { openChat } = useAIChat()
 
   // Fetch all data when component mounts
   useEffect(() => {
@@ -136,11 +134,11 @@ export function DashboardPage() {
           </h1>
           <p className={styles.date}>{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>
         </div>
-        <button onClick={() => openChat()} className={styles.aiPrompt}>
+        <Link to="/app/ai" className={styles.aiPrompt}>
           <Sparkles size={20} />
           <span>Ask AI Assistant</span>
           <ArrowRight size={16} />
-        </button>
+        </Link>
       </section>
 
       {/* Stats Grid */}
@@ -420,16 +418,10 @@ export function DashboardPage() {
             <p>Get intelligent analysis of your matters, billing trends, and upcoming deadlines.</p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button onClick={() => openChat()} className={styles.aiBannerBtn}>
-            Quick Chat
-            <ArrowRight size={16} />
-          </button>
-          <Link to="/app/ai" className={styles.aiBannerBtn}>
-            Full AI Studio
-            <ArrowRight size={16} />
-          </Link>
-        </div>
+        <Link to="/app/ai" className={styles.aiBannerBtn}>
+          Open AI Assistant
+          <ArrowRight size={16} />
+        </Link>
       </section>
     </div>
   )

@@ -12,8 +12,8 @@ import styles from './DocumentsPage.module.css'
 
 export function DocumentsPage() {
   const navigate = useNavigate()
-  const { openWithDocument } = useAIChat()
   const { documents, matters, fetchDocuments, fetchMatters, addDocument } = useDataStore()
+  const { openChat } = useAIChat()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isUploading, setIsUploading] = useState(false)
   
@@ -24,7 +24,7 @@ export function DocumentsPage() {
   }, [fetchDocuments, fetchMatters])
   
   const [searchQuery, setSearchQuery] = useState('')
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list')
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [selectedMatterId, setSelectedMatterId] = useState('')
@@ -82,6 +82,12 @@ export function DocumentsPage() {
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
     return `${(bytes / 1024 / 1024).toFixed(2)} MB`
+  }
+
+  const analyzeDocument = (doc: typeof documents[0]) => {
+    const matterName = getMatterName(doc.matterId)
+    const prompt = `Analyze this document: "${doc.name}" (${doc.type}, ${formatFileSize(doc.size)})${matterName ? ` from matter "${matterName}"` : ''}. Uploaded on ${format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}. Please provide a summary, key points, and any recommendations.`
+    openChat(prompt)
   }
 
   return (
@@ -215,16 +221,8 @@ export function DocumentsPage() {
               </div>
               <div className={styles.docActions}>
                 <button 
-                  className={styles.aiAnalyzeBtn}
-                  onClick={() => openWithDocument({
-                    id: doc.id,
-                    name: doc.name,
-                    type: doc.type,
-                    size: doc.size,
-                    matterId: doc.matterId,
-                    matterName: getMatterName(doc.matterId) || undefined,
-                    uploadedAt: doc.uploadedAt
-                  })}
+                  className={styles.analyzeBtn}
+                  onClick={() => analyzeDocument(doc)}
                   title="AI Analyze"
                 >
                   <Sparkles size={14} />
@@ -237,62 +235,46 @@ export function DocumentsPage() {
           ))}
         </div>
       ) : (
-        <div className={styles.documentsList}>
-          <div className={styles.listHeader}>
-            <span className={styles.colName}>Document</span>
-            <span className={styles.colMatter}>Matter</span>
-            <span className={styles.colSize}>Size</span>
-            <span className={styles.colDate}>Uploaded</span>
-            <span className={styles.colActions}>Actions</span>
-          </div>
-          {filteredDocuments.map(doc => (
-            <div key={doc.id} className={styles.listRow}>
-              <div className={styles.colName}>
-                <span className={styles.fileIconSmall}>{getFileIcon(doc.type)}</span>
-                <div className={styles.docDetails}>
-                  <span className={styles.docTitle}>{doc.name}</span>
-                  <span className={styles.docType}>{doc.type || 'Unknown type'}</span>
-                </div>
-              </div>
-              <div className={styles.colMatter}>
-                {getMatterName(doc.matterId) ? (
-                  <span className={styles.matterTag}>{getMatterName(doc.matterId)}</span>
-                ) : (
-                  <span className={styles.noMatter}>—</span>
-                )}
-              </div>
-              <div className={styles.colSize}>
-                {formatFileSize(doc.size)}
-              </div>
-              <div className={styles.colDate}>
-                {format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}
-              </div>
-              <div className={styles.colActions}>
-                <button 
-                  className={styles.aiAnalyzeBtn}
-                  onClick={() => openWithDocument({
-                    id: doc.id,
-                    name: doc.name,
-                    type: doc.type,
-                    size: doc.size,
-                    matterId: doc.matterId,
-                    matterName: getMatterName(doc.matterId) || undefined,
-                    uploadedAt: doc.uploadedAt
-                  })}
-                  title="AI Analyze"
-                >
-                  <Sparkles size={14} />
-                  <span>Analyze</span>
-                </button>
-                <button className={styles.actionBtn} title="Download">
-                  <Download size={16} />
-                </button>
-                <button className={styles.actionBtn} title="Delete">
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-          ))}
+        <div className={styles.documentsTable}>
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Matter</th>
+                <th>Size</th>
+                <th>Uploaded</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredDocuments.map(doc => (
+                <tr key={doc.id}>
+                  <td>
+                    <div className={styles.nameCell}>
+                      <span className={styles.fileIcon}>{getFileIcon(doc.type)}</span>
+                      <span>{doc.name}</span>
+                    </div>
+                  </td>
+                  <td>{getMatterName(doc.matterId) || '-'}</td>
+                  <td>{formatFileSize(doc.size)}</td>
+                  <td>{format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}</td>
+                  <td>
+                    <div className={styles.rowActions}>
+                      <button 
+                        className={styles.analyzeBtn}
+                        onClick={() => analyzeDocument(doc)}
+                        title="AI Analyze"
+                      >
+                        <Sparkles size={14} />
+                      </button>
+                      <button title="Download"><Download size={16} /></button>
+                      <button title="Delete"><Trash2 size={16} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

@@ -1,10 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
-import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Building2, User, ChevronLeft, Edit2, MoreVertical, 
-  Briefcase, DollarSign, FileText, Mail, Phone, MapPin, Plus, Sparkles
+  Briefcase, DollarSign, FileText, Mail, Phone, MapPin, Plus
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -13,7 +12,6 @@ import styles from './DetailPage.module.css'
 export function ClientDetailPage() {
   const { id } = useParams()
   const { clients, matters, invoices, documents } = useDataStore()
-  const { openChat } = useAIChat()
   const [activeTab, setActiveTab] = useState('overview')
 
   const client = useMemo(() => clients.find(c => c.id === id), [clients, id])
@@ -65,10 +63,6 @@ export function ClientDetailPage() {
             Back to Clients
           </Link>
           <div className={styles.headerActions}>
-            <button className={styles.aiBtn} onClick={() => openChat()}>
-              <Sparkles size={16} />
-              AI Insights
-            </button>
             <button className={styles.iconBtn}>
               <Edit2 size={18} />
             </button>

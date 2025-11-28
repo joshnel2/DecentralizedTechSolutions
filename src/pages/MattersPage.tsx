@@ -2,11 +2,10 @@ import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
-import { useAIChat } from '../contexts/AIChatContext'
 import { teamApi } from '../services/api'
 import { 
   Plus, Search, Filter, ChevronDown, Briefcase, 
-  MoreVertical, Sparkles, Calendar, DollarSign, Users, X, Lightbulb
+  MoreVertical, Sparkles, Calendar, DollarSign, Users, X
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -36,7 +35,6 @@ const typeOptions = [
 export function MattersPage() {
   const { matters, clients, addMatter, fetchMatters, fetchClients } = useDataStore()
   const { user } = useAuthStore()
-  const { openChat } = useAIChat()
   const [searchQuery, setSearchQuery] = useState('')
   const [attorneys, setAttorneys] = useState<any[]>([])
 
@@ -81,16 +79,10 @@ export function MattersPage() {
           <h1>Matters</h1>
           <span className={styles.count}>{matters.length} total</span>
         </div>
-        <div className={styles.headerActions}>
-          <button className={styles.aiBtn} onClick={() => openChat()}>
-            <Sparkles size={16} />
-            AI Insights
-          </button>
-          <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
-            <Plus size={18} />
-            New Matter
-          </button>
-        </div>
+        <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
+          <Plus size={18} />
+          New Matter
+        </button>
       </div>
 
       {/* Filters */}
