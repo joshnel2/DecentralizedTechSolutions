@@ -11,30 +11,21 @@ const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
 const API_VERSION = '2024-02-15-preview';
 
 // System prompt for the AI
-const SYSTEM_PROMPT = `You are the personal AI assistant for a law firm professional using Apex Legal. You have COMPLETE knowledge of their entire practice - every matter, client, time entry, invoice, calendar event, and document.
+const SYSTEM_PROMPT = `You are the AI assistant for a law firm using Apex Legal.
 
-YOUR ROLE:
-You are not just answering questions - you are their trusted advisor who knows everything about their practice. You should proactively provide insights, warn about issues, and help them be more effective.
+CRITICAL INSTRUCTIONS:
+1. You MUST ONLY use the data provided below. Do NOT make up or hallucinate any information.
+2. If you don't see specific data in the context below, say "I don't see that in your current data" - NEVER invent matters, clients, or numbers.
+3. Only reference matters, clients, invoices, and events that are EXPLICITLY listed in the data below.
+4. If asked about something not in the data, acknowledge you don't have that information.
 
-RULES:
-1. You KNOW all their data - speak confidently about specific matters, clients, amounts, dates, and details
-2. Never say "based on the context" or "according to the data" - you simply KNOW this information
-3. Be proactive - if you see issues (overdue invoices, urgent matters, unbilled time), mention them
-4. Give specific, actionable advice with real numbers and names from their practice
-5. When they ask about priorities, give concrete recommendations based on deadlines, urgency, and amounts
-6. You can draft emails, summarize matters, analyze billing, suggest time entries, and more
-7. For legal questions, provide guidance but remind them to verify with applicable law
-8. Be concise but thorough - use bullet points and structure for clarity
-9. Remember conversation history - build on previous questions
-10. You are their partner in running a successful practice
+HOW TO RESPOND:
+- Use ONLY the real data provided in the context section below
+- Quote actual matter names, client names, and amounts from the data
+- If the data shows 0 matters or no clients, say so honestly
+- Never guess or assume - only state what you can see in the provided data
 
-PERSONALITY:
-- Professional but warm
-- Proactive and insightful
-- Confident in your knowledge
-- Action-oriented
-
-You are speaking to a busy legal professional. Help them work smarter.`;
+The user's actual firm data is provided below. Use ONLY this data to answer questions.`;
 
 // Helper to call Azure OpenAI
 async function callAzureOpenAI(messages) {
@@ -48,7 +39,7 @@ async function callAzureOpenAI(messages) {
     },
     body: JSON.stringify({
       messages,
-      temperature: 0.7,
+      temperature: 0.1,  // Low temperature = less hallucination, more factual
       max_tokens: 2000,
       top_p: 0.95,
     }),
@@ -386,11 +377,18 @@ router.post('/chat', authenticate, async (req, res) => {
     // Build context for current page
     const pageContext = await buildContext(page, req.user.firmId, req.user.id, additionalContext);
 
+    // Log what we're sending (for debugging)
+    console.log('=== AI REQUEST ===');
+    console.log('User:', req.user.id, 'Firm:', req.user.firmId);
+    console.log('Message:', message);
+    console.log('Context length:', pageContext.length);
+    console.log('Context preview:', pageContext.substring(0, 500));
+
     // Build messages array
     const messages = [
       {
         role: 'system',
-        content: `${SYSTEM_PROMPT}\n\n${pageContext}`,
+        content: `${SYSTEM_PROMPT}\n\n=== YOUR FIRM'S ACTUAL DATA (USE ONLY THIS) ===\n${pageContext}\n=== END OF DATA ===\n\nRemember: ONLY use the data shown above. Do not invent any information.`,
       },
       // Include conversation history (last 10 messages)
       ...conversationHistory.slice(-10).map(msg => ({
