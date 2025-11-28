@@ -437,4 +437,24 @@ router.get('/suggestions', authenticate, async (req, res) => {
   res.json({ suggestions });
 });
 
+// DEBUG endpoint - see exactly what data the AI receives
+router.get('/debug-context', authenticate, async (req, res) => {
+  try {
+    console.log('DEBUG: User ID:', req.user.id);
+    console.log('DEBUG: Firm ID:', req.user.firmId);
+    
+    const context = await buildContext('debug', req.user.firmId, req.user.id, {});
+    
+    res.json({
+      userId: req.user.id,
+      firmId: req.user.firmId,
+      contextLength: context.length,
+      context: context
+    });
+  } catch (error) {
+    console.error('Debug context error:', error);
+    res.status(500).json({ error: error.message, stack: error.stack });
+  }
+});
+
 export default router;
