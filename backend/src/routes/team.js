@@ -5,6 +5,40 @@ import { hashPassword, generateSecureToken, hashToken, getPermissionsForRole } f
 
 const router = Router();
 
+// Get attorneys for matter assignment (admins/owners only, lower permission requirement)
+router.get('/attorneys', authenticate, async (req, res) => {
+  try {
+    // Only admins and owners can get attorney list for assignment
+    if (!['owner', 'admin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    const result = await query(
+      `SELECT id, email, first_name, last_name, role, hourly_rate, is_active
+       FROM users
+       WHERE firm_id = $1 AND is_active = true
+       ORDER BY first_name, last_name`,
+      [req.user.firmId]
+    );
+
+    res.json({
+      attorneys: result.rows.map(u => ({
+        id: u.id,
+        email: u.email,
+        firstName: u.first_name,
+        lastName: u.last_name,
+        name: `${u.first_name} ${u.last_name}`,
+        role: u.role,
+        hourlyRate: parseFloat(u.hourly_rate) || 0,
+        isActive: u.is_active,
+      })),
+    });
+  } catch (error) {
+    console.error('Get attorneys error:', error);
+    res.status(500).json({ error: 'Failed to get attorneys' });
+  }
+});
+
 // Get team members
 router.get('/', authenticate, requirePermission('users:manage'), async (req, res) => {
   try {

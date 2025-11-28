@@ -155,6 +155,7 @@ CREATE TABLE matter_assignments (
     matter_id UUID REFERENCES matters(id) ON DELETE CASCADE,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     role VARCHAR(50) DEFAULT 'team_member',
+    billing_rate DECIMAL(10,2),  -- Attorney's rate for this specific matter
     assigned_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     PRIMARY KEY (matter_id, user_id)
 );

@@ -11,6 +11,28 @@ const __dirname = dirname(__filename);
 
 const { Client } = pg;
 
+// Run migrations to update existing databases
+async function runMigrations(client) {
+  const migrations = [
+    // Add billing_rate column to matter_assignments if it doesn't exist
+    `DO $$ 
+     BEGIN 
+       IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                      WHERE table_name = 'matter_assignments' AND column_name = 'billing_rate') THEN
+         ALTER TABLE matter_assignments ADD COLUMN billing_rate DECIMAL(10,2);
+       END IF;
+     END $$;`,
+  ];
+
+  for (const migration of migrations) {
+    try {
+      await client.query(migration);
+    } catch (error) {
+      console.log('Migration note:', error.message);
+    }
+  }
+}
+
 async function initDatabase() {
   // First connect without database to create it
   const adminClient = new Client({
@@ -56,6 +78,11 @@ async function initDatabase() {
     console.log('Executing schema...');
     await client.query(schema);
     console.log('Schema executed successfully!');
+
+    // Run migrations for existing databases
+    console.log('Running migrations...');
+    await runMigrations(client);
+    console.log('Migrations complete!');
 
   } catch (error) {
     console.error('Error initializing database:', error);

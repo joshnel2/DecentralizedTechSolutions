@@ -421,6 +421,10 @@ export const teamApi = {
     return fetchWithAuth('/team');
   },
 
+  async getAttorneys() {
+    return fetchWithAuth('/team/attorneys');
+  },
+
   async updateMember(id: string, data: any) {
     return fetchWithAuth(`/team/${id}`, {
       method: 'PUT',

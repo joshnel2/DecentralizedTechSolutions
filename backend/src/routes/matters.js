@@ -258,8 +258,23 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
 
       const matter = matterResult.rows[0];
 
-      // Add assignments (only if valid UUIDs provided)
-      if (assignedTo && Array.isArray(assignedTo)) {
+      // Add team assignments with billing rates (for admins)
+      // teamAssignments format: [{userId: string, billingRate: number}]
+      const { teamAssignments } = req.body;
+      if (teamAssignments && Array.isArray(teamAssignments)) {
+        for (const assignment of teamAssignments) {
+          if (assignment.userId && typeof assignment.userId === 'string' && 
+              assignment.userId.length === 36 && assignment.userId.includes('-')) {
+            await client.query(
+              `INSERT INTO matter_assignments (matter_id, user_id, billing_rate) 
+               VALUES ($1, $2, $3) ON CONFLICT (matter_id, user_id) DO UPDATE SET billing_rate = $3`,
+              [matter.id, assignment.userId, assignment.billingRate || null]
+            );
+          }
+        }
+      }
+      // Also handle legacy assignedTo array (simple user IDs without rates)
+      else if (assignedTo && Array.isArray(assignedTo)) {
         for (const odId of assignedTo) {
           // Skip invalid user IDs (like 'user-1' placeholder)
           if (odId && typeof odId === 'string' && odId.length === 36 && odId.includes('-')) {

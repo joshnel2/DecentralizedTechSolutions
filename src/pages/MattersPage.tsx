@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
+import { useAuthStore } from '../stores/authStore'
+import { teamApi } from '../services/api'
 import { 
   Plus, Search, Filter, ChevronDown, Briefcase, 
-  MoreVertical, Sparkles, Calendar, DollarSign, Users
+  MoreVertical, Sparkles, Calendar, DollarSign, Users, X
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -32,13 +34,24 @@ const typeOptions = [
 
 export function MattersPage() {
   const { matters, clients, addMatter, fetchMatters, fetchClients } = useDataStore()
+  const { user } = useAuthStore()
   const [searchQuery, setSearchQuery] = useState('')
+  const [attorneys, setAttorneys] = useState<any[]>([])
+
+  const isAdmin = user?.role === 'owner' || user?.role === 'admin'
 
   // Fetch data when component mounts
   useEffect(() => {
     fetchMatters()
     fetchClients()
-  }, [])
+    
+    // Fetch attorneys if admin
+    if (isAdmin) {
+      teamApi.getAttorneys()
+        .then(data => setAttorneys(data.attorneys || []))
+        .catch(err => console.log('Could not fetch attorneys:', err))
+    }
+  }, [isAdmin])
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
@@ -207,6 +220,8 @@ export function MattersPage() {
             }
           }}
           clients={clients}
+          attorneys={attorneys}
+          isAdmin={isAdmin}
         />
       )}
     </div>
@@ -217,9 +232,17 @@ interface NewMatterModalProps {
   onClose: () => void
   onSave: (data: any) => Promise<void>
   clients: any[]
+  attorneys: any[]
+  isAdmin: boolean
 }
 
-function NewMatterModal({ onClose, onSave, clients }: NewMatterModalProps) {
+interface TeamAssignment {
+  userId: string
+  name: string
+  billingRate: number
+}
+
+function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin }: NewMatterModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
@@ -233,13 +256,51 @@ function NewMatterModal({ onClose, onSave, clients }: NewMatterModalProps) {
     openDate: new Date().toISOString(),
     tags: []
   })
+  
+  // Team assignments (admin only)
+  const [teamAssignments, setTeamAssignments] = useState<TeamAssignment[]>([])
+  const [selectedAttorney, setSelectedAttorney] = useState('')
+  const [selectedRate, setSelectedRate] = useState(0)
+
+  const addTeamMember = () => {
+    if (!selectedAttorney) return
+    const attorney = attorneys.find(a => a.id === selectedAttorney)
+    if (!attorney) return
+    
+    // Don't add duplicates
+    if (teamAssignments.some(t => t.userId === selectedAttorney)) {
+      alert('This attorney is already assigned')
+      return
+    }
+    
+    setTeamAssignments([...teamAssignments, {
+      userId: attorney.id,
+      name: attorney.name,
+      billingRate: selectedRate || attorney.hourlyRate || 0
+    }])
+    setSelectedAttorney('')
+    setSelectedRate(0)
+  }
+
+  const removeTeamMember = (userId: string) => {
+    setTeamAssignments(teamAssignments.filter(t => t.userId !== userId))
+  }
+
+  const updateTeamMemberRate = (userId: string, rate: number) => {
+    setTeamAssignments(teamAssignments.map(t => 
+      t.userId === userId ? { ...t, billingRate: rate } : t
+    ))
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isSubmitting) return
     setIsSubmitting(true)
     try {
-      await onSave(formData)
+      await onSave({
+        ...formData,
+        teamAssignments: isAdmin ? teamAssignments : undefined
+      })
     } finally {
       setIsSubmitting(false)
     }
@@ -247,7 +308,7 @@ function NewMatterModal({ onClose, onSave, clients }: NewMatterModalProps) {
 
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '600px' }}>
         <div className={styles.modalHeader}>
           <h2>New Matter</h2>
           <button onClick={onClose} className={styles.closeBtn}>×</button>
@@ -271,8 +332,9 @@ function NewMatterModal({ onClose, onSave, clients }: NewMatterModalProps) {
                 value={formData.clientId}
                 onChange={(e) => setFormData({...formData, clientId: e.target.value})}
               >
+                <option value="">Select a client (optional)</option>
                 {clients.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
+                  <option key={c.id} value={c.id}>{c.name || c.displayName}</option>
                 ))}
               </select>
             </div>
@@ -303,7 +365,7 @@ function NewMatterModal({ onClose, onSave, clients }: NewMatterModalProps) {
               </select>
             </div>
             <div className={styles.formGroup}>
-              <label>Rate/Amount</label>
+              <label>Default Rate/Amount</label>
               <input
                 type="number"
                 value={formData.billingRate}
@@ -321,6 +383,104 @@ function NewMatterModal({ onClose, onSave, clients }: NewMatterModalProps) {
               rows={3}
             />
           </div>
+
+          {/* Team Assignment Section - Admin Only */}
+          {isAdmin && (
+            <div className={styles.formGroup}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Users size={16} />
+                Assign Team Members
+              </label>
+              
+              {/* Add new team member */}
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                <select
+                  value={selectedAttorney}
+                  onChange={(e) => {
+                    setSelectedAttorney(e.target.value)
+                    const att = attorneys.find(a => a.id === e.target.value)
+                    if (att) setSelectedRate(att.hourlyRate || 0)
+                  }}
+                  style={{ flex: 2 }}
+                >
+                  <option value="">Select attorney...</option>
+                  {attorneys.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({a.role})
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  placeholder="Rate"
+                  value={selectedRate || ''}
+                  onChange={(e) => setSelectedRate(Number(e.target.value))}
+                  style={{ flex: 1, width: '100px' }}
+                />
+                <button 
+                  type="button" 
+                  onClick={addTeamMember}
+                  className={styles.saveBtn}
+                  style={{ padding: '8px 16px' }}
+                  disabled={!selectedAttorney}
+                >
+                  Add
+                </button>
+              </div>
+
+              {/* List of assigned team members */}
+              {teamAssignments.length > 0 && (
+                <div style={{ 
+                  border: '1px solid rgba(255,255,255,0.1)', 
+                  borderRadius: '8px',
+                  overflow: 'hidden'
+                }}>
+                  {teamAssignments.map((member, idx) => (
+                    <div 
+                      key={member.userId} 
+                      style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '12px',
+                        padding: '10px 12px',
+                        borderBottom: idx < teamAssignments.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none',
+                        background: 'rgba(255,255,255,0.02)'
+                      }}
+                    >
+                      <span style={{ flex: 1 }}>{member.name}</span>
+                      <span style={{ color: '#94A3B8', fontSize: '14px' }}>$</span>
+                      <input
+                        type="number"
+                        value={member.billingRate}
+                        onChange={(e) => updateTeamMemberRate(member.userId, Number(e.target.value))}
+                        style={{ width: '80px', padding: '4px 8px' }}
+                      />
+                      <span style={{ color: '#94A3B8', fontSize: '14px' }}>/hr</span>
+                      <button
+                        type="button"
+                        onClick={() => removeTeamMember(member.userId)}
+                        style={{ 
+                          background: 'transparent', 
+                          border: 'none', 
+                          cursor: 'pointer',
+                          color: '#EF4444',
+                          padding: '4px'
+                        }}
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {teamAssignments.length === 0 && (
+                <p style={{ color: '#64748B', fontSize: '14px', margin: '8px 0' }}>
+                  No team members assigned yet. Add attorneys above.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className={styles.modalActions}>
             <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
