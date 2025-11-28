@@ -68,8 +68,20 @@ async function callAzureOpenAI(messages) {
 async function buildContext(page, firmId, userId, additionalContext = {}) {
   console.log(`Building FULL AI context for firm: ${firmId}, user: ${userId}, page: ${page}`);
   
+  // Validate inputs
+  if (!firmId) {
+    console.error('AI Context Error: No firmId provided');
+    return 'Error: Unable to load practice data - firm not identified.';
+  }
+  
+  if (!userId) {
+    console.error('AI Context Error: No userId provided');
+    return 'Error: Unable to load practice data - user not identified.';
+  }
+  
   try {
     // Fetch ALL data the AI needs to be your complete personal assistant
+    // NO LIMITS - AI needs to know EVERYTHING about the practice
     const [
       userRes,
       mattersRes, 
@@ -86,7 +98,7 @@ async function buildContext(page, firmId, userId, additionalContext = {}) {
     ] = await Promise.all([
       // Current user info
       query(`SELECT first_name, last_name, email, role FROM users WHERE id = $1`, [userId]),
-      // All active matters with details
+      // ALL matters with details - NO LIMIT so AI knows everything
       query(`
         SELECT m.*, c.display_name as client_name,
                u.first_name || ' ' || u.last_name as attorney_name,
@@ -99,9 +111,8 @@ async function buildContext(page, firmId, userId, additionalContext = {}) {
         ORDER BY 
           CASE m.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END,
           m.created_at DESC
-        LIMIT 25
       `, [firmId]),
-      // All clients
+      // ALL clients - NO LIMIT
       query(`
         SELECT c.*, 
                (SELECT COUNT(*) FROM matters WHERE client_id = c.id) as matter_count,
@@ -110,20 +121,18 @@ async function buildContext(page, firmId, userId, additionalContext = {}) {
         FROM clients c
         WHERE c.firm_id = $1
         ORDER BY c.created_at DESC
-        LIMIT 25
       `, [firmId]),
-      // Recent time entries (last 30 days)
+      // ALL time entries (last 90 days for more context)
       query(`
         SELECT te.*, m.name as matter_name, m.number as matter_number,
                u.first_name || ' ' || u.last_name as user_name
         FROM time_entries te
         LEFT JOIN matters m ON te.matter_id = m.id
         LEFT JOIN users u ON te.user_id = u.id
-        WHERE te.firm_id = $1 AND te.date >= CURRENT_DATE - INTERVAL '30 days'
+        WHERE te.firm_id = $1 AND te.date >= CURRENT_DATE - INTERVAL '90 days'
         ORDER BY te.date DESC, te.created_at DESC
-        LIMIT 30
       `, [firmId]),
-      // All invoices
+      // ALL invoices - NO LIMIT
       query(`
         SELECT i.*, c.display_name as client_name, m.name as matter_name
         FROM invoices i
@@ -131,20 +140,18 @@ async function buildContext(page, firmId, userId, additionalContext = {}) {
         LEFT JOIN matters m ON i.matter_id = m.id
         WHERE i.firm_id = $1
         ORDER BY i.created_at DESC
-        LIMIT 25
       `, [firmId]),
-      // Calendar events (past week + next 2 weeks)
+      // Calendar events (past week + next month)
       query(`
         SELECT e.*, m.name as matter_name
         FROM calendar_events e
         LEFT JOIN matters m ON e.matter_id = m.id
         WHERE e.firm_id = $1 
           AND e.start_time >= NOW() - INTERVAL '7 days'
-          AND e.start_time <= NOW() + INTERVAL '14 days'
+          AND e.start_time <= NOW() + INTERVAL '30 days'
         ORDER BY e.start_time
-        LIMIT 30
       `, [firmId]),
-      // Recent documents
+      // ALL documents - NO LIMIT
       query(`
         SELECT d.*, m.name as matter_name, c.display_name as client_name
         FROM documents d
@@ -152,9 +159,8 @@ async function buildContext(page, firmId, userId, additionalContext = {}) {
         LEFT JOIN clients c ON d.client_id = c.id
         WHERE d.firm_id = $1
         ORDER BY d.created_at DESC
-        LIMIT 20
       `, [firmId]),
-      // Team members
+      // All team members
       query(`
         SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.hourly_rate,
                (SELECT COUNT(*) FROM matters WHERE responsible_attorney = u.id AND status = 'active') as active_matters,
@@ -194,9 +200,21 @@ async function buildContext(page, firmId, userId, additionalContext = {}) {
         LEFT JOIN matters m ON te.matter_id = m.id
         WHERE te.firm_id = $1
         ORDER BY te.created_at DESC
-        LIMIT 10
+        LIMIT 20
       `, [firmId])
     ]);
+    
+    // Log query results for debugging
+    console.log('AI Context Query Results:', {
+      user: userRes.rows.length,
+      matters: mattersRes.rows.length,
+      clients: clientsRes.rows.length,
+      timeEntries: timeEntriesRes.rows.length,
+      invoices: invoicesRes.rows.length,
+      events: eventsRes.rows.length,
+      documents: docsRes.rows.length,
+      team: teamRes.rows.length
+    });
 
     const currentUser = userRes.rows[0];
     const matters = mattersRes.rows;
