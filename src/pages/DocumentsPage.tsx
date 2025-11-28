@@ -4,7 +4,7 @@ import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Plus, Search, FolderOpen, FileText, Upload, Grid, List,
-  MoreVertical, Sparkles, Download, Trash2, Wand2
+  MoreVertical, Sparkles, Download, Trash2, Wand2, Eye, X
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -28,6 +28,7 @@ export function DocumentsPage() {
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [selectedMatterId, setSelectedMatterId] = useState('')
+  const [previewDoc, setPreviewDoc] = useState<typeof documents[0] | null>(null)
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
@@ -88,6 +89,14 @@ export function DocumentsPage() {
     const matterName = getMatterName(doc.matterId)
     const prompt = `Analyze this document: "${doc.name}" (${doc.type}, ${formatFileSize(doc.size)})${matterName ? ` from matter "${matterName}"` : ''}. Uploaded on ${format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}. Please provide a summary, key points, and any recommendations.`
     openChat(prompt)
+  }
+
+  const getDocumentUrl = (doc: typeof documents[0]) => {
+    return `${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/documents/${doc.id}/download`
+  }
+
+  const canPreview = (type: string) => {
+    return type.includes('pdf') || type.includes('image')
   }
 
   return (
@@ -207,7 +216,11 @@ export function DocumentsPage() {
         <div className={styles.documentsGrid}>
           {filteredDocuments.map(doc => (
             <div key={doc.id} className={styles.docCard}>
-              <div className={styles.docPreview}>
+              <div 
+                className={styles.docPreview}
+                onClick={() => setPreviewDoc(doc)}
+                style={{ cursor: 'pointer' }}
+              >
                 <span className={styles.fileIcon}>{getFileIcon(doc.type)}</span>
               </div>
               <div className={styles.docInfo}>
@@ -220,6 +233,13 @@ export function DocumentsPage() {
                 )}
               </div>
               <div className={styles.docActions}>
+                <button 
+                  className={styles.previewBtn}
+                  onClick={() => setPreviewDoc(doc)}
+                  title="Preview"
+                >
+                  <Eye size={14} />
+                </button>
                 <button 
                   className={styles.analyzeBtn}
                   onClick={() => analyzeDocument(doc)}
@@ -261,6 +281,12 @@ export function DocumentsPage() {
                   <td>
                     <div className={styles.rowActions}>
                       <button 
+                        onClick={() => setPreviewDoc(doc)}
+                        title="Preview"
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <button 
                         className={styles.analyzeBtn}
                         onClick={() => analyzeDocument(doc)}
                         title="AI Analyze"
@@ -283,6 +309,67 @@ export function DocumentsPage() {
           <FolderOpen size={48} />
           <h3>No documents found</h3>
           <p>Upload your first document to get started</p>
+        </div>
+      )}
+
+      {/* Document Preview Modal */}
+      {previewDoc && (
+        <div className={styles.previewModal} onClick={() => setPreviewDoc(null)}>
+          <div className={styles.previewContainer} onClick={e => e.stopPropagation()}>
+            <div className={styles.previewHeader}>
+              <div className={styles.previewTitle}>
+                <FileText size={20} />
+                <span>{previewDoc.name}</span>
+              </div>
+              <div className={styles.previewActions}>
+                <button 
+                  className={styles.analyzeBtn}
+                  onClick={() => {
+                    analyzeDocument(previewDoc)
+                    setPreviewDoc(null)
+                  }}
+                >
+                  <Sparkles size={16} />
+                  AI Analyze
+                </button>
+                <a 
+                  href={getDocumentUrl(previewDoc)}
+                  download={previewDoc.name}
+                  className={styles.downloadBtn}
+                >
+                  <Download size={16} />
+                  Download
+                </a>
+                <button className={styles.closePreviewBtn} onClick={() => setPreviewDoc(null)}>
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+            <div className={styles.previewContent}>
+              {canPreview(previewDoc.type) ? (
+                <iframe 
+                  src={getDocumentUrl(previewDoc)}
+                  title={previewDoc.name}
+                  className={styles.previewFrame}
+                />
+              ) : (
+                <div className={styles.noPreview}>
+                  <span className={styles.bigIcon}>{getFileIcon(previewDoc.type)}</span>
+                  <h3>{previewDoc.name}</h3>
+                  <p>{previewDoc.type} • {formatFileSize(previewDoc.size)}</p>
+                  <p className={styles.noPreviewHint}>Preview not available for this file type</p>
+                  <a 
+                    href={getDocumentUrl(previewDoc)}
+                    download={previewDoc.name}
+                    className={styles.downloadBtnLarge}
+                  >
+                    <Download size={18} />
+                    Download to View
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

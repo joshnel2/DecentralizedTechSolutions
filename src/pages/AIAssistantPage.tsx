@@ -6,7 +6,7 @@ import {
   Sparkles, Send, Plus, MessageSquare, Trash2, 
   MessageCircle, FileEdit, Files, Zap, Settings,
   User, Briefcase, Scale, BookOpen, HelpCircle,
-  SlidersHorizontal, Brain, Target, Clock
+  SlidersHorizontal, Brain, Target, Clock, Paperclip, X, FileText
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -61,6 +61,8 @@ export function AIAssistantPage() {
   const [input, setInput] = useState('')
   const [activeTab, setActiveTab] = useState<'models' | 'help' | 'personalize'>('models')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [attachedFile, setAttachedFile] = useState<{ name: string; content: string } | null>(null)
 
   // Personalization state
   const [preferences, setPreferences] = useState({
@@ -79,9 +81,42 @@ export function AIAssistantPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeConversation?.messages])
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Read file contents
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const content = event.target?.result as string
+      setAttachedFile({ name: file.name, content })
+    }
+    
+    // Read as text for text files, or notify for binary
+    if (file.type.includes('text') || file.name.endsWith('.txt') || file.name.endsWith('.md') || 
+        file.name.endsWith('.json') || file.name.endsWith('.csv') || file.name.endsWith('.xml') ||
+        file.name.endsWith('.html') || file.name.endsWith('.js') || file.name.endsWith('.ts')) {
+      reader.readAsText(file)
+    } else if (file.type.includes('pdf')) {
+      // For PDFs, we'll just note the file name - full PDF parsing would need a library
+      setAttachedFile({ 
+        name: file.name, 
+        content: `[PDF Document: ${file.name} - ${(file.size / 1024).toFixed(1)} KB]\n\nNote: Please describe what you'd like me to help with regarding this document.` 
+      })
+    } else {
+      setAttachedFile({ 
+        name: file.name, 
+        content: `[File: ${file.name} - ${(file.size / 1024).toFixed(1)} KB]` 
+      })
+    }
+
+    // Reset input
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!input.trim() || isLoading) return
+    if ((!input.trim() && !attachedFile) || isLoading) return
 
     let conversationId = activeConversationId
     if (!conversationId) {
@@ -89,7 +124,13 @@ export function AIAssistantPage() {
       conversationId = newConv.id
     }
 
-    const message = input
+    // Build message with file content if attached
+    let message = input
+    if (attachedFile) {
+      message = `[Attached: ${attachedFile.name}]\n\n--- FILE CONTENT ---\n${attachedFile.content}\n--- END FILE ---\n\n${input || 'Please analyze this document.'}`
+      setAttachedFile(null)
+    }
+
     setInput('')
     await generateResponse(conversationId, message)
   }
@@ -232,16 +273,42 @@ export function AIAssistantPage() {
             </div>
 
             <form onSubmit={handleSubmit} className={styles.inputArea}>
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={`Message ${currentModel.name}...`}
-                disabled={isLoading}
-              />
-              <button type="submit" disabled={isLoading || !input.trim()}>
-                <Send size={18} />
-              </button>
+              {attachedFile && (
+                <div className={styles.attachedFile}>
+                  <FileText size={16} />
+                  <span>{attachedFile.name}</span>
+                  <button type="button" onClick={() => setAttachedFile(null)}>
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+              <div className={styles.inputRow}>
+                <button 
+                  type="button" 
+                  className={styles.attachBtn}
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Attach file"
+                >
+                  <Paperclip size={18} />
+                </button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  style={{ display: 'none' }}
+                  accept=".txt,.md,.json,.csv,.xml,.html,.js,.ts,.pdf,.doc,.docx"
+                />
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder={attachedFile ? "Add a message about this file..." : `Message ${currentModel.name}...`}
+                  disabled={isLoading}
+                />
+                <button type="submit" disabled={isLoading || (!input.trim() && !attachedFile)}>
+                  <Send size={18} />
+                </button>
+              </div>
             </form>
           </>
         ) : (

@@ -314,13 +314,80 @@
 /* Input Area */
 .inputArea {
   display: flex;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.75rem;
   padding: 1.25rem 2rem;
   background: var(--apex-deep);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.inputArea input {
+.attachedFile {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  font-size: 0.875rem;
+  width: fit-content;
+}
+
+.attachedFile svg:first-child {
+  color: var(--apex-ai);
+}
+
+.attachedFile span {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachedFile button {
+  background: none;
+  border: none;
+  padding: 2px;
+  color: var(--apex-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+}
+
+.attachedFile button:hover {
+  color: var(--apex-white);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.inputRow {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.attachBtn {
+  padding: 0.75rem;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.attachBtn:hover {
+  background: var(--apex-muted);
+  color: var(--apex-ai);
+  border-color: var(--apex-ai);
+}
+
+.inputRow input[type="text"] {
   flex: 1;
   padding: 1rem 1.25rem;
   background: var(--apex-slate);
@@ -330,17 +397,17 @@
   font-size: 0.95rem;
 }
 
-.inputArea input:focus {
+.inputRow input[type="text"]:focus {
   outline: none;
   border-color: var(--apex-ai);
   box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
 }
 
-.inputArea input::placeholder {
+.inputRow input[type="text"]::placeholder {
   color: var(--apex-subtle);
 }
 
-.inputArea button {
+.inputRow button[type="submit"] {
   padding: 1rem 1.25rem;
   background: linear-gradient(135deg, var(--apex-ai) 0%, #7C3AED 100%);
   border: none;
@@ -350,12 +417,12 @@
   transition: all var(--transition-fast);
 }
 
-.inputArea button:hover:not(:disabled) {
+.inputRow button[type="submit"]:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
 }
 
-.inputArea button:disabled {
+.inputRow button[type="submit"]:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

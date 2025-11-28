@@ -422,3 +422,175 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Preview Button */
+.previewBtn {
+  background: var(--apex-slate) !important;
+  color: var(--apex-light) !important;
+  border-radius: var(--radius-sm);
+  padding: 6px !important;
+}
+
+.previewBtn:hover {
+  background: var(--apex-muted) !important;
+  color: white !important;
+}
+
+/* Preview Modal */
+.previewModal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: 2rem;
+}
+
+.previewContainer {
+  width: 100%;
+  max-width: 1200px;
+  height: 90vh;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.previewHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  background: var(--apex-slate);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.previewTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--apex-white);
+  font-weight: 500;
+}
+
+.previewTitle svg {
+  color: var(--apex-gold);
+}
+
+.previewActions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.previewActions .analyzeBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem !important;
+  font-size: 0.875rem;
+}
+
+.downloadBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--apex-muted);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  font-size: 0.875rem;
+  text-decoration: none;
+  transition: all var(--transition-fast);
+}
+
+.downloadBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--apex-white);
+}
+
+.closePreviewBtn {
+  background: none;
+  border: none;
+  padding: 0.5rem;
+  color: var(--apex-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.closePreviewBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--apex-white);
+}
+
+.previewContent {
+  flex: 1;
+  overflow: hidden;
+}
+
+.previewFrame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: white;
+}
+
+.noPreview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  color: var(--apex-text);
+}
+
+.bigIcon {
+  font-size: 4rem;
+  margin-bottom: 1.5rem;
+}
+
+.noPreview h3 {
+  color: var(--apex-white);
+  margin-bottom: 0.5rem;
+}
+
+.noPreview p {
+  color: var(--apex-subtle);
+  margin-bottom: 0.25rem;
+}
+
+.noPreviewHint {
+  color: var(--apex-text);
+  margin-bottom: 1.5rem !important;
+}
+
+.downloadBtnLarge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  text-decoration: none;
+  transition: all var(--transition-fast);
+}
+
+.downloadBtnLarge:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
