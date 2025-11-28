@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
+import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Briefcase, Calendar, DollarSign, Clock, FileText,
   ChevronLeft, Sparkles, Edit2, MoreVertical, Plus,
@@ -41,6 +42,7 @@ const relatedContacts = [
 export function MatterDetailPage() {
   const { id } = useParams()
   const { matters, clients, timeEntries, invoices, events, documents, updateMatter } = useDataStore()
+  const { openChat } = useAIChat()
   const [activeTab, setActiveTab] = useState('overview')
   const [aiAnalyzing, setAiAnalyzing] = useState(false)
   const [aiSummary, setAiSummary] = useState<string | null>(null)

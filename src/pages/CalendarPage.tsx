@@ -1,8 +1,9 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useDataStore } from '../stores/dataStore'
+import { useAIChat } from '../contexts/AIChatContext'
 import { 
   ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon,
-  Clock, MapPin, Users
+  Clock, MapPin, Users, Sparkles, Lightbulb
 } from 'lucide-react'
 import { 
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
@@ -13,6 +14,7 @@ import styles from './CalendarPage.module.css'
 
 export function CalendarPage() {
   const { events, matters, clients, addEvent, fetchEvents, fetchMatters } = useDataStore()
+  const { openChat } = useAIChat()
   
   // Fetch data from API on mount
   useEffect(() => {
@@ -90,6 +92,10 @@ export function CalendarPage() {
               </button>
             ))}
           </div>
+          <button className={styles.aiBtn} onClick={() => openChat()}>
+            <Sparkles size={16} />
+            AI Schedule Help
+          </button>
           <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
             <Plus size={18} />
             New Event

@@ -36,6 +36,33 @@
   box-shadow: var(--shadow-glow);
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.aiBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(139, 92, 246, 0.05) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: var(--radius-md);
+  color: #A78BFA;
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.aiBtn:hover {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25) 0%, rgba(139, 92, 246, 0.1) 100%);
+  border-color: rgba(139, 92, 246, 0.5);
+  transform: translateY(-1px);
+}
+
 /* Stats */
 .statsGrid {
   display: grid;

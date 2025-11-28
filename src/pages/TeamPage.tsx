@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
+import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Plus, Users, UserPlus, Shield, Trash2, Edit2,
-  Mail, MoreVertical
+  Mail, MoreVertical, Sparkles
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './TeamPage.module.css'
@@ -18,6 +19,7 @@ const teamMembers = [
 export function TeamPage() {
   const { groups, addGroup, updateGroup, deleteGroup } = useDataStore()
   const { user } = useAuthStore()
+  const { openChat } = useAIChat()
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [showGroupModal, setShowGroupModal] = useState(false)
 
@@ -29,6 +31,10 @@ export function TeamPage() {
           <p>Manage your firm's team members and groups</p>
         </div>
         <div className={styles.headerActions}>
+          <button className={styles.aiBtn} onClick={() => openChat()}>
+            <Sparkles size={16} />
+            AI Team Insights
+          </button>
           <button 
             className={styles.secondaryBtn}
             onClick={() => setShowGroupModal(true)}

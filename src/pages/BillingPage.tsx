@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
+import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Plus, Search, DollarSign, FileText, TrendingUp, AlertCircle,
-  CheckCircle2, Clock, Send, MoreVertical
+  CheckCircle2, Clock, Send, MoreVertical, Sparkles, Lightbulb
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -11,6 +12,7 @@ import styles from './BillingPage.module.css'
 
 export function BillingPage() {
   const { invoices, clients, matters, timeEntries, expenses, fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries, addInvoice } = useDataStore()
+  const { openChat } = useAIChat()
   
   // Fetch data from API on mount
   useEffect(() => {
@@ -64,10 +66,16 @@ export function BillingPage() {
         <div className={styles.headerLeft}>
           <h1>Billing</h1>
         </div>
-        <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
-          <Plus size={18} />
-          Create Invoice
-        </button>
+        <div className={styles.headerActions}>
+          <button className={styles.aiBtn} onClick={() => openChat()}>
+            <Sparkles size={16} />
+            AI Billing Help
+          </button>
+          <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
+            <Plus size={18} />
+            Create Invoice
+          </button>
+        </div>
       </div>
 
       {showNewModal && (
