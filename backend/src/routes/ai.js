@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db/connection.js';
 import { authenticate } from '../middleware/auth.js';
+import fs from 'fs/promises';
 
 const router = Router();
 
