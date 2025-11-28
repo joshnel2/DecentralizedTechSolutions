@@ -517,6 +517,23 @@ export const firmApi = {
   },
 };
 
+// ============================================
+// AI API
+// ============================================
+
+export const aiApi = {
+  async chat(message: string, page: string, context?: any, conversationHistory?: { role: string; content: string }[]) {
+    return fetchWithAuth('/ai/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message, page, context, conversationHistory }),
+    });
+  },
+
+  async getSuggestions(page: string) {
+    return fetchWithAuth(`/ai/suggestions?page=${page}`);
+  },
+};
+
 // Export all APIs
 export default {
   auth: authApi,
@@ -528,4 +545,5 @@ export default {
   documents: documentsApi,
   team: teamApi,
   firm: firmApi,
+  ai: aiApi,
 };

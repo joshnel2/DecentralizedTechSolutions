@@ -433,3 +433,41 @@
   from { opacity: 0; transform: translateY(-8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Floating AI Button */
+.aiFloatingBtn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+  border: none;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);
+  transition: all 0.3s ease;
+  z-index: 900;
+}
+
+.aiFloatingBtn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 30px rgba(245, 158, 11, 0.5);
+}
+
+.aiFloatingBtn:active {
+  transform: scale(0.95);
+}
+
+.aiFloatingBtn svg {
+  animation: sparkle 2s infinite;
+}
+
+@keyframes sparkle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}

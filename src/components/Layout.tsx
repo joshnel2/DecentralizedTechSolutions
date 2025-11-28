@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
+import { AIChat } from './AIChat'
 import { 
   LayoutDashboard, Briefcase, Users, Calendar, DollarSign, 
   Clock, BarChart3, Settings, LogOut, ChevronDown,
@@ -43,6 +44,7 @@ export function Layout() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [aiChatOpen, setAiChatOpen] = useState(false)
 
   const unreadCount = notifications.filter(n => !n.read).length
 
@@ -245,6 +247,21 @@ export function Layout() {
           <Outlet />
         </main>
       </div>
+
+      {/* Floating AI Button */}
+      <button 
+        className={styles.aiFloatingBtn}
+        onClick={() => setAiChatOpen(true)}
+        title="Open AI Assistant"
+      >
+        <Sparkles size={24} />
+      </button>
+
+      {/* AI Chat Panel */}
+      <AIChat 
+        isOpen={aiChatOpen} 
+        onClose={() => setAiChatOpen(false)} 
+      />
     </div>
   )
 }

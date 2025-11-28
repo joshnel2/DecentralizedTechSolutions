@@ -14,6 +14,7 @@ import calendarRoutes from './routes/calendar.js';
 import documentRoutes from './routes/documents.js';
 import teamRoutes from './routes/team.js';
 import firmRoutes from './routes/firm.js';
+import aiRoutes from './routes/ai.js';
 
 // Import middleware
 import { apiLimiter } from './middleware/rateLimit.js';
@@ -59,6 +60,7 @@ app.use('/api/calendar', calendarRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/team', teamRoutes);
 app.use('/api/firm', firmRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -107,6 +109,7 @@ app.listen(PORT, () => {
 ║     • Documents:  /api/documents                          ║
 ║     • Team:       /api/team                               ║
 ║     • Firm:       /api/firm                               ║
+║     • AI:         /api/ai                                 ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
   `);
