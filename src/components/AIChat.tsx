@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight } from 'lucide-react'
 import { aiApi } from '../services/api'
+import { useAIChat } from '../contexts/AIChatContext'
 import styles from './AIChat.module.css'
 
 interface Message {
@@ -47,6 +48,7 @@ function getContextFromPath(pathname: string): Record<string, any> {
 
 export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps) {
   const location = useLocation()
+  const { initialMessage, clearInitialMessage } = useAIChat()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -56,6 +58,14 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
 
   const currentPage = getPageFromPath(location.pathname)
   const pathContext = getContextFromPath(location.pathname)
+
+  // Handle initial message from context
+  useEffect(() => {
+    if (isOpen && initialMessage) {
+      sendMessage(initialMessage)
+      clearInitialMessage()
+    }
+  }, [isOpen, initialMessage])
 
   // Scroll to bottom on new messages
   useEffect(() => {

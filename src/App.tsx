@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
+import { AIChatProvider } from './contexts/AIChatContext'
 import { Layout } from './components/Layout'
 import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
@@ -48,6 +49,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
+    <AIChatProvider>
     <BrowserRouter>
       <Routes>
         {/* Public Routes */}
@@ -110,5 +112,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </BrowserRouter>
+    </AIChatProvider>
   )
 }

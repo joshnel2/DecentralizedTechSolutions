@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
+import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Plus, Play, Pause, Clock, Calendar, DollarSign, 
   TrendingUp, Sparkles
@@ -12,6 +13,7 @@ import styles from './TimeTrackingPage.module.css'
 
 export function TimeTrackingPage() {
   const { timeEntries, matters, addTimeEntry, fetchTimeEntries, fetchMatters } = useDataStore()
+  const { openChat } = useAIChat()
   
   // Fetch data from API on mount
   useEffect(() => {
@@ -105,7 +107,10 @@ export function TimeTrackingPage() {
           <h1>Time Tracking</h1>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.aiBtn}>
+          <button 
+            className={styles.aiBtn}
+            onClick={() => openChat("Based on my recent calendar events and matters, suggest time entries I may have forgotten to log. What work should I bill for?")}
+          >
             <Sparkles size={16} />
             AI Time Suggestions
           </button>

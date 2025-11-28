@@ -57,6 +57,8 @@ async function callAzureOpenAI(messages) {
 async function buildContext(page, firmId, userId, additionalContext = {}) {
   let context = '';
   
+  console.log(`Building AI context for page: ${page}, firm: ${firmId}, user: ${userId}`);
+  
   try {
     switch (page) {
       case 'dashboard': {
@@ -413,9 +415,16 @@ ${team.rows.map(u => `- ${u.first_name} ${u.last_name} (${u.role})
     }
   } catch (error) {
     console.error('Error building context:', error);
-    context = `[CURRENT PAGE: ${page}]\nContext unavailable due to an error.`;
+    console.error('Error details:', error.message);
+    context = `[CURRENT PAGE: ${page}]\nNote: Some data may be unavailable. Error: ${error.message}`;
   }
 
+  // If no context was built, provide a generic one
+  if (!context || context.trim() === '') {
+    context = `[CURRENT PAGE: ${page}]\nNo specific data available for this page. The user may need to create some data first.`;
+  }
+
+  console.log('Built context length:', context.length);
   return context;
 }
 

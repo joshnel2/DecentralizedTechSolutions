@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
+import { useAIChat } from '../contexts/AIChatContext'
 import { AIChat } from './AIChat'
 import { 
   LayoutDashboard, Briefcase, Users, Calendar, DollarSign, 
@@ -44,7 +45,7 @@ export function Layout() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
-  const [aiChatOpen, setAiChatOpen] = useState(false)
+  const { isOpen: aiChatOpen, openChat, closeChat } = useAIChat()
 
   const unreadCount = notifications.filter(n => !n.read).length
 
@@ -93,13 +94,13 @@ export function Layout() {
             </NavLink>
           ))}
 
-          <NavLink
-            to="/app/ai"
-            className={({ isActive }) => clsx(styles.navItem, styles.aiNav, isActive && styles.active)}
+          <button
+            onClick={() => openChat()}
+            className={clsx(styles.navItem, styles.aiNav)}
           >
             <Sparkles size={20} />
             {sidebarOpen && <span>AI Assistant</span>}
-          </NavLink>
+          </button>
 
           <div className={styles.navDivider} />
 
@@ -251,7 +252,7 @@ export function Layout() {
       {/* Floating AI Button */}
       <button 
         className={styles.aiFloatingBtn}
-        onClick={() => setAiChatOpen(true)}
+        onClick={() => openChat()}
         title="Open AI Assistant"
       >
         <Sparkles size={24} />
@@ -260,7 +261,7 @@ export function Layout() {
       {/* AI Chat Panel */}
       <AIChat 
         isOpen={aiChatOpen} 
-        onClose={() => setAiChatOpen(false)} 
+        onClose={closeChat} 
       />
     </div>
   )
