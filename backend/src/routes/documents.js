@@ -6,9 +6,23 @@ import fs from 'fs/promises';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import mammoth from 'mammoth';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+
+// Helper function to extract text from PDF using pdf.js
+async function extractPdfText(buffer) {
+  const data = new Uint8Array(buffer);
+  const pdf = await pdfjsLib.getDocument({ data }).promise;
+  let fullText = '';
+  
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items.map(item => item.str).join(' ');
+    fullText += pageText + '\n';
+  }
+  
+  return fullText.trim();
+}
 
 const router = Router();
 
@@ -91,14 +105,13 @@ router.post('/extract-text', authenticate, extractUpload.single('file'), async (
 
     if (ext === '.pdf') {
       try {
-        const pdfData = await pdfParse(req.file.buffer);
-        textContent = pdfData.text;
+        textContent = await extractPdfText(req.file.buffer);
         if (!textContent || textContent.trim().length === 0) {
           textContent = `[PDF file "${req.file.originalname}" - No extractable text found. This may be a scanned image-based PDF.]`;
         }
       } catch (pdfError) {
         console.error('PDF parse error:', pdfError);
-        textContent = `[Unable to extract text from PDF. File: ${req.file.originalname}]`;
+        textContent = `[Unable to extract text from PDF. File: ${req.file.originalname}. Error: ${pdfError.message}]`;
       }
     } else if (ext === '.docx') {
       try {
@@ -290,11 +303,13 @@ router.get('/:id/content', authenticate, requirePermission('documents:view'), as
     if (ext === '.pdf') {
       try {
         const dataBuffer = await fs.readFile(doc.path);
-        const pdfData = await pdfParse(dataBuffer);
-        textContent = pdfData.text;
+        textContent = await extractPdfText(dataBuffer);
+        if (!textContent || textContent.trim().length === 0) {
+          textContent = `[PDF file "${doc.original_name}" - No extractable text found. This may be a scanned image-based PDF.]`;
+        }
       } catch (pdfError) {
         console.error('PDF parse error:', pdfError);
-        textContent = `[Unable to extract PDF text. File: ${doc.original_name}]`;
+        textContent = `[Unable to extract PDF text. File: ${doc.original_name}. Error: ${pdfError.message}]`;
       }
     } else if (['.txt', '.md', '.json', '.csv', '.xml', '.html', '.js', '.ts', '.jsx', '.tsx', '.css', '.sql'].includes(ext)) {
       // Text-based files - read directly
