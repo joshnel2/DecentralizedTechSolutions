@@ -1,63 +1,160 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuthStore } from '../stores/authStore'
+import { integrationsApi } from '../services/api'
+import { useSearchParams } from 'react-router-dom'
 import {
   Link2, Calendar, Mail, Cloud, CreditCard, FileSignature,
   Calculator, MessageSquare, Shield, CheckCircle2, XCircle,
   ExternalLink, Settings, RefreshCw, AlertTriangle, Sparkles,
-  Database, Lock, Globe, Zap
+  Database, Lock, Globe, Zap, AlertCircle
 } from 'lucide-react'
 import styles from './IntegrationsPage.module.css'
 
-interface Integration {
+interface IntegrationStatus {
+  id: string
+  provider: string
+  isConnected: boolean
+  accountEmail?: string
+  accountName?: string
+  lastSyncAt?: string
+  syncEnabled?: boolean
+  connectedAt?: string
+}
+
+interface IntegrationConfig {
   id: string
   name: string
   description: string
   category: 'calendar' | 'email' | 'storage' | 'payment' | 'accounting' | 'esign' | 'communication' | 'ai'
   icon: string
-  status: 'connected' | 'disconnected' | 'error'
-  lastSync?: string
-  accountInfo?: string
+  provider?: string // Backend provider key
+  features: string[]
 }
 
-const availableIntegrations: Integration[] = [
-  // Calendar
-  { id: 'google-calendar', name: 'Google Calendar', description: 'Sync events and deadlines with Google Calendar', category: 'calendar', icon: '📅', status: 'disconnected' },
-  { id: 'outlook-calendar', name: 'Microsoft Outlook', description: 'Sync with Outlook/Microsoft 365 calendar', category: 'calendar', icon: '📆', status: 'connected', lastSync: '2 minutes ago', accountInfo: 'john@apexlaw.com' },
-  { id: 'apple-calendar', name: 'Apple Calendar', description: 'Sync with iCloud Calendar', category: 'calendar', icon: '🍎', status: 'disconnected' },
+const integrationConfigs: IntegrationConfig[] = [
+  // Calendar - Real integrations
+  { 
+    id: 'google-calendar', 
+    name: 'Google Calendar', 
+    description: 'Sync events and deadlines with Google Calendar. Two-way sync keeps your schedule updated.', 
+    category: 'calendar', 
+    icon: '📅', 
+    provider: 'google',
+    features: ['Two-way sync', 'Event import/export', 'Automatic updates']
+  },
+  { 
+    id: 'outlook-calendar', 
+    name: 'Microsoft Outlook Calendar', 
+    description: 'Sync with Outlook/Microsoft 365 calendar for seamless scheduling.', 
+    category: 'calendar', 
+    icon: '📆', 
+    provider: 'outlook',
+    features: ['Two-way sync', 'Microsoft 365 integration', 'Team calendars']
+  },
   
-  // Email
-  { id: 'gmail', name: 'Gmail', description: 'Link emails to matters and clients automatically', category: 'email', icon: '✉️', status: 'disconnected' },
-  { id: 'outlook-mail', name: 'Outlook Mail', description: 'Connect Microsoft 365 email', category: 'email', icon: '📧', status: 'connected', lastSync: '5 minutes ago', accountInfo: 'john@apexlaw.com' },
+  // Email - Real integrations
+  { 
+    id: 'outlook-mail', 
+    name: 'Outlook Mail', 
+    description: 'View recent emails, link emails to matters, and access your inbox from within Apex.', 
+    category: 'email', 
+    icon: '📧', 
+    provider: 'outlook',
+    features: ['Email viewing', 'Matter linking', 'Contact sync']
+  },
   
-  // Cloud Storage
-  { id: 'onedrive', name: 'OneDrive', description: 'Store and sync documents with OneDrive', category: 'storage', icon: '☁️', status: 'connected', lastSync: '1 hour ago', accountInfo: 'Apex Legal - 50GB used' },
-  { id: 'google-drive', name: 'Google Drive', description: 'Connect Google Drive for document storage', category: 'storage', icon: '📁', status: 'disconnected' },
-  { id: 'dropbox', name: 'Dropbox', description: 'Sync documents with Dropbox', category: 'storage', icon: '📦', status: 'disconnected' },
-  { id: 'sharepoint', name: 'SharePoint', description: 'Enterprise document management with SharePoint', category: 'storage', icon: '🏢', status: 'disconnected' },
+  // Accounting - Real integrations
+  { 
+    id: 'quickbooks', 
+    name: 'QuickBooks Online', 
+    description: 'Sync invoices, payments, and financial data with QuickBooks for comprehensive accounting.', 
+    category: 'accounting', 
+    icon: '📊', 
+    provider: 'quickbooks',
+    features: ['Invoice sync', 'Payment tracking', 'Bank account access', 'Financial reports']
+  },
   
-  // Payments
-  { id: 'stripe', name: 'Stripe', description: 'Accept credit card payments online', category: 'payment', icon: '💳', status: 'connected', accountInfo: 'apex_legal_llp' },
-  { id: 'lawpay', name: 'LawPay', description: 'Legal-specific payment processing', category: 'payment', icon: '⚖️', status: 'disconnected' },
-  { id: 'paypal', name: 'PayPal', description: 'Accept PayPal payments', category: 'payment', icon: '🅿️', status: 'disconnected' },
+  // Cloud Storage - Coming Soon
+  { 
+    id: 'onedrive', 
+    name: 'OneDrive', 
+    description: 'Store and sync documents with Microsoft OneDrive.', 
+    category: 'storage', 
+    icon: '☁️',
+    features: ['Document storage', 'File sharing', 'Version control']
+  },
+  { 
+    id: 'google-drive', 
+    name: 'Google Drive', 
+    description: 'Connect Google Drive for document storage and collaboration.', 
+    category: 'storage', 
+    icon: '📁',
+    features: ['Cloud storage', 'Collaboration', 'File sharing']
+  },
+  { 
+    id: 'dropbox', 
+    name: 'Dropbox', 
+    description: 'Sync documents with Dropbox for secure file storage.', 
+    category: 'storage', 
+    icon: '📦',
+    features: ['Secure storage', 'File sync', 'Team folders']
+  },
   
-  // Accounting
-  { id: 'quickbooks', name: 'QuickBooks Online', description: 'Sync invoices and payments with QuickBooks', category: 'accounting', icon: '📊', status: 'connected', lastSync: '1 day ago', accountInfo: 'Apex Legal Partners' },
-  { id: 'xero', name: 'Xero', description: 'Connect Xero accounting software', category: 'accounting', icon: '📈', status: 'disconnected' },
-  { id: 'freshbooks', name: 'FreshBooks', description: 'Sync with FreshBooks accounting', category: 'accounting', icon: '📒', status: 'disconnected' },
+  // Payments - Coming Soon
+  { 
+    id: 'stripe', 
+    name: 'Stripe', 
+    description: 'Accept credit card payments online with secure payment processing.', 
+    category: 'payment', 
+    icon: '💳',
+    features: ['Credit cards', 'ACH transfers', 'Recurring billing']
+  },
+  { 
+    id: 'lawpay', 
+    name: 'LawPay', 
+    description: 'Legal-specific payment processing with trust account compliance.', 
+    category: 'payment', 
+    icon: '⚖️',
+    features: ['Trust accounting', 'IOLTA compliant', 'Payment plans']
+  },
   
-  // E-Signature
-  { id: 'docusign', name: 'DocuSign', description: 'Send documents for electronic signature', category: 'esign', icon: '✍️', status: 'connected', accountInfo: 'Enterprise Plan' },
-  { id: 'adobe-sign', name: 'Adobe Sign', description: 'Adobe Acrobat e-signature integration', category: 'esign', icon: '📝', status: 'disconnected' },
-  { id: 'hellosign', name: 'HelloSign', description: 'Simple e-signature solution', category: 'esign', icon: '👋', status: 'disconnected' },
+  // E-Signature - Coming Soon
+  { 
+    id: 'docusign', 
+    name: 'DocuSign', 
+    description: 'Send documents for electronic signature with audit trails.', 
+    category: 'esign', 
+    icon: '✍️',
+    features: ['E-signatures', 'Templates', 'Audit trail']
+  },
   
-  // Communication
-  { id: 'slack', name: 'Slack', description: 'Get notifications and updates in Slack', category: 'communication', icon: '💬', status: 'disconnected' },
-  { id: 'teams', name: 'Microsoft Teams', description: 'Integrate with Microsoft Teams', category: 'communication', icon: '👥', status: 'connected', accountInfo: 'Apex Legal Workspace' },
-  { id: 'zoom', name: 'Zoom', description: 'Schedule and join Zoom meetings', category: 'communication', icon: '📹', status: 'connected', accountInfo: 'Pro Account' },
+  // Communication - Coming Soon
+  { 
+    id: 'slack', 
+    name: 'Slack', 
+    description: 'Get notifications and updates directly in your Slack workspace.', 
+    category: 'communication', 
+    icon: '💬',
+    features: ['Notifications', 'Matter updates', 'Team alerts']
+  },
+  { 
+    id: 'zoom', 
+    name: 'Zoom', 
+    description: 'Schedule and join Zoom meetings from calendar events.', 
+    category: 'communication', 
+    icon: '📹',
+    features: ['Meeting scheduling', 'Calendar sync', 'One-click join']
+  },
   
-  // AI Services
-  { id: 'azure-openai', name: 'Azure OpenAI', description: 'Power AI features with Azure OpenAI Service', category: 'ai', icon: '🤖', status: 'connected', accountInfo: 'GPT-4 Turbo' },
-  { id: 'azure-cognitive', name: 'Azure Cognitive Services', description: 'Document analysis and OCR capabilities', category: 'ai', icon: '🧠', status: 'connected', accountInfo: 'Form Recognizer enabled' }
+  // AI Services - Pre-configured
+  { 
+    id: 'azure-openai', 
+    name: 'Azure OpenAI', 
+    description: 'Power AI features with Azure OpenAI Service - pre-configured for Apex.', 
+    category: 'ai', 
+    icon: '🤖',
+    features: ['AI Assistant', 'Document analysis', 'Smart suggestions']
+  }
 ]
 
 const categoryLabels: Record<string, { label: string; icon: any }> = {
@@ -73,38 +170,160 @@ const categoryLabels: Record<string, { label: string; icon: any }> = {
 
 export function IntegrationsPage() {
   const { user } = useAuthStore()
-  const [integrations, setIntegrations] = useState(availableIntegrations)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [integrations, setIntegrations] = useState<Record<string, IntegrationStatus | null>>({
+    google: null,
+    quickbooks: null,
+    outlook: null,
+  })
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [connecting, setConnecting] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   const isAdmin = user?.role === 'admin' || user?.role === 'owner'
 
-  const handleConnect = async (integrationId: string) => {
-    setConnecting(integrationId)
-    // Simulate OAuth flow
-    await new Promise(resolve => setTimeout(resolve, 2000))
+  // Load integrations on mount
+  useEffect(() => {
+    loadIntegrations()
+  }, [])
+
+  // Handle OAuth callbacks
+  useEffect(() => {
+    const success = searchParams.get('success')
+    const error = searchParams.get('error')
     
-    setIntegrations(prev => prev.map(i => 
-      i.id === integrationId 
-        ? { ...i, status: 'connected' as const, lastSync: 'Just now' }
-        : i
-    ))
-    setConnecting(null)
+    if (success) {
+      setNotification({ type: 'success', message: `Successfully connected ${success}!` })
+      loadIntegrations()
+      // Clear search params
+      setSearchParams({})
+    } else if (error) {
+      setNotification({ type: 'error', message: `Connection failed: ${error}` })
+      setSearchParams({})
+    }
+  }, [searchParams])
+
+  // Auto-dismiss notifications
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [notification])
+
+  const loadIntegrations = async () => {
+    try {
+      const result = await integrationsApi.getAll()
+      setIntegrations(result.integrations)
+    } catch (error) {
+      console.error('Failed to load integrations:', error)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const handleDisconnect = (integrationId: string) => {
-    setIntegrations(prev => prev.map(i => 
-      i.id === integrationId 
-        ? { ...i, status: 'disconnected' as const, lastSync: undefined, accountInfo: undefined }
-        : i
-    ))
+  const handleConnect = async (provider: string) => {
+    setConnecting(provider)
+    try {
+      let response
+      switch (provider) {
+        case 'google':
+          response = await integrationsApi.connectGoogle()
+          break
+        case 'quickbooks':
+          response = await integrationsApi.connectQuickBooks()
+          break
+        case 'outlook':
+          response = await integrationsApi.connectOutlook()
+          break
+        default:
+          throw new Error('Unknown provider')
+      }
+      
+      if (response.authUrl) {
+        // Redirect to OAuth
+        window.location.href = response.authUrl
+      } else if (response.error) {
+        setNotification({ type: 'error', message: response.error })
+      }
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Connection failed' })
+    } finally {
+      setConnecting(null)
+    }
+  }
+
+  const handleDisconnect = async (provider: string) => {
+    try {
+      switch (provider) {
+        case 'google':
+          await integrationsApi.disconnectGoogle()
+          break
+        case 'quickbooks':
+          await integrationsApi.disconnectQuickBooks()
+          break
+        case 'outlook':
+          await integrationsApi.disconnectOutlook()
+          break
+      }
+      setNotification({ type: 'success', message: `Disconnected ${provider}` })
+      loadIntegrations()
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Disconnect failed' })
+    }
+  }
+
+  const handleSync = async (provider: string) => {
+    setSyncing(provider)
+    try {
+      let result
+      switch (provider) {
+        case 'google':
+          result = await integrationsApi.syncGoogle()
+          break
+        case 'quickbooks':
+          result = await integrationsApi.syncQuickBooks()
+          break
+        case 'outlook':
+          result = await integrationsApi.syncOutlookCalendar()
+          break
+      }
+      
+      if (result.syncedCount !== undefined) {
+        setNotification({ type: 'success', message: `Synced ${result.syncedCount} items from ${provider}` })
+      } else {
+        setNotification({ type: 'success', message: `${provider} sync completed` })
+      }
+      loadIntegrations()
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Sync failed' })
+    } finally {
+      setSyncing(null)
+    }
+  }
+
+  const getIntegrationStatus = (config: IntegrationConfig) => {
+    if (!config.provider) return null
+    return integrations[config.provider]
+  }
+
+  const isConnected = (config: IntegrationConfig) => {
+    const status = getIntegrationStatus(config)
+    return status?.isConnected === true
+  }
+
+  const isComingSoon = (config: IntegrationConfig) => {
+    return !config.provider || (config.category === 'storage' || config.category === 'payment' || config.category === 'esign' || config.category === 'communication')
   }
 
   const filteredIntegrations = selectedCategory 
-    ? integrations.filter(i => i.category === selectedCategory)
-    : integrations
+    ? integrationConfigs.filter(i => i.category === selectedCategory)
+    : integrationConfigs
 
-  const connectedCount = integrations.filter(i => i.status === 'connected').length
+  const connectedCount = integrationConfigs.filter(i => isConnected(i)).length
+  const activeIntegrations = integrationConfigs.filter(i => i.provider)
 
   if (!isAdmin) {
     return (
@@ -118,6 +337,15 @@ export function IntegrationsPage() {
 
   return (
     <div className={styles.integrationsPage}>
+      {/* Notification */}
+      {notification && (
+        <div className={`${styles.notification} ${styles[notification.type]}`}>
+          {notification.type === 'success' ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
+          <span>{notification.message}</span>
+          <button onClick={() => setNotification(null)}>×</button>
+        </div>
+      )}
+
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <h1>Integrations</h1>
@@ -129,7 +357,7 @@ export function IntegrationsPage() {
             <span className={styles.statLabel}>Connected</span>
           </div>
           <div className={styles.stat}>
-            <span className={styles.statValue}>{integrations.length - connectedCount}</span>
+            <span className={styles.statValue}>{activeIntegrations.length - connectedCount}</span>
             <span className={styles.statLabel}>Available</span>
           </div>
         </div>
@@ -141,13 +369,13 @@ export function IntegrationsPage() {
           <Shield size={24} />
         </div>
         <div className={styles.bannerContent}>
-          <h3>Enterprise-Grade Infrastructure</h3>
-          <p>All integrations use secure OAuth 2.0 authentication. Data is encrypted in transit (TLS 1.3) and at rest (AES-256). Your credentials are never stored.</p>
+          <h3>Secure OAuth 2.0 Connections</h3>
+          <p>All integrations use industry-standard OAuth 2.0 authentication. Your credentials are never stored - we only save secure access tokens that can be revoked at any time.</p>
         </div>
         <div className={styles.bannerBadges}>
-          <span><Lock size={14} /> SOC 2</span>
-          <span><Shield size={14} /> HIPAA</span>
-          <span><Globe size={14} /> GDPR</span>
+          <span><Lock size={14} /> OAuth 2.0</span>
+          <span><Shield size={14} /> Encrypted</span>
+          <span><Globe size={14} /> Revocable</span>
         </div>
       </div>
 
@@ -171,84 +399,177 @@ export function IntegrationsPage() {
         ))}
       </div>
 
-      {/* Integrations Grid */}
-      <div className={styles.integrationsGrid}>
-        {filteredIntegrations.map(integration => (
-          <div 
-            key={integration.id} 
-            className={`${styles.integrationCard} ${integration.status === 'connected' ? styles.connected : ''}`}
-          >
-            <div className={styles.integrationHeader}>
-              <span className={styles.integrationIcon}>{integration.icon}</span>
-              <div className={styles.integrationInfo}>
-                <h3>{integration.name}</h3>
-                <span className={styles.categoryTag}>
-                  {categoryLabels[integration.category].label}
-                </span>
-              </div>
-              <div className={`${styles.statusIndicator} ${styles[integration.status]}`}>
-                {integration.status === 'connected' ? (
-                  <CheckCircle2 size={18} />
-                ) : integration.status === 'error' ? (
-                  <XCircle size={18} />
-                ) : null}
-              </div>
-            </div>
-
-            <p className={styles.integrationDesc}>{integration.description}</p>
-
-            {integration.status === 'connected' && (
-              <div className={styles.connectedInfo}>
-                {integration.accountInfo && (
-                  <span className={styles.accountInfo}>{integration.accountInfo}</span>
-                )}
-                {integration.lastSync && (
-                  <span className={styles.lastSync}>
-                    <RefreshCw size={12} /> Synced {integration.lastSync}
-                  </span>
-                )}
-              </div>
-            )}
-
-            <div className={styles.integrationActions}>
-              {integration.status === 'connected' ? (
-                <>
-                  <button className={styles.settingsBtn}>
-                    <Settings size={16} />
-                    Configure
-                  </button>
-                  <button 
-                    className={styles.disconnectBtn}
-                    onClick={() => handleDisconnect(integration.id)}
-                  >
-                    Disconnect
-                  </button>
-                </>
-              ) : (
-                <button 
-                  className={styles.connectBtn}
-                  onClick={() => handleConnect(integration.id)}
-                  disabled={connecting === integration.id}
+      {loading ? (
+        <div className={styles.loading}>
+          <RefreshCw size={24} className={styles.spinning} />
+          <span>Loading integrations...</span>
+        </div>
+      ) : (
+        <>
+          {/* Integrations Grid */}
+          <div className={styles.integrationsGrid}>
+            {filteredIntegrations.map(config => {
+              const status = getIntegrationStatus(config)
+              const connected = isConnected(config)
+              const comingSoon = isComingSoon(config)
+              const isAI = config.category === 'ai'
+              
+              return (
+                <div 
+                  key={config.id} 
+                  className={`${styles.integrationCard} ${connected ? styles.connected : ''} ${comingSoon ? styles.comingSoon : ''}`}
                 >
-                  {connecting === integration.id ? (
-                    <>
-                      <RefreshCw size={16} className={styles.spinning} />
-                      Connecting...
-                    </>
-                  ) : (
-                    <>
-                      <Link2 size={16} />
-                      Connect
-                    </>
+                  {comingSoon && !isAI && (
+                    <div className={styles.comingSoonBadge}>Coming Soon</div>
                   )}
-                </button>
-              )}
-            </div>
+                  {isAI && (
+                    <div className={styles.preConfiguredBadge}>Pre-configured</div>
+                  )}
+                  
+                  <div className={styles.integrationHeader}>
+                    <span className={styles.integrationIcon}>{config.icon}</span>
+                    <div className={styles.integrationInfo}>
+                      <h3>{config.name}</h3>
+                      <span className={styles.categoryTag}>
+                        {categoryLabels[config.category].label}
+                      </span>
+                    </div>
+                    <div className={`${styles.statusIndicator} ${connected ? styles.connected : ''}`}>
+                      {connected && <CheckCircle2 size={18} />}
+                    </div>
+                  </div>
+
+                  <p className={styles.integrationDesc}>{config.description}</p>
+
+                  <div className={styles.featureList}>
+                    {config.features.map((feature, idx) => (
+                      <span key={idx} className={styles.featureTag}>{feature}</span>
+                    ))}
+                  </div>
+
+                  {connected && status && (
+                    <div className={styles.connectedInfo}>
+                      {(status.accountEmail || status.accountName) && (
+                        <span className={styles.accountInfo}>
+                          {status.accountEmail || status.accountName}
+                        </span>
+                      )}
+                      {status.lastSyncAt && (
+                        <span className={styles.lastSync}>
+                          <RefreshCw size={12} /> Last synced: {new Date(status.lastSyncAt).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  <div className={styles.integrationActions}>
+                    {isAI ? (
+                      <div className={styles.aiStatus}>
+                        <CheckCircle2 size={16} />
+                        <span>Active - AI features enabled</span>
+                      </div>
+                    ) : comingSoon ? (
+                      <button className={styles.comingSoonBtn} disabled>
+                        <Zap size={16} />
+                        Coming Soon
+                      </button>
+                    ) : connected ? (
+                      <>
+                        <button 
+                          className={styles.syncBtn}
+                          onClick={() => handleSync(config.provider!)}
+                          disabled={syncing === config.provider}
+                        >
+                          <RefreshCw size={16} className={syncing === config.provider ? styles.spinning : ''} />
+                          {syncing === config.provider ? 'Syncing...' : 'Sync Now'}
+                        </button>
+                        <button 
+                          className={styles.disconnectBtn}
+                          onClick={() => handleDisconnect(config.provider!)}
+                        >
+                          Disconnect
+                        </button>
+                      </>
+                    ) : (
+                      <button 
+                        className={styles.connectBtn}
+                        onClick={() => handleConnect(config.provider!)}
+                        disabled={connecting === config.provider}
+                      >
+                        {connecting === config.provider ? (
+                          <>
+                            <RefreshCw size={16} className={styles.spinning} />
+                            Connecting...
+                          </>
+                        ) : (
+                          <>
+                            <Link2 size={16} />
+                            Connect
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        ))}
+        </>
+      )}
+
+      {/* Setup Guide */}
+      <div className={styles.setupGuide}>
+        <h2>
+          <Settings size={20} />
+          Integration Setup Guide
+        </h2>
+        <div className={styles.setupGrid}>
+          <div className={styles.setupCard}>
+            <div className={styles.setupIcon}>
+              <Calendar size={28} />
+            </div>
+            <h4>Google Calendar</h4>
+            <ol>
+              <li>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noopener">Google Cloud Console</a></li>
+              <li>Create a new project or select existing</li>
+              <li>Enable Calendar API</li>
+              <li>Create OAuth 2.0 credentials</li>
+              <li>Add redirect URI: <code>{window.location.origin}/api/integrations/google/callback</code></li>
+              <li>Copy Client ID and Secret to your .env file</li>
+            </ol>
+          </div>
+          <div className={styles.setupCard}>
+            <div className={styles.setupIcon}>
+              <Calculator size={28} />
+            </div>
+            <h4>QuickBooks Online</h4>
+            <ol>
+              <li>Go to <a href="https://developer.intuit.com" target="_blank" rel="noopener">Intuit Developer Portal</a></li>
+              <li>Create a new app</li>
+              <li>Select QuickBooks Online Accounting</li>
+              <li>Copy OAuth keys</li>
+              <li>Add redirect URI: <code>{window.location.origin}/api/integrations/quickbooks/callback</code></li>
+              <li>Set environment (sandbox/production)</li>
+            </ol>
+          </div>
+          <div className={styles.setupCard}>
+            <div className={styles.setupIcon}>
+              <Mail size={28} />
+            </div>
+            <h4>Microsoft Outlook</h4>
+            <ol>
+              <li>Go to <a href="https://portal.azure.com" target="_blank" rel="noopener">Azure Portal</a></li>
+              <li>Register a new application in Azure AD</li>
+              <li>Add Microsoft Graph permissions (Mail.Read, Calendars.ReadWrite)</li>
+              <li>Create a client secret</li>
+              <li>Add redirect URI: <code>{window.location.origin}/api/integrations/outlook/callback</code></li>
+              <li>Copy Application ID and Secret</li>
+            </ol>
+          </div>
+        </div>
       </div>
 
-      {/* Data Flow Diagram */}
+      {/* Data Flow Section */}
       <div className={styles.dataFlowSection}>
         <h2>
           <Database size={20} />
@@ -259,48 +580,48 @@ export function IntegrationsPage() {
             <div className={styles.dataFlowIcon}>
               <Cloud size={32} />
             </div>
-            <h4>Azure Cloud Infrastructure</h4>
+            <h4>Cloud Infrastructure</h4>
             <ul>
-              <li>Azure SQL Database with geo-replication</li>
-              <li>Azure Blob Storage for documents</li>
-              <li>Azure Key Vault for secrets</li>
-              <li>Azure CDN for global delivery</li>
+              <li>Secure token storage</li>
+              <li>Encrypted at rest</li>
+              <li>Automatic token refresh</li>
+              <li>Multi-region availability</li>
             </ul>
           </div>
           <div className={styles.dataFlowCard}>
             <div className={styles.dataFlowIcon}>
               <Lock size={32} />
             </div>
-            <h4>Security & Encryption</h4>
+            <h4>Security</h4>
             <ul>
-              <li>AES-256 encryption at rest</li>
-              <li>TLS 1.3 encryption in transit</li>
-              <li>Customer-managed encryption keys</li>
-              <li>Zero-knowledge architecture option</li>
+              <li>OAuth 2.0 standard</li>
+              <li>No password storage</li>
+              <li>Revocable access tokens</li>
+              <li>Audit logging</li>
             </ul>
           </div>
           <div className={styles.dataFlowCard}>
             <div className={styles.dataFlowIcon}>
               <Shield size={32} />
             </div>
-            <h4>Compliance & Certifications</h4>
+            <h4>Compliance</h4>
             <ul>
-              <li>SOC 2 Type II certified</li>
-              <li>HIPAA compliant</li>
-              <li>GDPR compliant</li>
+              <li>SOC 2 compliant providers</li>
+              <li>GDPR data handling</li>
               <li>State bar ethics compliant</li>
+              <li>Data isolation by firm</li>
             </ul>
           </div>
           <div className={styles.dataFlowCard}>
             <div className={styles.dataFlowIcon}>
               <Zap size={32} />
             </div>
-            <h4>Performance & Reliability</h4>
+            <h4>Sync Features</h4>
             <ul>
-              <li>99.99% uptime SLA</li>
-              <li>Automatic failover</li>
-              <li>Daily encrypted backups</li>
-              <li>30-day backup retention</li>
+              <li>Manual sync on demand</li>
+              <li>Incremental updates</li>
+              <li>Conflict resolution</li>
+              <li>Sync status tracking</li>
             </ul>
           </div>
         </div>

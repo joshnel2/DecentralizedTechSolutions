@@ -534,6 +534,59 @@ export const aiApi = {
   },
 };
 
+// ============================================
+// INTEGRATIONS API
+// ============================================
+
+export const integrationsApi = {
+  async getAll() {
+    return fetchWithAuth('/integrations');
+  },
+
+  // Google Calendar
+  async connectGoogle() {
+    return fetchWithAuth('/integrations/google/connect');
+  },
+
+  async disconnectGoogle() {
+    return fetchWithAuth('/integrations/google/disconnect', { method: 'POST' });
+  },
+
+  async syncGoogle() {
+    return fetchWithAuth('/integrations/google/sync', { method: 'POST' });
+  },
+
+  // QuickBooks
+  async connectQuickBooks() {
+    return fetchWithAuth('/integrations/quickbooks/connect');
+  },
+
+  async disconnectQuickBooks() {
+    return fetchWithAuth('/integrations/quickbooks/disconnect', { method: 'POST' });
+  },
+
+  async syncQuickBooks() {
+    return fetchWithAuth('/integrations/quickbooks/sync', { method: 'POST' });
+  },
+
+  // Outlook
+  async connectOutlook() {
+    return fetchWithAuth('/integrations/outlook/connect');
+  },
+
+  async disconnectOutlook() {
+    return fetchWithAuth('/integrations/outlook/disconnect', { method: 'POST' });
+  },
+
+  async getOutlookEmails() {
+    return fetchWithAuth('/integrations/outlook/emails');
+  },
+
+  async syncOutlookCalendar() {
+    return fetchWithAuth('/integrations/outlook/sync-calendar', { method: 'POST' });
+  },
+};
+
 // Export all APIs
 export default {
   auth: authApi,
@@ -546,4 +599,5 @@ export default {
   team: teamApi,
   firm: firmApi,
   ai: aiApi,
+  integrations: integrationsApi,
 };
