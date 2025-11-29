@@ -5,8 +5,10 @@ import path from 'path';
 import fs from 'fs/promises';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
-import pdf from 'pdf-parse/lib/pdf-parse.js';
 import mammoth from 'mammoth';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
 
 const router = Router();
 
@@ -224,7 +226,7 @@ router.get('/:id/content', authenticate, requirePermission('documents:view'), as
     if (ext === '.pdf') {
       try {
         const dataBuffer = await fs.readFile(doc.path);
-        const pdfData = await pdf(dataBuffer);
+        const pdfData = await pdfParse(dataBuffer);
         textContent = pdfData.text;
       } catch (pdfError) {
         console.error('PDF parse error:', pdfError);
