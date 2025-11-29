@@ -33,7 +33,7 @@ const upload = multer({
     fileSize: parseInt(process.env.MAX_FILE_SIZE) || 50 * 1024 * 1024, // 50MB default
   },
   fileFilter: (req, file, cb) => {
-    // Allow common document types
+    // Allow common document types by MIME type
     const allowedTypes = [
       'application/pdf',
       'application/msword',
@@ -48,12 +48,21 @@ const upload = multer({
       'image/png',
       'image/gif',
       'image/webp',
+      'application/octet-stream', // Fallback for some browsers
     ];
 
-    if (allowedTypes.includes(file.mimetype)) {
+    // Also allow by file extension as fallback
+    const allowedExtensions = [
+      '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+      '.txt', '.csv', '.jpg', '.jpeg', '.png', '.gif', '.webp'
+    ];
+    
+    const ext = path.extname(file.originalname).toLowerCase();
+
+    if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('File type not allowed'), false);
+      cb(new Error(`File type not allowed: ${file.mimetype} (${ext})`), false);
     }
   },
 });
