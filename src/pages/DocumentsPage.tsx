@@ -1,10 +1,10 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
-import { useAIChat } from '../contexts/AIChatContext'
+import { useAIStore } from '../stores/aiStore'
 import { 
   Plus, Search, FolderOpen, FileText, Upload, Grid, List,
-  MoreVertical, Sparkles, Download, Trash2, Wand2, Eye, X
+  MoreVertical, Sparkles, Download, Trash2, Wand2, Eye, X, FileSearch
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -13,7 +13,7 @@ import styles from './DocumentsPage.module.css'
 export function DocumentsPage() {
   const navigate = useNavigate()
   const { documents, matters, fetchDocuments, fetchMatters, addDocument } = useDataStore()
-  const { openChat } = useAIChat()
+  const { setSelectedMode, setDocumentContext, createConversation } = useAIStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isUploading, setIsUploading] = useState(false)
   
@@ -85,10 +85,53 @@ export function DocumentsPage() {
     return `${(bytes / 1024 / 1024).toFixed(2)} MB`
   }
 
-  const analyzeDocument = (doc: typeof documents[0]) => {
-    const matterName = getMatterName(doc.matterId)
-    const prompt = `Analyze this document: "${doc.name}" (${doc.type}, ${formatFileSize(doc.size)})${matterName ? ` from matter "${matterName}"` : ''}. Uploaded on ${format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}. Please provide a summary, key points, and any recommendations.`
-    openChat(prompt)
+  const analyzeDocument = async (doc: typeof documents[0]) => {
+    // Fetch document content from server
+    try {
+      const response = await fetch(getDocumentUrl(doc), {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken') || ''}`
+        }
+      })
+      
+      let content = ''
+      if (response.ok) {
+        // Try to read as text
+        const blob = await response.blob()
+        if (doc.type?.includes('text') || doc.name.match(/\.(txt|md|json|csv|xml|html)$/i)) {
+          content = await blob.text()
+        } else {
+          content = `[Document: ${doc.name}]\nType: ${doc.type}\nSize: ${formatFileSize(doc.size)}\n\nThis document has been loaded for analysis. Please ask any questions about it.`
+        }
+      } else {
+        content = `[Document: ${doc.name}]\nType: ${doc.type}\nSize: ${formatFileSize(doc.size)}\n\nDocument loaded for analysis.`
+      }
+      
+      // Set document context and navigate to AI page
+      setSelectedMode('document')
+      setDocumentContext({
+        id: doc.id,
+        name: doc.name,
+        content: content,
+        type: doc.type,
+        size: doc.size
+      })
+      createConversation('document')
+      navigate('/app/ai')
+    } catch (error) {
+      console.error('Failed to load document:', error)
+      // Navigate anyway with basic info
+      setSelectedMode('document')
+      setDocumentContext({
+        id: doc.id,
+        name: doc.name,
+        content: `[Document: ${doc.name}]\nType: ${doc.type}\nSize: ${formatFileSize(doc.size)}`,
+        type: doc.type,
+        size: doc.size
+      })
+      createConversation('document')
+      navigate('/app/ai')
+    }
   }
 
   const getDocumentUrl = (doc: typeof documents[0]) => {

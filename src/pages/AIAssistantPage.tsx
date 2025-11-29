@@ -1,230 +1,267 @@
 import { useState, useRef, useEffect } from 'react'
-import { useAIStore, type AIModel } from '../stores/aiStore'
+import { useSearchParams } from 'react-router-dom'
+import { useAIStore, type AIMode } from '../stores/aiStore'
 import { useAuthStore } from '../stores/authStore'
-import { useDataStore } from '../stores/dataStore'
 import { 
   Sparkles, Send, Plus, MessageSquare, Trash2, 
-  MessageCircle, FileEdit, Files, Zap, Settings,
-  User, Briefcase, Scale, BookOpen, HelpCircle,
-  SlidersHorizontal, Brain, Target, Clock, Paperclip, X, FileText
+  MessageCircle, FileEdit, FileText, Paperclip, X,
+  FileSearch, History, ChevronRight
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './AIAssistantPage.module.css'
 
-// Model configurations for display
-const AI_MODELS = {
-  standard: {
-    id: 'standard' as AIModel,
-    name: 'Standard Chat',
-    description: 'Balanced AI for general legal queries and everyday tasks',
-    icon: <MessageCircle size={24} />,
-    color: '#3B82F6'
+// Mode configurations
+const AI_MODES = {
+  document: {
+    id: 'document' as AIMode,
+    name: 'Document Analyzer',
+    description: 'Upload a document and ask questions about it',
+    icon: <FileSearch size={24} />,
+    color: '#10B981',
+    placeholder: 'Ask about this document...'
   },
   redline: {
-    id: 'redline' as AIModel,
+    id: 'redline' as AIMode,
     name: 'Redline AI',
-    description: 'Contract comparison, markup, and clause analysis',
+    description: 'Compare two documents and identify changes',
     icon: <FileEdit size={24} />,
-    color: '#EF4444'
+    color: '#EF4444',
+    placeholder: 'Compare these documents...'
   },
-  'large-docs': {
-    id: 'large-docs' as AIModel,
-    name: 'Large Documents',
-    description: 'Process lengthy documents, due diligence, discovery',
-    icon: <Files size={24} />,
-    color: '#8B5CF6'
-  },
-  fast: {
-    id: 'fast' as AIModel,
-    name: 'Fast',
-    description: 'Quick responses for simple queries and formatting',
-    icon: <Zap size={24} />,
-    color: '#F59E0B'
+  standard: {
+    id: 'standard' as AIMode,
+    name: 'Standard Chat',
+    description: 'General legal assistant for research and drafting',
+    icon: <MessageCircle size={24} />,
+    color: '#8B5CF6',
+    placeholder: 'Ask anything...'
   }
 }
 
 export function AIAssistantPage() {
+  const [searchParams] = useSearchParams()
   const { 
     conversations, 
     activeConversationId, 
-    selectedModel,
+    selectedMode,
     isLoading,
-    setSelectedModel,
+    documentContext,
+    redlineDocuments,
+    setSelectedMode,
+    setDocumentContext,
+    setRedlineDocument,
     createConversation, 
     setActiveConversation,
     generateResponse,
-    deleteConversation
+    deleteConversation,
+    clearDocumentContext
   } = useAIStore()
   const { user } = useAuthStore()
-  const { matters } = useDataStore()
   const [input, setInput] = useState('')
-  const [activeTab, setActiveTab] = useState<'models' | 'help' | 'personalize'>('models')
+  const [showHistory, setShowHistory] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [attachedFile, setAttachedFile] = useState<{ name: string; content: string } | null>(null)
-
-  // Personalization state
-  const [preferences, setPreferences] = useState({
-    responseStyle: 'balanced',
-    practiceAreas: ['litigation', 'corporate'],
-    jurisdiction: 'federal',
-    citationFormat: 'bluebook',
-    autoSummarize: true,
-    proactiveInsights: true
-  })
+  const redlineInput1Ref = useRef<HTMLInputElement>(null)
+  const redlineInput2Ref = useRef<HTMLInputElement>(null)
 
   const activeConversation = conversations.find(c => c.id === activeConversationId)
-  const currentModel = AI_MODELS[selectedModel]
+  const currentMode = AI_MODES[selectedMode]
+
+  // Handle document passed via URL params (from Documents page)
+  useEffect(() => {
+    const docId = searchParams.get('docId')
+    const docName = searchParams.get('docName')
+    const docContent = searchParams.get('docContent')
+    
+    if (docName && docContent) {
+      setSelectedMode('document')
+      setDocumentContext({
+        id: docId || undefined,
+        name: decodeURIComponent(docName),
+        content: decodeURIComponent(docContent)
+      })
+      createConversation('document')
+    }
+  }, [searchParams])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeConversation?.messages])
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, target?: 'doc1' | 'doc2') => {
     const file = e.target.files?.[0]
     if (!file) return
 
-    // Read file contents
     const reader = new FileReader()
     reader.onload = (event) => {
       const content = event.target?.result as string
-      setAttachedFile({ name: file.name, content })
+      const doc = { 
+        name: file.name, 
+        content,
+        type: file.type,
+        size: file.size
+      }
+      
+      if (selectedMode === 'redline' && target) {
+        setRedlineDocument(target, doc)
+      } else {
+        setDocumentContext(doc)
+      }
     }
     
-    // Read as text for text files, or notify for binary
-    if (file.type.includes('text') || file.name.endsWith('.txt') || file.name.endsWith('.md') || 
-        file.name.endsWith('.json') || file.name.endsWith('.csv') || file.name.endsWith('.xml') ||
-        file.name.endsWith('.html') || file.name.endsWith('.js') || file.name.endsWith('.ts')) {
+    // Read text-based files
+    if (file.type.includes('text') || 
+        file.name.match(/\.(txt|md|json|csv|xml|html|js|ts|jsx|tsx)$/i)) {
       reader.readAsText(file)
     } else if (file.type.includes('pdf')) {
-      // For PDFs, we'll just note the file name - full PDF parsing would need a library
-      setAttachedFile({ 
+      // For PDFs, note that we need server-side parsing for full content
+      setDocumentContext({ 
         name: file.name, 
-        content: `[PDF Document: ${file.name} - ${(file.size / 1024).toFixed(1)} KB]\n\nNote: Please describe what you'd like me to help with regarding this document.` 
+        content: `[PDF Document: ${file.name}]\n\nThis PDF contains ${(file.size / 1024).toFixed(1)} KB of data. I can help you with questions about this document based on its metadata and any text content that was extracted.`,
+        type: file.type,
+        size: file.size
       })
     } else {
-      setAttachedFile({ 
-        name: file.name, 
-        content: `[File: ${file.name} - ${(file.size / 1024).toFixed(1)} KB]` 
-      })
+      // For other files (doc, docx), read as text (may work for some)
+      reader.readAsText(file)
     }
 
     // Reset input
-    if (fileInputRef.current) fileInputRef.current.value = ''
+    e.target.value = ''
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if ((!input.trim() && !attachedFile) || isLoading) return
+    if (!input.trim() || isLoading) return
 
     let conversationId = activeConversationId
     if (!conversationId) {
-      const newConv = createConversation()
+      const newConv = createConversation(selectedMode)
       conversationId = newConv.id
     }
 
-    // Build message with file content if attached
-    let message = input
-    if (attachedFile) {
-      message = `[Attached: ${attachedFile.name}]\n\n--- FILE CONTENT ---\n${attachedFile.content}\n--- END FILE ---\n\n${input || 'Please analyze this document.'}`
-      setAttachedFile(null)
-    }
-
+    const userMessage = input
     setInput('')
-    await generateResponse(conversationId, message)
+    await generateResponse(conversationId, userMessage)
+  }
+
+  const handleModeSelect = (mode: AIMode) => {
+    setSelectedMode(mode)
+    clearDocumentContext()
+    setActiveConversation(null)
   }
 
   const handleNewChat = () => {
-    createConversation()
+    clearDocumentContext()
+    createConversation(selectedMode)
   }
 
-  const handleModelSelect = (model: AIModel, initialMessage?: string) => {
-    setSelectedModel(model)
-    const newConv = createConversation()
-    if (initialMessage) {
-      setInput(initialMessage)
-      // Auto-send the message after a short delay to allow state to update
-      setTimeout(() => {
-        generateResponse(newConv.id, initialMessage)
-        setInput('')
-      }, 100)
-    }
+  const startDocumentAnalysis = () => {
+    if (!documentContext) return
+    createConversation('document')
+  }
+
+  const startRedlineComparison = () => {
+    if (!redlineDocuments.doc1 || !redlineDocuments.doc2) return
+    const conv = createConversation('redline')
+    generateResponse(conv.id, 'Please compare these two documents, identify all changes, and highlight the key differences.')
   }
 
   return (
     <div className={styles.aiPage}>
-      {/* Sidebar */}
-      <div className={styles.sidebar}>
-        <button className={styles.newChatBtn} onClick={handleNewChat}>
-          <Plus size={18} />
-          New Chat
-        </button>
-
-        <div className={styles.conversationsList}>
-          <h4>Recent Conversations</h4>
-          {conversations.length === 0 ? (
-            <div className={styles.noConversations}>
-              <MessageSquare size={20} />
-              <span>No conversations yet</span>
-            </div>
-          ) : (
-            conversations.map(conv => (
-              <div 
-                key={conv.id}
-                className={clsx(
-                  styles.conversationItem,
-                  conv.id === activeConversationId && styles.active
-                )}
-                onClick={() => setActiveConversation(conv.id)}
-              >
-                <MessageSquare size={16} />
-                <div className={styles.convInfo}>
-                  <span className={styles.convTitle}>{conv.title}</span>
-                  <span className={styles.convDate}>
-                    {format(parseISO(conv.updatedAt), 'MMM d')}
-                  </span>
-                </div>
-                <button 
-                  className={styles.deleteBtn}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    deleteConversation(conv.id)
-                  }}
+      {/* Left Panel - Mode Selection & History */}
+      <div className={styles.leftPanel}>
+        <div className={styles.modeSection}>
+          <h3>AI Assistant</h3>
+          <div className={styles.modeButtons}>
+            {(Object.keys(AI_MODES) as AIMode[]).map((modeId) => {
+              const mode = AI_MODES[modeId]
+              return (
+                <button
+                  key={modeId}
+                  className={clsx(styles.modeBtn, selectedMode === modeId && styles.active)}
+                  onClick={() => handleModeSelect(modeId)}
+                  style={{ '--mode-color': mode.color } as React.CSSProperties}
                 >
-                  <Trash2 size={14} />
+                  <div className={styles.modeBtnIcon}>{mode.icon}</div>
+                  <div className={styles.modeBtnText}>
+                    <span className={styles.modeBtnName}>{mode.name}</span>
+                    <span className={styles.modeBtnDesc}>{mode.description}</span>
+                  </div>
                 </button>
-              </div>
-            ))
+              )
+            })}
+          </div>
+        </div>
+
+        <div className={styles.historySection}>
+          <button 
+            className={styles.historyToggle}
+            onClick={() => setShowHistory(!showHistory)}
+          >
+            <History size={18} />
+            <span>Chat History</span>
+            <ChevronRight size={16} className={clsx(styles.chevron, showHistory && styles.open)} />
+          </button>
+          
+          {showHistory && (
+            <div className={styles.historyList}>
+              {conversations.length === 0 ? (
+                <div className={styles.noHistory}>No conversations yet</div>
+              ) : (
+                conversations.slice(0, 10).map(conv => (
+                  <div 
+                    key={conv.id}
+                    className={clsx(styles.historyItem, conv.id === activeConversationId && styles.active)}
+                    onClick={() => setActiveConversation(conv.id)}
+                  >
+                    <MessageSquare size={14} />
+                    <span className={styles.historyTitle}>{conv.title}</span>
+                    <span className={styles.historyDate}>
+                      {format(parseISO(conv.updatedAt), 'MMM d')}
+                    </span>
+                    <button 
+                      className={styles.historyDelete}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        deleteConversation(conv.id)
+                      }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
           )}
         </div>
 
-        <div className={styles.sidebarFooter}>
-          <div className={styles.aiPowered}>
-            <Sparkles size={14} />
-            Powered by Azure OpenAI
-          </div>
+        <div className={styles.poweredBy}>
+          <Sparkles size={14} />
+          <span>Powered by Azure OpenAI</span>
         </div>
       </div>
 
-      {/* Main Chat Area */}
-      <div className={styles.chatArea}>
+      {/* Main Content Area */}
+      <div className={styles.mainArea}>
         {activeConversation ? (
+          // Chat View
           <>
-            {/* Model indicator bar */}
-            <div className={styles.modelBar} style={{ borderColor: currentModel.color }}>
-              <div className={styles.modelBarIcon} style={{ color: currentModel.color }}>
-                {currentModel.icon}
+            <div className={styles.chatHeader}>
+              <div className={styles.chatHeaderMode} style={{ color: currentMode.color }}>
+                {currentMode.icon}
+                <span>{currentMode.name}</span>
               </div>
-              <div className={styles.modelBarInfo}>
-                <span className={styles.modelBarName}>{currentModel.name}</span>
-                <span className={styles.modelBarDesc}>{currentModel.description}</span>
-              </div>
-              <button 
-                className={styles.switchModelBtn}
-                onClick={() => setActiveConversation(null)}
-              >
-                Switch Model
+              {documentContext && selectedMode === 'document' && (
+                <div className={styles.documentIndicator}>
+                  <FileText size={14} />
+                  <span>{documentContext.name}</span>
+                </div>
+              )}
+              <button className={styles.newChatBtn} onClick={handleNewChat}>
+                <Plus size={16} />
+                New Chat
               </button>
             </div>
 
@@ -238,16 +275,14 @@ export function AIAssistantPage() {
                   )}
                 >
                   {message.role === 'assistant' && (
-                    <div className={styles.aiAvatar} style={{ background: `linear-gradient(135deg, ${currentModel.color}, ${currentModel.color}88)` }}>
+                    <div className={styles.aiAvatar} style={{ background: currentMode.color }}>
                       <Sparkles size={16} />
                     </div>
                   )}
                   <div className={styles.messageContent}>
                     <div 
                       className={styles.messageText}
-                      dangerouslySetInnerHTML={{ 
-                        __html: formatMessageContent(message.content) 
-                      }}
+                      dangerouslySetInnerHTML={{ __html: formatMessageContent(message.content) }}
                     />
                     <span className={styles.messageTime}>
                       {format(parseISO(message.timestamp), 'h:mm a')}
@@ -257,14 +292,12 @@ export function AIAssistantPage() {
               ))}
               {isLoading && (
                 <div className={clsx(styles.message, styles.aiMessage)}>
-                  <div className={styles.aiAvatar} style={{ background: `linear-gradient(135deg, ${currentModel.color}, ${currentModel.color}88)` }}>
+                  <div className={styles.aiAvatar} style={{ background: currentMode.color }}>
                     <Sparkles size={16} />
                   </div>
                   <div className={styles.messageContent}>
                     <div className={styles.typingIndicator}>
-                      <span></span>
-                      <span></span>
-                      <span></span>
+                      <span></span><span></span><span></span>
                     </div>
                   </div>
                 </div>
@@ -273,339 +306,217 @@ export function AIAssistantPage() {
             </div>
 
             <form onSubmit={handleSubmit} className={styles.inputArea}>
-              {attachedFile && (
-                <div className={styles.attachedFile}>
-                  <FileText size={16} />
-                  <span>{attachedFile.name}</span>
-                  <button type="button" onClick={() => setAttachedFile(null)}>
-                    <X size={14} />
-                  </button>
-                </div>
-              )}
               <div className={styles.inputRow}>
-                <button 
-                  type="button" 
-                  className={styles.attachBtn}
-                  onClick={() => fileInputRef.current?.click()}
-                  title="Attach file"
-                >
-                  <Paperclip size={18} />
-                </button>
+                {selectedMode === 'document' && (
+                  <button 
+                    type="button" 
+                    className={styles.attachBtn}
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Attach document"
+                  >
+                    <Paperclip size={18} />
+                  </button>
+                )}
+                <input type="hidden" />
                 <input
                   type="file"
                   ref={fileInputRef}
-                  onChange={handleFileUpload}
+                  onChange={(e) => handleFileUpload(e)}
                   style={{ display: 'none' }}
-                  accept=".txt,.md,.json,.csv,.xml,.html,.js,.ts,.pdf,.doc,.docx"
+                  accept=".txt,.md,.json,.csv,.xml,.html,.pdf,.doc,.docx"
                 />
                 <input
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder={attachedFile ? "Add a message about this file..." : `Message ${currentModel.name}...`}
+                  placeholder={currentMode.placeholder}
                   disabled={isLoading}
                 />
-                <button type="submit" disabled={isLoading || (!input.trim() && !attachedFile)}>
+                <button type="submit" disabled={isLoading || !input.trim()}>
                   <Send size={18} />
                 </button>
               </div>
             </form>
           </>
         ) : (
-          <div className={styles.welcomeScreen}>
-            <div className={styles.welcomeHeader}>
-              <div className={styles.welcomeIcon}>
-                <Sparkles size={40} />
+          // Mode Setup View
+          <div className={styles.setupView}>
+            {selectedMode === 'document' && (
+              <div className={styles.documentSetup}>
+                <div className={styles.setupIcon} style={{ color: AI_MODES.document.color }}>
+                  <FileSearch size={48} />
+                </div>
+                <h2>Document Analyzer</h2>
+                <p>Upload a document to analyze. Ask questions, get summaries, or extract key information.</p>
+                
+                {documentContext ? (
+                  <div className={styles.uploadedDoc}>
+                    <FileText size={24} />
+                    <div className={styles.uploadedDocInfo}>
+                      <span className={styles.uploadedDocName}>{documentContext.name}</span>
+                      <span className={styles.uploadedDocMeta}>
+                        {documentContext.type} • Ready to analyze
+                      </span>
+                    </div>
+                    <button onClick={() => setDocumentContext(null)} className={styles.removeDoc}>
+                      <X size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <button 
+                    className={styles.uploadBtn}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Paperclip size={20} />
+                    Upload Document
+                  </button>
+                )}
+                
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={(e) => handleFileUpload(e)}
+                  style={{ display: 'none' }}
+                  accept=".txt,.md,.json,.csv,.xml,.html,.pdf,.doc,.docx"
+                />
+                
+                {documentContext && (
+                  <button 
+                    className={styles.startBtn}
+                    onClick={startDocumentAnalysis}
+                    style={{ background: AI_MODES.document.color }}
+                  >
+                    Start Analysis
+                    <ChevronRight size={18} />
+                  </button>
+                )}
               </div>
-              <div>
-                <h2>Apex AI Assistant</h2>
-                <p>Your AI-powered legal practice companion</p>
-              </div>
-            </div>
+            )}
 
-            {/* Tab Navigation */}
-            <div className={styles.tabNav}>
-              <button 
-                className={clsx(styles.tabBtn, activeTab === 'models' && styles.active)}
-                onClick={() => setActiveTab('models')}
-              >
-                <Brain size={18} />
-                AI Models
-              </button>
-              <button 
-                className={clsx(styles.tabBtn, activeTab === 'help' && styles.active)}
-                onClick={() => setActiveTab('help')}
-              >
-                <HelpCircle size={18} />
-                Help & Guide
-              </button>
-              <button 
-                className={clsx(styles.tabBtn, activeTab === 'personalize' && styles.active)}
-                onClick={() => setActiveTab('personalize')}
-              >
-                <SlidersHorizontal size={18} />
-                Personalize
-              </button>
-            </div>
-
-            {/* Models Tab */}
-            {activeTab === 'models' && (
-              <div className={styles.tabContent}>
-                <div className={styles.modelCards}>
-                  {(Object.keys(AI_MODELS) as AIModel[]).map((modelId) => {
-                    const model = AI_MODELS[modelId]
-                    return (
-                      <button
-                        key={modelId}
-                        className={styles.modelCard}
-                        onClick={() => handleModelSelect(modelId)}
-                        style={{ '--model-color': model.color } as React.CSSProperties}
+            {selectedMode === 'redline' && (
+              <div className={styles.redlineSetup}>
+                <div className={styles.setupIcon} style={{ color: AI_MODES.redline.color }}>
+                  <FileEdit size={48} />
+                </div>
+                <h2>Redline AI</h2>
+                <p>Upload two versions of a document to compare. I'll identify all changes and highlight key differences.</p>
+                
+                <div className={styles.redlineUploads}>
+                  <div className={styles.redlineUpload}>
+                    <span className={styles.redlineLabel}>Original Document</span>
+                    {redlineDocuments.doc1 ? (
+                      <div className={styles.uploadedDoc}>
+                        <FileText size={20} />
+                        <span>{redlineDocuments.doc1.name}</span>
+                        <button onClick={() => setRedlineDocument('doc1', null)}>
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button 
+                        className={styles.redlineUploadBtn}
+                        onClick={() => redlineInput1Ref.current?.click()}
                       >
-                        <div className={styles.modelCardIcon}>
-                          {model.icon}
-                        </div>
-                        <div className={styles.modelCardContent}>
-                          <h3>{model.name}</h3>
-                          <p>{model.description}</p>
-                        </div>
-                        <div className={styles.modelCardArrow}>→</div>
+                        <Paperclip size={16} />
+                        Upload Original
                       </button>
-                    )
-                  })}
-                </div>
-
-                <div className={styles.quickStart}>
-                  <h4>Quick Start</h4>
-                  <div className={styles.suggestions}>
-                    <button onClick={() => handleModelSelect('standard', 'Research case law on patent infringement')}>
-                      <Scale size={16} />
-                      Research case law on patent infringement
-                    </button>
-                    <button onClick={() => handleModelSelect('redline', 'I need to compare two contract versions and identify changes')}>
-                      <FileEdit size={16} />
-                      Compare contract versions with Redline AI
-                    </button>
-                    <button onClick={() => handleModelSelect('large-docs', 'I have a large document that needs analysis')}>
-                      <Files size={16} />
-                      Analyze large documents
-                    </button>
-                    <button onClick={() => handleModelSelect('fast', 'Explain recent changes to employment law briefly')}>
-                      <Zap size={16} />
-                      Quick legal question
-                    </button>
+                    )}
+                    <input
+                      type="file"
+                      ref={redlineInput1Ref}
+                      onChange={(e) => handleFileUpload(e, 'doc1')}
+                      style={{ display: 'none' }}
+                      accept=".txt,.md,.json,.csv,.xml,.html,.pdf,.doc,.docx"
+                    />
+                  </div>
+                  
+                  <div className={styles.redlineVs}>VS</div>
+                  
+                  <div className={styles.redlineUpload}>
+                    <span className={styles.redlineLabel}>Revised Document</span>
+                    {redlineDocuments.doc2 ? (
+                      <div className={styles.uploadedDoc}>
+                        <FileText size={20} />
+                        <span>{redlineDocuments.doc2.name}</span>
+                        <button onClick={() => setRedlineDocument('doc2', null)}>
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button 
+                        className={styles.redlineUploadBtn}
+                        onClick={() => redlineInput2Ref.current?.click()}
+                      >
+                        <Paperclip size={16} />
+                        Upload Revised
+                      </button>
+                    )}
+                    <input
+                      type="file"
+                      ref={redlineInput2Ref}
+                      onChange={(e) => handleFileUpload(e, 'doc2')}
+                      style={{ display: 'none' }}
+                      accept=".txt,.md,.json,.csv,.xml,.html,.pdf,.doc,.docx"
+                    />
                   </div>
                 </div>
+                
+                {redlineDocuments.doc1 && redlineDocuments.doc2 && (
+                  <button 
+                    className={styles.startBtn}
+                    onClick={startRedlineComparison}
+                    style={{ background: AI_MODES.redline.color }}
+                  >
+                    Compare Documents
+                    <ChevronRight size={18} />
+                  </button>
+                )}
               </div>
             )}
 
-            {/* Help Tab */}
-            {activeTab === 'help' && (
-              <div className={styles.tabContent}>
-                <div className={styles.helpSection}>
-                  <h3>Getting Started</h3>
-                  <div className={styles.helpCards}>
-                    <button className={styles.helpCard} onClick={() => handleModelSelect('standard')}>
-                      <div className={styles.helpCardIcon}>
-                        <MessageCircle size={24} />
-                      </div>
-                      <h4>Standard Chat</h4>
-                      <p>Best for general legal questions, research queries, case analysis, and drafting assistance.</p>
-                      <ul>
-                        <li>Legal research and case law lookup</li>
-                        <li>Document drafting and review</li>
-                        <li>Matter summarization</li>
-                        <li>Client communication drafts</li>
-                      </ul>
-                    </button>
-                    <button className={styles.helpCard} onClick={() => handleModelSelect('redline')}>
-                      <div className={styles.helpCardIcon} style={{ color: '#EF4444', background: 'rgba(239, 68, 68, 0.1)' }}>
-                        <FileEdit size={24} />
-                      </div>
-                      <h4>Redline AI</h4>
-                      <p>Specialized for contract review and comparison. Get detailed markup and analysis.</p>
-                      <ul>
-                        <li>Compare contract versions</li>
-                        <li>Identify clause changes</li>
-                        <li>Risk assessment</li>
-                        <li>Negotiation suggestions</li>
-                      </ul>
-                    </button>
-                    <button className={styles.helpCard} onClick={() => handleModelSelect('large-docs')}>
-                      <div className={styles.helpCardIcon} style={{ color: '#8B5CF6', background: 'rgba(139, 92, 246, 0.1)' }}>
-                        <Files size={24} />
-                      </div>
-                      <h4>Large Documents</h4>
-                      <p>Handles extensive documents up to 100+ pages for comprehensive analysis.</p>
-                      <ul>
-                        <li>Due diligence reviews</li>
-                        <li>Discovery document analysis</li>
-                        <li>Long-form summarization</li>
-                        <li>Multi-document comparison</li>
-                      </ul>
-                    </button>
-                    <button className={styles.helpCard} onClick={() => handleModelSelect('fast')}>
-                      <div className={styles.helpCardIcon} style={{ color: '#F59E0B', background: 'rgba(245, 158, 11, 0.1)' }}>
-                        <Zap size={24} />
-                      </div>
-                      <h4>Fast</h4>
-                      <p>Quick responses for simple queries when you need a fast answer.</p>
-                      <ul>
-                        <li>Quick legal questions</li>
-                        <li>Simple formatting tasks</li>
-                        <li>Brief lookups</li>
-                        <li>Fast turnaround needs</li>
-                      </ul>
-                    </button>
-                  </div>
+            {selectedMode === 'standard' && (
+              <div className={styles.standardSetup}>
+                <div className={styles.setupIcon} style={{ color: AI_MODES.standard.color }}>
+                  <MessageCircle size={48} />
                 </div>
-
-                <div className={styles.helpSection}>
-                  <h3>Tips for Better Results</h3>
-                  <div className={styles.tipsList}>
-                    <div className={styles.tip}>
-                      <Target size={18} />
-                      <div>
-                        <strong>Be Specific</strong>
-                        <p>Include relevant details like jurisdiction, practice area, and specific issues for more accurate responses.</p>
-                      </div>
-                    </div>
-                    <div className={styles.tip}>
-                      <Briefcase size={18} />
-                      <div>
-                        <strong>Reference Matters</strong>
-                        <p>Mention specific matter names or numbers to get context-aware assistance for your cases.</p>
-                      </div>
-                    </div>
-                    <div className={styles.tip}>
-                      <Clock size={18} />
-                      <div>
-                        <strong>Choose the Right Model</strong>
-                        <p>Use Fast for quick questions, Standard for most tasks, and Large Documents for extensive analysis.</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Personalize Tab */}
-            {activeTab === 'personalize' && (
-              <div className={styles.tabContent}>
-                <div className={styles.personalizeSection}>
-                  <div className={styles.personalizeHeader}>
-                    <User size={20} />
-                    <div>
-                      <h3>AI Personalization</h3>
-                      <p>Customize how Apex AI responds to your queries</p>
-                    </div>
-                  </div>
-
-                  <div className={styles.preferenceGroup}>
-                    <label>Response Style</label>
-                    <div className={styles.optionButtons}>
-                      {['concise', 'balanced', 'detailed'].map(style => (
-                        <button
-                          key={style}
-                          className={clsx(styles.optionBtn, preferences.responseStyle === style && styles.active)}
-                          onClick={() => setPreferences(p => ({ ...p, responseStyle: style }))}
-                        >
-                          {style.charAt(0).toUpperCase() + style.slice(1)}
-                        </button>
-                      ))}
-                    </div>
-                    <span className={styles.preferenceHint}>
-                      {preferences.responseStyle === 'concise' && 'Short, to-the-point answers'}
-                      {preferences.responseStyle === 'balanced' && 'Moderate detail with key points'}
-                      {preferences.responseStyle === 'detailed' && 'Comprehensive explanations with context'}
-                    </span>
-                  </div>
-
-                  <div className={styles.preferenceGroup}>
-                    <label>Primary Practice Areas</label>
-                    <div className={styles.tagSelect}>
-                      {['litigation', 'corporate', 'real-estate', 'ip', 'employment', 'family', 'criminal', 'estate'].map(area => (
-                        <button
-                          key={area}
-                          className={clsx(styles.tag, preferences.practiceAreas.includes(area) && styles.active)}
-                          onClick={() => setPreferences(p => ({
-                            ...p,
-                            practiceAreas: p.practiceAreas.includes(area)
-                              ? p.practiceAreas.filter(a => a !== area)
-                              : [...p.practiceAreas, area]
-                          }))}
-                        >
-                          {area.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
-                        </button>
-                      ))}
-                    </div>
-                    <span className={styles.preferenceHint}>AI will prioritize context from these areas</span>
-                  </div>
-
-                  <div className={styles.preferenceGroup}>
-                    <label>Default Jurisdiction</label>
-                    <select 
-                      value={preferences.jurisdiction}
-                      onChange={(e) => setPreferences(p => ({ ...p, jurisdiction: e.target.value }))}
-                    >
-                      <option value="federal">Federal</option>
-                      <option value="ny">New York</option>
-                      <option value="ca">California</option>
-                      <option value="tx">Texas</option>
-                      <option value="fl">Florida</option>
-                      <option value="il">Illinois</option>
-                      <option value="other">Other (specify in queries)</option>
-                    </select>
-                  </div>
-
-                  <div className={styles.preferenceGroup}>
-                    <label>Citation Format</label>
-                    <select 
-                      value={preferences.citationFormat}
-                      onChange={(e) => setPreferences(p => ({ ...p, citationFormat: e.target.value }))}
-                    >
-                      <option value="bluebook">Bluebook</option>
-                      <option value="alwd">ALWD</option>
-                      <option value="chicago">Chicago Manual</option>
-                      <option value="none">No specific format</option>
-                    </select>
-                  </div>
-
-                  <div className={styles.togglePreferences}>
-                    <div className={styles.toggleRow}>
-                      <div>
-                        <strong>Auto-summarize documents</strong>
-                        <p>Automatically generate summaries when documents are uploaded</p>
-                      </div>
-                      <label className={styles.switch}>
-                        <input 
-                          type="checkbox" 
-                          checked={preferences.autoSummarize}
-                          onChange={(e) => setPreferences(p => ({ ...p, autoSummarize: e.target.checked }))}
-                        />
-                        <span className={styles.slider}></span>
-                      </label>
-                    </div>
-                    <div className={styles.toggleRow}>
-                      <div>
-                        <strong>Proactive insights</strong>
-                        <p>AI suggests relevant information based on your current work</p>
-                      </div>
-                      <label className={styles.switch}>
-                        <input 
-                          type="checkbox" 
-                          checked={preferences.proactiveInsights}
-                          onChange={(e) => setPreferences(p => ({ ...p, proactiveInsights: e.target.checked }))}
-                        />
-                        <span className={styles.slider}></span>
-                      </label>
-                    </div>
-                  </div>
-
-                  <button className={styles.savePreferencesBtn}>
-                    <Settings size={16} />
-                    Save Preferences
+                <h2>Standard Chat</h2>
+                <p>Your AI-powered legal assistant. Ask questions, get research help, or draft documents.</p>
+                
+                <div className={styles.suggestions}>
+                  <button onClick={() => {
+                    createConversation('standard')
+                    setTimeout(() => {
+                      setInput('Research case law on breach of contract')
+                    }, 100)
+                  }}>
+                    Research case law on breach of contract
+                  </button>
+                  <button onClick={() => {
+                    createConversation('standard')
+                    setTimeout(() => {
+                      setInput('Draft a confidentiality clause')
+                    }, 100)
+                  }}>
+                    Draft a confidentiality clause
+                  </button>
+                  <button onClick={() => {
+                    createConversation('standard')
+                    setTimeout(() => {
+                      setInput('Explain the statute of limitations')
+                    }, 100)
+                  }}>
+                    Explain the statute of limitations
                   </button>
                 </div>
+                
+                <button 
+                  className={styles.startBtn}
+                  onClick={() => createConversation('standard')}
+                  style={{ background: AI_MODES.standard.color }}
+                >
+                  Start New Chat
+                  <ChevronRight size={18} />
+                </button>
               </div>
             )}
           </div>
@@ -616,7 +527,6 @@ export function AIAssistantPage() {
 }
 
 function formatMessageContent(content: string): string {
-  // Convert markdown-like syntax to HTML
   return content
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
