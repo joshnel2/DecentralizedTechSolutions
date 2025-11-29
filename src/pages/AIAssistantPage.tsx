@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useAIStore, type AIMode } from '../stores/aiStore'
 import { useAuthStore } from '../stores/authStore'
-import { documentsApi } from '../services/api'
 import { 
   Sparkles, Send, Plus, MessageSquare, Trash2, 
   MessageCircle, FileEdit, FileText, Paperclip, X,
@@ -91,58 +90,76 @@ export function AIAssistantPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeConversation?.messages])
 
+  // Client-side file content extraction
+  const readFileContent = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      
+      reader.onload = async (e) => {
+        const result = e.target?.result
+        
+        if (file.type === 'application/pdf') {
+          try {
+            // 1. Get the file as ArrayBuffer
+            const arrayBuffer = result as ArrayBuffer
+            
+            // 2. Dynamically import pdfjs-dist
+            const pdfjsLib = await import('pdfjs-dist')
+            
+            // 3. Configure the worker (REQUIRED - PDF.js needs a web worker)
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 
+              `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
+            
+            // 4. Convert ArrayBuffer to Uint8Array for PDF.js
+            const uint8Array = new Uint8Array(arrayBuffer)
+            
+            // 5. Load the PDF document
+            const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise
+            
+            // 6. Extract text from each page
+            let fullText = ''
+            for (let i = 1; i <= pdf.numPages; i++) {
+              const page = await pdf.getPage(i)
+              const textContent = await page.getTextContent()
+              const pageText = textContent.items.map((item: any) => item.str).join(' ')
+              fullText += `\n--- Page ${i} ---\n${pageText}\n`
+            }
+            
+            // 7. Return formatted output
+            resolve(`[PDF FILE: ${file.name}]\n\nExtracted content from PDF (${pdf.numPages} pages):\n${fullText}`)
+          } catch (err) {
+            console.error('PDF extraction error:', err)
+            resolve(`[PDF FILE: ${file.name}]\n\nUnable to extract text. This may be a scanned/image-based PDF.`)
+          }
+        } else {
+          // Text-based files
+          resolve(result as string)
+        }
+      }
+      
+      reader.onerror = () => reject(reader.error)
+      
+      // Read PDF as ArrayBuffer (not as text!)
+      if (file.type === 'application/pdf') {
+        reader.readAsArrayBuffer(file)
+      } else {
+        reader.readAsText(file)
+      }
+    })
+  }
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, target?: 'doc1' | 'doc2') => {
     const file = e.target.files?.[0]
     if (!file) return
     
     // Reset input immediately
     e.target.value = ''
+    setIsExtracting(true)
 
-    const ext = file.name.toLowerCase().split('.').pop() || ''
-    
-    // For PDFs and DOCX, use server-side extraction
-    if (ext === 'pdf' || ext === 'docx' || ext === 'doc') {
-      setIsExtracting(true)
-      try {
-        const result = await documentsApi.extractText(file)
-        const doc = {
-          name: result.name,
-          content: result.content,
-          type: result.type,
-          size: result.size
-        }
-        
-        if (selectedMode === 'redline' && target) {
-          setRedlineDocument(target, doc)
-        } else {
-          setDocumentContext(doc)
-        }
-      } catch (error) {
-        console.error('Failed to extract document text:', error)
-        // Fallback to basic info
-        const doc = {
-          name: file.name,
-          content: `[Error extracting text from ${file.name}. Please try again or use a different file format.]`,
-          type: file.type,
-          size: file.size
-        }
-        if (selectedMode === 'redline' && target) {
-          setRedlineDocument(target, doc)
-        } else {
-          setDocumentContext(doc)
-        }
-      } finally {
-        setIsExtracting(false)
-      }
-      return
-    }
-    
-    // For text-based files, read directly
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      const content = event.target?.result as string
-      const doc = { 
-        name: file.name, 
+    try {
+      const content = await readFileContent(file)
+      const doc = {
+        name: file.name,
         content,
         type: file.type,
         size: file.size
@@ -153,9 +170,22 @@ export function AIAssistantPage() {
       } else {
         setDocumentContext(doc)
       }
+    } catch (error) {
+      console.error('Failed to extract document text:', error)
+      const doc = {
+        name: file.name,
+        content: `[Error extracting text from ${file.name}. Please try again.]`,
+        type: file.type,
+        size: file.size
+      }
+      if (selectedMode === 'redline' && target) {
+        setRedlineDocument(target, doc)
+      } else {
+        setDocumentContext(doc)
+      }
+    } finally {
+      setIsExtracting(false)
     }
-    
-    reader.readAsText(file)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {

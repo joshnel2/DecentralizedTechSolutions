@@ -1,0 +1,550 @@
+.adminPage {
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.headerLeft svg {
+  color: var(--apex-gold);
+}
+
+.headerLeft h1 {
+  font-family: var(--font-serif);
+  font-size: 1.75rem;
+  font-weight: 400;
+  color: var(--apex-white);
+  margin: 0;
+}
+
+.headerLeft p {
+  color: var(--apex-subtle);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+/* Loading & Error States */
+.loading, .error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  gap: 1rem;
+  color: var(--apex-text);
+}
+
+.error svg {
+  color: var(--apex-error);
+}
+
+.error h2 {
+  color: var(--apex-white);
+  margin: 0;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--apex-slate);
+  border-top-color: var(--apex-gold);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 0.5rem;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tab:hover {
+  background: var(--apex-slate);
+  color: var(--apex-white);
+}
+
+.tab.active {
+  background: var(--apex-gold);
+  color: var(--apex-midnight);
+  font-weight: 600;
+}
+
+/* Overview Stats */
+.overview {
+  padding: 1rem 0;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.statCard {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-lg);
+}
+
+.statCard svg {
+  color: var(--apex-gold);
+}
+
+.statInfo {
+  display: flex;
+  flex-direction: column;
+}
+
+.statValue {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--apex-white);
+}
+
+.statLabel {
+  font-size: 0.85rem;
+  color: var(--apex-subtle);
+}
+
+/* Section */
+.section {
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.sectionHeader {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: var(--apex-deep);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  max-width: 400px;
+  padding: 0 1rem;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+}
+
+.searchBox svg {
+  color: var(--apex-subtle);
+}
+
+.searchBox input {
+  flex: 1;
+  padding: 0.75rem 0;
+  background: none;
+  border: none;
+  color: var(--apex-white);
+  font-size: 0.9rem;
+}
+
+.searchBox input::placeholder {
+  color: var(--apex-subtle);
+}
+
+.firmFilter {
+  padding: 0.75rem 1rem;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.9rem;
+}
+
+.addBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--apex-gold);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.addBtn:hover {
+  background: var(--apex-gold-dark);
+}
+
+/* Table */
+.table {
+  overflow-x: auto;
+}
+
+.table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th, .table td {
+  padding: 1rem 1.5rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.table th {
+  background: var(--apex-deep);
+  color: var(--apex-subtle);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.table td {
+  color: var(--apex-text);
+  font-size: 0.9rem;
+}
+
+.table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.firmName {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--apex-white);
+  font-weight: 500;
+}
+
+.firmName svg {
+  color: var(--apex-gold);
+}
+
+.contact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.actions button {
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.actions button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--apex-white);
+}
+
+.actions .deleteBtn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #EF4444;
+}
+
+/* Badges */
+.roleBadge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.roleBadge.owner {
+  background: rgba(212, 175, 55, 0.2);
+  color: var(--apex-gold);
+}
+
+.roleBadge.admin {
+  background: rgba(139, 92, 246, 0.2);
+  color: #A78BFA;
+}
+
+.roleBadge.attorney {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60A5FA;
+}
+
+.roleBadge.paralegal {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34D399;
+}
+
+.roleBadge.staff {
+  background: rgba(156, 163, 175, 0.2);
+  color: #9CA3AF;
+}
+
+.roleBadge.billing {
+  background: rgba(245, 158, 11, 0.2);
+  color: #FBBF24;
+}
+
+.roleBadge.readonly {
+  background: rgba(107, 114, 128, 0.2);
+  color: #6B7280;
+}
+
+.statusBadge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.statusBadge.active {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10B981;
+}
+
+.statusBadge.inactive {
+  background: rgba(239, 68, 68, 0.2);
+  color: #EF4444;
+}
+
+/* Modal */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 2rem;
+}
+
+.modal {
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.modalHeader h2 {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 400;
+  color: var(--apex-white);
+  margin: 0;
+}
+
+.modalHeader button {
+  background: none;
+  border: none;
+  color: var(--apex-subtle);
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.modalHeader button:hover {
+  color: var(--apex-white);
+}
+
+.modal form {
+  padding: 1.5rem;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.formGroup.fullWidth {
+  grid-column: 1 / -1;
+}
+
+.formGroup label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--apex-text);
+}
+
+.formGroup input, .formGroup select {
+  padding: 0.75rem 1rem;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.9rem;
+}
+
+.formGroup input:focus, .formGroup select:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+}
+
+.formGroup input:disabled, .formGroup select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.passwordInput {
+  display: flex;
+  position: relative;
+}
+
+.passwordInput input {
+  flex: 1;
+  padding-right: 3rem;
+}
+
+.passwordInput button {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--apex-subtle);
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.passwordInput button:hover {
+  color: var(--apex-white);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cancelBtn {
+  padding: 0.75rem 1.5rem;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.cancelBtn:hover {
+  background: var(--apex-muted);
+  color: var(--apex-white);
+}
+
+.saveBtn {
+  padding: 0.75rem 1.5rem;
+  background: var(--apex-gold);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.saveBtn:hover:not(:disabled) {
+  background: var(--apex-gold-dark);
+}
+
+.saveBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .sectionHeader {
+    flex-wrap: wrap;
+  }
+  
+  .searchBox {
+    order: 3;
+    max-width: none;
+    width: 100%;
+  }
+  
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+  
+  .formGroup.fullWidth {
+    grid-column: 1;
+  }
+}

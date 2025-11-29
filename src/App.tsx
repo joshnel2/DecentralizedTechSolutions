@@ -33,6 +33,7 @@ import { CourtRulesPage } from './pages/CourtRulesPage'
 import { TextSnippetsPage } from './pages/TextSnippetsPage'
 import { DocumentAutomationPage } from './pages/DocumentAutomationPage'
 import { WorkflowsPage } from './pages/WorkflowsPage'
+import { AdminPortalPage } from './pages/AdminPortalPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
@@ -106,6 +107,9 @@ export default function App() {
           
           {/* Firm Administration */}
           <Route path="admin" element={<FirmAdminPage />} />
+          
+          {/* Platform Admin Portal */}
+          <Route path="platform-admin" element={<AdminPortalPage />} />
         </Route>
         
         {/* Catch all */}

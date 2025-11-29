@@ -612,6 +612,64 @@ export const integrationsApi = {
   },
 };
 
+// ============================================
+// ADMIN API (Platform Admin Only)
+// ============================================
+
+export const adminApi = {
+  // Stats
+  async getStats() {
+    return fetchWithAuth('/admin/stats');
+  },
+
+  // Firms
+  async getFirms() {
+    return fetchWithAuth('/admin/firms');
+  },
+
+  async createFirm(data: { name: string; email?: string; phone?: string; address?: string; city?: string; state?: string; zipCode?: string; website?: string }) {
+    return fetchWithAuth('/admin/firms', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateFirm(id: string, data: any) {
+    return fetchWithAuth(`/admin/firms/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteFirm(id: string) {
+    return fetchWithAuth(`/admin/firms/${id}`, { method: 'DELETE' });
+  },
+
+  // Users
+  async getUsers(firmId?: string) {
+    const query = firmId ? `?firmId=${firmId}` : '';
+    return fetchWithAuth(`/admin/users${query}`);
+  },
+
+  async createUser(data: { firmId: string; email: string; password: string; firstName: string; lastName: string; role?: string; phone?: string; hourlyRate?: number }) {
+    return fetchWithAuth('/admin/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateUser(id: string, data: any) {
+    return fetchWithAuth(`/admin/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteUser(id: string) {
+    return fetchWithAuth(`/admin/users/${id}`, { method: 'DELETE' });
+  },
+};
+
 // Export all APIs
 export default {
   auth: authApi,
@@ -625,4 +683,5 @@ export default {
   firm: firmApi,
   ai: aiApi,
   integrations: integrationsApi,
+  admin: adminApi,
 };

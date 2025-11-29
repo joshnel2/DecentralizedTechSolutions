@@ -16,6 +16,7 @@ import teamRoutes from './routes/team.js';
 import firmRoutes from './routes/firm.js';
 import aiRoutes from './routes/ai.js';
 import integrationRoutes from './routes/integrations.js';
+import adminRoutes from './routes/admin.js';
 
 // Import middleware
 import { apiLimiter } from './middleware/rateLimit.js';
@@ -63,6 +64,7 @@ app.use('/api/team', teamRoutes);
 app.use('/api/firm', firmRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/integrations', integrationRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -113,6 +115,7 @@ app.listen(PORT, () => {
 ║     • Firm:       /api/firm                               ║
 ║     • AI:         /api/ai                                 ║
 ║     • Integrations: /api/integrations                     ║
+║     • Admin:      /api/admin                              ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
   `);
