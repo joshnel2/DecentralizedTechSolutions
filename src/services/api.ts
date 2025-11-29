@@ -410,6 +410,31 @@ export const documentsApi = {
   getDownloadUrl(id: string) {
     return `${API_URL}/documents/${id}/download`;
   },
+
+  // Extract text from a file without saving it (for AI analysis)
+  async extractText(file: File): Promise<{ name: string; type: string; size: number; content: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const headers: HeadersInit = {};
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+
+    const response = await fetch(`${API_URL}/documents/extract-text`, {
+      method: 'POST',
+      headers,
+      body: formData,
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Extraction failed' }));
+      throw new ApiError(response.status, error.error || 'Extraction failed', error);
+    }
+
+    return response.json();
+  },
 };
 
 // ============================================

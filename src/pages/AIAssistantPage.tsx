@@ -2,10 +2,11 @@ import { useState, useRef, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useAIStore, type AIMode } from '../stores/aiStore'
 import { useAuthStore } from '../stores/authStore'
+import { documentsApi } from '../services/api'
 import { 
   Sparkles, Send, Plus, MessageSquare, Trash2, 
   MessageCircle, FileEdit, FileText, Paperclip, X,
-  FileSearch, History, ChevronRight
+  FileSearch, History, ChevronRight, Loader2
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -67,6 +68,7 @@ export function AIAssistantPage() {
 
   const activeConversation = conversations.find(c => c.id === activeConversationId)
   const currentMode = AI_MODES[selectedMode]
+  const [isExtracting, setIsExtracting] = useState(false)
 
   // Handle document passed via URL params (from Documents page)
   useEffect(() => {
@@ -92,7 +94,50 @@ export function AIAssistantPage() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, target?: 'doc1' | 'doc2') => {
     const file = e.target.files?.[0]
     if (!file) return
+    
+    // Reset input immediately
+    e.target.value = ''
 
+    const ext = file.name.toLowerCase().split('.').pop() || ''
+    
+    // For PDFs and DOCX, use server-side extraction
+    if (ext === 'pdf' || ext === 'docx' || ext === 'doc') {
+      setIsExtracting(true)
+      try {
+        const result = await documentsApi.extractText(file)
+        const doc = {
+          name: result.name,
+          content: result.content,
+          type: result.type,
+          size: result.size
+        }
+        
+        if (selectedMode === 'redline' && target) {
+          setRedlineDocument(target, doc)
+        } else {
+          setDocumentContext(doc)
+        }
+      } catch (error) {
+        console.error('Failed to extract document text:', error)
+        // Fallback to basic info
+        const doc = {
+          name: file.name,
+          content: `[Error extracting text from ${file.name}. Please try again or use a different file format.]`,
+          type: file.type,
+          size: file.size
+        }
+        if (selectedMode === 'redline' && target) {
+          setRedlineDocument(target, doc)
+        } else {
+          setDocumentContext(doc)
+        }
+      } finally {
+        setIsExtracting(false)
+      }
+      return
+    }
+    
+    // For text-based files, read directly
     const reader = new FileReader()
     reader.onload = (event) => {
       const content = event.target?.result as string
@@ -110,25 +155,7 @@ export function AIAssistantPage() {
       }
     }
     
-    // Read text-based files
-    if (file.type.includes('text') || 
-        file.name.match(/\.(txt|md|json|csv|xml|html|js|ts|jsx|tsx)$/i)) {
-      reader.readAsText(file)
-    } else if (file.type.includes('pdf')) {
-      // For PDFs, note that we need server-side parsing for full content
-      setDocumentContext({ 
-        name: file.name, 
-        content: `[PDF Document: ${file.name}]\n\nThis PDF contains ${(file.size / 1024).toFixed(1)} KB of data. I can help you with questions about this document based on its metadata and any text content that was extracted.`,
-        type: file.type,
-        size: file.size
-      })
-    } else {
-      // For other files (doc, docx), read as text (may work for some)
-      reader.readAsText(file)
-    }
-
-    // Reset input
-    e.target.value = ''
+    reader.readAsText(file)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -349,7 +376,17 @@ export function AIAssistantPage() {
                 <h2>Document Analyzer</h2>
                 <p>Upload a document to analyze. Ask questions, get summaries, or extract key information.</p>
                 
-                {documentContext ? (
+                {isExtracting ? (
+                  <div className={styles.uploadedDoc}>
+                    <Loader2 size={24} className={styles.spinner} />
+                    <div className={styles.uploadedDocInfo}>
+                      <span className={styles.uploadedDocName}>Extracting text...</span>
+                      <span className={styles.uploadedDocMeta}>
+                        Please wait while we process your document
+                      </span>
+                    </div>
+                  </div>
+                ) : documentContext ? (
                   <div className={styles.uploadedDoc}>
                     <FileText size={24} />
                     <div className={styles.uploadedDocInfo}>
@@ -404,7 +441,12 @@ export function AIAssistantPage() {
                 <div className={styles.redlineUploads}>
                   <div className={styles.redlineUpload}>
                     <span className={styles.redlineLabel}>Original Document</span>
-                    {redlineDocuments.doc1 ? (
+                    {isExtracting && !redlineDocuments.doc1 ? (
+                      <div className={styles.uploadedDoc}>
+                        <Loader2 size={20} className={styles.spinner} />
+                        <span>Extracting text...</span>
+                      </div>
+                    ) : redlineDocuments.doc1 ? (
                       <div className={styles.uploadedDoc}>
                         <FileText size={20} />
                         <span>{redlineDocuments.doc1.name}</span>
@@ -434,7 +476,12 @@ export function AIAssistantPage() {
                   
                   <div className={styles.redlineUpload}>
                     <span className={styles.redlineLabel}>Revised Document</span>
-                    {redlineDocuments.doc2 ? (
+                    {isExtracting && !redlineDocuments.doc2 && redlineDocuments.doc1 ? (
+                      <div className={styles.uploadedDoc}>
+                        <Loader2 size={20} className={styles.spinner} />
+                        <span>Extracting text...</span>
+                      </div>
+                    ) : redlineDocuments.doc2 ? (
                       <div className={styles.uploadedDoc}>
                         <FileText size={20} />
                         <span>{redlineDocuments.doc2.name}</span>

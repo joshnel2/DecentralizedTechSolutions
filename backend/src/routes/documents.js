@@ -71,6 +71,70 @@ const upload = multer({
   },
 });
 
+// Extract text from uploaded file (without saving)
+// Used for real-time document analysis in AI Assistant
+const extractUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: parseInt(process.env.MAX_FILE_SIZE) || 50 * 1024 * 1024,
+  },
+});
+
+router.post('/extract-text', authenticate, extractUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    let textContent = '';
+
+    if (ext === '.pdf') {
+      try {
+        const pdfData = await pdfParse(req.file.buffer);
+        textContent = pdfData.text;
+        if (!textContent || textContent.trim().length === 0) {
+          textContent = `[PDF file "${req.file.originalname}" - No extractable text found. This may be a scanned image-based PDF.]`;
+        }
+      } catch (pdfError) {
+        console.error('PDF parse error:', pdfError);
+        textContent = `[Unable to extract text from PDF. File: ${req.file.originalname}]`;
+      }
+    } else if (ext === '.docx') {
+      try {
+        const result = await mammoth.extractRawText({ buffer: req.file.buffer });
+        textContent = result.value;
+        if (!textContent || textContent.trim().length === 0) {
+          textContent = `[DOCX file "${req.file.originalname}" - No text content found.]`;
+        }
+      } catch (docxError) {
+        console.error('DOCX parse error:', docxError);
+        textContent = `[Unable to extract text from Word document. File: ${req.file.originalname}]`;
+      }
+    } else if (ext === '.doc') {
+      textContent = `[Old Word format (.doc): ${req.file.originalname}. Please convert to .docx for text extraction.]`;
+    } else if (['.txt', '.md', '.json', '.csv', '.xml', '.html', '.js', '.ts', '.jsx', '.tsx', '.css', '.sql'].includes(ext)) {
+      textContent = req.file.buffer.toString('utf-8');
+    } else if (['.xls', '.xlsx'].includes(ext)) {
+      textContent = `[Excel file: ${req.file.originalname}. Spreadsheet content not yet supported for text extraction.]`;
+    } else if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) {
+      textContent = `[Image file: ${req.file.originalname}. Image analysis would require OCR processing.]`;
+    } else {
+      textContent = `[File: ${req.file.originalname}. Cannot extract text from this file type (${ext}).]`;
+    }
+
+    res.json({
+      name: req.file.originalname,
+      type: req.file.mimetype,
+      size: req.file.size,
+      content: textContent,
+    });
+  } catch (error) {
+    console.error('Extract text error:', error);
+    res.status(500).json({ error: 'Failed to extract text from document' });
+  }
+});
+
 // Get documents
 router.get('/', authenticate, requirePermission('documents:view'), async (req, res) => {
   try {
