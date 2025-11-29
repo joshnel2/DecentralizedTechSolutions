@@ -6,6 +6,7 @@ import fs from 'fs/promises';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import pdf from 'pdf-parse/lib/pdf-parse.js';
+import mammoth from 'mammoth';
 
 const router = Router();
 
@@ -229,15 +230,29 @@ router.get('/:id/content', authenticate, requirePermission('documents:view'), as
         console.error('PDF parse error:', pdfError);
         textContent = `[Unable to extract PDF text. File: ${doc.original_name}]`;
       }
-    } else if (['.txt', '.md', '.json', '.csv', '.xml', '.html', '.js', '.ts'].includes(ext)) {
+    } else if (['.txt', '.md', '.json', '.csv', '.xml', '.html', '.js', '.ts', '.jsx', '.tsx', '.css', '.sql'].includes(ext)) {
       // Text-based files - read directly
       textContent = await fs.readFile(doc.path, 'utf-8');
-    } else if (['.doc', '.docx'].includes(ext)) {
-      // For Word docs, we'd need mammoth or similar library
-      // For now, return a message
-      textContent = `[Word document: ${doc.original_name}. Word document text extraction requires additional processing.]`;
+    } else if (ext === '.docx') {
+      // Word .docx files - use mammoth
+      try {
+        const result = await mammoth.extractRawText({ path: doc.path });
+        textContent = result.value;
+      } catch (docxError) {
+        console.error('DOCX parse error:', docxError);
+        textContent = `[Unable to extract Word document text. File: ${doc.original_name}]`;
+      }
+    } else if (ext === '.doc') {
+      // Old .doc format - mammoth doesn't support it well
+      textContent = `[Old Word format (.doc): ${doc.original_name}. Please convert to .docx for text extraction.]`;
+    } else if (['.xls', '.xlsx'].includes(ext)) {
+      // Excel files would need a library like xlsx
+      textContent = `[Excel file: ${doc.original_name}. Spreadsheet content available but not extracted as text.]`;
+    } else if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) {
+      // Image files
+      textContent = `[Image file: ${doc.original_name}. Image analysis would require OCR processing.]`;
     } else {
-      textContent = `[Binary file: ${doc.original_name}. Cannot extract text from this file type.]`;
+      textContent = `[File: ${doc.original_name}. Cannot extract text from this file type (${ext}).]`;
     }
 
     res.json({
