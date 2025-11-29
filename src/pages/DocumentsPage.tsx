@@ -86,9 +86,10 @@ export function DocumentsPage() {
   }
 
   const analyzeDocument = async (doc: typeof documents[0]) => {
-    // Fetch document content from server
+    // Fetch document content from server using the content extraction endpoint
     try {
-      const response = await fetch(getDocumentUrl(doc), {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+      const response = await fetch(`${apiUrl}/documents/${doc.id}/content`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken') || ''}`
         }
@@ -96,13 +97,8 @@ export function DocumentsPage() {
       
       let content = ''
       if (response.ok) {
-        // Try to read as text
-        const blob = await response.blob()
-        if (doc.type?.includes('text') || doc.name.match(/\.(txt|md|json|csv|xml|html)$/i)) {
-          content = await blob.text()
-        } else {
-          content = `[Document: ${doc.name}]\nType: ${doc.type}\nSize: ${formatFileSize(doc.size)}\n\nThis document has been loaded for analysis. Please ask any questions about it.`
-        }
+        const data = await response.json()
+        content = data.content || `[Document: ${doc.name}]\nNo text content extracted.`
       } else {
         content = `[Document: ${doc.name}]\nType: ${doc.type}\nSize: ${formatFileSize(doc.size)}\n\nDocument loaded for analysis.`
       }

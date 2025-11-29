@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
+import pdf from 'pdf-parse/lib/pdf-parse.js';
 
 const router = Router();
 
@@ -191,6 +192,64 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
   } catch (error) {
     console.error('Upload document error:', error);
     res.status(500).json({ error: 'Failed to upload document' });
+  }
+});
+
+// Extract text content from document (for AI analysis)
+router.get('/:id/content', authenticate, requirePermission('documents:view'), async (req, res) => {
+  try {
+    const result = await query(
+      'SELECT * FROM documents WHERE id = $1 AND firm_id = $2',
+      [req.params.id, req.user.firmId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const doc = result.rows[0];
+
+    // Check if file exists
+    try {
+      await fs.access(doc.path);
+    } catch {
+      return res.status(404).json({ error: 'File not found on server' });
+    }
+
+    let textContent = '';
+    const ext = path.extname(doc.original_name).toLowerCase();
+
+    // Extract text based on file type
+    if (ext === '.pdf') {
+      try {
+        const dataBuffer = await fs.readFile(doc.path);
+        const pdfData = await pdf(dataBuffer);
+        textContent = pdfData.text;
+      } catch (pdfError) {
+        console.error('PDF parse error:', pdfError);
+        textContent = `[Unable to extract PDF text. File: ${doc.original_name}]`;
+      }
+    } else if (['.txt', '.md', '.json', '.csv', '.xml', '.html', '.js', '.ts'].includes(ext)) {
+      // Text-based files - read directly
+      textContent = await fs.readFile(doc.path, 'utf-8');
+    } else if (['.doc', '.docx'].includes(ext)) {
+      // For Word docs, we'd need mammoth or similar library
+      // For now, return a message
+      textContent = `[Word document: ${doc.original_name}. Word document text extraction requires additional processing.]`;
+    } else {
+      textContent = `[Binary file: ${doc.original_name}. Cannot extract text from this file type.]`;
+    }
+
+    res.json({
+      id: doc.id,
+      name: doc.original_name,
+      type: doc.type,
+      size: doc.size,
+      content: textContent,
+    });
+  } catch (error) {
+    console.error('Extract content error:', error);
+    res.status(500).json({ error: 'Failed to extract document content' });
   }
 });
 
