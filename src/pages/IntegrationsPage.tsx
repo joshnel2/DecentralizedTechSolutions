@@ -4,9 +4,9 @@ import { integrationsApi } from '../services/api'
 import { useSearchParams } from 'react-router-dom'
 import {
   Link2, Calendar, Mail, Cloud, CreditCard, FileSignature,
-  Calculator, MessageSquare, Shield, CheckCircle2, XCircle,
-  ExternalLink, Settings, RefreshCw, AlertTriangle, Sparkles,
-  Database, Lock, Globe, Zap, AlertCircle
+  Calculator, MessageSquare, Shield, CheckCircle2,
+  ExternalLink, RefreshCw, AlertTriangle,
+  Lock, Globe, Zap, AlertCircle
 } from 'lucide-react'
 import styles from './IntegrationsPage.module.css'
 
@@ -25,7 +25,7 @@ interface IntegrationConfig {
   id: string
   name: string
   description: string
-  category: 'calendar' | 'email' | 'storage' | 'payment' | 'accounting' | 'esign' | 'communication' | 'ai'
+  category: 'calendar' | 'email' | 'storage' | 'payment' | 'accounting' | 'esign' | 'communication'
   icon: string
   provider?: string // Backend provider key
   features: string[]
@@ -36,42 +36,31 @@ const integrationConfigs: IntegrationConfig[] = [
   { 
     id: 'google-calendar', 
     name: 'Google Calendar', 
-    description: 'Sync events and deadlines with Google Calendar. Two-way sync keeps your schedule updated.', 
+    description: 'Sync your Google Calendar events with Apex. Just sign in with your Google account.', 
     category: 'calendar', 
     icon: '📅', 
     provider: 'google',
-    features: ['Two-way sync', 'Event import/export', 'Automatic updates']
+    features: ['Import events', 'Two-way sync', 'Automatic updates']
   },
   { 
     id: 'outlook-calendar', 
-    name: 'Microsoft Outlook Calendar', 
-    description: 'Sync with Outlook/Microsoft 365 calendar for seamless scheduling.', 
+    name: 'Microsoft Outlook', 
+    description: 'Connect your Outlook calendar and email. Sign in with your Microsoft account.', 
     category: 'calendar', 
     icon: '📆', 
     provider: 'outlook',
-    features: ['Two-way sync', 'Microsoft 365 integration', 'Team calendars']
-  },
-  
-  // Email - Real integrations
-  { 
-    id: 'outlook-mail', 
-    name: 'Outlook Mail', 
-    description: 'View recent emails, link emails to matters, and access your inbox from within Apex.', 
-    category: 'email', 
-    icon: '📧', 
-    provider: 'outlook',
-    features: ['Email viewing', 'Matter linking', 'Contact sync']
+    features: ['Calendar sync', 'Email access', 'Microsoft 365']
   },
   
   // Accounting - Real integrations
   { 
     id: 'quickbooks', 
     name: 'QuickBooks Online', 
-    description: 'Sync invoices, payments, and financial data with QuickBooks for comprehensive accounting.', 
+    description: 'Connect QuickBooks to sync invoices and financial data. Sign in with your Intuit account.', 
     category: 'accounting', 
     icon: '📊', 
     provider: 'quickbooks',
-    features: ['Invoice sync', 'Payment tracking', 'Bank account access', 'Financial reports']
+    features: ['Invoice sync', 'Payment tracking', 'Financial reports']
   },
   
   // Cloud Storage - Coming Soon
@@ -144,28 +133,16 @@ const integrationConfigs: IntegrationConfig[] = [
     category: 'communication', 
     icon: '📹',
     features: ['Meeting scheduling', 'Calendar sync', 'One-click join']
-  },
-  
-  // AI Services - Pre-configured
-  { 
-    id: 'azure-openai', 
-    name: 'Azure OpenAI', 
-    description: 'Power AI features with Azure OpenAI Service - pre-configured for Apex.', 
-    category: 'ai', 
-    icon: '🤖',
-    features: ['AI Assistant', 'Document analysis', 'Smart suggestions']
   }
 ]
 
 const categoryLabels: Record<string, { label: string; icon: any }> = {
-  calendar: { label: 'Calendar', icon: Calendar },
-  email: { label: 'Email', icon: Mail },
+  calendar: { label: 'Calendar & Email', icon: Calendar },
   storage: { label: 'Cloud Storage', icon: Cloud },
   payment: { label: 'Payments', icon: CreditCard },
   accounting: { label: 'Accounting', icon: Calculator },
   esign: { label: 'E-Signature', icon: FileSignature },
-  communication: { label: 'Communication', icon: MessageSquare },
-  ai: { label: 'AI Services', icon: Sparkles }
+  communication: { label: 'Communication', icon: MessageSquare }
 }
 
 export function IntegrationsPage() {
@@ -315,7 +292,7 @@ export function IntegrationsPage() {
   }
 
   const isComingSoon = (config: IntegrationConfig) => {
-    return !config.provider || (config.category === 'storage' || config.category === 'payment' || config.category === 'esign' || config.category === 'communication')
+    return !config.provider
   }
 
   const filteredIntegrations = selectedCategory 
@@ -412,18 +389,14 @@ export function IntegrationsPage() {
               const status = getIntegrationStatus(config)
               const connected = isConnected(config)
               const comingSoon = isComingSoon(config)
-              const isAI = config.category === 'ai'
               
               return (
                 <div 
                   key={config.id} 
                   className={`${styles.integrationCard} ${connected ? styles.connected : ''} ${comingSoon ? styles.comingSoon : ''}`}
                 >
-                  {comingSoon && !isAI && (
+                  {comingSoon && (
                     <div className={styles.comingSoonBadge}>Coming Soon</div>
-                  )}
-                  {isAI && (
-                    <div className={styles.preConfiguredBadge}>Pre-configured</div>
                   )}
                   
                   <div className={styles.integrationHeader}>
@@ -431,7 +404,7 @@ export function IntegrationsPage() {
                     <div className={styles.integrationInfo}>
                       <h3>{config.name}</h3>
                       <span className={styles.categoryTag}>
-                        {categoryLabels[config.category].label}
+                        {categoryLabels[config.category]?.label || config.category}
                       </span>
                     </div>
                     <div className={`${styles.statusIndicator} ${connected ? styles.connected : ''}`}>
@@ -463,12 +436,7 @@ export function IntegrationsPage() {
                   )}
 
                   <div className={styles.integrationActions}>
-                    {isAI ? (
-                      <div className={styles.aiStatus}>
-                        <CheckCircle2 size={16} />
-                        <span>Active - AI features enabled</span>
-                      </div>
-                    ) : comingSoon ? (
+                    {comingSoon ? (
                       <button className={styles.comingSoonBtn} disabled>
                         <Zap size={16} />
                         Coming Soon
@@ -504,7 +472,7 @@ export function IntegrationsPage() {
                         ) : (
                           <>
                             <Link2 size={16} />
-                            Connect
+                            Connect Account
                           </>
                         )}
                       </button>
@@ -517,144 +485,40 @@ export function IntegrationsPage() {
         </>
       )}
 
-      {/* Setup Guide */}
-      <div className={styles.setupGuide}>
-        <h2>
-          <Settings size={20} />
-          Integration Setup Guide
-        </h2>
-        <div className={styles.setupGrid}>
-          <div className={styles.setupCard}>
-            <div className={styles.setupIcon}>
-              <Calendar size={28} />
-            </div>
-            <h4>Google Calendar</h4>
-            <ol>
-              <li>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noopener">Google Cloud Console</a></li>
-              <li>Create a new project or select existing</li>
-              <li>Enable Calendar API</li>
-              <li>Create OAuth 2.0 credentials</li>
-              <li>Add redirect URI: <code>{window.location.origin}/api/integrations/google/callback</code></li>
-              <li>Copy Client ID and Secret to your .env file</li>
-            </ol>
+      {/* How It Works Section */}
+      <div className={styles.howItWorks}>
+        <h2>How Integrations Work</h2>
+        <div className={styles.stepsGrid}>
+          <div className={styles.step}>
+            <div className={styles.stepNumber}>1</div>
+            <h4>Click Connect</h4>
+            <p>Click the "Connect Account" button on any integration you want to use.</p>
           </div>
-          <div className={styles.setupCard}>
-            <div className={styles.setupIcon}>
-              <Calculator size={28} />
-            </div>
-            <h4>QuickBooks Online</h4>
-            <ol>
-              <li>Go to <a href="https://developer.intuit.com" target="_blank" rel="noopener">Intuit Developer Portal</a></li>
-              <li>Create a new app</li>
-              <li>Select QuickBooks Online Accounting</li>
-              <li>Copy OAuth keys</li>
-              <li>Add redirect URI: <code>{window.location.origin}/api/integrations/quickbooks/callback</code></li>
-              <li>Set environment (sandbox/production)</li>
-            </ol>
+          <div className={styles.step}>
+            <div className={styles.stepNumber}>2</div>
+            <h4>Sign In</h4>
+            <p>You'll be redirected to sign in with your Google, Microsoft, or QuickBooks account.</p>
           </div>
-          <div className={styles.setupCard}>
-            <div className={styles.setupIcon}>
-              <Mail size={28} />
-            </div>
-            <h4>Microsoft Outlook</h4>
-            <ol>
-              <li>Go to <a href="https://portal.azure.com" target="_blank" rel="noopener">Azure Portal</a></li>
-              <li>Register a new application in Azure AD</li>
-              <li>Add Microsoft Graph permissions (Mail.Read, Calendars.ReadWrite)</li>
-              <li>Create a client secret</li>
-              <li>Add redirect URI: <code>{window.location.origin}/api/integrations/outlook/callback</code></li>
-              <li>Copy Application ID and Secret</li>
-            </ol>
+          <div className={styles.step}>
+            <div className={styles.stepNumber}>3</div>
+            <h4>Authorize</h4>
+            <p>Grant Apex permission to access your calendar, email, or financial data.</p>
+          </div>
+          <div className={styles.step}>
+            <div className={styles.stepNumber}>4</div>
+            <h4>Sync Data</h4>
+            <p>Your data syncs automatically. Click "Sync Now" anytime to update manually.</p>
           </div>
         </div>
       </div>
 
-      {/* Data Flow Section */}
-      <div className={styles.dataFlowSection}>
-        <h2>
-          <Database size={20} />
-          Data Architecture
-        </h2>
-        <div className={styles.dataFlowGrid}>
-          <div className={styles.dataFlowCard}>
-            <div className={styles.dataFlowIcon}>
-              <Cloud size={32} />
-            </div>
-            <h4>Cloud Infrastructure</h4>
-            <ul>
-              <li>Secure token storage</li>
-              <li>Encrypted at rest</li>
-              <li>Automatic token refresh</li>
-              <li>Multi-region availability</li>
-            </ul>
-          </div>
-          <div className={styles.dataFlowCard}>
-            <div className={styles.dataFlowIcon}>
-              <Lock size={32} />
-            </div>
-            <h4>Security</h4>
-            <ul>
-              <li>OAuth 2.0 standard</li>
-              <li>No password storage</li>
-              <li>Revocable access tokens</li>
-              <li>Audit logging</li>
-            </ul>
-          </div>
-          <div className={styles.dataFlowCard}>
-            <div className={styles.dataFlowIcon}>
-              <Shield size={32} />
-            </div>
-            <h4>Compliance</h4>
-            <ul>
-              <li>SOC 2 compliant providers</li>
-              <li>GDPR data handling</li>
-              <li>State bar ethics compliant</li>
-              <li>Data isolation by firm</li>
-            </ul>
-          </div>
-          <div className={styles.dataFlowCard}>
-            <div className={styles.dataFlowIcon}>
-              <Zap size={32} />
-            </div>
-            <h4>Sync Features</h4>
-            <ul>
-              <li>Manual sync on demand</li>
-              <li>Incremental updates</li>
-              <li>Conflict resolution</li>
-              <li>Sync status tracking</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      {/* API Section */}
-      <div className={styles.apiSection}>
-        <div className={styles.apiHeader}>
+      {/* Security Info */}
+      <div className={styles.securityInfo}>
+        <div className={styles.securityHeader}>
+          <Lock size={24} />
           <div>
-            <h2>Developer API</h2>
-            <p>Build custom integrations with our REST API</p>
-          </div>
-          <a href="/app/settings/api-keys" className={styles.apiDocsBtn}>
-            <ExternalLink size={16} />
-            API Documentation
-          </a>
-        </div>
-        <div className={styles.apiFeatures}>
-          <div className={styles.apiFeature}>
-            <code>REST API</code>
-            <span>Full CRUD operations for all resources</span>
-          </div>
-          <div className={styles.apiFeature}>
-            <code>Webhooks</code>
-            <span>Real-time event notifications</span>
-          </div>
-          <div className={styles.apiFeature}>
-            <code>OAuth 2.0</code>
-            <span>Secure third-party authentication</span>
-          </div>
-          <div className={styles.apiFeature}>
-            <code>Rate Limiting</code>
-            <span>10,000 requests per hour</span>
+            <h3>Your Data is Secure</h3>
+            <p>We never see or store your passwords. Integrations use OAuth 2.0, the industry standard used by Google, Microsoft, and all major providers. You can disconnect at any time.</p>
           </div>
         </div>
       </div>
