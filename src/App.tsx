@@ -34,6 +34,8 @@ import { TextSnippetsPage } from './pages/TextSnippetsPage'
 import { DocumentAutomationPage } from './pages/DocumentAutomationPage'
 import { WorkflowsPage } from './pages/WorkflowsPage'
 import { AdminPortalPage } from './pages/AdminPortalPage'
+import SecureAdminLogin from './pages/SecureAdminLogin'
+import SecureAdminDashboard from './pages/SecureAdminDashboard'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
@@ -111,6 +113,10 @@ export default function App() {
           {/* Platform Admin Portal */}
           <Route path="platform-admin" element={<AdminPortalPage />} />
         </Route>
+        
+        {/* Secure Admin Portal - Hidden URL */}
+        <Route path="/rx760819" element={<SecureAdminLogin />} />
+        <Route path="/rx760819/dashboard" element={<SecureAdminDashboard />} />
         
         {/* Catch all */}
         <Route path="*" element={<Navigate to="/" />} />
