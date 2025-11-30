@@ -9,7 +9,7 @@ on:
   workflow_dispatch: # Allow manual trigger
 
 env:
-  AZURE_WEBAPP_NAME: apexai-api
+  AZURE_WEBAPP_NAME: strappedai
   NODE_VERSION: '20.x'
 
 jobs:
