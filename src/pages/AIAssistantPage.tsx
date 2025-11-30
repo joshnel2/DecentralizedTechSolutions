@@ -98,25 +98,22 @@ export function AIAssistantPage() {
       reader.onload = async (e) => {
         const result = e.target?.result
         
-        if (file.type === 'application/pdf') {
+        // Handle image files
+        if (file.type.startsWith('image/')) {
+          resolve(`[IMAGE FILE: ${file.name}]\n\nThis appears to be an image file. For best results with legal documents, please:\n1. Convert the image to PDF format, or\n2. Use OCR software to extract the text first, or\n3. Describe what you see in the image and I can provide guidance.\n\nI can still help analyze and draft documents based on your description of the image content.`)
+        }
+        // Handle PDF files
+        else if (file.type === 'application/pdf') {
           try {
-            // 1. Get the file as ArrayBuffer
             const arrayBuffer = result as ArrayBuffer
-            
-            // 2. Dynamically import pdfjs-dist
             const pdfjsLib = await import('pdfjs-dist')
             
-            // 3. Configure the worker (REQUIRED - PDF.js needs a web worker)
             pdfjsLib.GlobalWorkerOptions.workerSrc = 
               `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
             
-            // 4. Convert ArrayBuffer to Uint8Array for PDF.js
             const uint8Array = new Uint8Array(arrayBuffer)
-            
-            // 5. Load the PDF document
             const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise
             
-            // 6. Extract text from each page
             let fullText = ''
             for (let i = 1; i <= pdf.numPages; i++) {
               const page = await pdf.getPage(i)
@@ -125,24 +122,86 @@ export function AIAssistantPage() {
               fullText += `\n--- Page ${i} ---\n${pageText}\n`
             }
             
-            // 7. Return formatted output
             resolve(`[PDF FILE: ${file.name}]\n\nExtracted content from PDF (${pdf.numPages} pages):\n${fullText}`)
           } catch (err) {
             console.error('PDF extraction error:', err)
             resolve(`[PDF FILE: ${file.name}]\n\nUnable to extract text. This may be a scanned/image-based PDF.`)
           }
-        } else {
-          // Text-based files
+        }
+        // Handle Word .docx files
+        else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
+                 file.name.toLowerCase().endsWith('.docx')) {
+          try {
+            const arrayBuffer = result as ArrayBuffer
+            const mammoth = await import('mammoth')
+            const result2 = await mammoth.extractRawText({ arrayBuffer })
+            resolve(`[WORD DOCUMENT: ${file.name}]\n\nExtracted content:\n${result2.value}`)
+          } catch (err) {
+            console.error('DOCX extraction error:', err)
+            resolve(`[WORD DOCUMENT: ${file.name}]\n\nUnable to extract text from this Word document.`)
+          }
+        }
+        // Handle old Word .doc files
+        else if (file.type === 'application/msword' || file.name.toLowerCase().endsWith('.doc')) {
+          // Basic text extraction attempt for .doc files
+          try {
+            const arrayBuffer = result as ArrayBuffer
+            const textDecoder = new TextDecoder('utf-8', { fatal: false })
+            const text = textDecoder.decode(arrayBuffer)
+            // Extract readable text (filter out binary garbage)
+            const cleanText = text.replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim()
+            if (cleanText.length > 100) {
+              resolve(`[WORD DOCUMENT: ${file.name}]\n\nExtracted content (legacy .doc format - some formatting may be lost):\n${cleanText.substring(0, 50000)}`)
+            } else {
+              resolve(`[WORD DOCUMENT: ${file.name}]\n\nThis is a legacy .doc format. For best results, please save as .docx and re-upload.`)
+            }
+          } catch (err) {
+            resolve(`[WORD DOCUMENT: ${file.name}]\n\nUnable to extract text. Please convert to .docx format.`)
+          }
+        }
+        // Handle Excel files
+        else if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+                 file.type === 'application/vnd.ms-excel' ||
+                 file.name.toLowerCase().endsWith('.xlsx') ||
+                 file.name.toLowerCase().endsWith('.xls')) {
+          try {
+            const arrayBuffer = result as ArrayBuffer
+            const XLSX = await import('xlsx')
+            const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+            
+            let fullContent = `[EXCEL FILE: ${file.name}]\n\nExtracted content:\n`
+            workbook.SheetNames.forEach((sheetName: string) => {
+              const sheet = workbook.Sheets[sheetName]
+              const csv = XLSX.utils.sheet_to_csv(sheet)
+              fullContent += `\n--- Sheet: ${sheetName} ---\n${csv}\n`
+            })
+            resolve(fullContent)
+          } catch (err) {
+            console.error('Excel extraction error:', err)
+            resolve(`[EXCEL FILE: ${file.name}]\n\nUnable to extract data from this Excel file.`)
+          }
+        }
+        // Handle text-based files (txt, csv, json, xml, html, md, etc.)
+        else {
           resolve(result as string)
         }
       }
       
       reader.onerror = () => reject(reader.error)
       
-      // Read PDF as ArrayBuffer (not as text!)
-      if (file.type === 'application/pdf') {
+      // Read as ArrayBuffer for PDFs, Excel files, and Word docs
+      if (file.type === 'application/pdf' || 
+          file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+          file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+          file.type === 'application/vnd.ms-excel' ||
+          file.type === 'application/msword' ||
+          file.name.toLowerCase().endsWith('.docx') ||
+          file.name.toLowerCase().endsWith('.doc') ||
+          file.name.toLowerCase().endsWith('.xlsx') ||
+          file.name.toLowerCase().endsWith('.xls')) {
         reader.readAsArrayBuffer(file)
       } else {
+        // Read as text for CSV, TXT, and other text-based files
         reader.readAsText(file)
       }
     })
@@ -380,7 +439,7 @@ export function AIAssistantPage() {
                   ref={fileInputRef}
                   onChange={(e) => handleFileUpload(e)}
                   style={{ display: 'none' }}
-                  accept=".txt,.md,.json,.csv,.xml,.html,.pdf,.doc,.docx"
+                  accept=".pdf,.doc,.docx,.txt,.rtf,.csv,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.webp,.json,.xml,.html,.md"
                 />
                 <input
                   type="text"
@@ -444,7 +503,7 @@ export function AIAssistantPage() {
                   ref={fileInputRef}
                   onChange={(e) => handleFileUpload(e)}
                   style={{ display: 'none' }}
-                  accept=".txt,.md,.json,.csv,.xml,.html,.pdf,.doc,.docx"
+                  accept=".pdf,.doc,.docx,.txt,.rtf,.csv,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.webp,.json,.xml,.html,.md"
                 />
                 
                 {documentContext && (
@@ -498,7 +557,7 @@ export function AIAssistantPage() {
                       ref={redlineInput1Ref}
                       onChange={(e) => handleFileUpload(e, 'doc1')}
                       style={{ display: 'none' }}
-                      accept=".txt,.md,.json,.csv,.xml,.html,.pdf,.doc,.docx"
+                      accept=".pdf,.doc,.docx,.txt,.rtf,.csv,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.webp,.json,.xml,.html,.md"
                     />
                   </div>
                   
@@ -533,7 +592,7 @@ export function AIAssistantPage() {
                       ref={redlineInput2Ref}
                       onChange={(e) => handleFileUpload(e, 'doc2')}
                       style={{ display: 'none' }}
-                      accept=".txt,.md,.json,.csv,.xml,.html,.pdf,.doc,.docx"
+                      accept=".pdf,.doc,.docx,.txt,.rtf,.csv,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.webp,.json,.xml,.html,.md"
                     />
                   </div>
                 </div>

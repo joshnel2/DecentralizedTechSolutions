@@ -18,7 +18,9 @@
     "recharts": "^2.10.3",
     "lucide-react": "^0.294.0",
     "clsx": "^2.0.0",
-    "pdfjs-dist": "3.11.174"
+    "pdfjs-dist": "3.11.174",
+    "mammoth": "^1.6.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/react": "^18.2.37",
