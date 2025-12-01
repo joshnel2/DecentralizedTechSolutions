@@ -30,7 +30,7 @@ const clientBalances: { clientId: string; clientName: string; balance: number; l
 
 export function TrustAccountingPage() {
   const { clients } = useDataStore()
-  const [transactions] = useState(demoTransactions)
+  const [transactions] = useState<TrustTransaction[]>([])
   const [activeTab, setActiveTab] = useState<'ledger' | 'balances' | 'reconciliation'>('ledger')
   const [searchQuery, setSearchQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
