@@ -27,9 +27,7 @@ export function AIButton({
   variant = 'button',
   size = 'md',
   label = 'AI Assist',
-  prompts = defaultPrompts,
-  page = 'general',
-  entityId
+  prompts = defaultPrompts
 }: AIButtonProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
