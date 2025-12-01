@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
+import { invoicesApi } from '../services/api'
 import { 
   Briefcase, Calendar, DollarSign, Clock, FileText,
   ChevronLeft, Sparkles, Edit2, MoreVertical, Plus,
   CheckCircle2, Scale, Building2, Brain, Loader2, 
   Copy, RefreshCw, AlertTriangle, TrendingUp,
-  ListTodo, Users, Circle
+  ListTodo, Users, Circle, Upload, Download, X
 } from 'lucide-react'
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
@@ -30,11 +31,33 @@ const relatedContacts = [
 
 export function MatterDetailPage() {
   const { id } = useParams()
-  const { matters, clients, timeEntries, invoices, events, documents, updateMatter } = useDataStore()
+  const { 
+    matters, clients, timeEntries, invoices, events, documents, 
+    updateMatter, addTimeEntry, addInvoice, addEvent, addDocument,
+    fetchMatters, fetchClients, fetchTimeEntries, fetchInvoices, fetchEvents, fetchDocuments 
+  } = useDataStore()
   const [activeTab, setActiveTab] = useState('overview')
   const [aiAnalyzing, setAiAnalyzing] = useState(false)
   const [aiSummary, setAiSummary] = useState<string | null>(null)
   const [showAiPanel, setShowAiPanel] = useState(false)
+  
+  // Modal states
+  const [showDocumentModal, setShowDocumentModal] = useState(false)
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false)
+  const [showTimeEntryModal, setShowTimeEntryModal] = useState(false)
+  const [showEventModal, setShowEventModal] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Fetch data on mount
+  useEffect(() => {
+    fetchMatters()
+    fetchClients()
+    fetchTimeEntries({ matterId: id })
+    fetchInvoices()
+    fetchEvents()
+    fetchDocuments({ matterId: id })
+  }, [id])
 
   const matter = useMemo(() => matters.find(m => m.id === id), [matters, id])
   const client = useMemo(() => clients.find(c => c.id === matter?.clientId), [clients, matter])
@@ -465,7 +488,7 @@ Only analyze documents actually associated with this matter.`
                     variant="icon"
                     size="sm"
                   />
-                  <button className={styles.addBtn}>
+                  <button className={styles.addBtn} onClick={() => setShowEventModal(true)}>
                     <Plus size={14} />
                     Add
                   </button>
@@ -510,7 +533,7 @@ Only analyze documents actually associated with this matter.`
                       { label: 'Efficiency', prompt: 'Review time efficiency' }
                     ]}
                   />
-                  <button className={styles.addBtn}>
+                  <button className={styles.addBtn} onClick={() => setShowTimeEntryModal(true)}>
                     <Plus size={14} />
                     Add
                   </button>
@@ -554,7 +577,10 @@ Only analyze documents actually associated with this matter.`
                     { label: 'Invoice Ready', prompt: 'Prepare for invoicing' }
                   ]}
                 />
-                <button className={styles.primaryBtn}>
+                <button 
+                  className={styles.primaryBtn}
+                  onClick={() => setShowTimeEntryModal(true)}
+                >
                   <Plus size={18} />
                   New Time Entry
                 </button>
@@ -620,7 +646,10 @@ Only analyze documents actually associated with this matter.`
                     { label: 'Draft Invoice', prompt: 'Help draft invoice' }
                   ]}
                 />
-                <button className={styles.primaryBtn}>
+                <button 
+                  className={styles.primaryBtn}
+                  onClick={() => setShowInvoiceModal(true)}
+                >
                   <Plus size={18} />
                   Create Invoice
                 </button>
@@ -683,9 +712,42 @@ Only analyze documents actually associated with this matter.`
                     { label: 'Missing Docs', prompt: 'Identify missing documents' }
                   ]}
                 />
-                <button className={styles.primaryBtn}>
-                  <Plus size={18} />
-                  Upload Document
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  style={{ display: 'none' }}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    setIsUploading(true)
+                    try {
+                      await addDocument(file, { matterId: id, clientId: matter?.clientId })
+                      fetchDocuments({ matterId: id })
+                    } catch (error) {
+                      console.error('Upload failed:', error)
+                      alert('Failed to upload document. Please try again.')
+                    } finally {
+                      setIsUploading(false)
+                      if (fileInputRef.current) fileInputRef.current.value = ''
+                    }
+                  }}
+                />
+                <button 
+                  className={styles.primaryBtn}
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                >
+                  {isUploading ? (
+                    <>
+                      <Loader2 size={18} className={styles.spinner} />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload size={18} />
+                      Upload Document
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -748,7 +810,10 @@ Only analyze documents actually associated with this matter.`
                     { label: 'Suggest', prompt: 'Suggest next meetings' }
                   ]}
                 />
-                <button className={styles.primaryBtn}>
+                <button 
+                  className={styles.primaryBtn}
+                  onClick={() => setShowEventModal(true)}
+                >
                   <Plus size={18} />
                   Add Event
                 </button>
@@ -930,6 +995,405 @@ Only analyze documents actually associated with this matter.`
           </div>
         )}
       </div>
+
+      {/* Time Entry Modal */}
+      {showTimeEntryModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowTimeEntryModal(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>New Time Entry</h2>
+              <button onClick={() => setShowTimeEntryModal(false)} className={styles.closeBtn}>×</button>
+            </div>
+            <TimeEntryForm 
+              matterId={id!}
+              matterName={matter?.name || ''}
+              defaultRate={matter?.billingRate || 450}
+              onClose={() => setShowTimeEntryModal(false)}
+              onSave={async (data) => {
+                try {
+                  await addTimeEntry(data)
+                  setShowTimeEntryModal(false)
+                  fetchTimeEntries({ matterId: id })
+                } catch (error) {
+                  console.error('Failed to save time entry:', error)
+                  alert('Failed to save time entry. Please try again.')
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Invoice Modal */}
+      {showInvoiceModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowInvoiceModal(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Create Invoice</h2>
+              <button onClick={() => setShowInvoiceModal(false)} className={styles.closeBtn}>×</button>
+            </div>
+            <InvoiceForm 
+              matterId={id!}
+              clientId={matter?.clientId || ''}
+              clientName={client?.name || ''}
+              matterName={matter?.name || ''}
+              unbilledAmount={stats.totalUnbilled}
+              onClose={() => setShowInvoiceModal(false)}
+              onSave={async (data) => {
+                try {
+                  await addInvoice(data)
+                  setShowInvoiceModal(false)
+                  fetchInvoices()
+                } catch (error) {
+                  console.error('Failed to create invoice:', error)
+                  alert('Failed to create invoice. Please try again.')
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Event Modal */}
+      {showEventModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowEventModal(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Add Event</h2>
+              <button onClick={() => setShowEventModal(false)} className={styles.closeBtn}>×</button>
+            </div>
+            <EventForm 
+              matterId={id!}
+              matterName={matter?.name || ''}
+              onClose={() => setShowEventModal(false)}
+              onSave={async (data) => {
+                try {
+                  await addEvent(data)
+                  setShowEventModal(false)
+                  fetchEvents()
+                } catch (error) {
+                  console.error('Failed to create event:', error)
+                  alert('Failed to create event. Please try again.')
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+// Time Entry Form Component
+function TimeEntryForm({ matterId, matterName, defaultRate, onClose, onSave }: {
+  matterId: string
+  matterName: string
+  defaultRate: number
+  onClose: () => void
+  onSave: (data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState({
+    matterId,
+    date: format(new Date(), 'yyyy-MM-dd'),
+    hours: 1,
+    rate: defaultRate,
+    description: '',
+    billable: true
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onSave(formData)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className={styles.modalForm}>
+      <div className={styles.formInfo}>
+        <strong>Matter:</strong> {matterName}
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Date</label>
+          <input
+            type="date"
+            value={formData.date}
+            onChange={(e) => setFormData({...formData, date: e.target.value})}
+            required
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label>Hours</label>
+          <input
+            type="number"
+            step="0.1"
+            min="0.1"
+            value={formData.hours}
+            onChange={(e) => setFormData({...formData, hours: parseFloat(e.target.value) || 0})}
+            required
+          />
+        </div>
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Rate ($/hr)</label>
+          <input
+            type="number"
+            value={formData.rate}
+            onChange={(e) => setFormData({...formData, rate: parseFloat(e.target.value) || 0})}
+            required
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label>Total</label>
+          <div className={styles.formValue}>${(formData.hours * formData.rate).toFixed(2)}</div>
+        </div>
+      </div>
+
+      <div className={styles.formGroup}>
+        <label>Description</label>
+        <textarea
+          value={formData.description}
+          onChange={(e) => setFormData({...formData, description: e.target.value})}
+          placeholder="Describe the work performed..."
+          rows={3}
+          required
+        />
+      </div>
+
+      <div className={styles.formGroup}>
+        <label className={styles.checkboxLabel}>
+          <input
+            type="checkbox"
+            checked={formData.billable}
+            onChange={(e) => setFormData({...formData, billable: e.target.checked})}
+          />
+          Billable
+        </label>
+      </div>
+
+      <div className={styles.modalActions}>
+        <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+          Cancel
+        </button>
+        <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+          {isSubmitting ? 'Saving...' : 'Save Time Entry'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+// Invoice Form Component
+function InvoiceForm({ matterId, clientId, clientName, matterName, unbilledAmount, onClose, onSave }: {
+  matterId: string
+  clientId: string
+  clientName: string
+  matterName: string
+  unbilledAmount: number
+  onClose: () => void
+  onSave: (data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState({
+    matterId,
+    clientId,
+    issueDate: format(new Date(), 'yyyy-MM-dd'),
+    dueDate: format(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
+    notes: '',
+    lineItems: [
+      { type: 'fee', description: 'Professional Legal Services', quantity: 1, rate: unbilledAmount, amount: unbilledAmount }
+    ]
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onSave(formData)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className={styles.modalForm}>
+      <div className={styles.formInfo}>
+        <div><strong>Client:</strong> {clientName}</div>
+        <div><strong>Matter:</strong> {matterName}</div>
+        <div><strong>Unbilled Amount:</strong> ${unbilledAmount.toLocaleString()}</div>
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Issue Date</label>
+          <input
+            type="date"
+            value={formData.issueDate}
+            onChange={(e) => setFormData({...formData, issueDate: e.target.value})}
+            required
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label>Due Date</label>
+          <input
+            type="date"
+            value={formData.dueDate}
+            onChange={(e) => setFormData({...formData, dueDate: e.target.value})}
+            required
+          />
+        </div>
+      </div>
+
+      <div className={styles.formGroup}>
+        <label>Notes</label>
+        <textarea
+          value={formData.notes}
+          onChange={(e) => setFormData({...formData, notes: e.target.value})}
+          placeholder="Invoice notes..."
+          rows={3}
+        />
+      </div>
+
+      <div className={styles.modalActions}>
+        <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+          Cancel
+        </button>
+        <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+          {isSubmitting ? 'Creating...' : 'Create Invoice'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+// Event Form Component
+function EventForm({ matterId, matterName, onClose, onSave }: {
+  matterId: string
+  matterName: string
+  onClose: () => void
+  onSave: (data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState({
+    matterId,
+    title: '',
+    type: 'meeting',
+    startTime: format(new Date(), "yyyy-MM-dd'T'10:00"),
+    endTime: format(new Date(), "yyyy-MM-dd'T'11:00"),
+    location: '',
+    description: '',
+    allDay: false
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onSave({
+        ...formData,
+        startTime: new Date(formData.startTime).toISOString(),
+        endTime: new Date(formData.endTime).toISOString()
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className={styles.modalForm}>
+      <div className={styles.formInfo}>
+        <strong>Matter:</strong> {matterName}
+      </div>
+
+      <div className={styles.formGroup}>
+        <label>Title</label>
+        <input
+          type="text"
+          value={formData.title}
+          onChange={(e) => setFormData({...formData, title: e.target.value})}
+          placeholder="Event title..."
+          required
+        />
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Type</label>
+          <select
+            value={formData.type}
+            onChange={(e) => setFormData({...formData, type: e.target.value})}
+          >
+            <option value="meeting">Meeting</option>
+            <option value="court_date">Court Date</option>
+            <option value="hearing">Hearing</option>
+            <option value="deposition">Deposition</option>
+            <option value="deadline">Deadline</option>
+            <option value="filing_deadline">Filing Deadline</option>
+            <option value="appointment">Appointment</option>
+            <option value="conference_call">Conference Call</option>
+          </select>
+        </div>
+        <div className={styles.formGroup}>
+          <label>Location</label>
+          <input
+            type="text"
+            value={formData.location}
+            onChange={(e) => setFormData({...formData, location: e.target.value})}
+            placeholder="Location (optional)"
+          />
+        </div>
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Start</label>
+          <input
+            type="datetime-local"
+            value={formData.startTime}
+            onChange={(e) => setFormData({...formData, startTime: e.target.value})}
+            required
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label>End</label>
+          <input
+            type="datetime-local"
+            value={formData.endTime}
+            onChange={(e) => setFormData({...formData, endTime: e.target.value})}
+            required
+          />
+        </div>
+      </div>
+
+      <div className={styles.formGroup}>
+        <label>Description</label>
+        <textarea
+          value={formData.description}
+          onChange={(e) => setFormData({...formData, description: e.target.value})}
+          placeholder="Event details..."
+          rows={2}
+        />
+      </div>
+
+      <div className={styles.modalActions}>
+        <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+          Cancel
+        </button>
+        <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+          {isSubmitting ? 'Creating...' : 'Create Event'}
+        </button>
+      </div>
+    </form>
   )
 }

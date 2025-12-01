@@ -1,17 +1,19 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
+import { invoicesApi } from '../services/api'
 import { 
   Plus, Search, DollarSign, FileText, TrendingUp, AlertCircle,
-  CheckCircle2, Clock, Send, MoreVertical, Sparkles
+  CheckCircle2, Clock, Send, MoreVertical, Sparkles, Download,
+  CreditCard, XCircle, Eye, Edit2
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './BillingPage.module.css'
 
 export function BillingPage() {
-  const { invoices, clients, matters, timeEntries, expenses, fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries, addInvoice } = useDataStore()
+  const { invoices, clients, matters, timeEntries, expenses, fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries, addInvoice, updateInvoice } = useDataStore()
   const { openChat } = useAIChat()
   
   // Fetch data from API on mount
@@ -26,6 +28,169 @@ export function BillingPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
+  const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [selectedInvoice, setSelectedInvoice] = useState<any>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpenDropdownId(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const handleStatusChange = async (invoiceId: string, newStatus: 'draft' | 'sent' | 'paid' | 'overdue' | 'void' | 'partial') => {
+    try {
+      await updateInvoice(invoiceId, { status: newStatus })
+      setOpenDropdownId(null)
+      fetchInvoices()
+    } catch (error) {
+      console.error('Failed to update invoice status:', error)
+      alert('Failed to update invoice status')
+    }
+  }
+
+  const handleRecordPayment = (invoice: any) => {
+    setSelectedInvoice(invoice)
+    setShowPaymentModal(true)
+    setOpenDropdownId(null)
+  }
+
+  const handleDownloadInvoice = async (invoice: any) => {
+    setOpenDropdownId(null)
+    const client = clients.find(c => c.id === invoice.clientId)
+    const matter = matters.find(m => m.id === invoice.matterId)
+    
+    // Generate PDF content
+    const invoiceHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 40px; color: #333; }
+          .header { display: flex; justify-content: space-between; margin-bottom: 40px; }
+          .company { font-size: 24px; font-weight: bold; color: #1a1a2e; }
+          .invoice-title { font-size: 32px; color: #F59E0B; margin-bottom: 10px; }
+          .invoice-number { font-size: 14px; color: #666; }
+          .info-section { display: flex; justify-content: space-between; margin-bottom: 40px; }
+          .info-block { }
+          .info-label { font-size: 12px; color: #888; text-transform: uppercase; margin-bottom: 5px; }
+          .info-value { font-size: 14px; margin-bottom: 15px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+          th { background: #f8f9fa; text-align: left; padding: 12px; border-bottom: 2px solid #ddd; font-size: 12px; text-transform: uppercase; }
+          td { padding: 12px; border-bottom: 1px solid #eee; }
+          .amount { text-align: right; }
+          .totals { margin-left: auto; width: 250px; }
+          .total-row { display: flex; justify-content: space-between; padding: 8px 0; }
+          .total-row.final { font-size: 18px; font-weight: bold; border-top: 2px solid #333; padding-top: 15px; }
+          .status { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
+          .status.paid { background: #d4edda; color: #155724; }
+          .status.sent { background: #cce5ff; color: #004085; }
+          .status.draft { background: #e2e3e5; color: #383d41; }
+          .status.overdue { background: #f8d7da; color: #721c24; }
+          .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <div class="company">APEX LEGAL</div>
+            <div style="color: #666;">Professional Legal Services</div>
+          </div>
+          <div style="text-align: right;">
+            <div class="invoice-title">INVOICE</div>
+            <div class="invoice-number">${invoice.number}</div>
+            <span class="status ${invoice.status}">${invoice.status.toUpperCase()}</span>
+          </div>
+        </div>
+        
+        <div class="info-section">
+          <div class="info-block">
+            <div class="info-label">Bill To</div>
+            <div class="info-value"><strong>${client?.name || 'Unknown Client'}</strong></div>
+            <div class="info-value">${client?.email || ''}</div>
+          </div>
+          <div class="info-block">
+            <div class="info-label">Matter</div>
+            <div class="info-value">${matter?.name || 'General'}</div>
+            <div class="info-value">${matter?.number || ''}</div>
+          </div>
+          <div class="info-block">
+            <div class="info-label">Issue Date</div>
+            <div class="info-value">${format(parseISO(invoice.issueDate), 'MMMM d, yyyy')}</div>
+            <div class="info-label">Due Date</div>
+            <div class="info-value">${format(parseISO(invoice.dueDate), 'MMMM d, yyyy')}</div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Description</th>
+              <th>Quantity</th>
+              <th>Rate</th>
+              <th class="amount">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${invoice.lineItems?.length > 0 
+              ? invoice.lineItems.map((item: any) => `
+                <tr>
+                  <td>${item.description || 'Legal Services'}</td>
+                  <td>${item.quantity || 1}</td>
+                  <td>$${(item.rate || 0).toFixed(2)}</td>
+                  <td class="amount">$${(item.amount || item.quantity * item.rate || 0).toFixed(2)}</td>
+                </tr>
+              `).join('')
+              : `<tr><td colspan="4" style="text-align: center; color: #888;">Professional Legal Services</td></tr>`
+            }
+          </tbody>
+        </table>
+
+        <div class="totals">
+          <div class="total-row">
+            <span>Subtotal:</span>
+            <span>$${(invoice.subtotal || invoice.total).toLocaleString()}</span>
+          </div>
+          ${invoice.taxAmount ? `
+          <div class="total-row">
+            <span>Tax:</span>
+            <span>$${invoice.taxAmount.toLocaleString()}</span>
+          </div>
+          ` : ''}
+          ${invoice.amountPaid > 0 ? `
+          <div class="total-row">
+            <span>Paid:</span>
+            <span style="color: #10B981;">-$${invoice.amountPaid.toLocaleString()}</span>
+          </div>
+          ` : ''}
+          <div class="total-row final">
+            <span>Amount Due:</span>
+            <span>$${(invoice.total - invoice.amountPaid).toLocaleString()}</span>
+          </div>
+        </div>
+
+        <div class="footer">
+          <p><strong>Payment Terms:</strong> Net 30 days</p>
+          <p>Thank you for your business. Please include the invoice number with your payment.</p>
+        </div>
+      </body>
+      </html>
+    `
+    
+    // Open print dialog which allows saving as PDF
+    const printWindow = window.open('', '_blank')
+    if (printWindow) {
+      printWindow.document.write(invoiceHtml)
+      printWindow.document.close()
+      printWindow.print()
+    }
+  }
 
   const stats = useMemo(() => {
     const totalBilled = invoices.reduce((sum, i) => sum + i.total, 0)
@@ -93,6 +258,27 @@ export function BillingPage() {
           }}
           clients={clients}
           matters={matters}
+        />
+      )}
+
+      {showPaymentModal && selectedInvoice && (
+        <PaymentModal
+          invoice={selectedInvoice}
+          onClose={() => {
+            setShowPaymentModal(false)
+            setSelectedInvoice(null)
+          }}
+          onSave={async (invoiceId, data) => {
+            try {
+              await invoicesApi.recordPayment(invoiceId, data)
+              setShowPaymentModal(false)
+              setSelectedInvoice(null)
+              fetchInvoices()
+            } catch (error) {
+              console.error('Failed to record payment:', error)
+              throw error
+            }
+          }}
         />
       )}
 
@@ -228,9 +414,61 @@ export function BillingPage() {
                       </span>
                     </td>
                     <td>
-                      <button className={styles.menuBtn}>
-                        <MoreVertical size={16} />
-                      </button>
+                      <div className={styles.menuWrapper} ref={openDropdownId === invoice.id ? dropdownRef : null}>
+                        <button 
+                          className={styles.menuBtn}
+                          onClick={() => setOpenDropdownId(openDropdownId === invoice.id ? null : invoice.id)}
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+                        {openDropdownId === invoice.id && (
+                          <div className={styles.dropdown}>
+                            <button 
+                              className={styles.dropdownItem}
+                              onClick={() => handleDownloadInvoice(invoice)}
+                            >
+                              <Download size={14} />
+                              Download PDF
+                            </button>
+                            {invoice.status === 'draft' && (
+                              <button 
+                                className={styles.dropdownItem}
+                                onClick={() => handleStatusChange(invoice.id, 'sent')}
+                              >
+                                <Send size={14} />
+                                Mark as Sent
+                              </button>
+                            )}
+                            {(invoice.status === 'sent' || invoice.status === 'overdue' || invoice.status === 'partial') && (
+                              <>
+                                <button 
+                                  className={styles.dropdownItem}
+                                  onClick={() => handleRecordPayment(invoice)}
+                                >
+                                  <CreditCard size={14} />
+                                  Record Payment
+                                </button>
+                                <button 
+                                  className={clsx(styles.dropdownItem, styles.success)}
+                                  onClick={() => handleStatusChange(invoice.id, 'paid')}
+                                >
+                                  <CheckCircle2 size={14} />
+                                  Mark as Paid
+                                </button>
+                              </>
+                            )}
+                            {invoice.status !== 'void' && invoice.status !== 'paid' && (
+                              <button 
+                                className={clsx(styles.dropdownItem, styles.danger)}
+                                onClick={() => handleStatusChange(invoice.id, 'void')}
+                              >
+                                <XCircle size={14} />
+                                Void Invoice
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -422,6 +660,137 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
             </button>
             <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
               {isSubmitting ? 'Creating...' : 'Create Invoice'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function PaymentModal({ invoice, onClose, onSave }: { 
+  invoice: any
+  onClose: () => void
+  onSave: (invoiceId: string, data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState({
+    amount: invoice.total - invoice.amountPaid,
+    paymentMethod: 'check',
+    reference: '',
+    paymentDate: format(new Date(), 'yyyy-MM-dd'),
+    notes: ''
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isSubmitting) return
+    if (formData.amount <= 0) {
+      alert('Please enter a valid payment amount')
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      await onSave(invoice.id, formData)
+      onClose()
+    } catch (error) {
+      console.error('Failed to record payment:', error)
+      alert('Failed to record payment')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>Record Payment</h2>
+          <button onClick={onClose} className={styles.closeBtn}>×</button>
+        </div>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
+          <div className={styles.paymentInfo}>
+            <div className={styles.paymentInfoRow}>
+              <span>Invoice:</span>
+              <strong>{invoice.number}</strong>
+            </div>
+            <div className={styles.paymentInfoRow}>
+              <span>Total:</span>
+              <strong>${invoice.total.toLocaleString()}</strong>
+            </div>
+            <div className={styles.paymentInfoRow}>
+              <span>Previously Paid:</span>
+              <strong>${invoice.amountPaid.toLocaleString()}</strong>
+            </div>
+            <div className={clsx(styles.paymentInfoRow, styles.highlight)}>
+              <span>Amount Due:</span>
+              <strong>${(invoice.total - invoice.amountPaid).toLocaleString()}</strong>
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Payment Amount</label>
+            <input
+              type="number"
+              step="0.01"
+              value={formData.amount}
+              onChange={(e) => setFormData({...formData, amount: parseFloat(e.target.value) || 0})}
+              required
+            />
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Payment Method</label>
+              <select
+                value={formData.paymentMethod}
+                onChange={(e) => setFormData({...formData, paymentMethod: e.target.value})}
+              >
+                <option value="check">Check</option>
+                <option value="wire">Wire Transfer</option>
+                <option value="ach">ACH</option>
+                <option value="credit_card">Credit Card</option>
+                <option value="cash">Cash</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div className={styles.formGroup}>
+              <label>Payment Date</label>
+              <input
+                type="date"
+                value={formData.paymentDate}
+                onChange={(e) => setFormData({...formData, paymentDate: e.target.value})}
+                required
+              />
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Reference / Check #</label>
+            <input
+              type="text"
+              value={formData.reference}
+              onChange={(e) => setFormData({...formData, reference: e.target.value})}
+              placeholder="e.g., Check #1234"
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Notes</label>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({...formData, notes: e.target.value})}
+              placeholder="Payment notes..."
+              rows={2}
+            />
+          </div>
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+              Cancel
+            </button>
+            <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Recording...' : 'Record Payment'}
             </button>
           </div>
         </form>

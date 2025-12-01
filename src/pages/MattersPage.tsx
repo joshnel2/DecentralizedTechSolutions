@@ -1,12 +1,13 @@
-import { useState, useMemo, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { teamApi } from '../services/api'
 import { 
   Plus, Search, Filter, ChevronDown, Briefcase, 
-  MoreVertical, Sparkles, Calendar, DollarSign, Users, X
+  MoreVertical, Sparkles, Calendar, DollarSign, Users, X,
+  Edit2, Archive, CheckCircle2, Trash2, Eye, XCircle
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -34,13 +35,27 @@ const typeOptions = [
 ]
 
 export function MattersPage() {
-  const { matters, clients, addMatter, fetchMatters, fetchClients } = useDataStore()
+  const { matters, clients, addMatter, fetchMatters, fetchClients, updateMatter, deleteMatter } = useDataStore()
   const { user } = useAuthStore()
   const { openChat } = useAIChat()
+  const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState('')
   const [attorneys, setAttorneys] = useState<any[]>([])
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   const isAdmin = user?.role === 'owner' || user?.role === 'admin'
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpenDropdownId(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // Fetch data when component mounts
   useEffect(() => {
@@ -57,6 +72,31 @@ export function MattersPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
+
+  const handleStatusChange = async (matterId: string, newStatus: 'intake' | 'pending_conflict' | 'active' | 'pending' | 'on_hold' | 'closed_won' | 'closed_lost' | 'closed_settled' | 'closed_dismissed' | 'closed_transferred' | 'closed_abandoned' | 'closed_other') => {
+    try {
+      await updateMatter(matterId, { status: newStatus })
+      setOpenDropdownId(null)
+      fetchMatters()
+    } catch (error) {
+      console.error('Failed to update matter status:', error)
+      alert('Failed to update matter status')
+    }
+  }
+
+  const handleDeleteMatter = async (matterId: string, matterName: string) => {
+    if (!confirm(`Are you sure you want to delete "${matterName}"? This action cannot be undone.`)) {
+      return
+    }
+    try {
+      await deleteMatter(matterId)
+      setOpenDropdownId(null)
+      fetchMatters()
+    } catch (error) {
+      console.error('Failed to delete matter:', error)
+      alert('Failed to delete matter')
+    }
+  }
 
   const filteredMatters = useMemo(() => {
     return matters.filter(matter => {
@@ -194,9 +234,72 @@ export function MattersPage() {
                   {format(parseISO(matter.openDate), 'MMM d, yyyy')}
                 </td>
                 <td>
-                  <button className={styles.menuBtn}>
-                    <MoreVertical size={16} />
-                  </button>
+                  <div className={styles.menuWrapper} ref={openDropdownId === matter.id ? dropdownRef : null}>
+                    <button 
+                      className={styles.menuBtn}
+                      onClick={() => setOpenDropdownId(openDropdownId === matter.id ? null : matter.id)}
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+                    {openDropdownId === matter.id && (
+                      <div className={styles.dropdown}>
+                        <button 
+                          className={styles.dropdownItem}
+                          onClick={() => {
+                            setOpenDropdownId(null)
+                            navigate(`/app/matters/${matter.id}`)
+                          }}
+                        >
+                          <Eye size={14} />
+                          View Details
+                        </button>
+                        {matter.status === 'active' && (
+                          <>
+                            <button 
+                              className={styles.dropdownItem}
+                              onClick={() => handleStatusChange(matter.id, 'on_hold')}
+                            >
+                              <XCircle size={14} />
+                              Put On Hold
+                            </button>
+                            <button 
+                              className={clsx(styles.dropdownItem, styles.success)}
+                              onClick={() => handleStatusChange(matter.id, 'closed_won')}
+                            >
+                              <CheckCircle2 size={14} />
+                              Close - Won
+                            </button>
+                          </>
+                        )}
+                        {matter.status === 'on_hold' && (
+                          <button 
+                            className={styles.dropdownItem}
+                            onClick={() => handleStatusChange(matter.id, 'active')}
+                          >
+                            <Briefcase size={14} />
+                            Reactivate
+                          </button>
+                        )}
+                        {!matter.status.startsWith('closed') && (
+                          <button 
+                            className={styles.dropdownItem}
+                            onClick={() => handleStatusChange(matter.id, 'closed_other')}
+                          >
+                            <Archive size={14} />
+                            Archive / Close
+                          </button>
+                        )}
+                        <div className={styles.dropdownDivider} />
+                        <button 
+                          className={clsx(styles.dropdownItem, styles.danger)}
+                          onClick={() => handleDeleteMatter(matter.id, matter.name)}
+                        >
+                          <Trash2 size={14} />
+                          Delete Matter
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
