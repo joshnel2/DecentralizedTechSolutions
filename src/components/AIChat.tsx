@@ -48,30 +48,25 @@ function getContextFromPath(pathname: string): Record<string, any> {
 
 export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps) {
   const location = useLocation()
-  const { initialMessage, clearInitialMessage, refreshSuggestions } = useAIChat()
+  const { refreshSuggestions } = useAIChat()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [showSuggestions, setShowSuggestions] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const currentPage = getPageFromPath(location.pathname)
   const pathContext = getContextFromPath(location.pathname)
 
-  // Handle initial message from context
-  useEffect(() => {
-    if (isOpen && initialMessage) {
-      sendMessage(initialMessage)
-      clearInitialMessage()
-    }
-  }, [isOpen, initialMessage])
-
   // Scroll to bottom on new messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+    }
+  }, [messages, isLoading])
 
   // Focus input when opened
   useEffect(() => {
@@ -183,7 +178,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         </div>
 
         {/* Messages */}
-        <div className={styles.messages}>
+        <div className={styles.messages} ref={messagesContainerRef}>
           {messages.length === 0 ? (
             <div className={styles.welcome}>
               <div className={styles.welcomeIcon}>

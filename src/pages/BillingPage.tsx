@@ -343,7 +343,7 @@ export function BillingPage() {
           <p className={styles.headerSubtitle}>Manage invoices, payments, and billing</p>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.aiBtn} onClick={() => openChat("Analyze my billing trends and suggest ways to improve collections and reduce overdue invoices.")}>
+          <button className={styles.aiBtn} onClick={() => openChat()}>
             <Sparkles size={16} />
             AI Insights
           </button>
@@ -415,7 +415,7 @@ export function BillingPage() {
         </button>
         <button 
           className={styles.quickActionBtn}
-          onClick={() => openChat("List all overdue invoices and draft follow-up reminder emails for each client.")}
+          onClick={() => openChat()}
         >
           <Mail size={18} />
           <span>Send Reminders</span>

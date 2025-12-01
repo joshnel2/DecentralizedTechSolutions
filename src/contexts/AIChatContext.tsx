@@ -2,25 +2,18 @@ import { createContext, useContext, useState, ReactNode } from 'react'
 
 interface AIChatContextType {
   isOpen: boolean
-  openChat: (initialMessage?: string) => void
+  openChat: () => void
   closeChat: () => void
-  initialMessage: string | null
-  clearInitialMessage: () => void
-  refreshSuggestions: number // Counter to trigger suggestion refresh
+  refreshSuggestions: number
 }
 
 const AIChatContext = createContext<AIChatContextType | null>(null)
 
 export function AIChatProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false)
-  const [initialMessage, setInitialMessage] = useState<string | null>(null)
   const [refreshSuggestions, setRefreshSuggestions] = useState(0)
 
-  const openChat = (message?: string) => {
-    if (message) {
-      setInitialMessage(message)
-    }
-    // Always refresh suggestions when opening via AI Insights button
+  const openChat = () => {
     setRefreshSuggestions(prev => prev + 1)
     setIsOpen(true)
   }
@@ -29,12 +22,8 @@ export function AIChatProvider({ children }: { children: ReactNode }) {
     setIsOpen(false)
   }
 
-  const clearInitialMessage = () => {
-    setInitialMessage(null)
-  }
-
   return (
-    <AIChatContext.Provider value={{ isOpen, openChat, closeChat, initialMessage, clearInitialMessage, refreshSuggestions }}>
+    <AIChatContext.Provider value={{ isOpen, openChat, closeChat, refreshSuggestions }}>
       {children}
     </AIChatContext.Provider>
   )

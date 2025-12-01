@@ -149,7 +149,7 @@ export function TimeTrackingPage() {
         <div className={styles.headerActions}>
           <button 
             className={styles.aiBtn}
-            onClick={() => openChat("Based on my recent calendar events and matters, suggest time entries I may have forgotten to log. What work should I bill for?")}
+            onClick={() => openChat()}
           >
             <Sparkles size={16} />
             AI Time Suggestions
