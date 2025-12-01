@@ -130,6 +130,7 @@ export function ReportsPage() {
   const [dateRange, setDateRange] = useState('this-month')
   const [exportMessage, setExportMessage] = useState<string | null>(null)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [showCustomReportModal, setShowCustomReportModal] = useState(false)
   const [showFilterPanel, setShowFilterPanel] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -356,7 +357,7 @@ export function ReportsPage() {
             <Calendar size={18} />
             Schedule Report
           </button>
-          <button className={styles.primaryBtn}>
+          <button className={styles.primaryBtn} onClick={() => setShowCustomReportModal(true)}>
             <Plus size={18} />
             Custom Report
           </button>
@@ -872,6 +873,21 @@ export function ReportsPage() {
       {showScheduleModal && (
         <ScheduleReportModal onClose={() => setShowScheduleModal(false)} />
       )}
+
+      {/* Custom Report Modal */}
+      {showCustomReportModal && (
+        <CustomReportModal 
+          onClose={() => setShowCustomReportModal(false)} 
+          onExport={(data, filename, headers) => {
+            exportToCSV(data, filename, headers)
+            setShowCustomReportModal(false)
+          }}
+          matters={matters}
+          clients={clients}
+          invoices={invoices}
+          timeEntries={timeEntries}
+        />
+      )}
     </div>
   )
 }
@@ -991,6 +1007,366 @@ function ScheduleReportModal({ onClose }: { onClose: () => void }) {
           <button className={styles.primaryBtn} onClick={onClose}>
             <Calendar size={16} />
             Schedule Report
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Custom Report column definitions
+const customReportColumns = {
+  matters: [
+    { id: 'number', label: 'Matter Number', default: true },
+    { id: 'name', label: 'Matter Name', default: true },
+    { id: 'clientName', label: 'Client Name', default: true },
+    { id: 'type', label: 'Matter Type', default: true },
+    { id: 'status', label: 'Status', default: true },
+    { id: 'priority', label: 'Priority', default: false },
+    { id: 'openDate', label: 'Open Date', default: true },
+    { id: 'closeDate', label: 'Close Date', default: false },
+    { id: 'billingType', label: 'Billing Type', default: false },
+    { id: 'practiceArea', label: 'Practice Area', default: false },
+    { id: 'responsibleAttorney', label: 'Responsible Attorney', default: false },
+    { id: 'originatingAttorney', label: 'Originating Attorney', default: false },
+    { id: 'description', label: 'Description', default: false }
+  ],
+  clients: [
+    { id: 'name', label: 'Client Name', default: true },
+    { id: 'type', label: 'Client Type', default: true },
+    { id: 'email', label: 'Email', default: true },
+    { id: 'phone', label: 'Phone', default: true },
+    { id: 'addressCity', label: 'City', default: false },
+    { id: 'addressState', label: 'State', default: false },
+    { id: 'addressZip', label: 'Zip Code', default: false },
+    { id: 'isActive', label: 'Status', default: true },
+    { id: 'matterCount', label: 'Matter Count', default: true },
+    { id: 'totalBilled', label: 'Total Billed', default: true },
+    { id: 'totalPaid', label: 'Total Paid', default: false },
+    { id: 'outstanding', label: 'Outstanding', default: false }
+  ],
+  invoices: [
+    { id: 'number', label: 'Invoice Number', default: true },
+    { id: 'clientName', label: 'Client Name', default: true },
+    { id: 'matterName', label: 'Matter Name', default: true },
+    { id: 'issueDate', label: 'Issue Date', default: true },
+    { id: 'dueDate', label: 'Due Date', default: true },
+    { id: 'total', label: 'Total Amount', default: true },
+    { id: 'amountPaid', label: 'Amount Paid', default: true },
+    { id: 'balance', label: 'Balance Due', default: true },
+    { id: 'status', label: 'Status', default: true },
+    { id: 'daysOutstanding', label: 'Days Outstanding', default: false },
+    { id: 'agingBucket', label: 'Aging Bucket', default: false }
+  ],
+  timeEntries: [
+    { id: 'date', label: 'Date', default: true },
+    { id: 'matterName', label: 'Matter Name', default: true },
+    { id: 'clientName', label: 'Client Name', default: true },
+    { id: 'description', label: 'Description', default: true },
+    { id: 'hours', label: 'Hours', default: true },
+    { id: 'rate', label: 'Rate', default: true },
+    { id: 'amount', label: 'Amount', default: true },
+    { id: 'billable', label: 'Billable', default: true },
+    { id: 'billed', label: 'Billed', default: false },
+    { id: 'activityType', label: 'Activity Type', default: false },
+    { id: 'userId', label: 'Timekeeper', default: false }
+  ]
+}
+
+// Custom Report Modal
+function CustomReportModal({ 
+  onClose, 
+  onExport,
+  matters,
+  clients,
+  invoices,
+  timeEntries
+}: { 
+  onClose: () => void
+  onExport: (data: any[], filename: string, headers: string[]) => void
+  matters: any[]
+  clients: any[]
+  invoices: any[]
+  timeEntries: any[]
+}) {
+  const [reportType, setReportType] = useState<'matters' | 'clients' | 'invoices' | 'timeEntries'>('matters')
+  const [selectedColumns, setSelectedColumns] = useState<string[]>(
+    customReportColumns.matters.filter(c => c.default).map(c => c.id)
+  )
+  const [reportName, setReportName] = useState('Custom Report')
+
+  // Update selected columns when report type changes
+  const handleReportTypeChange = (type: 'matters' | 'clients' | 'invoices' | 'timeEntries') => {
+    setReportType(type)
+    setSelectedColumns(customReportColumns[type].filter(c => c.default).map(c => c.id))
+  }
+
+  const toggleColumn = (columnId: string) => {
+    if (selectedColumns.includes(columnId)) {
+      setSelectedColumns(selectedColumns.filter(c => c !== columnId))
+    } else {
+      setSelectedColumns([...selectedColumns, columnId])
+    }
+  }
+
+  const selectAll = () => {
+    setSelectedColumns(customReportColumns[reportType].map(c => c.id))
+  }
+
+  const selectNone = () => {
+    setSelectedColumns([])
+  }
+
+  const generateReport = () => {
+    if (selectedColumns.length === 0) {
+      alert('Please select at least one column')
+      return
+    }
+
+    let data: any[] = []
+    const headers = selectedColumns.map(id => 
+      customReportColumns[reportType].find(c => c.id === id)?.label || id
+    )
+
+    switch (reportType) {
+      case 'matters':
+        data = matters.map(m => {
+          const row: any = {}
+          selectedColumns.forEach(col => {
+            switch (col) {
+              case 'number': row[col] = m.number; break
+              case 'name': row[col] = m.name; break
+              case 'clientName': row[col] = clients.find(c => c.id === m.clientId)?.name || ''; break
+              case 'type': row[col] = m.type?.replace(/_/g, ' '); break
+              case 'status': row[col] = m.status?.replace(/_/g, ' '); break
+              case 'priority': row[col] = m.priority; break
+              case 'openDate': row[col] = m.openDate?.split('T')[0]; break
+              case 'closeDate': row[col] = m.closeDate?.split('T')[0] || ''; break
+              case 'billingType': row[col] = m.billingType; break
+              case 'practiceArea': row[col] = m.practiceArea || ''; break
+              case 'description': row[col] = m.description || ''; break
+              default: row[col] = m[col] || ''
+            }
+          })
+          return row
+        })
+        break
+
+      case 'clients':
+        data = clients.map(c => {
+          const clientMatters = matters.filter(m => m.clientId === c.id)
+          const clientInvoices = invoices.filter(i => i.clientId === c.id)
+          const totalBilled = clientInvoices.reduce((sum, i) => sum + i.total, 0)
+          const totalPaid = clientInvoices.reduce((sum, i) => sum + i.amountPaid, 0)
+          
+          const row: any = {}
+          selectedColumns.forEach(col => {
+            switch (col) {
+              case 'name': row[col] = c.name || c.displayName; break
+              case 'type': row[col] = c.type === 'company' ? 'Organization' : 'Individual'; break
+              case 'email': row[col] = c.email || ''; break
+              case 'phone': row[col] = c.phone || ''; break
+              case 'addressCity': row[col] = c.addressCity || ''; break
+              case 'addressState': row[col] = c.addressState || ''; break
+              case 'addressZip': row[col] = c.addressZip || ''; break
+              case 'isActive': row[col] = c.isActive ? 'Active' : 'Inactive'; break
+              case 'matterCount': row[col] = clientMatters.length; break
+              case 'totalBilled': row[col] = totalBilled; break
+              case 'totalPaid': row[col] = totalPaid; break
+              case 'outstanding': row[col] = totalBilled - totalPaid; break
+              default: row[col] = c[col] || ''
+            }
+          })
+          return row
+        })
+        break
+
+      case 'invoices':
+        data = invoices.map(i => {
+          const daysOld = Math.floor((Date.now() - new Date(i.issueDate).getTime()) / (1000 * 60 * 60 * 24))
+          const row: any = {}
+          selectedColumns.forEach(col => {
+            switch (col) {
+              case 'number': row[col] = i.number; break
+              case 'clientName': row[col] = clients.find(c => c.id === i.clientId)?.name || ''; break
+              case 'matterName': row[col] = matters.find(m => m.id === i.matterId)?.name || ''; break
+              case 'issueDate': row[col] = i.issueDate?.split('T')[0]; break
+              case 'dueDate': row[col] = i.dueDate?.split('T')[0]; break
+              case 'total': row[col] = i.total; break
+              case 'amountPaid': row[col] = i.amountPaid; break
+              case 'balance': row[col] = i.total - i.amountPaid; break
+              case 'status': row[col] = i.status; break
+              case 'daysOutstanding': row[col] = daysOld; break
+              case 'agingBucket': row[col] = daysOld <= 30 ? '0-30 days' : daysOld <= 60 ? '31-60 days' : daysOld <= 90 ? '61-90 days' : '90+ days'; break
+              default: row[col] = i[col] || ''
+            }
+          })
+          return row
+        })
+        break
+
+      case 'timeEntries':
+        data = timeEntries.map(t => {
+          const row: any = {}
+          selectedColumns.forEach(col => {
+            switch (col) {
+              case 'date': row[col] = t.date?.split('T')[0]; break
+              case 'matterName': row[col] = matters.find(m => m.id === t.matterId)?.name || ''; break
+              case 'clientName': 
+                const matter = matters.find(m => m.id === t.matterId)
+                row[col] = matter ? clients.find(c => c.id === matter.clientId)?.name || '' : ''
+                break
+              case 'description': row[col] = t.description; break
+              case 'hours': row[col] = t.hours; break
+              case 'rate': row[col] = t.rate; break
+              case 'amount': row[col] = t.amount; break
+              case 'billable': row[col] = t.billable ? 'Yes' : 'No'; break
+              case 'billed': row[col] = t.billed ? 'Yes' : 'No'; break
+              case 'activityType': row[col] = t.activityType || ''; break
+              default: row[col] = t[col] || ''
+            }
+          })
+          return row
+        })
+        break
+    }
+
+    const filename = reportName.toLowerCase().replace(/\s+/g, '_')
+    onExport(data, filename, headers)
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+        <div className={styles.modalHeader}>
+          <h2>Custom Report</h2>
+          <button onClick={onClose} className={styles.closeBtn}><X size={20} /></button>
+        </div>
+        <div className={styles.modalBody}>
+          <div className={styles.formGroup}>
+            <label>Report Name</label>
+            <input 
+              type="text" 
+              value={reportName}
+              onChange={e => setReportName(e.target.value)}
+              placeholder="Enter report name"
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Data Type</label>
+            <select 
+              value={reportType}
+              onChange={e => handleReportTypeChange(e.target.value as any)}
+            >
+              <option value="matters">Matters</option>
+              <option value="clients">Clients</option>
+              <option value="invoices">Invoices</option>
+              <option value="timeEntries">Time Entries</option>
+            </select>
+          </div>
+
+          <div className={styles.formGroup}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <label style={{ marginBottom: 0 }}>Select Columns to Include</label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button 
+                  type="button"
+                  onClick={selectAll}
+                  style={{
+                    padding: '0.25rem 0.5rem',
+                    background: 'none',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '4px',
+                    color: 'var(--apex-text)',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Select All
+                </button>
+                <button 
+                  type="button"
+                  onClick={selectNone}
+                  style={{
+                    padding: '0.25rem 0.5rem',
+                    background: 'none',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '4px',
+                    color: 'var(--apex-text)',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Clear All
+                </button>
+              </div>
+            </div>
+            <div style={{ 
+              background: 'var(--apex-slate)', 
+              border: '1px solid rgba(255,255,255,0.1)', 
+              borderRadius: '8px',
+              padding: '1rem',
+              maxHeight: '250px',
+              overflowY: 'auto'
+            }}>
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(2, 1fr)', 
+                gap: '0.5rem' 
+              }}>
+                {customReportColumns[reportType].map(column => (
+                  <label 
+                    key={column.id}
+                    style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '0.5rem',
+                      padding: '0.5rem',
+                      background: selectedColumns.includes(column.id) ? 'rgba(245, 158, 11, 0.1)' : 'transparent',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      transition: 'background 0.15s ease'
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedColumns.includes(column.id)}
+                      onChange={() => toggleColumn(column.id)}
+                      style={{ 
+                        width: '16px', 
+                        height: '16px',
+                        accentColor: 'var(--apex-gold)'
+                      }}
+                    />
+                    <span style={{ 
+                      fontSize: '0.875rem', 
+                      color: selectedColumns.includes(column.id) ? 'var(--apex-white)' : 'var(--apex-text)'
+                    }}>
+                      {column.label}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div style={{ 
+              marginTop: '0.5rem', 
+              fontSize: '0.75rem', 
+              color: 'var(--apex-text)' 
+            }}>
+              {selectedColumns.length} of {customReportColumns[reportType].length} columns selected
+            </div>
+          </div>
+        </div>
+        <div className={styles.modalFooter}>
+          <button className={styles.cancelBtn} onClick={onClose}>Cancel</button>
+          <button 
+            className={styles.primaryBtn} 
+            onClick={generateReport}
+            disabled={selectedColumns.length === 0}
+          >
+            <Download size={16} />
+            Export CSV
           </button>
         </div>
       </div>
