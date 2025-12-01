@@ -75,16 +75,73 @@ export function MatterDetailPage() {
     setAiAnalyzing(true)
     setShowAiPanel(true)
     
-    // Simulate AI analysis
-    await new Promise(resolve => setTimeout(resolve, 2000))
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/ai/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          message: 'Give me a comprehensive analysis of this matter including: 1) Current status and progress summary, 2) Financial overview with billing insights, 3) Risk assessment, 4) Recommended next steps and priorities. Be specific and actionable.',
+          page: 'matter-detail',
+          context: { matterId: id }
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to get AI response')
+      }
+      
+      const data = await response.json()
+      setAiSummary(data.response)
+    } catch (error) {
+      console.error('AI analysis error:', error)
+      setAiSummary('Unable to generate AI analysis. Please check your connection and try again.')
+    } finally {
+      setAiAnalyzing(false)
+    }
+  }
+
+  const runQuickAIAction = async (actionType: string) => {
+    setAiAnalyzing(true)
+    setShowAiPanel(true)
     
-    const summaries = [
-      `**Matter Summary: ${matter?.name}**\n\nThis ${matter?.type.replace(/_/g, ' ')} matter for ${client?.name} is currently ${matter?.status.replace(/_/g, ' ')}.\n\n**Key Metrics:**\n• Total billable hours: ${stats.totalHours.toFixed(1)}h\n• Outstanding balance: $${stats.totalUnbilled.toLocaleString()}\n• Collection rate: ${stats.invoicedAmount > 0 ? ((stats.paidAmount / stats.invoicedAmount) * 100).toFixed(0) : 0}%\n\n**Recommendations:**\n1. Review unbilled time entries for invoicing\n2. ${matterEvents.length > 0 ? 'Upcoming deadline requires attention' : 'Consider scheduling next milestone'}\n3. Document organization appears well-maintained`,
-      `**AI Analysis: ${matter?.name}**\n\nCurrent Status: ${matter?.status.replace(/_/g, ' ').toUpperCase()}\n\n**Financial Overview:**\n• Billing rate: $${matter?.billingRate}/hr\n• Hours logged: ${stats.totalHours.toFixed(1)}h\n• Revenue potential: $${stats.totalUnbilled.toLocaleString()}\n\n**Risk Assessment:** LOW\n• No immediate deadlines at risk\n• Client communication appears regular\n• Documentation is current\n\n**Next Steps:**\n• Schedule billing review\n• Update matter status if applicable\n• Review upcoming calendar events`
-    ]
+    const prompts: Record<string, string> = {
+      'risk': 'Analyze potential risks for this matter. Consider deadlines, statute of limitations, missing documents, billing concerns, and any other factors. Provide specific risks with severity levels and recommended mitigations.',
+      'billing': 'Provide a billing forecast for this matter. Analyze current hours, billing rate, and project future costs. Include recommendations for invoicing unbilled time and revenue projections.',
+      'deadline': 'Analyze all deadlines and important dates for this matter. Identify any upcoming court dates, filing deadlines, or statute of limitations concerns. Flag any dates that need immediate attention.',
+      'documents': 'Summarize all documents associated with this matter. Identify any missing documents that would typically be expected for this type of matter. Suggest document organization improvements.'
+    }
     
-    setAiSummary(summaries[Math.floor(Math.random() * summaries.length)])
-    setAiAnalyzing(false)
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/ai/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          message: prompts[actionType] || 'Analyze this matter.',
+          page: 'matter-detail',
+          context: { matterId: id }
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to get AI response')
+      }
+      
+      const data = await response.json()
+      setAiSummary(data.response)
+    } catch (error) {
+      console.error('AI action error:', error)
+      setAiSummary('Unable to complete AI analysis. Please check your connection and try again.')
+    } finally {
+      setAiAnalyzing(false)
+    }
   }
 
   if (!matter) {
@@ -256,19 +313,19 @@ export function MatterDetailPage() {
 
               {/* Quick AI Actions */}
               <div className={styles.aiQuickActions}>
-                <button className={styles.aiQuickBtn}>
+                <button className={styles.aiQuickBtn} onClick={() => runQuickAIAction('risk')} disabled={aiAnalyzing}>
                   <AlertTriangle size={14} />
                   Risk Check
                 </button>
-                <button className={styles.aiQuickBtn}>
+                <button className={styles.aiQuickBtn} onClick={() => runQuickAIAction('billing')} disabled={aiAnalyzing}>
                   <TrendingUp size={14} />
                   Billing Forecast
                 </button>
-                <button className={styles.aiQuickBtn}>
+                <button className={styles.aiQuickBtn} onClick={() => runQuickAIAction('deadline')} disabled={aiAnalyzing}>
                   <Calendar size={14} />
                   Deadline Analysis
                 </button>
-                <button className={styles.aiQuickBtn}>
+                <button className={styles.aiQuickBtn} onClick={() => runQuickAIAction('documents')} disabled={aiAnalyzing}>
                   <FileText size={14} />
                   Document Summary
                 </button>
