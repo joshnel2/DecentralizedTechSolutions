@@ -10,8 +10,6 @@ interface AIButtonProps {
   size?: 'sm' | 'md' | 'lg'
   label?: string
   prompts?: { label: string; prompt: string }[]
-  page?: string
-  entityId?: string
 }
 
 const defaultPrompts = [
