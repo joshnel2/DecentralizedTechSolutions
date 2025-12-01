@@ -8,3 +8,4 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <App />
   </React.StrictMode>,
 )
+// Frontend rebuild trigger Mon Dec  1 01:48:49 AM UTC 2025
