@@ -12,7 +12,6 @@ import {
 } from 'lucide-react'
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
-import { AIButton } from '../components/AIButton'
 import styles from './DetailPage.module.css'
 
 // Task interface
@@ -31,45 +30,6 @@ const relatedContacts = [
   { id: '2', name: 'Expert Witness', role: 'Expert Witness', firm: 'Tech Consultants Inc.', email: 'expert@techconsult.com' },
   { id: '3', name: 'Insurance Adjuster', role: 'Insurance', firm: 'ABC Insurance Co.', email: 'adjuster@abc.com' }
 ]
-
-// Tab-specific AI prompts
-const tabAIPrompts: Record<string, { label: string; prompt: string }[]> = {
-  overview: [
-    { label: 'Summarize Matter', prompt: 'Give me a complete summary of this matter including status, key dates, and next steps' },
-    { label: 'Risk Analysis', prompt: 'What are the potential risks for this matter and how can we mitigate them?' },
-    { label: 'Timeline Review', prompt: 'Review the timeline of this matter and highlight any concerns' },
-  ],
-  tasks: [
-    { label: 'Prioritize Tasks', prompt: 'Help me prioritize the tasks for this matter based on urgency and importance' },
-    { label: 'Create Task List', prompt: 'What tasks should I create for this type of matter?' },
-    { label: 'Workload Analysis', prompt: 'Analyze the workload distribution for this matter' },
-  ],
-  time: [
-    { label: 'Billing Summary', prompt: 'Summarize the time entries and billing status for this matter' },
-    { label: 'Efficiency Analysis', prompt: 'Analyze time efficiency and suggest improvements' },
-    { label: 'Invoice Ready', prompt: 'What time entries are ready to be invoiced?' },
-  ],
-  billing: [
-    { label: 'Billing Status', prompt: 'What is the current billing status and outstanding amounts for this matter?' },
-    { label: 'Revenue Forecast', prompt: 'Forecast the potential revenue for this matter' },
-    { label: 'Collection Analysis', prompt: 'Analyze payment history and collection recommendations' },
-  ],
-  documents: [
-    { label: 'Document Review', prompt: 'Review and summarize all documents for this matter' },
-    { label: 'Missing Documents', prompt: 'What key documents might be missing from this matter?' },
-    { label: 'Document Timeline', prompt: 'Create a timeline of document submissions and filings' },
-  ],
-  calendar: [
-    { label: 'Schedule Review', prompt: 'Review upcoming events and deadlines for this matter' },
-    { label: 'Conflict Check', prompt: 'Check for any scheduling conflicts' },
-    { label: 'Deadline Analysis', prompt: 'Analyze all deadlines and statute of limitations' },
-  ],
-  contacts: [
-    { label: 'Contact Summary', prompt: 'Summarize all contacts related to this matter and their roles' },
-    { label: 'Key Relationships', prompt: 'What are the key relationships and contacts for this matter?' },
-    { label: 'Communication Tips', prompt: 'Provide tips for communicating with parties in this matter' },
-  ],
-}
 
 export function MatterDetailPage() {
   const { id } = useParams()
@@ -292,17 +252,10 @@ Only analyze documents actually associated with this matter.`
             Back to Matters
           </Link>
           <div className={styles.headerActions}>
-            <AIButton 
-              context={`Matter: ${matter.name}`}
-              label="AI Analysis"
-              prompts={[
-                { label: 'Summarize', prompt: 'Summarize this matter' },
-                { label: 'Risk Analysis', prompt: 'Analyze risks' },
-                { label: 'Timeline Review', prompt: 'Review timeline' },
-                { label: 'Billing Insights', prompt: 'Billing analysis' },
-                { label: 'Next Steps', prompt: 'Recommend next steps' }
-              ]}
-            />
+            <button className={styles.aiActionBtn} onClick={openChat}>
+              <Sparkles size={16} />
+              AI Analysis
+            </button>
             <button className={styles.iconBtn}>
               <Edit2 size={18} />
             </button>
@@ -375,14 +328,6 @@ Only analyze documents actually associated with this matter.`
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
-        <button 
-          className={styles.tabAIBtn}
-          onClick={() => openChat(tabAIPrompts[activeTab], `Matter ${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}`)}
-          title={`AI suggestions for ${activeTab}`}
-        >
-          <Sparkles size={16} />
-          AI Help
-        </button>
       </div>
 
       {/* Content */}
@@ -470,11 +415,9 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.card}>
               <div className={styles.cardHeader}>
                 <h3>Matter Details</h3>
-                <AIButton 
-                  context="Matter Details"
-                  variant="icon"
-                  size="sm"
-                />
+                <button className={styles.aiIconBtn} onClick={openChat} title="AI Help">
+                  <Sparkles size={16} />
+                </button>
               </div>
               <div className={styles.detailGrid}>
                 <div className={styles.detailItem}>
@@ -526,11 +469,9 @@ Only analyze documents actually associated with this matter.`
                     <Scale size={18} />
                     Court Information
                   </h3>
-                  <AIButton 
-                    context="Court Information"
-                    variant="icon"
-                    size="sm"
-                  />
+                  <button className={styles.aiIconBtn} onClick={openChat} title="AI Help">
+                    <Sparkles size={16} />
+                  </button>
                 </div>
                 <div className={styles.detailGrid}>
                   <div className={styles.detailItem}>
@@ -561,11 +502,9 @@ Only analyze documents actually associated with this matter.`
                   Upcoming Events
                 </h3>
                 <div className={styles.cardActions}>
-                  <AIButton 
-                    context="Calendar Events"
-                    variant="icon"
-                    size="sm"
-                  />
+                  <button className={styles.aiIconBtn} onClick={openChat} title="AI Help">
+                    <Sparkles size={16} />
+                  </button>
                   <button className={styles.addBtn} onClick={() => setShowEventModal(true)}>
                     <Plus size={14} />
                     Add
@@ -601,16 +540,9 @@ Only analyze documents actually associated with this matter.`
                   Recent Time Entries
                 </h3>
                 <div className={styles.cardActions}>
-                  <AIButton 
-                    context="Time Entries"
-                    variant="icon"
-                    size="sm"
-                    prompts={[
-                      { label: 'Summarize', prompt: 'Summarize time entries' },
-                      { label: 'Billing Analysis', prompt: 'Analyze billing patterns' },
-                      { label: 'Efficiency', prompt: 'Review time efficiency' }
-                    ]}
-                  />
+                  <button className={styles.aiIconBtn} onClick={openChat} title="AI Help">
+                    <Sparkles size={16} />
+                  </button>
                   <button className={styles.addBtn} onClick={() => setShowTimeEntryModal(true)}>
                     <Plus size={14} />
                     Add
@@ -645,16 +577,10 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Time Entries</h2>
               <div className={styles.tabActions}>
-                <AIButton 
-                  context="All Time Entries"
-                  label="AI Analyze"
-                  prompts={[
-                    { label: 'Summarize', prompt: 'Summarize all time' },
-                    { label: 'Patterns', prompt: 'Find patterns' },
-                    { label: 'Optimize', prompt: 'Suggest optimizations' },
-                    { label: 'Invoice Ready', prompt: 'Prepare for invoicing' }
-                  ]}
-                />
+                <button className={styles.aiActionBtn} onClick={openChat}>
+                  <Sparkles size={16} />
+                  AI Analyze
+                </button>
                 <button 
                   className={styles.primaryBtn}
                   onClick={() => setShowTimeEntryModal(true)}
@@ -738,16 +664,10 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Invoices</h2>
               <div className={styles.tabActions}>
-                <AIButton 
-                  context="Billing & Invoices"
-                  label="AI Insights"
-                  prompts={[
-                    { label: 'Summary', prompt: 'Billing summary' },
-                    { label: 'Collections', prompt: 'Collection analysis' },
-                    { label: 'Forecast', prompt: 'Revenue forecast' },
-                    { label: 'Draft Invoice', prompt: 'Help draft invoice' }
-                  ]}
-                />
+                <button className={styles.aiActionBtn} onClick={openChat}>
+                  <Sparkles size={16} />
+                  AI Insights
+                </button>
                 <button 
                   className={styles.primaryBtn}
                   onClick={() => setShowInvoiceModal(true)}
@@ -782,11 +702,9 @@ Only analyze documents actually associated with this matter.`
                         </span>
                       </td>
                       <td>
-                        <AIButton 
-                          context={`Invoice ${invoice.number}`}
-                          variant="icon"
-                          size="sm"
-                        />
+                        <button className={styles.aiIconBtn} onClick={openChat} title="AI Help">
+                          <Sparkles size={14} />
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -804,16 +722,10 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Documents</h2>
               <div className={styles.tabActions}>
-                <AIButton 
-                  context="Matter Documents"
-                  label="AI Analyze All"
-                  prompts={[
-                    { label: 'Summarize All', prompt: 'Summarize all documents' },
-                    { label: 'Key Terms', prompt: 'Extract key terms' },
-                    { label: 'Timeline', prompt: 'Create document timeline' },
-                    { label: 'Missing Docs', prompt: 'Identify missing documents' }
-                  ]}
-                />
+                <button className={styles.aiActionBtn} onClick={openChat}>
+                  <Sparkles size={16} />
+                  AI Analyze All
+                </button>
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -883,17 +795,9 @@ Only analyze documents actually associated with this matter.`
                     >
                       <Download size={16} />
                     </button>
-                    <AIButton 
-                      context={doc.name}
-                      variant="icon"
-                      size="sm"
-                      prompts={[
-                        { label: 'Summarize', prompt: 'Summarize document' },
-                        { label: 'Key Points', prompt: 'Extract key points' },
-                        { label: 'Entities', prompt: 'Extract entities' },
-                        { label: 'Risks', prompt: 'Identify risks' }
-                      ]}
-                    />
+                    <button className={styles.aiIconBtn} onClick={openChat} title="AI Analyze">
+                      <Sparkles size={14} />
+                    </button>
                   </div>
                   {doc.aiSummary && (
                     <span className={styles.docAi}>
@@ -926,16 +830,10 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Events & Deadlines</h2>
               <div className={styles.tabActions}>
-                <AIButton 
-                  context="Calendar & Deadlines"
-                  label="AI Schedule"
-                  prompts={[
-                    { label: 'Summary', prompt: 'Summarize schedule' },
-                    { label: 'Conflicts', prompt: 'Find conflicts' },
-                    { label: 'Deadlines', prompt: 'Review deadlines' },
-                    { label: 'Suggest', prompt: 'Suggest next meetings' }
-                  ]}
-                />
+                <button className={styles.aiActionBtn} onClick={openChat}>
+                  <Sparkles size={16} />
+                  AI Schedule
+                </button>
                 <button 
                   className={styles.primaryBtn}
                   onClick={() => setShowEventModal(true)}
@@ -957,11 +855,9 @@ Only analyze documents actually associated with this matter.`
                       {event.type.replace('_', ' ')}
                     </span>
                     <div className={styles.eventCardActions}>
-                      <AIButton 
-                        context={event.title}
-                        variant="icon"
-                        size="sm"
-                      />
+                      <button className={styles.aiIconBtn} onClick={openChat} title="AI Help">
+                        <Sparkles size={14} />
+                      </button>
                       <span className={styles.eventTime}>
                         {format(parseISO(event.startTime), 'h:mm a')}
                       </span>
@@ -990,15 +886,10 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Tasks</h2>
               <div className={styles.tabActions}>
-                <AIButton 
-                  context="Matter Tasks"
-                  label="AI Prioritize"
-                  prompts={[
-                    { label: 'Prioritize', prompt: 'Prioritize tasks' },
-                    { label: 'Timeline', prompt: 'Create timeline' },
-                    { label: 'Workload', prompt: 'Analyze workload' }
-                  ]}
-                />
+                <button className={styles.aiActionBtn} onClick={openChat}>
+                  <Sparkles size={16} />
+                  AI Prioritize
+                </button>
                 <button className={styles.primaryBtn} onClick={() => setShowTaskModal(true)}>
                   <Plus size={18} />
                   Add Task
@@ -1078,17 +969,11 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Related Contacts</h2>
               <div className={styles.tabActions}>
-                <button 
-                  className={styles.primaryBtn}
-                  onClick={() => openChat(
-                    [
-                      { label: 'Find Contacts', prompt: 'Help me identify what contacts should be added to this matter' },
-                      { label: 'Contact Roles', prompt: 'What roles and contacts are typically needed for this type of matter?' },
-                      { label: 'Opposing Counsel', prompt: 'Help me draft a contact entry for opposing counsel' },
-                    ],
-                    'Matter Contacts'
-                  )}
-                >
+                <button className={styles.aiActionBtn} onClick={openChat}>
+                  <Sparkles size={16} />
+                  AI Help
+                </button>
+                <button className={styles.primaryBtn} onClick={openChat}>
                   <Plus size={18} />
                   Add Contact
                 </button>
@@ -1294,15 +1179,10 @@ Only analyze documents actually associated with this matter.`
                   <Download size={18} />
                   Download
                 </button>
-                <AIButton 
-                  context={showDocPreview.name}
-                  label="Analyze with AI"
-                  prompts={[
-                    { label: 'Summarize', prompt: 'Summarize this document' },
-                    { label: 'Key Points', prompt: 'Extract key points from this document' },
-                    { label: 'Action Items', prompt: 'What action items are in this document?' }
-                  ]}
-                />
+                <button className={styles.aiActionBtn} onClick={openChat}>
+                  <Sparkles size={16} />
+                  Analyze with AI
+                </button>
               </div>
             </div>
           </div>
