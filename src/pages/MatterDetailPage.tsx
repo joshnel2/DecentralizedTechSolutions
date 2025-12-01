@@ -1210,16 +1210,52 @@ function InvoiceForm({ matterId, clientId, clientName, matterName, unbilledAmoun
     dueDate: format(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
     notes: '',
     lineItems: [
-      { type: 'fee', description: 'Professional Legal Services', quantity: 1, rate: unbilledAmount, amount: unbilledAmount }
+      { type: 'fee', description: `Legal Services - ${matterName}`, quantity: 1, rate: unbilledAmount, amount: unbilledAmount }
     ]
   })
+
+  const addLineItem = () => {
+    setFormData({
+      ...formData,
+      lineItems: [...formData.lineItems, { type: 'fee', description: '', quantity: 1, rate: 0, amount: 0 }]
+    })
+  }
+
+  const removeLineItem = (index: number) => {
+    setFormData({
+      ...formData,
+      lineItems: formData.lineItems.filter((_, i) => i !== index)
+    })
+  }
+
+  const updateLineItem = (index: number, field: string, value: any) => {
+    const newLineItems = [...formData.lineItems]
+    newLineItems[index] = { ...newLineItems[index], [field]: value }
+    
+    // Auto-calculate amount when quantity or rate changes
+    if (field === 'quantity' || field === 'rate') {
+      newLineItems[index].amount = newLineItems[index].quantity * newLineItems[index].rate
+    }
+    // If amount is directly edited, update rate
+    if (field === 'amount' && newLineItems[index].quantity > 0) {
+      newLineItems[index].rate = value / newLineItems[index].quantity
+    }
+    
+    setFormData({ ...formData, lineItems: newLineItems })
+  }
+
+  const totalAmount = formData.lineItems.reduce((sum, item) => sum + (item.amount || 0), 0)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isSubmitting) return
+    if (totalAmount <= 0) {
+      alert('Please add at least one line item with an amount')
+      return
+    }
     setIsSubmitting(true)
     try {
-      await onSave(formData)
+      await onSave({ ...formData, total: totalAmount })
     } finally {
       setIsSubmitting(false)
     }
@@ -1254,6 +1290,168 @@ function InvoiceForm({ matterId, clientId, clientName, matterName, unbilledAmoun
         </div>
       </div>
 
+      {/* Line Items Section */}
+      <div className={styles.formGroup}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+          <label style={{ marginBottom: 0 }}>Line Items</label>
+          <button 
+            type="button" 
+            onClick={addLineItem}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.25rem',
+              padding: '0.25rem 0.5rem',
+              background: 'rgba(245, 158, 11, 0.1)',
+              border: '1px solid var(--apex-gold)',
+              borderRadius: '4px',
+              color: 'var(--apex-gold)',
+              fontSize: '0.75rem',
+              cursor: 'pointer'
+            }}
+          >
+            + Add Item
+          </button>
+        </div>
+        
+        <div style={{ 
+          background: 'var(--apex-slate)', 
+          border: '1px solid rgba(255, 255, 255, 0.1)', 
+          borderRadius: '8px',
+          overflow: 'hidden'
+        }}>
+          {/* Header */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '2fr 80px 100px 120px 40px',
+            gap: '0.5rem',
+            padding: '0.5rem 1rem',
+            background: 'rgba(0, 0, 0, 0.2)',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+            fontSize: '0.7rem',
+            fontWeight: '600',
+            color: 'var(--apex-text)',
+            textTransform: 'uppercase'
+          }}>
+            <span>Description</span>
+            <span style={{ textAlign: 'center' }}>Qty</span>
+            <span style={{ textAlign: 'right' }}>Rate</span>
+            <span style={{ textAlign: 'right' }}>Amount</span>
+            <span></span>
+          </div>
+          
+          {/* Line Items */}
+          {formData.lineItems.map((item, index) => (
+            <div 
+              key={index}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '2fr 80px 100px 120px 40px',
+                gap: '0.5rem',
+                padding: '0.5rem 1rem',
+                borderBottom: index < formData.lineItems.length - 1 ? '1px solid rgba(255, 255, 255, 0.05)' : 'none'
+              }}
+            >
+              <input
+                type="text"
+                value={item.description}
+                onChange={(e) => updateLineItem(index, 'description', e.target.value)}
+                placeholder="Description"
+                style={{ 
+                  padding: '0.375rem 0.5rem',
+                  background: 'var(--apex-deep)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '4px',
+                  color: 'var(--apex-white)',
+                  fontSize: '0.875rem'
+                }}
+                required
+              />
+              <input
+                type="number"
+                value={item.quantity}
+                onChange={(e) => updateLineItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                min="0"
+                step="0.5"
+                style={{ 
+                  padding: '0.375rem 0.5rem',
+                  background: 'var(--apex-deep)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '4px',
+                  color: 'var(--apex-white)',
+                  fontSize: '0.875rem',
+                  textAlign: 'center'
+                }}
+              />
+              <input
+                type="number"
+                value={item.rate}
+                onChange={(e) => updateLineItem(index, 'rate', parseFloat(e.target.value) || 0)}
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                style={{ 
+                  padding: '0.375rem 0.5rem',
+                  background: 'var(--apex-deep)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '4px',
+                  color: 'var(--apex-white)',
+                  fontSize: '0.875rem',
+                  textAlign: 'right'
+                }}
+              />
+              <input
+                type="number"
+                value={item.amount}
+                onChange={(e) => updateLineItem(index, 'amount', parseFloat(e.target.value) || 0)}
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                style={{ 
+                  padding: '0.375rem 0.5rem',
+                  background: 'var(--apex-deep)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '4px',
+                  color: 'var(--apex-white)',
+                  fontSize: '0.875rem',
+                  textAlign: 'right',
+                  fontWeight: 'bold'
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => removeLineItem(index)}
+                disabled={formData.lineItems.length === 1}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: formData.lineItems.length === 1 ? 'rgba(255,255,255,0.2)' : 'var(--apex-text)',
+                  cursor: formData.lineItems.length === 1 ? 'not-allowed' : 'pointer',
+                  padding: '0.25rem'
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          
+          {/* Total */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: '2rem',
+            padding: '0.75rem 1rem',
+            background: 'rgba(0, 0, 0, 0.2)',
+            fontWeight: '600'
+          }}>
+            <span style={{ color: 'var(--apex-text)' }}>Total:</span>
+            <span style={{ color: 'var(--apex-gold-bright)', fontSize: '1.125rem' }}>
+              ${totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+            </span>
+          </div>
+        </div>
+      </div>
+
       <div className={styles.formGroup}>
         <label>Notes</label>
         <textarea
@@ -1269,7 +1467,7 @@ function InvoiceForm({ matterId, clientId, clientName, matterName, unbilledAmoun
           Cancel
         </button>
         <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
-          {isSubmitting ? 'Creating...' : 'Create Invoice'}
+          {isSubmitting ? 'Creating...' : `Create Invoice ($${totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2})})`}
         </button>
       </div>
     </form>

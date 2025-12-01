@@ -1,12 +1,13 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
+import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { invoicesApi } from '../services/api'
 import { 
   Plus, Search, DollarSign, FileText, TrendingUp, AlertCircle,
   CheckCircle2, Clock, Send, MoreVertical, Sparkles, Download,
-  CreditCard, XCircle, Eye, Edit2
+  CreditCard, XCircle, Eye, Edit2, Trash2
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -14,6 +15,7 @@ import styles from './BillingPage.module.css'
 
 export function BillingPage() {
   const { invoices, clients, matters, timeEntries, expenses, fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries, addInvoice, updateInvoice } = useDataStore()
+  const { firm } = useAuthStore()
   const { openChat } = useAIChat()
   
   // Fetch data from API on mount
@@ -66,41 +68,66 @@ export function BillingPage() {
     const client = clients.find(c => c.id === invoice.clientId)
     const matter = matters.find(m => m.id === invoice.matterId)
     
+    // Get firm details
+    const firmName = firm?.name || 'Law Firm'
+    const firmAddress = firm?.address ? `${firm.address}${firm.city ? `, ${firm.city}` : ''}${firm.state ? `, ${firm.state}` : ''} ${firm.zipCode || ''}` : ''
+    const firmPhone = firm?.phone || ''
+    const firmEmail = firm?.email || ''
+    
+    // Get client details
+    const clientName = client?.name || client?.displayName || 'Client'
+    const clientAddress = client?.addressStreet 
+      ? `${client.addressStreet}${client.addressCity ? `, ${client.addressCity}` : ''}${client.addressState ? `, ${client.addressState}` : ''} ${client.addressZip || ''}`.trim()
+      : ''
+    const clientEmail = client?.email || ''
+    
     // Generate PDF content
     const invoiceHtml = `
       <!DOCTYPE html>
       <html>
       <head>
         <style>
-          body { font-family: Arial, sans-serif; margin: 40px; color: #333; }
-          .header { display: flex; justify-content: space-between; margin-bottom: 40px; }
-          .company { font-size: 24px; font-weight: bold; color: #1a1a2e; }
-          .invoice-title { font-size: 32px; color: #F59E0B; margin-bottom: 10px; }
-          .invoice-number { font-size: 14px; color: #666; }
+          body { font-family: 'Georgia', serif; margin: 40px; color: #333; }
+          .header { display: flex; justify-content: space-between; margin-bottom: 40px; border-bottom: 3px solid #1a1a2e; padding-bottom: 20px; }
+          .company { font-size: 28px; font-weight: bold; color: #1a1a2e; margin-bottom: 8px; }
+          .company-details { font-size: 12px; color: #666; line-height: 1.6; }
+          .invoice-title { font-size: 36px; color: #F59E0B; margin-bottom: 10px; font-weight: bold; }
+          .invoice-number { font-size: 14px; color: #666; margin-bottom: 10px; }
           .info-section { display: flex; justify-content: space-between; margin-bottom: 40px; }
-          .info-block { }
-          .info-label { font-size: 12px; color: #888; text-transform: uppercase; margin-bottom: 5px; }
-          .info-value { font-size: 14px; margin-bottom: 15px; }
+          .info-block { flex: 1; }
+          .info-label { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 1px; }
+          .info-value { font-size: 14px; margin-bottom: 15px; line-height: 1.5; }
+          .client-name { font-size: 16px; font-weight: bold; color: #1a1a2e; }
           table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-          th { background: #f8f9fa; text-align: left; padding: 12px; border-bottom: 2px solid #ddd; font-size: 12px; text-transform: uppercase; }
-          td { padding: 12px; border-bottom: 1px solid #eee; }
-          .amount { text-align: right; }
-          .totals { margin-left: auto; width: 250px; }
-          .total-row { display: flex; justify-content: space-between; padding: 8px 0; }
-          .total-row.final { font-size: 18px; font-weight: bold; border-top: 2px solid #333; padding-top: 15px; }
-          .status { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
+          th { background: #1a1a2e; color: white; text-align: left; padding: 14px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+          th.amount { text-align: right; }
+          td { padding: 14px; border-bottom: 1px solid #eee; }
+          td.amount { text-align: right; }
+          .totals { margin-left: auto; width: 280px; background: #f9f9f9; padding: 20px; border-radius: 8px; }
+          .total-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; }
+          .total-row.final { font-size: 20px; font-weight: bold; border-top: 2px solid #1a1a2e; padding-top: 15px; margin-top: 10px; color: #1a1a2e; }
+          .status { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
           .status.paid { background: #d4edda; color: #155724; }
           .status.sent { background: #cce5ff; color: #004085; }
           .status.draft { background: #e2e3e5; color: #383d41; }
           .status.overdue { background: #f8d7da; color: #721c24; }
-          .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; }
+          .status.partial { background: #fff3cd; color: #856404; }
+          .footer { margin-top: 40px; padding-top: 20px; border-top: 2px solid #eee; font-size: 12px; color: #666; }
+          .footer p { margin: 8px 0; }
+          @media print {
+            body { margin: 20px; }
+          }
         </style>
       </head>
       <body>
         <div class="header">
           <div>
-            <div class="company">APEX LEGAL</div>
-            <div style="color: #666;">Professional Legal Services</div>
+            <div class="company">${firmName}</div>
+            <div class="company-details">
+              ${firmAddress ? `${firmAddress}<br>` : ''}
+              ${firmPhone ? `Tel: ${firmPhone}<br>` : ''}
+              ${firmEmail ? `Email: ${firmEmail}` : ''}
+            </div>
           </div>
           <div style="text-align: right;">
             <div class="invoice-title">INVOICE</div>
@@ -112,15 +139,20 @@ export function BillingPage() {
         <div class="info-section">
           <div class="info-block">
             <div class="info-label">Bill To</div>
-            <div class="info-value"><strong>${client?.name || 'Unknown Client'}</strong></div>
-            <div class="info-value">${client?.email || ''}</div>
+            <div class="info-value">
+              <span class="client-name">${clientName}</span><br>
+              ${clientAddress ? `${clientAddress}<br>` : ''}
+              ${clientEmail ? clientEmail : ''}
+            </div>
           </div>
           <div class="info-block">
             <div class="info-label">Matter</div>
-            <div class="info-value">${matter?.name || 'General'}</div>
-            <div class="info-value">${matter?.number || ''}</div>
+            <div class="info-value">
+              <strong>${matter?.name || 'General Legal Services'}</strong><br>
+              ${matter?.number ? `Matter #: ${matter.number}` : ''}
+            </div>
           </div>
-          <div class="info-block">
+          <div class="info-block" style="text-align: right;">
             <div class="info-label">Issue Date</div>
             <div class="info-value">${format(parseISO(invoice.issueDate), 'MMMM d, yyyy')}</div>
             <div class="info-label">Due Date</div>
@@ -147,7 +179,14 @@ export function BillingPage() {
                   <td class="amount">$${(item.amount || item.quantity * item.rate || 0).toFixed(2)}</td>
                 </tr>
               `).join('')
-              : `<tr><td colspan="4" style="text-align: center; color: #888;">Professional Legal Services</td></tr>`
+              : `
+                <tr>
+                  <td>Professional Legal Services for ${matter?.name || 'Legal Matter'}</td>
+                  <td>1</td>
+                  <td>$${invoice.total.toFixed(2)}</td>
+                  <td class="amount">$${invoice.total.toFixed(2)}</td>
+                </tr>
+              `
             }
           </tbody>
         </table>
@@ -155,29 +194,30 @@ export function BillingPage() {
         <div class="totals">
           <div class="total-row">
             <span>Subtotal:</span>
-            <span>$${(invoice.subtotal || invoice.total).toLocaleString()}</span>
+            <span>$${(invoice.subtotal || invoice.total).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
           </div>
           ${invoice.taxAmount ? `
           <div class="total-row">
             <span>Tax:</span>
-            <span>$${invoice.taxAmount.toLocaleString()}</span>
+            <span>$${invoice.taxAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
           </div>
           ` : ''}
           ${invoice.amountPaid > 0 ? `
           <div class="total-row">
-            <span>Paid:</span>
-            <span style="color: #10B981;">-$${invoice.amountPaid.toLocaleString()}</span>
+            <span>Payments Received:</span>
+            <span style="color: #10B981;">-$${invoice.amountPaid.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
           </div>
           ` : ''}
           <div class="total-row final">
             <span>Amount Due:</span>
-            <span>$${(invoice.total - invoice.amountPaid).toLocaleString()}</span>
+            <span>$${(invoice.total - invoice.amountPaid).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
           </div>
         </div>
 
         <div class="footer">
           <p><strong>Payment Terms:</strong> Net 30 days</p>
-          <p>Thank you for your business. Please include the invoice number with your payment.</p>
+          <p><strong>Make checks payable to:</strong> ${firmName}</p>
+          <p>Thank you for your business. Please include the invoice number (${invoice.number}) with your payment.</p>
         </div>
       </body>
       </html>
@@ -570,8 +610,42 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
     issueDate: format(new Date(), 'yyyy-MM-dd'),
     dueDate: format(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
     notes: '',
-    lineItems: [] as any[]
+    lineItems: [
+      { description: 'Professional Legal Services', quantity: 1, rate: 0, amount: 0 }
+    ] as any[]
   })
+
+  const addLineItem = () => {
+    setFormData({
+      ...formData,
+      lineItems: [...formData.lineItems, { description: '', quantity: 1, rate: 0, amount: 0 }]
+    })
+  }
+
+  const removeLineItem = (index: number) => {
+    setFormData({
+      ...formData,
+      lineItems: formData.lineItems.filter((_, i) => i !== index)
+    })
+  }
+
+  const updateLineItem = (index: number, field: string, value: any) => {
+    const newLineItems = [...formData.lineItems]
+    newLineItems[index] = { ...newLineItems[index], [field]: value }
+    
+    // Auto-calculate amount when quantity or rate changes
+    if (field === 'quantity' || field === 'rate') {
+      newLineItems[index].amount = newLineItems[index].quantity * newLineItems[index].rate
+    }
+    // If amount is directly edited, update rate (assuming quantity is 1 or calculate)
+    if (field === 'amount' && newLineItems[index].quantity > 0) {
+      newLineItems[index].rate = value / newLineItems[index].quantity
+    }
+    
+    setFormData({ ...formData, lineItems: newLineItems })
+  }
+
+  const totalAmount = formData.lineItems.reduce((sum, item) => sum + (item.amount || 0), 0)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -580,9 +654,13 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
       alert('Please select a client')
       return
     }
+    if (totalAmount <= 0) {
+      alert('Please add at least one line item with an amount')
+      return
+    }
     setIsSubmitting(true)
     try {
-      await onSave(formData)
+      await onSave({ ...formData, total: totalAmount })
     } finally {
       setIsSubmitting(false)
     }
@@ -590,7 +668,7 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
 
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
         <div className={styles.modalHeader}>
           <h2>Create Invoice</h2>
           <button onClick={onClose} className={styles.closeBtn}>×</button>
@@ -617,7 +695,7 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
               onChange={(e) => setFormData({...formData, matterId: e.target.value})}
             >
               <option value="">No specific matter</option>
-              {matters.map(m => (
+              {matters.filter(m => !formData.clientId || m.clientId === formData.clientId).map(m => (
                 <option key={m.id} value={m.id}>{m.name || m.title}</option>
               ))}
             </select>
@@ -644,6 +722,84 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
             </div>
           </div>
 
+          {/* Line Items Section */}
+          <div className={styles.lineItemsSection}>
+            <div className={styles.lineItemsHeader}>
+              <label>Line Items</label>
+              <button type="button" onClick={addLineItem} className={styles.addLineItemBtn}>
+                <Plus size={14} />
+                Add Item
+              </button>
+            </div>
+            
+            <div className={styles.lineItemsTable}>
+              <div className={styles.lineItemsTableHeader}>
+                <span style={{ flex: 2 }}>Description</span>
+                <span style={{ width: '80px', textAlign: 'center' }}>Qty</span>
+                <span style={{ width: '100px', textAlign: 'right' }}>Rate</span>
+                <span style={{ width: '120px', textAlign: 'right' }}>Amount</span>
+                <span style={{ width: '40px' }}></span>
+              </div>
+              
+              {formData.lineItems.map((item, index) => (
+                <div key={index} className={styles.lineItemRow}>
+                  <input
+                    type="text"
+                    value={item.description}
+                    onChange={(e) => updateLineItem(index, 'description', e.target.value)}
+                    placeholder="Description"
+                    style={{ flex: 2 }}
+                    required
+                  />
+                  <input
+                    type="number"
+                    value={item.quantity}
+                    onChange={(e) => updateLineItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                    min="0"
+                    step="0.5"
+                    style={{ width: '80px', textAlign: 'center' }}
+                  />
+                  <div style={{ width: '100px', position: 'relative' }}>
+                    <span style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: '#666' }}>$</span>
+                    <input
+                      type="number"
+                      value={item.rate}
+                      onChange={(e) => updateLineItem(index, 'rate', parseFloat(e.target.value) || 0)}
+                      min="0"
+                      step="0.01"
+                      style={{ width: '100%', textAlign: 'right', paddingLeft: '20px' }}
+                    />
+                  </div>
+                  <div style={{ width: '120px', position: 'relative' }}>
+                    <span style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: '#666' }}>$</span>
+                    <input
+                      type="number"
+                      value={item.amount}
+                      onChange={(e) => updateLineItem(index, 'amount', parseFloat(e.target.value) || 0)}
+                      min="0"
+                      step="0.01"
+                      style={{ width: '100%', textAlign: 'right', paddingLeft: '20px', fontWeight: 'bold' }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeLineItem(index)}
+                    className={styles.removeLineItemBtn}
+                    disabled={formData.lineItems.length === 1}
+                    style={{ width: '40px' }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+              
+              <div className={styles.lineItemsTotal}>
+                <span>Total:</span>
+                <span className={styles.totalAmount}>${totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+              </div>
+            </div>
+          </div>
+
           <div className={styles.formGroup}>
             <label>Notes</label>
             <textarea
@@ -659,7 +815,7 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
               Cancel
             </button>
             <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
-              {isSubmitting ? 'Creating...' : 'Create Invoice'}
+              {isSubmitting ? 'Creating...' : `Create Invoice ($${totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2})})`}
             </button>
           </div>
         </form>

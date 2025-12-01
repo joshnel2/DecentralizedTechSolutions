@@ -561,3 +561,129 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Line Items Section */
+.lineItemsSection {
+  margin-top: var(--space-md);
+}
+
+.lineItemsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+}
+
+.lineItemsHeader label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--apex-light);
+}
+
+.addLineItemBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid var(--apex-gold);
+  border-radius: var(--radius-sm);
+  color: var(--apex-gold);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.addLineItemBtn:hover {
+  background: rgba(245, 158, 11, 0.2);
+}
+
+.lineItemsTable {
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.lineItemsTableHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--apex-text);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.lineItemRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.lineItemRow:last-of-type {
+  border-bottom: none;
+}
+
+.lineItemRow input {
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  color: var(--apex-white);
+  font-size: 0.875rem;
+  font-family: inherit;
+}
+
+.lineItemRow input:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+}
+
+.removeLineItemBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xs);
+  background: none;
+  border: none;
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.removeLineItemBtn:hover:not(:disabled) {
+  color: #EF4444;
+}
+
+.removeLineItemBtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.lineItemsTotal {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-lg);
+  padding: var(--space-md);
+  background: rgba(0, 0, 0, 0.2);
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.lineItemsTotal span:first-child {
+  color: var(--apex-text);
+}
+
+.totalAmount {
+  font-size: 1.25rem;
+  color: var(--apex-gold-bright);
+}

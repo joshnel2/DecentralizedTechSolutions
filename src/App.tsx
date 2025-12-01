@@ -94,7 +94,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 
 // App wrapper to handle auth initialization
 function AppContent() {
-  const { checkAuth, isAuthenticated } = useAuthStore()
+  const { checkAuth } = useAuthStore()
   const [isInitializing, setIsInitializing] = useState(true)
 
   useEffect(() => {
@@ -191,73 +191,9 @@ function AppContent() {
 export default function App() {
   return (
     <AIChatProvider>
-    <BrowserRouter>
-      <AppContent />
-        <Route path="/login" element={
-          <PublicRoute><LoginPage /></PublicRoute>
-        } />
-        <Route path="/register" element={
-          <PublicRoute><RegisterPage /></PublicRoute>
-        } />
-        
-        {/* Firm Setup */}
-        <Route path="/setup" element={
-          <PrivateRoute><FirmSetupPage /></PrivateRoute>
-        } />
-        
-        {/* Protected Routes */}
-        <Route path="/app" element={
-          <PrivateRoute><Layout /></PrivateRoute>
-        }>
-          <Route index element={<Navigate to="/app/dashboard" />} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="matters" element={<MattersPage />} />
-          <Route path="matters/:id" element={<MatterDetailPage />} />
-          <Route path="clients" element={<ClientsPage />} />
-          <Route path="clients/:id" element={<ClientDetailPage />} />
-          <Route path="calendar" element={<CalendarPage />} />
-          <Route path="billing" element={<BillingPage />} />
-          <Route path="time" element={<TimeTrackingPage />} />
-          <Route path="reports" element={<ReportsPage />} />
-          <Route path="documents" element={<DocumentsPage />} />
-          <Route path="ai" element={<AIAssistantPage />} />
-          
-          {/* Analytics */}
-          <Route path="analytics" element={<FirmAnalyticsPage />} />
-          
-          {/* Settings Hub */}
-          <Route path="settings" element={<SettingsHubPage />} />
-          <Route path="settings/profile" element={<SettingsPage />} />
-          <Route path="settings/security" element={<SecuritySettingsPage />} />
-          <Route path="settings/firm" element={<FirmSettingsPage />} />
-          <Route path="settings/team" element={<TeamPage />} />
-          <Route path="settings/integrations" element={<IntegrationsPage />} />
-          <Route path="settings/api-keys" element={<APIKeysPage />} />
-          <Route path="settings/custom-fields" element={<CustomFieldsPage />} />
-          <Route path="settings/recovery-bin" element={<RecoveryBinPage />} />
-          <Route path="settings/court-rules" element={<CourtRulesPage />} />
-          <Route path="settings/snippets" element={<TextSnippetsPage />} />
-          <Route path="settings/documents" element={<DocumentAutomationPage />} />
-          <Route path="settings/workflows" element={<WorkflowsPage />} />
-          
-          {/* Trust Accounting */}
-          <Route path="trust" element={<TrustAccountingPage />} />
-          
-          {/* Firm Administration */}
-          <Route path="admin" element={<FirmAdminPage />} />
-          
-          {/* Platform Admin Portal */}
-          <Route path="platform-admin" element={<AdminPortalPage />} />
-        </Route>
-        
-        {/* Secure Admin Portal - Hidden URL */}
-        <Route path="/rx760819" element={<SecureAdminLogin />} />
-        <Route path="/rx760819/dashboard" element={<SecureAdminDashboard />} />
-        
-        {/* Catch all */}
-        <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
-    </BrowserRouter>
+      <BrowserRouter>
+        <AppContent />
+      </BrowserRouter>
     </AIChatProvider>
   )
 }
