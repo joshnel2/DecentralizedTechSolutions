@@ -54,8 +54,8 @@ export function TrustAccountingPage() {
         <div className={styles.headerLeft}>
           <div className={styles.headerIcon}><Landmark size={28} /></div>
           <div>
-            <h1>Trust Accounting (IOLTA)</h1>
-            <p>Manage client trust funds and maintain compliance</p>
+            <h1>Linked Accounts</h1>
+            <p>Manage linked accounts and transactions</p>
           </div>
         </div>
         <div className={styles.headerActions}>
