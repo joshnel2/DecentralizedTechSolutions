@@ -6,22 +6,12 @@ import {
   ChevronLeft, Sparkles, Edit2, MoreVertical, Plus,
   CheckCircle2, Scale, Building2, Brain, Loader2, 
   Copy, RefreshCw, AlertTriangle, TrendingUp,
-  ListTodo, Users, Tag, ArrowRight, Circle
+  ListTodo, Users, Circle
 } from 'lucide-react'
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
 import { AIButton } from '../components/AIButton'
 import styles from './DetailPage.module.css'
-
-// Default stages for matter types
-const matterStages: Record<string, string[]> = {
-  litigation: ['Intake', 'Investigation', 'Pleadings', 'Discovery', 'Motions', 'Trial Prep', 'Trial', 'Post-Trial'],
-  personal_injury: ['Intake', 'Investigation', 'Medical Treatment', 'Demand', 'Negotiation', 'Litigation', 'Settlement'],
-  corporate: ['Engagement', 'Due Diligence', 'Negotiation', 'Documentation', 'Closing', 'Post-Closing'],
-  real_estate: ['Engagement', 'Title Review', 'Due Diligence', 'Negotiation', 'Documentation', 'Closing', 'Post-Closing'],
-  estate_planning: ['Consultation', 'Planning', 'Drafting', 'Review', 'Execution', 'Funding'],
-  default: ['Intake', 'Active', 'In Progress', 'Review', 'Closing']
-}
 
 // Demo tasks for matter
 const demoTasks = [
@@ -45,7 +35,6 @@ export function MatterDetailPage() {
   const [aiAnalyzing, setAiAnalyzing] = useState(false)
   const [aiSummary, setAiSummary] = useState<string | null>(null)
   const [showAiPanel, setShowAiPanel] = useState(false)
-  const [currentStage, setCurrentStage] = useState(2) // Default to 3rd stage for demo
 
   const matter = useMemo(() => matters.find(m => m.id === id), [matters, id])
   const client = useMemo(() => clients.find(c => c.id === matter?.clientId), [clients, matter])
@@ -187,42 +176,6 @@ export function MatterDetailPage() {
               <span className={styles.statLabel}>Collected</span>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Matter Stages/Workflow - Clio Style */}
-      <div className={styles.stagesContainer}>
-        <div className={styles.stagesHeader}>
-          <span>Matter Workflow</span>
-          <button className={styles.stagesEditBtn}><Edit2 size={14} /></button>
-        </div>
-        <div className={styles.stagesTrack}>
-          {(matterStages[matter.type] || matterStages.default).map((stage, index) => (
-            <div 
-              key={stage}
-              className={clsx(
-                styles.stageItem,
-                index < currentStage && styles.completed,
-                index === currentStage && styles.current,
-                index > currentStage && styles.upcoming
-              )}
-              onClick={() => setCurrentStage(index)}
-            >
-              <div className={styles.stageIndicator}>
-                {index < currentStage ? (
-                  <CheckCircle2 size={16} />
-                ) : index === currentStage ? (
-                  <Circle size={16} className={styles.currentCircle} />
-                ) : (
-                  <Circle size={16} />
-                )}
-              </div>
-              <span className={styles.stageName}>{stage}</span>
-              {index < (matterStages[matter.type] || matterStages.default).length - 1 && (
-                <ArrowRight size={14} className={styles.stageArrow} />
-              )}
-            </div>
-          ))}
         </div>
       </div>
 
