@@ -10,6 +10,8 @@ interface AIButtonProps {
   size?: 'sm' | 'md' | 'lg'
   label?: string
   prompts?: { label: string; prompt: string }[]
+  page?: string
+  entityId?: string
 }
 
 const defaultPrompts = [
@@ -27,7 +29,9 @@ export function AIButton({
   variant = 'button',
   size = 'md',
   label = 'AI Assist',
-  prompts = defaultPrompts
+  prompts = defaultPrompts,
+  page = 'general',
+  entityId
 }: AIButtonProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)

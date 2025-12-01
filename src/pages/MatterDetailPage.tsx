@@ -84,7 +84,14 @@ export function MatterDetailPage() {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          message: 'Give me a comprehensive analysis of this matter including: 1) Current status and progress summary, 2) Financial overview with billing insights, 3) Risk assessment, 4) Recommended next steps and priorities. Be specific and actionable.',
+          message: `Analyze this specific matter thoroughly. Focus ONLY on this matter's data - do not provide generic advice. Include:
+1) STATUS: Current stage, what has been completed, what remains
+2) FINANCIALS: Hours billed, unbilled time, total value, collection status
+3) TIMELINE: Upcoming deadlines, events, and critical dates
+4) RISKS: Specific concerns based on this matter's actual data
+5) NEXT STEPS: 3-5 specific, actionable tasks based on this matter's current state
+
+Be direct and specific. Reference actual numbers, dates, and details from this matter.`,
           page: 'matter-detail',
           context: { matterId: id }
         })
@@ -109,10 +116,36 @@ export function MatterDetailPage() {
     setShowAiPanel(true)
     
     const prompts: Record<string, string> = {
-      'risk': 'Analyze potential risks for this matter. Consider deadlines, statute of limitations, missing documents, billing concerns, and any other factors. Provide specific risks with severity levels and recommended mitigations.',
-      'billing': 'Provide a billing forecast for this matter. Analyze current hours, billing rate, and project future costs. Include recommendations for invoicing unbilled time and revenue projections.',
-      'deadline': 'Analyze all deadlines and important dates for this matter. Identify any upcoming court dates, filing deadlines, or statute of limitations concerns. Flag any dates that need immediate attention.',
-      'documents': 'Summarize all documents associated with this matter. Identify any missing documents that would typically be expected for this type of matter. Suggest document organization improvements.'
+      'risk': `RISK ANALYSIS for this specific matter only. Based on the actual data:
+- List specific risks with HIGH/MEDIUM/LOW severity
+- Reference actual deadlines, missing items, or billing gaps from this matter
+- Identify statute of limitations concerns if applicable
+- Note any gaps in documentation or communication
+- Provide 2-3 specific mitigation actions for each risk
+Do NOT give generic legal advice. Only analyze what you see in this matter's data.`,
+      'billing': `BILLING ANALYSIS for this specific matter only. Based on the actual data:
+- Total hours logged and their value
+- Unbilled time that should be invoiced
+- Comparison to budget if set
+- Revenue collected vs outstanding
+- Specific recommendation: Should we invoice now? How much?
+- Projected final value based on current trajectory
+Reference actual numbers from this matter only.`,
+      'deadline': `DEADLINE ANALYSIS for this specific matter only. Based on the actual data:
+- List ALL upcoming events and deadlines chronologically
+- Flag anything due within 7 days as URGENT
+- Flag anything due within 30 days as UPCOMING
+- Note any statute of limitations dates
+- Identify gaps where deadlines might be missing
+- Recommend specific calendar items to add
+Only reference dates that exist in this matter's data.`,
+      'documents': `DOCUMENT ANALYSIS for this specific matter only. Based on the actual data:
+- List all documents currently on file
+- For this matter type, identify what documents are typically needed
+- Flag any missing critical documents
+- Note documents that may need updating
+- Recommend specific documents to request or create
+Only analyze documents actually associated with this matter.`
     }
     
     try {
