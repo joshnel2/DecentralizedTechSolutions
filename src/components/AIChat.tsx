@@ -48,7 +48,7 @@ function getContextFromPath(pathname: string): Record<string, any> {
 
 export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps) {
   const location = useLocation()
-  const { refreshSuggestions } = useAIChat()
+  const { refreshSuggestions, suggestedPrompts, contextLabel } = useAIChat()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -78,13 +78,19 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   // Load suggestions when page changes or when AI Insights button is clicked
   useEffect(() => {
     if (isOpen) {
-      aiApi.getSuggestions(currentPage)
-        .then(data => setSuggestions(data.suggestions || []))
-        .catch(() => setSuggestions([]))
+      // If custom prompts were passed, use those
+      if (suggestedPrompts && suggestedPrompts.length > 0) {
+        setSuggestions(suggestedPrompts.map(p => p.prompt))
+      } else {
+        // Otherwise load from API
+        aiApi.getSuggestions(currentPage)
+          .then(data => setSuggestions(data.suggestions || []))
+          .catch(() => setSuggestions([]))
+      }
       // Show suggestions whenever opened via AI Insights button
       setShowSuggestions(true)
     }
-  }, [currentPage, isOpen, refreshSuggestions])
+  }, [currentPage, isOpen, refreshSuggestions, suggestedPrompts])
 
   const sendMessage = async (messageText?: string) => {
     const text = messageText || input.trim()
@@ -174,7 +180,9 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         {/* Context indicator */}
         <div className={styles.contextBar}>
           <span>Context:</span>
-          <span className={styles.contextPage}>{currentPage.replace('-', ' ')}</span>
+          <span className={styles.contextPage}>
+            {contextLabel || currentPage.replace('-', ' ')}
+          </span>
         </div>
 
         {/* Messages */}

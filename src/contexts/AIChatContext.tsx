@@ -1,10 +1,17 @@
 import { createContext, useContext, useState, ReactNode } from 'react'
 
+interface SuggestedPrompt {
+  label: string
+  prompt: string
+}
+
 interface AIChatContextType {
   isOpen: boolean
-  openChat: () => void
+  openChat: (suggestions?: SuggestedPrompt[], contextLabel?: string) => void
   closeChat: () => void
   refreshSuggestions: number
+  suggestedPrompts: SuggestedPrompt[]
+  contextLabel: string | null
 }
 
 const AIChatContext = createContext<AIChatContextType | null>(null)
@@ -12,8 +19,20 @@ const AIChatContext = createContext<AIChatContextType | null>(null)
 export function AIChatProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false)
   const [refreshSuggestions, setRefreshSuggestions] = useState(0)
+  const [suggestedPrompts, setSuggestedPrompts] = useState<SuggestedPrompt[]>([])
+  const [contextLabel, setContextLabel] = useState<string | null>(null)
 
-  const openChat = () => {
+  const openChat = (suggestions?: SuggestedPrompt[], label?: string) => {
+    if (suggestions) {
+      setSuggestedPrompts(suggestions)
+    } else {
+      setSuggestedPrompts([])
+    }
+    if (label) {
+      setContextLabel(label)
+    } else {
+      setContextLabel(null)
+    }
     setRefreshSuggestions(prev => prev + 1)
     setIsOpen(true)
   }
@@ -23,7 +42,7 @@ export function AIChatProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AIChatContext.Provider value={{ isOpen, openChat, closeChat, refreshSuggestions }}>
+    <AIChatContext.Provider value={{ isOpen, openChat, closeChat, refreshSuggestions, suggestedPrompts, contextLabel }}>
       {children}
     </AIChatContext.Provider>
   )

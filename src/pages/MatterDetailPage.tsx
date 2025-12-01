@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
+import { useAIChat } from '../contexts/AIChatContext'
 import { invoicesApi } from '../services/api'
 import { 
   Briefcase, Calendar, DollarSign, Clock, FileText,
@@ -31,6 +32,45 @@ const relatedContacts = [
   { id: '3', name: 'Insurance Adjuster', role: 'Insurance', firm: 'ABC Insurance Co.', email: 'adjuster@abc.com' }
 ]
 
+// Tab-specific AI prompts
+const tabAIPrompts: Record<string, { label: string; prompt: string }[]> = {
+  overview: [
+    { label: 'Summarize Matter', prompt: 'Give me a complete summary of this matter including status, key dates, and next steps' },
+    { label: 'Risk Analysis', prompt: 'What are the potential risks for this matter and how can we mitigate them?' },
+    { label: 'Timeline Review', prompt: 'Review the timeline of this matter and highlight any concerns' },
+  ],
+  tasks: [
+    { label: 'Prioritize Tasks', prompt: 'Help me prioritize the tasks for this matter based on urgency and importance' },
+    { label: 'Create Task List', prompt: 'What tasks should I create for this type of matter?' },
+    { label: 'Workload Analysis', prompt: 'Analyze the workload distribution for this matter' },
+  ],
+  time: [
+    { label: 'Billing Summary', prompt: 'Summarize the time entries and billing status for this matter' },
+    { label: 'Efficiency Analysis', prompt: 'Analyze time efficiency and suggest improvements' },
+    { label: 'Invoice Ready', prompt: 'What time entries are ready to be invoiced?' },
+  ],
+  billing: [
+    { label: 'Billing Status', prompt: 'What is the current billing status and outstanding amounts for this matter?' },
+    { label: 'Revenue Forecast', prompt: 'Forecast the potential revenue for this matter' },
+    { label: 'Collection Analysis', prompt: 'Analyze payment history and collection recommendations' },
+  ],
+  documents: [
+    { label: 'Document Review', prompt: 'Review and summarize all documents for this matter' },
+    { label: 'Missing Documents', prompt: 'What key documents might be missing from this matter?' },
+    { label: 'Document Timeline', prompt: 'Create a timeline of document submissions and filings' },
+  ],
+  calendar: [
+    { label: 'Schedule Review', prompt: 'Review upcoming events and deadlines for this matter' },
+    { label: 'Conflict Check', prompt: 'Check for any scheduling conflicts' },
+    { label: 'Deadline Analysis', prompt: 'Analyze all deadlines and statute of limitations' },
+  ],
+  contacts: [
+    { label: 'Contact Summary', prompt: 'Summarize all contacts related to this matter and their roles' },
+    { label: 'Key Relationships', prompt: 'What are the key relationships and contacts for this matter?' },
+    { label: 'Communication Tips', prompt: 'Provide tips for communicating with parties in this matter' },
+  ],
+}
+
 export function MatterDetailPage() {
   const { id } = useParams()
   const { 
@@ -38,6 +78,7 @@ export function MatterDetailPage() {
     updateMatter, addTimeEntry, addInvoice, addEvent, addDocument,
     fetchMatters, fetchClients, fetchTimeEntries, fetchInvoices, fetchEvents, fetchDocuments 
   } = useDataStore()
+  const { openChat } = useAIChat()
   const [activeTab, setActiveTab] = useState('overview')
   const [aiAnalyzing, setAiAnalyzing] = useState(false)
   const [aiSummary, setAiSummary] = useState<string | null>(null)
@@ -334,6 +375,14 @@ Only analyze documents actually associated with this matter.`
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
+        <button 
+          className={styles.tabAIBtn}
+          onClick={() => openChat(tabAIPrompts[activeTab], `Matter ${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}`)}
+          title={`AI suggestions for ${activeTab}`}
+        >
+          <Sparkles size={16} />
+          AI Help
+        </button>
       </div>
 
       {/* Content */}
@@ -1029,7 +1078,17 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Related Contacts</h2>
               <div className={styles.tabActions}>
-                <button className={styles.primaryBtn}>
+                <button 
+                  className={styles.primaryBtn}
+                  onClick={() => openChat(
+                    [
+                      { label: 'Find Contacts', prompt: 'Help me identify what contacts should be added to this matter' },
+                      { label: 'Contact Roles', prompt: 'What roles and contacts are typically needed for this type of matter?' },
+                      { label: 'Opposing Counsel', prompt: 'Help me draft a contact entry for opposing counsel' },
+                    ],
+                    'Matter Contacts'
+                  )}
+                >
                   <Plus size={18} />
                   Add Contact
                 </button>
