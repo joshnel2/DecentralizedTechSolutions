@@ -9,7 +9,7 @@ import {
   CheckCircle2, Clock, Send, MoreVertical, Sparkles, Download,
   CreditCard, XCircle, Eye, ChevronRight, Filter, Calendar,
   ArrowUpRight, ArrowDownRight, Wallet, BarChart3, Receipt,
-  RefreshCw, Mail, Printer, Trash2
+  RefreshCw, Mail, Printer, Trash2, Edit2
 } from 'lucide-react'
 import { format, parseISO, differenceInDays, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import { clsx } from 'clsx'
@@ -29,11 +29,11 @@ export function BillingPage() {
     fetchTimeEntries()
   }, [fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries])
   
-  const [activeTab, setActiveTab] = useState('dashboard')
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [dateFilter, setDateFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState<any>(null)
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null)
@@ -65,6 +65,11 @@ export function BillingPage() {
   const handleRecordPayment = (invoice: any) => {
     setSelectedInvoice(invoice)
     setShowPaymentModal(true)
+    setOpenDropdownId(null)
+  }
+
+  const handleEditInvoice = (invoice: any) => {
+    setShowEditModal(invoice)
     setOpenDropdownId(null)
   }
 
@@ -329,13 +334,6 @@ export function BillingPage() {
   const getClientName = (clientId: string) => clients.find(c => c.id === clientId)?.name || 'Unknown'
   const getMatterName = (matterId: string) => matters.find(m => m.id === matterId)?.name || 'Unknown'
 
-  // Recent activity
-  const recentInvoices = useMemo(() => {
-    return [...invoices]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 5)
-  }, [invoices])
-
   return (
     <div className={styles.billingPage}>
       {/* Header */}
@@ -351,136 +349,51 @@ export function BillingPage() {
           </button>
           <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
             <Plus size={18} />
-            Create Invoice
+            New Invoice
           </button>
         </div>
       </div>
 
-      {/* Quick Stats Dashboard */}
-      <div className={styles.dashboardGrid}>
-        {/* Main metrics */}
-        <div className={styles.metricsRow}>
-          <div className={styles.metricCard}>
-            <div className={styles.metricHeader}>
-              <div className={styles.metricIcon} style={{ background: 'rgba(16, 185, 129, 0.1)' }}>
-                <CheckCircle2 size={20} style={{ color: '#10B981' }} />
-              </div>
-              <span className={styles.metricTrend} style={{ color: '#10B981' }}>
-                <ArrowUpRight size={14} />
-                Collected
-              </span>
-            </div>
-            <div className={styles.metricValue}>${stats.totalPaid.toLocaleString()}</div>
-            <div className={styles.metricLabel}>Total Collected</div>
-            <div className={styles.metricSubtext}>This month: ${stats.thisMonthCollected.toLocaleString()}</div>
-          </div>
-
-          <div className={styles.metricCard}>
-            <div className={styles.metricHeader}>
-              <div className={styles.metricIcon} style={{ background: 'rgba(59, 130, 246, 0.1)' }}>
-                <Send size={20} style={{ color: '#3B82F6' }} />
-              </div>
-              <span className={styles.metricTrend} style={{ color: stats.trend >= 0 ? '#10B981' : '#EF4444' }}>
-                {stats.trend >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-                {Math.abs(stats.trend).toFixed(0)}%
-              </span>
-            </div>
-            <div className={styles.metricValue}>${stats.thisMonthBilled.toLocaleString()}</div>
-            <div className={styles.metricLabel}>Billed This Month</div>
-            <div className={styles.metricSubtext}>Last month: ${stats.lastMonthBilled.toLocaleString()}</div>
-          </div>
-
-          <div className={styles.metricCard}>
-            <div className={styles.metricHeader}>
-              <div className={styles.metricIcon} style={{ background: 'rgba(245, 158, 11, 0.1)' }}>
-                <Clock size={20} style={{ color: '#F59E0B' }} />
-              </div>
-            </div>
-            <div className={styles.metricValue}>${stats.outstanding.toLocaleString()}</div>
-            <div className={styles.metricLabel}>Outstanding</div>
-            <div className={styles.metricSubtext}>{invoices.filter(i => i.status === 'sent' || i.status === 'overdue').length} invoices</div>
-          </div>
-
-          <div className={styles.metricCard}>
-            <div className={styles.metricHeader}>
-              <div className={styles.metricIcon} style={{ background: 'rgba(139, 92, 246, 0.1)' }}>
-                <Receipt size={20} style={{ color: '#8B5CF6' }} />
-              </div>
-            </div>
-            <div className={styles.metricValue}>${(stats.unbilledTime + stats.unbilledExpenses).toLocaleString()}</div>
-            <div className={styles.metricLabel}>Unbilled Work</div>
-            <div className={styles.metricSubtext}>
-              <button 
-                className={styles.billNowLink}
-                onClick={() => navigate('/app/time-tracking')}
-              >
-                Bill Now <ChevronRight size={12} />
-              </button>
+      {/* Quick Stats */}
+      <div className={styles.metricsRow}>
+        <div className={styles.metricCard}>
+          <div className={styles.metricHeader}>
+            <div className={styles.metricIcon} style={{ background: 'rgba(16, 185, 129, 0.1)' }}>
+              <CheckCircle2 size={20} style={{ color: '#10B981' }} />
             </div>
           </div>
+          <div className={styles.metricValue}>${stats.totalPaid.toLocaleString()}</div>
+          <div className={styles.metricLabel}>Total Collected</div>
         </div>
 
-        {/* Aging Summary */}
-        <div className={styles.agingCard}>
-          <div className={styles.agingHeader}>
-            <h3>
-              <BarChart3 size={18} />
-              Accounts Receivable Aging
-            </h3>
-            <span className={styles.agingTotal}>Total: ${stats.outstanding.toLocaleString()}</span>
-          </div>
-          <div className={styles.agingBars}>
-            <div className={styles.agingItem}>
-              <div className={styles.agingLabel}>Current</div>
-              <div className={styles.agingBarWrapper}>
-                <div 
-                  className={clsx(styles.agingBar, styles.current)}
-                  style={{ width: `${stats.outstanding > 0 ? (stats.aging.current / stats.outstanding) * 100 : 0}%` }}
-                />
-              </div>
-              <div className={styles.agingAmount}>${stats.aging.current.toLocaleString()}</div>
-            </div>
-            <div className={styles.agingItem}>
-              <div className={styles.agingLabel}>1-30 Days</div>
-              <div className={styles.agingBarWrapper}>
-                <div 
-                  className={clsx(styles.agingBar, styles.thirty)}
-                  style={{ width: `${stats.outstanding > 0 ? (stats.aging.thirtyDays / stats.outstanding) * 100 : 0}%` }}
-                />
-              </div>
-              <div className={styles.agingAmount}>${stats.aging.thirtyDays.toLocaleString()}</div>
-            </div>
-            <div className={styles.agingItem}>
-              <div className={styles.agingLabel}>31-60 Days</div>
-              <div className={styles.agingBarWrapper}>
-                <div 
-                  className={clsx(styles.agingBar, styles.sixty)}
-                  style={{ width: `${stats.outstanding > 0 ? (stats.aging.sixtyDays / stats.outstanding) * 100 : 0}%` }}
-                />
-              </div>
-              <div className={styles.agingAmount}>${stats.aging.sixtyDays.toLocaleString()}</div>
-            </div>
-            <div className={styles.agingItem}>
-              <div className={styles.agingLabel}>61-90 Days</div>
-              <div className={styles.agingBarWrapper}>
-                <div 
-                  className={clsx(styles.agingBar, styles.ninety)}
-                  style={{ width: `${stats.outstanding > 0 ? (stats.aging.ninetyDays / stats.outstanding) * 100 : 0}%` }}
-                />
-              </div>
-              <div className={styles.agingAmount}>${stats.aging.ninetyDays.toLocaleString()}</div>
-            </div>
-            <div className={styles.agingItem}>
-              <div className={styles.agingLabel}>90+ Days</div>
-              <div className={styles.agingBarWrapper}>
-                <div 
-                  className={clsx(styles.agingBar, styles.ninetyPlus)}
-                  style={{ width: `${stats.outstanding > 0 ? (stats.aging.ninetyPlus / stats.outstanding) * 100 : 0}%` }}
-                />
-              </div>
-              <div className={styles.agingAmount}>${stats.aging.ninetyPlus.toLocaleString()}</div>
+        <div className={styles.metricCard}>
+          <div className={styles.metricHeader}>
+            <div className={styles.metricIcon} style={{ background: 'rgba(59, 130, 246, 0.1)' }}>
+              <Send size={20} style={{ color: '#3B82F6' }} />
             </div>
           </div>
+          <div className={styles.metricValue}>${stats.thisMonthBilled.toLocaleString()}</div>
+          <div className={styles.metricLabel}>Billed This Month</div>
+        </div>
+
+        <div className={styles.metricCard}>
+          <div className={styles.metricHeader}>
+            <div className={styles.metricIcon} style={{ background: 'rgba(245, 158, 11, 0.1)' }}>
+              <Clock size={20} style={{ color: '#F59E0B' }} />
+            </div>
+          </div>
+          <div className={styles.metricValue}>${stats.outstanding.toLocaleString()}</div>
+          <div className={styles.metricLabel}>Outstanding</div>
+        </div>
+
+        <div className={styles.metricCard}>
+          <div className={styles.metricHeader}>
+            <div className={styles.metricIcon} style={{ background: 'rgba(239, 68, 68, 0.1)' }}>
+              <AlertCircle size={20} style={{ color: '#EF4444' }} />
+            </div>
+          </div>
+          <div className={styles.metricValue}>${(stats.aging.thirtyDays + stats.aging.sixtyDays + stats.aging.ninetyDays + stats.aging.ninetyPlus).toLocaleString()}</div>
+          <div className={styles.metricLabel}>Overdue</div>
         </div>
       </div>
 
@@ -491,7 +404,7 @@ export function BillingPage() {
           onClick={() => navigate('/app/time-tracking')}
         >
           <Clock size={18} />
-          <span>Bill Time</span>
+          <span>Bill Unbilled Time (${stats.unbilledTime.toLocaleString()})</span>
         </button>
         <button 
           className={styles.quickActionBtn}
@@ -506,13 +419,6 @@ export function BillingPage() {
         >
           <Mail size={18} />
           <span>Send Reminders</span>
-        </button>
-        <button 
-          className={styles.quickActionBtn}
-          onClick={() => openChat("Generate a billing report for this month including all invoices, payments received, and outstanding balances.")}
-        >
-          <BarChart3 size={18} />
-          <span>Run Report</span>
         </button>
       </div>
 
@@ -652,6 +558,13 @@ export function BillingPage() {
                     </button>
                     <button 
                       className={styles.actionBtn}
+                      onClick={() => handleEditInvoice(invoice)}
+                      title="Edit"
+                    >
+                      <Edit2 size={16} />
+                    </button>
+                    <button 
+                      className={styles.actionBtn}
                       onClick={() => handleDownloadInvoice(invoice)}
                       title="Download PDF"
                     >
@@ -713,6 +626,69 @@ export function BillingPage() {
         )}
       </div>
 
+      {/* Accounts Receivable Aging - At Bottom */}
+      <div className={styles.agingCard}>
+        <div className={styles.agingHeader}>
+          <h3>
+            <BarChart3 size={18} />
+            Accounts Receivable Aging
+          </h3>
+          <span className={styles.agingTotal}>Total Outstanding: ${stats.outstanding.toLocaleString()}</span>
+        </div>
+        <div className={styles.agingBars}>
+          <div className={styles.agingItem}>
+            <div className={styles.agingLabel}>Current</div>
+            <div className={styles.agingBarWrapper}>
+              <div 
+                className={clsx(styles.agingBar, styles.current)}
+                style={{ width: `${stats.outstanding > 0 ? (stats.aging.current / stats.outstanding) * 100 : 0}%` }}
+              />
+            </div>
+            <div className={styles.agingAmount}>${stats.aging.current.toLocaleString()}</div>
+          </div>
+          <div className={styles.agingItem}>
+            <div className={styles.agingLabel}>1-30 Days</div>
+            <div className={styles.agingBarWrapper}>
+              <div 
+                className={clsx(styles.agingBar, styles.thirty)}
+                style={{ width: `${stats.outstanding > 0 ? (stats.aging.thirtyDays / stats.outstanding) * 100 : 0}%` }}
+              />
+            </div>
+            <div className={styles.agingAmount}>${stats.aging.thirtyDays.toLocaleString()}</div>
+          </div>
+          <div className={styles.agingItem}>
+            <div className={styles.agingLabel}>31-60 Days</div>
+            <div className={styles.agingBarWrapper}>
+              <div 
+                className={clsx(styles.agingBar, styles.sixty)}
+                style={{ width: `${stats.outstanding > 0 ? (stats.aging.sixtyDays / stats.outstanding) * 100 : 0}%` }}
+              />
+            </div>
+            <div className={styles.agingAmount}>${stats.aging.sixtyDays.toLocaleString()}</div>
+          </div>
+          <div className={styles.agingItem}>
+            <div className={styles.agingLabel}>61-90 Days</div>
+            <div className={styles.agingBarWrapper}>
+              <div 
+                className={clsx(styles.agingBar, styles.ninety)}
+                style={{ width: `${stats.outstanding > 0 ? (stats.aging.ninetyDays / stats.outstanding) * 100 : 0}%` }}
+              />
+            </div>
+            <div className={styles.agingAmount}>${stats.aging.ninetyDays.toLocaleString()}</div>
+          </div>
+          <div className={styles.agingItem}>
+            <div className={styles.agingLabel}>90+ Days</div>
+            <div className={styles.agingBarWrapper}>
+              <div 
+                className={clsx(styles.agingBar, styles.ninetyPlus)}
+                style={{ width: `${stats.outstanding > 0 ? (stats.aging.ninetyPlus / stats.outstanding) * 100 : 0}%` }}
+              />
+            </div>
+            <div className={styles.agingAmount}>${stats.aging.ninetyPlus.toLocaleString()}</div>
+          </div>
+        </div>
+      </div>
+
       {/* Invoice Preview Modal */}
       {showInvoicePreview && (
         <InvoicePreviewModal
@@ -722,6 +698,10 @@ export function BillingPage() {
           firm={firm}
           onClose={() => setShowInvoicePreview(null)}
           onDownload={() => handleDownloadInvoice(showInvoicePreview)}
+          onEdit={() => {
+            setShowEditModal(showInvoicePreview)
+            setShowInvoicePreview(null)
+          }}
           onRecordPayment={() => {
             setSelectedInvoice(showInvoicePreview)
             setShowPaymentModal(true)
@@ -731,16 +711,40 @@ export function BillingPage() {
       )}
 
       {showNewModal && (
-        <NewInvoiceModal
+        <InvoiceModal
           onClose={() => setShowNewModal(false)}
           onSave={async (data) => {
             try {
-              await addInvoice(data)
+              await addInvoice({
+                ...data,
+                status: 'draft',
+                amountPaid: 0,
+                subtotal: data.total
+              })
               setShowNewModal(false)
               fetchInvoices()
             } catch (error) {
               console.error('Failed to create invoice:', error)
               alert('Failed to create invoice. Please try again.')
+            }
+          }}
+          clients={clients}
+          matters={matters}
+        />
+      )}
+
+      {showEditModal && (
+        <InvoiceModal
+          invoice={showEditModal}
+          onClose={() => setShowEditModal(null)}
+          onSave={async (data) => {
+            try {
+              await updateInvoice(showEditModal.id, data)
+              setShowEditModal(null)
+              fetchInvoices()
+            } catch (error) {
+              console.error('Failed to update invoice:', error)
+              alert('Failed to update invoice. Please try again.')
             }
           }}
           clients={clients}
@@ -773,13 +777,14 @@ export function BillingPage() {
 }
 
 // Invoice Preview Modal
-function InvoicePreviewModal({ invoice, client, matter, firm, onClose, onDownload, onRecordPayment }: {
+function InvoicePreviewModal({ invoice, client, matter, firm, onClose, onDownload, onEdit, onRecordPayment }: {
   invoice: any
   client: any
   matter: any
   firm: any
   onClose: () => void
   onDownload: () => void
+  onEdit: () => void
   onRecordPayment: () => void
 }) {
   return (
@@ -880,6 +885,10 @@ function InvoicePreviewModal({ invoice, client, matter, firm, onClose, onDownloa
           <button className={styles.cancelBtn} onClick={onClose}>
             Close
           </button>
+          <button className={styles.secondaryBtn} onClick={onEdit}>
+            <Edit2 size={16} />
+            Edit Invoice
+          </button>
           {invoice.status !== 'paid' && invoice.status !== 'void' && (
             <button className={styles.secondaryBtn} onClick={onRecordPayment}>
               <CreditCard size={16} />
@@ -896,22 +905,25 @@ function InvoicePreviewModal({ invoice, client, matter, firm, onClose, onDownloa
   )
 }
 
-function NewInvoiceModal({ onClose, onSave, clients, matters }: { 
+// Combined Invoice Modal for Create/Edit
+function InvoiceModal({ invoice, onClose, onSave, clients, matters }: { 
+  invoice?: any
   onClose: () => void
   onSave: (data: any) => Promise<void>
   clients: any[]
   matters: any[]
 }) {
+  const isEditing = !!invoice
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
-    clientId: clients[0]?.id || '',
-    matterId: '',
-    issueDate: format(new Date(), 'yyyy-MM-dd'),
-    dueDate: format(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
-    notes: '',
-    lineItems: [
-      { description: 'Professional Legal Services', quantity: 1, rate: 0, amount: 0 }
-    ] as any[]
+    clientId: invoice?.clientId || clients[0]?.id || '',
+    matterId: invoice?.matterId || '',
+    issueDate: invoice?.issueDate ? format(parseISO(invoice.issueDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+    dueDate: invoice?.dueDate ? format(parseISO(invoice.dueDate), 'yyyy-MM-dd') : format(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
+    notes: invoice?.notes || '',
+    lineItems: invoice?.lineItems?.length > 0 
+      ? invoice.lineItems 
+      : [{ description: 'Professional Legal Services', quantity: 1, rate: 0, amount: 0 }]
   })
 
   const addLineItem = () => {
@@ -924,7 +936,7 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
   const removeLineItem = (index: number) => {
     setFormData({
       ...formData,
-      lineItems: formData.lineItems.filter((_, i) => i !== index)
+      lineItems: formData.lineItems.filter((_: any, i: number) => i !== index)
     })
   }
 
@@ -942,7 +954,7 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
     setFormData({ ...formData, lineItems: newLineItems })
   }
 
-  const totalAmount = formData.lineItems.reduce((sum, item) => sum + (item.amount || 0), 0)
+  const totalAmount = formData.lineItems.reduce((sum: number, item: any) => sum + (item.amount || 0), 0)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -957,7 +969,12 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
     }
     setIsSubmitting(true)
     try {
-      await onSave({ ...formData, total: totalAmount })
+      await onSave({ 
+        ...formData, 
+        total: totalAmount,
+        issueDate: new Date(formData.issueDate).toISOString(),
+        dueDate: new Date(formData.dueDate).toISOString()
+      })
     } finally {
       setIsSubmitting(false)
     }
@@ -967,7 +984,7 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
     <div className={styles.modalOverlay} onClick={onClose}>
       <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
         <div className={styles.modalHeader}>
-          <h2>Create Invoice</h2>
+          <h2>{isEditing ? 'Edit Invoice' : 'New Invoice'}</h2>
           <button onClick={onClose} className={styles.closeBtn}>×</button>
         </div>
         <form onSubmit={handleSubmit} className={styles.modalForm}>
@@ -1037,7 +1054,7 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
                 <span style={{ width: '40px' }}></span>
               </div>
               
-              {formData.lineItems.map((item, index) => (
+              {formData.lineItems.map((item: any, index: number) => (
                 <div key={index} className={styles.lineItemRow}>
                   <input
                     type="text"
@@ -1111,7 +1128,7 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
               Cancel
             </button>
             <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
-              {isSubmitting ? 'Creating...' : `Create Invoice ($${totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2})})`}
+              {isSubmitting ? 'Saving...' : isEditing ? 'Save Changes' : `Create Invoice ($${totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2})})`}
             </button>
           </div>
         </form>
