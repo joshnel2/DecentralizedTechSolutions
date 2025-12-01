@@ -237,7 +237,7 @@ export function TrustAccountingPage() {
               <h2>Record Trust Deposit</h2>
               <button onClick={() => setShowDepositModal(false)} className={styles.closeBtn}><X size={20} /></button>
             </div>
-            <form className={styles.modalForm}>
+            <form className={styles.modalForm} onSubmit={(e) => { e.preventDefault(); setShowDepositModal(false); }}>
               <div className={styles.formGroup}>
                 <label>Client *</label>
                 <select><option>Select client...</option>{clients.map(c => <option key={c.id} value={c.id}>{c.displayName}</option>)}</select>

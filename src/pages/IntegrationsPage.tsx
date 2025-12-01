@@ -3,9 +3,9 @@ import { useAuthStore } from '../stores/authStore'
 import { integrationsApi } from '../services/api'
 import { useSearchParams } from 'react-router-dom'
 import {
-  Link2, Calendar, Mail, Cloud, CreditCard, FileSignature,
+  Link2, Calendar, Cloud, FileSignature,
   Calculator, MessageSquare, Shield, CheckCircle2,
-  ExternalLink, RefreshCw, AlertTriangle,
+  RefreshCw, AlertTriangle,
   Lock, Globe, Zap, AlertCircle
 } from 'lucide-react'
 import styles from './IntegrationsPage.module.css'
@@ -25,7 +25,7 @@ interface IntegrationConfig {
   id: string
   name: string
   description: string
-  category: 'calendar' | 'email' | 'storage' | 'payment' | 'accounting' | 'esign' | 'communication'
+  category: 'calendar' | 'email' | 'storage' | 'accounting' | 'esign' | 'communication'
   icon: string
   provider?: string // Backend provider key
   features: string[]
@@ -89,24 +89,6 @@ const integrationConfigs: IntegrationConfig[] = [
     features: ['Secure storage', 'File sync', 'Team folders']
   },
   
-  // Payments - Coming Soon
-  { 
-    id: 'stripe', 
-    name: 'Stripe', 
-    description: 'Accept credit card payments online with secure payment processing.', 
-    category: 'payment', 
-    icon: '💳',
-    features: ['Credit cards', 'ACH transfers', 'Recurring billing']
-  },
-  { 
-    id: 'lawpay', 
-    name: 'LawPay', 
-    description: 'Legal-specific payment processing with trust account compliance.', 
-    category: 'payment', 
-    icon: '⚖️',
-    features: ['Trust accounting', 'IOLTA compliant', 'Payment plans']
-  },
-  
   // E-Signature - Coming Soon
   { 
     id: 'docusign', 
@@ -139,7 +121,6 @@ const integrationConfigs: IntegrationConfig[] = [
 const categoryLabels: Record<string, { label: string; icon: any }> = {
   calendar: { label: 'Calendar & Email', icon: Calendar },
   storage: { label: 'Cloud Storage', icon: Cloud },
-  payment: { label: 'Payments', icon: CreditCard },
   accounting: { label: 'Accounting', icon: Calculator },
   esign: { label: 'E-Signature', icon: FileSignature },
   communication: { label: 'Communication', icon: MessageSquare }

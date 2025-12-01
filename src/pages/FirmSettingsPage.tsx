@@ -5,7 +5,7 @@ import {
   Building2, CreditCard, Brain, Shield, Save, Users, Briefcase,
   DollarSign, Clock, Sparkles, CheckCircle2,
   AlertTriangle, Plus, Trash2, Edit2, UserPlus, X,
-  Mail, UserCog, UserMinus, Landmark, Eye, EyeOff, Wallet, TrendingUp, PiggyBank
+  Mail, UserCog, UserMinus, Landmark, Wallet, TrendingUp, PiggyBank
 } from 'lucide-react'
 import styles from './FirmSettingsPage.module.css'
 
@@ -137,23 +137,6 @@ export function FirmSettingsPage() {
     dataRetentionDays: 365
   })
 
-  const [bankSettings, setBankSettings] = useState({
-    bankName: '',
-    accountName: '',
-    accountNumber: '',
-    routingNumber: '',
-    accountType: 'checking' as 'checking' | 'savings',
-    isVerified: false,
-    // Trust Account (IOLTA)
-    trustBankName: '',
-    trustAccountName: '',
-    trustAccountNumber: '',
-    trustRoutingNumber: ''
-  })
-
-  const [showAccountNumber, setShowAccountNumber] = useState(false)
-  const [showRoutingNumber, setShowRoutingNumber] = useState(false)
-
   const [newPracticeArea, setNewPracticeArea] = useState('')
   const [newActivityCode, setNewActivityCode] = useState({ code: '', description: '', billable: true })
 
@@ -203,7 +186,6 @@ export function FirmSettingsPage() {
     { id: 'general', label: 'Firm Info', icon: Building2 },
     { id: 'users', label: 'Users & Teams', icon: Users },
     { id: 'billing', label: 'Billing & Rates', icon: DollarSign },
-    { id: 'banking', label: 'Bank Accounts', icon: Landmark },
     { id: 'practice', label: 'Practice Areas', icon: Briefcase },
     { id: 'activities', label: 'Activity Codes', icon: Clock },
     { id: 'ai', label: 'AI Configuration', icon: Brain },
@@ -726,162 +708,6 @@ export function FirmSettingsPage() {
                     value={billingSettings.retainerMinimum}
                     onChange={e => setBillingSettings({...billingSettings, retainerMinimum: parseInt(e.target.value)})}
                   />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Banking Tab */}
-          {activeTab === 'banking' && (
-            <div className={styles.tabContent}>
-              <div className={styles.section}>
-                <div className={styles.sectionHeader}>
-                  <Landmark size={20} />
-                  <div>
-                    <h2>Operating Account</h2>
-                    <p>Primary bank account for receiving payments and deposits</p>
-                  </div>
-                </div>
-
-                <div className={styles.bankingNotice}>
-                  <Shield size={18} />
-                  <p>Bank account information is encrypted and securely stored. Only firm owners can view or modify these settings.</p>
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label>Bank Name</label>
-                  <input
-                    type="text"
-                    value={bankSettings.bankName}
-                    onChange={e => setBankSettings({...bankSettings, bankName: e.target.value})}
-                    placeholder="e.g., Chase, Bank of America"
-                  />
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label>Account Name</label>
-                  <input
-                    type="text"
-                    value={bankSettings.accountName}
-                    onChange={e => setBankSettings({...bankSettings, accountName: e.target.value})}
-                    placeholder="Your Firm LLP Operating Account"
-                  />
-                </div>
-
-                <div className={styles.formGrid}>
-                  <div className={styles.formGroup}>
-                    <label>Account Type</label>
-                    <select
-                      value={bankSettings.accountType}
-                      onChange={e => setBankSettings({...bankSettings, accountType: e.target.value as 'checking' | 'savings'})}
-                    >
-                      <option value="checking">Checking</option>
-                      <option value="savings">Savings</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className={styles.formGrid}>
-                  <div className={styles.formGroup}>
-                    <label>Account Number</label>
-                    <div className={styles.inputWithIcon}>
-                      <input
-                        type={showAccountNumber ? 'text' : 'password'}
-                        value={bankSettings.accountNumber}
-                        onChange={e => setBankSettings({...bankSettings, accountNumber: e.target.value})}
-                        placeholder="••••••••••"
-                      />
-                      <button
-                        type="button"
-                        className={styles.eyeBtn}
-                        onClick={() => setShowAccountNumber(!showAccountNumber)}
-                      >
-                        {showAccountNumber ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label>Routing Number</label>
-                    <div className={styles.inputWithIcon}>
-                      <input
-                        type={showRoutingNumber ? 'text' : 'password'}
-                        value={bankSettings.routingNumber}
-                        onChange={e => setBankSettings({...bankSettings, routingNumber: e.target.value})}
-                        placeholder="•••••••••"
-                      />
-                      <button
-                        type="button"
-                        className={styles.eyeBtn}
-                        onClick={() => setShowRoutingNumber(!showRoutingNumber)}
-                      >
-                        {showRoutingNumber ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className={styles.verifySection}>
-                  <button className={styles.verifyBtn}>
-                    Verify Account
-                  </button>
-                  <span className={styles.verifyStatus}>
-                    {bankSettings.isVerified ? (
-                      <><CheckCircle2 size={14} /> Verified</>
-                    ) : (
-                      'Not verified'
-                    )}
-                  </span>
-                </div>
-              </div>
-
-              <div className={styles.section}>
-                <div className={styles.sectionHeader}>
-                  <CreditCard size={20} />
-                  <div>
-                    <h2>Trust Account (IOLTA)</h2>
-                    <p>Client trust account for holding retainers and client funds</p>
-                  </div>
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label>Bank Name</label>
-                  <input
-                    type="text"
-                    value={bankSettings.trustBankName}
-                    onChange={e => setBankSettings({...bankSettings, trustBankName: e.target.value})}
-                    placeholder="e.g., Chase, Bank of America"
-                  />
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label>Account Name</label>
-                  <input
-                    type="text"
-                    value={bankSettings.trustAccountName}
-                    onChange={e => setBankSettings({...bankSettings, trustAccountName: e.target.value})}
-                    placeholder="Your Firm LLP IOLTA Trust Account"
-                  />
-                </div>
-
-                <div className={styles.formGrid}>
-                  <div className={styles.formGroup}>
-                    <label>Account Number</label>
-                    <input
-                      type="password"
-                      value={bankSettings.trustAccountNumber}
-                      onChange={e => setBankSettings({...bankSettings, trustAccountNumber: e.target.value})}
-                      placeholder="••••••••••"
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label>Routing Number</label>
-                    <input
-                      type="password"
-                      value={bankSettings.trustRoutingNumber}
-                      onChange={e => setBankSettings({...bankSettings, trustRoutingNumber: e.target.value})}
-                      placeholder="•••••••••"
-                    />
-                  </div>
                 </div>
               </div>
             </div>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FileText, Plus, Search, Edit2, Trash2, Copy, Play, Download, Upload, FolderOpen, Tag, X, Code, Eye, Sparkles } from 'lucide-react'
+import { FileText, Search, Play, Download, X, Sparkles } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './DocumentAutomationPage.module.css'
 
@@ -33,21 +33,12 @@ const demoTemplates: DocumentTemplate[] = [
   { id: '6', name: 'Settlement Agreement', description: 'Comprehensive settlement agreement template', category: 'Agreements', documentType: 'docx', variables: [{ key: 'party_a', label: 'Party A', type: 'text', required: true }, { key: 'party_b', label: 'Party B', type: 'text', required: true }, { key: 'settlement_amount', label: 'Settlement Amount', type: 'number', required: true }], lastUsed: '2024-11-10', usageCount: 23, createdAt: '2024-01-25' },
 ]
 
-const mergeFields = [
-  { category: 'Client', fields: ['{{client.name}}', '{{client.address}}', '{{client.email}}', '{{client.phone}}'] },
-  { category: 'Matter', fields: ['{{matter.name}}', '{{matter.number}}', '{{matter.type}}', '{{matter.open_date}}'] },
-  { category: 'Firm', fields: ['{{firm.name}}', '{{firm.address}}', '{{firm.phone}}', '{{firm.email}}'] },
-  { category: 'User', fields: ['{{user.name}}', '{{user.title}}', '{{user.email}}', '{{user.bar_number}}'] },
-  { category: 'Date', fields: ['{{today}}', '{{today_long}}', '{{current_year}}'] },
-]
-
 const categories = ['All', 'Engagement', 'Correspondence', 'Pleadings', 'Discovery', 'Agreements', 'Corporate']
 
 export function DocumentAutomationPage() {
   const [templates] = useState(demoTemplates)
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('All')
-  const [showMergeFields, setShowMergeFields] = useState(false)
   const [showGenerateModal, setShowGenerateModal] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState<DocumentTemplate | null>(null)
 
@@ -68,8 +59,7 @@ export function DocumentAutomationPage() {
           </div>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.secondaryBtn} onClick={() => setShowMergeFields(true)}><Code size={18} /> Merge Fields</button>
-          <button className={styles.primaryBtn}><Plus size={18} /> New Template</button>
+          {/* Template creation coming soon */}
         </div>
       </div>
 
@@ -100,36 +90,10 @@ export function DocumentAutomationPage() {
             </div>
             <div className={styles.templateActions}>
               <button className={styles.generateBtn} onClick={() => { setSelectedTemplate(template); setShowGenerateModal(true); }}><Play size={16} /> Generate</button>
-              <button className={styles.iconBtn}><Eye size={16} /></button>
-              <button className={styles.iconBtn}><Edit2 size={16} /></button>
-              <button className={styles.iconBtn}><Copy size={16} /></button>
             </div>
           </div>
         ))}
       </div>
-
-      {showMergeFields && (
-        <div className={styles.modalOverlay} onClick={() => setShowMergeFields(false)}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h2>Available Merge Fields</h2>
-              <button onClick={() => setShowMergeFields(false)} className={styles.closeBtn}><X size={20} /></button>
-            </div>
-            <div className={styles.mergeFieldsList}>
-              {mergeFields.map(group => (
-                <div key={group.category} className={styles.mergeGroup}>
-                  <h4>{group.category}</h4>
-                  <div className={styles.mergeFieldsGrid}>
-                    {group.fields.map(field => (
-                      <code key={field} className={styles.mergeField}>{field}</code>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {showGenerateModal && selectedTemplate && (
         <div className={styles.modalOverlay} onClick={() => setShowGenerateModal(false)}>
@@ -138,7 +102,7 @@ export function DocumentAutomationPage() {
               <h2>Generate: {selectedTemplate.name}</h2>
               <button onClick={() => setShowGenerateModal(false)} className={styles.closeBtn}><X size={20} /></button>
             </div>
-            <form className={styles.modalForm}>
+            <form className={styles.modalForm} onSubmit={(e) => { e.preventDefault(); setShowGenerateModal(false); }}>
               {selectedTemplate.variables.map(v => (
                 <div key={v.key} className={styles.formGroup}>
                   <label>{v.label} {v.required && '*'}</label>
