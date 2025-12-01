@@ -464,3 +464,289 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* Unbilled Card */
+.unbilledCard {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.05) 100%);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.unbilledCard svg {
+  color: var(--apex-warning);
+}
+
+/* Bill Bar */
+.billBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-lg);
+  animation: fadeIn 0.2s ease;
+}
+
+.billBarInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  color: var(--apex-success);
+}
+
+.billBarAmount {
+  font-weight: 600;
+  font-size: 1.125rem;
+  color: var(--apex-white);
+}
+
+.billBarActions {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.clearSelectionBtn {
+  padding: var(--space-sm) var(--space-md);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.clearSelectionBtn:hover {
+  border-color: var(--apex-text);
+  color: var(--apex-white);
+}
+
+.billSelectedBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.billSelectedBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+/* Recent Section Header */
+.recentHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.recentHeader h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin: 0;
+}
+
+.selectAllBtn {
+  padding: var(--space-xs) var(--space-md);
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--apex-gold-bright);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.selectAllBtn:hover {
+  background: rgba(245, 158, 11, 0.2);
+}
+
+/* Entry Checkbox */
+.entryCheckbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--apex-gold);
+}
+
+/* Selected Row */
+.selectedRow {
+  background: rgba(16, 185, 129, 0.05) !important;
+}
+
+.selectedRow td {
+  border-color: rgba(16, 185, 129, 0.2) !important;
+}
+
+/* Bill Modal */
+.billModal {
+  width: 100%;
+  max-width: 560px;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.billModalBody {
+  padding: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+/* Bill Summary */
+.billSummary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-md);
+}
+
+.billSummaryItem {
+  text-align: center;
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+}
+
+.billSummaryItem span {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--apex-gold-bright);
+  margin-bottom: var(--space-xs);
+}
+
+.billSummaryItem label {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  text-transform: uppercase;
+}
+
+/* Grouping Option */
+.groupingOption {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.groupingOption > label {
+  font-size: 0.875rem;
+  color: var(--apex-text);
+}
+
+.groupingBtns {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.groupBtn {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.groupBtn:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--apex-light);
+}
+
+.groupBtn.active {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: var(--apex-gold);
+  color: var(--apex-gold-bright);
+}
+
+/* Invoice Preview */
+.invoicePreview {
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+}
+
+.invoicePreview h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: var(--space-md);
+}
+
+.previewList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.previewItem {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-muted);
+  border-radius: var(--radius-sm);
+}
+
+.previewHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.previewHeader strong {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--apex-white);
+}
+
+.previewMatter {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
+.previewAmount {
+  font-weight: 600;
+  color: var(--apex-gold-bright);
+}
+
+.previewDetails {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  margin-top: var(--space-xs);
+}
+
+/* Bill Info */
+.billInfo {
+  padding: var(--space-md);
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.billInfo p {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--apex-light);
+  line-height: 1.5;
+}
+
+.billInfo strong {
+  color: var(--apex-white);
+}

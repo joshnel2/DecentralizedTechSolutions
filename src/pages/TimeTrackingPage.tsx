@@ -1,27 +1,31 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Plus, Play, Pause, Clock, Calendar, DollarSign, 
-  TrendingUp, Sparkles
+  TrendingUp, Sparkles, CheckSquare, FileText, X
 } from 'lucide-react'
-import { format, parseISO, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay } from 'date-fns'
+import { format, parseISO, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addDays } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './TimeTrackingPage.module.css'
 
 export function TimeTrackingPage() {
-  const { timeEntries, matters, addTimeEntry, fetchTimeEntries, fetchMatters } = useDataStore()
+  const { timeEntries, matters, clients, addTimeEntry, updateTimeEntry, addInvoice, fetchTimeEntries, fetchMatters, fetchClients, fetchInvoices } = useDataStore()
   const { openChat } = useAIChat()
+  const navigate = useNavigate()
   
   // Fetch data from API on mount
   useEffect(() => {
     fetchTimeEntries()
     fetchMatters()
-  }, [fetchTimeEntries, fetchMatters])
+    fetchClients()
+  }, [fetchTimeEntries, fetchMatters, fetchClients])
   const { user } = useAuthStore()
   const [showNewModal, setShowNewModal] = useState(false)
+  const [showBillModal, setShowBillModal] = useState(false)
+  const [selectedEntries, setSelectedEntries] = useState<string[]>([])
   const [activeTimer, setActiveTimer] = useState<{ matterId: string; startTime: Date } | null>(null)
   const [timerElapsed, setTimerElapsed] = useState(0)
 
@@ -59,13 +63,49 @@ export function TimeTrackingPage() {
   const recentEntries = useMemo(() => {
     return [...timeEntries]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 10)
+      .slice(0, 20) // Show more entries
   }, [timeEntries])
+
+  const unbilledEntries = useMemo(() => {
+    return timeEntries.filter(e => !e.billed && e.billable)
+  }, [timeEntries])
+
+  const unbilledTotal = useMemo(() => {
+    return unbilledEntries.reduce((sum, e) => sum + e.amount, 0)
+  }, [unbilledEntries])
+
+  const selectedTotal = useMemo(() => {
+    return timeEntries
+      .filter(e => selectedEntries.includes(e.id))
+      .reduce((sum, e) => sum + e.amount, 0)
+  }, [timeEntries, selectedEntries])
 
   const getMatterName = (matterId: string) => 
     matters.find(m => m.id === matterId)?.name || 'Unknown'
   const getMatterNumber = (matterId: string) => 
     matters.find(m => m.id === matterId)?.number || ''
+  const getClientForMatter = (matterId: string) => {
+    const matter = matters.find(m => m.id === matterId)
+    return matter ? clients.find(c => c.id === matter.clientId) : null
+  }
+
+  const toggleEntrySelection = (entryId: string) => {
+    setSelectedEntries(prev => 
+      prev.includes(entryId) 
+        ? prev.filter(id => id !== entryId)
+        : [...prev, entryId]
+    )
+  }
+
+  const toggleAllUnbilled = () => {
+    const unbilledIds = unbilledEntries.map(e => e.id)
+    const allSelected = unbilledIds.every(id => selectedEntries.includes(id))
+    if (allSelected) {
+      setSelectedEntries([])
+    } else {
+      setSelectedEntries(unbilledIds)
+    }
+  }
 
   const startTimer = (matterId: string) => {
     setActiveTimer({ matterId, startTime: new Date() })
@@ -144,7 +184,40 @@ export function TimeTrackingPage() {
             <span className={styles.statLabel}>Value</span>
           </div>
         </div>
+        <div className={clsx(styles.statCard, styles.unbilledCard)}>
+          <FileText size={20} />
+          <div>
+            <span className={styles.statValue}>${unbilledTotal.toLocaleString()}</span>
+            <span className={styles.statLabel}>Unbilled</span>
+          </div>
+        </div>
       </div>
+
+      {/* Bill Selected Bar */}
+      {selectedEntries.length > 0 && (
+        <div className={styles.billBar}>
+          <div className={styles.billBarInfo}>
+            <CheckSquare size={18} />
+            <span>{selectedEntries.length} entries selected</span>
+            <span className={styles.billBarAmount}>${selectedTotal.toLocaleString()}</span>
+          </div>
+          <div className={styles.billBarActions}>
+            <button 
+              className={styles.clearSelectionBtn}
+              onClick={() => setSelectedEntries([])}
+            >
+              Clear Selection
+            </button>
+            <button 
+              className={styles.billSelectedBtn}
+              onClick={() => setShowBillModal(true)}
+            >
+              <FileText size={16} />
+              Create Invoice
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Weekly Chart */}
       <div className={styles.weeklyChart}>
@@ -205,11 +278,24 @@ export function TimeTrackingPage() {
 
       {/* Recent Entries */}
       <div className={styles.recentSection}>
-        <h3>Recent Time Entries</h3>
+        <div className={styles.recentHeader}>
+          <h3>Recent Time Entries</h3>
+          {unbilledEntries.length > 0 && (
+            <button 
+              className={styles.selectAllBtn}
+              onClick={toggleAllUnbilled}
+            >
+              {unbilledEntries.every(e => selectedEntries.includes(e.id)) 
+                ? 'Deselect All Unbilled' 
+                : `Select All Unbilled (${unbilledEntries.length})`}
+            </button>
+          )}
+        </div>
         <div className={styles.entriesTable}>
           <table>
             <thead>
               <tr>
+                <th style={{ width: '40px' }}></th>
                 <th>Date</th>
                 <th>Matter</th>
                 <th>Description</th>
@@ -220,9 +306,24 @@ export function TimeTrackingPage() {
             </thead>
             <tbody>
               {recentEntries.map(entry => (
-                <tr key={entry.id}>
+                <tr 
+                  key={entry.id} 
+                  className={clsx(
+                    selectedEntries.includes(entry.id) && styles.selectedRow
+                  )}
+                >
+                  <td>
+                    {!entry.billed && entry.billable && (
+                      <input
+                        type="checkbox"
+                        checked={selectedEntries.includes(entry.id)}
+                        onChange={() => toggleEntrySelection(entry.id)}
+                        className={styles.entryCheckbox}
+                      />
+                    )}
+                  </td>
                   <td>{format(parseISO(entry.date), 'MMM d, yyyy')}</td>
-                    <td>
+                  <td>
                     <Link to={`/app/matters/${entry.matterId}`}>
                       <div className={styles.matterCell}>
                         <span>{getMatterName(entry.matterId)}</span>
@@ -267,6 +368,40 @@ export function TimeTrackingPage() {
           }}
           matters={matters}
           userId={user?.id || ''}
+        />
+      )}
+
+      {showBillModal && (
+        <BillTimeModal 
+          onClose={() => setShowBillModal(false)}
+          selectedEntries={timeEntries.filter(e => selectedEntries.includes(e.id))}
+          matters={matters}
+          clients={clients}
+          onCreateInvoice={async (invoiceData) => {
+            try {
+              // Create the invoice
+              await addInvoice(invoiceData)
+              
+              // Mark selected time entries as billed
+              for (const entryId of selectedEntries) {
+                await updateTimeEntry(entryId, { billed: true })
+              }
+              
+              // Refresh data
+              await fetchTimeEntries()
+              await fetchInvoices()
+              
+              // Clear selection and close modal
+              setSelectedEntries([])
+              setShowBillModal(false)
+              
+              // Navigate to billing page
+              navigate('/app/billing')
+            } catch (error) {
+              console.error('Failed to create invoice:', error)
+              alert('Failed to create invoice. Please try again.')
+            }
+          }}
         />
       )}
     </div>
@@ -426,6 +561,257 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+// Bill Time Modal - Creates invoices from selected time entries
+function BillTimeModal({ 
+  onClose, 
+  selectedEntries, 
+  matters, 
+  clients,
+  onCreateInvoice 
+}: { 
+  onClose: () => void
+  selectedEntries: any[]
+  matters: any[]
+  clients: any[]
+  onCreateInvoice: (data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [groupBy, setGroupBy] = useState<'matter' | 'client'>('matter')
+
+  // Group entries by matter
+  const entriesByMatter = useMemo(() => {
+    const groups: Record<string, { matter: any, client: any, entries: any[], total: number, hours: number }> = {}
+    
+    selectedEntries.forEach(entry => {
+      const matter = matters.find(m => m.id === entry.matterId)
+      const client = matter ? clients.find(c => c.id === matter.clientId) : null
+      
+      if (!groups[entry.matterId]) {
+        groups[entry.matterId] = {
+          matter,
+          client,
+          entries: [],
+          total: 0,
+          hours: 0
+        }
+      }
+      groups[entry.matterId].entries.push(entry)
+      groups[entry.matterId].total += entry.amount
+      groups[entry.matterId].hours += entry.hours
+    })
+    
+    return Object.values(groups)
+  }, [selectedEntries, matters, clients])
+
+  // Group entries by client
+  const entriesByClient = useMemo(() => {
+    const groups: Record<string, { client: any, matters: any[], entries: any[], total: number, hours: number }> = {}
+    
+    selectedEntries.forEach(entry => {
+      const matter = matters.find(m => m.id === entry.matterId)
+      const client = matter ? clients.find(c => c.id === matter.clientId) : null
+      const clientId = client?.id || 'unknown'
+      
+      if (!groups[clientId]) {
+        groups[clientId] = {
+          client,
+          matters: [],
+          entries: [],
+          total: 0,
+          hours: 0
+        }
+      }
+      if (matter && !groups[clientId].matters.find(m => m.id === matter.id)) {
+        groups[clientId].matters.push(matter)
+      }
+      groups[clientId].entries.push(entry)
+      groups[clientId].total += entry.amount
+      groups[clientId].hours += entry.hours
+    })
+    
+    return Object.values(groups)
+  }, [selectedEntries, matters, clients])
+
+  const totalAmount = selectedEntries.reduce((sum, e) => sum + e.amount, 0)
+  const totalHours = selectedEntries.reduce((sum, e) => sum + e.hours, 0)
+
+  const handleCreateInvoices = async () => {
+    setIsSubmitting(true)
+    try {
+      if (groupBy === 'matter') {
+        // Create one invoice per matter
+        for (const group of entriesByMatter) {
+          if (!group.matter || !group.client) continue
+          
+          const lineItems = group.entries.map(entry => ({
+            description: entry.description,
+            quantity: entry.hours,
+            rate: entry.rate,
+            amount: entry.amount
+          }))
+          
+          await onCreateInvoice({
+            clientId: group.client.id,
+            matterId: group.matter.id,
+            issueDate: new Date().toISOString(),
+            dueDate: addDays(new Date(), 30).toISOString(),
+            status: 'draft',
+            subtotal: group.total,
+            total: group.total,
+            amountPaid: 0,
+            lineItems,
+            timeEntryIds: group.entries.map(e => e.id)
+          })
+        }
+      } else {
+        // Create one invoice per client (combining all matters)
+        for (const group of entriesByClient) {
+          if (!group.client) continue
+          
+          const lineItems = group.entries.map(entry => {
+            const matter = matters.find(m => m.id === entry.matterId)
+            return {
+              description: `${matter?.name || 'Legal Services'}: ${entry.description}`,
+              quantity: entry.hours,
+              rate: entry.rate,
+              amount: entry.amount
+            }
+          })
+          
+          // Use first matter for the invoice (or could leave null)
+          const primaryMatter = group.matters[0]
+          
+          await onCreateInvoice({
+            clientId: group.client.id,
+            matterId: primaryMatter?.id,
+            issueDate: new Date().toISOString(),
+            dueDate: addDays(new Date(), 30).toISOString(),
+            status: 'draft',
+            subtotal: group.total,
+            total: group.total,
+            amountPaid: 0,
+            lineItems,
+            timeEntryIds: group.entries.map(e => e.id)
+          })
+        }
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.billModal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>Create Invoice from Time Entries</h2>
+          <button onClick={onClose} className={styles.closeBtn}><X size={20} /></button>
+        </div>
+        
+        <div className={styles.billModalBody}>
+          {/* Summary */}
+          <div className={styles.billSummary}>
+            <div className={styles.billSummaryItem}>
+              <span>{selectedEntries.length}</span>
+              <label>Time Entries</label>
+            </div>
+            <div className={styles.billSummaryItem}>
+              <span>{totalHours.toFixed(1)}h</span>
+              <label>Total Hours</label>
+            </div>
+            <div className={styles.billSummaryItem}>
+              <span>${totalAmount.toLocaleString()}</span>
+              <label>Total Amount</label>
+            </div>
+          </div>
+
+          {/* Grouping Option */}
+          <div className={styles.groupingOption}>
+            <label>Create invoices grouped by:</label>
+            <div className={styles.groupingBtns}>
+              <button 
+                className={clsx(styles.groupBtn, groupBy === 'matter' && styles.active)}
+                onClick={() => setGroupBy('matter')}
+              >
+                Matter ({entriesByMatter.length} invoice{entriesByMatter.length !== 1 ? 's' : ''})
+              </button>
+              <button 
+                className={clsx(styles.groupBtn, groupBy === 'client' && styles.active)}
+                onClick={() => setGroupBy('client')}
+              >
+                Client ({entriesByClient.length} invoice{entriesByClient.length !== 1 ? 's' : ''})
+              </button>
+            </div>
+          </div>
+
+          {/* Preview */}
+          <div className={styles.invoicePreview}>
+            <h4>Invoice Preview</h4>
+            {groupBy === 'matter' ? (
+              <div className={styles.previewList}>
+                {entriesByMatter.map((group, i) => (
+                  <div key={i} className={styles.previewItem}>
+                    <div className={styles.previewHeader}>
+                      <div>
+                        <strong>{group.client?.name || 'Unknown Client'}</strong>
+                        <span className={styles.previewMatter}>{group.matter?.name || 'Unknown Matter'}</span>
+                      </div>
+                      <span className={styles.previewAmount}>${group.total.toLocaleString()}</span>
+                    </div>
+                    <div className={styles.previewDetails}>
+                      {group.entries.length} entries • {group.hours.toFixed(1)} hours
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.previewList}>
+                {entriesByClient.map((group, i) => (
+                  <div key={i} className={styles.previewItem}>
+                    <div className={styles.previewHeader}>
+                      <div>
+                        <strong>{group.client?.name || 'Unknown Client'}</strong>
+                        <span className={styles.previewMatter}>
+                          {group.matters.length} matter{group.matters.length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <span className={styles.previewAmount}>${group.total.toLocaleString()}</span>
+                    </div>
+                    <div className={styles.previewDetails}>
+                      {group.entries.length} entries • {group.hours.toFixed(1)} hours
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Info */}
+          <div className={styles.billInfo}>
+            <p>
+              Invoices will be created as <strong>Draft</strong> and you can review them before sending.
+              Time entries will be marked as <strong>Billed</strong> after invoice creation.
+            </p>
+          </div>
+        </div>
+
+        <div className={styles.modalActions}>
+          <button onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+            Cancel
+          </button>
+          <button 
+            onClick={handleCreateInvoices} 
+            className={styles.saveBtn}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? 'Creating...' : `Create ${groupBy === 'matter' ? entriesByMatter.length : entriesByClient.length} Invoice${(groupBy === 'matter' ? entriesByMatter.length : entriesByClient.length) !== 1 ? 's' : ''}`}
+          </button>
+        </div>
       </div>
     </div>
   )

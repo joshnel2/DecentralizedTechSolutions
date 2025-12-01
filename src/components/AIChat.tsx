@@ -48,11 +48,12 @@ function getContextFromPath(pathname: string): Record<string, any> {
 
 export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps) {
   const location = useLocation()
-  const { initialMessage, clearInitialMessage } = useAIChat()
+  const { initialMessage, clearInitialMessage, refreshSuggestions } = useAIChat()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -79,14 +80,16 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
     }
   }, [isOpen])
 
-  // Load suggestions when page changes
+  // Load suggestions when page changes or when AI Insights button is clicked
   useEffect(() => {
     if (isOpen) {
       aiApi.getSuggestions(currentPage)
         .then(data => setSuggestions(data.suggestions || []))
         .catch(() => setSuggestions([]))
+      // Show suggestions whenever opened via AI Insights button
+      setShowSuggestions(true)
     }
-  }, [currentPage, isOpen])
+  }, [currentPage, isOpen, refreshSuggestions])
 
   const sendMessage = async (messageText?: string) => {
     const text = messageText || input.trim()
@@ -240,6 +243,32 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
                       <Loader2 size={16} className={styles.spinner} />
                       <span>Thinking...</span>
                     </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Always show suggestions even with existing messages */}
+              {showSuggestions && suggestions.length > 0 && !isLoading && (
+                <div className={styles.inlineSuggestions}>
+                  <div className={styles.suggestionsHeader}>
+                    <span className={styles.suggestionsLabel}>Quick questions:</span>
+                    <button 
+                      className={styles.hideSuggestionsBtn}
+                      onClick={() => setShowSuggestions(false)}
+                    >
+                      Hide
+                    </button>
+                  </div>
+                  <div className={styles.suggestionPills}>
+                    {suggestions.slice(0, 3).map((suggestion, i) => (
+                      <button
+                        key={i}
+                        className={styles.suggestionPill}
+                        onClick={() => sendMessage(suggestion)}
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}

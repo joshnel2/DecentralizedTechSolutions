@@ -396,6 +396,63 @@
   background: rgba(255, 255, 255, 0.2);
 }
 
+/* Inline Suggestions (shown with messages) */
+.inlineSuggestions {
+  padding: 12px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 12px;
+  margin-top: 8px;
+}
+
+.suggestionsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.hideSuggestionsBtn {
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  color: #64748B;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.hideSuggestionsBtn:hover {
+  color: #F59E0B;
+}
+
+.suggestionPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.suggestionPill {
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  color: #E2E8F0;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.suggestionPill:hover {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #F59E0B;
+}
+
 /* Mobile responsive */
 @media (max-width: 480px) {
   .panel {
