@@ -14,13 +14,15 @@ import { clsx } from 'clsx'
 import { AIButton } from '../components/AIButton'
 import styles from './DetailPage.module.css'
 
-// Demo tasks for matter
-const demoTasks = [
-  { id: '1', name: 'Review discovery responses', status: 'completed', dueDate: '2024-11-20', assignee: 'John Mitchell' },
-  { id: '2', name: 'Draft motion for summary judgment', status: 'in_progress', dueDate: '2024-11-28', assignee: 'John Mitchell' },
-  { id: '3', name: 'Schedule expert deposition', status: 'pending', dueDate: '2024-12-05', assignee: 'Sarah Chen' },
-  { id: '4', name: 'Prepare trial exhibits', status: 'pending', dueDate: '2024-12-15', assignee: 'Emily Davis' }
-]
+// Task interface
+interface Task {
+  id: string
+  name: string
+  status: 'pending' | 'in_progress' | 'completed'
+  dueDate: string
+  assignee: string
+  description?: string
+}
 
 // Related contacts for matter
 const relatedContacts = [
@@ -46,8 +48,37 @@ export function MatterDetailPage() {
   const [showInvoiceModal, setShowInvoiceModal] = useState(false)
   const [showTimeEntryModal, setShowTimeEntryModal] = useState(false)
   const [showEventModal, setShowEventModal] = useState(false)
+  const [showTaskModal, setShowTaskModal] = useState(false)
+  const [showDocPreview, setShowDocPreview] = useState<any>(null)
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  
+  // Task state - persisted in localStorage for demo
+  const [tasks, setTasks] = useState<Task[]>(() => {
+    const saved = localStorage.getItem(`matter-tasks-${id}`)
+    if (saved) return JSON.parse(saved)
+    return []
+  })
+  
+  // Save tasks to localStorage when they change
+  useEffect(() => {
+    localStorage.setItem(`matter-tasks-${id}`, JSON.stringify(tasks))
+  }, [tasks, id])
+  
+  const addTask = (task: Omit<Task, 'id'>) => {
+    const newTask = { ...task, id: crypto.randomUUID() }
+    setTasks(prev => [...prev, newTask])
+  }
+  
+  const toggleTaskStatus = (taskId: string) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id === taskId) {
+        const newStatus = t.status === 'completed' ? 'pending' : 'completed'
+        return { ...t, status: newStatus }
+      }
+      return t
+    }))
+  }
 
   // Fetch data on mount
   useEffect(() => {
@@ -300,8 +331,6 @@ Only analyze documents actually associated with this matter.`
             className={clsx(styles.tab, activeTab === tab && styles.active)}
             onClick={() => setActiveTab(tab)}
           >
-            {tab === 'tasks' && <ListTodo size={16} />}
-            {tab === 'contacts' && <Users size={16} />}
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
@@ -586,48 +615,72 @@ Only analyze documents actually associated with this matter.`
                 </button>
               </div>
             </div>
-            <div className={styles.tableCard}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Description</th>
-                    <th>Hours</th>
-                    <th>Rate</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                    <th>AI</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {matterTimeEntries.map(entry => (
-                    <tr key={entry.id}>
-                      <td>{format(parseISO(entry.date), 'MMM d, yyyy')}</td>
-                      <td>{entry.description}</td>
-                      <td>{entry.hours}h</td>
-                      <td>${entry.rate}/hr</td>
-                      <td>${entry.amount.toLocaleString()}</td>
-                      <td>
-                        <span className={clsx(styles.badge, entry.billed ? styles.billed : styles.unbilled)}>
-                          {entry.billed ? 'Billed' : 'Unbilled'}
-                        </span>
-                      </td>
-                      <td>
-                        <AIButton 
-                          context={entry.description}
-                          variant="icon"
-                          size="sm"
-                          prompts={[
-                            { label: 'Enhance', prompt: 'Enhance description' },
-                            { label: 'Categorize', prompt: 'Suggest category' }
-                          ]}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+
+            {/* Time Stats */}
+            <div className={styles.timeStats}>
+              <div className={styles.timeStat}>
+                <Clock size={20} />
+                <div>
+                  <span className={styles.timeStatValue}>{stats.totalHours.toFixed(1)}h</span>
+                  <span className={styles.timeStatLabel}>Total Hours</span>
+                </div>
+              </div>
+              <div className={styles.timeStat}>
+                <DollarSign size={20} />
+                <div>
+                  <span className={styles.timeStatValue}>${stats.totalUnbilled.toLocaleString()}</span>
+                  <span className={styles.timeStatLabel}>Unbilled</span>
+                </div>
+              </div>
+              <div className={styles.timeStat}>
+                <CheckCircle2 size={20} />
+                <div>
+                  <span className={styles.timeStatValue}>${stats.totalBilled.toLocaleString()}</span>
+                  <span className={styles.timeStatLabel}>Billed</span>
+                </div>
+              </div>
             </div>
+
+            {matterTimeEntries.length === 0 ? (
+              <div className={styles.emptyTime}>
+                <Clock size={48} />
+                <p>No time entries yet</p>
+                <button 
+                  className={styles.primaryBtn} 
+                  onClick={() => setShowTimeEntryModal(true)}
+                >
+                  <Plus size={18} />
+                  Log First Time Entry
+                </button>
+              </div>
+            ) : (
+              <div className={styles.timeEntryCards}>
+                {matterTimeEntries.map(entry => (
+                  <div key={entry.id} className={styles.timeEntryCard}>
+                    <div className={styles.timeEntryDate}>
+                      <span className={styles.timeEntryDay}>
+                        {format(parseISO(entry.date), 'd')}
+                      </span>
+                      <span className={styles.timeEntryMonth}>
+                        {format(parseISO(entry.date), 'MMM')}
+                      </span>
+                    </div>
+                    <div className={styles.timeEntryContent}>
+                      <span className={styles.timeEntryDesc}>{entry.description}</span>
+                      <div className={styles.timeEntryMeta}>
+                        <span>{entry.hours}h @ ${entry.rate}/hr</span>
+                      </div>
+                    </div>
+                    <div className={styles.timeEntryRight}>
+                      <span className={styles.timeEntryAmount}>${entry.amount.toLocaleString()}</span>
+                      <span className={clsx(styles.badge, entry.billed ? styles.billed : styles.unbilled)}>
+                        {entry.billed ? 'Billed' : 'Unbilled'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -753,7 +806,11 @@ Only analyze documents actually associated with this matter.`
             </div>
             <div className={styles.docGrid}>
               {matterDocuments.map(doc => (
-                <div key={doc.id} className={styles.docCard}>
+                <div 
+                  key={doc.id} 
+                  className={styles.docCard}
+                  onClick={() => setShowDocPreview(doc)}
+                >
                   <div className={styles.docIcon}>
                     <FileText size={24} />
                   </div>
@@ -764,7 +821,19 @@ Only analyze documents actually associated with this matter.`
                       {(doc.size / 1024 / 1024).toFixed(2)} MB
                     </span>
                   </div>
-                  <div className={styles.docActions}>
+                  <div className={styles.docActions} onClick={e => e.stopPropagation()}>
+                    <button 
+                      className={styles.docDownloadBtn}
+                      onClick={() => {
+                        // Download document
+                        if (doc.storageUrl) {
+                          window.open(doc.storageUrl, '_blank')
+                        }
+                      }}
+                      title="Download"
+                    >
+                      <Download size={16} />
+                    </button>
                     <AIButton 
                       context={doc.name}
                       variant="icon"
@@ -789,6 +858,14 @@ Only analyze documents actually associated with this matter.`
                 <div className={styles.emptyDocs}>
                   <FileText size={48} />
                   <p>No documents uploaded</p>
+                  <button 
+                    className={styles.primaryBtn} 
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{ marginTop: '1rem' }}
+                  >
+                    <Upload size={18} />
+                    Upload First Document
+                  </button>
                 </div>
               )}
             </div>
@@ -873,7 +950,7 @@ Only analyze documents actually associated with this matter.`
                     { label: 'Workload', prompt: 'Analyze workload' }
                   ]}
                 />
-                <button className={styles.primaryBtn}>
+                <button className={styles.primaryBtn} onClick={() => setShowTaskModal(true)}>
                   <Plus size={18} />
                   Add Task
                 </button>
@@ -882,50 +959,67 @@ Only analyze documents actually associated with this matter.`
             
             <div className={styles.tasksSummary}>
               <div className={styles.taskStat}>
-                <span className={styles.taskStatValue}>{demoTasks.filter(t => t.status === 'completed').length}</span>
+                <span className={styles.taskStatValue}>{tasks.filter(t => t.status === 'completed').length}</span>
                 <span className={styles.taskStatLabel}>Completed</span>
               </div>
               <div className={styles.taskStat}>
-                <span className={styles.taskStatValue}>{demoTasks.filter(t => t.status === 'in_progress').length}</span>
+                <span className={styles.taskStatValue}>{tasks.filter(t => t.status === 'in_progress').length}</span>
                 <span className={styles.taskStatLabel}>In Progress</span>
               </div>
               <div className={styles.taskStat}>
-                <span className={styles.taskStatValue}>{demoTasks.filter(t => t.status === 'pending').length}</span>
+                <span className={styles.taskStatValue}>{tasks.filter(t => t.status === 'pending').length}</span>
                 <span className={styles.taskStatLabel}>Pending</span>
               </div>
             </div>
 
-            <div className={styles.tasksList}>
-              {demoTasks.map(task => (
-                <div key={task.id} className={clsx(styles.taskCard, styles[task.status])}>
-                  <div className={styles.taskCheckbox}>
-                    {task.status === 'completed' ? (
-                      <CheckCircle2 size={20} className={styles.taskCompleted} />
-                    ) : (
-                      <Circle size={20} />
-                    )}
-                  </div>
-                  <div className={styles.taskContent}>
-                    <span className={styles.taskName}>{task.name}</span>
-                    <div className={styles.taskMeta}>
-                      <span className={styles.taskAssignee}>
-                        <Users size={12} />
-                        {task.assignee}
-                      </span>
-                      <span className={styles.taskDue}>
-                        <Calendar size={12} />
-                        Due: {format(parseISO(task.dueDate), 'MMM d, yyyy')}
+            {tasks.length === 0 ? (
+              <div className={styles.emptyTasks}>
+                <ListTodo size={48} />
+                <p>No tasks yet</p>
+                <button className={styles.primaryBtn} onClick={() => setShowTaskModal(true)}>
+                  <Plus size={18} />
+                  Create First Task
+                </button>
+              </div>
+            ) : (
+              <div className={styles.tasksList}>
+                {tasks.map(task => (
+                  <div 
+                    key={task.id} 
+                    className={clsx(styles.taskCard, styles[task.status])}
+                  >
+                    <div 
+                      className={styles.taskCheckbox}
+                      onClick={() => toggleTaskStatus(task.id)}
+                    >
+                      {task.status === 'completed' ? (
+                        <CheckCircle2 size={20} className={styles.taskCompleted} />
+                      ) : (
+                        <Circle size={20} />
+                      )}
+                    </div>
+                    <div className={styles.taskContent}>
+                      <span className={styles.taskName}>{task.name}</span>
+                      <div className={styles.taskMeta}>
+                        <span className={styles.taskAssignee}>
+                          <Users size={12} />
+                          {task.assignee}
+                        </span>
+                        <span className={styles.taskDue}>
+                          <Calendar size={12} />
+                          Due: {format(parseISO(task.dueDate), 'MMM d, yyyy')}
+                        </span>
+                      </div>
+                    </div>
+                    <div className={styles.taskStatus}>
+                      <span className={clsx(styles.taskStatusBadge, styles[task.status])}>
+                        {task.status.replace('_', ' ')}
                       </span>
                     </div>
                   </div>
-                  <div className={styles.taskStatus}>
-                    <span className={clsx(styles.taskStatusBadge, styles[task.status])}>
-                      {task.status.replace('_', ' ')}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -1080,7 +1174,182 @@ Only analyze documents actually associated with this matter.`
           </div>
         </div>
       )}
+
+      {/* Task Modal */}
+      {showTaskModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowTaskModal(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Add Task</h2>
+              <button onClick={() => setShowTaskModal(false)} className={styles.closeBtn}>×</button>
+            </div>
+            <TaskForm 
+              matterName={matter?.name || ''}
+              onClose={() => setShowTaskModal(false)}
+              onSave={(data) => {
+                addTask(data)
+                setShowTaskModal(false)
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Document Preview Modal */}
+      {showDocPreview && (
+        <div className={styles.modalOverlay} onClick={() => setShowDocPreview(null)}>
+          <div className={styles.docPreviewModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>{showDocPreview.name}</h2>
+              <button onClick={() => setShowDocPreview(null)} className={styles.closeBtn}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className={styles.docPreviewContent}>
+              <div className={styles.docPreviewInfo}>
+                <div className={styles.docPreviewIcon}>
+                  <FileText size={48} />
+                </div>
+                <div className={styles.docPreviewMeta}>
+                  <h3>{showDocPreview.name}</h3>
+                  <p>Uploaded: {format(parseISO(showDocPreview.uploadedAt), 'MMMM d, yyyy h:mm a')}</p>
+                  <p>Size: {(showDocPreview.size / 1024 / 1024).toFixed(2)} MB</p>
+                  <p>Type: {showDocPreview.type || 'Document'}</p>
+                </div>
+              </div>
+              {showDocPreview.aiSummary && (
+                <div className={styles.docPreviewSummary}>
+                  <h4><Sparkles size={16} /> AI Summary</h4>
+                  <p>{showDocPreview.aiSummary}</p>
+                </div>
+              )}
+              <div className={styles.docPreviewActions}>
+                <button 
+                  className={styles.primaryBtn}
+                  onClick={() => {
+                    if (showDocPreview.storageUrl) {
+                      window.open(showDocPreview.storageUrl, '_blank')
+                    }
+                  }}
+                >
+                  <Download size={18} />
+                  Download
+                </button>
+                <AIButton 
+                  context={showDocPreview.name}
+                  label="Analyze with AI"
+                  prompts={[
+                    { label: 'Summarize', prompt: 'Summarize this document' },
+                    { label: 'Key Points', prompt: 'Extract key points from this document' },
+                    { label: 'Action Items', prompt: 'What action items are in this document?' }
+                  ]}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+// Task Form Component
+function TaskForm({ matterName, onClose, onSave }: {
+  matterName: string
+  onClose: () => void
+  onSave: (data: Omit<Task, 'id'>) => void
+}) {
+  const [formData, setFormData] = useState({
+    name: '',
+    status: 'pending' as 'pending' | 'in_progress' | 'completed',
+    dueDate: format(new Date(), 'yyyy-MM-dd'),
+    assignee: '',
+    description: ''
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formData.name.trim()) {
+      alert('Please enter a task name')
+      return
+    }
+    if (!formData.assignee.trim()) {
+      alert('Please enter an assignee')
+      return
+    }
+    onSave(formData)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className={styles.modalForm}>
+      <div className={styles.formInfo}>
+        <strong>Matter:</strong> {matterName}
+      </div>
+
+      <div className={styles.formGroup}>
+        <label>Task Name *</label>
+        <input
+          type="text"
+          value={formData.name}
+          onChange={(e) => setFormData({...formData, name: e.target.value})}
+          placeholder="Enter task name..."
+          required
+        />
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Due Date</label>
+          <input
+            type="date"
+            value={formData.dueDate}
+            onChange={(e) => setFormData({...formData, dueDate: e.target.value})}
+            required
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label>Status</label>
+          <select
+            value={formData.status}
+            onChange={(e) => setFormData({...formData, status: e.target.value as any})}
+          >
+            <option value="pending">Pending</option>
+            <option value="in_progress">In Progress</option>
+            <option value="completed">Completed</option>
+          </select>
+        </div>
+      </div>
+
+      <div className={styles.formGroup}>
+        <label>Assignee *</label>
+        <input
+          type="text"
+          value={formData.assignee}
+          onChange={(e) => setFormData({...formData, assignee: e.target.value})}
+          placeholder="Who is responsible for this task?"
+          required
+        />
+      </div>
+
+      <div className={styles.formGroup}>
+        <label>Description</label>
+        <textarea
+          value={formData.description}
+          onChange={(e) => setFormData({...formData, description: e.target.value})}
+          placeholder="Task details..."
+          rows={3}
+        />
+      </div>
+
+      <div className={styles.modalActions}>
+        <button type="button" onClick={onClose} className={styles.cancelBtn}>
+          Cancel
+        </button>
+        <button type="submit" className={styles.saveBtn}>
+          Create Task
+        </button>
+      </div>
+    </form>
   )
 }
 

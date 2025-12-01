@@ -1435,3 +1435,334 @@ a.contactName:hover {
   opacity: 0.7;
   cursor: not-allowed;
 }
+
+/* Empty Tasks */
+.emptyTasks {
+  text-align: center;
+  padding: var(--space-3xl);
+  color: var(--apex-subtle);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+}
+
+.emptyTasks svg {
+  opacity: 0.3;
+  margin-bottom: var(--space-md);
+}
+
+.emptyTasks p {
+  margin-bottom: var(--space-lg);
+}
+
+/* Document Download Button */
+.docDownloadBtn {
+  padding: var(--space-xs);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.docDownloadBtn:hover {
+  background: var(--apex-muted);
+  color: var(--apex-gold-bright);
+  border-color: var(--apex-gold);
+}
+
+/* Document Preview Modal */
+.docPreviewModal {
+  width: 100%;
+  max-width: 600px;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.docPreviewContent {
+  padding: var(--space-xl);
+}
+
+.docPreviewInfo {
+  display: flex;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  background: var(--apex-slate);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-lg);
+}
+
+.docPreviewIcon {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(245, 158, 11, 0.05) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apex-gold-bright);
+  flex-shrink: 0;
+}
+
+.docPreviewMeta {
+  flex: 1;
+}
+
+.docPreviewMeta h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: var(--space-sm);
+  word-break: break-word;
+}
+
+.docPreviewMeta p {
+  font-size: 0.875rem;
+  color: var(--apex-text);
+  margin-bottom: var(--space-xs);
+}
+
+.docPreviewSummary {
+  padding: var(--space-lg);
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-lg);
+}
+
+.docPreviewSummary h4 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #A78BFA;
+  margin-bottom: var(--space-sm);
+}
+
+.docPreviewSummary p {
+  font-size: 0.875rem;
+  color: var(--apex-light);
+  line-height: 1.6;
+}
+
+.docPreviewActions {
+  display: flex;
+  gap: var(--space-md);
+  justify-content: flex-end;
+}
+
+/* Card Actions */
+.cardActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* Full Width Card */
+.fullWidth {
+  grid-column: 1 / -1;
+}
+
+/* AI Card Header */
+.aiCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-lg);
+}
+
+.aiCardTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.aiCardTitle svg {
+  color: #A78BFA;
+}
+
+.aiCardTitle h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin: 0;
+}
+
+.aiCardTitle span {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  margin-top: 2px;
+}
+
+.aiCardActions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+/* Improved Time Tab Styling */
+.timeTab {
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+.timeStats {
+  display: flex;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-xl);
+  padding: var(--space-lg);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+}
+
+.timeStat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex: 1;
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+}
+
+.timeStat svg {
+  color: var(--apex-gold-bright);
+}
+
+.timeStat > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.timeStatValue {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--apex-white);
+}
+
+.timeStatLabel {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
+.emptyTime {
+  text-align: center;
+  padding: var(--space-3xl);
+  color: var(--apex-subtle);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+}
+
+.emptyTime svg {
+  opacity: 0.3;
+  margin-bottom: var(--space-md);
+}
+
+.emptyTime p {
+  margin-bottom: var(--space-lg);
+}
+
+.timeEntryCards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.timeEntryCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  transition: all var(--transition-fast);
+}
+
+.timeEntryCard:hover {
+  border-color: rgba(245, 158, 11, 0.2);
+  transform: translateX(4px);
+}
+
+.timeEntryDate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(245, 158, 11, 0.05) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}
+
+.timeEntryDay {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--apex-white);
+  line-height: 1;
+}
+
+.timeEntryMonth {
+  font-size: 0.6875rem;
+  color: var(--apex-gold-bright);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.timeEntryContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.timeEntryDesc {
+  display: block;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--apex-white);
+  margin-bottom: var(--space-xs);
+}
+
+.timeEntryMeta {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
+.timeEntryRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.timeEntryAmount {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--apex-gold-bright);
+}
+
+@media (max-width: 768px) {
+  .timeStats {
+    flex-direction: column;
+    gap: var(--space-md);
+  }
+  
+  .timeEntryCard {
+    flex-wrap: wrap;
+    gap: var(--space-md);
+  }
+  
+  .timeEntryRight {
+    width: 100%;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+}
