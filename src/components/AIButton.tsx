@@ -51,39 +51,42 @@ export function AIButton({
     setSelectedPrompt(promptType)
     setResult(null)
 
-    // Simulate AI response
-    await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 1000))
-
-    const insights: Record<string, string[]> = {
-      'Summarize': [
-        `Based on the ${context} data, here's a comprehensive summary:\n\n• Primary focus areas have shown consistent progress over the review period\n• Key stakeholders are aligned on objectives and timelines\n• Resource allocation is optimized for current workload\n• No critical blockers identified at this time`,
-        `Summary of ${context}:\n\n• Status: On track with established milestones\n• Recent activity indicates positive momentum\n• Documentation is current and well-organized\n• Stakeholder communication has been effective`,
-        `${context} Overview:\n\n• All key deliverables are progressing as expected\n• Team collaboration has been excellent\n• Budget remains within allocated parameters\n• Next review scheduled per standard timeline`
-      ],
-      'Key Points': [
-        `Key points identified in ${context}:\n\n1. **Priority Items**: Focus on high-impact deliverables\n2. **Timeline**: Critical dates are approaching - plan accordingly\n3. **Dependencies**: External factors may influence outcomes\n4. **Resources**: Current allocation is sufficient\n5. **Risks**: Minor risks identified, mitigation in place`,
-        `Critical insights from ${context}:\n\n1. **Performance**: Metrics show positive trends\n2. **Compliance**: All requirements met\n3. **Efficiency**: Process improvements implemented\n4. **Quality**: Standards maintained throughout\n5. **Communication**: Stakeholder updates on schedule`
-      ],
-      'Action Items': [
-        `Recommended action items for ${context}:\n\n☐ Review and update documentation by end of week\n☐ Schedule follow-up meeting with stakeholders\n☐ Complete pending approvals\n☐ Update status in tracking system\n☐ Prepare summary report for leadership`,
-        `Next steps identified:\n\n☐ Finalize outstanding deliverables\n☐ Conduct quality review\n☐ Update project timeline as needed\n☐ Communicate updates to relevant parties\n☐ Archive completed materials`
-      ],
-      'Risk Analysis': [
-        `Risk assessment for ${context}:\n\n**High Priority:**\n• Timeline pressure - ensure buffer for unexpected delays\n\n**Medium Priority:**\n• Resource availability during peak periods\n• External dependencies need monitoring\n\n**Low Priority:**\n• Minor process inefficiencies identified\n\n**Mitigation:** Regular check-ins and proactive communication recommended`,
-        `Potential concerns identified:\n\n**Critical:** None at this time\n\n**Watch Items:**\n• Market conditions may affect timeline\n• Stakeholder availability for key decisions\n• Technical requirements may evolve\n\n**Recommendations:** Maintain contingency plans and regular monitoring`
-      ],
-      'Recommendations': [
-        `AI recommendations for ${context}:\n\n1. **Process Optimization**: Consider streamlining approval workflows\n2. **Communication**: Increase frequency of status updates\n3. **Documentation**: Enhance record-keeping practices\n4. **Planning**: Build additional buffer into timelines\n5. **Review**: Schedule periodic retrospectives`,
-        `Strategic recommendations:\n\n1. **Efficiency**: Automate repetitive tasks where possible\n2. **Quality**: Implement additional review checkpoints\n3. **Collaboration**: Enhance cross-functional coordination\n4. **Visibility**: Improve reporting dashboards\n5. **Learning**: Document lessons learned for future reference`
-      ]
+    const promptMessages: Record<string, string> = {
+      'Summarize': `Provide a focused summary of ${context}. Be specific and reference actual data. Include current status, key metrics, and important details. Do not give generic advice.`,
+      'Key Points': `Extract the most important points from ${context}. List 3-5 specific, actionable insights based on actual data. Be direct and reference real numbers or dates where available.`,
+      'Action Items': `Based on ${context}, identify specific action items that need attention. List concrete next steps with priorities. Reference actual deadlines or pending items from the data.`,
+      'Risk Analysis': `Analyze risks specific to ${context}. Identify HIGH/MEDIUM/LOW priority concerns based on actual data. Reference specific deadlines, gaps, or issues. Provide mitigation recommendations.`,
+      'Recommendations': `Provide strategic recommendations for ${context}. Base suggestions on actual data patterns. Be specific about what actions to take and why. Prioritize by impact.`
     }
 
-    const options = insights[promptType] || insights['Summarize']
-    const response = options[Math.floor(Math.random() * options.length)]
-    
-    setResult(response)
-    setIsLoading(false)
-    if (onInsight) onInsight(response)
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/ai/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          message: promptMessages[promptType] || `Analyze ${context}. Be specific and stay focused on the actual data.`,
+          page: 'general',
+          context: contextData || {}
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to get AI response')
+      }
+
+      const data = await response.json()
+      setResult(data.response)
+      if (onInsight) onInsight(data.response)
+    } catch (error) {
+      console.error('AI insight error:', error)
+      setResult('Unable to generate insight. Please check your connection and try again.')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const copyToClipboard = () => {
