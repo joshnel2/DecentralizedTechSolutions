@@ -26,20 +26,7 @@ interface TrustTransaction {
   createdBy: string
 }
 
-const demoTransactions: TrustTransaction[] = [
-  { id: '1', clientId: 'c1', clientName: 'Quantum Technologies', matterId: 'm1', matterName: 'Patent Infringement', type: 'deposit', amount: 25000, balance: 45000, description: 'Initial retainer deposit', reference: 'CHK-10234', method: 'check', date: subDays(new Date(), 1).toISOString(), status: 'cleared', createdBy: 'John Mitchell' },
-  { id: '2', clientId: 'c2', clientName: 'Anderson Family', matterId: 'm2', matterName: 'Estate Planning', type: 'deposit', amount: 10000, balance: 10000, description: 'Retainer for estate planning services', reference: 'WIRE-8821', method: 'wire', date: subDays(new Date(), 3).toISOString(), status: 'cleared', createdBy: 'Sarah Chen' },
-  { id: '3', clientId: 'c1', clientName: 'Quantum Technologies', matterId: 'm1', matterName: 'Patent Infringement', type: 'disbursement', amount: -5000, balance: 40000, description: 'Court filing fees - USPTO', reference: 'DBT-001', method: 'check', date: subDays(new Date(), 5).toISOString(), status: 'cleared', createdBy: 'John Mitchell' },
-  { id: '4', clientId: 'c3', clientName: 'Metro Development Corp', matterId: 'm3', matterName: 'Commercial Lease', type: 'deposit', amount: 15000, balance: 15000, description: 'Retainer deposit', reference: 'ACH-7742', method: 'ach', date: subDays(new Date(), 7).toISOString(), status: 'cleared', createdBy: 'Michael Roberts' },
-  { id: '5', clientId: 'c1', clientName: 'Quantum Technologies', matterId: 'm1', matterName: 'Patent Infringement', type: 'transfer', amount: -8500, balance: 31500, description: 'Transfer to operating - Invoice INV-2024-0041', reference: 'TRF-112', method: 'transfer', date: subDays(new Date(), 10).toISOString(), status: 'cleared', createdBy: 'John Mitchell' },
-]
-
-const clientBalances = [
-  { clientId: 'c1', clientName: 'Quantum Technologies', balance: 31500, lastActivity: subDays(new Date(), 1).toISOString() },
-  { clientId: 'c3', clientName: 'Metro Development Corp', balance: 15000, lastActivity: subDays(new Date(), 7).toISOString() },
-  { clientId: 'c2', clientName: 'Anderson Family', balance: 10000, lastActivity: subDays(new Date(), 3).toISOString() },
-  { clientId: 'c4', clientName: 'Sarah Johnson', balance: 5000, lastActivity: subDays(new Date(), 14).toISOString() },
-]
+const clientBalances: { clientId: string; clientName: string; balance: number; lastActivity: string }[] = []
 
 export function TrustAccountingPage() {
   const { clients } = useDataStore()
