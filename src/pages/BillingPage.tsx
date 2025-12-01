@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
@@ -7,9 +7,11 @@ import { invoicesApi } from '../services/api'
 import { 
   Plus, Search, DollarSign, FileText, TrendingUp, AlertCircle,
   CheckCircle2, Clock, Send, MoreVertical, Sparkles, Download,
-  CreditCard, XCircle, Eye, Edit2, Trash2
+  CreditCard, XCircle, Eye, ChevronRight, Filter, Calendar,
+  ArrowUpRight, ArrowDownRight, Wallet, BarChart3, Receipt,
+  RefreshCw, Mail, Printer, Trash2
 } from 'lucide-react'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, differenceInDays, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './BillingPage.module.css'
 
@@ -17,6 +19,7 @@ export function BillingPage() {
   const { invoices, clients, matters, timeEntries, expenses, fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries, addInvoice, updateInvoice } = useDataStore()
   const { firm } = useAuthStore()
   const { openChat } = useAIChat()
+  const navigate = useNavigate()
   
   // Fetch data from API on mount
   useEffect(() => {
@@ -26,13 +29,15 @@ export function BillingPage() {
     fetchTimeEntries()
   }, [fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries])
   
-  const [activeTab, setActiveTab] = useState('invoices')
+  const [activeTab, setActiveTab] = useState('dashboard')
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [dateFilter, setDateFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null)
+  const [showInvoicePreview, setShowInvoicePreview] = useState<any>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Close dropdown when clicking outside
@@ -68,20 +73,17 @@ export function BillingPage() {
     const client = clients.find(c => c.id === invoice.clientId)
     const matter = matters.find(m => m.id === invoice.matterId)
     
-    // Get firm details
     const firmName = firm?.name || 'Law Firm'
     const firmAddress = firm?.address ? `${firm.address}${firm.city ? `, ${firm.city}` : ''}${firm.state ? `, ${firm.state}` : ''} ${firm.zipCode || ''}` : ''
     const firmPhone = firm?.phone || ''
     const firmEmail = firm?.email || ''
     
-    // Get client details
     const clientName = client?.name || client?.displayName || 'Client'
     const clientAddress = client?.addressStreet 
       ? `${client.addressStreet}${client.addressCity ? `, ${client.addressCity}` : ''}${client.addressState ? `, ${client.addressState}` : ''} ${client.addressZip || ''}`.trim()
       : ''
     const clientEmail = client?.email || ''
     
-    // Generate PDF content
     const invoiceHtml = `
       <!DOCTYPE html>
       <html>
@@ -114,9 +116,7 @@ export function BillingPage() {
           .status.partial { background: #fff3cd; color: #856404; }
           .footer { margin-top: 40px; padding-top: 20px; border-top: 2px solid #eee; font-size: 12px; color: #666; }
           .footer p { margin: 8px 0; }
-          @media print {
-            body { margin: 20px; }
-          }
+          @media print { body { margin: 20px; } }
         </style>
       </head>
       <body>
@@ -223,7 +223,6 @@ export function BillingPage() {
       </html>
     `
     
-    // Open print dialog which allows saving as PDF
     const printWindow = window.open('', '_blank')
     if (printWindow) {
       printWindow.document.write(invoiceHtml)
@@ -232,47 +231,121 @@ export function BillingPage() {
     }
   }
 
+  // Calculate comprehensive stats
   const stats = useMemo(() => {
+    const now = new Date()
+    const thisMonth = invoices.filter(i => {
+      const date = parseISO(i.issueDate)
+      return date >= startOfMonth(now) && date <= endOfMonth(now)
+    })
+    const lastMonth = invoices.filter(i => {
+      const date = parseISO(i.issueDate)
+      const lastMonthStart = startOfMonth(subMonths(now, 1))
+      const lastMonthEnd = endOfMonth(subMonths(now, 1))
+      return date >= lastMonthStart && date <= lastMonthEnd
+    })
+
     const totalBilled = invoices.reduce((sum, i) => sum + i.total, 0)
     const totalPaid = invoices.reduce((sum, i) => sum + i.amountPaid, 0)
+    const thisMonthBilled = thisMonth.reduce((sum, i) => sum + i.total, 0)
+    const thisMonthCollected = thisMonth.reduce((sum, i) => sum + i.amountPaid, 0)
+    const lastMonthBilled = lastMonth.reduce((sum, i) => sum + i.total, 0)
+    
     const outstanding = invoices
-      .filter(i => i.status === 'sent' || i.status === 'overdue')
+      .filter(i => i.status === 'sent' || i.status === 'overdue' || i.status === 'partial')
       .reduce((sum, i) => sum + (i.total - i.amountPaid), 0)
-    const overdue = invoices
-      .filter(i => i.status === 'overdue')
-      .reduce((sum, i) => sum + (i.total - i.amountPaid), 0)
+    
+    // Aging buckets
+    const aging = {
+      current: 0,
+      thirtyDays: 0,
+      sixtyDays: 0,
+      ninetyDays: 0,
+      ninetyPlus: 0
+    }
+    
+    invoices.filter(i => i.status === 'sent' || i.status === 'overdue' || i.status === 'partial').forEach(inv => {
+      const daysPastDue = differenceInDays(now, parseISO(inv.dueDate))
+      const outstanding = inv.total - inv.amountPaid
+      
+      if (daysPastDue <= 0) {
+        aging.current += outstanding
+      } else if (daysPastDue <= 30) {
+        aging.thirtyDays += outstanding
+      } else if (daysPastDue <= 60) {
+        aging.sixtyDays += outstanding
+      } else if (daysPastDue <= 90) {
+        aging.ninetyDays += outstanding
+      } else {
+        aging.ninetyPlus += outstanding
+      }
+    })
+
     const unbilledTime = timeEntries
       .filter(t => t.billable && !t.billed)
       .reduce((sum, t) => sum + t.amount, 0)
     const unbilledExpenses = expenses
       .filter(e => e.billable && !e.billed)
       .reduce((sum, e) => sum + e.amount, 0)
+
+    // Calculate trend
+    const trend = lastMonthBilled > 0 
+      ? ((thisMonthBilled - lastMonthBilled) / lastMonthBilled) * 100 
+      : 0
     
-    return { totalBilled, totalPaid, outstanding, overdue, unbilledTime, unbilledExpenses }
+    return { 
+      totalBilled, totalPaid, outstanding, 
+      thisMonthBilled, thisMonthCollected, lastMonthBilled,
+      aging, unbilledTime, unbilledExpenses, trend
+    }
   }, [invoices, timeEntries, expenses])
 
   const filteredInvoices = useMemo(() => {
     return invoices.filter(invoice => {
       const client = clients.find(c => c.id === invoice.clientId)
+      const matter = matters.find(m => m.id === invoice.matterId)
       const matchesSearch = 
         invoice.number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        client?.name.toLowerCase().includes(searchQuery.toLowerCase())
+        client?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        matter?.name?.toLowerCase().includes(searchQuery.toLowerCase())
       const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter
-      return matchesSearch && matchesStatus
+      
+      // Date filter
+      let matchesDate = true
+      if (dateFilter !== 'all') {
+        const issueDate = parseISO(invoice.issueDate)
+        const now = new Date()
+        if (dateFilter === 'thisMonth') {
+          matchesDate = issueDate >= startOfMonth(now) && issueDate <= endOfMonth(now)
+        } else if (dateFilter === 'lastMonth') {
+          matchesDate = issueDate >= startOfMonth(subMonths(now, 1)) && issueDate <= endOfMonth(subMonths(now, 1))
+        }
+      }
+      
+      return matchesSearch && matchesStatus && matchesDate
     }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-  }, [invoices, clients, searchQuery, statusFilter])
+  }, [invoices, clients, matters, searchQuery, statusFilter, dateFilter])
 
   const getClientName = (clientId: string) => clients.find(c => c.id === clientId)?.name || 'Unknown'
   const getMatterName = (matterId: string) => matters.find(m => m.id === matterId)?.name || 'Unknown'
 
+  // Recent activity
+  const recentInvoices = useMemo(() => {
+    return [...invoices]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 5)
+  }, [invoices])
+
   return (
     <div className={styles.billingPage}>
+      {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <h1>Billing</h1>
+          <p className={styles.headerSubtitle}>Manage invoices, payments, and billing</p>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.aiBtn} onClick={() => openChat()}>
+          <button className={styles.aiBtn} onClick={() => openChat("Analyze my billing trends and suggest ways to improve collections and reduce overdue invoices.")}>
             <Sparkles size={16} />
             AI Insights
           </button>
@@ -282,6 +355,380 @@ export function BillingPage() {
           </button>
         </div>
       </div>
+
+      {/* Quick Stats Dashboard */}
+      <div className={styles.dashboardGrid}>
+        {/* Main metrics */}
+        <div className={styles.metricsRow}>
+          <div className={styles.metricCard}>
+            <div className={styles.metricHeader}>
+              <div className={styles.metricIcon} style={{ background: 'rgba(16, 185, 129, 0.1)' }}>
+                <CheckCircle2 size={20} style={{ color: '#10B981' }} />
+              </div>
+              <span className={styles.metricTrend} style={{ color: '#10B981' }}>
+                <ArrowUpRight size={14} />
+                Collected
+              </span>
+            </div>
+            <div className={styles.metricValue}>${stats.totalPaid.toLocaleString()}</div>
+            <div className={styles.metricLabel}>Total Collected</div>
+            <div className={styles.metricSubtext}>This month: ${stats.thisMonthCollected.toLocaleString()}</div>
+          </div>
+
+          <div className={styles.metricCard}>
+            <div className={styles.metricHeader}>
+              <div className={styles.metricIcon} style={{ background: 'rgba(59, 130, 246, 0.1)' }}>
+                <Send size={20} style={{ color: '#3B82F6' }} />
+              </div>
+              <span className={styles.metricTrend} style={{ color: stats.trend >= 0 ? '#10B981' : '#EF4444' }}>
+                {stats.trend >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                {Math.abs(stats.trend).toFixed(0)}%
+              </span>
+            </div>
+            <div className={styles.metricValue}>${stats.thisMonthBilled.toLocaleString()}</div>
+            <div className={styles.metricLabel}>Billed This Month</div>
+            <div className={styles.metricSubtext}>Last month: ${stats.lastMonthBilled.toLocaleString()}</div>
+          </div>
+
+          <div className={styles.metricCard}>
+            <div className={styles.metricHeader}>
+              <div className={styles.metricIcon} style={{ background: 'rgba(245, 158, 11, 0.1)' }}>
+                <Clock size={20} style={{ color: '#F59E0B' }} />
+              </div>
+            </div>
+            <div className={styles.metricValue}>${stats.outstanding.toLocaleString()}</div>
+            <div className={styles.metricLabel}>Outstanding</div>
+            <div className={styles.metricSubtext}>{invoices.filter(i => i.status === 'sent' || i.status === 'overdue').length} invoices</div>
+          </div>
+
+          <div className={styles.metricCard}>
+            <div className={styles.metricHeader}>
+              <div className={styles.metricIcon} style={{ background: 'rgba(139, 92, 246, 0.1)' }}>
+                <Receipt size={20} style={{ color: '#8B5CF6' }} />
+              </div>
+            </div>
+            <div className={styles.metricValue}>${(stats.unbilledTime + stats.unbilledExpenses).toLocaleString()}</div>
+            <div className={styles.metricLabel}>Unbilled Work</div>
+            <div className={styles.metricSubtext}>
+              <button 
+                className={styles.billNowLink}
+                onClick={() => navigate('/app/time-tracking')}
+              >
+                Bill Now <ChevronRight size={12} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Aging Summary */}
+        <div className={styles.agingCard}>
+          <div className={styles.agingHeader}>
+            <h3>
+              <BarChart3 size={18} />
+              Accounts Receivable Aging
+            </h3>
+            <span className={styles.agingTotal}>Total: ${stats.outstanding.toLocaleString()}</span>
+          </div>
+          <div className={styles.agingBars}>
+            <div className={styles.agingItem}>
+              <div className={styles.agingLabel}>Current</div>
+              <div className={styles.agingBarWrapper}>
+                <div 
+                  className={clsx(styles.agingBar, styles.current)}
+                  style={{ width: `${stats.outstanding > 0 ? (stats.aging.current / stats.outstanding) * 100 : 0}%` }}
+                />
+              </div>
+              <div className={styles.agingAmount}>${stats.aging.current.toLocaleString()}</div>
+            </div>
+            <div className={styles.agingItem}>
+              <div className={styles.agingLabel}>1-30 Days</div>
+              <div className={styles.agingBarWrapper}>
+                <div 
+                  className={clsx(styles.agingBar, styles.thirty)}
+                  style={{ width: `${stats.outstanding > 0 ? (stats.aging.thirtyDays / stats.outstanding) * 100 : 0}%` }}
+                />
+              </div>
+              <div className={styles.agingAmount}>${stats.aging.thirtyDays.toLocaleString()}</div>
+            </div>
+            <div className={styles.agingItem}>
+              <div className={styles.agingLabel}>31-60 Days</div>
+              <div className={styles.agingBarWrapper}>
+                <div 
+                  className={clsx(styles.agingBar, styles.sixty)}
+                  style={{ width: `${stats.outstanding > 0 ? (stats.aging.sixtyDays / stats.outstanding) * 100 : 0}%` }}
+                />
+              </div>
+              <div className={styles.agingAmount}>${stats.aging.sixtyDays.toLocaleString()}</div>
+            </div>
+            <div className={styles.agingItem}>
+              <div className={styles.agingLabel}>61-90 Days</div>
+              <div className={styles.agingBarWrapper}>
+                <div 
+                  className={clsx(styles.agingBar, styles.ninety)}
+                  style={{ width: `${stats.outstanding > 0 ? (stats.aging.ninetyDays / stats.outstanding) * 100 : 0}%` }}
+                />
+              </div>
+              <div className={styles.agingAmount}>${stats.aging.ninetyDays.toLocaleString()}</div>
+            </div>
+            <div className={styles.agingItem}>
+              <div className={styles.agingLabel}>90+ Days</div>
+              <div className={styles.agingBarWrapper}>
+                <div 
+                  className={clsx(styles.agingBar, styles.ninetyPlus)}
+                  style={{ width: `${stats.outstanding > 0 ? (stats.aging.ninetyPlus / stats.outstanding) * 100 : 0}%` }}
+                />
+              </div>
+              <div className={styles.agingAmount}>${stats.aging.ninetyPlus.toLocaleString()}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Actions */}
+      <div className={styles.quickActions}>
+        <button 
+          className={styles.quickActionBtn}
+          onClick={() => navigate('/app/time-tracking')}
+        >
+          <Clock size={18} />
+          <span>Bill Time</span>
+        </button>
+        <button 
+          className={styles.quickActionBtn}
+          onClick={() => setShowNewModal(true)}
+        >
+          <FileText size={18} />
+          <span>New Invoice</span>
+        </button>
+        <button 
+          className={styles.quickActionBtn}
+          onClick={() => openChat("List all overdue invoices and draft follow-up reminder emails for each client.")}
+        >
+          <Mail size={18} />
+          <span>Send Reminders</span>
+        </button>
+        <button 
+          className={styles.quickActionBtn}
+          onClick={() => openChat("Generate a billing report for this month including all invoices, payments received, and outstanding balances.")}
+        >
+          <BarChart3 size={18} />
+          <span>Run Report</span>
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className={styles.tabs}>
+        {[
+          { id: 'all', label: 'All Invoices', count: invoices.length },
+          { id: 'draft', label: 'Draft', count: invoices.filter(i => i.status === 'draft').length },
+          { id: 'sent', label: 'Sent', count: invoices.filter(i => i.status === 'sent').length },
+          { id: 'overdue', label: 'Overdue', count: invoices.filter(i => i.status === 'overdue').length },
+          { id: 'paid', label: 'Paid', count: invoices.filter(i => i.status === 'paid').length },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            className={clsx(styles.tab, statusFilter === tab.id && styles.active)}
+            onClick={() => setStatusFilter(tab.id === 'all' ? 'all' : tab.id)}
+          >
+            {tab.label}
+            <span className={styles.tabCount}>{tab.count}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className={styles.filters}>
+        <div className={styles.searchBox}>
+          <Search size={18} />
+          <input
+            type="text"
+            placeholder="Search by invoice #, client, or matter..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+
+        <div className={styles.filterGroup}>
+          <select 
+            value={dateFilter} 
+            onChange={(e) => setDateFilter(e.target.value)}
+            className={styles.filterSelect}
+          >
+            <option value="all">All Time</option>
+            <option value="thisMonth">This Month</option>
+            <option value="lastMonth">Last Month</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Invoice List */}
+      <div className={styles.invoiceList}>
+        {filteredInvoices.length === 0 ? (
+          <div className={styles.emptyState}>
+            <FileText size={48} />
+            <h3>No invoices found</h3>
+            <p>Create your first invoice to get started</p>
+            <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
+              <Plus size={18} />
+              Create Invoice
+            </button>
+          </div>
+        ) : (
+          filteredInvoices.map(invoice => {
+            const client = clients.find(c => c.id === invoice.clientId)
+            const matter = matters.find(m => m.id === invoice.matterId)
+            const daysUntilDue = differenceInDays(parseISO(invoice.dueDate), new Date())
+            const isPastDue = daysUntilDue < 0 && invoice.status !== 'paid'
+            
+            return (
+              <div 
+                key={invoice.id} 
+                className={clsx(styles.invoiceCard, isPastDue && styles.pastDue)}
+              >
+                <div className={styles.invoiceMain}>
+                  <div className={styles.invoiceInfo}>
+                    <div className={styles.invoiceNumber}>
+                      <FileText size={16} />
+                      {invoice.number}
+                    </div>
+                    <div className={styles.invoiceClient}>
+                      <Link to={`/app/clients/${invoice.clientId}`}>
+                        {client?.name || 'Unknown Client'}
+                      </Link>
+                      {matter && (
+                        <span className={styles.invoiceMatter}>
+                          <ChevronRight size={12} />
+                          <Link to={`/app/matters/${invoice.matterId}`}>
+                            {matter.name}
+                          </Link>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className={styles.invoiceDates}>
+                    <div className={styles.invoiceDate}>
+                      <span>Issued:</span>
+                      {format(parseISO(invoice.issueDate), 'MMM d, yyyy')}
+                    </div>
+                    <div className={clsx(styles.invoiceDate, isPastDue && styles.overdue)}>
+                      <span>Due:</span>
+                      {format(parseISO(invoice.dueDate), 'MMM d, yyyy')}
+                      {isPastDue && (
+                        <span className={styles.daysOverdue}>
+                          {Math.abs(daysUntilDue)} days overdue
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={styles.invoiceAmount}>
+                    <div className={styles.totalAmount}>${invoice.total.toLocaleString()}</div>
+                    {invoice.amountPaid > 0 && invoice.amountPaid < invoice.total && (
+                      <div className={styles.paidAmount}>
+                        ${invoice.amountPaid.toLocaleString()} paid
+                      </div>
+                    )}
+                    {invoice.status !== 'paid' && invoice.amountPaid < invoice.total && (
+                      <div className={styles.dueAmount}>
+                        ${(invoice.total - invoice.amountPaid).toLocaleString()} due
+                      </div>
+                    )}
+                  </div>
+
+                  <div className={styles.invoiceStatus}>
+                    <span className={clsx(styles.statusBadge, styles[invoice.status])}>
+                      {invoice.status}
+                    </span>
+                  </div>
+
+                  <div className={styles.invoiceActions}>
+                    <button 
+                      className={styles.actionBtn}
+                      onClick={() => setShowInvoicePreview(invoice)}
+                      title="Preview"
+                    >
+                      <Eye size={16} />
+                    </button>
+                    <button 
+                      className={styles.actionBtn}
+                      onClick={() => handleDownloadInvoice(invoice)}
+                      title="Download PDF"
+                    >
+                      <Download size={16} />
+                    </button>
+                    <div className={styles.menuWrapper} ref={openDropdownId === invoice.id ? dropdownRef : null}>
+                      <button 
+                        className={styles.actionBtn}
+                        onClick={() => setOpenDropdownId(openDropdownId === invoice.id ? null : invoice.id)}
+                      >
+                        <MoreVertical size={16} />
+                      </button>
+                      {openDropdownId === invoice.id && (
+                        <div className={styles.dropdown}>
+                          {invoice.status === 'draft' && (
+                            <button 
+                              className={styles.dropdownItem}
+                              onClick={() => handleStatusChange(invoice.id, 'sent')}
+                            >
+                              <Send size={14} />
+                              Mark as Sent
+                            </button>
+                          )}
+                          {(invoice.status === 'sent' || invoice.status === 'overdue' || invoice.status === 'partial') && (
+                            <>
+                              <button 
+                                className={styles.dropdownItem}
+                                onClick={() => handleRecordPayment(invoice)}
+                              >
+                                <CreditCard size={14} />
+                                Record Payment
+                              </button>
+                              <button 
+                                className={clsx(styles.dropdownItem, styles.success)}
+                                onClick={() => handleStatusChange(invoice.id, 'paid')}
+                              >
+                                <CheckCircle2 size={14} />
+                                Mark as Paid
+                              </button>
+                            </>
+                          )}
+                          {invoice.status !== 'void' && invoice.status !== 'paid' && (
+                            <button 
+                              className={clsx(styles.dropdownItem, styles.danger)}
+                              onClick={() => handleStatusChange(invoice.id, 'void')}
+                            >
+                              <XCircle size={14} />
+                              Void Invoice
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {/* Invoice Preview Modal */}
+      {showInvoicePreview && (
+        <InvoicePreviewModal
+          invoice={showInvoicePreview}
+          client={clients.find(c => c.id === showInvoicePreview.clientId)}
+          matter={matters.find(m => m.id === showInvoicePreview.matterId)}
+          firm={firm}
+          onClose={() => setShowInvoicePreview(null)}
+          onDownload={() => handleDownloadInvoice(showInvoicePreview)}
+          onRecordPayment={() => {
+            setSelectedInvoice(showInvoicePreview)
+            setShowPaymentModal(true)
+            setShowInvoicePreview(null)
+          }}
+        />
+      )}
 
       {showNewModal && (
         <NewInvoiceModal
@@ -321,278 +768,130 @@ export function BillingPage() {
           }}
         />
       )}
+    </div>
+  )
+}
 
-      {/* Stats */}
-      <div className={styles.statsGrid}>
-        <div className={styles.statCard}>
-          <div className={styles.statIcon} style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10B981' }}>
-            <CheckCircle2 size={22} />
+// Invoice Preview Modal
+function InvoicePreviewModal({ invoice, client, matter, firm, onClose, onDownload, onRecordPayment }: {
+  invoice: any
+  client: any
+  matter: any
+  firm: any
+  onClose: () => void
+  onDownload: () => void
+  onRecordPayment: () => void
+}) {
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.previewModal} onClick={e => e.stopPropagation()}>
+        <div className={styles.previewHeader}>
+          <div className={styles.previewTitle}>
+            <h2>Invoice {invoice.number}</h2>
+            <span className={clsx(styles.statusBadge, styles[invoice.status])}>
+              {invoice.status}
+            </span>
           </div>
-          <div>
-            <span className={styles.statValue}>${stats.totalPaid.toLocaleString()}</span>
-            <span className={styles.statLabel}>Collected</span>
+          <button onClick={onClose} className={styles.closeBtn}>×</button>
+        </div>
+        
+        <div className={styles.previewContent}>
+          <div className={styles.previewSection}>
+            <div className={styles.previewRow}>
+              <div className={styles.previewColumn}>
+                <label>From</label>
+                <strong>{firm?.name || 'Your Law Firm'}</strong>
+                {firm?.address && <p>{firm.address}</p>}
+              </div>
+              <div className={styles.previewColumn}>
+                <label>Bill To</label>
+                <strong>{client?.name || 'Client'}</strong>
+                {client?.email && <p>{client.email}</p>}
+              </div>
+            </div>
+            
+            <div className={styles.previewRow}>
+              <div className={styles.previewColumn}>
+                <label>Matter</label>
+                <strong>{matter?.name || 'General Services'}</strong>
+              </div>
+              <div className={styles.previewColumn}>
+                <label>Issue Date</label>
+                <strong>{format(parseISO(invoice.issueDate), 'MMMM d, yyyy')}</strong>
+              </div>
+              <div className={styles.previewColumn}>
+                <label>Due Date</label>
+                <strong>{format(parseISO(invoice.dueDate), 'MMMM d, yyyy')}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div className={styles.previewItems}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Description</th>
+                  <th>Qty</th>
+                  <th>Rate</th>
+                  <th>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invoice.lineItems?.length > 0 ? (
+                  invoice.lineItems.map((item: any, i: number) => (
+                    <tr key={i}>
+                      <td>{item.description}</td>
+                      <td>{item.quantity}</td>
+                      <td>${item.rate?.toFixed(2)}</td>
+                      <td>${item.amount?.toFixed(2)}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td>Legal Services</td>
+                    <td>1</td>
+                    <td>${invoice.total.toFixed(2)}</td>
+                    <td>${invoice.total.toFixed(2)}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className={styles.previewTotals}>
+            <div className={styles.previewTotalRow}>
+              <span>Subtotal</span>
+              <span>${(invoice.subtotal || invoice.total).toLocaleString()}</span>
+            </div>
+            {invoice.amountPaid > 0 && (
+              <div className={styles.previewTotalRow}>
+                <span>Payments</span>
+                <span className={styles.paymentAmount}>-${invoice.amountPaid.toLocaleString()}</span>
+              </div>
+            )}
+            <div className={clsx(styles.previewTotalRow, styles.final)}>
+              <span>Amount Due</span>
+              <span>${(invoice.total - invoice.amountPaid).toLocaleString()}</span>
+            </div>
           </div>
         </div>
 
-        <div className={styles.statCard}>
-          <div className={styles.statIcon} style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3B82F6' }}>
-            <Send size={22} />
-          </div>
-          <div>
-            <span className={styles.statValue}>${stats.outstanding.toLocaleString()}</span>
-            <span className={styles.statLabel}>Outstanding</span>
-          </div>
-        </div>
-
-        <div className={styles.statCard}>
-          <div className={styles.statIcon} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#EF4444' }}>
-            <AlertCircle size={22} />
-          </div>
-          <div>
-            <span className={styles.statValue}>${stats.overdue.toLocaleString()}</span>
-            <span className={styles.statLabel}>Overdue</span>
-          </div>
-        </div>
-
-        <div className={styles.statCard}>
-          <div className={styles.statIcon} style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#F59E0B' }}>
-            <Clock size={22} />
-          </div>
-          <div>
-            <span className={styles.statValue}>${(stats.unbilledTime + stats.unbilledExpenses).toLocaleString()}</span>
-            <span className={styles.statLabel}>Unbilled Work</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className={styles.tabs}>
-        {['invoices', 'unbilled'].map(tab => (
-          <button
-            key={tab}
-            className={clsx(styles.tab, activeTab === tab && styles.active)}
-            onClick={() => setActiveTab(tab)}
-          >
-            {tab === 'invoices' ? 'Invoices' : 'Unbilled Time & Expenses'}
+        <div className={styles.previewActions}>
+          <button className={styles.cancelBtn} onClick={onClose}>
+            Close
           </button>
-        ))}
-      </div>
-
-      {activeTab === 'invoices' && (
-        <>
-          <div className={styles.filters}>
-            <div className={styles.searchBox}>
-              <Search size={18} />
-              <input
-                type="text"
-                placeholder="Search invoices..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-
-            <select 
-              value={statusFilter} 
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className={styles.filterSelect}
-            >
-              <option value="all">All Statuses</option>
-              <option value="draft">Draft</option>
-              <option value="sent">Sent</option>
-              <option value="paid">Paid</option>
-              <option value="overdue">Overdue</option>
-              <option value="void">Void</option>
-            </select>
-          </div>
-
-          <div className={styles.tableContainer}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Invoice #</th>
-                  <th>Client</th>
-                  <th>Matter</th>
-                  <th>Issue Date</th>
-                  <th>Due Date</th>
-                  <th>Amount</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredInvoices.map(invoice => (
-                  <tr key={invoice.id}>
-                    <td>
-                      <div className={styles.invoiceNum}>
-                        <FileText size={16} />
-                        {invoice.number}
-                      </div>
-                    </td>
-                    <td>
-                      <Link to={`/app/clients/${invoice.clientId}`}>
-                        {getClientName(invoice.clientId)}
-                      </Link>
-                    </td>
-                    <td>
-                      <Link to={`/app/matters/${invoice.matterId}`}>
-                        {getMatterName(invoice.matterId)}
-                      </Link>
-                    </td>
-                    <td>{format(parseISO(invoice.issueDate), 'MMM d, yyyy')}</td>
-                    <td>{format(parseISO(invoice.dueDate), 'MMM d, yyyy')}</td>
-                    <td className={styles.amountCell}>
-                      <span className={styles.amount}>${invoice.total.toLocaleString()}</span>
-                      {invoice.amountPaid > 0 && invoice.amountPaid < invoice.total && (
-                        <span className={styles.paid}>
-                          ${invoice.amountPaid.toLocaleString()} paid
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <span className={clsx(styles.statusBadge, styles[invoice.status])}>
-                        {invoice.status}
-                      </span>
-                    </td>
-                    <td>
-                      <div className={styles.menuWrapper} ref={openDropdownId === invoice.id ? dropdownRef : null}>
-                        <button 
-                          className={styles.menuBtn}
-                          onClick={() => setOpenDropdownId(openDropdownId === invoice.id ? null : invoice.id)}
-                        >
-                          <MoreVertical size={16} />
-                        </button>
-                        {openDropdownId === invoice.id && (
-                          <div className={styles.dropdown}>
-                            <button 
-                              className={styles.dropdownItem}
-                              onClick={() => handleDownloadInvoice(invoice)}
-                            >
-                              <Download size={14} />
-                              Download PDF
-                            </button>
-                            {invoice.status === 'draft' && (
-                              <button 
-                                className={styles.dropdownItem}
-                                onClick={() => handleStatusChange(invoice.id, 'sent')}
-                              >
-                                <Send size={14} />
-                                Mark as Sent
-                              </button>
-                            )}
-                            {(invoice.status === 'sent' || invoice.status === 'overdue' || invoice.status === 'partial') && (
-                              <>
-                                <button 
-                                  className={styles.dropdownItem}
-                                  onClick={() => handleRecordPayment(invoice)}
-                                >
-                                  <CreditCard size={14} />
-                                  Record Payment
-                                </button>
-                                <button 
-                                  className={clsx(styles.dropdownItem, styles.success)}
-                                  onClick={() => handleStatusChange(invoice.id, 'paid')}
-                                >
-                                  <CheckCircle2 size={14} />
-                                  Mark as Paid
-                                </button>
-                              </>
-                            )}
-                            {invoice.status !== 'void' && invoice.status !== 'paid' && (
-                              <button 
-                                className={clsx(styles.dropdownItem, styles.danger)}
-                                onClick={() => handleStatusChange(invoice.id, 'void')}
-                              >
-                                <XCircle size={14} />
-                                Void Invoice
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {activeTab === 'unbilled' && (
-        <div className={styles.unbilledSection}>
-          <div className={styles.unbilledCard}>
-            <div className={styles.unbilledHeader}>
-              <h3>
-                <Clock size={18} />
-                Unbilled Time Entries
-              </h3>
-              <span className={styles.unbilledTotal}>${stats.unbilledTime.toLocaleString()}</span>
-            </div>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Matter</th>
-                  <th>Description</th>
-                  <th>Hours</th>
-                  <th>Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {timeEntries.filter(t => t.billable && !t.billed).slice(0, 10).map(entry => (
-                  <tr key={entry.id}>
-                    <td>{format(parseISO(entry.date), 'MMM d, yyyy')}</td>
-                    <td>
-                      <Link to={`/app/matters/${entry.matterId}`}>
-                        {getMatterName(entry.matterId)}
-                      </Link>
-                    </td>
-                    <td>{entry.description}</td>
-                    <td>{entry.hours}h</td>
-                    <td>${entry.amount.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className={styles.unbilledCard}>
-            <div className={styles.unbilledHeader}>
-              <h3>
-                <DollarSign size={18} />
-                Unbilled Expenses
-              </h3>
-              <span className={styles.unbilledTotal}>${stats.unbilledExpenses.toLocaleString()}</span>
-            </div>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Matter</th>
-                  <th>Description</th>
-                  <th>Category</th>
-                  <th>Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {expenses.filter(e => e.billable && !e.billed).map(expense => (
-                  <tr key={expense.id}>
-                    <td>{format(parseISO(expense.date), 'MMM d, yyyy')}</td>
-                    <td>
-                      <Link to={`/app/matters/${expense.matterId}`}>
-                        {getMatterName(expense.matterId)}
-                      </Link>
-                    </td>
-                    <td>{expense.description}</td>
-                    <td>{expense.category}</td>
-                    <td>${expense.amount.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {invoice.status !== 'paid' && invoice.status !== 'void' && (
+            <button className={styles.secondaryBtn} onClick={onRecordPayment}>
+              <CreditCard size={16} />
+              Record Payment
+            </button>
+          )}
+          <button className={styles.primaryBtn} onClick={onDownload}>
+            <Download size={16} />
+            Download PDF
+          </button>
         </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -633,11 +932,9 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
     const newLineItems = [...formData.lineItems]
     newLineItems[index] = { ...newLineItems[index], [field]: value }
     
-    // Auto-calculate amount when quantity or rate changes
     if (field === 'quantity' || field === 'rate') {
       newLineItems[index].amount = newLineItems[index].quantity * newLineItems[index].rate
     }
-    // If amount is directly edited, update rate (assuming quantity is 1 or calculate)
     if (field === 'amount' && newLineItems[index].quantity > 0) {
       newLineItems[index].rate = value / newLineItems[index].quantity
     }
@@ -675,7 +972,7 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
         </div>
         <form onSubmit={handleSubmit} className={styles.modalForm}>
           <div className={styles.formGroup}>
-            <label>Client</label>
+            <label>Client *</label>
             <select
               value={formData.clientId}
               onChange={(e) => setFormData({...formData, clientId: e.target.value, matterId: ''})}
@@ -722,7 +1019,6 @@ function NewInvoiceModal({ onClose, onSave, clients, matters }: {
             </div>
           </div>
 
-          {/* Line Items Section */}
           <div className={styles.lineItemsSection}>
             <div className={styles.lineItemsHeader}>
               <label>Line Items</label>
