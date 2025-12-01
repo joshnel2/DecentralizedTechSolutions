@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
 import { AIChatProvider } from './contexts/AIChatContext'
@@ -37,6 +38,47 @@ import { AdminPortalPage } from './pages/AdminPortalPage'
 import SecureAdminLogin from './pages/SecureAdminLogin'
 import SecureAdminDashboard from './pages/SecureAdminDashboard'
 
+// Loading screen component
+function LoadingScreen() {
+  return (
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%)',
+      color: '#fff'
+    }}>
+      <div style={{ textAlign: 'center' }}>
+        <svg width="48" height="48" viewBox="0 0 32 32" fill="none" style={{ marginBottom: '1rem' }}>
+          <path d="M16 4L28 28H4L16 4Z" fill="url(#loadGrad)" stroke="#F59E0B" strokeWidth="1.5"/>
+          <circle cx="16" cy="19" r="3" fill="#0B0F1A"/>
+          <defs>
+            <linearGradient id="loadGrad" x1="16" y1="4" x2="16" y2="28">
+              <stop stopColor="#FBBF24"/>
+              <stop offset="1" stopColor="#F59E0B"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <div style={{ 
+          width: '40px', 
+          height: '40px', 
+          border: '3px solid rgba(245, 158, 11, 0.2)', 
+          borderTopColor: '#F59E0B', 
+          borderRadius: '50%',
+          animation: 'spin 1s linear infinite',
+          margin: '0 auto'
+        }} />
+        <style>{`
+          @keyframes spin {
+            to { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    </div>
+  )
+}
+
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" />
@@ -50,13 +92,107 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+// App wrapper to handle auth initialization
+function AppContent() {
+  const { checkAuth, isAuthenticated } = useAuthStore()
+  const [isInitializing, setIsInitializing] = useState(true)
+
+  useEffect(() => {
+    const initAuth = async () => {
+      // Try to restore session from server
+      try {
+        await checkAuth()
+      } catch (error) {
+        console.log('No active session found')
+      } finally {
+        setIsInitializing(false)
+      }
+    }
+
+    initAuth()
+  }, [checkAuth])
+
+  // Show loading screen while checking auth
+  if (isInitializing) {
+    return <LoadingScreen />
+  }
+
+  return (
+    <Routes>
+      {/* Public Routes */}
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/login" element={
+        <PublicRoute><LoginPage /></PublicRoute>
+      } />
+      <Route path="/register" element={
+        <PublicRoute><RegisterPage /></PublicRoute>
+      } />
+      
+      {/* Firm Setup */}
+      <Route path="/setup" element={
+        <PrivateRoute><FirmSetupPage /></PrivateRoute>
+      } />
+      
+      {/* Protected Routes */}
+      <Route path="/app" element={
+        <PrivateRoute><Layout /></PrivateRoute>
+      }>
+        <Route index element={<Navigate to="/app/dashboard" />} />
+        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="matters" element={<MattersPage />} />
+        <Route path="matters/:id" element={<MatterDetailPage />} />
+        <Route path="clients" element={<ClientsPage />} />
+        <Route path="clients/:id" element={<ClientDetailPage />} />
+        <Route path="calendar" element={<CalendarPage />} />
+        <Route path="billing" element={<BillingPage />} />
+        <Route path="time" element={<TimeTrackingPage />} />
+        <Route path="reports" element={<ReportsPage />} />
+        <Route path="documents" element={<DocumentsPage />} />
+        <Route path="ai" element={<AIAssistantPage />} />
+        
+        {/* Analytics */}
+        <Route path="analytics" element={<FirmAnalyticsPage />} />
+        
+        {/* Settings Hub */}
+        <Route path="settings" element={<SettingsHubPage />} />
+        <Route path="settings/profile" element={<SettingsPage />} />
+        <Route path="settings/security" element={<SecuritySettingsPage />} />
+        <Route path="settings/firm" element={<FirmSettingsPage />} />
+        <Route path="settings/team" element={<TeamPage />} />
+        <Route path="settings/integrations" element={<IntegrationsPage />} />
+        <Route path="settings/api-keys" element={<APIKeysPage />} />
+        <Route path="settings/custom-fields" element={<CustomFieldsPage />} />
+        <Route path="settings/recovery-bin" element={<RecoveryBinPage />} />
+        <Route path="settings/court-rules" element={<CourtRulesPage />} />
+        <Route path="settings/snippets" element={<TextSnippetsPage />} />
+        <Route path="settings/documents" element={<DocumentAutomationPage />} />
+        <Route path="settings/workflows" element={<WorkflowsPage />} />
+        
+        {/* Trust Accounting */}
+        <Route path="trust" element={<TrustAccountingPage />} />
+        
+        {/* Firm Administration */}
+        <Route path="admin" element={<FirmAdminPage />} />
+        
+        {/* Platform Admin Portal */}
+        <Route path="platform-admin" element={<AdminPortalPage />} />
+      </Route>
+      
+      {/* Secure Admin Portal - Hidden URL */}
+      <Route path="/rx760819" element={<SecureAdminLogin />} />
+      <Route path="/rx760819/dashboard" element={<SecureAdminDashboard />} />
+      
+      {/* Catch all */}
+      <Route path="*" element={<Navigate to="/" />} />
+    </Routes>
+  )
+}
+
 export default function App() {
   return (
     <AIChatProvider>
     <BrowserRouter>
-      <Routes>
-        {/* Public Routes */}
-        <Route path="/" element={<LandingPage />} />
+      <AppContent />
         <Route path="/login" element={
           <PublicRoute><LoginPage /></PublicRoute>
         } />
