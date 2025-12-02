@@ -1,14 +1,15 @@
-import { useState, useMemo, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
-import { Plus, Search, Users, Building2, User, MoreVertical, Sparkles } from 'lucide-react'
+import { Plus, Search, Users, Building2, User, MoreVertical, Sparkles, Edit2, Eye, Trash2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './ListPages.module.css'
 
 export function ClientsPage() {
-  const { clients, matters, addClient, fetchClients, fetchMatters } = useDataStore()
+  const navigate = useNavigate()
+  const { clients, matters, addClient, updateClient, fetchClients, fetchMatters } = useDataStore()
   const { openChat } = useAIChat()
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -20,6 +21,21 @@ export function ClientsPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editingClient, setEditingClient] = useState<any>(null)
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  
+  // Close menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpenMenuId(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const filteredClients = useMemo(() => {
     return clients.filter(client => {
@@ -142,9 +158,56 @@ export function ClientsPage() {
                   {format(parseISO(client.createdAt), 'MMM d, yyyy')}
                 </td>
                 <td>
-                  <button className={styles.menuBtn}>
-                    <MoreVertical size={16} />
-                  </button>
+                  <div className={styles.menuWrapper} ref={openMenuId === client.id ? menuRef : null}>
+                    <button 
+                      className={styles.menuBtn}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setOpenMenuId(openMenuId === client.id ? null : client.id)
+                      }}
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+                    {openMenuId === client.id && (
+                      <div className={styles.dropdown}>
+                        <button 
+                          className={styles.dropdownItem}
+                          onClick={() => {
+                            navigate(`/app/clients/${client.id}`)
+                            setOpenMenuId(null)
+                          }}
+                        >
+                          <Eye size={14} />
+                          View Details
+                        </button>
+                        <button 
+                          className={styles.dropdownItem}
+                          onClick={() => {
+                            setEditingClient(client)
+                            setShowEditModal(true)
+                            setOpenMenuId(null)
+                          }}
+                        >
+                          <Edit2 size={14} />
+                          Edit Client
+                        </button>
+                        <div className={styles.dropdownDivider} />
+                        <button 
+                          className={clsx(styles.dropdownItem, styles.danger)}
+                          onClick={() => {
+                            if (confirm(`Are you sure you want to deactivate ${client.name}?`)) {
+                              updateClient(client.id, { isActive: false })
+                              fetchClients()
+                            }
+                            setOpenMenuId(null)
+                          }}
+                        >
+                          <Trash2 size={14} />
+                          Deactivate
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </td>
               </tr>
             )})}
@@ -171,6 +234,27 @@ export function ClientsPage() {
             } catch (error) {
               console.error('Failed to create client:', error)
               alert('Failed to create client. Please try again.')
+            }
+          }}
+        />
+      )}
+
+      {showEditModal && editingClient && (
+        <EditClientModal 
+          client={editingClient}
+          onClose={() => {
+            setShowEditModal(false)
+            setEditingClient(null)
+          }}
+          onSave={async (data) => {
+            try {
+              await updateClient(editingClient.id, data)
+              setShowEditModal(false)
+              setEditingClient(null)
+              fetchClients()
+            } catch (error) {
+              console.error('Failed to update client:', error)
+              alert('Failed to update client. Please try again.')
             }
           }}
         />
@@ -310,6 +394,158 @@ function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (dat
             </button>
             <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
               {isSubmitting ? 'Creating...' : 'Create Client'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function EditClientModal({ client, onClose, onSave }: { 
+  client: any
+  onClose: () => void
+  onSave: (data: any) => Promise<void> 
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState({
+    type: client.type || 'person',
+    displayName: client.displayName || client.name || '',
+    name: client.name || '',
+    email: client.email || '',
+    phone: client.phone || '',
+    addressStreet: client.addressStreet || '',
+    addressCity: client.addressCity || '',
+    addressState: client.addressState || '',
+    addressZip: client.addressZip || '',
+    notes: client.notes || '',
+    isActive: client.isActive !== false
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onSave({
+        ...formData,
+        displayName: formData.name
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>Edit Client</h2>
+          <button onClick={onClose} className={styles.closeBtn}>×</button>
+        </div>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
+          <div className={styles.formGroup}>
+            <label>Client Type</label>
+            <select
+              value={formData.type}
+              onChange={(e) => setFormData({...formData, type: e.target.value as 'person' | 'company'})}
+            >
+              <option value="person">Individual</option>
+              <option value="company">Organization</option>
+            </select>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>{formData.type === 'company' ? 'Organization Name' : 'Full Name'}</label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({...formData, name: e.target.value})}
+              placeholder={formData.type === 'company' ? 'Company Name, LLC' : 'John Smith'}
+              required
+            />
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Email</label>
+              <input
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({...formData, email: e.target.value})}
+                placeholder="email@example.com"
+                required
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Phone</label>
+              <input
+                type="tel"
+                value={formData.phone}
+                onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                placeholder="(555) 555-0100"
+              />
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Address</label>
+            <input
+              type="text"
+              value={formData.addressStreet}
+              onChange={(e) => setFormData({...formData, addressStreet: e.target.value})}
+              placeholder="123 Main Street"
+            />
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>City</label>
+              <input
+                type="text"
+                value={formData.addressCity}
+                onChange={(e) => setFormData({...formData, addressCity: e.target.value})}
+                placeholder="New York"
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>State</label>
+              <input
+                type="text"
+                value={formData.addressState}
+                onChange={(e) => setFormData({...formData, addressState: e.target.value})}
+                placeholder="NY"
+              />
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Status</label>
+            <select
+              value={formData.isActive ? 'active' : 'inactive'}
+              onChange={(e) => setFormData({...formData, isActive: e.target.value === 'active'})}
+            >
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Notes</label>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({...formData, notes: e.target.value})}
+              placeholder="Additional notes about the client"
+              rows={3}
+            />
+          </div>
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+              Cancel
+            </button>
+            <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </form>

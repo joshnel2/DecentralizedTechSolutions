@@ -6,7 +6,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--space-xl);
+  margin-bottom: var(--space-lg);
 }
 
 .headerLeft {
@@ -31,6 +31,210 @@
   display: flex;
   align-items: center;
   gap: var(--space-md);
+}
+
+.aiBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: linear-gradient(135deg, var(--apex-accent), var(--apex-blue));
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.aiBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+}
+
+.primaryBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.primaryBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+.primaryBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.automationBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(139, 92, 246, 0.05) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: var(--radius-md);
+  color: #A78BFA;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.automationBtn:hover {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25) 0%, rgba(139, 92, 246, 0.1) 100%);
+  border-color: rgba(139, 92, 246, 0.5);
+  transform: translateY(-1px);
+}
+
+/* Toolbar */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+  flex-wrap: wrap;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  flex: 1;
+  max-width: 400px;
+  color: var(--apex-text);
+}
+
+.searchBox input {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+}
+
+.searchBox input::placeholder {
+  color: var(--apex-subtle);
+}
+
+.toolbarRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+/* Filter Dropdown */
+.filterDropdown {
+  position: relative;
+}
+
+.filterBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.filterBtn:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--apex-white);
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 180px;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  overflow: hidden;
+}
+
+.dropdownItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: none;
+  border: none;
+  color: var(--apex-light);
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.dropdownItem:hover {
+  background: var(--apex-slate);
+  color: var(--apex-white);
+}
+
+.dropdownItem.active {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--apex-gold-bright);
+}
+
+/* Sort Options */
+.sortOptions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.sortSelect {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.sortOrderBtn {
+  padding: var(--space-sm);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sortOrderBtn:hover {
+  color: var(--apex-white);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .viewToggle {
@@ -58,102 +262,213 @@
   color: var(--apex-midnight);
 }
 
-.primaryBtn {
+/* Breadcrumb */
+.breadcrumb {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-lg);
-  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
-  border: none;
+  margin-bottom: var(--space-lg);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
   border-radius: var(--radius-md);
-  color: var(--apex-midnight);
-  font-weight: 600;
-  font-size: 0.9375rem;
-  cursor: pointer;
 }
 
-.automationBtn {
+.breadcrumb button {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-lg);
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(139, 92, 246, 0.05) 100%);
-  border: 1px solid rgba(139, 92, 246, 0.3);
-  border-radius: var(--radius-md);
-  color: #A78BFA;
-  font-weight: 600;
-  font-size: 0.9375rem;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  background: none;
+  border: none;
+  color: var(--apex-gold-bright);
+  font-size: 0.875rem;
   cursor: pointer;
+  border-radius: var(--radius-sm);
   transition: all var(--transition-fast);
 }
 
-.automationBtn:hover {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25) 0%, rgba(139, 92, 246, 0.1) 100%);
-  border-color: rgba(139, 92, 246, 0.5);
-  transform: translateY(-1px);
+.breadcrumb button:hover {
+  background: rgba(245, 158, 11, 0.1);
 }
 
-.filters {
-  margin-bottom: var(--space-lg);
+.breadcrumbSeparator {
+  color: var(--apex-subtle);
 }
 
-.searchBox {
+.breadcrumbCurrent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--apex-white);
+  font-size: 0.875rem;
+}
+
+/* Main Content */
+.mainContent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+/* Folders Section */
+.foldersSection {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+}
+
+.foldersSection h3 {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
-  background: var(--apex-slate);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-md);
-  max-width: 400px;
-  color: var(--apex-text);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: var(--space-lg);
 }
 
-.searchBox input {
+.foldersSection h3 svg {
+  color: var(--apex-gold-bright);
+}
+
+.foldersGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-md);
+}
+
+.folderCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+}
+
+.folderCard:hover {
+  border-color: var(--apex-gold);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.folderIcon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(245, 158, 11, 0.05) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apex-gold-bright);
+  flex-shrink: 0;
+}
+
+.folderInfo {
   flex: 1;
-  background: none;
-  border: none;
-  color: var(--apex-white);
+  min-width: 0;
+}
+
+.folderName {
+  display: block;
   font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--apex-white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folderCount {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  margin-top: 2px;
+}
+
+/* Files Section */
+.filesSection {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+}
+
+.filesSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-lg);
+}
+
+.filesSectionHeader h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin: 0;
+}
+
+.filesSectionHeader h3 svg {
+  color: var(--apex-gold-bright);
+}
+
+.fileCount {
+  font-size: 0.875rem;
+  color: var(--apex-text);
 }
 
 /* Grid View */
 .documentsGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: var(--space-lg);
 }
 
-.docCard {
-  background: var(--apex-deep);
+.fileCard {
+  background: var(--apex-slate);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: var(--radius-lg);
   overflow: hidden;
   transition: all var(--transition-fast);
+  cursor: pointer;
 }
 
-.docCard:hover {
-  border-color: rgba(255, 255, 255, 0.1);
+.fileCard:hover {
+  border-color: rgba(255, 255, 255, 0.15);
   transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
 }
 
-.docPreview {
-  height: 120px;
-  background: var(--apex-slate);
+.fileCard.selected {
+  border-color: var(--apex-gold);
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+}
+
+.fileCardPreview {
+  height: 100px;
+  background: linear-gradient(135deg, var(--apex-muted) 0%, var(--apex-deep) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.fileIcon {
+.fileEmoji {
   font-size: 2.5rem;
 }
 
-.docInfo {
+.fileCardContent {
   padding: var(--space-md);
 }
 
-.docName {
+.fileName {
   display: block;
   font-weight: 500;
   color: var(--apex-white);
@@ -163,50 +478,94 @@
   text-overflow: ellipsis;
 }
 
-.docMeta {
-  display: block;
-  font-size: 0.75rem;
-  color: var(--apex-text);
-}
-
-.docMatter {
-  display: block;
-  font-size: 0.75rem;
-  color: var(--apex-gold-bright);
-  margin-top: 4px;
-}
-
-.docActions {
+.fileMeta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: var(--space-sm) var(--space-md);
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  gap: var(--space-xs);
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  margin-bottom: 4px;
 }
 
-.aiTag {
+.fileMatter {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 8px;
-  background: rgba(139, 92, 246, 0.1);
-  border-radius: var(--radius-full);
-  color: var(--apex-ai);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
+  color: var(--apex-gold-bright);
+  margin-top: var(--space-xs);
 }
 
-.menuBtn {
-  background: none;
+.fileCardActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.actionBtn {
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.05);
   border: none;
-  padding: 4px;
+  border-radius: var(--radius-sm);
   color: var(--apex-text);
   cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.actionBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--apex-white);
+}
+
+.aiActionBtn {
+  padding: 6px;
+  background: linear-gradient(135deg, var(--apex-accent), var(--apex-blue));
+  border: none;
+  border-radius: var(--radius-sm);
+  color: white;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.aiActionBtn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.4);
+}
+
+/* File type icons */
+.pdfIcon {
+  color: #EF4444;
+}
+
+.docIcon {
+  color: #3B82F6;
+}
+
+.spreadsheetIcon {
+  color: #22C55E;
+}
+
+.imageIcon {
+  color: #8B5CF6;
+}
+
+.fileIcon {
+  color: var(--apex-text);
 }
 
 /* Table View */
 .documentsTable {
-  background: var(--apex-deep);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: transparent;
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
@@ -219,7 +578,7 @@
 .documentsTable th {
   text-align: left;
   padding: var(--space-md) var(--space-lg);
-  background: var(--apex-slate);
+  background: rgba(0, 0, 0, 0.2);
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--apex-text);
@@ -233,14 +592,34 @@
   color: var(--apex-light);
 }
 
+.documentsTable tr {
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.documentsTable tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
 .nameCell {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
 }
 
-.nameCell .fileIcon {
+.nameCell .fileEmoji {
   font-size: 1.25rem;
+}
+
+.matterTag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: var(--radius-full);
+  color: var(--apex-gold-bright);
+  font-size: 0.75rem;
 }
 
 .rowActions {
@@ -254,32 +633,34 @@
   padding: 4px;
   color: var(--apex-text);
   cursor: pointer;
+  transition: all var(--transition-fast);
 }
 
 .rowActions button:hover {
   color: var(--apex-white);
 }
 
-.analyzeBtn {
-  background: linear-gradient(135deg, var(--apex-accent), var(--apex-blue)) !important;
-  color: white !important;
+.rowActions .aiActionBtn {
+  padding: 6px;
+  background: linear-gradient(135deg, var(--apex-accent), var(--apex-blue));
   border-radius: var(--radius-sm);
-  padding: 6px !important;
+  color: white;
 }
 
-.analyzeBtn:hover {
-  transform: scale(1.1);
-}
-
+/* Empty State */
 .emptyState {
   text-align: center;
   padding: var(--space-3xl);
   color: var(--apex-subtle);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
 }
 
 .emptyState svg {
   opacity: 0.3;
   margin-bottom: var(--space-lg);
+  color: var(--apex-gold);
 }
 
 .emptyState h3 {
@@ -287,9 +668,8 @@
   margin-bottom: var(--space-sm);
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.emptyState p {
+  margin-bottom: var(--space-lg);
 }
 
 /* Modal */
@@ -423,19 +803,6 @@
   cursor: not-allowed;
 }
 
-/* Preview Button */
-.previewBtn {
-  background: var(--apex-slate) !important;
-  color: var(--apex-light) !important;
-  border-radius: var(--radius-sm);
-  padding: 6px !important;
-}
-
-.previewBtn:hover {
-  background: var(--apex-muted) !important;
-  color: white !important;
-}
-
 /* Preview Modal */
 .previewModal {
   position: fixed;
@@ -478,22 +845,14 @@
   font-weight: 500;
 }
 
-.previewTitle svg {
-  color: var(--apex-gold);
+.previewEmoji {
+  font-size: 1.5rem;
 }
 
 .previewActions {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-}
-
-.previewActions .analyzeBtn {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem !important;
-  font-size: 0.875rem;
 }
 
 .downloadBtn {
@@ -553,26 +912,49 @@
   height: 100%;
   text-align: center;
   color: var(--apex-text);
+  padding: var(--space-xl);
 }
 
-.bigIcon {
-  font-size: 4rem;
+.bigEmoji {
+  font-size: 5rem;
   margin-bottom: 1.5rem;
 }
 
 .noPreview h3 {
   color: var(--apex-white);
   margin-bottom: 0.5rem;
+  font-size: 1.25rem;
 }
 
-.noPreview p {
+.previewMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
   color: var(--apex-subtle);
-  margin-bottom: 0.25rem;
+  margin-bottom: var(--space-sm);
+  font-size: 0.875rem;
+}
+
+.previewFolder {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: var(--radius-full);
+  color: var(--apex-gold-bright);
+  font-size: 0.875rem;
+  margin-bottom: var(--space-lg);
 }
 
 .noPreviewHint {
   color: var(--apex-text);
   margin-bottom: 1.5rem !important;
+}
+
+.previewBtns {
+  display: flex;
+  gap: var(--space-md);
 }
 
 .downloadBtnLarge {
@@ -593,4 +975,53 @@
 .downloadBtnLarge:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-glow);
+}
+
+.aiBtnLarge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, var(--apex-accent), var(--apex-blue));
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.aiBtnLarge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .searchBox {
+    max-width: none;
+  }
+  
+  .toolbarRight {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  
+  .foldersGrid {
+    grid-template-columns: 1fr;
+  }
+  
+  .documentsGrid {
+    grid-template-columns: 1fr;
+  }
 }

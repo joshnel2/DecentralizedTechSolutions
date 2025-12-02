@@ -857,6 +857,51 @@
   gap: var(--space-md);
 }
 
+.aiTabBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: linear-gradient(135deg, var(--apex-accent), var(--apex-blue));
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.aiTabBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+}
+
+.aiSmallBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: var(--radius-sm);
+  color: #A78BFA;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.aiSmallBtn:hover {
+  background: rgba(139, 92, 246, 0.25);
+  border-color: rgba(139, 92, 246, 0.5);
+  transform: scale(1.05);
+}
+
+.docActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
 .eventCardActions {
   display: flex;
   align-items: center;
@@ -1205,14 +1250,22 @@ a.contactName:hover {
 }
 
 .contactDetail {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
   font-size: 0.8125rem;
   color: var(--apex-light);
   margin-top: var(--space-sm);
 }
 
-.contactDetail span {
+.contactDetail svg {
   color: var(--apex-text);
-  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.contactDetail span {
+  color: var(--apex-light);
+  font-size: 0.8125rem;
 }
 
 @media (max-width: 1024px) {

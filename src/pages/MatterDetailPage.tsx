@@ -1,13 +1,14 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
+import { useAIChat } from '../contexts/AIChatContext'
 import { invoicesApi } from '../services/api'
 import { 
   Briefcase, Calendar, DollarSign, Clock, FileText,
   ChevronLeft, Sparkles, Edit2, MoreVertical, Plus,
   CheckCircle2, Scale, Building2, Brain, Loader2, 
   Copy, RefreshCw, AlertTriangle, TrendingUp,
-  ListTodo, Users, Circle, Upload, Download, X
+  ListTodo, Users, Circle, Upload, Download, X, Mail, Phone
 } from 'lucide-react'
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
@@ -24,15 +25,30 @@ interface Task {
   description?: string
 }
 
-// Related contacts for matter
-const relatedContacts = [
-  { id: '1', name: 'Opposing Counsel', role: 'Opposing Counsel', firm: 'Baker & Associates', email: 'jbaker@bakerlaw.com' },
-  { id: '2', name: 'Expert Witness', role: 'Expert Witness', firm: 'Tech Consultants Inc.', email: 'expert@techconsult.com' },
-  { id: '3', name: 'Insurance Adjuster', role: 'Insurance', firm: 'ABC Insurance Co.', email: 'adjuster@abc.com' }
-]
+// Contact interface for matter-related contacts
+interface MatterContact {
+  id: string
+  name: string
+  role: string
+  firm?: string
+  email: string
+  phone?: string
+}
+
+// Related contacts for matter - stored in localStorage
+const getStoredContacts = (matterId: string): MatterContact[] => {
+  const stored = localStorage.getItem(`matter-contacts-${matterId}`)
+  if (stored) return JSON.parse(stored)
+  return [
+    { id: '1', name: 'Opposing Counsel', role: 'Opposing Counsel', firm: 'Baker & Associates', email: 'jbaker@bakerlaw.com', phone: '(555) 123-4567' },
+    { id: '2', name: 'Expert Witness', role: 'Expert Witness', firm: 'Tech Consultants Inc.', email: 'expert@techconsult.com', phone: '(555) 234-5678' },
+    { id: '3', name: 'Insurance Adjuster', role: 'Insurance', firm: 'ABC Insurance Co.', email: 'adjuster@abc.com', phone: '(555) 345-6789' }
+  ]
+}
 
 export function MatterDetailPage() {
   const { id } = useParams()
+  const { openChat } = useAIChat()
   const { 
     matters, clients, timeEntries, invoices, events, documents, 
     updateMatter, addTimeEntry, addInvoice, addEvent, addDocument,
@@ -49,9 +65,25 @@ export function MatterDetailPage() {
   const [showTimeEntryModal, setShowTimeEntryModal] = useState(false)
   const [showEventModal, setShowEventModal] = useState(false)
   const [showTaskModal, setShowTaskModal] = useState(false)
+  const [showContactModal, setShowContactModal] = useState(false)
   const [showDocPreview, setShowDocPreview] = useState<any>(null)
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  
+  // Related contacts state
+  const [relatedContacts, setRelatedContacts] = useState<MatterContact[]>(() => getStoredContacts(id || ''))
+  
+  // Save contacts to localStorage when they change
+  useEffect(() => {
+    if (id) {
+      localStorage.setItem(`matter-contacts-${id}`, JSON.stringify(relatedContacts))
+    }
+  }, [relatedContacts, id])
+  
+  const addContact = (contact: Omit<MatterContact, 'id'>) => {
+    const newContact = { ...contact, id: crypto.randomUUID() }
+    setRelatedContacts(prev => [...prev, newContact])
+  }
   
   // Task state - persisted in localStorage for demo
   const [tasks, setTasks] = useState<Task[]>(() => {
@@ -596,16 +628,10 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Time Entries</h2>
               <div className={styles.tabActions}>
-                <AIButton 
-                  context="All Time Entries"
-                  label="AI Analyze"
-                  prompts={[
-                    { label: 'Summarize', prompt: 'Summarize all time' },
-                    { label: 'Patterns', prompt: 'Find patterns' },
-                    { label: 'Optimize', prompt: 'Suggest optimizations' },
-                    { label: 'Invoice Ready', prompt: 'Prepare for invoicing' }
-                  ]}
-                />
+                <button className={styles.aiTabBtn} onClick={() => openChat()}>
+                  <Sparkles size={16} />
+                  AI Analyze
+                </button>
                 <button 
                   className={styles.primaryBtn}
                   onClick={() => setShowTimeEntryModal(true)}
@@ -689,16 +715,10 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Invoices</h2>
               <div className={styles.tabActions}>
-                <AIButton 
-                  context="Billing & Invoices"
-                  label="AI Insights"
-                  prompts={[
-                    { label: 'Summary', prompt: 'Billing summary' },
-                    { label: 'Collections', prompt: 'Collection analysis' },
-                    { label: 'Forecast', prompt: 'Revenue forecast' },
-                    { label: 'Draft Invoice', prompt: 'Help draft invoice' }
-                  ]}
-                />
+                <button className={styles.aiTabBtn} onClick={() => openChat()}>
+                  <Sparkles size={16} />
+                  AI Insights
+                </button>
                 <button 
                   className={styles.primaryBtn}
                   onClick={() => setShowInvoiceModal(true)}
@@ -755,16 +775,10 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Documents</h2>
               <div className={styles.tabActions}>
-                <AIButton 
-                  context="Matter Documents"
-                  label="AI Analyze All"
-                  prompts={[
-                    { label: 'Summarize All', prompt: 'Summarize all documents' },
-                    { label: 'Key Terms', prompt: 'Extract key terms' },
-                    { label: 'Timeline', prompt: 'Create document timeline' },
-                    { label: 'Missing Docs', prompt: 'Identify missing documents' }
-                  ]}
-                />
+                <button className={styles.aiTabBtn} onClick={() => openChat()}>
+                  <Sparkles size={16} />
+                  AI Analyze All
+                </button>
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -877,16 +891,10 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Events & Deadlines</h2>
               <div className={styles.tabActions}>
-                <AIButton 
-                  context="Calendar & Deadlines"
-                  label="AI Schedule"
-                  prompts={[
-                    { label: 'Summary', prompt: 'Summarize schedule' },
-                    { label: 'Conflicts', prompt: 'Find conflicts' },
-                    { label: 'Deadlines', prompt: 'Review deadlines' },
-                    { label: 'Suggest', prompt: 'Suggest next meetings' }
-                  ]}
-                />
+                <button className={styles.aiTabBtn} onClick={() => openChat()}>
+                  <Sparkles size={16} />
+                  AI Schedule
+                </button>
                 <button 
                   className={styles.primaryBtn}
                   onClick={() => setShowEventModal(true)}
@@ -941,15 +949,10 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Tasks</h2>
               <div className={styles.tabActions}>
-                <AIButton 
-                  context="Matter Tasks"
-                  label="AI Prioritize"
-                  prompts={[
-                    { label: 'Prioritize', prompt: 'Prioritize tasks' },
-                    { label: 'Timeline', prompt: 'Create timeline' },
-                    { label: 'Workload', prompt: 'Analyze workload' }
-                  ]}
-                />
+                <button className={styles.aiTabBtn} onClick={() => openChat()}>
+                  <Sparkles size={16} />
+                  AI Prioritize
+                </button>
                 <button className={styles.primaryBtn} onClick={() => setShowTaskModal(true)}>
                   <Plus size={18} />
                   Add Task
@@ -1029,7 +1032,11 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Related Contacts</h2>
               <div className={styles.tabActions}>
-                <button className={styles.primaryBtn}>
+                <button className={styles.aiTabBtn} onClick={() => openChat()}>
+                  <Sparkles size={16} />
+                  AI Assist
+                </button>
+                <button className={styles.primaryBtn} onClick={() => setShowContactModal(true)}>
                   <Plus size={18} />
                   Add Contact
                 </button>
@@ -1055,12 +1062,14 @@ Only analyze documents actually associated with this matter.`
                 </div>
                 {client?.phone && (
                   <div className={styles.contactDetail}>
-                    <span>Phone:</span> {client.phone}
+                    <Phone size={14} />
+                    <span>{client.phone}</span>
                   </div>
                 )}
-                {client?.addressStreet && (
+                {client?.email && (
                   <div className={styles.contactDetail}>
-                    <span>Address:</span> {client.addressStreet}
+                    <Mail size={14} />
+                    <span>{client.email}</span>
                   </div>
                 )}
               </div>
@@ -1077,12 +1086,19 @@ Only analyze documents actually associated with this matter.`
                     </div>
                     <div>
                       <span className={styles.contactName}>{contact.name}</span>
-                      <span className={styles.contactFirm}>{contact.firm}</span>
+                      {contact.firm && <span className={styles.contactFirm}>{contact.firm}</span>}
                     </div>
                   </div>
                   <div className={styles.contactDetail}>
-                    <span>Email:</span> {contact.email}
+                    <Mail size={14} />
+                    <span>{contact.email}</span>
                   </div>
+                  {contact.phone && (
+                    <div className={styles.contactDetail}>
+                      <Phone size={14} />
+                      <span>{contact.phone}</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1235,17 +1251,32 @@ Only analyze documents actually associated with this matter.`
                   <Download size={18} />
                   Download
                 </button>
-                <AIButton 
-                  context={showDocPreview.name}
-                  label="Analyze with AI"
-                  prompts={[
-                    { label: 'Summarize', prompt: 'Summarize this document' },
-                    { label: 'Key Points', prompt: 'Extract key points from this document' },
-                    { label: 'Action Items', prompt: 'What action items are in this document?' }
-                  ]}
-                />
+                <button className={styles.aiTabBtn} onClick={() => { setShowDocPreview(null); openChat(); }}>
+                  <Sparkles size={16} />
+                  Analyze with AI
+                </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Contact Modal */}
+      {showContactModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowContactModal(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Add Contact</h2>
+              <button onClick={() => setShowContactModal(false)} className={styles.closeBtn}>×</button>
+            </div>
+            <ContactForm 
+              matterName={matter?.name || ''}
+              onClose={() => setShowContactModal(false)}
+              onSave={(data) => {
+                addContact(data)
+                setShowContactModal(false)
+              }}
+            />
           </div>
         </div>
       )}
@@ -1859,6 +1890,118 @@ function EventForm({ matterId, matterName, onClose, onSave }: {
         </button>
         <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
           {isSubmitting ? 'Creating...' : 'Create Event'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+// Contact Form Component
+function ContactForm({ matterName, onClose, onSave }: {
+  matterName: string
+  onClose: () => void
+  onSave: (data: Omit<MatterContact, 'id'>) => void
+}) {
+  const [formData, setFormData] = useState({
+    name: '',
+    role: '',
+    firm: '',
+    email: '',
+    phone: ''
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formData.name.trim()) {
+      alert('Please enter a contact name')
+      return
+    }
+    if (!formData.email.trim()) {
+      alert('Please enter an email address')
+      return
+    }
+    if (!formData.role.trim()) {
+      alert('Please enter a role')
+      return
+    }
+    onSave(formData)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className={styles.modalForm}>
+      <div className={styles.formInfo}>
+        <strong>Matter:</strong> {matterName}
+      </div>
+
+      <div className={styles.formGroup}>
+        <label>Contact Name *</label>
+        <input
+          type="text"
+          value={formData.name}
+          onChange={(e) => setFormData({...formData, name: e.target.value})}
+          placeholder="Enter contact name..."
+          required
+        />
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Role *</label>
+          <select
+            value={formData.role}
+            onChange={(e) => setFormData({...formData, role: e.target.value})}
+            required
+          >
+            <option value="">Select role...</option>
+            <option value="Opposing Counsel">Opposing Counsel</option>
+            <option value="Co-Counsel">Co-Counsel</option>
+            <option value="Expert Witness">Expert Witness</option>
+            <option value="Witness">Witness</option>
+            <option value="Insurance">Insurance</option>
+            <option value="Mediator">Mediator</option>
+            <option value="Court Clerk">Court Clerk</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div className={styles.formGroup}>
+          <label>Firm/Company</label>
+          <input
+            type="text"
+            value={formData.firm}
+            onChange={(e) => setFormData({...formData, firm: e.target.value})}
+            placeholder="Company or firm name..."
+          />
+        </div>
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Email *</label>
+          <input
+            type="email"
+            value={formData.email}
+            onChange={(e) => setFormData({...formData, email: e.target.value})}
+            placeholder="email@example.com"
+            required
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label>Phone</label>
+          <input
+            type="tel"
+            value={formData.phone}
+            onChange={(e) => setFormData({...formData, phone: e.target.value})}
+            placeholder="(555) 555-0100"
+          />
+        </div>
+      </div>
+
+      <div className={styles.modalActions}>
+        <button type="button" onClick={onClose} className={styles.cancelBtn}>
+          Cancel
+        </button>
+        <button type="submit" className={styles.saveBtn}>
+          Add Contact
         </button>
       </div>
     </form>
