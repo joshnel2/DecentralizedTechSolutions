@@ -440,6 +440,18 @@ Only analyze documents actually associated with this matter.`
                   <span className={styles.detailValue}>{matter.type.replace(/_/g, ' ')}</span>
                 </div>
                 <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Responsible Attorney</span>
+                  <span className={styles.detailValue}>
+                    {matter.responsibleAttorneyName || 'Unassigned'}
+                  </span>
+                </div>
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Originating Attorney</span>
+                  <span className={styles.detailValue}>
+                    {matter.originatingAttorneyName || 'Unassigned'}
+                  </span>
+                </div>
+                <div className={styles.detailItem}>
                   <span className={styles.detailLabel}>Opened</span>
                   <span className={styles.detailValue}>{format(parseISO(matter.openDate), 'MMM d, yyyy')}</span>
                 </div>

@@ -125,6 +125,7 @@ CREATE TABLE matters (
     status VARCHAR(50) DEFAULT 'active',
     priority VARCHAR(20) DEFAULT 'medium',
     responsible_attorney UUID REFERENCES users(id),
+    originating_attorney UUID REFERENCES users(id),
     open_date DATE,
     close_date DATE,
     statute_of_limitations DATE,
@@ -426,6 +427,8 @@ CREATE INDEX idx_clients_display_name ON clients(display_name);
 CREATE INDEX idx_matters_firm_id ON matters(firm_id);
 CREATE INDEX idx_matters_client_id ON matters(client_id);
 CREATE INDEX idx_matters_status ON matters(status);
+CREATE INDEX idx_matters_responsible_attorney ON matters(responsible_attorney);
+CREATE INDEX idx_matters_originating_attorney ON matters(originating_attorney);
 CREATE INDEX idx_time_entries_matter_id ON time_entries(matter_id);
 CREATE INDEX idx_time_entries_user_id ON time_entries(user_id);
 CREATE INDEX idx_time_entries_date ON time_entries(date);

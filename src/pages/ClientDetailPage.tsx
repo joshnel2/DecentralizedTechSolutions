@@ -3,8 +3,10 @@ import { useParams, Link } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { 
   Building2, User, ChevronLeft, Edit2, MoreVertical, 
-  Briefcase, DollarSign, FileText, Mail, Phone, MapPin, Plus
+  Briefcase, DollarSign, FileText, Mail, Phone, MapPin, Plus,
+  Sparkles
 } from 'lucide-react'
+import { useAIChat } from '../contexts/AIChatContext'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './DetailPage.module.css'
@@ -12,6 +14,7 @@ import styles from './DetailPage.module.css'
 export function ClientDetailPage() {
   const { id } = useParams()
   const { clients, matters, invoices, documents } = useDataStore()
+  const { openChat } = useAIChat()
   const [activeTab, setActiveTab] = useState('overview')
 
   const client = useMemo(() => clients.find(c => c.id === id), [clients, id])
@@ -63,6 +66,13 @@ export function ClientDetailPage() {
             Back to Clients
           </Link>
           <div className={styles.headerActions}>
+            <button 
+              className={styles.iconBtn}
+              onClick={() => openChat()}
+              title="AI Analysis"
+            >
+              <Sparkles size={18} />
+            </button>
             <button className={styles.iconBtn}>
               <Edit2 size={18} />
             </button>

@@ -391,7 +391,9 @@ export interface Matter {
   
   // Responsible Parties
   responsibleAttorney: string // Primary attorney user ID
+  responsibleAttorneyName?: string // Joined from users table
   originatingAttorney?: string // Who brought in the matter
+  originatingAttorneyName?: string // Joined from users table
   assignedTo: string[] // All assigned user IDs
   supervisingAttorney?: string
   

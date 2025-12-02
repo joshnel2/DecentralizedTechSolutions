@@ -19,10 +19,12 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
       SELECT m.*,
              c.display_name as client_name,
              u.first_name || ' ' || u.last_name as responsible_attorney_name,
+             ou.first_name || ' ' || ou.last_name as originating_attorney_name,
              array_agg(DISTINCT ma.user_id) FILTER (WHERE ma.user_id IS NOT NULL) as assigned_to
       FROM matters m
       LEFT JOIN clients c ON m.client_id = c.id
       LEFT JOIN users u ON m.responsible_attorney = u.id
+      LEFT JOIN users ou ON m.originating_attorney = ou.id
       LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
       WHERE m.firm_id = $1
     `;
@@ -74,7 +76,7 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
       paramIndex++;
     }
 
-    sql += ` GROUP BY m.id, c.display_name, u.first_name, u.last_name
+    sql += ` GROUP BY m.id, c.display_name, u.first_name, u.last_name, ou.first_name, ou.last_name
              ORDER BY m.created_at DESC 
              LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(parseInt(limit), parseInt(offset));
@@ -100,6 +102,8 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
         assignedTo: m.assigned_to || [],
         responsibleAttorney: m.responsible_attorney,
         responsibleAttorneyName: m.responsible_attorney_name,
+        originatingAttorney: m.originating_attorney,
+        originatingAttorneyName: m.originating_attorney_name,
         openDate: m.open_date,
         closeDate: m.close_date,
         statuteOfLimitations: m.statute_of_limitations,
@@ -138,13 +142,15 @@ router.get('/:id', authenticate, requirePermission('matters:view'), async (req, 
       `SELECT m.*,
               c.display_name as client_name,
               u.first_name || ' ' || u.last_name as responsible_attorney_name,
+              ou.first_name || ' ' || ou.last_name as originating_attorney_name,
               array_agg(DISTINCT ma.user_id) FILTER (WHERE ma.user_id IS NOT NULL) as assigned_to
        FROM matters m
        LEFT JOIN clients c ON m.client_id = c.id
        LEFT JOIN users u ON m.responsible_attorney = u.id
+       LEFT JOIN users ou ON m.originating_attorney = ou.id
        LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
        WHERE m.id = $1 AND m.firm_id = $2
-       GROUP BY m.id, c.display_name, u.first_name, u.last_name`,
+       GROUP BY m.id, c.display_name, u.first_name, u.last_name, ou.first_name, ou.last_name`,
       [req.params.id, req.user.firmId]
     );
 
@@ -166,6 +172,8 @@ router.get('/:id', authenticate, requirePermission('matters:view'), async (req, 
       assignedTo: m.assigned_to || [],
       responsibleAttorney: m.responsible_attorney,
       responsibleAttorneyName: m.responsible_attorney_name,
+      originatingAttorney: m.originating_attorney,
+      originatingAttorneyName: m.originating_attorney_name,
       openDate: m.open_date,
       closeDate: m.close_date,
       statuteOfLimitations: m.statute_of_limitations,
@@ -207,6 +215,7 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
       priority = 'medium',
       assignedTo = [],
       responsibleAttorney,
+      originatingAttorney,
       openDate,
       statuteOfLimitations,
       courtInfo,
@@ -227,6 +236,7 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
     // Convert empty strings to null for UUID fields
     const safeClientId = clientId && clientId.trim() !== '' ? clientId : null;
     const safeResponsibleAttorney = responsibleAttorney && responsibleAttorney.trim() !== '' ? responsibleAttorney : req.user.id;
+    const safeOriginatingAttorney = originatingAttorney && originatingAttorney.trim() !== '' ? originatingAttorney : null;
 
     const result = await withTransaction(async (client) => {
       // Generate matter number
@@ -241,15 +251,15 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
       const matterResult = await client.query(
         `INSERT INTO matters (
           firm_id, number, name, description, client_id, type, status, priority,
-          responsible_attorney, open_date, statute_of_limitations,
+          responsible_attorney, originating_attorney, open_date, statute_of_limitations,
           court_name, case_number, judge, jurisdiction,
           billing_type, billing_rate, flat_fee, contingency_percent, retainer_amount,
           budget, tags, conflict_cleared, created_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
         RETURNING *`,
         [
           req.user.firmId, number, name, description, safeClientId, type, status, priority,
-          safeResponsibleAttorney, openDate, statuteOfLimitations,
+          safeResponsibleAttorney, safeOriginatingAttorney, openDate, statuteOfLimitations,
           courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
           billingType, billingRate, flatFee, contingencyPercent, retainerAmount,
           budget, tags, conflictCleared, req.user.id
@@ -307,6 +317,7 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
       priority: result.priority,
       assignedTo,
       responsibleAttorney: result.responsible_attorney,
+      originatingAttorney: result.originating_attorney,
       openDate: result.open_date,
       billingType: result.billing_type,
       billingRate: result.billing_rate,
@@ -341,6 +352,7 @@ router.put('/:id', authenticate, requirePermission('matters:edit'), async (req, 
       priority,
       assignedTo,
       responsibleAttorney,
+      originatingAttorney,
       openDate,
       closeDate,
       statuteOfLimitations,
@@ -366,25 +378,26 @@ router.put('/:id', authenticate, requirePermission('matters:edit'), async (req, 
           status = COALESCE($5, status),
           priority = COALESCE($6, priority),
           responsible_attorney = COALESCE($7, responsible_attorney),
-          open_date = COALESCE($8, open_date),
-          close_date = COALESCE($9, close_date),
-          statute_of_limitations = COALESCE($10, statute_of_limitations),
-          court_name = COALESCE($11, court_name),
-          case_number = COALESCE($12, case_number),
-          judge = COALESCE($13, judge),
-          jurisdiction = COALESCE($14, jurisdiction),
-          billing_type = COALESCE($15, billing_type),
-          billing_rate = COALESCE($16, billing_rate),
-          flat_fee = COALESCE($17, flat_fee),
-          contingency_percent = COALESCE($18, contingency_percent),
-          retainer_amount = COALESCE($19, retainer_amount),
-          budget = COALESCE($20, budget),
-          tags = COALESCE($21, tags),
-          ai_summary = COALESCE($22, ai_summary),
-          conflict_cleared = COALESCE($23, conflict_cleared)
-        WHERE id = $24`,
+          originating_attorney = COALESCE($8, originating_attorney),
+          open_date = COALESCE($9, open_date),
+          close_date = COALESCE($10, close_date),
+          statute_of_limitations = COALESCE($11, statute_of_limitations),
+          court_name = COALESCE($12, court_name),
+          case_number = COALESCE($13, case_number),
+          judge = COALESCE($14, judge),
+          jurisdiction = COALESCE($15, jurisdiction),
+          billing_type = COALESCE($16, billing_type),
+          billing_rate = COALESCE($17, billing_rate),
+          flat_fee = COALESCE($18, flat_fee),
+          contingency_percent = COALESCE($19, contingency_percent),
+          retainer_amount = COALESCE($20, retainer_amount),
+          budget = COALESCE($21, budget),
+          tags = COALESCE($22, tags),
+          ai_summary = COALESCE($23, ai_summary),
+          conflict_cleared = COALESCE($24, conflict_cleared)
+        WHERE id = $25`,
         [
-          name, description, clientId, type, status, priority, responsibleAttorney,
+          name, description, clientId, type, status, priority, responsibleAttorney, originatingAttorney,
           openDate, closeDate, statuteOfLimitations,
           courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
           billingType, billingRate, flatFee, contingencyPercent, retainerAmount,

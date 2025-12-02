@@ -295,6 +295,17 @@
   color: var(--apex-text);
 }
 
+.attorneyName {
+  font-size: 0.875rem;
+  color: var(--apex-light);
+}
+
+.unassigned {
+  font-size: 0.8125rem;
+  color: var(--apex-subtle);
+  font-style: italic;
+}
+
 .dateCell {
   color: var(--apex-text);
   font-size: 0.875rem;

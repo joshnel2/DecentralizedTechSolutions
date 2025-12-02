@@ -37,6 +37,20 @@ import { WorkflowsPage } from './pages/WorkflowsPage'
 import { AdminPortalPage } from './pages/AdminPortalPage'
 import SecureAdminLogin from './pages/SecureAdminLogin'
 import SecureAdminDashboard from './pages/SecureAdminDashboard'
+// New Settings Pages
+import { AccountSettingsPage } from './pages/AccountSettingsPage'
+import { AppearanceSettingsPage } from './pages/AppearanceSettingsPage'
+import { MobileSettingsPage } from './pages/MobileSettingsPage'
+import { AppsSettingsPage } from './pages/AppsSettingsPage'
+import { NotificationsSettingsPage } from './pages/NotificationsSettingsPage'
+import { ReferralsPage } from './pages/ReferralsPage'
+import { BillingSettingsPage } from './pages/BillingSettingsPage'
+import { PaymentsSettingsPage } from './pages/PaymentsSettingsPage'
+import { DataEscrowPage } from './pages/DataEscrowPage'
+import { SharingSettingsPage } from './pages/SharingSettingsPage'
+import { TextMessagingPage } from './pages/TextMessagingPage'
+import { AIConfigPage } from './pages/AIConfigPage'
+import { ReportingSettingsPage } from './pages/ReportingSettingsPage'
 
 // Loading screen component
 function LoadingScreen() {
@@ -167,6 +181,20 @@ function AppContent() {
         <Route path="settings/snippets" element={<TextSnippetsPage />} />
         <Route path="settings/documents" element={<DocumentAutomationPage />} />
         <Route path="settings/workflows" element={<WorkflowsPage />} />
+        {/* Additional Settings Routes */}
+        <Route path="settings/account" element={<AccountSettingsPage />} />
+        <Route path="settings/appearance" element={<AppearanceSettingsPage />} />
+        <Route path="settings/mobile" element={<MobileSettingsPage />} />
+        <Route path="settings/apps" element={<AppsSettingsPage />} />
+        <Route path="settings/notifications" element={<NotificationsSettingsPage />} />
+        <Route path="settings/referrals" element={<ReferralsPage />} />
+        <Route path="settings/billing" element={<BillingSettingsPage />} />
+        <Route path="settings/payments" element={<PaymentsSettingsPage />} />
+        <Route path="settings/data-escrow" element={<DataEscrowPage />} />
+        <Route path="settings/sharing" element={<SharingSettingsPage />} />
+        <Route path="settings/text-messaging" element={<TextMessagingPage />} />
+        <Route path="settings/ai" element={<AIConfigPage />} />
+        <Route path="settings/reporting" element={<ReportingSettingsPage />} />
         
         {/* Trust Accounting */}
         <Route path="trust" element={<TrustAccountingPage />} />

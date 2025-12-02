@@ -62,13 +62,11 @@ export function MattersPage() {
     fetchMatters()
     fetchClients()
     
-    // Fetch attorneys if admin
-    if (isAdmin) {
-      teamApi.getAttorneys()
-        .then(data => setAttorneys(data.attorneys || []))
-        .catch(err => console.log('Could not fetch attorneys:', err))
-    }
-  }, [isAdmin])
+    // Fetch attorneys for attorney selection dropdowns
+    teamApi.getAttorneys()
+      .then(data => setAttorneys(data.attorneys || []))
+      .catch(err => console.log('Could not fetch attorneys:', err))
+  }, [])
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
@@ -173,6 +171,7 @@ export function MattersPage() {
             <tr>
               <th>Matter</th>
               <th>Client</th>
+              <th>Responsible Attorney</th>
               <th>Type</th>
               <th>Status</th>
               <th>Billing</th>
@@ -203,6 +202,15 @@ export function MattersPage() {
                   <Link to={`/app/clients/${matter.clientId}`} className={styles.link}>
                     {getClientName(matter.clientId)}
                   </Link>
+                </td>
+                <td>
+                  {matter.responsibleAttorney ? (
+                    <span className={styles.attorneyName}>
+                      {attorneys.find(a => a.id === matter.responsibleAttorney)?.name || 'Assigned'}
+                    </span>
+                  ) : (
+                    <span className={styles.unassigned}>Unassigned</span>
+                  )}
                 </td>
                 <td>
                   <span className={styles.typeTag}>
@@ -365,6 +373,8 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin }: NewMat
     billingType: 'hourly',
     billingRate: 450,
     openDate: new Date().toISOString(),
+    responsibleAttorney: '',
+    originatingAttorney: '',
     tags: []
   })
   
@@ -410,6 +420,8 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin }: NewMat
     try {
       await onSave({
         ...formData,
+        responsibleAttorney: formData.responsibleAttorney || undefined,
+        originatingAttorney: formData.originatingAttorney || undefined,
         teamAssignments: isAdmin ? teamAssignments : undefined
       })
     } finally {
@@ -457,6 +469,37 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin }: NewMat
               >
                 {typeOptions.slice(1).map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Responsible Attorney</label>
+              <select
+                value={formData.responsibleAttorney}
+                onChange={(e) => setFormData({...formData, responsibleAttorney: e.target.value})}
+              >
+                <option value="">Select responsible attorney...</option>
+                {attorneys.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} {a.role ? `(${a.role})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={styles.formGroup}>
+              <label>Originating Attorney</label>
+              <select
+                value={formData.originatingAttorney}
+                onChange={(e) => setFormData({...formData, originatingAttorney: e.target.value})}
+              >
+                <option value="">Select originating attorney...</option>
+                {attorneys.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} {a.role ? `(${a.role})` : ''}
+                  </option>
                 ))}
               </select>
             </div>
