@@ -4,6 +4,22 @@ import { authenticate, requirePermission } from '../middleware/auth.js';
 
 const router = Router();
 
+// Helper to check if originating_attorney column exists
+let hasOriginatingAttorney = null;
+async function checkOriginatingAttorneyColumn() {
+  if (hasOriginatingAttorney !== null) return hasOriginatingAttorney;
+  try {
+    const result = await query(`
+      SELECT column_name FROM information_schema.columns 
+      WHERE table_name = 'matters' AND column_name = 'originating_attorney'
+    `);
+    hasOriginatingAttorney = result.rows.length > 0;
+  } catch (e) {
+    hasOriginatingAttorney = false;
+  }
+  return hasOriginatingAttorney;
+}
+
 // Get all matters
 router.get('/', authenticate, requirePermission('matters:view'), async (req, res) => {
   try {
@@ -15,7 +31,10 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
     // Check if user is admin/owner - they see all firm matters
     const isAdmin = ['owner', 'admin'].includes(req.user.role);
     
-    let sql = `
+    // Check if originating_attorney column exists
+    const hasOrigAtty = await checkOriginatingAttorneyColumn();
+    
+    let sql = hasOrigAtty ? `
       SELECT m.*,
              c.display_name as client_name,
              u.first_name || ' ' || u.last_name as responsible_attorney_name,
@@ -25,6 +44,17 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
       LEFT JOIN clients c ON m.client_id = c.id
       LEFT JOIN users u ON m.responsible_attorney = u.id
       LEFT JOIN users ou ON m.originating_attorney = ou.id
+      LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
+      WHERE m.firm_id = $1
+    ` : `
+      SELECT m.*,
+             c.display_name as client_name,
+             u.first_name || ' ' || u.last_name as responsible_attorney_name,
+             NULL as originating_attorney_name,
+             array_agg(DISTINCT ma.user_id) FILTER (WHERE ma.user_id IS NOT NULL) as assigned_to
+      FROM matters m
+      LEFT JOIN clients c ON m.client_id = c.id
+      LEFT JOIN users u ON m.responsible_attorney = u.id
       LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
       WHERE m.firm_id = $1
     `;
@@ -76,7 +106,11 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
       paramIndex++;
     }
 
-    sql += ` GROUP BY m.id, c.display_name, u.first_name, u.last_name, ou.first_name, ou.last_name
+    sql += hasOrigAtty 
+      ? ` GROUP BY m.id, c.display_name, u.first_name, u.last_name, ou.first_name, ou.last_name
+             ORDER BY m.created_at DESC 
+             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`
+      : ` GROUP BY m.id, c.display_name, u.first_name, u.last_name
              ORDER BY m.created_at DESC 
              LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(parseInt(limit), parseInt(offset));
@@ -138,21 +172,34 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
 // Get single matter
 router.get('/:id', authenticate, requirePermission('matters:view'), async (req, res) => {
   try {
-    const result = await query(
-      `SELECT m.*,
+    const hasOrigAtty = await checkOriginatingAttorneyColumn();
+    
+    const sql = hasOrigAtty 
+      ? `SELECT m.*,
               c.display_name as client_name,
               u.first_name || ' ' || u.last_name as responsible_attorney_name,
               ou.first_name || ' ' || ou.last_name as originating_attorney_name,
               array_agg(DISTINCT ma.user_id) FILTER (WHERE ma.user_id IS NOT NULL) as assigned_to
-       FROM matters m
-       LEFT JOIN clients c ON m.client_id = c.id
-       LEFT JOIN users u ON m.responsible_attorney = u.id
-       LEFT JOIN users ou ON m.originating_attorney = ou.id
-       LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
-       WHERE m.id = $1 AND m.firm_id = $2
-       GROUP BY m.id, c.display_name, u.first_name, u.last_name, ou.first_name, ou.last_name`,
-      [req.params.id, req.user.firmId]
-    );
+         FROM matters m
+         LEFT JOIN clients c ON m.client_id = c.id
+         LEFT JOIN users u ON m.responsible_attorney = u.id
+         LEFT JOIN users ou ON m.originating_attorney = ou.id
+         LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
+         WHERE m.id = $1 AND m.firm_id = $2
+         GROUP BY m.id, c.display_name, u.first_name, u.last_name, ou.first_name, ou.last_name`
+      : `SELECT m.*,
+              c.display_name as client_name,
+              u.first_name || ' ' || u.last_name as responsible_attorney_name,
+              NULL as originating_attorney_name,
+              array_agg(DISTINCT ma.user_id) FILTER (WHERE ma.user_id IS NOT NULL) as assigned_to
+         FROM matters m
+         LEFT JOIN clients c ON m.client_id = c.id
+         LEFT JOIN users u ON m.responsible_attorney = u.id
+         LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
+         WHERE m.id = $1 AND m.firm_id = $2
+         GROUP BY m.id, c.display_name, u.first_name, u.last_name`;
+    
+    const result = await query(sql, [req.params.id, req.user.firmId]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Matter not found' });
@@ -238,6 +285,8 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
     const safeResponsibleAttorney = responsibleAttorney && responsibleAttorney.trim() !== '' ? responsibleAttorney : req.user.id;
     const safeOriginatingAttorney = originatingAttorney && originatingAttorney.trim() !== '' ? originatingAttorney : null;
 
+    const hasOrigAtty = await checkOriginatingAttorneyColumn();
+    
     const result = await withTransaction(async (client) => {
       // Generate matter number
       const countResult = await client.query(
@@ -247,24 +296,42 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
       const count = parseInt(countResult.rows[0].count) + 1;
       const number = `MTR-${new Date().getFullYear()}-${String(count).padStart(3, '0')}`;
 
-      // Create matter
-      const matterResult = await client.query(
-        `INSERT INTO matters (
-          firm_id, number, name, description, client_id, type, status, priority,
-          responsible_attorney, originating_attorney, open_date, statute_of_limitations,
-          court_name, case_number, judge, jurisdiction,
-          billing_type, billing_rate, flat_fee, contingency_percent, retainer_amount,
-          budget, tags, conflict_cleared, created_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
-        RETURNING *`,
-        [
-          req.user.firmId, number, name, description, safeClientId, type, status, priority,
-          safeResponsibleAttorney, safeOriginatingAttorney, openDate, statuteOfLimitations,
-          courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
-          billingType, billingRate, flatFee, contingencyPercent, retainerAmount,
-          budget, tags, conflictCleared, req.user.id
-        ]
-      );
+      // Create matter - conditionally include originating_attorney
+      const matterResult = hasOrigAtty 
+        ? await client.query(
+          `INSERT INTO matters (
+            firm_id, number, name, description, client_id, type, status, priority,
+            responsible_attorney, originating_attorney, open_date, statute_of_limitations,
+            court_name, case_number, judge, jurisdiction,
+            billing_type, billing_rate, flat_fee, contingency_percent, retainer_amount,
+            budget, tags, conflict_cleared, created_by
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+          RETURNING *`,
+          [
+            req.user.firmId, number, name, description, safeClientId, type, status, priority,
+            safeResponsibleAttorney, safeOriginatingAttorney, openDate, statuteOfLimitations,
+            courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
+            billingType, billingRate, flatFee, contingencyPercent, retainerAmount,
+            budget, tags, conflictCleared, req.user.id
+          ]
+        )
+        : await client.query(
+          `INSERT INTO matters (
+            firm_id, number, name, description, client_id, type, status, priority,
+            responsible_attorney, open_date, statute_of_limitations,
+            court_name, case_number, judge, jurisdiction,
+            billing_type, billing_rate, flat_fee, contingency_percent, retainer_amount,
+            budget, tags, conflict_cleared, created_by
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+          RETURNING *`,
+          [
+            req.user.firmId, number, name, description, safeClientId, type, status, priority,
+            safeResponsibleAttorney, openDate, statuteOfLimitations,
+            courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
+            billingType, billingRate, flatFee, contingencyPercent, retainerAmount,
+            budget, tags, conflictCleared, req.user.id
+          ]
+        );
 
       const matter = matterResult.rows[0];
 
