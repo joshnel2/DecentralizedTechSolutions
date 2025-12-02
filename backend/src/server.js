@@ -18,6 +18,7 @@ import aiRoutes from './routes/ai.js';
 import integrationRoutes from './routes/integrations.js';
 import adminRoutes from './routes/admin.js';
 import secureAdminRoutes from './routes/secureAdmin.js';
+import migrationRoutes from './routes/migration.js';
 
 // Import middleware
 import { apiLimiter } from './middleware/rateLimit.js';
@@ -70,6 +71,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/secure-admin', secureAdminRoutes);
+app.use('/api/migration', migrationRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -122,6 +124,7 @@ app.listen(PORT, () => {
 ║     • Integrations: /api/integrations                     ║
 ║     • Admin:      /api/admin                              ║
 ║     • SecureAdmin: /api/secure-admin (HIPAA Compliant)   ║
+║     • Migration:  /api/migration                        ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
   `);
