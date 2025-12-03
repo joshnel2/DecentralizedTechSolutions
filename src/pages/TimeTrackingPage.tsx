@@ -149,7 +149,17 @@ export function TimeTrackingPage() {
         <div className={styles.headerActions}>
           <button 
             className={styles.aiBtn}
-            onClick={() => openChat()}
+            onClick={() => openChat({
+              label: 'Time Tracking',
+              contextType: 'time-tracking',
+              suggestedQuestions: [
+                'Suggest a time entry for my recent work',
+                'Analyze my billable vs non-billable ratio',
+                'What unbilled time should I invoice?',
+                'Review my time entries for this week',
+                'Suggest ways to improve my time capture'
+              ]
+            })}
           >
             <Sparkles size={16} />
             AI Time Suggestions

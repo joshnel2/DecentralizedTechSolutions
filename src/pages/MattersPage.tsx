@@ -7,7 +7,7 @@ import { teamApi } from '../services/api'
 import { 
   Plus, Search, Filter, ChevronDown, Briefcase, 
   MoreVertical, Sparkles, Calendar, DollarSign, Users, X,
-  Edit2, Archive, CheckCircle2, Trash2, Eye, XCircle
+  Edit2, Archive, CheckCircle2, Trash2, Eye, XCircle, FileText
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -120,7 +120,20 @@ export function MattersPage() {
           <span className={styles.count}>{matters.length} total</span>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.aiBtn} onClick={() => openChat()}>
+          <button 
+            className={styles.aiBtn} 
+            onClick={() => openChat({
+              label: 'Matters',
+              contextType: 'matters',
+              suggestedQuestions: [
+                'Give me an overview of all active matters',
+                'Which matters need attention this week?',
+                'Analyze billing across all matters',
+                'Which matters have upcoming deadlines?',
+                'Summarize matter workload by attorney'
+              ]
+            })}
+          >
             <Sparkles size={16} />
             AI Insights
           </button>

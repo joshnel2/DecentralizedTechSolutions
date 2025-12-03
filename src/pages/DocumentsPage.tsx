@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAIStore } from '../stores/aiStore'
+import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Plus, Search, FolderOpen, FileText, Upload, Grid, List,
   MoreVertical, Sparkles, Download, Trash2, Wand2, Eye, X, FileSearch
@@ -12,8 +13,9 @@ import styles from './DocumentsPage.module.css'
 
 export function DocumentsPage() {
   const navigate = useNavigate()
-  const { documents, matters, fetchDocuments, fetchMatters, addDocument } = useDataStore()
+  const { documents, matters, fetchDocuments, fetchMatters, addDocument, deleteDocument } = useDataStore()
   const { setSelectedMode, setDocumentContext, createConversation } = useAIStore()
+  const { openChat } = useAIChat()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isUploading, setIsUploading] = useState(false)
   
@@ -22,6 +24,60 @@ export function DocumentsPage() {
     fetchDocuments()
     fetchMatters()
   }, [fetchDocuments, fetchMatters])
+  
+  // Download document
+  const downloadDocument = async (doc: typeof documents[0]) => {
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+    const token = localStorage.getItem('token')
+    try {
+      const response = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = doc.name
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+      } else {
+        alert('Failed to download document')
+      }
+    } catch (error) {
+      console.error('Download error:', error)
+      alert('Failed to download document')
+    }
+  }
+  
+  // Delete document
+  const handleDeleteDocument = async (docId: string) => {
+    if (!confirm('Are you sure you want to delete this document?')) return
+    try {
+      await deleteDocument(docId)
+      fetchDocuments()
+    } catch (error) {
+      console.error('Failed to delete document:', error)
+      alert('Failed to delete document')
+    }
+  }
+  
+  // Open AI with document context
+  const openAIWithDocContext = (doc: typeof documents[0]) => {
+    openChat({
+      label: `Document: ${doc.name}`,
+      contextType: 'documents',
+      suggestedQuestions: [
+        'Summarize this document',
+        'What are the key points in this document?',
+        'Extract important entities and dates',
+        'Are there any risks or concerns?'
+      ],
+      additionalContext: { documentId: doc.id, documentName: doc.name }
+    })
+  }
   
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
@@ -280,14 +336,25 @@ export function DocumentsPage() {
                   <Eye size={14} />
                 </button>
                 <button 
+                  className={styles.downloadBtn}
+                  onClick={() => downloadDocument(doc)}
+                  title="Download"
+                >
+                  <Download size={14} />
+                </button>
+                <button 
                   className={styles.analyzeBtn}
-                  onClick={() => analyzeDocument(doc)}
+                  onClick={() => openAIWithDocContext(doc)}
                   title="AI Analyze"
                 >
                   <Sparkles size={14} />
                 </button>
-                <button className={styles.menuBtn}>
-                  <MoreVertical size={16} />
+                <button 
+                  className={styles.deleteBtn}
+                  onClick={() => handleDeleteDocument(doc.id)}
+                  title="Delete"
+                >
+                  <Trash2 size={14} />
                 </button>
               </div>
             </div>
@@ -326,14 +393,24 @@ export function DocumentsPage() {
                         <Eye size={16} />
                       </button>
                       <button 
+                        onClick={() => downloadDocument(doc)}
+                        title="Download"
+                      >
+                        <Download size={16} />
+                      </button>
+                      <button 
                         className={styles.analyzeBtn}
-                        onClick={() => analyzeDocument(doc)}
+                        onClick={() => openAIWithDocContext(doc)}
                         title="AI Analyze"
                       >
                         <Sparkles size={14} />
                       </button>
-                      <button title="Download"><Download size={16} /></button>
-                      <button title="Delete"><Trash2 size={16} /></button>
+                      <button 
+                        onClick={() => handleDeleteDocument(doc.id)}
+                        title="Delete"
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -362,23 +439,22 @@ export function DocumentsPage() {
               </div>
               <div className={styles.previewActions}>
                 <button 
+                  className={styles.downloadBtnLarge}
+                  onClick={() => downloadDocument(previewDoc)}
+                >
+                  <Download size={16} />
+                  Download
+                </button>
+                <button 
                   className={styles.analyzeBtn}
                   onClick={() => {
-                    analyzeDocument(previewDoc)
+                    openAIWithDocContext(previewDoc)
                     setPreviewDoc(null)
                   }}
                 >
                   <Sparkles size={16} />
                   AI Analyze
                 </button>
-                <a 
-                  href={getDocumentUrl(previewDoc)}
-                  download={previewDoc.name}
-                  className={styles.downloadBtn}
-                >
-                  <Download size={16} />
-                  Download
-                </a>
                 <button className={styles.closePreviewBtn} onClick={() => setPreviewDoc(null)}>
                   <X size={20} />
                 </button>
@@ -397,14 +473,13 @@ export function DocumentsPage() {
                   <h3>{previewDoc.name}</h3>
                   <p>{previewDoc.type} • {formatFileSize(previewDoc.size)}</p>
                   <p className={styles.noPreviewHint}>Preview not available for this file type</p>
-                  <a 
-                    href={getDocumentUrl(previewDoc)}
-                    download={previewDoc.name}
+                  <button 
+                    onClick={() => downloadDocument(previewDoc)}
                     className={styles.downloadBtnLarge}
                   >
                     <Download size={18} />
                     Download to View
-                  </a>
+                  </button>
                 </div>
               )}
             </div>

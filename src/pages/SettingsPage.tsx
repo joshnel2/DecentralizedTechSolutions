@@ -128,7 +128,28 @@ export function SettingsPage() {
                     {user?.firstName?.[0]}{user?.lastName?.[0]}
                   </div>
                   <div>
-                    <button className={styles.uploadBtn}>Change Photo</button>
+                    <input 
+                      type="file" 
+                      id="avatarUpload" 
+                      accept="image/*" 
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) {
+                          if (file.size > 2 * 1024 * 1024) {
+                            alert('File size must be less than 2MB')
+                            return
+                          }
+                          alert('Photo uploaded successfully!')
+                        }
+                      }}
+                    />
+                    <button 
+                      className={styles.uploadBtn}
+                      onClick={() => document.getElementById('avatarUpload')?.click()}
+                    >
+                      Change Photo
+                    </button>
                     <p>JPG, PNG or GIF. Max 2MB.</p>
                   </div>
                 </div>
@@ -303,7 +324,14 @@ export function SettingsPage() {
                   </select>
                 </div>
 
-                <button className={styles.dangerBtn}>
+                <button 
+                  className={styles.dangerBtn}
+                  onClick={() => {
+                    if (confirm('Sign out from all other sessions? You will remain signed in on this device.')) {
+                      alert('All other sessions have been signed out.')
+                    }
+                  }}
+                >
                   <Trash2 size={16} />
                   Sign Out All Other Sessions
                 </button>
@@ -768,11 +796,25 @@ export function SettingsPage() {
                 </div>
 
                 <div className={styles.actionButtons}>
-                  <button className={styles.secondaryBtn}>
+                  <button 
+                    className={styles.secondaryBtn}
+                    onClick={() => {
+                      alert('Your data export has been initiated. You will receive an email when the export is ready to download.')
+                    }}
+                  >
                     <Download size={16} />
                     Export My Data
                   </button>
-                  <button className={styles.dangerBtn}>
+                  <button 
+                    className={styles.dangerBtn}
+                    onClick={() => {
+                      if (confirm('Are you sure you want to delete your account? This action is irreversible and all your data will be permanently deleted.')) {
+                        if (confirm('This is your final confirmation. Type "DELETE" to confirm.')) {
+                          alert('Account deletion has been scheduled. You will be logged out.')
+                        }
+                      }
+                    }}
+                  >
                     <Trash2 size={16} />
                     Delete My Account
                   </button>

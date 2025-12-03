@@ -271,6 +271,21 @@
   transform: scale(1.1);
 }
 
+.deleteBtn {
+  background: none !important;
+  border: none;
+  padding: 6px !important;
+  color: var(--apex-text) !important;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.deleteBtn:hover {
+  background: rgba(239, 68, 68, 0.1) !important;
+  color: var(--apex-error) !important;
+}
+
 .emptyState {
   text-align: center;
   padding: var(--space-3xl);
@@ -587,10 +602,27 @@
   font-weight: 600;
   font-size: 0.9375rem;
   text-decoration: none;
+  cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .downloadBtnLarge:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-glow);
+}
+
+/* Download Button in doc actions */
+.docActions .downloadBtn {
+  background: none !important;
+  border: none;
+  padding: 6px !important;
+  color: var(--apex-text) !important;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.docActions .downloadBtn:hover {
+  background: var(--apex-slate) !important;
+  color: var(--apex-gold-bright) !important;
 }

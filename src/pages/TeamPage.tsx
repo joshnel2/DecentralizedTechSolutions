@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { 
   Plus, Users, UserPlus, Shield, Trash2, Edit2,
-  Mail, MoreVertical
+  Mail, MoreVertical, Eye, Key, XCircle
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './TeamPage.module.css'
@@ -20,6 +20,20 @@ export function TeamPage() {
   const { user } = useAuthStore()
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [showGroupModal, setShowGroupModal] = useState(false)
+  const [editingGroup, setEditingGroup] = useState<any>(null)
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpenDropdownId(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   return (
     <div className={styles.teamPage}>
@@ -66,9 +80,55 @@ export function TeamPage() {
                   {member.role}
                 </span>
               </div>
-              <button className={styles.menuBtn}>
-                <MoreVertical size={18} />
-              </button>
+              <div className={styles.menuWrapper} ref={openDropdownId === member.id ? dropdownRef : null}>
+                <button 
+                  className={styles.menuBtn}
+                  onClick={() => setOpenDropdownId(openDropdownId === member.id ? null : member.id)}
+                >
+                  <MoreVertical size={18} />
+                </button>
+                {openDropdownId === member.id && (
+                  <div className={styles.dropdown}>
+                    <button 
+                      className={styles.dropdownItem}
+                      onClick={() => {
+                        setOpenDropdownId(null)
+                        alert(`Viewing profile for ${member.name}`)
+                      }}
+                    >
+                      <Eye size={14} />
+                      View Profile
+                    </button>
+                    <button 
+                      className={styles.dropdownItem}
+                      onClick={() => {
+                        setOpenDropdownId(null)
+                        alert(`Edit role and permissions for ${member.name}`)
+                      }}
+                    >
+                      <Key size={14} />
+                      Edit Permissions
+                    </button>
+                    {member.role !== 'owner' && (
+                      <>
+                        <div className={styles.dropdownDivider} />
+                        <button 
+                          className={clsx(styles.dropdownItem, styles.danger)}
+                          onClick={() => {
+                            if (confirm(`Are you sure you want to remove ${member.name} from the team?`)) {
+                              alert(`${member.name} has been removed from the team.`)
+                              setOpenDropdownId(null)
+                            }
+                          }}
+                        >
+                          <XCircle size={14} />
+                          Remove from Team
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -106,10 +166,14 @@ export function TeamPage() {
                 </span>
               </div>
               <div className={styles.groupActions}>
-                <button><Edit2 size={14} /> Edit</button>
+                <button onClick={() => setEditingGroup(group)}><Edit2 size={14} /> Edit</button>
                 <button 
                   className={styles.deleteBtn}
-                  onClick={() => deleteGroup(group.id)}
+                  onClick={() => {
+                    if (confirm(`Are you sure you want to delete the group "${group.name}"?`)) {
+                      deleteGroup(group.id)
+                    }
+                  }}
                 >
                   <Trash2 size={14} />
                 </button>
@@ -129,6 +193,17 @@ export function TeamPage() {
           onSave={(data) => {
             addGroup(data)
             setShowGroupModal(false)
+          }}
+        />
+      )}
+
+      {editingGroup && (
+        <GroupModal 
+          group={editingGroup}
+          onClose={() => setEditingGroup(null)}
+          onSave={(data) => {
+            updateGroup(editingGroup.id, data)
+            setEditingGroup(null)
           }}
         />
       )}
@@ -196,13 +271,14 @@ function InviteModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-function GroupModal({ onClose, onSave }: { onClose: () => void; onSave: (data: any) => void }) {
+function GroupModal({ group, onClose, onSave }: { group?: any; onClose: () => void; onSave: (data: any) => void }) {
+  const isEditing = !!group
   const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    color: '#3B82F6',
-    memberIds: [],
-    permissions: ['matters:view', 'documents:view']
+    name: group?.name || '',
+    description: group?.description || '',
+    color: group?.color || '#3B82F6',
+    memberIds: group?.memberIds || [],
+    permissions: group?.permissions || ['matters:view', 'documents:view']
   })
 
   const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899']
@@ -216,7 +292,7 @@ function GroupModal({ onClose, onSave }: { onClose: () => void; onSave: (data: a
     <div className={styles.modalOverlay} onClick={onClose}>
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
-          <h2>Create Group</h2>
+          <h2>{isEditing ? 'Edit Group' : 'Create Group'}</h2>
           <button onClick={onClose} className={styles.closeBtn}>×</button>
         </div>
         <form onSubmit={handleSubmit} className={styles.modalForm}>
@@ -261,7 +337,7 @@ function GroupModal({ onClose, onSave }: { onClose: () => void; onSave: (data: a
               Cancel
             </button>
             <button type="submit" className={styles.saveBtn}>
-              Create Group
+              {isEditing ? 'Save Changes' : 'Create Group'}
             </button>
           </div>
         </form>

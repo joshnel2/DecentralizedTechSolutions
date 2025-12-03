@@ -343,7 +343,17 @@ export function BillingPage() {
           <p className={styles.headerSubtitle}>Manage invoices, payments, and billing</p>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.aiBtn} onClick={() => openChat()}>
+          <button className={styles.aiBtn} onClick={() => openChat({
+              label: 'Billing',
+              contextType: 'billing',
+              suggestedQuestions: [
+                'Analyze my outstanding receivables',
+                'Which invoices are overdue and need follow-up?',
+                'What is my collection rate trend?',
+                'Suggest ways to improve billing efficiency',
+                'Give me a summary of this month\'s billing'
+              ]
+            })}>
             <Sparkles size={16} />
             AI Insights
           </button>
@@ -415,7 +425,15 @@ export function BillingPage() {
         </button>
         <button 
           className={styles.quickActionBtn}
-          onClick={() => openChat()}
+          onClick={() => openChat({
+            label: 'Payment Reminders',
+            contextType: 'billing',
+            suggestedQuestions: [
+              'Draft a friendly payment reminder email',
+              'What overdue invoices should I prioritize?',
+              'Suggest a collection strategy for 90+ day receivables'
+            ]
+          })}
         >
           <Mail size={18} />
           <span>Send Reminders</span>

@@ -1,17 +1,18 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
-import { invoicesApi } from '../services/api'
+import { useAIChat } from '../contexts/AIChatContext'
+import { invoicesApi, teamApi } from '../services/api'
 import { 
   Briefcase, Calendar, DollarSign, Clock, FileText,
   ChevronLeft, Sparkles, Edit2, MoreVertical, Plus,
   CheckCircle2, Scale, Building2, Brain, Loader2, 
   Copy, RefreshCw, AlertTriangle, TrendingUp,
-  ListTodo, Users, Circle, Upload, Download, X
+  ListTodo, Users, Circle, Upload, Download, X, 
+  Trash2, Archive, XCircle, Eye
 } from 'lucide-react'
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
-import { AIButton } from '../components/AIButton'
 import styles from './DetailPage.module.css'
 
 // Task interface
@@ -33,10 +34,13 @@ const relatedContacts = [
 
 export function MatterDetailPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
+  const { openChat } = useAIChat()
   const { 
     matters, clients, timeEntries, invoices, events, documents, 
     updateMatter, addTimeEntry, addInvoice, addEvent, addDocument,
-    fetchMatters, fetchClients, fetchTimeEntries, fetchInvoices, fetchEvents, fetchDocuments 
+    fetchMatters, fetchClients, fetchTimeEntries, fetchInvoices, fetchEvents, fetchDocuments,
+    deleteTimeEntry, updateTimeEntry, deleteEvent, updateEvent, deleteMatter
   } = useDataStore()
   const [activeTab, setActiveTab] = useState('overview')
   const [aiAnalyzing, setAiAnalyzing] = useState(false)
@@ -51,7 +55,25 @@ export function MatterDetailPage() {
   const [showTaskModal, setShowTaskModal] = useState(false)
   const [showDocPreview, setShowDocPreview] = useState<any>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [showEditMatterModal, setShowEditMatterModal] = useState(false)
+  const [showMatterDropdown, setShowMatterDropdown] = useState(false)
+  const [editingTimeEntry, setEditingTimeEntry] = useState<any>(null)
+  const [editingEvent, setEditingEvent] = useState<any>(null)
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const [attorneys, setAttorneys] = useState<any[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowMatterDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
   
   // Task state - persisted in localStorage for demo
   const [tasks, setTasks] = useState<Task[]>(() => {
@@ -68,6 +90,16 @@ export function MatterDetailPage() {
   const addTask = (task: Omit<Task, 'id'>) => {
     const newTask = { ...task, id: crypto.randomUUID() }
     setTasks(prev => [...prev, newTask])
+  }
+  
+  const updateTask = (taskId: string, updates: Partial<Task>) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...updates } : t))
+  }
+  
+  const deleteTask = (taskId: string) => {
+    if (confirm('Are you sure you want to delete this task?')) {
+      setTasks(prev => prev.filter(t => t.id !== taskId))
+    }
   }
   
   const toggleTaskStatus = (taskId: string) => {
@@ -88,7 +120,99 @@ export function MatterDetailPage() {
     fetchInvoices()
     fetchEvents()
     fetchDocuments({ matterId: id })
+    
+    // Fetch attorneys for edit modal
+    teamApi.getAttorneys()
+      .then(data => setAttorneys(data.attorneys || []))
+      .catch(err => console.log('Could not fetch attorneys:', err))
   }, [id])
+  
+  // AI Helper - opens side panel with context-specific questions
+  const openAIWithContext = (contextLabel: string, questions: string[]) => {
+    openChat({
+      label: contextLabel,
+      contextType: 'matter-detail',
+      suggestedQuestions: questions,
+      additionalContext: { matterId: id, matterName: matter?.name }
+    })
+  }
+  
+  // Handle matter status change
+  const handleStatusChange = async (newStatus: 'intake' | 'pending_conflict' | 'active' | 'pending' | 'on_hold' | 'closed_won' | 'closed_lost' | 'closed_settled' | 'closed_dismissed' | 'closed_transferred' | 'closed_abandoned' | 'closed_other') => {
+    try {
+      await updateMatter(id!, { status: newStatus })
+      setShowMatterDropdown(false)
+      fetchMatters()
+    } catch (error) {
+      console.error('Failed to update matter status:', error)
+      alert('Failed to update matter status')
+    }
+  }
+
+  // Handle matter delete
+  const handleDeleteMatter = async () => {
+    if (!confirm(`Are you sure you want to delete "${matter?.name}"? This action cannot be undone.`)) {
+      return
+    }
+    try {
+      await deleteMatter(id!)
+      navigate('/app/matters')
+    } catch (error) {
+      console.error('Failed to delete matter:', error)
+      alert('Failed to delete matter')
+    }
+  }
+  
+  // Handle time entry delete
+  const handleDeleteTimeEntry = async (entryId: string) => {
+    if (!confirm('Are you sure you want to delete this time entry?')) return
+    try {
+      await deleteTimeEntry(entryId)
+      fetchTimeEntries({ matterId: id })
+    } catch (error) {
+      console.error('Failed to delete time entry:', error)
+      alert('Failed to delete time entry')
+    }
+  }
+  
+  // Handle event delete
+  const handleDeleteEvent = async (eventId: string) => {
+    if (!confirm('Are you sure you want to delete this event?')) return
+    try {
+      await deleteEvent(eventId)
+      fetchEvents()
+    } catch (error) {
+      console.error('Failed to delete event:', error)
+      alert('Failed to delete event')
+    }
+  }
+  
+  // Download document
+  const downloadDocument = async (doc: any) => {
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+    const token = localStorage.getItem('token')
+    try {
+      const response = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = doc.name
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+      } else {
+        alert('Failed to download document')
+      }
+    } catch (error) {
+      console.error('Download error:', error)
+      alert('Failed to download document')
+    }
+  }
 
   const matter = useMemo(() => matters.find(m => m.id === id), [matters, id])
   const client = useMemo(() => clients.find(c => c.id === matter?.clientId), [clients, matter])
@@ -251,23 +375,93 @@ Only analyze documents actually associated with this matter.`
             Back to Matters
           </Link>
           <div className={styles.headerActions}>
-            <AIButton 
-              context={`Matter: ${matter.name}`}
-              label="AI Analysis"
-              prompts={[
-                { label: 'Summarize', prompt: 'Summarize this matter' },
-                { label: 'Risk Analysis', prompt: 'Analyze risks' },
-                { label: 'Timeline Review', prompt: 'Review timeline' },
-                { label: 'Billing Insights', prompt: 'Billing analysis' },
-                { label: 'Next Steps', prompt: 'Recommend next steps' }
-              ]}
-            />
-            <button className={styles.iconBtn}>
+            <button 
+              className={styles.aiBtn}
+              onClick={() => openAIWithContext(`Matter: ${matter.name}`, [
+                'Summarize this matter including current status and key details',
+                'What are the potential risks in this matter?',
+                'Review the timeline and upcoming deadlines',
+                'Analyze the billing and financials for this matter',
+                'What are the recommended next steps?'
+              ])}
+            >
+              <Sparkles size={16} />
+              AI Analysis
+            </button>
+            <button 
+              className={styles.iconBtn}
+              onClick={() => setShowEditMatterModal(true)}
+              title="Edit Matter"
+            >
               <Edit2 size={18} />
             </button>
-            <button className={styles.iconBtn}>
-              <MoreVertical size={18} />
-            </button>
+            <div className={styles.menuWrapper} ref={dropdownRef}>
+              <button 
+                className={styles.iconBtn}
+                onClick={() => setShowMatterDropdown(!showMatterDropdown)}
+                title="More Options"
+              >
+                <MoreVertical size={18} />
+              </button>
+              {showMatterDropdown && (
+                <div className={styles.dropdown}>
+                  <button 
+                    className={styles.dropdownItem}
+                    onClick={() => {
+                      setShowMatterDropdown(false)
+                      setShowEditMatterModal(true)
+                    }}
+                  >
+                    <Edit2 size={14} />
+                    Edit Matter
+                  </button>
+                  {matter.status === 'active' && (
+                    <>
+                      <button 
+                        className={styles.dropdownItem}
+                        onClick={() => handleStatusChange('on_hold')}
+                      >
+                        <XCircle size={14} />
+                        Put On Hold
+                      </button>
+                      <button 
+                        className={clsx(styles.dropdownItem, styles.success)}
+                        onClick={() => handleStatusChange('closed_won')}
+                      >
+                        <CheckCircle2 size={14} />
+                        Close - Won
+                      </button>
+                    </>
+                  )}
+                  {matter.status === 'on_hold' && (
+                    <button 
+                      className={styles.dropdownItem}
+                      onClick={() => handleStatusChange('active')}
+                    >
+                      <Briefcase size={14} />
+                      Reactivate
+                    </button>
+                  )}
+                  {!matter.status.startsWith('closed') && (
+                    <button 
+                      className={styles.dropdownItem}
+                      onClick={() => handleStatusChange('closed_other')}
+                    >
+                      <Archive size={14} />
+                      Archive / Close
+                    </button>
+                  )}
+                  <div className={styles.dropdownDivider} />
+                  <button 
+                    className={clsx(styles.dropdownItem, styles.danger)}
+                    onClick={handleDeleteMatter}
+                  >
+                    <Trash2 size={14} />
+                    Delete Matter
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -353,64 +547,66 @@ Only analyze documents actually associated with this matter.`
                 <div className={styles.aiCardActions}>
                   <button 
                     className={styles.aiGenerateBtn}
-                    onClick={generateAISummary}
-                    disabled={aiAnalyzing}
+                    onClick={() => openAIWithContext(`Matter Analysis: ${matter.name}`, [
+                      'Give me a comprehensive summary of this matter including status, financials, and timeline',
+                      'What are the key risks and how can we mitigate them?',
+                      'What are the next 5 recommended actions for this matter?'
+                    ])}
                   >
-                    {aiAnalyzing ? (
-                      <>
-                        <Loader2 size={16} className={styles.spinner} />
-                        Analyzing...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={16} />
-                        Generate Summary
-                      </>
-                    )}
+                    <Sparkles size={16} />
+                    Ask AI
                   </button>
                 </div>
               </div>
 
-              {(aiSummary || matter.aiSummary) && (
-                <div className={styles.aiContent}>
-                  <div className={styles.aiSummaryText}>
-                    {(aiSummary || matter.aiSummary || '').split('\n').map((line, i) => (
-                      <p key={i}>{line}</p>
-                    ))}
-                  </div>
-                  <div className={styles.aiSummaryActions}>
-                    <button onClick={() => navigator.clipboard.writeText(aiSummary || matter.aiSummary || '')}>
-                      <Copy size={14} /> Copy
-                    </button>
-                    <button onClick={generateAISummary}>
-                      <RefreshCw size={14} /> Regenerate
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {!aiSummary && !matter.aiSummary && !aiAnalyzing && (
-                <div className={styles.aiPlaceholder}>
-                  <Sparkles size={24} />
-                  <p>Click "Generate Summary" to get AI-powered insights about this matter</p>
-                </div>
-              )}
+              <div className={styles.aiPlaceholder}>
+                <Sparkles size={24} />
+                <p>Click "Ask AI" to get AI-powered insights about this matter, or use the quick actions below</p>
+              </div>
 
               {/* Quick AI Actions */}
               <div className={styles.aiQuickActions}>
-                <button className={styles.aiQuickBtn} onClick={() => runQuickAIAction('risk')} disabled={aiAnalyzing}>
+                <button 
+                  className={styles.aiQuickBtn} 
+                  onClick={() => openAIWithContext('Risk Analysis', [
+                    'What are the key risks in this matter?',
+                    'Are there any statute of limitations concerns?',
+                    'What documentation gaps exist?'
+                  ])}
+                >
                   <AlertTriangle size={14} />
                   Risk Check
                 </button>
-                <button className={styles.aiQuickBtn} onClick={() => runQuickAIAction('billing')} disabled={aiAnalyzing}>
+                <button 
+                  className={styles.aiQuickBtn} 
+                  onClick={() => openAIWithContext('Billing Analysis', [
+                    'Analyze the billing status for this matter',
+                    'What is the projected final value?',
+                    'Are there unbilled hours that should be invoiced?'
+                  ])}
+                >
                   <TrendingUp size={14} />
                   Billing Forecast
                 </button>
-                <button className={styles.aiQuickBtn} onClick={() => runQuickAIAction('deadline')} disabled={aiAnalyzing}>
+                <button 
+                  className={styles.aiQuickBtn} 
+                  onClick={() => openAIWithContext('Deadline Analysis', [
+                    'What are the upcoming deadlines for this matter?',
+                    'Are there any critical dates I should be aware of?',
+                    'What calendar items should I add?'
+                  ])}
+                >
                   <Calendar size={14} />
                   Deadline Analysis
                 </button>
-                <button className={styles.aiQuickBtn} onClick={() => runQuickAIAction('documents')} disabled={aiAnalyzing}>
+                <button 
+                  className={styles.aiQuickBtn} 
+                  onClick={() => openAIWithContext('Document Analysis', [
+                    'What documents are on file for this matter?',
+                    'What documents are typically needed for this matter type?',
+                    'Are there any missing critical documents?'
+                  ])}
+                >
                   <FileText size={14} />
                   Document Summary
                 </button>
@@ -421,11 +617,17 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.card}>
               <div className={styles.cardHeader}>
                 <h3>Matter Details</h3>
-                <AIButton 
-                  context="Matter Details"
-                  variant="icon"
-                  size="sm"
-                />
+                <button 
+                  className={styles.aiQuickBtn}
+                  onClick={() => openAIWithContext('Matter Details', [
+                    'Explain the billing arrangement for this matter',
+                    'Who are the key attorneys assigned?',
+                    'What type of matter is this?'
+                  ])}
+                  style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                >
+                  <Sparkles size={12} />
+                </button>
               </div>
               <div className={styles.detailGrid}>
                 <div className={styles.detailItem}>
@@ -489,11 +691,17 @@ Only analyze documents actually associated with this matter.`
                     <Scale size={18} />
                     Court Information
                   </h3>
-                  <AIButton 
-                    context="Court Information"
-                    variant="icon"
-                    size="sm"
-                  />
+                  <button 
+                    className={styles.aiQuickBtn}
+                    onClick={() => openAIWithContext('Court Information', [
+                      'What are the court rules for this jurisdiction?',
+                      'What filing requirements should I be aware of?',
+                      'Any known preferences of this judge?'
+                    ])}
+                    style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                  >
+                    <Sparkles size={12} />
+                  </button>
                 </div>
                 <div className={styles.detailGrid}>
                   <div className={styles.detailItem}>
@@ -524,11 +732,17 @@ Only analyze documents actually associated with this matter.`
                   Upcoming Events
                 </h3>
                 <div className={styles.cardActions}>
-                  <AIButton 
-                    context="Calendar Events"
-                    variant="icon"
-                    size="sm"
-                  />
+                  <button 
+                    className={styles.aiQuickBtn}
+                    onClick={() => openAIWithContext('Calendar Events', [
+                      'What events are coming up for this matter?',
+                      'Are there any scheduling conflicts?',
+                      'What meetings should I schedule next?'
+                    ])}
+                    style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                  >
+                    <Sparkles size={12} />
+                  </button>
                   <button className={styles.addBtn} onClick={() => setShowEventModal(true)}>
                     <Plus size={14} />
                     Add
@@ -537,17 +751,25 @@ Only analyze documents actually associated with this matter.`
               </div>
               <div className={styles.eventsList}>
                 {matterEvents.slice(0, 3).map(event => (
-                  <div key={event.id} className={styles.eventItem}>
+                  <div key={event.id} className={styles.eventItem} style={{ cursor: 'pointer' }} onClick={() => setEditingEvent(event)}>
                     <div 
                       className={styles.eventDot} 
                       style={{ background: event.color }}
                     />
-                    <div>
+                    <div style={{ flex: 1 }}>
                       <span className={styles.eventTitle}>{event.title}</span>
                       <span className={styles.eventDate}>
                         {format(parseISO(event.startTime), 'MMM d, yyyy h:mm a')}
                       </span>
                     </div>
+                    <button 
+                      className={styles.iconBtn}
+                      onClick={(e) => { e.stopPropagation(); handleDeleteEvent(event.id); }}
+                      style={{ padding: '4px', opacity: 0.6 }}
+                      title="Delete"
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 ))}
                 {matterEvents.length === 0 && (
@@ -564,16 +786,17 @@ Only analyze documents actually associated with this matter.`
                   Recent Time Entries
                 </h3>
                 <div className={styles.cardActions}>
-                  <AIButton 
-                    context="Time Entries"
-                    variant="icon"
-                    size="sm"
-                    prompts={[
-                      { label: 'Summarize', prompt: 'Summarize time entries' },
-                      { label: 'Billing Analysis', prompt: 'Analyze billing patterns' },
-                      { label: 'Efficiency', prompt: 'Review time efficiency' }
-                    ]}
-                  />
+                  <button 
+                    className={styles.aiQuickBtn}
+                    onClick={() => openAIWithContext('Time Entries', [
+                      'Summarize the time entries for this matter',
+                      'What are the billing patterns?',
+                      'Are there efficiency improvements I can make?'
+                    ])}
+                    style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                  >
+                    <Sparkles size={12} />
+                  </button>
                   <button className={styles.addBtn} onClick={() => setShowTimeEntryModal(true)}>
                     <Plus size={14} />
                     Add
@@ -582,8 +805,8 @@ Only analyze documents actually associated with this matter.`
               </div>
               <div className={styles.timeList}>
                 {matterTimeEntries.slice(0, 5).map(entry => (
-                  <div key={entry.id} className={styles.timeItem}>
-                    <div>
+                  <div key={entry.id} className={styles.timeItem} style={{ cursor: 'pointer' }} onClick={() => setEditingTimeEntry(entry)}>
+                    <div style={{ flex: 1 }}>
                       <span className={styles.timeDesc}>{entry.description}</span>
                       <span className={styles.timeDate}>
                         {format(parseISO(entry.date), 'MMM d, yyyy')}
@@ -593,6 +816,14 @@ Only analyze documents actually associated with this matter.`
                       <span>{entry.hours}h</span>
                       <span className={styles.timeAmount}>${entry.amount.toLocaleString()}</span>
                     </div>
+                    <button 
+                      className={styles.iconBtn}
+                      onClick={(e) => { e.stopPropagation(); handleDeleteTimeEntry(entry.id); }}
+                      style={{ padding: '4px', opacity: 0.6 }}
+                      title="Delete"
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 ))}
                 {matterTimeEntries.length === 0 && (
@@ -608,16 +839,18 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Time Entries</h2>
               <div className={styles.tabActions}>
-                <AIButton 
-                  context="All Time Entries"
-                  label="AI Analyze"
-                  prompts={[
-                    { label: 'Summarize', prompt: 'Summarize all time' },
-                    { label: 'Patterns', prompt: 'Find patterns' },
-                    { label: 'Optimize', prompt: 'Suggest optimizations' },
-                    { label: 'Invoice Ready', prompt: 'Prepare for invoicing' }
-                  ]}
-                />
+                <button 
+                  className={styles.aiBtn}
+                  onClick={() => openAIWithContext('Time Entries Analysis', [
+                    'Summarize all time entries for this matter',
+                    'Find patterns in how time is being spent',
+                    'Suggest optimizations for efficiency',
+                    'What time entries are ready for invoicing?'
+                  ])}
+                >
+                  <Sparkles size={16} />
+                  AI Analyze
+                </button>
                 <button 
                   className={styles.primaryBtn}
                   onClick={() => setShowTimeEntryModal(true)}
@@ -689,6 +922,24 @@ Only analyze documents actually associated with this matter.`
                         {entry.billed ? 'Billed' : 'Unbilled'}
                       </span>
                     </div>
+                    <div className={styles.cardActions} style={{ marginLeft: '12px' }}>
+                      <button 
+                        className={styles.iconBtn}
+                        onClick={() => setEditingTimeEntry(entry)}
+                        title="Edit"
+                        style={{ padding: '6px' }}
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                      <button 
+                        className={styles.iconBtn}
+                        onClick={() => handleDeleteTimeEntry(entry.id)}
+                        title="Delete"
+                        style={{ padding: '6px', color: 'var(--apex-error)' }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -701,16 +952,18 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Invoices</h2>
               <div className={styles.tabActions}>
-                <AIButton 
-                  context="Billing & Invoices"
-                  label="AI Insights"
-                  prompts={[
-                    { label: 'Summary', prompt: 'Billing summary' },
-                    { label: 'Collections', prompt: 'Collection analysis' },
-                    { label: 'Forecast', prompt: 'Revenue forecast' },
-                    { label: 'Draft Invoice', prompt: 'Help draft invoice' }
-                  ]}
-                />
+                <button 
+                  className={styles.aiBtn}
+                  onClick={() => openAIWithContext('Billing & Invoices', [
+                    'Give me a billing summary for this matter',
+                    'Analyze collections and outstanding payments',
+                    'Forecast revenue for this matter',
+                    'Help me draft the next invoice'
+                  ])}
+                >
+                  <Sparkles size={16} />
+                  AI Insights
+                </button>
                 <button 
                   className={styles.primaryBtn}
                   onClick={() => setShowInvoiceModal(true)}
@@ -729,7 +982,7 @@ Only analyze documents actually associated with this matter.`
                     <th>Due Date</th>
                     <th>Amount</th>
                     <th>Status</th>
-                    <th>AI</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -745,11 +998,17 @@ Only analyze documents actually associated with this matter.`
                         </span>
                       </td>
                       <td>
-                        <AIButton 
-                          context={`Invoice ${invoice.number}`}
-                          variant="icon"
-                          size="sm"
-                        />
+                        <button 
+                          className={styles.aiQuickBtn}
+                          onClick={() => openAIWithContext(`Invoice ${invoice.number}`, [
+                            `What is the status of invoice ${invoice.number}?`,
+                            'Help me draft a collection follow-up email',
+                            'What payment history exists for this invoice?'
+                          ])}
+                          style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                        >
+                          <Sparkles size={12} />
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -767,16 +1026,18 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Documents</h2>
               <div className={styles.tabActions}>
-                <AIButton 
-                  context="Matter Documents"
-                  label="AI Analyze All"
-                  prompts={[
-                    { label: 'Summarize All', prompt: 'Summarize all documents' },
-                    { label: 'Key Terms', prompt: 'Extract key terms' },
-                    { label: 'Timeline', prompt: 'Create document timeline' },
-                    { label: 'Missing Docs', prompt: 'Identify missing documents' }
-                  ]}
-                />
+                <button 
+                  className={styles.aiBtn}
+                  onClick={() => openAIWithContext('Matter Documents', [
+                    'Summarize all documents for this matter',
+                    'Extract key terms and clauses from the documents',
+                    'Create a timeline based on document dates',
+                    'What documents are missing for this matter type?'
+                  ])}
+                >
+                  <Sparkles size={16} />
+                  AI Analyze All
+                </button>
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -836,27 +1097,23 @@ Only analyze documents actually associated with this matter.`
                   <div className={styles.docActions} onClick={e => e.stopPropagation()}>
                     <button 
                       className={styles.docDownloadBtn}
-                      onClick={() => {
-                        // Download document
-                        if (doc.storageUrl) {
-                          window.open(doc.storageUrl, '_blank')
-                        }
-                      }}
+                      onClick={() => downloadDocument(doc)}
                       title="Download"
                     >
                       <Download size={16} />
                     </button>
-                    <AIButton 
-                      context={doc.name}
-                      variant="icon"
-                      size="sm"
-                      prompts={[
-                        { label: 'Summarize', prompt: 'Summarize document' },
-                        { label: 'Key Points', prompt: 'Extract key points' },
-                        { label: 'Entities', prompt: 'Extract entities' },
-                        { label: 'Risks', prompt: 'Identify risks' }
-                      ]}
-                    />
+                    <button 
+                      className={styles.aiQuickBtn}
+                      onClick={() => openAIWithContext(`Document: ${doc.name}`, [
+                        'Summarize this document',
+                        'What are the key points in this document?',
+                        'Extract important entities and dates',
+                        'Are there any risks or concerns in this document?'
+                      ])}
+                      style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                    >
+                      <Sparkles size={12} />
+                    </button>
                   </div>
                   {doc.aiSummary && (
                     <span className={styles.docAi}>
@@ -889,16 +1146,18 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Events & Deadlines</h2>
               <div className={styles.tabActions}>
-                <AIButton 
-                  context="Calendar & Deadlines"
-                  label="AI Schedule"
-                  prompts={[
-                    { label: 'Summary', prompt: 'Summarize schedule' },
-                    { label: 'Conflicts', prompt: 'Find conflicts' },
-                    { label: 'Deadlines', prompt: 'Review deadlines' },
-                    { label: 'Suggest', prompt: 'Suggest next meetings' }
-                  ]}
-                />
+                <button 
+                  className={styles.aiBtn}
+                  onClick={() => openAIWithContext('Calendar & Deadlines', [
+                    'Summarize the schedule for this matter',
+                    'Are there any scheduling conflicts?',
+                    'Review all upcoming deadlines',
+                    'Suggest what meetings I should schedule next'
+                  ])}
+                >
+                  <Sparkles size={16} />
+                  AI Schedule
+                </button>
                 <button 
                   className={styles.primaryBtn}
                   onClick={() => setShowEventModal(true)}
@@ -920,11 +1179,33 @@ Only analyze documents actually associated with this matter.`
                       {event.type.replace('_', ' ')}
                     </span>
                     <div className={styles.eventCardActions}>
-                      <AIButton 
-                        context={event.title}
-                        variant="icon"
-                        size="sm"
-                      />
+                      <button 
+                        className={styles.iconBtn}
+                        onClick={() => setEditingEvent(event)}
+                        title="Edit"
+                        style={{ padding: '4px' }}
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                      <button 
+                        className={styles.iconBtn}
+                        onClick={() => handleDeleteEvent(event.id)}
+                        title="Delete"
+                        style={{ padding: '4px', color: 'var(--apex-error)' }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                      <button 
+                        className={styles.aiQuickBtn}
+                        onClick={() => openAIWithContext(`Event: ${event.title}`, [
+                          'Help me prepare for this event',
+                          'What documents do I need for this?',
+                          'Draft an agenda for this meeting'
+                        ])}
+                        style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                      >
+                        <Sparkles size={12} />
+                      </button>
                       <span className={styles.eventTime}>
                         {format(parseISO(event.startTime), 'h:mm a')}
                       </span>
@@ -953,15 +1234,17 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Tasks</h2>
               <div className={styles.tabActions}>
-                <AIButton 
-                  context="Matter Tasks"
-                  label="AI Prioritize"
-                  prompts={[
-                    { label: 'Prioritize', prompt: 'Prioritize tasks' },
-                    { label: 'Timeline', prompt: 'Create timeline' },
-                    { label: 'Workload', prompt: 'Analyze workload' }
-                  ]}
-                />
+                <button 
+                  className={styles.aiBtn}
+                  onClick={() => openAIWithContext('Matter Tasks', [
+                    'Help me prioritize the tasks for this matter',
+                    'Create a timeline for completing these tasks',
+                    'Analyze the workload distribution'
+                  ])}
+                >
+                  <Sparkles size={16} />
+                  AI Prioritize
+                </button>
                 <button className={styles.primaryBtn} onClick={() => setShowTaskModal(true)}>
                   <Plus size={18} />
                   Add Task
@@ -1027,6 +1310,24 @@ Only analyze documents actually associated with this matter.`
                       <span className={clsx(styles.taskStatusBadge, styles[task.status])}>
                         {task.status.replace('_', ' ')}
                       </span>
+                    </div>
+                    <div className={styles.cardActions} style={{ marginLeft: '12px' }}>
+                      <button 
+                        className={styles.iconBtn}
+                        onClick={() => setEditingTask(task)}
+                        title="Edit"
+                        style={{ padding: '6px' }}
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                      <button 
+                        className={styles.iconBtn}
+                        onClick={() => deleteTask(task.id)}
+                        title="Delete"
+                        style={{ padding: '6px', color: 'var(--apex-error)' }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -1238,26 +1539,132 @@ Only analyze documents actually associated with this matter.`
               <div className={styles.docPreviewActions}>
                 <button 
                   className={styles.primaryBtn}
-                  onClick={() => {
-                    if (showDocPreview.storageUrl) {
-                      window.open(showDocPreview.storageUrl, '_blank')
-                    }
-                  }}
+                  onClick={() => downloadDocument(showDocPreview)}
                 >
                   <Download size={18} />
                   Download
                 </button>
-                <AIButton 
-                  context={showDocPreview.name}
-                  label="Analyze with AI"
-                  prompts={[
-                    { label: 'Summarize', prompt: 'Summarize this document' },
-                    { label: 'Key Points', prompt: 'Extract key points from this document' },
-                    { label: 'Action Items', prompt: 'What action items are in this document?' }
-                  ]}
-                />
+                <button 
+                  className={styles.aiBtn}
+                  onClick={() => {
+                    openAIWithContext(`Document: ${showDocPreview.name}`, [
+                      'Summarize this document',
+                      'Extract the key points from this document',
+                      'What action items are in this document?'
+                    ])
+                    setShowDocPreview(null)
+                  }}
+                >
+                  <Sparkles size={16} />
+                  Analyze with AI
+                </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Edit Matter Modal */}
+      {showEditMatterModal && matter && (
+        <div className={styles.modalOverlay} onClick={() => setShowEditMatterModal(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <div className={styles.modalHeader}>
+              <h2>Edit Matter</h2>
+              <button onClick={() => setShowEditMatterModal(false)} className={styles.closeBtn}>×</button>
+            </div>
+            <EditMatterForm 
+              matter={matter}
+              attorneys={attorneys}
+              onClose={() => setShowEditMatterModal(false)}
+              onSave={async (data) => {
+                try {
+                  await updateMatter(id!, data)
+                  setShowEditMatterModal(false)
+                  fetchMatters()
+                } catch (error) {
+                  console.error('Failed to update matter:', error)
+                  alert('Failed to update matter. Please try again.')
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
+      
+      {/* Edit Time Entry Modal */}
+      {editingTimeEntry && (
+        <div className={styles.modalOverlay} onClick={() => setEditingTimeEntry(null)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Edit Time Entry</h2>
+              <button onClick={() => setEditingTimeEntry(null)} className={styles.closeBtn}>×</button>
+            </div>
+            <TimeEntryForm 
+              matterId={id!}
+              matterName={matter?.name || ''}
+              defaultRate={matter?.billingRate || 450}
+              existingEntry={editingTimeEntry}
+              onClose={() => setEditingTimeEntry(null)}
+              onSave={async (data) => {
+                try {
+                  await updateTimeEntry(editingTimeEntry.id, data)
+                  setEditingTimeEntry(null)
+                  fetchTimeEntries({ matterId: id })
+                } catch (error) {
+                  console.error('Failed to update time entry:', error)
+                  alert('Failed to update time entry. Please try again.')
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
+      
+      {/* Edit Event Modal */}
+      {editingEvent && (
+        <div className={styles.modalOverlay} onClick={() => setEditingEvent(null)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Edit Event</h2>
+              <button onClick={() => setEditingEvent(null)} className={styles.closeBtn}>×</button>
+            </div>
+            <EventForm 
+              matterId={id!}
+              matterName={matter?.name || ''}
+              existingEvent={editingEvent}
+              onClose={() => setEditingEvent(null)}
+              onSave={async (data) => {
+                try {
+                  await updateEvent(editingEvent.id, data)
+                  setEditingEvent(null)
+                  fetchEvents()
+                } catch (error) {
+                  console.error('Failed to update event:', error)
+                  alert('Failed to update event. Please try again.')
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
+      
+      {/* Edit Task Modal */}
+      {editingTask && (
+        <div className={styles.modalOverlay} onClick={() => setEditingTask(null)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Edit Task</h2>
+              <button onClick={() => setEditingTask(null)} className={styles.closeBtn}>×</button>
+            </div>
+            <TaskForm 
+              matterName={matter?.name || ''}
+              existingTask={editingTask}
+              onClose={() => setEditingTask(null)}
+              onSave={(data) => {
+                updateTask(editingTask.id, data)
+                setEditingTask(null)
+              }}
+            />
           </div>
         </div>
       )}
@@ -1266,17 +1673,18 @@ Only analyze documents actually associated with this matter.`
 }
 
 // Task Form Component
-function TaskForm({ matterName, onClose, onSave }: {
+function TaskForm({ matterName, onClose, onSave, existingTask }: {
   matterName: string
   onClose: () => void
   onSave: (data: Omit<Task, 'id'>) => void
+  existingTask?: Task
 }) {
   const [formData, setFormData] = useState({
-    name: '',
-    status: 'pending' as 'pending' | 'in_progress' | 'completed',
-    dueDate: format(new Date(), 'yyyy-MM-dd'),
-    assignee: '',
-    description: ''
+    name: existingTask?.name || '',
+    status: existingTask?.status || 'pending' as 'pending' | 'in_progress' | 'completed',
+    dueDate: existingTask?.dueDate || format(new Date(), 'yyyy-MM-dd'),
+    assignee: existingTask?.assignee || '',
+    description: existingTask?.description || ''
   })
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -1358,7 +1766,7 @@ function TaskForm({ matterName, onClose, onSave }: {
           Cancel
         </button>
         <button type="submit" className={styles.saveBtn}>
-          Create Task
+          {existingTask ? 'Update Task' : 'Create Task'}
         </button>
       </div>
     </form>
@@ -1366,21 +1774,22 @@ function TaskForm({ matterName, onClose, onSave }: {
 }
 
 // Time Entry Form Component
-function TimeEntryForm({ matterId, matterName, defaultRate, onClose, onSave }: {
+function TimeEntryForm({ matterId, matterName, defaultRate, onClose, onSave, existingEntry }: {
   matterId: string
   matterName: string
   defaultRate: number
   onClose: () => void
   onSave: (data: any) => Promise<void>
+  existingEntry?: any
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     matterId,
-    date: format(new Date(), 'yyyy-MM-dd'),
-    hours: 1,
-    rate: defaultRate,
-    description: '',
-    billable: true
+    date: existingEntry?.date ? format(parseISO(existingEntry.date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+    hours: existingEntry?.hours || 1,
+    rate: existingEntry?.rate || defaultRate,
+    description: existingEntry?.description || '',
+    billable: existingEntry?.billable !== undefined ? existingEntry.billable : true
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1466,7 +1875,7 @@ function TimeEntryForm({ matterId, matterName, defaultRate, onClose, onSave }: {
           Cancel
         </button>
         <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
-          {isSubmitting ? 'Saving...' : 'Save Time Entry'}
+          {isSubmitting ? 'Saving...' : (existingEntry ? 'Update Time Entry' : 'Save Time Entry')}
         </button>
       </div>
     </form>
@@ -1756,22 +2165,23 @@ function InvoiceForm({ matterId, clientId, clientName, matterName, unbilledAmoun
 }
 
 // Event Form Component
-function EventForm({ matterId, matterName, onClose, onSave }: {
+function EventForm({ matterId, matterName, onClose, onSave, existingEvent }: {
   matterId: string
   matterName: string
   onClose: () => void
   onSave: (data: any) => Promise<void>
+  existingEvent?: any
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     matterId,
-    title: '',
-    type: 'meeting',
-    startTime: format(new Date(), "yyyy-MM-dd'T'10:00"),
-    endTime: format(new Date(), "yyyy-MM-dd'T'11:00"),
-    location: '',
-    description: '',
-    allDay: false
+    title: existingEvent?.title || '',
+    type: existingEvent?.type || 'meeting',
+    startTime: existingEvent?.startTime ? format(parseISO(existingEvent.startTime), "yyyy-MM-dd'T'HH:mm") : format(new Date(), "yyyy-MM-dd'T'10:00"),
+    endTime: existingEvent?.endTime ? format(parseISO(existingEvent.endTime), "yyyy-MM-dd'T'HH:mm") : format(new Date(), "yyyy-MM-dd'T'11:00"),
+    location: existingEvent?.location || '',
+    description: existingEvent?.description || '',
+    allDay: existingEvent?.allDay || false
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1870,7 +2280,183 @@ function EventForm({ matterId, matterName, onClose, onSave }: {
           Cancel
         </button>
         <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
-          {isSubmitting ? 'Creating...' : 'Create Event'}
+          {isSubmitting ? 'Saving...' : (existingEvent ? 'Update Event' : 'Create Event')}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+// Edit Matter Form Component
+function EditMatterForm({ matter, attorneys, onClose, onSave }: {
+  matter: any
+  attorneys: any[]
+  onClose: () => void
+  onSave: (data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState({
+    name: matter.name || '',
+    description: matter.description || '',
+    type: matter.type || 'litigation',
+    status: matter.status || 'active',
+    priority: matter.priority || 'medium',
+    billingType: matter.billingType || 'hourly',
+    billingRate: matter.billingRate || 450,
+    responsibleAttorney: matter.responsibleAttorney || '',
+    originatingAttorney: matter.originatingAttorney || ''
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onSave(formData)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const typeOptions = [
+    { value: 'litigation', label: 'Litigation' },
+    { value: 'corporate', label: 'Corporate' },
+    { value: 'real_estate', label: 'Real Estate' },
+    { value: 'intellectual_property', label: 'IP' },
+    { value: 'employment', label: 'Employment' },
+    { value: 'personal_injury', label: 'Personal Injury' },
+    { value: 'estate_planning', label: 'Estate Planning' },
+    { value: 'other', label: 'Other' }
+  ]
+
+  return (
+    <form onSubmit={handleSubmit} className={styles.modalForm}>
+      <div className={styles.formGroup}>
+        <label>Matter Name</label>
+        <input
+          type="text"
+          value={formData.name}
+          onChange={(e) => setFormData({...formData, name: e.target.value})}
+          placeholder="Enter matter name"
+          required
+        />
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Type</label>
+          <select
+            value={formData.type}
+            onChange={(e) => setFormData({...formData, type: e.target.value})}
+          >
+            {typeOptions.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className={styles.formGroup}>
+          <label>Priority</label>
+          <select
+            value={formData.priority}
+            onChange={(e) => setFormData({...formData, priority: e.target.value})}
+          >
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+          </select>
+        </div>
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Status</label>
+          <select
+            value={formData.status}
+            onChange={(e) => setFormData({...formData, status: e.target.value})}
+          >
+            <option value="intake">Intake</option>
+            <option value="active">Active</option>
+            <option value="pending">Pending</option>
+            <option value="on_hold">On Hold</option>
+            <option value="closed_won">Closed - Won</option>
+            <option value="closed_lost">Closed - Lost</option>
+            <option value="closed_settled">Closed - Settled</option>
+            <option value="closed_other">Closed - Other</option>
+          </select>
+        </div>
+        <div className={styles.formGroup}>
+          <label>Billing Type</label>
+          <select
+            value={formData.billingType}
+            onChange={(e) => setFormData({...formData, billingType: e.target.value})}
+          >
+            <option value="hourly">Hourly</option>
+            <option value="flat">Flat Fee</option>
+            <option value="contingency">Contingency</option>
+            <option value="retainer">Retainer</option>
+          </select>
+        </div>
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Responsible Attorney</label>
+          <select
+            value={formData.responsibleAttorney}
+            onChange={(e) => setFormData({...formData, responsibleAttorney: e.target.value})}
+          >
+            <option value="">Select responsible attorney...</option>
+            {attorneys.map(a => (
+              <option key={a.id} value={a.id}>
+                {a.name} {a.role ? `(${a.role})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className={styles.formGroup}>
+          <label>Originating Attorney</label>
+          <select
+            value={formData.originatingAttorney}
+            onChange={(e) => setFormData({...formData, originatingAttorney: e.target.value})}
+          >
+            <option value="">Select originating attorney...</option>
+            {attorneys.map(a => (
+              <option key={a.id} value={a.id}>
+                {a.name} {a.role ? `(${a.role})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {formData.billingType === 'hourly' && (
+        <div className={styles.formGroup}>
+          <label>Default Rate ($/hr)</label>
+          <input
+            type="number"
+            value={formData.billingRate}
+            onChange={(e) => setFormData({...formData, billingRate: Number(e.target.value)})}
+          />
+        </div>
+      )}
+
+      <div className={styles.formGroup}>
+        <label>Description</label>
+        <textarea
+          value={formData.description}
+          onChange={(e) => setFormData({...formData, description: e.target.value})}
+          placeholder="Brief description of the matter"
+          rows={3}
+        />
+      </div>
+
+      <div className={styles.modalActions}>
+        <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+          Cancel
+        </button>
+        <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+          {isSubmitting ? 'Saving...' : 'Update Matter'}
         </button>
       </div>
     </form>

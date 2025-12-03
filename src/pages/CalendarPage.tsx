@@ -3,7 +3,7 @@ import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { 
   ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon,
-  Clock, MapPin, Users, Sparkles
+  Clock, MapPin, Users, Sparkles, Edit2, Trash2, X
 } from 'lucide-react'
 import { 
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
@@ -13,7 +13,7 @@ import { clsx } from 'clsx'
 import styles from './CalendarPage.module.css'
 
 export function CalendarPage() {
-  const { events, matters, clients, addEvent, fetchEvents, fetchMatters } = useDataStore()
+  const { events, matters, clients, addEvent, updateEvent, deleteEvent, fetchEvents, fetchMatters } = useDataStore()
   const { openChat } = useAIChat()
   
   // Fetch data from API on mount
@@ -25,7 +25,29 @@ export function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [showNewModal, setShowNewModal] = useState(false)
+  const [editingEvent, setEditingEvent] = useState<any>(null)
   const [view, setView] = useState<'month' | 'week' | 'list'>('month')
+  
+  // AI helper with context-specific questions
+  const openAIWithContext = (questions: string[]) => {
+    openChat({
+      label: 'Calendar',
+      contextType: 'calendar',
+      suggestedQuestions: questions
+    })
+  }
+  
+  // Handle event delete
+  const handleDeleteEvent = async (eventId: string) => {
+    if (!confirm('Are you sure you want to delete this event?')) return
+    try {
+      await deleteEvent(eventId)
+      fetchEvents()
+    } catch (error) {
+      console.error('Failed to delete event:', error)
+      alert('Failed to delete event')
+    }
+  }
 
   const calendarDays = useMemo(() => {
     const monthStart = startOfMonth(currentDate)
@@ -92,7 +114,15 @@ export function CalendarPage() {
               </button>
             ))}
           </div>
-          <button className={styles.aiBtn} onClick={() => openChat()}>
+          <button 
+            className={styles.aiBtn} 
+            onClick={() => openAIWithContext([
+              'What events do I have scheduled this week?',
+              'Are there any scheduling conflicts in my calendar?',
+              'What deadlines are coming up soon?',
+              'Help me plan my schedule for optimal productivity'
+            ])}
+          >
             <Sparkles size={16} />
             AI Insights
           </button>
@@ -163,10 +193,39 @@ export function CalendarPage() {
                       className={styles.eventCard}
                       style={{ borderLeftColor: event.color }}
                     >
-                      <div className={styles.eventTime}>
-                        <Clock size={14} />
-                        {format(parseISO(event.startTime), 'h:mm a')}
-                        {!event.allDay && ` - ${format(parseISO(event.endTime), 'h:mm a')}`}
+                      <div className={styles.eventCardHeader}>
+                        <div className={styles.eventTime}>
+                          <Clock size={14} />
+                          {format(parseISO(event.startTime), 'h:mm a')}
+                          {!event.allDay && ` - ${format(parseISO(event.endTime), 'h:mm a')}`}
+                        </div>
+                        <div className={styles.eventActions}>
+                          <button 
+                            onClick={() => setEditingEvent(event)}
+                            className={styles.eventActionBtn}
+                            title="Edit"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteEvent(event.id)}
+                            className={styles.eventActionBtn}
+                            title="Delete"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                          <button 
+                            onClick={() => openAIWithContext([
+                              `Help me prepare for "${event.title}"`,
+                              'What materials do I need for this event?',
+                              'Draft an agenda for this meeting'
+                            ])}
+                            className={styles.eventActionBtn}
+                            title="AI Assist"
+                          >
+                            <Sparkles size={14} />
+                          </button>
+                        </div>
                       </div>
                       <h4>{event.title}</h4>
                       {event.description && <p>{event.description}</p>}
@@ -202,21 +261,37 @@ export function CalendarPage() {
                   <div 
                     key={event.id} 
                     className={styles.upcomingItem}
-                    onClick={() => setSelectedDate(parseISO(event.startTime))}
                   >
                     <div 
                       className={styles.upcomingDot}
                       style={{ background: event.color }}
                     />
-                    <div className={styles.upcomingContent}>
+                    <div 
+                      className={styles.upcomingContent}
+                      onClick={() => setSelectedDate(parseISO(event.startTime))}
+                      style={{ cursor: 'pointer', flex: 1 }}
+                    >
                       <span className={styles.upcomingTitle}>{event.title}</span>
                       <span className={styles.upcomingDate}>
                         {format(parseISO(event.startTime), 'MMM d, h:mm a')}
                       </span>
                     </div>
-                    <span className={clsx(styles.eventType, styles[event.type])}>
-                      {event.type.replace('_', ' ')}
-                    </span>
+                    <div className={styles.upcomingActions}>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setEditingEvent(event); }}
+                        className={styles.miniBtn}
+                        title="Edit"
+                      >
+                        <Edit2 size={12} />
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleDeleteEvent(event.id); }}
+                        className={styles.miniBtn}
+                        title="Delete"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -242,24 +317,47 @@ export function CalendarPage() {
           defaultDate={selectedDate}
         />
       )}
+      
+      {editingEvent && (
+        <NewEventModal 
+          onClose={() => setEditingEvent(null)}
+          onSave={async (data) => {
+            try {
+              await updateEvent(editingEvent.id, data)
+              setEditingEvent(null)
+              fetchEvents()
+            } catch (error) {
+              console.error('Failed to update event:', error)
+              alert('Failed to update event. Please try again.')
+            }
+          }}
+          matters={matters}
+          defaultDate={selectedDate}
+          existingEvent={editingEvent}
+        />
+      )}
     </div>
   )
 }
 
-function NewEventModal({ onClose, onSave, matters, defaultDate }: { onClose: () => void; onSave: (data: any) => Promise<void>; matters: any[]; defaultDate: Date | null }) {
+function NewEventModal({ onClose, onSave, matters, defaultDate, existingEvent }: { onClose: () => void; onSave: (data: any) => Promise<void>; matters: any[]; defaultDate: Date | null; existingEvent?: any }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    type: 'meeting',
-    matterId: '',
-    startTime: defaultDate ? format(defaultDate, "yyyy-MM-dd'T'09:00") : format(new Date(), "yyyy-MM-dd'T'09:00"),
-    endTime: defaultDate ? format(defaultDate, "yyyy-MM-dd'T'10:00") : format(new Date(), "yyyy-MM-dd'T'10:00"),
-    allDay: false,
-    location: '',
-    attendees: [],
-    reminders: [{ type: 'notification', minutes: 15 }],
-    color: '#3B82F6'
+    title: existingEvent?.title || '',
+    description: existingEvent?.description || '',
+    type: existingEvent?.type || 'meeting',
+    matterId: existingEvent?.matterId || '',
+    startTime: existingEvent?.startTime 
+      ? format(parseISO(existingEvent.startTime), "yyyy-MM-dd'T'HH:mm") 
+      : (defaultDate ? format(defaultDate, "yyyy-MM-dd'T'09:00") : format(new Date(), "yyyy-MM-dd'T'09:00")),
+    endTime: existingEvent?.endTime 
+      ? format(parseISO(existingEvent.endTime), "yyyy-MM-dd'T'HH:mm") 
+      : (defaultDate ? format(defaultDate, "yyyy-MM-dd'T'10:00") : format(new Date(), "yyyy-MM-dd'T'10:00")),
+    allDay: existingEvent?.allDay || false,
+    location: existingEvent?.location || '',
+    attendees: existingEvent?.attendees || [],
+    reminders: existingEvent?.reminders || [{ type: 'notification', minutes: 15 }],
+    color: existingEvent?.color || '#3B82F6'
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -281,7 +379,7 @@ function NewEventModal({ onClose, onSave, matters, defaultDate }: { onClose: () 
     <div className={styles.modalOverlay} onClick={onClose}>
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
-          <h2>New Event</h2>
+          <h2>{existingEvent ? 'Edit Event' : 'New Event'}</h2>
           <button onClick={onClose} className={styles.closeBtn}>×</button>
         </div>
         <form onSubmit={handleSubmit} className={styles.modalForm}>
@@ -385,7 +483,7 @@ function NewEventModal({ onClose, onSave, matters, defaultDate }: { onClose: () 
               Cancel
             </button>
             <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
-              {isSubmitting ? 'Creating...' : 'Create Event'}
+              {isSubmitting ? 'Saving...' : (existingEvent ? 'Update Event' : 'Create Event')}
             </button>
           </div>
         </form>

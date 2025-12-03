@@ -48,7 +48,7 @@ function getContextFromPath(pathname: string): Record<string, any> {
 
 export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps) {
   const location = useLocation()
-  const { refreshSuggestions } = useAIChat()
+  const { refreshSuggestions, chatContext } = useAIChat()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -60,6 +60,9 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
 
   const currentPage = getPageFromPath(location.pathname)
   const pathContext = getContextFromPath(location.pathname)
+  
+  // Merge additional context from chat context
+  const mergedContext = { ...pathContext, ...additionalContext, ...(chatContext?.additionalContext || {}) }
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -78,13 +81,18 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   // Load suggestions when page changes or when AI Insights button is clicked
   useEffect(() => {
     if (isOpen) {
-      aiApi.getSuggestions(currentPage)
-        .then(data => setSuggestions(data.suggestions || []))
-        .catch(() => setSuggestions([]))
+      // Use context-specific suggestions if provided, otherwise fetch from API
+      if (chatContext?.suggestedQuestions && chatContext.suggestedQuestions.length > 0) {
+        setSuggestions(chatContext.suggestedQuestions)
+      } else {
+        aiApi.getSuggestions(currentPage)
+          .then(data => setSuggestions(data.suggestions || []))
+          .catch(() => setSuggestions([]))
+      }
       // Show suggestions whenever opened via AI Insights button
       setShowSuggestions(true)
     }
-  }, [currentPage, isOpen, refreshSuggestions])
+  }, [currentPage, isOpen, refreshSuggestions, chatContext])
 
   const sendMessage = async (messageText?: string) => {
     const text = messageText || input.trim()
@@ -110,8 +118,8 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
 
       const response = await aiApi.chat(
         text,
-        currentPage,
-        { ...pathContext, ...additionalContext },
+        chatContext?.contextType || currentPage,
+        mergedContext,
         conversationHistory
       )
 
@@ -174,7 +182,9 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         {/* Context indicator */}
         <div className={styles.contextBar}>
           <span>Context:</span>
-          <span className={styles.contextPage}>{currentPage.replace('-', ' ')}</span>
+          <span className={styles.contextPage}>
+            {chatContext?.label || currentPage.replace('-', ' ')}
+          </span>
         </div>
 
         {/* Messages */}

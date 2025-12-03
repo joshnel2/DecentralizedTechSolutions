@@ -136,7 +136,17 @@ export function DashboardPage() {
           </h1>
           <p className={styles.date}>{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>
         </div>
-        <button onClick={() => openChat()} className={styles.aiPrompt}>
+        <button onClick={() => openChat({
+          label: 'Dashboard',
+          contextType: 'dashboard',
+          suggestedQuestions: [
+            'Give me a summary of my practice today',
+            'What matters need my attention this week?',
+            'Analyze my billing and collection trends',
+            'What deadlines are coming up?',
+            'Summarize my workload by client'
+          ]
+        })} className={styles.aiPrompt}>
           <Sparkles size={20} />
           <span>Ask AI Assistant</span>
           <ArrowRight size={16} />
@@ -420,7 +430,17 @@ export function DashboardPage() {
             <p>Get intelligent analysis of your matters, billing trends, and upcoming deadlines.</p>
           </div>
         </div>
-        <button onClick={() => openChat()} className={styles.aiBannerBtn}>
+        <button onClick={() => openChat({
+          label: 'AI Insights',
+          contextType: 'dashboard',
+          suggestedQuestions: [
+            'Analyze my practice performance this month',
+            'What are my biggest opportunities for growth?',
+            'Which clients generate the most revenue?',
+            'Identify any at-risk matters',
+            'Suggest ways to improve efficiency'
+          ]
+        })} className={styles.aiBannerBtn}>
           Open AI Assistant
           <ArrowRight size={16} />
         </button>

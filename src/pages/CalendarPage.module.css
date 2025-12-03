@@ -391,6 +391,71 @@
   color: #3B82F6;
 }
 
+/* Event Card Header */
+.eventCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space-xs);
+}
+
+.eventActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.eventActionBtn {
+  background: none;
+  border: none;
+  padding: 4px;
+  color: var(--apex-text);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.eventActionBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--apex-white);
+}
+
+.eventActionBtn:last-of-type:hover {
+  color: var(--apex-ai);
+}
+
+/* Upcoming Actions */
+.upcomingActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.upcomingItem:hover .upcomingActions {
+  opacity: 1;
+}
+
+.miniBtn {
+  background: none;
+  border: none;
+  padding: 4px;
+  color: var(--apex-text);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.miniBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--apex-white);
+}
+
+.miniBtn:last-child:hover {
+  color: var(--apex-error);
+}
+
 /* Modal */
 .modalOverlay {
   position: fixed;

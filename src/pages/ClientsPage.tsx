@@ -1,16 +1,30 @@
-import { useState, useMemo, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
-import { Plus, Search, Users, Building2, User, MoreVertical, Sparkles } from 'lucide-react'
+import { Plus, Search, Users, Building2, User, MoreVertical, Sparkles, Eye, Edit2, Trash2, Archive } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './ListPages.module.css'
 
 export function ClientsPage() {
-  const { clients, matters, addClient, fetchClients, fetchMatters } = useDataStore()
+  const { clients, matters, addClient, updateClient, deleteClient, fetchClients, fetchMatters } = useDataStore()
   const { openChat } = useAIChat()
+  const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState('')
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpenDropdownId(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // Fetch data when component mounts
   useEffect(() => {
@@ -48,7 +62,20 @@ export function ClientsPage() {
           <span className={styles.count}>{clients.length} total</span>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.aiBtn} onClick={() => openChat()}>
+          <button 
+            className={styles.aiBtn} 
+            onClick={() => openChat({
+              label: 'Clients',
+              contextType: 'clients',
+              suggestedQuestions: [
+                'Give me an overview of all clients',
+                'Which clients have the most active matters?',
+                'Analyze client billing and revenue',
+                'Which clients need follow-up?',
+                'Summarize client acquisition trends'
+              ]
+            })}
+          >
             <Sparkles size={16} />
             AI Insights
           </button>
@@ -142,9 +169,55 @@ export function ClientsPage() {
                   {format(parseISO(client.createdAt), 'MMM d, yyyy')}
                 </td>
                 <td>
-                  <button className={styles.menuBtn}>
-                    <MoreVertical size={16} />
-                  </button>
+                  <div className={styles.menuWrapper} ref={openDropdownId === client.id ? dropdownRef : null}>
+                    <button 
+                      className={styles.menuBtn}
+                      onClick={() => setOpenDropdownId(openDropdownId === client.id ? null : client.id)}
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+                    {openDropdownId === client.id && (
+                      <div className={styles.dropdown}>
+                        <button 
+                          className={styles.dropdownItem}
+                          onClick={() => {
+                            setOpenDropdownId(null)
+                            navigate(`/app/clients/${client.id}`)
+                          }}
+                        >
+                          <Eye size={14} />
+                          View Details
+                        </button>
+                        <button 
+                          className={styles.dropdownItem}
+                          onClick={() => {
+                            setOpenDropdownId(null)
+                            if (updateClient) {
+                              updateClient(client.id, { isActive: !client.isActive })
+                              fetchClients()
+                            }
+                          }}
+                        >
+                          <Archive size={14} />
+                          {client.isActive ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <div className={styles.dropdownDivider} />
+                        <button 
+                          className={clsx(styles.dropdownItem, styles.danger)}
+                          onClick={() => {
+                            if (confirm(`Are you sure you want to delete "${client.name}"? This action cannot be undone.`)) {
+                              deleteClient(client.id)
+                              setOpenDropdownId(null)
+                              fetchClients()
+                            }
+                          }}
+                        >
+                          <Trash2 size={14} />
+                          Delete Client
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </td>
               </tr>
             )})}
