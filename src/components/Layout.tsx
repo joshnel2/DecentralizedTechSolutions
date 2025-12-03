@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
@@ -42,22 +42,76 @@ export function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
   const { isOpen: aiChatOpen, openChat, closeChat } = useAIChat()
 
   const unreadCount = notifications.filter(n => !n.read).length
+
+  // Handle mobile detection and window resize
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768)
+      if (window.innerWidth > 768) {
+        setMobileSidebarOpen(false)
+      }
+    }
+    
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+
+  // Close mobile sidebar on navigation
+  useEffect(() => {
+    if (isMobile) {
+      setMobileSidebarOpen(false)
+    }
+  }, [location.pathname, isMobile])
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setNotificationsOpen(false)
+      setUserMenuOpen(false)
+    }
+    
+    if (notificationsOpen || userMenuOpen) {
+      document.addEventListener('click', handleClickOutside)
+      return () => document.removeEventListener('click', handleClickOutside)
+    }
+  }, [notificationsOpen, userMenuOpen])
 
   const handleLogout = () => {
     logout()
     navigate('/login')
   }
 
+  const toggleMobileSidebar = () => {
+    setMobileSidebarOpen(!mobileSidebarOpen)
+  }
+
+  const closeMobileSidebar = () => {
+    setMobileSidebarOpen(false)
+  }
+
   return (
     <div className={styles.layout}>
+      {/* Mobile Overlay */}
+      <div 
+        className={clsx(styles.mobileOverlay, mobileSidebarOpen && styles.visible)}
+        onClick={closeMobileSidebar}
+      />
+
       {/* Sidebar */}
-      <aside className={clsx(styles.sidebar, !sidebarOpen && styles.collapsed)}>
+      <aside className={clsx(
+        styles.sidebar, 
+        !sidebarOpen && styles.collapsed,
+        mobileSidebarOpen && styles.mobileOpen
+      )}>
         <div className={styles.sidebarHeader}>
           <div className={styles.logo}>
             <div className={styles.logoIcon}>
@@ -72,13 +126,13 @@ export function Layout() {
                 </defs>
               </svg>
             </div>
-            {sidebarOpen && <span className={styles.logoText}>Apex</span>}
+            {(sidebarOpen || isMobile) && <span className={styles.logoText}>Apex</span>}
           </div>
           <button 
             className={styles.toggleBtn}
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={() => isMobile ? closeMobileSidebar() : setSidebarOpen(!sidebarOpen)}
           >
-            {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
+            {isMobile ? <X size={18} /> : (sidebarOpen ? <X size={18} /> : <Menu size={18} />)}
           </button>
         </div>
 
@@ -90,7 +144,7 @@ export function Layout() {
               className={({ isActive }) => clsx(styles.navItem, isActive && styles.active)}
             >
               <item.icon size={20} />
-              {sidebarOpen && <span>{item.label}</span>}
+              {(sidebarOpen || isMobile) && <span>{item.label}</span>}
             </NavLink>
           ))}
 
@@ -99,7 +153,7 @@ export function Layout() {
             className={({ isActive }) => clsx(styles.navItem, styles.aiNav, isActive && styles.active)}
           >
             <Sparkles size={20} />
-            {sidebarOpen && <span>AI Assistant</span>}
+            {(sidebarOpen || isMobile) && <span>AI Assistant</span>}
           </NavLink>
 
           <div className={styles.navDivider} />
@@ -110,7 +164,7 @@ export function Layout() {
               onClick={() => setSettingsOpen(!settingsOpen)}
             >
               <Settings size={20} />
-              {sidebarOpen && (
+              {(sidebarOpen || isMobile) && (
                 <>
                   <span>Settings</span>
                   <ChevronDown 
@@ -120,7 +174,7 @@ export function Layout() {
                 </>
               )}
             </button>
-            {settingsOpen && sidebarOpen && (
+            {settingsOpen && (sidebarOpen || isMobile) && (
               <div className={styles.settingsSubmenu}>
                 {settingsItems.map((item) => (
                   <NavLink
@@ -137,7 +191,7 @@ export function Layout() {
           </div>
         </nav>
 
-        {sidebarOpen && (
+        {(sidebarOpen || isMobile) && (
           <div className={styles.sidebarFooter}>
             <div className={styles.firmInfo}>
               <Shield size={14} />
@@ -152,6 +206,13 @@ export function Layout() {
         {/* Header */}
         <header className={styles.header}>
           <div className={styles.headerLeft}>
+            <button 
+              className={styles.mobileMenuBtn}
+              onClick={toggleMobileSidebar}
+              aria-label="Open menu"
+            >
+              <Menu size={20} />
+            </button>
             <h1 className={styles.pageTitle}>
               {navItems.find(i => location.pathname.startsWith(i.path))?.label || 
                settingsItems.find(i => location.pathname === i.path)?.label ||
@@ -164,7 +225,11 @@ export function Layout() {
             <div className={styles.headerDropdown}>
               <button 
                 className={styles.iconBtn}
-                onClick={() => setNotificationsOpen(!notificationsOpen)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setNotificationsOpen(!notificationsOpen)
+                  setUserMenuOpen(false)
+                }}
               >
                 <Bell size={20} />
                 {unreadCount > 0 && (
@@ -207,7 +272,11 @@ export function Layout() {
             <div className={styles.headerDropdown}>
               <button 
                 className={styles.userBtn}
-                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setUserMenuOpen(!userMenuOpen)
+                  setNotificationsOpen(false)
+                }}
               >
                 <div className={styles.avatar}>
                   {user?.firstName?.[0]}{user?.lastName?.[0]}

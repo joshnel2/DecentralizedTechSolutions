@@ -966,3 +966,291 @@
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  /* Navigation */
+  .navContent {
+    padding: var(--space-sm) var(--space-md);
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+  }
+
+  .logo span {
+    font-size: 1.25rem;
+  }
+
+  .navLinks {
+    display: none;
+  }
+
+  .navActions {
+    gap: var(--space-sm);
+  }
+
+  .loginLink {
+    display: none;
+  }
+
+  .ctaBtn {
+    padding: var(--space-sm) var(--space-md);
+    font-size: 0.8125rem;
+  }
+
+  .contactBtn {
+    padding: var(--space-xs) var(--space-sm);
+    font-size: 0.8125rem;
+  }
+
+  /* Hero */
+  .hero {
+    padding: 100px var(--space-md) 60px;
+    gap: var(--space-xl);
+  }
+
+  .hero h1 {
+    font-size: 2rem;
+    margin-bottom: var(--space-md);
+  }
+
+  .hero p {
+    font-size: 1rem;
+    margin-bottom: var(--space-lg);
+  }
+
+  .heroBadge {
+    font-size: 0.75rem;
+    padding: var(--space-xs) var(--space-md);
+  }
+
+  .heroActions {
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-xl);
+  }
+
+  .primaryBtn,
+  .secondaryBtn {
+    width: 100%;
+    justify-content: center;
+    padding: var(--space-md) var(--space-lg);
+  }
+
+  .heroStats {
+    flex-direction: column;
+    gap: var(--space-md);
+  }
+
+  .heroStats > div {
+    text-align: center;
+  }
+
+  .statNumber {
+    font-size: 1.5rem;
+  }
+
+  /* Features */
+  .features {
+    padding: 60px var(--space-md);
+  }
+
+  .sectionHeader h2 {
+    font-size: 1.75rem;
+  }
+
+  .sectionHeader p {
+    font-size: 1rem;
+  }
+
+  .featureCard {
+    padding: var(--space-lg);
+  }
+
+  .featureIcon {
+    width: 42px;
+    height: 42px;
+  }
+
+  .featureCard h3 {
+    font-size: 1rem;
+  }
+
+  .featureCard p {
+    font-size: 0.875rem;
+  }
+
+  /* AI Section */
+  .aiSection {
+    padding: 60px var(--space-md);
+    gap: var(--space-xl);
+  }
+
+  .aiContent h2 {
+    font-size: 1.75rem;
+  }
+
+  .aiContent > p {
+    font-size: 1rem;
+  }
+
+  .aiFeatures li {
+    font-size: 0.9375rem;
+  }
+
+  .chatPreview {
+    padding: var(--space-lg);
+  }
+
+  .userMessage {
+    margin-left: var(--space-lg);
+    padding: var(--space-sm) var(--space-md);
+    font-size: 0.875rem;
+  }
+
+  .aiMessage {
+    padding: var(--space-sm) var(--space-md);
+    flex-direction: column;
+  }
+
+  .aiMessage strong {
+    font-size: 0.875rem;
+  }
+
+  .aiMessage p {
+    font-size: 0.75rem;
+  }
+
+  /* Pricing */
+  .pricing {
+    padding: 60px var(--space-md);
+  }
+
+  .pricingCard {
+    padding: var(--space-lg);
+  }
+
+  .price {
+    font-size: 2.5rem;
+  }
+
+  .planFeatures li {
+    font-size: 0.875rem;
+  }
+
+  .planBtn,
+  .planBtnOutline {
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  /* Testimonials */
+  .testimonials {
+    padding: 60px var(--space-md);
+  }
+
+  .testimonialCard {
+    padding: var(--space-lg);
+  }
+
+  .testimonialCard > p {
+    font-size: 0.9375rem;
+  }
+
+  .authorAvatar {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* CTA Section */
+  .ctaSection {
+    padding: 60px var(--space-md);
+  }
+
+  .ctaContent h2 {
+    font-size: 1.75rem;
+  }
+
+  .ctaContent p {
+    font-size: 1rem;
+  }
+
+  .ctaActions {
+    flex-direction: column;
+  }
+
+  .ctaActions > * {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Footer */
+  .footer {
+    padding: 40px var(--space-md) 20px;
+  }
+
+  .footerContent {
+    gap: var(--space-xl);
+  }
+
+  .footerLinks {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-lg);
+  }
+
+  .footerLinks h4 {
+    font-size: 0.8125rem;
+  }
+
+  .footerLinks a {
+    font-size: 0.8125rem;
+  }
+
+  /* Modal */
+  .modalOverlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal {
+    max-width: 100%;
+    max-height: 90vh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    padding: var(--space-lg);
+    overflow-y: auto;
+  }
+
+  .modalHeader h2 {
+    font-size: 1.25rem;
+  }
+
+  .formRow {
+    grid-template-columns: 1fr;
+    gap: var(--space-sm);
+  }
+
+  .submitBtn {
+    padding: var(--space-md);
+  }
+}
+
+@media (max-width: 480px) {
+  .hero h1 {
+    font-size: 1.75rem;
+  }
+
+  .sectionHeader h2 {
+    font-size: 1.5rem;
+  }
+
+  .price {
+    font-size: 2rem;
+  }
+
+  .customPrice {
+    font-size: 1.5rem;
+  }
+
+  .footerLinks {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+}

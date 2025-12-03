@@ -1121,24 +1121,264 @@
 }
 
 @media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-md);
+  }
+
+  .headerLeft h1 {
+    font-size: 1.5rem;
+  }
+
+  .headerActions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .aiBtn,
+  .primaryBtn,
+  .secondaryBtn {
+    flex: 1;
+    justify-content: center;
+    min-width: 140px;
+  }
+
   .metricsRow {
     grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  .metricCard {
+    padding: var(--space-md);
+  }
+
+  .metricValue {
+    font-size: 1.5rem;
+  }
+
+  .agingCard {
+    padding: var(--space-md);
+  }
+
+  .agingItem {
+    grid-template-columns: 80px 1fr 80px;
+    gap: var(--space-sm);
+  }
+
+  .agingLabel {
+    font-size: 0.75rem;
+  }
+
+  .agingAmount {
+    font-size: 0.8125rem;
   }
   
   .quickActions {
     flex-wrap: wrap;
+    padding: var(--space-sm);
+    gap: var(--space-sm);
+  }
+
+  .quickActionBtn {
+    flex: 1;
+    min-width: calc(50% - var(--space-sm));
+    padding: var(--space-sm) var(--space-md);
+    font-size: 0.8125rem;
+    justify-content: center;
+  }
+
+  .tabs {
+    gap: 0;
+    padding-bottom: var(--space-xs);
+  }
+
+  .tab {
+    padding: var(--space-sm) var(--space-md);
+    font-size: 0.8125rem;
+  }
+
+  .tabCount {
+    font-size: 0.6875rem;
+    padding: 1px 6px;
   }
   
   .filters {
     flex-direction: column;
+    gap: var(--space-sm);
   }
   
   .searchBox {
     max-width: 100%;
+    width: 100%;
+  }
+
+  .filterGroup {
+    width: 100%;
+  }
+
+  .filterSelect {
+    flex: 1;
+  }
+
+  .invoiceCard {
+    padding: var(--space-md);
+  }
+
+  .invoiceMain {
+    grid-template-columns: 1fr;
+    gap: var(--space-sm);
+  }
+
+  .invoiceNumber {
+    font-size: 0.875rem;
+  }
+
+  .invoiceActions {
+    justify-content: flex-start;
+    gap: var(--space-sm);
+  }
+
+  .actionBtn {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  /* Modal adjustments */
+  .modalOverlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal {
+    max-width: 100%;
+    max-height: 90vh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+
+  .previewModal {
+    max-height: 90vh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+
+  .modalHeader {
+    padding: var(--space-md) var(--space-lg);
+  }
+
+  .modalForm {
+    padding: var(--space-lg);
+  }
+
+  .formRow {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  .modalActions {
+    flex-direction: column-reverse;
+    gap: var(--space-sm);
+  }
+
+  .cancelBtn,
+  .saveBtn {
+    width: 100%;
+    padding: var(--space-md);
+  }
+
+  .previewRow {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  .previewTotals {
+    width: 100%;
+  }
+
+  .previewActions {
+    flex-direction: column-reverse;
+    gap: var(--space-sm);
+    padding: var(--space-md) var(--space-lg);
+  }
+
+  .previewActions button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .dropdown {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
+    min-width: 100%;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    animation: slideUpMobile 0.2s ease;
+  }
+
+  .dropdownItem {
+    padding: var(--space-md);
+  }
+}
+
+@media (max-width: 480px) {
+  .headerLeft h1 {
+    font-size: 1.25rem;
+  }
+
+  .metricValue {
+    font-size: 1.25rem;
+  }
+
+  .metricIcon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .quickActionBtn {
+    min-width: 100%;
+  }
+
+  .tab {
+    padding: var(--space-xs) var(--space-sm);
+    font-size: 0.75rem;
+  }
+
+  .statusBadge {
+    font-size: 0.625rem;
+    padding: 3px 8px;
+  }
+
+  .totalAmount {
+    font-size: 1rem;
+  }
+
+  .lineItemsTableHeader {
+    display: none;
+  }
+
+  .lineItemRow {
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+  }
+
+  .lineItemRow input {
+    min-width: calc(50% - var(--space-xs));
   }
 }
 
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes slideUpMobile {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }

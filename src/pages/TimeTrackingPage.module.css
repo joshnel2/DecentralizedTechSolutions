@@ -777,3 +777,205 @@
 .timerSummaryItem:not(:last-child) {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
+
+/* ===== MOBILE RESPONSIVE STYLES ===== */
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-md);
+  }
+
+  .headerLeft h1 {
+    font-size: 1.5rem;
+  }
+
+  .headerActions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .aiBtn,
+  .primaryBtn {
+    flex: 1;
+    justify-content: center;
+    min-width: 140px;
+  }
+
+  .statsRow {
+    flex-direction: column;
+    gap: var(--space-md);
+  }
+
+  .statCard {
+    padding: var(--space-md);
+  }
+
+  .statValue {
+    font-size: 1.25rem;
+  }
+
+  .weeklyChart {
+    padding: var(--space-md);
+  }
+
+  .chartBars {
+    height: 120px;
+    gap: var(--space-sm);
+  }
+
+  .barContainer {
+    max-width: 30px;
+  }
+
+  .barLabel {
+    font-size: 0.6875rem;
+  }
+
+  .activeTimer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-md);
+    padding: var(--space-md);
+  }
+
+  .timerInfo {
+    flex-direction: column;
+    text-align: center;
+    gap: var(--space-sm);
+  }
+
+  .timerTime {
+    font-size: 1.25rem;
+  }
+
+  .stopBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .quickTimer {
+    padding: var(--space-md);
+  }
+
+  .matterButtons {
+    gap: var(--space-xs);
+  }
+
+  .matterBtn {
+    padding: var(--space-xs) var(--space-sm);
+    font-size: 0.8125rem;
+  }
+
+  .recentSection {
+    overflow-x: auto;
+  }
+
+  .entriesTable {
+    overflow-x: auto;
+  }
+
+  .entriesTable table {
+    min-width: 600px;
+  }
+
+  .entriesTable th,
+  .entriesTable td {
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  /* Modal adjustments */
+  .modalOverlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal,
+  .billModal {
+    max-width: 100%;
+    max-height: 90vh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+
+  .modalHeader {
+    padding: var(--space-md) var(--space-lg);
+  }
+
+  .modalForm {
+    padding: var(--space-lg);
+  }
+
+  .formRow {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  .modalActions {
+    flex-direction: column-reverse;
+    gap: var(--space-sm);
+  }
+
+  .cancelBtn,
+  .saveBtn {
+    width: 100%;
+    padding: var(--space-md);
+  }
+
+  .billBar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-md);
+    padding: var(--space-md);
+  }
+
+  .billBarInfo {
+    justify-content: center;
+  }
+
+  .billBarActions {
+    flex-direction: column;
+  }
+
+  .clearSelectionBtn,
+  .billSelectedBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .billSummary {
+    grid-template-columns: 1fr;
+    gap: var(--space-sm);
+  }
+
+  .groupingBtns {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .headerLeft h1 {
+    font-size: 1.25rem;
+  }
+
+  .statCard {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .chartBars {
+    height: 100px;
+  }
+
+  .barLabel {
+    font-size: 0.5rem;
+  }
+
+  .barValue {
+    font-size: 0.5rem;
+  }
+
+  .statusBadge {
+    font-size: 0.625rem;
+    padding: 3px 8px;
+  }
+}

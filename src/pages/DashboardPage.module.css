@@ -465,18 +465,122 @@
 }
 
 @media (max-width: 768px) {
+  .dashboard {
+    gap: var(--space-lg);
+  }
+
+  .welcome {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .greeting {
+    font-size: 1.5rem;
+  }
+
+  .aiPrompt {
+    width: 100%;
+    justify-content: center;
+    padding: var(--space-md) var(--space-lg);
+  }
+
   .statsGrid {
     grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-md);
+  }
+
+  .statCard {
+    padding: var(--space-md);
+  }
+
+  .statIcon {
+    width: 40px;
+    height: 40px;
+  }
+
+  .statValue {
+    font-size: 1.25rem;
   }
   
   .aiBanner {
     flex-direction: column;
     text-align: center;
     gap: var(--space-lg);
+    padding: var(--space-lg);
   }
   
   .aiBannerContent {
     flex-direction: column;
+  }
+
+  .aiBannerBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .cardHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-sm);
+  }
+
+  .chartCard {
+    padding: var(--space-md);
+  }
+
+  .listCard {
+    padding: var(--space-md);
+  }
+
+  .pieChartContainer {
+    flex-direction: column;
+  }
+
+  .pieLegend {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .statsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .greeting {
+    font-size: 1.25rem;
+  }
+
+  .date {
+    font-size: 0.875rem;
+  }
+
+  .statCard {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .listItem {
+    padding: var(--space-sm) 0;
+  }
+
+  .listItemIcon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .statusBadge {
+    font-size: 0.625rem;
+    padding: 3px 8px;
+  }
+
+  .eventDate {
+    width: 42px;
+    height: 42px;
+  }
+
+  .eventType {
+    font-size: 0.625rem;
+    padding: 3px 8px;
   }
 }
 

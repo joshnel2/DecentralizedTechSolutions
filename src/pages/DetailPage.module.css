@@ -1765,4 +1765,344 @@ a.contactName:hover {
     justify-content: space-between;
     align-items: center;
   }
+
+  /* Header mobile styles */
+  .header {
+    padding: var(--space-lg);
+    margin-bottom: var(--space-md);
+  }
+
+  .headerTop {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-md);
+    margin-bottom: var(--space-md);
+  }
+
+  .headerActions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .headerMain {
+    flex-direction: column;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+  }
+
+  .headerIcon {
+    width: 56px;
+    height: 56px;
+  }
+
+  .header h1 {
+    font-size: 1.375rem;
+  }
+
+  .quickStats {
+    flex-direction: column;
+    gap: var(--space-md);
+    padding-top: var(--space-md);
+  }
+
+  .quickStat {
+    gap: var(--space-sm);
+  }
+
+  .statValue {
+    font-size: 1.125rem;
+  }
+
+  /* Tabs */
+  .tabs {
+    overflow-x: auto;
+    margin-bottom: var(--space-md);
+    padding-bottom: var(--space-xs);
+    gap: 0;
+  }
+
+  .tab {
+    padding: var(--space-xs) var(--space-md);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+  }
+
+  /* Content */
+  .overviewGrid {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  .card {
+    padding: var(--space-md);
+  }
+
+  .card h3 {
+    font-size: 0.9375rem;
+    margin-bottom: var(--space-md);
+  }
+
+  .cardHeader {
+    margin-bottom: var(--space-md);
+  }
+
+  .detailGrid {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  /* AI Card */
+  .aiQuickActions {
+    grid-template-columns: 1fr;
+    gap: var(--space-xs);
+  }
+
+  .aiQuickBtn {
+    padding: var(--space-sm) var(--space-md);
+    font-size: 0.75rem;
+  }
+
+  .aiSummaryActions {
+    flex-wrap: wrap;
+  }
+
+  /* Tab header */
+  .tabHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-md);
+  }
+
+  .tabHeader h2 {
+    font-size: 1.125rem;
+  }
+
+  .tabActions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .primaryBtn {
+    flex: 1;
+    justify-content: center;
+  }
+
+  /* Table */
+  .tableCard {
+    overflow-x: auto;
+  }
+
+  .table {
+    min-width: 500px;
+  }
+
+  .table th,
+  .table td {
+    padding: var(--space-sm) var(--space-md);
+    font-size: 0.8125rem;
+  }
+
+  /* Document grid */
+  .docGrid {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  .docCard {
+    padding: var(--space-md);
+  }
+
+  .docIcon {
+    width: 42px;
+    height: 42px;
+  }
+
+  /* Event cards */
+  .eventCards {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  .eventCard {
+    padding: var(--space-md);
+  }
+
+  /* Tasks */
+  .tasksSummary {
+    padding: var(--space-md);
+    gap: var(--space-sm);
+  }
+
+  .taskStatValue {
+    font-size: 1.25rem;
+  }
+
+  .taskCard {
+    padding: var(--space-md);
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+  }
+
+  .taskContent {
+    width: calc(100% - 40px);
+  }
+
+  .taskMeta {
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+  }
+
+  .taskStatus {
+    margin-top: var(--space-xs);
+    width: 100%;
+  }
+
+  /* Contacts */
+  .contactsGrid {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  .contactCard {
+    padding: var(--space-md);
+  }
+
+  .contactAvatar {
+    width: 42px;
+    height: 42px;
+    font-size: 1rem;
+  }
+
+  /* Stages tracker */
+  .stagesSection {
+    padding: var(--space-md);
+  }
+
+  .stagesTracker {
+    overflow-x: auto;
+    padding: var(--space-md) 0;
+  }
+
+  .stage {
+    padding: 0 var(--space-sm);
+  }
+
+  .stageConnector {
+    width: 40px;
+  }
+
+  .stageMarker {
+    width: 36px;
+    height: 36px;
+  }
+
+  .stageName {
+    font-size: 0.6875rem;
+    max-width: 60px;
+  }
+
+  /* Modal adjustments */
+  .modalOverlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal,
+  .docPreviewModal {
+    max-width: 100%;
+    max-height: 90vh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+
+  .modalHeader {
+    padding: var(--space-md) var(--space-lg);
+  }
+
+  .modalHeader h2 {
+    font-size: 1.125rem;
+  }
+
+  .modalForm {
+    padding: var(--space-lg);
+    max-height: calc(90vh - 100px);
+  }
+
+  .formRow {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  .modalActions {
+    flex-direction: column-reverse;
+    gap: var(--space-sm);
+  }
+
+  .cancelBtn,
+  .saveBtn {
+    width: 100%;
+    padding: var(--space-md);
+    justify-content: center;
+  }
+
+  /* Document preview */
+  .docPreviewContent {
+    padding: var(--space-lg);
+  }
+
+  .docPreviewInfo {
+    flex-direction: column;
+    gap: var(--space-md);
+    padding: var(--space-md);
+  }
+
+  .docPreviewIcon {
+    width: 60px;
+    height: 60px;
+  }
+
+  .docPreviewActions {
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .docPreviewActions button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .header h1 {
+    font-size: 1.25rem;
+  }
+
+  .headerMeta {
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+  }
+
+  .statusBadge,
+  .priorityBadge {
+    font-size: 0.625rem;
+    padding: 3px 8px;
+  }
+
+  .tab {
+    padding: var(--space-xs) var(--space-sm);
+    font-size: 0.75rem;
+  }
+
+  .badge {
+    font-size: 0.625rem;
+    padding: 3px 8px;
+  }
+
+  .taskStatusBadge {
+    font-size: 0.625rem;
+    padding: 3px 8px;
+  }
+
+  .docAi {
+    font-size: 0.625rem;
+    padding: 3px 6px;
+  }
 }

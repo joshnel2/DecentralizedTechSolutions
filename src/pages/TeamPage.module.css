@@ -461,3 +461,162 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* ===== MOBILE RESPONSIVE STYLES ===== */
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-md);
+    margin-bottom: var(--space-xl);
+  }
+
+  .headerLeft h1 {
+    font-size: 1.5rem;
+  }
+
+  .headerActions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .primaryBtn,
+  .secondaryBtn {
+    flex: 1;
+    justify-content: center;
+    min-width: 140px;
+  }
+
+  .section {
+    margin-bottom: var(--space-xl);
+  }
+
+  .sectionHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-xs);
+  }
+
+  .membersGrid {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  .memberCard {
+    padding: var(--space-md);
+  }
+
+  .memberAvatar {
+    width: 42px;
+    height: 42px;
+  }
+
+  .memberInfo h3 {
+    font-size: 0.875rem;
+  }
+
+  .memberInfo p {
+    font-size: 0.75rem;
+  }
+
+  .groupsGrid {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  .groupCard {
+    padding: var(--space-md);
+  }
+
+  .groupMeta {
+    gap: var(--space-md);
+  }
+
+  .groupActions {
+    flex-wrap: wrap;
+  }
+
+  .groupActions button {
+    flex: 1;
+    justify-content: center;
+  }
+
+  /* Modal adjustments */
+  .modalOverlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal {
+    max-width: 100%;
+    max-height: 90vh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+
+  .modalHeader {
+    padding: var(--space-md) var(--space-lg);
+  }
+
+  .modalForm {
+    padding: var(--space-lg);
+  }
+
+  .modalActions {
+    flex-direction: column-reverse;
+    gap: var(--space-sm);
+  }
+
+  .cancelBtn,
+  .saveBtn {
+    width: 100%;
+    padding: var(--space-md);
+    justify-content: center;
+  }
+
+  .colorPicker {
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+  }
+
+  .colorOption {
+    width: 28px;
+    height: 28px;
+  }
+
+  .dropdown {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
+    min-width: 100%;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    animation: slideUpMobile 0.2s ease;
+  }
+
+  .dropdownItem {
+    padding: var(--space-md);
+  }
+}
+
+@media (max-width: 480px) {
+  .headerLeft h1 {
+    font-size: 1.25rem;
+  }
+
+  .roleBadge {
+    font-size: 0.625rem;
+    padding: 3px 8px;
+  }
+}
+
+@keyframes slideUpMobile {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}

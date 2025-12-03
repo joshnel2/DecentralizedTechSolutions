@@ -617,6 +617,196 @@
   }
 }
 
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-md);
+  }
+
+  .headerLeft {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-sm);
+  }
+
+  .header h1 {
+    font-size: 1.5rem;
+  }
+
+  .monthNav {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .currentMonth {
+    font-size: 1rem;
+    min-width: auto;
+  }
+
+  .headerRight {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+  }
+
+  .viewToggle {
+    flex: 1;
+  }
+
+  .viewToggle button {
+    flex: 1;
+    padding: var(--space-sm);
+    font-size: 0.8125rem;
+    justify-content: center;
+  }
+
+  .aiBtn,
+  .primaryBtn {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .calendarMain {
+    padding: var(--space-md);
+  }
+
+  .calendarDay {
+    min-height: 60px;
+    padding: var(--space-xs);
+  }
+
+  .dayNumber {
+    font-size: 0.75rem;
+  }
+
+  .eventDot {
+    width: 6px;
+    height: 6px;
+  }
+
+  .weekDay {
+    padding: var(--space-sm);
+    font-size: 0.625rem;
+  }
+
+  .sidebar {
+    padding: var(--space-md);
+  }
+
+  .eventCard {
+    padding: var(--space-sm);
+  }
+
+  .eventCard h4 {
+    font-size: 0.875rem;
+  }
+
+  .eventTime {
+    font-size: 0.6875rem;
+  }
+
+  /* Modal adjustments */
+  .modalOverlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal {
+    max-width: 100%;
+    max-height: 90vh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+
+  .modalHeader {
+    padding: var(--space-md) var(--space-lg);
+  }
+
+  .modalHeader h2 {
+    font-size: 1.25rem;
+  }
+
+  .modalForm {
+    padding: var(--space-lg);
+    max-height: calc(90vh - 100px);
+  }
+
+  .formRow {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  .modalActions {
+    flex-direction: column-reverse;
+    gap: var(--space-sm);
+  }
+
+  .cancelBtn,
+  .saveBtn {
+    width: 100%;
+    padding: var(--space-md);
+  }
+}
+
+@media (max-width: 480px) {
+  .header h1 {
+    font-size: 1.25rem;
+  }
+
+  .calendarGrid {
+    font-size: 0.75rem;
+  }
+
+  .calendarDay {
+    min-height: 50px;
+  }
+
+  .dayNumber {
+    font-size: 0.6875rem;
+  }
+
+  .moreEvents {
+    font-size: 0.5rem;
+  }
+
+  .weekDay {
+    padding: var(--space-xs);
+    font-size: 0.5rem;
+  }
+
+  .upcomingItem {
+    padding: var(--space-sm) 0;
+  }
+
+  .upcomingDot {
+    width: 8px;
+    height: 8px;
+  }
+
+  .upcomingTitle {
+    font-size: 0.8125rem;
+  }
+
+  .upcomingDate {
+    font-size: 0.6875rem;
+  }
+
+  .eventType {
+    font-size: 0.5rem;
+    padding: 3px 6px;
+  }
+
+  .colorPicker {
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+  }
+
+  .colorOption {
+    width: 24px;
+    height: 24px;
+  }
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
