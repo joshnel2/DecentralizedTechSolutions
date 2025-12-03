@@ -132,7 +132,8 @@
   background: var(--apex-deep);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: var(--radius-lg);
-  overflow: visible;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 .tableContainer .table {

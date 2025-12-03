@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useMemo, useState, useRef, useEffect } from 'react'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { 
   Building2, User, ChevronLeft, Edit2, MoreVertical, 
   Briefcase, DollarSign, FileText, Mail, Phone, MapPin, Plus,
-  Sparkles
+  Sparkles, Archive, Trash2, X
 } from 'lucide-react'
 import { useAIChat } from '../contexts/AIChatContext'
 import { format, parseISO } from 'date-fns'
@@ -13,9 +13,24 @@ import styles from './DetailPage.module.css'
 
 export function ClientDetailPage() {
   const { id } = useParams()
-  const { clients, matters, invoices, documents } = useDataStore()
+  const navigate = useNavigate()
+  const { clients, matters, invoices, documents, updateClient, deleteClient, fetchClients } = useDataStore()
   const { openChat } = useAIChat()
   const [activeTab, setActiveTab] = useState('overview')
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [showDropdown, setShowDropdown] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const client = useMemo(() => clients.find(c => c.id === id), [clients, id])
   
@@ -68,17 +83,74 @@ export function ClientDetailPage() {
           <div className={styles.headerActions}>
             <button 
               className={styles.iconBtn}
-              onClick={() => openChat()}
+              onClick={() => openChat({
+                label: `Client: ${client.name}`,
+                contextType: 'client-detail',
+                suggestedQuestions: [
+                  'Summarize this client\'s matters and billing history',
+                  'What is the outstanding balance for this client?',
+                  'Show me recent activity for this client',
+                  'What matters are currently active for this client?'
+                ]
+              })}
               title="AI Analysis"
             >
               <Sparkles size={18} />
             </button>
-            <button className={styles.iconBtn}>
+            <button 
+              className={styles.iconBtn}
+              onClick={() => setShowEditModal(true)}
+              title="Edit Client"
+            >
               <Edit2 size={18} />
             </button>
-            <button className={styles.iconBtn}>
-              <MoreVertical size={18} />
-            </button>
+            <div className={styles.menuWrapper} ref={dropdownRef}>
+              <button 
+                className={styles.iconBtn}
+                onClick={() => setShowDropdown(!showDropdown)}
+                title="More Options"
+              >
+                <MoreVertical size={18} />
+              </button>
+              {showDropdown && (
+                <div className={styles.dropdown}>
+                  <button 
+                    className={styles.dropdownItem}
+                    onClick={() => {
+                      setShowDropdown(false)
+                      setShowEditModal(true)
+                    }}
+                  >
+                    <Edit2 size={14} />
+                    Edit Client
+                  </button>
+                  <button 
+                    className={styles.dropdownItem}
+                    onClick={async () => {
+                      await updateClient(id!, { isActive: !client.isActive })
+                      setShowDropdown(false)
+                      fetchClients()
+                    }}
+                  >
+                    <Archive size={14} />
+                    {client.isActive ? 'Deactivate' : 'Activate'}
+                  </button>
+                  <div className={styles.dropdownDivider} />
+                  <button 
+                    className={clsx(styles.dropdownItem, styles.danger)}
+                    onClick={async () => {
+                      if (confirm(`Are you sure you want to delete "${client.name}"? This action cannot be undone.`)) {
+                        await deleteClient(id!)
+                        navigate('/app/clients')
+                      }
+                    }}
+                  >
+                    <Trash2 size={14} />
+                    Delete Client
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -366,6 +438,168 @@ export function ClientDetailPage() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Edit Client Modal */}
+      {showEditModal && (
+        <EditClientModal
+          client={client}
+          onClose={() => setShowEditModal(false)}
+          onSave={async (data) => {
+            await updateClient(id!, data)
+            setShowEditModal(false)
+            fetchClients()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// Edit Client Modal
+function EditClientModal({ client, onClose, onSave }: { 
+  client: any
+  onClose: () => void
+  onSave: (data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState({
+    name: client.name || '',
+    email: client.email || '',
+    phone: client.phone || '',
+    type: client.type || 'person',
+    addressStreet: client.addressStreet || '',
+    addressCity: client.addressCity || '',
+    addressState: client.addressState || '',
+    addressZip: client.addressZip || '',
+    notes: client.notes || '',
+    isActive: client.isActive !== false
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onSave(formData)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>Edit Client</h2>
+          <button onClick={onClose} className={styles.closeBtn}><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
+          <div className={styles.formGroup}>
+            <label>Client Type</label>
+            <select
+              value={formData.type}
+              onChange={(e) => setFormData({...formData, type: e.target.value})}
+            >
+              <option value="person">Individual</option>
+              <option value="company">Organization</option>
+            </select>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>{formData.type === 'company' ? 'Organization Name' : 'Full Name'}</label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({...formData, name: e.target.value})}
+              required
+            />
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Email</label>
+              <input
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({...formData, email: e.target.value})}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Phone</label>
+              <input
+                type="tel"
+                value={formData.phone}
+                onChange={(e) => setFormData({...formData, phone: e.target.value})}
+              />
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Street Address</label>
+            <input
+              type="text"
+              value={formData.addressStreet}
+              onChange={(e) => setFormData({...formData, addressStreet: e.target.value})}
+            />
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>City</label>
+              <input
+                type="text"
+                value={formData.addressCity}
+                onChange={(e) => setFormData({...formData, addressCity: e.target.value})}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>State</label>
+              <input
+                type="text"
+                value={formData.addressState}
+                onChange={(e) => setFormData({...formData, addressState: e.target.value})}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>ZIP</label>
+              <input
+                type="text"
+                value={formData.addressZip}
+                onChange={(e) => setFormData({...formData, addressZip: e.target.value})}
+              />
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Notes</label>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({...formData, notes: e.target.value})}
+              rows={3}
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="checkbox"
+                checked={formData.isActive}
+                onChange={(e) => setFormData({...formData, isActive: e.target.checked})}
+              />
+              Active Client
+            </label>
+          </div>
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+              Cancel
+            </button>
+            <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   )

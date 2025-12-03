@@ -750,3 +750,30 @@
 .billInfo strong {
   color: var(--apex-white);
 }
+
+/* Timer Summary */
+.timerSummary {
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.timerSummaryItem {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-xs) 0;
+  font-size: 0.875rem;
+}
+
+.timerSummaryItem span {
+  color: var(--apex-text);
+}
+
+.timerSummaryItem strong {
+  color: var(--apex-white);
+}
+
+.timerSummaryItem:not(:last-child) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
