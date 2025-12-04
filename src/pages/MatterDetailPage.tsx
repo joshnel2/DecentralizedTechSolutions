@@ -61,6 +61,12 @@ export function MatterDetailPage() {
   const [editingEvent, setEditingEvent] = useState<any>(null)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [attorneys, setAttorneys] = useState<any[]>([])
+  const [showContactModal, setShowContactModal] = useState(false)
+  const [matterContacts, setMatterContacts] = useState<any[]>(() => {
+    const saved = localStorage.getItem(`matter-contacts-${id}`)
+    if (saved) return JSON.parse(saved)
+    return []
+  })
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   
@@ -86,6 +92,22 @@ export function MatterDetailPage() {
   useEffect(() => {
     localStorage.setItem(`matter-tasks-${id}`, JSON.stringify(tasks))
   }, [tasks, id])
+  
+  // Save contacts to localStorage when they change
+  useEffect(() => {
+    localStorage.setItem(`matter-contacts-${id}`, JSON.stringify(matterContacts))
+  }, [matterContacts, id])
+  
+  const addContact = (contact: { name: string; role: string; firm?: string; email?: string; phone?: string }) => {
+    const newContact = { ...contact, id: crypto.randomUUID() }
+    setMatterContacts(prev => [...prev, newContact])
+  }
+  
+  const deleteContact = (contactId: string) => {
+    if (confirm('Are you sure you want to remove this contact?')) {
+      setMatterContacts(prev => prev.filter(c => c.id !== contactId))
+    }
+  }
   
   const addTask = (task: Omit<Task, 'id'>) => {
     const newTask = { ...task, id: crypto.randomUUID() }
@@ -538,17 +560,6 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.card}>
               <div className={styles.cardHeader}>
                 <h3>Matter Details</h3>
-                <button 
-                  className={styles.aiQuickBtn}
-                  onClick={() => openAIWithContext('Matter Details', [
-                    'Explain the billing arrangement for this matter',
-                    'Who are the key attorneys assigned?',
-                    'What type of matter is this?'
-                  ])}
-                  style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-                >
-                  <Sparkles size={12} />
-                </button>
               </div>
               <div className={styles.detailGrid}>
                 <div className={styles.detailItem}>
@@ -612,17 +623,6 @@ Only analyze documents actually associated with this matter.`
                     <Scale size={18} />
                     Court Information
                   </h3>
-                  <button 
-                    className={styles.aiQuickBtn}
-                    onClick={() => openAIWithContext('Court Information', [
-                      'What are the court rules for this jurisdiction?',
-                      'What filing requirements should I be aware of?',
-                      'Any known preferences of this judge?'
-                    ])}
-                    style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-                  >
-                    <Sparkles size={12} />
-                  </button>
                 </div>
                 <div className={styles.detailGrid}>
                   <div className={styles.detailItem}>
@@ -653,17 +653,6 @@ Only analyze documents actually associated with this matter.`
                   Upcoming Events
                 </h3>
                 <div className={styles.cardActions}>
-                  <button 
-                    className={styles.aiQuickBtn}
-                    onClick={() => openAIWithContext('Calendar Events', [
-                      'What events are coming up for this matter?',
-                      'Are there any scheduling conflicts?',
-                      'What meetings should I schedule next?'
-                    ])}
-                    style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-                  >
-                    <Sparkles size={12} />
-                  </button>
                   <button className={styles.addBtn} onClick={() => setShowEventModal(true)}>
                     <Plus size={14} />
                     Add
@@ -707,17 +696,6 @@ Only analyze documents actually associated with this matter.`
                   Recent Time Entries
                 </h3>
                 <div className={styles.cardActions}>
-                  <button 
-                    className={styles.aiQuickBtn}
-                    onClick={() => openAIWithContext('Time Entries', [
-                      'Summarize the time entries for this matter',
-                      'What are the billing patterns?',
-                      'Are there efficiency improvements I can make?'
-                    ])}
-                    style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-                  >
-                    <Sparkles size={12} />
-                  </button>
                   <button className={styles.addBtn} onClick={() => setShowTimeEntryModal(true)}>
                     <Plus size={14} />
                     Add
@@ -760,18 +738,6 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Time Entries</h2>
               <div className={styles.tabActions}>
-                <button 
-                  className={styles.aiBtn}
-                  onClick={() => openAIWithContext('Time Entries Analysis', [
-                    'Summarize all time entries for this matter',
-                    'Find patterns in how time is being spent',
-                    'Suggest optimizations for efficiency',
-                    'What time entries are ready for invoicing?'
-                  ])}
-                >
-                  <Sparkles size={16} />
-                  AI Analyze
-                </button>
                 <button 
                   className={styles.primaryBtn}
                   onClick={() => setShowTimeEntryModal(true)}
@@ -874,18 +840,6 @@ Only analyze documents actually associated with this matter.`
               <h2>Invoices</h2>
               <div className={styles.tabActions}>
                 <button 
-                  className={styles.aiBtn}
-                  onClick={() => openAIWithContext('Billing & Invoices', [
-                    'Give me a billing summary for this matter',
-                    'Analyze collections and outstanding payments',
-                    'Forecast revenue for this matter',
-                    'Help me draft the next invoice'
-                  ])}
-                >
-                  <Sparkles size={16} />
-                  AI Insights
-                </button>
-                <button 
                   className={styles.primaryBtn}
                   onClick={() => setShowInvoiceModal(true)}
                 >
@@ -903,7 +857,6 @@ Only analyze documents actually associated with this matter.`
                     <th>Due Date</th>
                     <th>Amount</th>
                     <th>Status</th>
-                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -917,19 +870,6 @@ Only analyze documents actually associated with this matter.`
                         <span className={clsx(styles.badge, styles[invoice.status])}>
                           {invoice.status}
                         </span>
-                      </td>
-                      <td>
-                        <button 
-                          className={styles.aiQuickBtn}
-                          onClick={() => openAIWithContext(`Invoice ${invoice.number}`, [
-                            `What is the status of invoice ${invoice.number}?`,
-                            'Help me draft a collection follow-up email',
-                            'What payment history exists for this invoice?'
-                          ])}
-                          style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-                        >
-                          <Sparkles size={12} />
-                        </button>
                       </td>
                     </tr>
                   ))}
@@ -947,18 +887,6 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Documents</h2>
               <div className={styles.tabActions}>
-                <button 
-                  className={styles.aiBtn}
-                  onClick={() => openAIWithContext('Matter Documents', [
-                    'Summarize all documents for this matter',
-                    'Extract key terms and clauses from the documents',
-                    'Create a timeline based on document dates',
-                    'What documents are missing for this matter type?'
-                  ])}
-                >
-                  <Sparkles size={16} />
-                  AI Analyze All
-                </button>
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -1023,18 +951,6 @@ Only analyze documents actually associated with this matter.`
                     >
                       <Download size={16} />
                     </button>
-                    <button 
-                      className={styles.aiQuickBtn}
-                      onClick={() => openAIWithContext(`Document: ${doc.name}`, [
-                        'Summarize this document',
-                        'What are the key points in this document?',
-                        'Extract important entities and dates',
-                        'Are there any risks or concerns in this document?'
-                      ])}
-                      style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-                    >
-                      <Sparkles size={12} />
-                    </button>
                   </div>
                   {doc.aiSummary && (
                     <span className={styles.docAi}>
@@ -1067,18 +983,6 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Events & Deadlines</h2>
               <div className={styles.tabActions}>
-                <button 
-                  className={styles.aiBtn}
-                  onClick={() => openAIWithContext('Calendar & Deadlines', [
-                    'Summarize the schedule for this matter',
-                    'Are there any scheduling conflicts?',
-                    'Review all upcoming deadlines',
-                    'Suggest what meetings I should schedule next'
-                  ])}
-                >
-                  <Sparkles size={16} />
-                  AI Schedule
-                </button>
                 <button 
                   className={styles.primaryBtn}
                   onClick={() => setShowEventModal(true)}
@@ -1116,17 +1020,6 @@ Only analyze documents actually associated with this matter.`
                       >
                         <Trash2 size={14} />
                       </button>
-                      <button 
-                        className={styles.aiQuickBtn}
-                        onClick={() => openAIWithContext(`Event: ${event.title}`, [
-                          'Help me prepare for this event',
-                          'What documents do I need for this?',
-                          'Draft an agenda for this meeting'
-                        ])}
-                        style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-                      >
-                        <Sparkles size={12} />
-                      </button>
                       <span className={styles.eventTime}>
                         {format(parseISO(event.startTime), 'h:mm a')}
                       </span>
@@ -1155,17 +1048,6 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Tasks</h2>
               <div className={styles.tabActions}>
-                <button 
-                  className={styles.aiBtn}
-                  onClick={() => openAIWithContext('Matter Tasks', [
-                    'Help me prioritize the tasks for this matter',
-                    'Create a timeline for completing these tasks',
-                    'Analyze the workload distribution'
-                  ])}
-                >
-                  <Sparkles size={16} />
-                  AI Prioritize
-                </button>
                 <button className={styles.primaryBtn} onClick={() => setShowTaskModal(true)}>
                   <Plus size={18} />
                   Add Task
@@ -1263,15 +1145,7 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Related Contacts</h2>
               <div className={styles.tabActions}>
-                <button className={styles.primaryBtn} onClick={() => {
-                  const name = prompt('Enter contact name:');
-                  if (name) {
-                    const role = prompt('Enter contact role (e.g., Opposing Counsel, Expert Witness, Court Clerk):');
-                    if (role) {
-                      alert(`Contact "${name}" (${role}) added to matter.`);
-                    }
-                  }
-                }}>
+                <button className={styles.primaryBtn} onClick={() => setShowContactModal(true)}>
                   <Plus size={18} />
                   Add Contact
                 </button>
@@ -1307,7 +1181,43 @@ Only analyze documents actually associated with this matter.`
                 )}
               </div>
 
-              {/* Related Contacts */}
+              {/* Matter Contacts (saved) */}
+              {matterContacts.map(contact => (
+                <div key={contact.id} className={styles.contactCard}>
+                  <div className={styles.contactCardHeader}>
+                    <span className={styles.contactRole}>{contact.role}</span>
+                    <button 
+                      className={styles.iconBtn}
+                      onClick={() => deleteContact(contact.id)}
+                      title="Remove Contact"
+                      style={{ padding: '4px', color: 'var(--apex-text)' }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                  <div className={styles.contactInfo}>
+                    <div className={styles.contactAvatar}>
+                      {contact.name[0]}
+                    </div>
+                    <div>
+                      <span className={styles.contactName}>{contact.name}</span>
+                      {contact.firm && <span className={styles.contactFirm}>{contact.firm}</span>}
+                    </div>
+                  </div>
+                  {contact.email && (
+                    <div className={styles.contactDetail}>
+                      <span>Email:</span> {contact.email}
+                    </div>
+                  )}
+                  {contact.phone && (
+                    <div className={styles.contactDetail}>
+                      <span>Phone:</span> {contact.phone}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Sample Related Contacts (demo data) */}
               {relatedContacts.map(contact => (
                 <div key={contact.id} className={styles.contactCard}>
                   <div className={styles.contactCardHeader}>
@@ -1473,20 +1383,6 @@ Only analyze documents actually associated with this matter.`
                   <Download size={18} />
                   Download
                 </button>
-                <button 
-                  className={styles.aiBtn}
-                  onClick={() => {
-                    openAIWithContext(`Document: ${showDocPreview.name}`, [
-                      'Summarize this document',
-                      'Extract the key points from this document',
-                      'What action items are in this document?'
-                    ])
-                    setShowDocPreview(null)
-                  }}
-                >
-                  <Sparkles size={16} />
-                  Analyze with AI
-                </button>
               </div>
             </div>
           </div>
@@ -1592,6 +1488,26 @@ Only analyze documents actually associated with this matter.`
               onSave={(data) => {
                 updateTask(editingTask.id, data)
                 setEditingTask(null)
+              }}
+            />
+          </div>
+        </div>
+      )}
+      
+      {/* Add Contact Modal */}
+      {showContactModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowContactModal(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Add Contact</h2>
+              <button onClick={() => setShowContactModal(false)} className={styles.closeBtn}>×</button>
+            </div>
+            <ContactForm 
+              matterName={matter?.name || ''}
+              onClose={() => setShowContactModal(false)}
+              onSave={(data) => {
+                addContact(data)
+                setShowContactModal(false)
               }}
             />
           </div>
@@ -2210,6 +2126,114 @@ function EventForm({ matterId, matterName, onClose, onSave, existingEvent }: {
         </button>
         <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
           {isSubmitting ? 'Saving...' : (existingEvent ? 'Update Event' : 'Create Event')}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+// Contact Form Component
+function ContactForm({ matterName, onClose, onSave }: {
+  matterName: string
+  onClose: () => void
+  onSave: (data: { name: string; role: string; firm?: string; email?: string; phone?: string }) => void
+}) {
+  const [formData, setFormData] = useState({
+    name: '',
+    role: '',
+    firm: '',
+    email: '',
+    phone: ''
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formData.name.trim()) {
+      alert('Please enter a contact name')
+      return
+    }
+    if (!formData.role.trim()) {
+      alert('Please enter a role')
+      return
+    }
+    onSave(formData)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className={styles.modalForm}>
+      <div className={styles.formInfo}>
+        <strong>Matter:</strong> {matterName}
+      </div>
+
+      <div className={styles.formGroup}>
+        <label>Contact Name *</label>
+        <input
+          type="text"
+          value={formData.name}
+          onChange={(e) => setFormData({...formData, name: e.target.value})}
+          placeholder="Enter contact name..."
+          required
+        />
+      </div>
+
+      <div className={styles.formGroup}>
+        <label>Role *</label>
+        <select
+          value={formData.role}
+          onChange={(e) => setFormData({...formData, role: e.target.value})}
+          required
+        >
+          <option value="">Select a role...</option>
+          <option value="Opposing Counsel">Opposing Counsel</option>
+          <option value="Co-Counsel">Co-Counsel</option>
+          <option value="Expert Witness">Expert Witness</option>
+          <option value="Witness">Witness</option>
+          <option value="Insurance Adjuster">Insurance Adjuster</option>
+          <option value="Mediator">Mediator</option>
+          <option value="Arbitrator">Arbitrator</option>
+          <option value="Court Clerk">Court Clerk</option>
+          <option value="Judge's Chambers">Judge's Chambers</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+
+      <div className={styles.formGroup}>
+        <label>Firm / Organization</label>
+        <input
+          type="text"
+          value={formData.firm}
+          onChange={(e) => setFormData({...formData, firm: e.target.value})}
+          placeholder="Enter firm or organization..."
+        />
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Email</label>
+          <input
+            type="email"
+            value={formData.email}
+            onChange={(e) => setFormData({...formData, email: e.target.value})}
+            placeholder="email@example.com"
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label>Phone</label>
+          <input
+            type="tel"
+            value={formData.phone}
+            onChange={(e) => setFormData({...formData, phone: e.target.value})}
+            placeholder="(555) 555-5555"
+          />
+        </div>
+      </div>
+
+      <div className={styles.modalActions}>
+        <button type="button" onClick={onClose} className={styles.cancelBtn}>
+          Cancel
+        </button>
+        <button type="submit" className={styles.saveBtn}>
+          Add Contact
         </button>
       </div>
     </form>

@@ -38,6 +38,8 @@ export function BillingPage() {
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null)
   const [showInvoicePreview, setShowInvoicePreview] = useState<any>(null)
+  const [showBillUnbilledModal, setShowBillUnbilledModal] = useState(false)
+  const [showRemindersModal, setShowRemindersModal] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Close dropdown when clicking outside
@@ -411,7 +413,8 @@ export function BillingPage() {
       <div className={styles.quickActions}>
         <button 
           className={styles.quickActionBtn}
-          onClick={() => navigate('/app/time-tracking')}
+          onClick={() => setShowBillUnbilledModal(true)}
+          disabled={stats.unbilledTime === 0}
         >
           <Clock size={18} />
           <span>Bill Unbilled Time (${stats.unbilledTime.toLocaleString()})</span>
@@ -425,15 +428,7 @@ export function BillingPage() {
         </button>
         <button 
           className={styles.quickActionBtn}
-          onClick={() => openChat({
-            label: 'Payment Reminders',
-            contextType: 'billing',
-            suggestedQuestions: [
-              'Draft a friendly payment reminder email',
-              'What overdue invoices should I prioritize?',
-              'Suggest a collection strategy for 90+ day receivables'
-            ]
-          })}
+          onClick={() => setShowRemindersModal(true)}
         >
           <Mail size={18} />
           <span>Send Reminders</span>
@@ -508,6 +503,8 @@ export function BillingPage() {
               <div 
                 key={invoice.id} 
                 className={clsx(styles.invoiceCard, isPastDue && styles.pastDue)}
+                onClick={() => setShowInvoicePreview(invoice)}
+                style={{ cursor: 'pointer' }}
               >
                 <div className={styles.invoiceMain}>
                   <div className={styles.invoiceInfo}>
@@ -515,7 +512,7 @@ export function BillingPage() {
                       <FileText size={16} />
                       {invoice.number}
                     </div>
-                    <div className={styles.invoiceClient}>
+                    <div className={styles.invoiceClient} onClick={(e) => e.stopPropagation()}>
                       <Link to={`/app/clients/${invoice.clientId}`}>
                         {client?.name || 'Unknown Client'}
                       </Link>
@@ -566,24 +563,24 @@ export function BillingPage() {
                     </span>
                   </div>
 
-                  <div className={styles.invoiceActions}>
+                  <div className={styles.invoiceActions} onClick={(e) => e.stopPropagation()}>
                     <button 
                       className={styles.actionBtn}
-                      onClick={() => setShowInvoicePreview(invoice)}
+                      onClick={(e) => { e.stopPropagation(); setShowInvoicePreview(invoice); }}
                       title="Preview"
                     >
                       <Eye size={16} />
                     </button>
                     <button 
                       className={styles.actionBtn}
-                      onClick={() => handleEditInvoice(invoice)}
+                      onClick={(e) => { e.stopPropagation(); handleEditInvoice(invoice); }}
                       title="Edit"
                     >
                       <Edit2 size={16} />
                     </button>
                     <button 
                       className={styles.actionBtn}
-                      onClick={() => handleDownloadInvoice(invoice)}
+                      onClick={(e) => { e.stopPropagation(); handleDownloadInvoice(invoice); }}
                       title="Download PDF"
                     >
                       <Download size={16} />
@@ -591,7 +588,7 @@ export function BillingPage() {
                     <div className={styles.menuWrapper} ref={openDropdownId === invoice.id ? dropdownRef : null}>
                       <button 
                         className={styles.actionBtn}
-                        onClick={() => setOpenDropdownId(openDropdownId === invoice.id ? null : invoice.id)}
+                        onClick={(e) => { e.stopPropagation(); setOpenDropdownId(openDropdownId === invoice.id ? null : invoice.id); }}
                       >
                         <MoreVertical size={16} />
                       </button>
@@ -725,6 +722,18 @@ export function BillingPage() {
             setShowPaymentModal(true)
             setShowInvoicePreview(null)
           }}
+          onDelete={async () => {
+            if (confirm(`Are you sure you want to delete invoice ${showInvoicePreview.number}? This action cannot be undone.`)) {
+              try {
+                await invoicesApi.delete(showInvoicePreview.id)
+                setShowInvoicePreview(null)
+                fetchInvoices()
+              } catch (error) {
+                console.error('Failed to delete invoice:', error)
+                alert('Failed to delete invoice')
+              }
+            }
+          }}
         />
       )}
 
@@ -790,12 +799,47 @@ export function BillingPage() {
           }}
         />
       )}
+
+      {/* Bill Unbilled Time Modal */}
+      {showBillUnbilledModal && (
+        <BillUnbilledModal
+          unbilledTimeEntries={timeEntries.filter(t => t.billable && !t.billed)}
+          clients={clients}
+          matters={matters}
+          totalUnbilled={stats.unbilledTime}
+          onClose={() => setShowBillUnbilledModal(false)}
+          onCreateInvoice={async (data) => {
+            try {
+              await addInvoice({
+                ...data,
+                status: 'draft',
+                amountPaid: 0,
+                subtotal: data.total
+              })
+              setShowBillUnbilledModal(false)
+              fetchInvoices()
+            } catch (error) {
+              console.error('Failed to create invoice:', error)
+              alert('Failed to create invoice. Please try again.')
+            }
+          }}
+        />
+      )}
+
+      {/* Send Reminders Modal */}
+      {showRemindersModal && (
+        <RemindersModal
+          overdueInvoices={invoices.filter(i => i.status === 'overdue' || (i.status === 'sent' && differenceInDays(new Date(), parseISO(i.dueDate)) > 0))}
+          clients={clients}
+          onClose={() => setShowRemindersModal(false)}
+        />
+      )}
     </div>
   )
 }
 
 // Invoice Preview Modal
-function InvoicePreviewModal({ invoice, client, matter, firm, onClose, onDownload, onEdit, onRecordPayment }: {
+function InvoicePreviewModal({ invoice, client, matter, firm, onClose, onDownload, onEdit, onRecordPayment, onDelete }: {
   invoice: any
   client: any
   matter: any
@@ -804,6 +848,7 @@ function InvoicePreviewModal({ invoice, client, matter, firm, onClose, onDownloa
   onDownload: () => void
   onEdit: () => void
   onRecordPayment: () => void
+  onDelete: () => void
 }) {
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
@@ -900,8 +945,13 @@ function InvoicePreviewModal({ invoice, client, matter, firm, onClose, onDownloa
         </div>
 
         <div className={styles.previewActions}>
-          <button className={styles.cancelBtn} onClick={onClose}>
-            Close
+          <button 
+            className={styles.cancelBtn} 
+            onClick={onDelete}
+            style={{ color: '#EF4444', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+          >
+            <Trash2 size={16} />
+            Delete
           </button>
           <button className={styles.secondaryBtn} onClick={onEdit}>
             <Edit2 size={16} />
@@ -1281,6 +1331,346 @@ function PaymentModal({ invoice, onClose, onSave }: {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+// Bill Unbilled Time Modal
+function BillUnbilledModal({ unbilledTimeEntries, clients, matters, totalUnbilled, onClose, onCreateInvoice }: {
+  unbilledTimeEntries: any[]
+  clients: any[]
+  matters: any[]
+  totalUnbilled: number
+  onClose: () => void
+  onCreateInvoice: (data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [selectedClientId, setSelectedClientId] = useState('')
+  const [selectedMatterId, setSelectedMatterId] = useState('')
+
+  // Group unbilled time by client and matter
+  const entriesByClient = useMemo(() => {
+    const grouped: Record<string, { client: any, entries: any[], total: number, matters: Record<string, { matter: any, entries: any[], total: number }> }> = {}
+    
+    unbilledTimeEntries.forEach(entry => {
+      const matter = matters.find(m => m.id === entry.matterId)
+      if (!matter) return
+      
+      const clientId = matter.clientId
+      const client = clients.find(c => c.id === clientId)
+      if (!client) return
+
+      if (!grouped[clientId]) {
+        grouped[clientId] = { client, entries: [], total: 0, matters: {} }
+      }
+      
+      grouped[clientId].entries.push(entry)
+      grouped[clientId].total += entry.amount
+      
+      if (!grouped[clientId].matters[entry.matterId]) {
+        grouped[clientId].matters[entry.matterId] = { matter, entries: [], total: 0 }
+      }
+      grouped[clientId].matters[entry.matterId].entries.push(entry)
+      grouped[clientId].matters[entry.matterId].total += entry.amount
+    })
+    
+    return grouped
+  }, [unbilledTimeEntries, clients, matters])
+
+  const filteredEntries = useMemo(() => {
+    let entries = unbilledTimeEntries
+    if (selectedMatterId) {
+      entries = entries.filter(e => e.matterId === selectedMatterId)
+    } else if (selectedClientId) {
+      const clientMatters = matters.filter(m => m.clientId === selectedClientId).map(m => m.id)
+      entries = entries.filter(e => clientMatters.includes(e.matterId))
+    }
+    return entries
+  }, [unbilledTimeEntries, selectedClientId, selectedMatterId, matters])
+
+  const selectedTotal = filteredEntries.reduce((sum, e) => sum + e.amount, 0)
+
+  const handleCreateInvoice = async () => {
+    if (!selectedClientId) {
+      alert('Please select a client')
+      return
+    }
+    if (filteredEntries.length === 0) {
+      alert('No unbilled time entries to invoice')
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      const lineItems = filteredEntries.map(entry => ({
+        type: 'fee',
+        description: entry.description,
+        quantity: entry.hours,
+        rate: entry.rate,
+        amount: entry.amount
+      }))
+
+      await onCreateInvoice({
+        clientId: selectedClientId,
+        matterId: selectedMatterId || undefined,
+        issueDate: new Date().toISOString(),
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        lineItems,
+        total: selectedTotal,
+        notes: ''
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+        <div className={styles.modalHeader}>
+          <h2>Bill Unbilled Time</h2>
+          <button onClick={onClose} className={styles.closeBtn}>×</button>
+        </div>
+        <div className={styles.modalForm}>
+          <div className={styles.paymentInfo}>
+            <div className={styles.paymentInfoRow}>
+              <span>Total Unbilled Time:</span>
+              <strong>${totalUnbilled.toLocaleString()}</strong>
+            </div>
+            <div className={styles.paymentInfoRow}>
+              <span>Unbilled Entries:</span>
+              <strong>{unbilledTimeEntries.length}</strong>
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Select Client *</label>
+            <select
+              value={selectedClientId}
+              onChange={(e) => {
+                setSelectedClientId(e.target.value)
+                setSelectedMatterId('')
+              }}
+            >
+              <option value="">All Clients</option>
+              {Object.entries(entriesByClient).map(([clientId, data]) => (
+                <option key={clientId} value={clientId}>
+                  {data.client.name || data.client.displayName} (${data.total.toLocaleString()})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {selectedClientId && (
+            <div className={styles.formGroup}>
+              <label>Select Matter (Optional)</label>
+              <select
+                value={selectedMatterId}
+                onChange={(e) => setSelectedMatterId(e.target.value)}
+              >
+                <option value="">All Matters for Client</option>
+                {Object.entries(entriesByClient[selectedClientId]?.matters || {}).map(([matterId, data]) => (
+                  <option key={matterId} value={matterId}>
+                    {data.matter.name} (${data.total.toLocaleString()})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {filteredEntries.length > 0 && (
+            <div style={{ marginTop: '1rem' }}>
+              <div style={{ fontSize: '0.875rem', color: 'var(--apex-text)', marginBottom: '0.5rem' }}>
+                Selected Time Entries ({filteredEntries.length}):
+              </div>
+              <div style={{ 
+                maxHeight: '200px', 
+                overflow: 'auto', 
+                background: 'var(--apex-slate)', 
+                borderRadius: '8px',
+                padding: '0.5rem'
+              }}>
+                {filteredEntries.slice(0, 10).map((entry, i) => (
+                  <div key={i} style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    padding: '0.5rem',
+                    borderBottom: i < Math.min(filteredEntries.length, 10) - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                    fontSize: '0.8125rem'
+                  }}>
+                    <span style={{ flex: 1, color: 'var(--apex-light)' }}>{entry.description}</span>
+                    <span style={{ color: 'var(--apex-text)', marginRight: '1rem' }}>{entry.hours}h</span>
+                    <span style={{ color: 'var(--apex-gold-bright)' }}>${entry.amount.toLocaleString()}</span>
+                  </div>
+                ))}
+                {filteredEntries.length > 10 && (
+                  <div style={{ padding: '0.5rem', color: 'var(--apex-text)', fontSize: '0.75rem' }}>
+                    ... and {filteredEntries.length - 10} more entries
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className={clsx(styles.paymentInfoRow, styles.highlight)} style={{ marginTop: '1rem' }}>
+            <span>Invoice Total:</span>
+            <strong>${selectedTotal.toLocaleString()}</strong>
+          </div>
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+              Cancel
+            </button>
+            <button 
+              type="button" 
+              onClick={handleCreateInvoice} 
+              className={styles.saveBtn} 
+              disabled={isSubmitting || !selectedClientId || filteredEntries.length === 0}
+            >
+              {isSubmitting ? 'Creating...' : `Create Invoice ($${selectedTotal.toLocaleString()})`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Send Reminders Modal  
+function RemindersModal({ overdueInvoices, clients, onClose }: {
+  overdueInvoices: any[]
+  clients: any[]
+  onClose: () => void
+}) {
+  const [emailSent, setEmailSent] = useState<Record<string, boolean>>({})
+
+  const handleSendReminder = (invoice: any) => {
+    const client = clients.find(c => c.id === invoice.clientId)
+    const email = client?.email
+    
+    if (!email) {
+      alert('No email address found for this client')
+      return
+    }
+
+    // Simulate sending email (in a real app, this would call an API)
+    const subject = encodeURIComponent(`Payment Reminder - Invoice ${invoice.number}`)
+    const body = encodeURIComponent(
+      `Dear ${client?.name || 'Client'},\n\n` +
+      `This is a friendly reminder that Invoice ${invoice.number} for $${invoice.total.toLocaleString()} ` +
+      `was due on ${format(parseISO(invoice.dueDate), 'MMMM d, yyyy')}.\n\n` +
+      `Outstanding balance: $${(invoice.total - invoice.amountPaid).toLocaleString()}\n\n` +
+      `Please remit payment at your earliest convenience. If you have already sent payment, please disregard this notice.\n\n` +
+      `Thank you for your prompt attention to this matter.\n\n` +
+      `Best regards`
+    )
+    
+    window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_blank')
+    setEmailSent({ ...emailSent, [invoice.id]: true })
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+        <div className={styles.modalHeader}>
+          <h2>Payment Reminders</h2>
+          <button onClick={onClose} className={styles.closeBtn}>×</button>
+        </div>
+        <div className={styles.modalForm}>
+          {overdueInvoices.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--apex-text)' }}>
+              <CheckCircle2 size={48} style={{ color: '#10B981', marginBottom: '1rem' }} />
+              <p>No overdue invoices! All payments are current.</p>
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: '0.875rem', color: 'var(--apex-text)', marginBottom: '1rem' }}>
+                {overdueInvoices.length} invoice{overdueInvoices.length !== 1 ? 's' : ''} requiring follow-up:
+              </div>
+              <div style={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                gap: '0.75rem',
+                maxHeight: '400px',
+                overflow: 'auto'
+              }}>
+                {overdueInvoices.map(invoice => {
+                  const client = clients.find(c => c.id === invoice.clientId)
+                  const daysOverdue = differenceInDays(new Date(), parseISO(invoice.dueDate))
+                  
+                  return (
+                    <div 
+                      key={invoice.id} 
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        background: 'var(--apex-slate)',
+                        padding: '1rem',
+                        borderRadius: '8px',
+                        borderLeft: daysOverdue > 60 ? '3px solid #EF4444' : daysOverdue > 30 ? '3px solid #F97316' : '3px solid #F59E0B'
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: '600', color: 'var(--apex-white)', marginBottom: '0.25rem' }}>
+                          {invoice.number}
+                        </div>
+                        <div style={{ fontSize: '0.875rem', color: 'var(--apex-gold-bright)' }}>
+                          {client?.name || 'Unknown Client'}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--apex-text)', marginTop: '0.25rem' }}>
+                          {daysOverdue} days overdue
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '1rem', fontWeight: '700', color: 'var(--apex-white)' }}>
+                          ${(invoice.total - invoice.amountPaid).toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--apex-text)', marginBottom: '0.5rem' }}>
+                          due {format(parseISO(invoice.dueDate), 'MMM d')}
+                        </div>
+                        <button
+                          onClick={() => handleSendReminder(invoice)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.25rem',
+                            padding: '0.375rem 0.75rem',
+                            background: emailSent[invoice.id] ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                            border: `1px solid ${emailSent[invoice.id] ? '#10B981' : 'var(--apex-gold)'}`,
+                            borderRadius: '6px',
+                            color: emailSent[invoice.id] ? '#10B981' : 'var(--apex-gold)',
+                            fontSize: '0.75rem',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {emailSent[invoice.id] ? (
+                            <>
+                              <CheckCircle2 size={12} />
+                              Sent
+                            </>
+                          ) : (
+                            <>
+                              <Mail size={12} />
+                              Send Reminder
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn}>
+              Close
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
