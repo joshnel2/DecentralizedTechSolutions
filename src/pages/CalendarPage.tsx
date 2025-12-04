@@ -214,17 +214,6 @@ export function CalendarPage() {
                           >
                             <Trash2 size={14} />
                           </button>
-                          <button 
-                            onClick={() => openAIWithContext([
-                              `Help me prepare for "${event.title}"`,
-                              'What materials do I need for this event?',
-                              'Draft an agenda for this meeting'
-                            ])}
-                            className={styles.eventActionBtn}
-                            title="AI Assist"
-                          >
-                            <Sparkles size={14} />
-                          </button>
                         </div>
                       </div>
                       <h4>{event.title}</h4>

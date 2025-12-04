@@ -331,6 +331,26 @@
   color: var(--apex-warning);
 }
 
+/* Edit Button */
+.editBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.editBtn:hover {
+  background: var(--apex-muted);
+  border-color: var(--apex-gold);
+  color: var(--apex-gold);
+}
+
 /* Modal */
 .modalOverlay {
   position: fixed;

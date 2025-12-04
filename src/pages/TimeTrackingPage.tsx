@@ -5,7 +5,7 @@ import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Plus, Play, Pause, Clock, Calendar, DollarSign, 
-  TrendingUp, Sparkles, CheckSquare, FileText, X
+  TrendingUp, Sparkles, CheckSquare, FileText, X, Edit2
 } from 'lucide-react'
 import { format, parseISO, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addDays } from 'date-fns'
 import { clsx } from 'clsx'
@@ -30,6 +30,7 @@ export function TimeTrackingPage() {
   const [timerElapsed, setTimerElapsed] = useState(0)
   const [showTimerSaveModal, setShowTimerSaveModal] = useState(false)
   const [timerDescription, setTimerDescription] = useState('')
+  const [editingEntry, setEditingEntry] = useState<any>(null)
 
   const weekDays = useMemo(() => {
     const now = new Date()
@@ -342,6 +343,7 @@ export function TimeTrackingPage() {
                 <th>Hours</th>
                 <th>Amount</th>
                 <th>Status</th>
+                <th style={{ width: '60px' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -385,6 +387,15 @@ export function TimeTrackingPage() {
                     <span className={clsx(styles.statusBadge, entry.billed ? styles.billed : styles.unbilled)}>
                       {entry.billed ? 'Billed' : 'Unbilled'}
                     </span>
+                  </td>
+                  <td>
+                    <button 
+                      className={styles.editBtn}
+                      onClick={() => setEditingEntry(entry)}
+                      title="Edit Entry"
+                    >
+                      <Edit2 size={14} />
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -504,6 +515,25 @@ export function TimeTrackingPage() {
             } catch (error) {
               console.error('Failed to create invoice:', error)
               alert('Failed to create invoice. Please try again.')
+            }
+          }}
+        />
+      )}
+
+      {/* Edit Time Entry Modal */}
+      {editingEntry && (
+        <EditTimeEntryModal
+          entry={editingEntry}
+          matters={matters}
+          onClose={() => setEditingEntry(null)}
+          onSave={async (data) => {
+            try {
+              await updateTimeEntry(editingEntry.id, data)
+              setEditingEntry(null)
+              fetchTimeEntries()
+            } catch (error) {
+              console.error('Failed to update time entry:', error)
+              alert('Failed to update time entry. Please try again.')
             }
           }}
         />
@@ -662,6 +692,136 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
             </button>
             <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
               {isSubmitting ? 'Saving...' : 'Save Entry'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// Edit Time Entry Modal
+function EditTimeEntryModal({ entry, matters, onClose, onSave }: {
+  entry: any
+  matters: any[]
+  onClose: () => void
+  onSave: (data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState({
+    matterId: entry.matterId,
+    date: format(parseISO(entry.date), 'yyyy-MM-dd'),
+    hours: entry.hours,
+    description: entry.description,
+    billable: entry.billable,
+    rate: entry.rate
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onSave({
+        ...formData,
+        date: new Date(formData.date).toISOString()
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>Edit Time Entry</h2>
+          <button onClick={onClose} className={styles.closeBtn}>×</button>
+        </div>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
+          <div className={styles.formGroup}>
+            <label>Matter</label>
+            <select
+              value={formData.matterId}
+              onChange={(e) => {
+                const matter = matters.find((m: any) => m.id === e.target.value)
+                setFormData({
+                  ...formData, 
+                  matterId: e.target.value,
+                  rate: matter?.billingRate || formData.rate
+                })
+              }}
+              required
+            >
+              {matters.map((m: any) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Date</label>
+              <input
+                type="date"
+                value={formData.date}
+                onChange={(e) => setFormData({...formData, date: e.target.value})}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Hours</label>
+              <input
+                type="number"
+                value={formData.hours}
+                onChange={(e) => setFormData({...formData, hours: parseFloat(e.target.value)})}
+                min="0.1"
+                step="0.1"
+              />
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Description</label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({...formData, description: e.target.value})}
+              placeholder="Describe the work performed"
+              rows={3}
+              required
+            />
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Rate ($/hr)</label>
+              <input
+                type="number"
+                value={formData.rate}
+                onChange={(e) => setFormData({...formData, rate: parseInt(e.target.value)})}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Billable</label>
+              <select
+                value={formData.billable ? 'yes' : 'no'}
+                onChange={(e) => setFormData({...formData, billable: e.target.value === 'yes'})}
+              >
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </div>
+          </div>
+
+          <div className={styles.entryTotal}>
+            Total: ${(formData.hours * formData.rate).toLocaleString()}
+          </div>
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+              Cancel
+            </button>
+            <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </form>

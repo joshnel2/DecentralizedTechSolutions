@@ -231,9 +231,21 @@ export function MattersPage() {
                   </span>
                 </td>
                 <td>
-                  <span className={clsx(styles.statusBadge, styles[matter.status])}>
-                    {matter.status.replace(/_/g, ' ')}
-                  </span>
+                  <select
+                    className={clsx(styles.statusSelect, styles[matter.status])}
+                    value={matter.status}
+                    onChange={(e) => handleStatusChange(matter.id, e.target.value as any)}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <option value="intake">Intake</option>
+                    <option value="active">Active</option>
+                    <option value="pending">Pending</option>
+                    <option value="on_hold">On Hold</option>
+                    <option value="closed_won">Closed - Won</option>
+                    <option value="closed_lost">Closed - Lost</option>
+                    <option value="closed_settled">Closed - Settled</option>
+                    <option value="closed_other">Closed - Other</option>
+                  </select>
                 </td>
                 <td>
                   <div className={styles.billingInfo}>

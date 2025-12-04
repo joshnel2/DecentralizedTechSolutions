@@ -80,7 +80,7 @@ export function DocumentsPage() {
   }
   
   const [searchQuery, setSearchQuery] = useState('')
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list')
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [selectedMatterId, setSelectedMatterId] = useState('')

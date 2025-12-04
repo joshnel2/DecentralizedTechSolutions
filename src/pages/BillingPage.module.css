@@ -261,6 +261,7 @@
 .quickActions {
   display: flex;
   gap: var(--space-md);
+  margin-top: var(--space-lg);
   margin-bottom: var(--space-xl);
   padding: var(--space-md);
   background: var(--apex-slate);
