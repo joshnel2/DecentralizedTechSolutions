@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { 
   Plus, Users, UserPlus, Shield, Trash2, Edit2,
-  Mail, MoreVertical, Eye, Key, XCircle
+  Mail, MoreVertical, Eye, Key, XCircle, ArrowLeft
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './TeamPage.module.css'
@@ -16,6 +17,7 @@ const teamMembers = [
 ]
 
 export function TeamPage() {
+  const navigate = useNavigate()
   const { groups, addGroup, updateGroup, deleteGroup } = useDataStore()
   const { user } = useAuthStore()
   const [showInviteModal, setShowInviteModal] = useState(false)
@@ -37,6 +39,10 @@ export function TeamPage() {
 
   return (
     <div className={styles.teamPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <h1>Team & Groups</h1>

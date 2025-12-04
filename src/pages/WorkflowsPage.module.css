@@ -1,4 +1,8 @@
 .workflowsPage { padding: var(--spacing-xl); max-width: 1400px; }
+.backButton { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: var(--radius-md); color: var(--text-secondary); font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 0.2s ease; margin-bottom: 1.5rem; }
+.backButton:hover { background: var(--bg-secondary); border-color: var(--gold-primary); color: var(--text-primary); }
+.backButton svg { transition: transform 0.2s ease; }
+.backButton:hover svg { transform: translateX(-2px); }
 .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; }
 .headerLeft { display: flex; align-items: center; gap: 1rem; }
 .headerIcon { width: 56px; height: 56px; border-radius: var(--radius-lg); background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(234, 179, 8, 0.1)); display: flex; align-items: center; justify-content: center; color: #F59E0B; }

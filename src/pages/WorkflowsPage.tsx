@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Workflow, Plus, Play, Pause, Edit2, Trash2, Copy, Zap, Mail, Calendar, FileText, Bell, CheckCircle2, Clock, Users, ArrowRight, X } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Workflow, Plus, Play, Pause, Edit2, Trash2, Copy, Zap, Mail, Calendar, FileText, Bell, CheckCircle2, Clock, Users, ArrowRight, X, ArrowLeft } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './WorkflowsPage.module.css'
 
@@ -43,6 +44,7 @@ const actionOptions = [
 ]
 
 export function WorkflowsPage() {
+  const navigate = useNavigate()
   const [workflows, setWorkflows] = useState(demoWorkflows)
   const [showCreateModal, setShowCreateModal] = useState(false)
 
@@ -54,6 +56,10 @@ export function WorkflowsPage() {
 
   return (
     <div className={styles.workflowsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <div className={styles.headerIcon}><Workflow size={28} /></div>

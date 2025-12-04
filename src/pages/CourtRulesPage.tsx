@@ -1,7 +1,8 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Scale, Plus, Search, ChevronDown, Edit2, Trash2, X,
-  Calendar, AlertCircle, CheckCircle2, Clock, MapPin, BookOpen
+  Calendar, AlertCircle, CheckCircle2, Clock, MapPin, BookOpen, ArrowLeft
 } from 'lucide-react'
 import { format, addDays } from 'date-fns'
 import { clsx } from 'clsx'
@@ -105,6 +106,7 @@ const ruleTypeConfig = {
 }
 
 export function CourtRulesPage() {
+  const navigate = useNavigate()
   const [rules, setRules] = useState(demoRules)
   const [searchQuery, setSearchQuery] = useState('')
   const [jurisdictionFilter, setJurisdictionFilter] = useState<string>('all')
@@ -130,6 +132,10 @@ export function CourtRulesPage() {
 
   return (
     <div className={styles.courtRulesPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <div className={styles.headerIcon}>
           <Scale size={28} />

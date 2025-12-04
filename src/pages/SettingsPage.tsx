@@ -1,12 +1,14 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { 
   User, Mail, Lock, Bell, Shield, Save, Calendar, Clock, 
-  CreditCard, Globe, Palette, Download, Trash2, CheckCircle2
+  CreditCard, Globe, Palette, Download, Trash2, CheckCircle2, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
 export function SettingsPage() {
+  const navigate = useNavigate()
   const { user, updateUser } = useAuthStore()
   const [activeTab, setActiveTab] = useState('profile')
   const [saved, setSaved] = useState(false)
@@ -89,6 +91,10 @@ export function SettingsPage() {
 
   return (
     <div className={styles.settingsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <h1>My Settings</h1>
         <p>Manage your personal account settings and preferences</p>

@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   Trash2, RotateCcw, Clock, User, Briefcase, FileText, Calendar,
-  Search, Filter, CheckCircle2, AlertCircle, ChevronDown
+  Search, Filter, CheckCircle2, AlertCircle, ChevronDown, ArrowLeft
 } from 'lucide-react'
 import { format, formatDistanceToNow, parseISO, subDays } from 'date-fns'
 import { clsx } from 'clsx'
@@ -90,6 +91,7 @@ const typeConfig = {
 }
 
 export function RecoveryBinPage() {
+  const navigate = useNavigate()
   const [items, setItems] = useState(demoDeletedItems)
   const [searchQuery, setSearchQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<string>('all')
@@ -133,6 +135,10 @@ export function RecoveryBinPage() {
 
   return (
     <div className={styles.recoveryBinPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <div className={styles.headerIcon}>
           <Trash2 size={28} />

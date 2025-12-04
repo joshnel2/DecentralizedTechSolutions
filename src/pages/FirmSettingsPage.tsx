@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
 import { 
   Building2, CreditCard, Brain, Shield, Save, Users, Briefcase,
   DollarSign, Clock, Sparkles, CheckCircle2,
   AlertTriangle, Plus, Trash2, Edit2, UserPlus, X,
-  Mail, UserCog, UserMinus, Landmark, Wallet, TrendingUp, PiggyBank
+  Mail, UserCog, UserMinus, Landmark, Wallet, TrendingUp, PiggyBank, ArrowLeft
 } from 'lucide-react'
 import styles from './FirmSettingsPage.module.css'
 
@@ -41,6 +42,7 @@ const groupColors = [
 ]
 
 export function FirmSettingsPage() {
+  const navigate = useNavigate()
   const { firm, updateFirm, user } = useAuthStore()
   const { groups, addGroup, updateGroup, deleteGroup, clients, invoices } = useDataStore()
   const [activeTab, setActiveTab] = useState('accounts')
@@ -206,6 +208,10 @@ export function FirmSettingsPage() {
 
   return (
     <div className={styles.firmSettingsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <h1>Firm Settings</h1>
         <p>Manage your firm's configuration, users, and AI settings</p>

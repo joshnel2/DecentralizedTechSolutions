@@ -7,6 +7,37 @@
   overflow: hidden;
 }
 
+.backButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 1.5rem;
+  width: fit-content;
+}
+
+.backButton:hover {
+  background: var(--bg-secondary);
+  border-color: var(--gold-primary);
+  color: var(--text-primary);
+}
+
+.backButton svg {
+  transition: transform 0.2s ease;
+}
+
+.backButton:hover svg {
+  transform: translateX(-2px);
+}
+
 .noAccess {
   display: flex;
   flex-direction: column;

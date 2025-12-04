@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { FileText, Search, Play, Download, X, Sparkles } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { FileText, Search, Play, Download, X, Sparkles, ArrowLeft } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './DocumentAutomationPage.module.css'
 
@@ -36,6 +37,7 @@ const demoTemplates: DocumentTemplate[] = [
 const categories = ['All', 'Engagement', 'Correspondence', 'Pleadings', 'Discovery', 'Agreements', 'Corporate']
 
 export function DocumentAutomationPage() {
+  const navigate = useNavigate()
   const [templates] = useState(demoTemplates)
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('All')
@@ -50,6 +52,10 @@ export function DocumentAutomationPage() {
 
   return (
     <div className={styles.docAutoPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <div className={styles.headerIcon}><Sparkles size={28} /></div>

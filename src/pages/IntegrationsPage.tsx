@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '../stores/authStore'
 import { integrationsApi } from '../services/api'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
   Link2, Calendar, Cloud, FileSignature,
   Calculator, MessageSquare, Shield, CheckCircle2,
   RefreshCw, AlertTriangle,
-  Lock, Globe, Zap, AlertCircle
+  Lock, Globe, Zap, AlertCircle, ArrowLeft
 } from 'lucide-react'
 import styles from './IntegrationsPage.module.css'
 
@@ -127,6 +127,7 @@ const categoryLabels: Record<string, { label: string; icon: any }> = {
 }
 
 export function IntegrationsPage() {
+  const navigate = useNavigate()
   const { user } = useAuthStore()
   const [searchParams, setSearchParams] = useSearchParams()
   const [integrations, setIntegrations] = useState<Record<string, IntegrationStatus | null>>({
@@ -295,6 +296,10 @@ export function IntegrationsPage() {
 
   return (
     <div className={styles.integrationsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       {/* Notification */}
       {notification && (
         <div className={`${styles.notification} ${styles[notification.type]}`}>

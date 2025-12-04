@@ -1,9 +1,10 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import {
   Tag, Plus, Edit2, Trash2, Search, ChevronDown, X,
   AlertTriangle, CheckCircle2, User, Briefcase, FileText,
-  GripVertical, Copy, Settings
+  GripVertical, Copy, Settings, ArrowLeft
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './CustomFieldsPage.module.css'
@@ -53,6 +54,7 @@ const fieldTypes = [
 ]
 
 export function CustomFieldsPage() {
+  const navigate = useNavigate()
   const { user } = useAuthStore()
   const [fields, setFields] = useState(demoFields)
   const [searchQuery, setSearchQuery] = useState('')
@@ -116,6 +118,10 @@ export function CustomFieldsPage() {
 
   return (
     <div className={styles.customFieldsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <div className={styles.headerIcon}>
           <Tag size={28} />

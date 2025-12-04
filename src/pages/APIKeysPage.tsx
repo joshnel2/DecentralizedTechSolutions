@@ -1,14 +1,16 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { 
   Plus, Key, Copy, Trash2, Eye, EyeOff, 
-  CheckCircle2, AlertCircle
+  CheckCircle2, AlertCircle, ArrowLeft
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import styles from './APIKeysPage.module.css'
 
 export function APIKeysPage() {
+  const navigate = useNavigate()
   const { apiKeys, addAPIKey, deleteAPIKey } = useDataStore()
   const { user } = useAuthStore()
   const [showNewModal, setShowNewModal] = useState(false)
@@ -39,6 +41,10 @@ export function APIKeysPage() {
 
   return (
     <div className={styles.apiKeysPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <h1>API Keys</h1>

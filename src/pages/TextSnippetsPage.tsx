@@ -1,7 +1,8 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   TextSelect, Plus, Search, Edit2, Trash2, X, Copy, Check,
-  FolderOpen, Tag, ChevronDown, Clock
+  FolderOpen, Tag, ChevronDown, Clock, ArrowLeft
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -77,6 +78,7 @@ const demoSnippets: TextSnippet[] = [
 const categories = ['All', 'Correspondence', 'Legal Notices', 'Email', 'Discovery', 'Billing', 'Court']
 
 export function TextSnippetsPage() {
+  const navigate = useNavigate()
   const [snippets, setSnippets] = useState(demoSnippets)
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('All')
@@ -125,6 +127,10 @@ export function TextSnippetsPage() {
 
   return (
     <div className={styles.textSnippetsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <div className={styles.headerIcon}>
           <TextSelect size={28} />
