@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore, rolePermissions } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
 import { 
@@ -8,7 +9,7 @@ import {
   Mail, UserPlus, UserMinus, Check, X, Eye, EyeOff,
   ChevronRight, ChevronDown, Clock, Calendar, Download,
   AlertTriangle, CheckCircle2, XCircle, Info, RefreshCw,
-  Briefcase, Lock, Unlock, Copy, ExternalLink
+  Briefcase, Lock, Unlock, Copy, ExternalLink, ArrowLeft
 } from 'lucide-react'
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
@@ -135,6 +136,7 @@ const customFieldDefs = [
 ]
 
 export function FirmAdminPage() {
+  const navigate = useNavigate()
   const { user, firm, teamMembers, invitations, getAuditLog, inviteUser, updateTeamMember, removeTeamMember, revokeInvitation, resendInvitation } = useAuthStore()
   const { groups, addGroup, updateGroup, deleteGroup } = useDataStore()
   
@@ -191,6 +193,10 @@ export function FirmAdminPage() {
 
   return (
     <div className={styles.firmAdminPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
