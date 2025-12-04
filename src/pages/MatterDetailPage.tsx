@@ -420,6 +420,7 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.menuWrapper} ref={dropdownRef}>
               <button 
                 className={styles.iconBtn}
+                onMouseDown={(e) => e.stopPropagation()}
                 onClick={() => setShowMatterDropdown(!showMatterDropdown)}
                 title="More Options"
               >
