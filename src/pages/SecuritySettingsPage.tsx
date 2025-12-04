@@ -1,14 +1,16 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import {
   Shield, Smartphone, Key, Monitor, Globe, Clock, AlertTriangle,
   CheckCircle2, XCircle, Copy, Eye, EyeOff, RefreshCw, Trash2,
-  Lock, Fingerprint, Mail, MessageSquare, Download, History
+  Lock, Fingerprint, Mail, MessageSquare, Download, History, ArrowLeft
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import styles from './SecuritySettingsPage.module.css'
 
 export function SecuritySettingsPage() {
+  const navigate = useNavigate()
   const { 
     user, 
     twoFactorSetup, 
@@ -58,6 +60,10 @@ export function SecuritySettingsPage() {
 
   return (
     <div className={styles.securityPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <div className={styles.headerIcon}>
           <Shield size={28} />

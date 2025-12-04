@@ -1,11 +1,13 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   Sparkles, Brain, Shield, Zap, Key, Check, 
-  AlertCircle, Settings, ToggleLeft, Eye
+  AlertCircle, Settings, ToggleLeft, Eye, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
 export function AIConfigPage() {
+  const navigate = useNavigate()
   const [saved, setSaved] = useState(false)
   
   const [settings, setSettings] = useState({
@@ -40,6 +42,10 @@ export function AIConfigPage() {
 
   return (
     <div className={styles.settingsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <h1>AI Configuration</h1>
         <p>Configure AI services for intelligent features and automation</p>

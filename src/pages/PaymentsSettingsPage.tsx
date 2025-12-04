@@ -1,11 +1,13 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   Wallet, CreditCard, Building2, Shield, Check, AlertCircle,
-  DollarSign, ExternalLink, CheckCircle2
+  DollarSign, ExternalLink, CheckCircle2, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
 export function PaymentsSettingsPage() {
+  const navigate = useNavigate()
   const [saved, setSaved] = useState(false)
   
   const [settings, setSettings] = useState({
@@ -37,6 +39,10 @@ export function PaymentsSettingsPage() {
 
   return (
     <div className={styles.settingsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <h1>Online Payments</h1>
         <p>Configure payment processing and online payment options</p>

@@ -1,12 +1,14 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { 
   CreditCard, Building2, Users, Calendar, Check, AlertCircle, 
-  Download, RefreshCw, Shield
+  Download, RefreshCw, Shield, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
 export function AccountSettingsPage() {
+  const navigate = useNavigate()
   const { user } = useAuthStore()
   const [saved, setSaved] = useState(false)
   
@@ -36,6 +38,10 @@ export function AccountSettingsPage() {
 
   return (
     <div className={styles.settingsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <h1>Account & Payment</h1>
         <p>Manage your subscription, billing information, and payment methods</p>

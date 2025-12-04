@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
-  Palette, Sun, Moon, Monitor, Check, Type, Layout, Eye
+  Palette, Sun, Moon, Monitor, Check, Type, Layout, Eye, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
 export function AppearanceSettingsPage() {
+  const navigate = useNavigate()
   const [saved, setSaved] = useState(false)
   
   const [settings, setSettings] = useState({
@@ -36,6 +38,10 @@ export function AppearanceSettingsPage() {
 
   return (
     <div className={styles.settingsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <h1>Appearance</h1>
         <p>Customize how Apex looks on your device</p>

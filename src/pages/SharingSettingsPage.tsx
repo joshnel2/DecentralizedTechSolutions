@@ -1,11 +1,13 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   Share2, Users, Mail, Eye, FileText, Shield, Check, 
-  Plus, Trash2, ExternalLink
+  Plus, Trash2, ExternalLink, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
 export function SharingSettingsPage() {
+  const navigate = useNavigate()
   const [saved, setSaved] = useState(false)
   
   const [settings, setSettings] = useState({
@@ -47,6 +49,10 @@ export function SharingSettingsPage() {
 
   return (
     <div className={styles.settingsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <h1>Co-Counsel & Sharing</h1>
         <p>Manage client portal branding, external sharing, and co-counsel access</p>

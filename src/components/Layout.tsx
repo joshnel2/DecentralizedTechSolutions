@@ -128,12 +128,14 @@ export function Layout() {
             </div>
             {(sidebarOpen || isMobile) && <span className={styles.logoText}>Apex</span>}
           </div>
-          <button 
-            className={styles.toggleBtn}
-            onClick={() => isMobile ? closeMobileSidebar() : setSidebarOpen(!sidebarOpen)}
-          >
-            {isMobile ? <X size={18} /> : (sidebarOpen ? <X size={18} /> : <Menu size={18} />)}
-          </button>
+          {isMobile && (
+            <button 
+              className={styles.toggleBtn}
+              onClick={closeMobileSidebar}
+            >
+              <X size={18} />
+            </button>
+          )}
         </div>
 
         <nav className={styles.nav}>

@@ -1,11 +1,13 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   Bell, Mail, MessageSquare, Calendar, Briefcase, DollarSign,
-  Sparkles, FileText, Check
+  Sparkles, FileText, Check, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
 export function NotificationsSettingsPage() {
+  const navigate = useNavigate()
   const [saved, setSaved] = useState(false)
   
   const [settings, setSettings] = useState({
@@ -41,6 +43,10 @@ export function NotificationsSettingsPage() {
 
   return (
     <div className={styles.settingsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <h1>Notifications</h1>
         <p>Manage how and when you receive notifications</p>

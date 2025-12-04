@@ -1,12 +1,14 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { 
   DollarSign, FileText, Clock, Receipt, Settings, Check, 
-  Palette, AlertCircle
+  Palette, AlertCircle, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
 export function BillingSettingsPage() {
+  const navigate = useNavigate()
   const { user } = useAuthStore()
   const [saved, setSaved] = useState(false)
   
@@ -43,6 +45,10 @@ export function BillingSettingsPage() {
 
   return (
     <div className={styles.settingsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <h1>Billing Settings</h1>
         <p>Configure billing preferences, invoice settings, and UTBMS options</p>

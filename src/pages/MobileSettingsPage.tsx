@@ -1,11 +1,13 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   Smartphone, Download, Bell, Shield, Trash2, CheckCircle2,
-  QrCode, Apple, Play
+  QrCode, Apple, Play, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
 export function MobileSettingsPage() {
+  const navigate = useNavigate()
   const [devices, setDevices] = useState([
     { id: '1', name: 'iPhone 15 Pro', platform: 'iOS', lastActive: '2024-01-15T10:30:00Z', current: true },
     { id: '2', name: 'iPad Pro', platform: 'iOS', lastActive: '2024-01-10T14:20:00Z', current: false }
@@ -25,6 +27,10 @@ export function MobileSettingsPage() {
 
   return (
     <div className={styles.settingsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <h1>Apex Mobile App</h1>
         <p>Download Apex Mobile and manage your device settings</p>

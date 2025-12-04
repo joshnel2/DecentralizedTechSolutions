@@ -1,11 +1,13 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   BarChart3, Shield, Check, AlertCircle, Building2, 
-  TrendingUp, Users, DollarSign, Eye
+  TrendingUp, Users, DollarSign, Eye, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
 export function ReportingSettingsPage() {
+  const navigate = useNavigate()
   const [saved, setSaved] = useState(false)
   
   const [settings, setSettings] = useState({
@@ -56,6 +58,10 @@ export function ReportingSettingsPage() {
 
   return (
     <div className={styles.settingsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <h1>Aggregate Reporting</h1>
         <p>Participate in industry-wide statistics and benchmarking</p>

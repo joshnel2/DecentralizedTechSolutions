@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
 import { AIChatProvider } from './contexts/AIChatContext'
 import { Layout } from './components/Layout'
@@ -51,6 +51,17 @@ import { SharingSettingsPage } from './pages/SharingSettingsPage'
 import { TextMessagingPage } from './pages/TextMessagingPage'
 import { AIConfigPage } from './pages/AIConfigPage'
 import { ReportingSettingsPage } from './pages/ReportingSettingsPage'
+
+// Scroll to top on route changes
+function ScrollToTop() {
+  const { pathname } = useLocation()
+  
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [pathname])
+  
+  return null
+}
 
 // Loading screen component
 function LoadingScreen() {
@@ -220,6 +231,7 @@ export default function App() {
   return (
     <AIChatProvider>
       <BrowserRouter>
+        <ScrollToTop />
         <AppContent />
       </BrowserRouter>
     </AIChatProvider>

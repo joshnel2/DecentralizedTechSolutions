@@ -1,11 +1,13 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   Gift, Copy, Share2, Mail, Users, DollarSign, Check, Trophy,
-  Twitter, Linkedin, CheckCircle2
+  Twitter, Linkedin, CheckCircle2, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
 export function ReferralsPage() {
+  const navigate = useNavigate()
   const [copied, setCopied] = useState(false)
   
   const referralData = {
@@ -31,6 +33,10 @@ export function ReferralsPage() {
 
   return (
     <div className={styles.settingsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <h1>Referral Rewards Center</h1>
         <p>Earn $500 for every firm you refer to Apex!</p>

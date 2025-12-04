@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
-  AppWindow, Shield, Trash2, Check, ExternalLink, Clock, AlertCircle
+  AppWindow, Shield, Trash2, Check, ExternalLink, Clock, AlertCircle, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
 export function AppsSettingsPage() {
+  const navigate = useNavigate()
   const [apps, setApps] = useState([
     { 
       id: '1', 
@@ -30,6 +32,10 @@ export function AppsSettingsPage() {
 
   return (
     <div className={styles.settingsPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <h1>Connected Apps</h1>
         <p>Manage third-party applications authorized to access your Apex account</p>
