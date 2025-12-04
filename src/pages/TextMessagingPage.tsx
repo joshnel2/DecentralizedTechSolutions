@@ -100,7 +100,15 @@ export function TextMessagingPage() {
                     </select>
                   </div>
                 </div>
-                <button className={styles.secondaryBtn}>
+                <button className={styles.secondaryBtn} onClick={() => {
+                  const provider = settings.smsProvider;
+                  const urls: Record<string, string> = {
+                    twilio: 'https://console.twilio.com',
+                    messagebird: 'https://dashboard.messagebird.com',
+                    vonage: 'https://dashboard.nexmo.com'
+                  };
+                  window.open(urls[provider] || 'https://twilio.com', '_blank');
+                }}>
                   <Settings size={16} />
                   Configure Provider
                 </button>

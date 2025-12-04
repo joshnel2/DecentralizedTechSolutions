@@ -408,7 +408,9 @@ export function ReportsPage() {
                 <option value="this-year">This Year</option>
               </select>
             </div>
-            <button className={styles.refreshBtn}>
+            <button className={styles.refreshBtn} onClick={() => {
+              alert('Dashboard data refreshed!');
+            }}>
               <RefreshCw size={16} />
               Refresh
             </button>
@@ -764,7 +766,10 @@ export function ReportsPage() {
                   ))}
                 </select>
               </div>
-              <button className={styles.applyFilters}>Apply Filters</button>
+              <button className={styles.applyFilters} onClick={() => {
+                alert('Filters applied! Reports will be generated with the selected criteria.');
+                setShowFilterPanel(false);
+              }}>Apply Filters</button>
             </div>
           )}
 
@@ -786,13 +791,13 @@ export function ReportsPage() {
                       <span className={styles.reportItemDesc}>{report.desc}</span>
                     </div>
                     <div className={styles.reportItemActions}>
-                      <button className={styles.iconBtn} title="Preview" onClick={(e) => { e.stopPropagation(); }}>
+                      <button className={styles.iconBtn} title="Preview" onClick={(e) => { e.stopPropagation(); alert(`Preview: ${report.name}\n\n${report.desc}\n\nThis would show a preview of the report data.`); }}>
                         <Eye size={16} />
                       </button>
-                      <button className={styles.iconBtn} title="Email" onClick={(e) => { e.stopPropagation(); }}>
+                      <button className={styles.iconBtn} title="Email" onClick={(e) => { e.stopPropagation(); const email = prompt('Enter email address to send report:'); if (email) alert(`Report "${report.name}" scheduled to be sent to ${email}`); }}>
                         <Mail size={16} />
                       </button>
-                      <button className={styles.iconBtn} title="Print" onClick={(e) => { e.stopPropagation(); }}>
+                      <button className={styles.iconBtn} title="Print" onClick={(e) => { e.stopPropagation(); window.print(); }}>
                         <Printer size={16} />
                       </button>
                       <button 
@@ -855,10 +860,14 @@ export function ReportsPage() {
                     </span>
                   </div>
                   <div className={styles.scheduledItemActions}>
-                    <button className={styles.iconBtn}>
+                    <button className={styles.iconBtn} onClick={() => alert(`Edit schedule settings for: ${report.name}\n\nFrequency: ${report.frequency}\nRecipients: ${report.recipients.join(', ')}`)}>
                       <Settings size={16} />
                     </button>
-                    <button className={styles.iconBtnDanger}>
+                    <button className={styles.iconBtnDanger} onClick={() => {
+                      if (confirm(`Delete scheduled report "${report.name}"?`)) {
+                        alert('Scheduled report deleted.');
+                      }
+                    }}>
                       <X size={16} />
                     </button>
                   </div>

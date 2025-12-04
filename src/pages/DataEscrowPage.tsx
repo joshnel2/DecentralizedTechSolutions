@@ -283,7 +283,9 @@ export function DataEscrowPage() {
                       </div>
                     </div>
                   </div>
-                  <button className={styles.secondaryBtn} style={{ padding: '0.5rem 0.75rem' }}>
+                  <button className={styles.secondaryBtn} style={{ padding: '0.5rem 0.75rem' }} onClick={() => {
+                    alert(`Downloading backup from ${new Date(backup.date).toLocaleDateString()}...\n\nBackup size: ${backup.size}\nThis may take a few minutes.`);
+                  }}>
                     <Download size={14} />
                     Download
                   </button>

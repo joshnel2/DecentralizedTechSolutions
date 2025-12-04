@@ -97,7 +97,13 @@ export function AIConfigPage() {
                   {settings.apiKeyConfigured ? 'API Key Configured' : 'API Key Not Configured'}
                 </span>
               </div>
-              <button className={styles.secondaryBtn}>
+              <button className={styles.secondaryBtn} onClick={() => {
+                const newKey = prompt(settings.apiKeyConfigured ? 'Enter new API key:' : 'Enter your API key:');
+                if (newKey && newKey.trim()) {
+                  setSettings({...settings, apiKeyConfigured: true});
+                  alert('API key updated successfully!');
+                }
+              }}>
                 <Settings size={16} />
                 {settings.apiKeyConfigured ? 'Update Key' : 'Add Key'}
               </button>

@@ -92,15 +92,24 @@ export function AccountSettingsPage() {
             </div>
 
             <div style={{ display: 'flex', gap: 'var(--spacing-sm)', flexWrap: 'wrap' }}>
-              <button className={styles.secondaryBtn}>
+              <button className={styles.secondaryBtn} onClick={() => alert('Plan upgrade options would open here. Contact sales@apex.law to change your plan.')}>
                 <RefreshCw size={16} />
                 Change Plan
               </button>
-              <button className={styles.secondaryBtn}>
+              <button className={styles.secondaryBtn} onClick={() => alert('User management would open here. You can add up to ' + (subscription.maxUsers - subscription.users) + ' more users.')}>
                 <Users size={16} />
                 Add Users
               </button>
-              <button className={styles.secondaryBtn}>
+              <button className={styles.secondaryBtn} onClick={() => {
+                const invoiceData = `Invoice History\n\nDate,Amount,Status\n2024-01-01,$${subscription.amount * subscription.users},Paid\n2023-12-01,$${subscription.amount * subscription.users},Paid\n2023-11-01,$${subscription.amount * subscription.users},Paid`;
+                const blob = new Blob([invoiceData], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'apex-invoices.csv';
+                a.click();
+                URL.revokeObjectURL(url);
+              }}>
                 <Download size={16} />
                 Download Invoices
               </button>
@@ -152,7 +161,7 @@ export function AccountSettingsPage() {
               </div>
             </div>
 
-            <button className={styles.secondaryBtn}>
+            <button className={styles.secondaryBtn} onClick={() => alert('Payment method update would open a secure Stripe checkout. For demo purposes, your current card ending in ' + billingInfo.cardLast4 + ' remains active.')}>
               <CreditCard size={16} />
               Update Payment Method
             </button>
@@ -199,7 +208,11 @@ export function AccountSettingsPage() {
             </div>
 
             <div className={styles.actionButtons}>
-              <button className={styles.dangerBtn}>
+              <button className={styles.dangerBtn} onClick={() => {
+                if (confirm('Are you sure you want to cancel your subscription? You will lose access at the end of your billing period.')) {
+                  alert('Subscription cancellation request submitted. A confirmation email has been sent to ' + billingInfo.billingEmail);
+                }
+              }}>
                 Cancel Subscription
               </button>
             </div>

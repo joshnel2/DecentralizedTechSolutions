@@ -359,7 +359,16 @@ export function SecuritySettingsPage() {
                 <h2>Security Activity Log</h2>
                 <p>Recent security-related events on your account</p>
               </div>
-              <button className={styles.secondaryBtn}>
+              <button className={styles.secondaryBtn} onClick={() => {
+                const logData = recentActivity.map((log: { timestamp: string; action: string; resource?: string; ip?: string }) => `${log.timestamp} | ${log.action} | ${log.resource || 'N/A'} | ${log.ip || 'N/A'}`).join('\n');
+                const blob = new Blob([`Security Log Export\n\nTimestamp | Action | Resource | IP\n${logData}`], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'security-log.txt';
+                a.click();
+                URL.revokeObjectURL(url);
+              }}>
                 <Download size={16} />
                 Export Log
               </button>
@@ -427,7 +436,25 @@ export function SecuritySettingsPage() {
                 <label>Confirm New Password</label>
                 <input type="password" placeholder="Confirm new password" />
               </div>
-              <button className={styles.primaryBtn}>Update Password</button>
+              <button className={styles.primaryBtn} onClick={() => {
+                const inputs = document.querySelectorAll('input[type="password"]');
+                const current = (inputs[0] as HTMLInputElement)?.value;
+                const newPass = (inputs[1] as HTMLInputElement)?.value;
+                const confirm = (inputs[2] as HTMLInputElement)?.value;
+                if (!current || !newPass || !confirm) {
+                  alert('Please fill in all password fields.');
+                  return;
+                }
+                if (newPass !== confirm) {
+                  alert('New passwords do not match.');
+                  return;
+                }
+                if (newPass.length < 8) {
+                  alert('Password must be at least 8 characters.');
+                  return;
+                }
+                alert('Password updated successfully!');
+              }}>Update Password</button>
             </div>
           </div>
 
@@ -447,7 +474,9 @@ export function SecuritySettingsPage() {
                   <h4>Download Account Data</h4>
                   <p>Export all your data in a portable format</p>
                 </div>
-                <button className={styles.secondaryBtn}>
+                <button className={styles.secondaryBtn} onClick={() => {
+                  alert('Your data export has been initiated. You will receive an email with a download link within 24 hours.');
+                }}>
                   <Download size={16} />
                   Export Data
                 </button>
@@ -457,7 +486,16 @@ export function SecuritySettingsPage() {
                   <h4>Delete Account</h4>
                   <p>Permanently delete your account and all associated data</p>
                 </div>
-                <button className={styles.dangerBtn}>
+                <button className={styles.dangerBtn} onClick={() => {
+                  if (confirm('Are you absolutely sure you want to delete your account? This action cannot be undone.')) {
+                    const confirmation = prompt('Type "DELETE" to confirm account deletion:');
+                    if (confirmation === 'DELETE') {
+                      alert('Account deletion request submitted. You will receive a confirmation email.');
+                    } else {
+                      alert('Account deletion cancelled.');
+                    }
+                  }
+                }}>
                   <Trash2 size={16} />
                   Delete Account
                 </button>

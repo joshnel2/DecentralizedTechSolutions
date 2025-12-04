@@ -117,7 +117,18 @@ export function SharingSettingsPage() {
                       }}>
                         <FileText size={24} style={{ color: 'var(--text-tertiary)' }} />
                       </div>
-                      <button className={styles.secondaryBtn}>Upload Logo</button>
+                      <button className={styles.secondaryBtn} onClick={() => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = 'image/*';
+                        input.onchange = (e) => {
+                          const file = (e.target as HTMLInputElement).files?.[0];
+                          if (file) {
+                            alert(`Logo "${file.name}" selected. In production, this would upload to your portal.`);
+                          }
+                        };
+                        input.click();
+                      }}>Upload Logo</button>
                     </div>
                   </div>
                   <div className={styles.formGroup}>

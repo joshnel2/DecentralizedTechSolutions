@@ -71,7 +71,9 @@ export function MobileSettingsPage() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <button style={{
+                <button 
+                  onClick={() => window.open('https://apps.apple.com', '_blank')}
+                  style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.75rem',
@@ -89,7 +91,9 @@ export function MobileSettingsPage() {
                   </div>
                 </button>
 
-                <button style={{
+                <button 
+                  onClick={() => window.open('https://play.google.com', '_blank')}
+                  style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.75rem',
@@ -245,7 +249,9 @@ export function MobileSettingsPage() {
 
           {/* Save Bar */}
           <div className={styles.saveBar}>
-            <button className={styles.saveBtn}>
+            <button className={styles.saveBtn} onClick={() => {
+              alert('Mobile preferences saved successfully!');
+            }}>
               <CheckCircle2 size={16} />
               Save Preferences
             </button>

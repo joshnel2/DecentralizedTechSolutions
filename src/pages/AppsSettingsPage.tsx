@@ -176,7 +176,7 @@ export function AppsSettingsPage() {
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1rem' }}>
                 Building an integration with Apex? Visit our developer documentation to learn about our OAuth 2.0 authentication flow and API endpoints.
               </p>
-              <button className={styles.secondaryBtn}>
+              <button className={styles.secondaryBtn} onClick={() => window.open('https://docs.apex.law/api', '_blank')}>
                 <ExternalLink size={16} />
                 View Developer Docs
               </button>

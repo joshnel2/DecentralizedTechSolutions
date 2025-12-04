@@ -110,11 +110,20 @@ export function PaymentsSettingsPage() {
             )}
 
             <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <button className={styles.secondaryBtn}>
+              <button className={styles.secondaryBtn} onClick={() => {
+                if (settings.processorConnected) {
+                  window.open('https://lawpay.com/account', '_blank');
+                } else {
+                  alert('Redirecting to LawPay connection wizard...');
+                  window.open('https://lawpay.com/signup', '_blank');
+                }
+              }}>
                 <ExternalLink size={16} />
                 {settings.processorConnected ? 'Manage Account' : 'Connect LawPay'}
               </button>
-              <button className={styles.secondaryBtn}>
+              <button className={styles.secondaryBtn} onClick={() => {
+                alert('Other supported payment processors:\n\n• LawPay (Recommended)\n• Stripe\n• Square\n• PayPal Business\n• Authorize.net\n\nContact support@apex.law for integration assistance.');
+              }}>
                 View Other Processors
               </button>
             </div>

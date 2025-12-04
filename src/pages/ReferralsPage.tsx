@@ -162,15 +162,21 @@ export function ReferralsPage() {
             </div>
 
             <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <button className={styles.secondaryBtn}>
+              <button className={styles.secondaryBtn} onClick={() => {
+                window.location.href = `mailto:?subject=Try Apex Legal Practice Management&body=I've been using Apex for my law practice and thought you might be interested. Sign up with my referral link: ${referralData.link}`;
+              }}>
                 <Mail size={16} />
                 Email Invite
               </button>
-              <button className={styles.secondaryBtn}>
+              <button className={styles.secondaryBtn} onClick={() => {
+                window.open(`https://twitter.com/intent/tweet?text=Check out Apex Legal Practice Management - the AI-powered platform for modern law firms!&url=${encodeURIComponent(referralData.link)}`, '_blank');
+              }}>
                 <Twitter size={16} />
                 Share on X
               </button>
-              <button className={styles.secondaryBtn}>
+              <button className={styles.secondaryBtn} onClick={() => {
+                window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(referralData.link)}`, '_blank');
+              }}>
                 <Linkedin size={16} />
                 Share on LinkedIn
               </button>

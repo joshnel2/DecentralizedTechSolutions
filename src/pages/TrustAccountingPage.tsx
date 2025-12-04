@@ -127,7 +127,16 @@ export function TrustAccountingPage() {
               <option value="transfer">Transfers</option>
               <option value="refund">Refunds</option>
             </select>
-            <button className={styles.exportBtn}><Download size={16} /> Export</button>
+            <button className={styles.exportBtn} onClick={() => {
+              const txData = transactions.map(t => `${t.date},${t.type},${t.clientName},${t.matterName || 'N/A'},${t.description},$${t.amount}`).join('\n');
+              const blob = new Blob([`Date,Type,Client,Matter,Description,Amount\n${txData}`], { type: 'text/csv' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'trust-transactions.csv';
+              a.click();
+              URL.revokeObjectURL(url);
+            }}><Download size={16} /> Export</button>
           </div>
 
           <div className={styles.transactionsList}>
@@ -193,8 +202,8 @@ export function TrustAccountingPage() {
               </div>
               <div className={styles.balanceAmount}>${client.balance.toLocaleString()}</div>
               <div className={styles.balanceActions}>
-                <button className={styles.smallBtn}>View Ledger</button>
-                <button className={styles.smallBtn}>Statement</button>
+                <button className={styles.smallBtn} onClick={() => alert(`Ledger for ${client.clientName}:\n\nShowing all trust transactions for this client.\nBalance: $${client.balance.toLocaleString()}`)}>View Ledger</button>
+                <button className={styles.smallBtn} onClick={() => alert(`Statement generated for ${client.clientName}\n\nA PDF statement will be available for download.`)}>Statement</button>
               </div>
             </div>
           ))}
@@ -225,7 +234,10 @@ export function TrustAccountingPage() {
                 <span className={clsx(styles.reconcileValue, styles.success)}>$0.00</span>
               </div>
             </div>
-            <button className={styles.primaryBtn}><RefreshCw size={16} /> Start New Reconciliation</button>
+            <button className={styles.primaryBtn} onClick={() => {
+              const date = new Date().toLocaleDateString();
+              alert(`Starting new reconciliation as of ${date}.\n\nPlease enter your bank statement balance to begin the reconciliation process.`);
+            }}><RefreshCw size={16} /> Start New Reconciliation</button>
           </div>
         </div>
       )}

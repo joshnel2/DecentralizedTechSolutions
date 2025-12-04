@@ -920,7 +920,16 @@ export default function SecureAdminDashboard() {
               <div className={styles.tableWrapper}>
                 <div className={styles.auditHeader}>
                   <h3>Security Audit Trail</h3>
-                  <button className={styles.exportBtn}>
+                  <button className={styles.exportBtn} onClick={() => {
+                    const logData = auditLogs.map(l => `${new Date(l.timestamp).toISOString()},${l.action},${l.user},${l.details},${l.ip_address}`).join('\n');
+                    const blob = new Blob([`Timestamp,Action,User,Details,IP Address\n${logData}`], { type: 'text/csv' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'audit-logs.csv';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}>
                     <Download size={16} />
                     Export Logs
                   </button>

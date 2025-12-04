@@ -198,7 +198,16 @@ export function FirmAdminPage() {
           <p>Manage users, permissions, and firm-wide settings</p>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.secondaryBtn}>
+          <button className={styles.secondaryBtn} onClick={() => {
+            const data = filteredUsers.map(u => `${u.firstName} ${u.lastName},${u.email},${u.role}`).join('\n');
+            const blob = new Blob([`Name,Email,Role\n${data}`], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'firm-users.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+          }}>
             <Download size={18} />
             Export
           </button>
@@ -390,7 +399,13 @@ export function FirmAdminPage() {
                       </div>
                     </div>
                     <div className={styles.groupActions}>
-                      <button className={styles.iconBtn}><Edit2 size={16} /></button>
+                      <button className={styles.iconBtn} onClick={() => {
+                        const newName = prompt(`Edit group "${group.name}":`, group.name);
+                        if (newName && newName !== group.name) {
+                          updateGroup(group.id, { name: newName });
+                          alert(`Group renamed to "${newName}"`);
+                        }
+                      }}><Edit2 size={16} /></button>
                       <button className={styles.iconBtnDanger} onClick={() => deleteGroup(group.id)}><Trash2 size={16} /></button>
                     </div>
                   </div>
@@ -505,7 +520,16 @@ export function FirmAdminPage() {
                 <option value="quarter">Last 90 Days</option>
               </select>
             </div>
-            <button className={styles.secondaryBtn}>
+            <button className={styles.secondaryBtn} onClick={() => {
+              const logData = demoAuditLogs.map(l => `${l.timestamp},${l.user},${l.action},${l.ip}`).join('\n');
+              const blob = new Blob([`Timestamp,User,Action,IP\n${logData}`], { type: 'text/csv' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'audit-log.csv';
+              a.click();
+              URL.revokeObjectURL(url);
+            }}>
               <Download size={16} />
               Export Log
             </button>
@@ -534,7 +558,7 @@ export function FirmAdminPage() {
                     <span>IP: {log.ip}</span>
                   </div>
                 </div>
-                <button className={styles.detailsBtn}>
+                <button className={styles.detailsBtn} onClick={() => alert(`Audit Log Details\n\nUser: ${log.user}\nAction: ${log.action}\nTimestamp: ${log.timestamp}\nIP Address: ${log.ip}\nResource: ${log.resourceId || 'N/A'}`)}>
                   <Info size={16} />
                 </button>
               </div>
@@ -579,8 +603,8 @@ export function FirmAdminPage() {
                   ))}
                 </div>
                 <div className={styles.templateActions}>
-                  <button className={styles.textBtn}><Edit2 size={14} /> Edit</button>
-                  <button className={styles.textBtn}><Copy size={14} /> Duplicate</button>
+                  <button className={styles.textBtn} onClick={() => alert(`Editing template: ${template.name}\n\nThis would open the template editor.`)}><Edit2 size={14} /> Edit</button>
+                  <button className={styles.textBtn} onClick={() => alert(`Template "${template.name}" duplicated!\n\nNew template created: ${template.name} (Copy)`)}><Copy size={14} /> Duplicate</button>
                 </div>
               </div>
             ))}
@@ -593,10 +617,10 @@ export function FirmAdminPage() {
         <div className={styles.tabContent}>
           <div className={styles.toolbar}>
             <div className={styles.entityTabs}>
-              <button className={clsx(styles.entityTab, styles.active)}>All</button>
-              <button className={styles.entityTab}>Client</button>
-              <button className={styles.entityTab}>Matter</button>
-              <button className={styles.entityTab}>Document</button>
+              <button className={clsx(styles.entityTab, styles.active)} onClick={() => alert('Showing all custom fields')}>All</button>
+              <button className={styles.entityTab} onClick={() => alert('Filtering to Client fields')}>Client</button>
+              <button className={styles.entityTab} onClick={() => alert('Filtering to Matter fields')}>Matter</button>
+              <button className={styles.entityTab} onClick={() => alert('Filtering to Document fields')}>Document</button>
             </div>
             <button className={styles.primaryBtn} onClick={() => setShowCustomFieldModal(true)}>
               <Plus size={18} />
@@ -642,8 +666,8 @@ export function FirmAdminPage() {
                     </td>
                     <td>
                       <div className={styles.actions}>
-                        <button className={styles.iconBtn}><Edit2 size={16} /></button>
-                        <button className={styles.iconBtnDanger}><Trash2 size={16} /></button>
+                        <button className={styles.iconBtn} onClick={() => alert(`Editing custom field: ${field.name}\n\nType: ${field.type}\nEntity: ${field.entity}`)}><Edit2 size={16} /></button>
+                        <button className={styles.iconBtnDanger} onClick={() => { if (confirm(`Delete custom field "${field.name}"?`)) alert('Field deleted!'); }}><Trash2 size={16} /></button>
                       </div>
                     </td>
                   </tr>
@@ -661,7 +685,7 @@ export function FirmAdminPage() {
             <Workflow size={48} />
             <h3>Workflow Automation</h3>
             <p>Create automated workflows to streamline your practice</p>
-            <button className={styles.primaryBtn}>
+            <button className={styles.primaryBtn} onClick={() => alert('Workflow builder would open here. You can create automated triggers and actions.')}>
               <Plus size={18} />
               Create Workflow
             </button>

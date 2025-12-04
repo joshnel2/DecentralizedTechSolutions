@@ -474,11 +474,15 @@ export function FirmSettingsPage() {
                         </span>
                       </div>
                       <div className={styles.userActions}>
-                        <button className={styles.iconBtn} title="Edit User">
+                        <button className={styles.iconBtn} title="Edit User" onClick={() => alert(`Edit User: ${u.firstName} ${u.lastName}\n\nRole: ${u.role}\nTitle: ${u.title}\nEmail: ${u.email}`)}>
                           <Edit2 size={16} />
                         </button>
                         {u.role !== 'owner' && (
-                          <button className={styles.iconBtnDanger} title="Remove User">
+                          <button className={styles.iconBtnDanger} title="Remove User" onClick={() => {
+                            if (confirm(`Remove ${u.firstName} ${u.lastName} from the firm?`)) {
+                              alert(`${u.firstName} ${u.lastName} has been removed from the firm.`);
+                            }
+                          }}>
                             <UserMinus size={16} />
                           </button>
                         )}

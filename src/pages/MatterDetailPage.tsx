@@ -1263,7 +1263,15 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Related Contacts</h2>
               <div className={styles.tabActions}>
-                <button className={styles.primaryBtn}>
+                <button className={styles.primaryBtn} onClick={() => {
+                  const name = prompt('Enter contact name:');
+                  if (name) {
+                    const role = prompt('Enter contact role (e.g., Opposing Counsel, Expert Witness, Court Clerk):');
+                    if (role) {
+                      alert(`Contact "${name}" (${role}) added to matter.`);
+                    }
+                  }
+                }}>
                   <Plus size={18} />
                   Add Contact
                 </button>

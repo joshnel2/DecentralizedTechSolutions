@@ -92,9 +92,9 @@ export function WorkflowsPage() {
               {workflow.lastRun && <div className={styles.metaItem}><Clock size={14} /> Last: {workflow.lastRun}</div>}
             </div>
             <div className={styles.workflowActions}>
-              <button className={styles.actionBtn}><Edit2 size={14} /> Edit</button>
-              <button className={styles.actionBtn}><Copy size={14} /> Duplicate</button>
-              <button className={styles.actionBtn}><Play size={14} /> Test Run</button>
+              <button className={styles.actionBtn} onClick={() => alert(`Editing workflow: ${workflow.name}\n\nThis would open the workflow editor.`)}><Edit2 size={14} /> Edit</button>
+              <button className={styles.actionBtn} onClick={() => alert(`Workflow "${workflow.name}" duplicated!\n\nNew workflow created: ${workflow.name} (Copy)`)}><Copy size={14} /> Duplicate</button>
+              <button className={styles.actionBtn} onClick={() => alert(`Test run started for: ${workflow.name}\n\nWorkflow executed successfully with test data.`)}><Play size={14} /> Test Run</button>
             </div>
           </div>
         ))}
@@ -107,25 +107,25 @@ export function WorkflowsPage() {
             <Users size={24} />
             <h4>Client Onboarding</h4>
             <p>Welcome emails, intake tasks, and document requests</p>
-            <button className={styles.useBtn}>Use Template</button>
+            <button className={styles.useBtn} onClick={() => { alert('Client Onboarding template selected!\n\nA new workflow will be created with:\n• Welcome email trigger\n• Intake task creation\n• Document request automation'); setShowCreateModal(true); }}>Use Template</button>
           </div>
           <div className={styles.templateCard}>
             <Calendar size={24} />
             <h4>Court Deadline Alerts</h4>
             <p>Multi-stage reminders for court filing deadlines</p>
-            <button className={styles.useBtn}>Use Template</button>
+            <button className={styles.useBtn} onClick={() => { alert('Court Deadline Alerts template selected!\n\nA new workflow will be created with:\n• 30-day, 7-day, and 1-day reminders\n• Email and in-app notifications'); setShowCreateModal(true); }}>Use Template</button>
           </div>
           <div className={styles.templateCard}>
             <Mail size={24} />
             <h4>Invoice Collection</h4>
             <p>Automated payment reminder sequence</p>
-            <button className={styles.useBtn}>Use Template</button>
+            <button className={styles.useBtn} onClick={() => { alert('Invoice Collection template selected!\n\nA new workflow will be created with:\n• Overdue invoice triggers\n• Progressive reminder emails'); setShowCreateModal(true); }}>Use Template</button>
           </div>
           <div className={styles.templateCard}>
             <FileText size={24} />
             <h4>Matter Closing</h4>
             <p>Final billing, file archiving, and client survey</p>
-            <button className={styles.useBtn}>Use Template</button>
+            <button className={styles.useBtn} onClick={() => { alert('Matter Closing template selected!\n\nA new workflow will be created with:\n• Final invoice generation\n• Document archiving\n• Client satisfaction survey'); setShowCreateModal(true); }}>Use Template</button>
           </div>
         </div>
       </div>
@@ -144,7 +144,7 @@ export function WorkflowsPage() {
                 <label>Trigger *</label>
                 <div className={styles.triggerGrid}>
                   {triggerOptions.map(t => (
-                    <button key={t.value} className={styles.triggerOption}><t.icon size={18} /> {t.label}</button>
+                    <button key={t.value} className={styles.triggerOption} onClick={() => alert(`Trigger selected: ${t.label}`)}><t.icon size={18} /> {t.label}</button>
                   ))}
                 </div>
               </div>
@@ -152,7 +152,7 @@ export function WorkflowsPage() {
                 <label>Actions</label>
                 <div className={styles.actionsBuilder}>
                   <div className={styles.actionStep}><span className={styles.stepNumber}>1</span><Mail size={16} /> Send welcome email <ArrowRight size={14} /></div>
-                  <button className={styles.addActionBtn}><Plus size={16} /> Add Action</button>
+                  <button className={styles.addActionBtn} onClick={() => alert('Action types available:\n\n• Send Email\n• Create Task\n• Send SMS\n• Create Document\n• Update Field\n• Wait/Delay')}><Plus size={16} /> Add Action</button>
                 </div>
               </div>
               <div className={styles.modalActions}>

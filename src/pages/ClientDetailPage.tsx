@@ -262,7 +262,7 @@ export function ClientDetailPage() {
             <div className={styles.card}>
               <div className={styles.cardHeader}>
                 <h3><Briefcase size={18} /> Active Matters</h3>
-                <button className={styles.addBtn}>
+                <button className={styles.addBtn} onClick={() => navigate(`/matters/new?clientId=${client?.id}`)}>
                   <Plus size={14} />
                   Add
                 </button>
@@ -314,7 +314,7 @@ export function ClientDetailPage() {
           <div className={styles.mattersTab}>
             <div className={styles.tabHeader}>
               <h2>All Matters</h2>
-              <button className={styles.primaryBtn}>
+              <button className={styles.primaryBtn} onClick={() => navigate(`/matters/new?clientId=${client?.id}`)}>
                 <Plus size={18} />
                 New Matter
               </button>
@@ -360,7 +360,7 @@ export function ClientDetailPage() {
           <div className={styles.billingTab}>
             <div className={styles.tabHeader}>
               <h2>Invoices</h2>
-              <button className={styles.primaryBtn}>
+              <button className={styles.primaryBtn} onClick={() => navigate(`/billing?clientId=${client?.id}&action=new`)}>
                 <Plus size={18} />
                 Create Invoice
               </button>
@@ -410,7 +410,18 @@ export function ClientDetailPage() {
           <div className={styles.documentsTab}>
             <div className={styles.tabHeader}>
               <h2>Documents</h2>
-              <button className={styles.primaryBtn}>
+              <button className={styles.primaryBtn} onClick={() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.multiple = true;
+                input.onchange = (e) => {
+                  const files = (e.target as HTMLInputElement).files;
+                  if (files && files.length > 0) {
+                    alert(`${files.length} document(s) selected for upload to ${client?.name}'s file.`);
+                  }
+                };
+                input.click();
+              }}>
                 <Plus size={18} />
                 Upload Document
               </button>
