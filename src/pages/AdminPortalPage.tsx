@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { adminApi } from '../services/api'
 import { 
   Building2, Users, Plus, Edit, Trash2, Search, 
   ChevronRight, BarChart3, FileText, Clock, X,
-  Shield, Eye, EyeOff
+  Shield, Eye, EyeOff, ArrowLeft
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -50,6 +51,7 @@ interface Stats {
 }
 
 export function AdminPortalPage() {
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<'overview' | 'firms' | 'users'>('overview')
   const [firms, setFirms] = useState<Firm[]>([])
   const [users, setUsers] = useState<User[]>([])
@@ -122,6 +124,10 @@ export function AdminPortalPage() {
 
   return (
     <div className={styles.adminPage}>
+      <button className={styles.backButton} onClick={() => navigate('/app/settings')}>
+        <ArrowLeft size={16} />
+        Back to Settings
+      </button>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <Shield size={28} />
