@@ -211,6 +211,79 @@
   color: #3B82F6;
 }
 
+.statusBadge.inactive,
+.statusBadge.former {
+  background: rgba(100, 116, 139, 0.15);
+  color: var(--apex-muted);
+}
+
+.statusBadge.prospect {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--apex-info);
+}
+
+.statusBadge.clickable {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  transition: all var(--transition-fast);
+}
+
+.statusBadge.clickable:hover {
+  filter: brightness(1.2);
+}
+
+.statusDropdownWrapper {
+  position: relative;
+}
+
+.statusDropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 140px;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  overflow: hidden;
+  animation: dropdownFadeIn 0.15s ease;
+}
+
+.statusOption {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: none;
+  border: none;
+  color: var(--apex-light);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  text-align: left;
+}
+
+.statusOption:hover {
+  background: var(--apex-slate);
+}
+
+.statusOption.selected {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--apex-gold-bright);
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 .priorityBadge {
   padding: 4px 10px;
   border-radius: var(--radius-full);
@@ -1619,6 +1692,86 @@ a.contactName:hover {
 .saveBtn:disabled {
   opacity: 0.7;
   cursor: not-allowed;
+}
+
+/* Invoice Line Items */
+.lineItems {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.lineItem {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.lineItem input {
+  padding: var(--space-sm);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  color: var(--apex-white);
+  font-size: 0.875rem;
+}
+
+.lineItem input:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+}
+
+.removeLineBtn {
+  padding: var(--space-xs);
+  background: rgba(239, 68, 68, 0.1);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--apex-error);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.removeLineBtn:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.addLineBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-top: var(--space-xs);
+}
+
+.addLineBtn:hover {
+  border-color: var(--apex-gold);
+  color: var(--apex-gold-bright);
+}
+
+.invoiceTotal {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.invoiceTotal span:last-child {
+  color: var(--apex-gold-bright);
 }
 
 /* Empty Tasks */

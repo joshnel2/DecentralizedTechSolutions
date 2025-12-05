@@ -4,28 +4,48 @@ import { useDataStore } from '../stores/dataStore'
 import { 
   Building2, User, ChevronLeft, Edit2, MoreVertical, 
   Briefcase, DollarSign, FileText, Mail, Phone, MapPin, Plus,
-  Sparkles, Archive, Trash2, X
+  Sparkles, Archive, Trash2, X, CheckCircle2, Clock, AlertCircle, ChevronDown
 } from 'lucide-react'
 import { useAIChat } from '../contexts/AIChatContext'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, addDays } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './DetailPage.module.css'
+
+// Client status options
+const clientStatusOptions = [
+  { value: 'active', label: 'Active', color: 'var(--apex-success)' },
+  { value: 'inactive', label: 'Inactive', color: 'var(--apex-muted)' },
+  { value: 'prospect', label: 'Prospect', color: 'var(--apex-info)' },
+  { value: 'former', label: 'Former', color: 'var(--apex-warning)' }
+]
 
 export function ClientDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { clients, matters, invoices, documents, updateClient, deleteClient, fetchClients } = useDataStore()
+  const { 
+    clients, matters, invoices, documents, 
+    updateClient, deleteClient, fetchClients,
+    addMatter, fetchMatters,
+    addInvoice, fetchInvoices
+  } = useDataStore()
   const { openChat } = useAIChat()
   const [activeTab, setActiveTab] = useState('overview')
   const [showEditModal, setShowEditModal] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
+  const [showNewMatterModal, setShowNewMatterModal] = useState(false)
+  const [showNewInvoiceModal, setShowNewInvoiceModal] = useState(false)
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const statusDropdownRef = useRef<HTMLDivElement>(null)
 
-  // Close dropdown when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setShowDropdown(false)
+      }
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(event.target as Node)) {
+        setShowStatusDropdown(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -161,9 +181,39 @@ export function ClientDetailPage() {
           <div className={styles.headerInfo}>
             <div className={styles.headerMeta}>
               <span className={styles.typeTag}>{client.type === 'company' ? 'Organization' : 'Individual'}</span>
-              <span className={clsx(styles.statusBadge, styles[client.isActive ? 'active' : 'inactive'])}>
-                {client.isActive ? 'Active' : 'Inactive'}
-              </span>
+              <div className={styles.statusDropdownWrapper} ref={statusDropdownRef}>
+                <button 
+                  className={clsx(styles.statusBadge, styles.clickable, styles[client.status || (client.isActive ? 'active' : 'inactive')])}
+                  onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+                >
+                  {client.status ? client.status.charAt(0).toUpperCase() + client.status.slice(1) : (client.isActive ? 'Active' : 'Inactive')}
+                  <ChevronDown size={12} />
+                </button>
+                {showStatusDropdown && (
+                  <div className={styles.statusDropdown}>
+                    {clientStatusOptions.map(option => (
+                      <button
+                        key={option.value}
+                        className={clsx(
+                          styles.statusOption,
+                          (client.status || (client.isActive ? 'active' : 'inactive')) === option.value && styles.selected
+                        )}
+                        onClick={async () => {
+                          await updateClient(id!, { 
+                            status: option.value,
+                            isActive: option.value === 'active' || option.value === 'prospect'
+                          })
+                          setShowStatusDropdown(false)
+                          fetchClients()
+                        }}
+                      >
+                        <span className={styles.statusDot} style={{ background: option.color }} />
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <h1>{client.name}</h1>
             <div className={styles.contactInfo}>
@@ -262,7 +312,7 @@ export function ClientDetailPage() {
             <div className={styles.card}>
               <div className={styles.cardHeader}>
                 <h3><Briefcase size={18} /> Active Matters</h3>
-                <button className={styles.addBtn} onClick={() => navigate(`/app/matters?action=new&clientId=${client?.id}`)}>
+                <button className={styles.addBtn} onClick={() => setShowNewMatterModal(true)}>
                   <Plus size={14} />
                   Add
                 </button>
@@ -314,7 +364,7 @@ export function ClientDetailPage() {
           <div className={styles.mattersTab}>
             <div className={styles.tabHeader}>
               <h2>All Matters</h2>
-              <button className={styles.primaryBtn} onClick={() => navigate(`/app/matters?action=new&clientId=${client?.id}`)}>
+              <button className={styles.primaryBtn} onClick={() => setShowNewMatterModal(true)}>
                 <Plus size={18} />
                 New Matter
               </button>
@@ -360,7 +410,7 @@ export function ClientDetailPage() {
           <div className={styles.billingTab}>
             <div className={styles.tabHeader}>
               <h2>Invoices</h2>
-              <button className={styles.primaryBtn} onClick={() => navigate(`/app/billing?clientId=${client?.id}&action=new`)}>
+              <button className={styles.primaryBtn} onClick={() => setShowNewInvoiceModal(true)}>
                 <Plus size={18} />
                 Create Invoice
               </button>
@@ -460,6 +510,35 @@ export function ClientDetailPage() {
             await updateClient(id!, data)
             setShowEditModal(false)
             fetchClients()
+          }}
+        />
+      )}
+
+      {/* New Matter Modal */}
+      {showNewMatterModal && (
+        <NewMatterModal
+          clientId={client.id}
+          clientName={client.name}
+          onClose={() => setShowNewMatterModal(false)}
+          onSave={async (data) => {
+            await addMatter(data)
+            setShowNewMatterModal(false)
+            fetchMatters()
+          }}
+        />
+      )}
+
+      {/* New Invoice Modal */}
+      {showNewInvoiceModal && (
+        <NewInvoiceModal
+          clientId={client.id}
+          clientName={client.name}
+          clientMatters={clientMatters}
+          onClose={() => setShowNewInvoiceModal(false)}
+          onSave={async (data) => {
+            await addInvoice(data)
+            setShowNewInvoiceModal(false)
+            fetchInvoices()
           }}
         />
       )}
@@ -608,6 +687,333 @@ function EditClientModal({ client, onClose, onSave }: {
             </button>
             <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
               {isSubmitting ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// New Matter Modal
+function NewMatterModal({ clientId, clientName, onClose, onSave }: {
+  clientId: string
+  clientName: string
+  onClose: () => void
+  onSave: (data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    clientId: clientId,
+    type: 'litigation',
+    status: 'active',
+    priority: 'medium',
+    billingType: 'hourly',
+    billingRate: 450,
+    openDate: new Date().toISOString()
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isSubmitting) return
+    if (!formData.name.trim()) {
+      alert('Please enter a matter name')
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      await onSave(formData)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>New Matter for {clientName}</h2>
+          <button onClick={onClose} className={styles.closeBtn}><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
+          <div className={styles.formGroup}>
+            <label>Matter Name *</label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({...formData, name: e.target.value})}
+              placeholder="e.g., Contract Dispute - ABC Corp"
+              required
+              autoFocus
+            />
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Matter Type</label>
+              <select
+                value={formData.type}
+                onChange={(e) => setFormData({...formData, type: e.target.value})}
+              >
+                <option value="litigation">Litigation</option>
+                <option value="corporate">Corporate</option>
+                <option value="real_estate">Real Estate</option>
+                <option value="intellectual_property">Intellectual Property</option>
+                <option value="employment">Employment</option>
+                <option value="personal_injury">Personal Injury</option>
+                <option value="estate_planning">Estate Planning</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div className={styles.formGroup}>
+              <label>Priority</label>
+              <select
+                value={formData.priority}
+                onChange={(e) => setFormData({...formData, priority: e.target.value})}
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Billing Type</label>
+              <select
+                value={formData.billingType}
+                onChange={(e) => setFormData({...formData, billingType: e.target.value})}
+              >
+                <option value="hourly">Hourly</option>
+                <option value="flat_fee">Flat Fee</option>
+                <option value="contingency">Contingency</option>
+                <option value="retainer">Retainer</option>
+              </select>
+            </div>
+            <div className={styles.formGroup}>
+              <label>Billing Rate ($/hr)</label>
+              <input
+                type="number"
+                value={formData.billingRate}
+                onChange={(e) => setFormData({...formData, billingRate: parseInt(e.target.value) || 0})}
+              />
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Description</label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({...formData, description: e.target.value})}
+              placeholder="Brief description of the matter..."
+              rows={3}
+            />
+          </div>
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+              Cancel
+            </button>
+            <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Creating...' : 'Create Matter'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// New Invoice Modal
+function NewInvoiceModal({ clientId, clientName, clientMatters, onClose, onSave }: {
+  clientId: string
+  clientName: string
+  clientMatters: any[]
+  onClose: () => void
+  onSave: (data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState({
+    clientId: clientId,
+    matterId: clientMatters[0]?.id || '',
+    issueDate: format(new Date(), 'yyyy-MM-dd'),
+    dueDate: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+    notes: '',
+    lineItems: [{ description: 'Professional Legal Services', quantity: 1, rate: 0, amount: 0 }]
+  })
+
+  const addLineItem = () => {
+    setFormData({
+      ...formData,
+      lineItems: [...formData.lineItems, { description: '', quantity: 1, rate: 0, amount: 0 }]
+    })
+  }
+
+  const removeLineItem = (index: number) => {
+    setFormData({
+      ...formData,
+      lineItems: formData.lineItems.filter((_, i) => i !== index)
+    })
+  }
+
+  const updateLineItem = (index: number, field: string, value: any) => {
+    const newLineItems = [...formData.lineItems]
+    newLineItems[index] = { ...newLineItems[index], [field]: value }
+    
+    if (field === 'quantity' || field === 'rate') {
+      newLineItems[index].amount = newLineItems[index].quantity * newLineItems[index].rate
+    }
+    if (field === 'amount' && newLineItems[index].quantity > 0) {
+      newLineItems[index].rate = value / newLineItems[index].quantity
+    }
+    
+    setFormData({ ...formData, lineItems: newLineItems })
+  }
+
+  const totalAmount = formData.lineItems.reduce((sum, item) => sum + (item.amount || 0), 0)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isSubmitting) return
+    if (totalAmount <= 0) {
+      alert('Please add at least one line item with an amount')
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      await onSave({
+        ...formData,
+        total: totalAmount,
+        status: 'draft',
+        amountPaid: 0,
+        subtotal: totalAmount,
+        issueDate: new Date(formData.issueDate).toISOString(),
+        dueDate: new Date(formData.dueDate).toISOString()
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+        <div className={styles.modalHeader}>
+          <h2>New Invoice for {clientName}</h2>
+          <button onClick={onClose} className={styles.closeBtn}><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
+          {clientMatters.length > 0 && (
+            <div className={styles.formGroup}>
+              <label>Related Matter</label>
+              <select
+                value={formData.matterId}
+                onChange={(e) => setFormData({...formData, matterId: e.target.value})}
+              >
+                <option value="">No specific matter</option>
+                {clientMatters.map(m => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Issue Date</label>
+              <input
+                type="date"
+                value={formData.issueDate}
+                onChange={(e) => setFormData({...formData, issueDate: e.target.value})}
+                required
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Due Date</label>
+              <input
+                type="date"
+                value={formData.dueDate}
+                onChange={(e) => setFormData({...formData, dueDate: e.target.value})}
+                required
+              />
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Line Items</label>
+            <div className={styles.lineItems}>
+              {formData.lineItems.map((item, index) => (
+                <div key={index} className={styles.lineItem}>
+                  <input
+                    type="text"
+                    placeholder="Description"
+                    value={item.description}
+                    onChange={(e) => updateLineItem(index, 'description', e.target.value)}
+                    style={{ flex: 2 }}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Qty"
+                    value={item.quantity}
+                    onChange={(e) => updateLineItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                    style={{ width: '60px' }}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Rate"
+                    value={item.rate}
+                    onChange={(e) => updateLineItem(index, 'rate', parseFloat(e.target.value) || 0)}
+                    style={{ width: '80px' }}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Amount"
+                    value={item.amount}
+                    onChange={(e) => updateLineItem(index, 'amount', parseFloat(e.target.value) || 0)}
+                    style={{ width: '100px' }}
+                  />
+                  {formData.lineItems.length > 1 && (
+                    <button 
+                      type="button" 
+                      onClick={() => removeLineItem(index)}
+                      className={styles.removeLineBtn}
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button type="button" onClick={addLineItem} className={styles.addLineBtn}>
+                <Plus size={14} /> Add Line Item
+              </button>
+            </div>
+          </div>
+
+          <div className={styles.invoiceTotal}>
+            <span>Total:</span>
+            <span>${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Notes</label>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({...formData, notes: e.target.value})}
+              placeholder="Additional notes for the invoice..."
+              rows={2}
+            />
+          </div>
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+              Cancel
+            </button>
+            <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Creating...' : `Create Invoice ($${totalAmount.toLocaleString()})`}
             </button>
           </div>
         </form>

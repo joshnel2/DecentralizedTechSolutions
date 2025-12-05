@@ -113,7 +113,10 @@ export function CalendarPage() {
             <div className={styles.monthDropdownWrapper}>
               <button 
                 className={styles.currentMonth}
-                onClick={() => setShowMonthDropdown(!showMonthDropdown)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setShowMonthDropdown(!showMonthDropdown)
+                }}
               >
                 {format(currentDate, 'MMMM yyyy')}
                 <ChevronRight size={16} className={clsx(styles.dropdownChevron, showMonthDropdown && styles.open)} />
