@@ -321,6 +321,39 @@
   font-size: 0.9375rem;
 }
 
+/* Contact info in header */
+.contactInfo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  margin-top: var(--space-sm);
+}
+
+.contactInfo span {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: 0.875rem;
+  color: var(--apex-text);
+}
+
+.contactInfo span svg {
+  color: var(--apex-gold-bright);
+  flex-shrink: 0;
+}
+
+.typeTag {
+  display: inline-block;
+  padding: 4px 10px;
+  background: var(--apex-slate);
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--apex-light);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
 /* Quick Stats */
 .quickStats {
   display: flex;
@@ -2124,6 +2157,7 @@ a.contactName:hover {
 
   .headerMain {
     flex-direction: column;
+    align-items: flex-start;
     gap: var(--space-md);
     margin-bottom: var(--space-lg);
   }
@@ -2133,22 +2167,60 @@ a.contactName:hover {
     height: 56px;
   }
 
+  .headerInfo {
+    width: 100%;
+  }
+
+  .headerMeta {
+    justify-content: flex-start;
+  }
+
   .header h1 {
     font-size: 1.375rem;
+    text-align: left;
+  }
+
+  .description {
+    text-align: left;
+  }
+
+  .contactInfo {
+    flex-direction: column;
+    gap: var(--space-xs);
+    align-items: flex-start;
+  }
+
+  .contactInfo span {
+    font-size: 0.8125rem;
   }
 
   .quickStats {
     flex-direction: column;
+    align-items: flex-start;
     gap: var(--space-md);
     padding-top: var(--space-md);
+    width: 100%;
   }
 
   .quickStat {
+    width: 100%;
     gap: var(--space-sm);
+    padding: var(--space-md);
+    background: var(--apex-slate);
+    border-radius: var(--radius-md);
+  }
+
+  .quickStat > div {
+    flex: 1;
+    align-items: flex-start;
   }
 
   .statValue {
     font-size: 1.125rem;
+  }
+
+  .statLabel {
+    text-align: left;
   }
 
   /* Tabs */
@@ -2411,11 +2483,30 @@ a.contactName:hover {
 @media (max-width: 480px) {
   .header h1 {
     font-size: 1.25rem;
+    text-align: left;
   }
 
   .headerMeta {
     flex-wrap: wrap;
     gap: var(--space-xs);
+    justify-content: flex-start;
+  }
+
+  .headerInfo {
+    text-align: left;
+    width: 100%;
+  }
+
+  .headerMain {
+    align-items: flex-start;
+  }
+
+  .quickStat {
+    justify-content: flex-start;
+  }
+
+  .quickStat > div {
+    align-items: flex-start;
   }
 
   .statusBadge,
@@ -2442,5 +2533,10 @@ a.contactName:hover {
   .docAi {
     font-size: 0.625rem;
     padding: 3px 6px;
+  }
+
+  .contactInfo {
+    align-items: flex-start;
+    gap: var(--space-xs);
   }
 }

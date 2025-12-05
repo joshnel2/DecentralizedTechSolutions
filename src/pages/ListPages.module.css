@@ -770,15 +770,64 @@
   }
 
   .nameCell {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: center;
     gap: var(--space-sm);
     padding-bottom: var(--space-sm);
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .nameCell > div:last-child {
+    flex: 1;
+    text-align: left;
   }
 
   .icon {
     width: 32px;
     height: 32px;
+  }
+
+  .name {
+    text-align: left;
+  }
+
+  .subtitle {
+    text-align: left;
+  }
+
+  /* Mobile table card layout improvements */
+  .table td > div {
+    text-align: right;
+  }
+
+  .table td > span {
+    text-align: right;
+  }
+
+  .table td > a {
+    text-align: right;
+  }
+
+  /* First cell (name) should be full width and left aligned */
+  .table td:first-child {
+    display: block;
+    width: 100%;
+    padding-bottom: var(--space-md);
+    margin-bottom: var(--space-sm);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .table td:first-child::before {
+    display: none;
+  }
+
+  .table td:first-child .nameCell {
+    width: 100%;
+  }
+
+  .table td:first-child .nameCell > div:last-child {
+    text-align: left;
   }
 
   /* Modal adjustments */
@@ -860,6 +909,29 @@
   .typeTag {
     font-size: 0.6875rem;
     padding: 3px 8px;
+  }
+
+  /* Extra small screen table card improvements */
+  .table td {
+    padding: var(--space-xs) 0;
+    font-size: 0.8125rem;
+  }
+
+  .table td:first-child {
+    padding-bottom: var(--space-sm);
+    margin-bottom: var(--space-xs);
+  }
+
+  .nameCell {
+    gap: var(--space-xs);
+  }
+
+  .nameCell .name {
+    font-size: 0.875rem;
+  }
+
+  .nameCell .subtitle {
+    font-size: 0.6875rem;
   }
 }
 
