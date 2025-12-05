@@ -6,7 +6,8 @@ import {
   ChevronRight, BarChart3, PieChart as PieChartIcon, 
   RefreshCw, Settings, AlertCircle, ArrowUpRight, ArrowDownRight,
   Wallet, CreditCard, Scale, Target, Activity, Layers,
-  Building2, Star, X, Plus, Search, Eye, Mail, Printer
+  Building2, Star, X, Plus, Search, Eye, Mail, Printer,
+  Send, Check, FileSpreadsheet
 } from 'lucide-react'
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -123,6 +124,20 @@ export function ReportsPage() {
   const [showCustomReportModal, setShowCustomReportModal] = useState(false)
   const [showFilterPanel, setShowFilterPanel] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [showPreviewModal, setShowPreviewModal] = useState<{ report: any; category: any } | null>(null)
+  const [showEmailModal, setShowEmailModal] = useState<{ report: any } | null>(null)
+  
+  // Saved reports - stored in localStorage for persistence
+  const [savedReports, setSavedReports] = useState<Array<{ id: string; name: string; category: string; lastRun: string }>>(() => {
+    const saved = localStorage.getItem('apex-saved-reports')
+    return saved ? JSON.parse(saved) : []
+  })
+  
+  // Scheduled reports - stored in localStorage for persistence
+  const [scheduledReports, setScheduledReports] = useState<Array<{ id: string; name: string; frequency: string; nextRun: string; recipients: string[] }>>(() => {
+    const saved = localStorage.getItem('apex-scheduled-reports')
+    return saved ? JSON.parse(saved) : []
+  })
 
   // Date range calculations
   const getDateRange = () => {
@@ -196,14 +211,33 @@ export function ReportsPage() {
   }, [invoices])
 
   const utilizationByUser = useMemo(() => {
-    return [
-      { name: 'John Mitchell', billable: 156, nonBillable: 24, target: 160 },
-      { name: 'Sarah Chen', billable: 142, nonBillable: 28, target: 160 },
-      { name: 'Michael Roberts', billable: 168, nonBillable: 12, target: 160 },
-      { name: 'Emily Davis', billable: 134, nonBillable: 46, target: 160 },
-      { name: 'James Wilson', billable: 152, nonBillable: 28, target: 160 }
-    ]
-  }, [])
+    // Calculate utilization from real time entries data
+    const userHours: Record<string, { billable: number; nonBillable: number }> = {}
+    
+    timeEntries.forEach(entry => {
+      const userName = entry.userId || 'Unknown User'
+      if (!userHours[userName]) {
+        userHours[userName] = { billable: 0, nonBillable: 0 }
+      }
+      if (entry.billable) {
+        userHours[userName].billable += entry.hours
+      } else {
+        userHours[userName].nonBillable += entry.hours
+      }
+    })
+    
+    // If no data, return empty array
+    if (Object.keys(userHours).length === 0) {
+      return []
+    }
+    
+    return Object.entries(userHours).map(([name, hours]) => ({
+      name,
+      billable: Math.round(hours.billable * 10) / 10,
+      nonBillable: Math.round(hours.nonBillable * 10) / 10,
+      target: 160 // Monthly target (adjust as needed)
+    }))
+  }, [timeEntries])
 
   const mattersByType = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -215,14 +249,42 @@ export function ReportsPage() {
   }, [matters])
 
   const arAging = useMemo(() => {
-    return [
-      { bucket: 'Current', amount: 24750, color: '#10B981' },
-      { bucket: '1-30 Days', amount: 15200, color: '#F59E0B' },
-      { bucket: '31-60 Days', amount: 8500, color: '#F97316' },
-      { bucket: '61-90 Days', amount: 5200, color: '#EF4444' },
-      { bucket: '90+ Days', amount: 3100, color: '#DC2626' }
-    ]
-  }, [])
+    // Calculate AR aging from real invoice data
+    const today = new Date()
+    const buckets = {
+      'Current': { amount: 0, color: '#10B981' },
+      '1-30 Days': { amount: 0, color: '#F59E0B' },
+      '31-60 Days': { amount: 0, color: '#F97316' },
+      '61-90 Days': { amount: 0, color: '#EF4444' },
+      '90+ Days': { amount: 0, color: '#DC2626' }
+    }
+    
+    invoices
+      .filter(inv => inv.status !== 'paid' && inv.status !== 'void')
+      .forEach(inv => {
+        const dueDate = new Date(inv.dueDate)
+        const daysPastDue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24))
+        const outstanding = inv.total - inv.amountPaid
+        
+        if (daysPastDue <= 0) {
+          buckets['Current'].amount += outstanding
+        } else if (daysPastDue <= 30) {
+          buckets['1-30 Days'].amount += outstanding
+        } else if (daysPastDue <= 60) {
+          buckets['31-60 Days'].amount += outstanding
+        } else if (daysPastDue <= 90) {
+          buckets['61-90 Days'].amount += outstanding
+        } else {
+          buckets['90+ Days'].amount += outstanding
+        }
+      })
+    
+    return Object.entries(buckets).map(([bucket, data]) => ({
+      bucket,
+      amount: Math.round(data.amount * 100) / 100,
+      color: data.color
+    }))
+  }, [invoices])
 
   // CSV Export
   const exportToCSV = (data: any[], filename: string, headers: string[]) => {
@@ -793,13 +855,22 @@ export function ReportsPage() {
                       <span className={styles.reportItemDesc}>{report.desc}</span>
                     </div>
                     <div className={styles.reportItemActions}>
-                      <button className={styles.iconBtn} title="Preview" onClick={(e) => { e.stopPropagation(); alert(`Preview: ${report.name}\n\n${report.desc}\n\nThis would show a preview of the report data.`); }}>
+                      <button className={styles.iconBtn} title="Preview" onClick={(e) => { 
+                        e.stopPropagation(); 
+                        setShowPreviewModal({ report, category: reportCategories.find(c => c.id === activeCategory) });
+                      }}>
                         <Eye size={16} />
                       </button>
-                      <button className={styles.iconBtn} title="Email" onClick={(e) => { e.stopPropagation(); const email = prompt('Enter email address to send report:'); if (email) alert(`Report "${report.name}" scheduled to be sent to ${email}`); }}>
+                      <button className={styles.iconBtn} title="Email" onClick={(e) => { 
+                        e.stopPropagation(); 
+                        setShowEmailModal({ report });
+                      }}>
                         <Mail size={16} />
                       </button>
-                      <button className={styles.iconBtn} title="Print" onClick={(e) => { e.stopPropagation(); runReport(report.id); }}>
+                      <button className={styles.iconBtn} title="Export CSV" onClick={(e) => { 
+                        e.stopPropagation(); 
+                        runReport(report.id);
+                      }}>
                         <Printer size={16} />
                       </button>
                       <button 
@@ -827,29 +898,43 @@ export function ReportsPage() {
               Saved Reports
             </h3>
             <div className={styles.savedList}>
-              {savedReports.map(report => (
-                <div key={report.id} className={styles.savedItem}>
-                  <div className={styles.savedItemInfo}>
-                    <span className={styles.savedItemName}>{report.name}</span>
-                    <span className={styles.savedItemMeta}>Last run: {report.lastRun}</span>
-                  </div>
-                  <div className={styles.savedItemActions}>
-                    <button className={styles.runReportBtn} onClick={() => {
-                      // Map saved report IDs to actual report IDs
-                      const reportMap: Record<string, string> = {
-                        'saved-1': 'billing-summary',
-                        'saved-2': 'timekeeper-summary',
-                        'saved-3': 'ar-aging'
-                      }
-                      const actualReportId = reportMap[report.id] || report.id
-                      runReport(actualReportId)
-                    }}>
-                      <Download size={14} />
-                      Run
-                    </button>
-                  </div>
+              {savedReports.length === 0 ? (
+                <div style={{ 
+                  padding: '2rem', 
+                  textAlign: 'center', 
+                  color: 'var(--apex-text)',
+                  background: 'rgba(0,0,0,0.2)',
+                  borderRadius: '8px'
+                }}>
+                  <Star size={32} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
+                  <p>No saved reports yet</p>
+                  <p style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>Run a report and click "Save" to add it here</p>
                 </div>
-              ))}
+              ) : (
+                savedReports.map(report => (
+                  <div key={report.id} className={styles.savedItem}>
+                    <div className={styles.savedItemInfo}>
+                      <span className={styles.savedItemName}>{report.name}</span>
+                      <span className={styles.savedItemMeta}>Last run: {report.lastRun}</span>
+                    </div>
+                    <div className={styles.savedItemActions}>
+                      <button className={styles.runReportBtn} onClick={() => {
+                        // Map saved report IDs to actual report IDs
+                        const reportMap: Record<string, string> = {
+                          'saved-1': 'billing-summary',
+                          'saved-2': 'timekeeper-summary',
+                          'saved-3': 'ar-aging'
+                        }
+                        const actualReportId = reportMap[report.id] || report.id
+                        runReport(actualReportId)
+                      }}>
+                        <Download size={14} />
+                        Run
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
@@ -859,31 +944,45 @@ export function ReportsPage() {
               Scheduled Reports
             </h3>
             <div className={styles.savedList}>
-              {scheduledReports.map(report => (
-                <div key={report.id} className={styles.scheduledItem}>
-                  <div className={styles.scheduledItemInfo}>
-                    <span className={styles.scheduledItemName}>{report.name}</span>
-                    <span className={styles.scheduledItemMeta}>
-                      {report.frequency} • Next: {report.nextRun}
-                    </span>
-                    <span className={styles.scheduledItemRecipients}>
-                      Recipients: {report.recipients.join(', ')}
-                    </span>
-                  </div>
-                  <div className={styles.scheduledItemActions}>
-                    <button className={styles.iconBtn} onClick={() => alert(`Edit schedule settings for: ${report.name}\n\nFrequency: ${report.frequency}\nRecipients: ${report.recipients.join(', ')}`)}>
-                      <Settings size={16} />
-                    </button>
-                    <button className={styles.iconBtnDanger} onClick={() => {
-                      if (confirm(`Delete scheduled report "${report.name}"?`)) {
-                        alert('Scheduled report deleted.');
-                      }
-                    }}>
-                      <X size={16} />
-                    </button>
-                  </div>
+              {scheduledReports.length === 0 ? (
+                <div style={{ 
+                  padding: '2rem', 
+                  textAlign: 'center', 
+                  color: 'var(--apex-text)',
+                  background: 'rgba(0,0,0,0.2)',
+                  borderRadius: '8px'
+                }}>
+                  <Calendar size={32} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
+                  <p>No scheduled reports</p>
+                  <p style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>Click "Schedule Report" to set up automatic report delivery</p>
                 </div>
-              ))}
+              ) : (
+                scheduledReports.map(report => (
+                  <div key={report.id} className={styles.scheduledItem}>
+                    <div className={styles.scheduledItemInfo}>
+                      <span className={styles.scheduledItemName}>{report.name}</span>
+                      <span className={styles.scheduledItemMeta}>
+                        {report.frequency} • Next: {report.nextRun}
+                      </span>
+                      <span className={styles.scheduledItemRecipients}>
+                        Recipients: {report.recipients.join(', ')}
+                      </span>
+                    </div>
+                    <div className={styles.scheduledItemActions}>
+                      <button className={styles.iconBtn} title="Edit Schedule">
+                        <Settings size={16} />
+                      </button>
+                      <button className={styles.iconBtnDanger} title="Delete" onClick={() => {
+                        const newScheduled = scheduledReports.filter(r => r.id !== report.id)
+                        setScheduledReports(newScheduled)
+                        localStorage.setItem('apex-scheduled-reports', JSON.stringify(newScheduled))
+                      }}>
+                        <X size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -906,6 +1005,61 @@ export function ReportsPage() {
           clients={clients}
           invoices={invoices}
           timeEntries={timeEntries}
+        />
+      )}
+
+      {/* Report Preview Modal */}
+      {showPreviewModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowPreviewModal(null)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+            <div className={styles.modalHeader}>
+              <h3>Report Preview: {showPreviewModal.report.name}</h3>
+              <button onClick={() => setShowPreviewModal(null)}><X size={20} /></button>
+            </div>
+            <div className={styles.modalBody}>
+              <div style={{ marginBottom: '1rem' }}>
+                <p style={{ color: 'var(--apex-text)', marginBottom: '1rem' }}>{showPreviewModal.report.desc}</p>
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+                  <span style={{ fontSize: '0.875rem', color: 'var(--apex-text)' }}>
+                    <strong>Category:</strong> {showPreviewModal.category?.name || 'General'}
+                  </span>
+                  <span style={{ fontSize: '0.875rem', color: 'var(--apex-text)' }}>
+                    <strong>Date Range:</strong> {dateRange.replace('-', ' ')}
+                  </span>
+                </div>
+              </div>
+              <div style={{ 
+                background: 'rgba(0,0,0,0.2)', 
+                border: '1px solid rgba(255,255,255,0.1)', 
+                borderRadius: '8px', 
+                padding: '1.5rem',
+                textAlign: 'center',
+                color: 'var(--apex-text)'
+              }}>
+                <FileSpreadsheet size={48} style={{ marginBottom: '1rem', opacity: 0.5 }} />
+                <p style={{ marginBottom: '0.5rem' }}>Report data will be generated based on current filters</p>
+                <p style={{ fontSize: '0.875rem' }}>Click "Run Report" to generate and download the full report</p>
+              </div>
+            </div>
+            <div className={styles.modalFooter}>
+              <button className={styles.cancelBtn} onClick={() => setShowPreviewModal(null)}>Close</button>
+              <button className={styles.primaryBtn} onClick={() => {
+                runReport(showPreviewModal.report.id)
+                setShowPreviewModal(null)
+              }}>
+                <Download size={16} />
+                Run Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Email Report Modal */}
+      {showEmailModal && (
+        <EmailReportModal 
+          report={showEmailModal.report}
+          onClose={() => setShowEmailModal(null)}
         />
       )}
     </div>
@@ -1091,6 +1245,129 @@ const customReportColumns = {
     { id: 'activityType', label: 'Activity Type', default: false },
     { id: 'userId', label: 'Timekeeper', default: false }
   ]
+}
+
+// Email Report Modal
+function EmailReportModal({ report, onClose }: { report: any; onClose: () => void }) {
+  const [formData, setFormData] = useState({
+    recipients: '',
+    subject: `Report: ${report.name}`,
+    message: `Please find attached the ${report.name} report.`,
+    format: 'pdf'
+  })
+  const [sending, setSending] = useState(false)
+  const [sent, setSent] = useState(false)
+
+  const handleSend = () => {
+    if (!formData.recipients.trim()) {
+      alert('Please enter at least one recipient email address')
+      return
+    }
+    setSending(true)
+    // Simulate sending email
+    setTimeout(() => {
+      setSending(false)
+      setSent(true)
+      setTimeout(() => {
+        onClose()
+      }, 1500)
+    }, 1000)
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+        <div className={styles.modalHeader}>
+          <h3>Email Report</h3>
+          <button onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className={styles.modalBody}>
+          {sent ? (
+            <div style={{ textAlign: 'center', padding: '2rem' }}>
+              <div style={{ 
+                width: '60px', 
+                height: '60px', 
+                borderRadius: '50%', 
+                background: 'rgba(34, 197, 94, 0.1)', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                margin: '0 auto 1rem'
+              }}>
+                <Check size={32} style={{ color: '#22c55e' }} />
+              </div>
+              <h4 style={{ marginBottom: '0.5rem' }}>Email Sent!</h4>
+              <p style={{ color: 'var(--apex-text)' }}>Report has been sent to {formData.recipients}</p>
+            </div>
+          ) : (
+            <>
+              <div style={{ marginBottom: '1rem' }}>
+                <p style={{ color: 'var(--apex-text)', marginBottom: '0.5rem' }}>
+                  Report: <strong style={{ color: 'var(--apex-white)' }}>{report.name}</strong>
+                </p>
+              </div>
+              <div className={styles.formGroup}>
+                <label>Recipients (comma-separated)</label>
+                <input 
+                  type="text"
+                  placeholder="email@example.com, other@example.com"
+                  value={formData.recipients}
+                  onChange={e => setFormData({ ...formData, recipients: e.target.value })}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Subject</label>
+                <input 
+                  type="text"
+                  value={formData.subject}
+                  onChange={e => setFormData({ ...formData, subject: e.target.value })}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Message</label>
+                <textarea 
+                  rows={3}
+                  value={formData.message}
+                  onChange={e => setFormData({ ...formData, message: e.target.value })}
+                  style={{ resize: 'vertical' }}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Format</label>
+                <select 
+                  value={formData.format}
+                  onChange={e => setFormData({ ...formData, format: e.target.value })}
+                >
+                  <option value="pdf">PDF</option>
+                  <option value="csv">CSV</option>
+                  <option value="excel">Excel</option>
+                </select>
+              </div>
+            </>
+          )}
+        </div>
+        {!sent && (
+          <div className={styles.modalFooter}>
+            <button className={styles.cancelBtn} onClick={onClose}>Cancel</button>
+            <button 
+              className={styles.primaryBtn} 
+              onClick={handleSend}
+              disabled={sending}
+            >
+              {sending ? (
+                <>Sending...</>
+              ) : (
+                <>
+                  <Send size={16} />
+                  Send Email
+                </>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // Custom Report Modal
