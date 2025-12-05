@@ -879,6 +879,54 @@
     width: 100%;
     padding: var(--space-md);
   }
+
+  /* Month dropdown mobile */
+  .monthDropdown {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
+    transform: none;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    animation: slideUpModal 0.2s ease;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+
+  .monthDropdownContent {
+    padding: var(--space-lg);
+    min-width: auto;
+  }
+
+  .monthGrid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-sm);
+  }
+
+  .monthOption {
+    padding: var(--space-md);
+    font-size: 0.9375rem;
+  }
+
+  .yearSelector select {
+    padding: var(--space-md);
+  }
+
+  .todayBtn {
+    padding: var(--space-md);
+  }
+}
+
+@keyframes slideUpModal {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (max-width: 480px) {

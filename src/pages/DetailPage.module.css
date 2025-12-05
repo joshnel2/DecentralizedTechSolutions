@@ -785,6 +785,45 @@
   padding: var(--space-xs) var(--space-sm);
 }
 
+/* Mobile Timer Styles */
+@media (max-width: 768px) {
+  .timerBtn {
+    flex: 1;
+    justify-content: center;
+    min-width: 120px;
+  }
+
+  .activeTimerBadge {
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+  }
+
+  .timerDisplay {
+    font-size: 0.875rem;
+  }
+
+  .timerOnOtherMatter {
+    font-size: 0.6875rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .timerBtn span {
+    display: none;
+  }
+
+  .timerBtn {
+    min-width: auto;
+    padding: var(--space-sm);
+  }
+
+  .activeTimerBadge {
+    padding: var(--space-xs);
+  }
+}
+
 .tableCard {
   background: var(--apex-deep);
   border: 1px solid rgba(255, 255, 255, 0.05);

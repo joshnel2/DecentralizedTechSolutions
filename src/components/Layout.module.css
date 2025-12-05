@@ -877,3 +877,30 @@
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
 }
+
+/* Mobile Timer Modal */
+@media (max-width: 768px) {
+  .modalOverlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .timerModal {
+    max-width: 100%;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    padding: var(--space-lg);
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .timerModalActions {
+    flex-direction: column-reverse;
+    gap: var(--space-sm);
+  }
+
+  .cancelBtn,
+  .saveBtn {
+    width: 100%;
+    padding: var(--space-md);
+  }
+}
