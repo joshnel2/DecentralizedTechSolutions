@@ -321,7 +321,7 @@ export function ClientDetailPage() {
                       <span className={styles.matterName}>{matter.name}</span>
                       <span className={styles.matterNumber}>{matter.number}</span>
                     </div>
-                    <span className={styles.matterType}>{matter.type.replace(/_/g, ' ')}</span>
+                    <span className={styles.matterType}>{(matter.type || 'other').replace(/_/g, ' ')}</span>
                   </Link>
                 ))}
                 {clientMatters.filter(m => m.status === 'active').length === 0 && (
@@ -385,13 +385,13 @@ export function ClientDetailPage() {
                           <div style={{ fontSize: '0.75rem', color: 'var(--apex-text)' }}>{matter.number}</div>
                         </Link>
                       </td>
-                      <td style={{ textTransform: 'capitalize' }}>{matter.type.replace(/_/g, ' ')}</td>
+                      <td style={{ textTransform: 'capitalize' }}>{(matter.type || 'other').replace(/_/g, ' ')}</td>
                       <td>
                         <span className={clsx(styles.badge, styles[matter.status])}>
                           {matter.status.replace(/_/g, ' ')}
                         </span>
                       </td>
-                      <td>{format(parseISO(matter.openDate), 'MMM d, yyyy')}</td>
+                      <td>{matter.openDate ? format(parseISO(matter.openDate), 'MMM d, yyyy') : '—'}</td>
                     </tr>
                   ))}
                 </tbody>

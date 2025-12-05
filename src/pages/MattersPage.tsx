@@ -191,12 +191,12 @@ export function MattersPage() {
   const filteredMatters = useMemo(() => {
     return matters.filter(matter => {
       const matchesSearch = 
-        matter.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        matter.number.toLowerCase().includes(searchQuery.toLowerCase())
+        (matter.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (matter.number || '').toLowerCase().includes(searchQuery.toLowerCase())
       const matchesStatus = statusFilter === 'all' || matter.status === statusFilter
-      const matchesType = typeFilter === 'all' || matter.type === typeFilter
+      const matchesType = typeFilter === 'all' || (matter.type || 'other') === typeFilter
       return matchesSearch && matchesStatus && matchesType
-    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    }).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
   }, [matters, searchQuery, statusFilter, typeFilter])
 
   const getClientName = (clientId: string) => {
@@ -319,7 +319,7 @@ export function MattersPage() {
                 </td>
                 <td>
                   <span className={styles.typeTag}>
-                    {matter.type.replace(/_/g, ' ')}
+                    {(matter.type || 'other').replace(/_/g, ' ')}
                   </span>
                 </td>
                 <td>
@@ -356,7 +356,7 @@ export function MattersPage() {
                   </div>
                 </td>
                 <td className={styles.dateCell}>
-                  {format(parseISO(matter.openDate), 'MMM d, yyyy')}
+                  {matter.openDate ? format(parseISO(matter.openDate), 'MMM d, yyyy') : '—'}
                 </td>
                 <td>
                   <div className={styles.menuWrapper} ref={openDropdownId === matter.id ? dropdownRef : null}>

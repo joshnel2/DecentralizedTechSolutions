@@ -632,7 +632,7 @@ Only analyze documents actually associated with this matter.`
                 </div>
                 <div className={styles.detailItem}>
                   <span className={styles.detailLabel}>Practice Area</span>
-                  <span className={styles.detailValue}>{matter.type.replace(/_/g, ' ')}</span>
+                  <span className={styles.detailValue}>{(matter.type || 'other').replace(/_/g, ' ')}</span>
                 </div>
                 <div className={styles.detailItem}>
                   <span className={styles.detailLabel}>Responsible Attorney</span>
@@ -648,7 +648,7 @@ Only analyze documents actually associated with this matter.`
                 </div>
                 <div className={styles.detailItem}>
                   <span className={styles.detailLabel}>Opened</span>
-                  <span className={styles.detailValue}>{format(parseISO(matter.openDate), 'MMM d, yyyy')}</span>
+                  <span className={styles.detailValue}>{matter.openDate ? format(parseISO(matter.openDate), 'MMM d, yyyy') : '—'}</span>
                 </div>
                 <div className={styles.detailItem}>
                   <span className={styles.detailLabel}>Billing Type</span>

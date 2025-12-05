@@ -115,7 +115,7 @@ export function FirmAnalyticsPage() {
       if (isWithinInterval(date, dateFilter) && entry.billable) {
         const matter = matters.find(m => m.id === entry.matterId)
         if (matter) {
-          const type = matter.type.replace(/_/g, ' ')
+          const type = (matter.type || 'other').replace(/_/g, ' ')
           practiceRevenue[type] = (practiceRevenue[type] || 0) + entry.amount
         }
       }
@@ -612,7 +612,7 @@ export function FirmAnalyticsPage() {
                         </div>
                       </td>
                       <td>{client?.name || 'Unknown'}</td>
-                      <td>{matter.type.replace(/_/g, ' ')}</td>
+                      <td>{(matter.type || 'other').replace(/_/g, ' ')}</td>
                       <td>
                         <span className={`${styles.statusBadge} ${styles[matter.status]}`}>
                           {matter.status.replace(/_/g, ' ')}

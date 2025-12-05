@@ -1018,7 +1018,7 @@ async function createMatter(args, user) {
     return { error: 'You do not have permission to create matters' };
   }
   
-  const { name, client_id, description, type, priority = 'medium', billing_type = 'hourly', billing_rate, court_name, case_number } = args;
+  const { name, client_id, description, type = 'other', priority = 'medium', billing_type = 'hourly', billing_rate, court_name, case_number } = args;
   
   if (!name) {
     return { error: 'Matter name is required' };
@@ -1035,12 +1035,15 @@ async function createMatter(args, user) {
     }
   }
   
+  // Use today's date for open_date
+  const openDate = new Date().toISOString().split('T')[0];
+  
   const result = await query(
     `INSERT INTO matters (firm_id, number, name, description, client_id, type, status, priority,
-      responsible_attorney, billing_type, billing_rate, court_name, case_number, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10, $11, $12, $8) RETURNING *`,
-    [user.firmId, number, name, description || null, client_id || null, type || null, priority, 
-     user.id, billing_type, billing_rate || null, court_name || null, case_number || null]
+      responsible_attorney, billing_type, billing_rate, court_name, case_number, open_date, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10, $11, $12, $13, $8) RETURNING *`,
+    [user.firmId, number, name, description || null, client_id || null, type, priority, 
+     user.id, billing_type, billing_rate || null, court_name || null, case_number || null, openDate]
   );
   
   const matter = result.rows[0];
