@@ -238,6 +238,91 @@ const TOOLS = [
         required: []
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_matter",
+      description: "Create a new legal matter/case. Use this when the user wants to open a new case or matter.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "Name of the matter (e.g., 'Smith v. Jones', 'Johnson Contract Review')"
+          },
+          client_id: {
+            type: "string",
+            description: "UUID of the client this matter is for. Use list_clients to find client IDs."
+          },
+          description: {
+            type: "string",
+            description: "Description of the matter"
+          },
+          type: {
+            type: "string",
+            description: "Type of matter (e.g., 'litigation', 'contract', 'corporate', 'estate', 'family')"
+          },
+          priority: {
+            type: "string",
+            enum: ["low", "medium", "high", "urgent"],
+            description: "Priority level. Defaults to medium."
+          },
+          billing_type: {
+            type: "string",
+            enum: ["hourly", "flat", "contingency", "retainer", "pro_bono"],
+            description: "Billing type. Defaults to hourly."
+          },
+          billing_rate: {
+            type: "number",
+            description: "Hourly rate for this matter (if hourly billing)"
+          }
+        },
+        required: ["name"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_client",
+      description: "Create a new client. Use this when the user wants to add a new client to the system.",
+      parameters: {
+        type: "object",
+        properties: {
+          display_name: {
+            type: "string",
+            description: "Full name or company name of the client"
+          },
+          type: {
+            type: "string",
+            enum: ["person", "company"],
+            description: "Whether this is an individual person or a company. Defaults to person."
+          },
+          email: {
+            type: "string",
+            description: "Client's email address"
+          },
+          phone: {
+            type: "string",
+            description: "Client's phone number"
+          },
+          first_name: {
+            type: "string",
+            description: "First name (for individual clients)"
+          },
+          last_name: {
+            type: "string",
+            description: "Last name (for individual clients)"
+          },
+          company_name: {
+            type: "string",
+            description: "Company name (for company clients)"
+          }
+        },
+        required: ["display_name"]
+      }
+    }
   }
 ];
 
@@ -275,6 +360,12 @@ async function executeTool(toolName, args, user) {
       
       case 'search_matters':
         return await searchMatters(args, user);
+      
+      case 'create_matter':
+        return await createMatter(args, user);
+      
+      case 'create_client':
+        return await createClient(args, user);
       
       default:
         return { error: `Unknown tool: ${toolName}` };
@@ -679,6 +770,137 @@ async function searchMatters(args, user) {
       client: m.client_name
     })),
     count: result.rows.length
+  };
+}
+
+async function createMatter(args, user) {
+  // Check permission
+  if (!hasPermission(user.role, 'matters:create')) {
+    return { error: 'You do not have permission to create matters' };
+  }
+  
+  const { 
+    name, 
+    client_id, 
+    description, 
+    type, 
+    priority = 'medium', 
+    billing_type = 'hourly', 
+    billing_rate 
+  } = args;
+  
+  if (!name) {
+    return { error: 'Matter name is required' };
+  }
+  
+  // Generate matter number
+  const countResult = await query(
+    'SELECT COUNT(*) FROM matters WHERE firm_id = $1',
+    [user.firmId]
+  );
+  const count = parseInt(countResult.rows[0].count) + 1;
+  const number = `MTR-${new Date().getFullYear()}-${String(count).padStart(3, '0')}`;
+  
+  // Validate client if provided
+  if (client_id) {
+    const clientCheck = await query(
+      'SELECT id, display_name FROM clients WHERE id = $1 AND firm_id = $2',
+      [client_id, user.firmId]
+    );
+    if (clientCheck.rows.length === 0) {
+      return { error: 'Client not found' };
+    }
+  }
+  
+  const result = await query(
+    `INSERT INTO matters (
+      firm_id, number, name, description, client_id, type, status, priority,
+      responsible_attorney, billing_type, billing_rate, created_by
+    ) VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10, $8)
+    RETURNING *`,
+    [
+      user.firmId, number, name, description || null, client_id || null,
+      type || null, priority, user.id, billing_type, billing_rate || null
+    ]
+  );
+  
+  const matter = result.rows[0];
+  
+  // Assign the creator to the matter
+  await query(
+    'INSERT INTO matter_assignments (matter_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+    [matter.id, user.id]
+  );
+  
+  return {
+    success: true,
+    message: `Created matter "${name}" (${number})`,
+    data: {
+      id: matter.id,
+      name: matter.name,
+      number: matter.number,
+      status: matter.status,
+      type: matter.type,
+      priority: matter.priority,
+      billing_type: matter.billing_type
+    }
+  };
+}
+
+async function createClient(args, user) {
+  // Check permission
+  if (!hasPermission(user.role, 'clients:create')) {
+    return { error: 'You do not have permission to create clients' };
+  }
+  
+  const { 
+    display_name, 
+    type = 'person', 
+    email, 
+    phone, 
+    first_name, 
+    last_name, 
+    company_name 
+  } = args;
+  
+  if (!display_name) {
+    return { error: 'Client name (display_name) is required' };
+  }
+  
+  // Check for duplicate email if provided
+  if (email) {
+    const emailCheck = await query(
+      'SELECT id FROM clients WHERE email = $1 AND firm_id = $2',
+      [email, user.firmId]
+    );
+    if (emailCheck.rows.length > 0) {
+      return { error: 'A client with this email already exists' };
+    }
+  }
+  
+  const result = await query(
+    `INSERT INTO clients (
+      firm_id, display_name, type, email, phone, first_name, last_name, company_name, created_by
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    RETURNING *`,
+    [
+      user.firmId, display_name, type, email || null, phone || null,
+      first_name || null, last_name || null, company_name || null, user.id
+    ]
+  );
+  
+  const client = result.rows[0];
+  
+  return {
+    success: true,
+    message: `Created client "${display_name}"`,
+    data: {
+      id: client.id,
+      name: client.display_name,
+      type: client.type,
+      email: client.email,
+      phone: client.phone
+    }
   };
 }
 
