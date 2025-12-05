@@ -189,12 +189,12 @@ const TOOLS = [
           },
           end_time: {
             type: "string",
-            description: "End time in ISO 8601 format"
+            description: "End time in ISO 8601 format. If not provided, defaults to 1 hour after start_time."
           },
           type: {
             type: "string",
-            enum: ["meeting", "court", "deadline", "reminder", "other"],
-            description: "Type of event"
+            enum: ["meeting", "court_date", "deadline", "reminder", "task", "deposition", "other"],
+            description: "Type of event. Use 'court_date' for court appearances."
           },
           matter_id: {
             type: "string",
@@ -207,6 +207,10 @@ const TOOLS = [
           description: {
             type: "string",
             description: "Event description (optional)"
+          },
+          all_day: {
+            type: "boolean",
+            description: "Whether this is an all-day event. Defaults to false."
           }
         },
         required: ["title", "start_time", "type"]
@@ -695,28 +699,59 @@ async function getCalendarEvents(args, user) {
 }
 
 async function createCalendarEvent(args, user) {
-  const { title, start_time, end_time, type, matter_id, location, description } = args;
+  const { title, start_time, end_time, type, matter_id, location, description, all_day = false } = args;
   
   if (!title || !start_time || !type) {
     return { error: 'Missing required fields: title, start_time, type' };
   }
   
+  // Validate type
+  const validTypes = ['meeting', 'court_date', 'deadline', 'reminder', 'task', 'closing', 'deposition', 'other'];
+  if (!validTypes.includes(type)) {
+    return { error: `Invalid event type. Must be one of: ${validTypes.join(', ')}` };
+  }
+  
+  // Parse start time
+  const startDate = new Date(start_time);
+  if (isNaN(startDate.getTime())) {
+    return { error: 'Invalid start_time format. Use ISO 8601 format (e.g., 2024-01-15T14:00:00)' };
+  }
+  
+  // Calculate end time - default to 1 hour after start if not provided
+  let endDate;
+  if (end_time) {
+    endDate = new Date(end_time);
+    if (isNaN(endDate.getTime())) {
+      return { error: 'Invalid end_time format. Use ISO 8601 format.' };
+    }
+  } else {
+    // Default: 1 hour after start for meetings, same time for deadlines/reminders
+    endDate = new Date(startDate);
+    if (type === 'meeting' || type === 'court_date' || type === 'deposition') {
+      endDate.setHours(endDate.getHours() + 1);
+    } else {
+      endDate.setMinutes(endDate.getMinutes() + 30); // 30 min for deadlines/reminders
+    }
+  }
+  
   const result = await query(
-    `INSERT INTO calendar_events (firm_id, title, start_time, end_time, type, matter_id, location, description, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-    [user.firmId, title, start_time, end_time || null, type, matter_id || null, location || null, description || null, user.id]
+    `INSERT INTO calendar_events (firm_id, title, start_time, end_time, type, matter_id, location, description, all_day, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+    [user.firmId, title, startDate.toISOString(), endDate.toISOString(), type, matter_id || null, location || null, description || null, all_day, user.id]
   );
   
   const event = result.rows[0];
   
   return {
     success: true,
-    message: `Created event "${title}" for ${new Date(start_time).toLocaleString()}`,
+    message: `Created ${type} "${title}" for ${startDate.toLocaleString()}`,
     data: {
       id: event.id,
       title: event.title,
       start: event.start_time,
-      type: event.type
+      end: event.end_time,
+      type: event.type,
+      location: event.location
     }
   };
 }
