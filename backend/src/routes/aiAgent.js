@@ -2207,7 +2207,12 @@ async function addMatterNote(args, user) {
 // =============================================================================
 // SYSTEM PROMPT
 // =============================================================================
-const AGENT_SYSTEM_PROMPT = `You are an intelligent AI assistant for Apex Legal, a law firm management platform. You can both answer questions AND take actions on behalf of the user.
+function getSystemPrompt() {
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  
+  return `You are an intelligent AI assistant for Apex Legal, a law firm management platform. You can both answer questions AND take actions on behalf of the user.
 
 ## Your Capabilities
 You have access to tools for managing:
@@ -2215,14 +2220,14 @@ You have access to tools for managing:
 - **Matters**: Create, view, update, search matters
 - **Clients**: Create, view, update, search clients
 - **Invoices**: Create, view, send invoices, record payments
-- **Calendar**: Create, view, update, delete events
+- **Calendar**: Create, view, update, delete events and meetings
 - **Documents**: View document information
 - **Expenses**: Create and view expenses
 - **Team**: View team members
 - **Analytics**: View firm stats (admin only) and personal stats
 
 ## Guidelines
-1. When asked to DO something, use the appropriate tool
+1. When asked to DO something, use the appropriate tool immediately
 2. When asked a QUESTION, fetch data first, then answer naturally
 3. For time logging, ALWAYS search for the matter first if you don't have the ID
 4. Confirm actions with specific details (names, amounts, dates)
@@ -2230,10 +2235,18 @@ You have access to tools for managing:
 6. Never expose UUIDs - use names and numbers instead
 7. If you're unsure which matter/client the user means, ask for clarification
 
+## Calendar Events - IMPORTANT
+When creating calendar events, use create_calendar_event. For start_time, you MUST provide an ISO 8601 datetime string.
+- Today is: ${today.toISOString().split('T')[0]}
+- Tomorrow is: ${tomorrow.toISOString().split('T')[0]}
+- For "tomorrow at 2pm", use: "${tomorrow.toISOString().split('T')[0]}T14:00:00"
+- For "today at 3pm", use: "${today.toISOString().split('T')[0]}T15:00:00"
+
 ## Current User
 - Role: {{USER_ROLE}}
 - Firm data is isolated - you can only access this firm's data
 - Non-admins can only access matters they're assigned to`;
+}
 
 // =============================================================================
 // MAIN CHAT ENDPOINT
@@ -2250,7 +2263,7 @@ router.post('/chat', authenticate, async (req, res) => {
       return res.status(500).json({ error: 'AI service not configured' });
     }
 
-    const systemPrompt = AGENT_SYSTEM_PROMPT
+    const systemPrompt = getSystemPrompt()
       .replace('{{USER_ROLE}}', req.user.role)
       .replace('{{USER_NAME}}', `${req.user.firstName} ${req.user.lastName}`);
 
@@ -2348,35 +2361,5 @@ async function callAzureOpenAIWithTools(messages, tools) {
     tool_calls: choice.message.tool_calls
   };
 }
-
-// Test endpoint to verify calendar creation works
-router.post('/test-calendar', authenticate, async (req, res) => {
-  try {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(14, 0, 0, 0);
-    
-    const endTime = new Date(tomorrow);
-    endTime.setHours(15, 0, 0, 0);
-    
-    console.log('Test calendar insert - start:', tomorrow.toISOString(), 'end:', endTime.toISOString());
-    
-    const result = await query(
-      `INSERT INTO calendar_events (firm_id, title, start_time, end_time, type, all_day, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [req.user.firmId, 'Test Event from API', tomorrow.toISOString(), endTime.toISOString(), 'meeting', false, req.user.id]
-    );
-    
-    console.log('Test calendar event created:', result.rows[0]);
-    
-    res.json({
-      success: true,
-      event: result.rows[0]
-    });
-  } catch (error) {
-    console.error('Test calendar error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
 
 export default router;
