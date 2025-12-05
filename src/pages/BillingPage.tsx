@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
@@ -20,6 +20,11 @@ export function BillingPage() {
   const { firm } = useAuthStore()
   const { openChat } = useAIChat()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  
+  // Get URL parameters for pre-selecting client and auto-opening modal
+  const urlClientId = searchParams.get('clientId')
+  const shouldOpenNew = searchParams.get('openNew') === 'true'
   
   // Fetch data from API on mount
   useEffect(() => {
@@ -33,6 +38,15 @@ export function BillingPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [dateFilter, setDateFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
+  
+  // Handle URL params to auto-open modal
+  useEffect(() => {
+    if (shouldOpenNew && clients.length > 0) {
+      setShowNewModal(true)
+      // Clear the URL params after opening
+      setSearchParams({})
+    }
+  }, [shouldOpenNew, clients.length, setSearchParams])
   const [showEditModal, setShowEditModal] = useState<any>(null)
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -757,6 +771,7 @@ export function BillingPage() {
           }}
           clients={clients}
           matters={matters}
+          initialClientId={urlClientId || undefined}
         />
       )}
 
@@ -974,17 +989,18 @@ function InvoicePreviewModal({ invoice, client, matter, firm, onClose, onDownloa
 }
 
 // Combined Invoice Modal for Create/Edit
-function InvoiceModal({ invoice, onClose, onSave, clients, matters }: { 
+function InvoiceModal({ invoice, onClose, onSave, clients, matters, initialClientId }: { 
   invoice?: any
   onClose: () => void
   onSave: (data: any) => Promise<void>
   clients: any[]
   matters: any[]
+  initialClientId?: string
 }) {
   const isEditing = !!invoice
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
-    clientId: invoice?.clientId || clients[0]?.id || '',
+    clientId: invoice?.clientId || initialClientId || clients[0]?.id || '',
     matterId: invoice?.matterId || '',
     issueDate: invoice?.issueDate ? format(parseISO(invoice.issueDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
     dueDate: invoice?.dueDate ? format(parseISO(invoice.dueDate), 'yyyy-MM-dd') : format(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),

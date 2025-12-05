@@ -262,7 +262,7 @@ export function ClientDetailPage() {
             <div className={styles.card}>
               <div className={styles.cardHeader}>
                 <h3><Briefcase size={18} /> Active Matters</h3>
-                <button className={styles.addBtn} onClick={() => navigate(`/matters/new?clientId=${client?.id}`)}>
+                <button className={styles.addBtn} onClick={() => navigate(`/app/matters?clientId=${client?.id}&openNew=true`)}>
                   <Plus size={14} />
                   Add
                 </button>
@@ -314,7 +314,7 @@ export function ClientDetailPage() {
           <div className={styles.mattersTab}>
             <div className={styles.tabHeader}>
               <h2>All Matters</h2>
-              <button className={styles.primaryBtn} onClick={() => navigate(`/matters/new?clientId=${client?.id}`)}>
+              <button className={styles.primaryBtn} onClick={() => navigate(`/app/matters?clientId=${client?.id}&openNew=true`)}>
                 <Plus size={18} />
                 New Matter
               </button>
@@ -360,7 +360,7 @@ export function ClientDetailPage() {
           <div className={styles.billingTab}>
             <div className={styles.tabHeader}>
               <h2>Invoices</h2>
-              <button className={styles.primaryBtn} onClick={() => navigate(`/billing?clientId=${client?.id}&action=new`)}>
+              <button className={styles.primaryBtn} onClick={() => navigate(`/app/billing?clientId=${client?.id}&openNew=true`)}>
                 <Plus size={18} />
                 Create Invoice
               </button>
