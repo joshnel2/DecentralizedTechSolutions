@@ -139,7 +139,7 @@ router.post('/log-time', authenticate, requirePermission('billing:create'), asyn
       `INSERT INTO time_entries (
         firm_id, matter_id, user_id, date, hours, description,
         billable, rate, activity_code, entry_type, ai_generated
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'ai_assisted', true)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'ai_suggested', true)
       RETURNING *`,
       [
         req.user.firmId,

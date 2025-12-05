@@ -335,7 +335,7 @@ async function logTime(args, user) {
   
   const result = await query(
     `INSERT INTO time_entries (firm_id, matter_id, user_id, date, hours, description, billable, rate, entry_type, ai_generated)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ai_assisted', true) RETURNING *`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ai_suggested', true) RETURNING *`,
     [user.firmId, matter_id, user.id, entryDate, hours, description, billable, billingRate]
   );
   
