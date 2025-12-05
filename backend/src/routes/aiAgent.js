@@ -2304,4 +2304,34 @@ async function callAzureOpenAIWithTools(messages, tools) {
   };
 }
 
+// Test endpoint to verify calendar creation works
+router.post('/test-calendar', authenticate, async (req, res) => {
+  try {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(14, 0, 0, 0);
+    
+    const endTime = new Date(tomorrow);
+    endTime.setHours(15, 0, 0, 0);
+    
+    console.log('Test calendar insert - start:', tomorrow.toISOString(), 'end:', endTime.toISOString());
+    
+    const result = await query(
+      `INSERT INTO calendar_events (firm_id, title, start_time, end_time, type, all_day, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [req.user.firmId, 'Test Event from API', tomorrow.toISOString(), endTime.toISOString(), 'meeting', false, req.user.id]
+    );
+    
+    console.log('Test calendar event created:', result.rows[0]);
+    
+    res.json({
+      success: true,
+      event: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Test calendar error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;
