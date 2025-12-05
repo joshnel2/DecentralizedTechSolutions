@@ -15,6 +15,7 @@ import {
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './DetailPage.module.css'
+import { ConfirmationModal } from '../components/ConfirmationModal'
 
 // Task interface
 interface Task {
@@ -67,6 +68,23 @@ export function MatterDetailPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   
+  // Confirmation modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean
+    title: string
+    message: string
+    confirmText: string
+    type: 'danger' | 'warning' | 'success' | 'info'
+    onConfirm: () => void
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    type: 'danger',
+    onConfirm: () => {}
+  })
+  
   // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -101,9 +119,18 @@ export function MatterDetailPage() {
   }
   
   const deleteContact = (contactId: string) => {
-    if (confirm('Are you sure you want to remove this contact?')) {
-      setMatterContacts(prev => prev.filter(c => c.id !== contactId))
-    }
+    const contact = matterContacts.find(c => c.id === contactId)
+    setConfirmModal({
+      isOpen: true,
+      title: 'Remove Contact',
+      message: `Are you sure you want to remove "${contact?.name || 'this contact'}" from this matter?`,
+      confirmText: 'Remove',
+      type: 'danger',
+      onConfirm: () => {
+        setMatterContacts(prev => prev.filter(c => c.id !== contactId))
+        setConfirmModal(prev => ({ ...prev, isOpen: false }))
+      }
+    })
   }
   
   const addTask = (task: Omit<Task, 'id'>) => {
@@ -116,9 +143,18 @@ export function MatterDetailPage() {
   }
   
   const deleteTask = (taskId: string) => {
-    if (confirm('Are you sure you want to delete this task?')) {
-      setTasks(prev => prev.filter(t => t.id !== taskId))
-    }
+    const task = tasks.find(t => t.id === taskId)
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Task',
+      message: `Are you sure you want to delete "${task?.name || 'this task'}"?`,
+      confirmText: 'Delete',
+      type: 'danger',
+      onConfirm: () => {
+        setTasks(prev => prev.filter(t => t.id !== taskId))
+        setConfirmModal(prev => ({ ...prev, isOpen: false }))
+      }
+    })
   }
   
   const toggleTaskStatus = (taskId: string) => {
@@ -170,40 +206,67 @@ export function MatterDetailPage() {
 
   // Handle matter delete
   const handleDeleteMatter = async () => {
-    if (!confirm(`Are you sure you want to delete "${matter?.name}"? This action cannot be undone.`)) {
-      return
-    }
-    try {
-      await deleteMatter(id!)
-      navigate('/app/matters')
-    } catch (error) {
-      console.error('Failed to delete matter:', error)
-      alert('Failed to delete matter')
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Matter',
+      message: `Are you sure you want to delete "${matter?.name}"? This action cannot be undone and will remove all associated time entries, documents, and invoices.`,
+      confirmText: 'Delete Matter',
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          await deleteMatter(id!)
+          setConfirmModal(prev => ({ ...prev, isOpen: false }))
+          navigate('/app/matters')
+        } catch (error) {
+          console.error('Failed to delete matter:', error)
+          alert('Failed to delete matter')
+        }
+      }
+    })
   }
   
   // Handle time entry delete
   const handleDeleteTimeEntry = async (entryId: string) => {
-    if (!confirm('Are you sure you want to delete this time entry?')) return
-    try {
-      await deleteTimeEntry(entryId)
-      fetchTimeEntries({ matterId: id })
-    } catch (error) {
-      console.error('Failed to delete time entry:', error)
-      alert('Failed to delete time entry')
-    }
+    const entry = matterTimeEntries.find(e => e.id === entryId)
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Time Entry',
+      message: `Are you sure you want to delete this time entry? (${entry?.hours || 0} hours - $${entry?.amount?.toLocaleString() || 0})`,
+      confirmText: 'Delete',
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          await deleteTimeEntry(entryId)
+          fetchTimeEntries({ matterId: id })
+          setConfirmModal(prev => ({ ...prev, isOpen: false }))
+        } catch (error) {
+          console.error('Failed to delete time entry:', error)
+          alert('Failed to delete time entry')
+        }
+      }
+    })
   }
   
   // Handle event delete
   const handleDeleteEvent = async (eventId: string) => {
-    if (!confirm('Are you sure you want to delete this event?')) return
-    try {
-      await deleteEvent(eventId)
-      fetchEvents()
-    } catch (error) {
-      console.error('Failed to delete event:', error)
-      alert('Failed to delete event')
-    }
+    const event = matterEvents.find(e => e.id === eventId)
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Event',
+      message: `Are you sure you want to delete "${event?.title || 'this event'}"?`,
+      confirmText: 'Delete',
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          await deleteEvent(eventId)
+          fetchEvents()
+          setConfirmModal(prev => ({ ...prev, isOpen: false }))
+        } catch (error) {
+          console.error('Failed to delete event:', error)
+          alert('Failed to delete event')
+        }
+      }
+    })
   }
   
   // Download document
