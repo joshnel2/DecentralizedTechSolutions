@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
+import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
 import { invoicesApi, teamApi } from '../services/api'
 import { 
   Briefcase, Calendar, DollarSign, Clock, FileText,
@@ -9,7 +10,7 @@ import {
   CheckCircle2, Scale, Building2, Brain, Loader2, 
   Copy, RefreshCw, AlertTriangle, TrendingUp,
   ListTodo, Users, Circle, Upload, Download, X, 
-  Trash2, Archive, XCircle, Eye
+  Trash2, Archive, XCircle, Eye, Play, Pause, StopCircle
 } from 'lucide-react'
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
@@ -25,17 +26,13 @@ interface Task {
   description?: string
 }
 
-// Related contacts for matter
-const relatedContacts = [
-  { id: '1', name: 'Opposing Counsel', role: 'Opposing Counsel', firm: 'Baker & Associates', email: 'jbaker@bakerlaw.com' },
-  { id: '2', name: 'Expert Witness', role: 'Expert Witness', firm: 'Tech Consultants Inc.', email: 'expert@techconsult.com' },
-  { id: '3', name: 'Insurance Adjuster', role: 'Insurance', firm: 'ABC Insurance Co.', email: 'adjuster@abc.com' }
-]
+// Related contacts - loaded from localStorage per matter (no mock data)
 
 export function MatterDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { openChat } = useAIChat()
+  const { timer, startTimer, stopTimer, discardTimer } = useTimer()
   const { 
     matters, clients, timeEntries, invoices, events, documents, 
     updateMatter, addTimeEntry, addInvoice, addEvent, addDocument,
@@ -739,6 +736,36 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Time Entries</h2>
               <div className={styles.tabActions}>
+                {timer.isRunning && timer.matterId === id ? (
+                  <div className={styles.activeTimerBadge}>
+                    <Clock size={16} />
+                    <span className={styles.timerDisplay}>{formatElapsedTime(timer.elapsed)}</span>
+                    <button 
+                      className={styles.timerControlBtn}
+                      onClick={stopTimer}
+                      title="Pause Timer"
+                    >
+                      <Pause size={16} />
+                    </button>
+                    <button 
+                      className={clsx(styles.timerControlBtn, styles.danger)}
+                      onClick={discardTimer}
+                      title="Discard Timer"
+                    >
+                      <StopCircle size={16} />
+                    </button>
+                  </div>
+                ) : timer.isRunning ? (
+                  <span className={styles.timerOnOtherMatter}>Timer active on another matter</span>
+                ) : (
+                  <button 
+                    className={styles.timerBtn}
+                    onClick={() => matter && startTimer(matter.id, matter.name)}
+                  >
+                    <Play size={18} />
+                    Start Timer
+                  </button>
+                )}
                 <button 
                   className={styles.primaryBtn}
                   onClick={() => setShowTimeEntryModal(true)}
@@ -1218,26 +1245,6 @@ Only analyze documents actually associated with this matter.`
                 </div>
               ))}
 
-              {/* Sample Related Contacts (demo data) */}
-              {relatedContacts.map(contact => (
-                <div key={contact.id} className={styles.contactCard}>
-                  <div className={styles.contactCardHeader}>
-                    <span className={styles.contactRole}>{contact.role}</span>
-                  </div>
-                  <div className={styles.contactInfo}>
-                    <div className={styles.contactAvatar}>
-                      {contact.name[0]}
-                    </div>
-                    <div>
-                      <span className={styles.contactName}>{contact.name}</span>
-                      <span className={styles.contactFirm}>{contact.firm}</span>
-                    </div>
-                  </div>
-                  <div className={styles.contactDetail}>
-                    <span>Email:</span> {contact.email}
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         )}

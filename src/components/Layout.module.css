@@ -668,3 +668,239 @@
     display: none;
   }
 }
+
+/* Global Timer */
+.globalTimer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xs) var(--space-md);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: var(--radius-lg);
+  animation: timerPulse 2s ease-in-out infinite;
+}
+
+@keyframes timerPulse {
+  0%, 100% { border-color: rgba(34, 197, 94, 0.3); }
+  50% { border-color: rgba(34, 197, 94, 0.6); }
+}
+
+.timerInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: #22c55e;
+}
+
+.timerTime {
+  font-family: var(--font-mono, monospace);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.timerMatter {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.timerBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xs);
+  background: none;
+  border: none;
+  color: var(--apex-light);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.timerBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--apex-white);
+}
+
+.timerBtnDanger:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+@media (max-width: 768px) {
+  .globalTimer {
+    padding: var(--space-xs) var(--space-sm);
+    gap: var(--space-sm);
+  }
+
+  .timerMatter {
+    display: none;
+  }
+
+  .timerTime {
+    font-size: 0.875rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .timerInfo svg {
+    display: none;
+  }
+}
+
+/* Timer Save Modal */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--space-md);
+}
+
+.timerModal {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  padding: var(--space-xl);
+  max-width: 450px;
+  width: 100%;
+  box-shadow: var(--shadow-xl);
+}
+
+.timerModal h3 {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  color: var(--apex-white);
+  margin-bottom: var(--space-lg);
+}
+
+.timerModalInfo {
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.timerModalInfo p {
+  color: var(--apex-light);
+  font-size: 0.875rem;
+  margin-bottom: var(--space-xs);
+}
+
+.timerModalInfo p:last-child {
+  margin-bottom: 0;
+}
+
+.timerModalInfo strong {
+  color: var(--apex-text);
+}
+
+.timerModalField {
+  margin-bottom: var(--space-lg);
+}
+
+.timerModalField label {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--apex-text);
+  margin-bottom: var(--space-xs);
+}
+
+.timerModalField textarea {
+  width: 100%;
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.timerModalField textarea:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+}
+
+.timerModalField textarea::placeholder {
+  color: var(--apex-muted);
+}
+
+.timerModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+}
+
+.cancelBtn {
+  padding: var(--space-sm) var(--space-lg);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.cancelBtn:hover {
+  background: var(--apex-slate);
+}
+
+.saveBtn {
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.saveBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+}
+
+/* Mobile Timer Modal */
+@media (max-width: 768px) {
+  .modalOverlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .timerModal {
+    max-width: 100%;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    padding: var(--space-lg);
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .timerModalActions {
+    flex-direction: column-reverse;
+    gap: var(--space-sm);
+  }
+
+  .cancelBtn,
+  .saveBtn {
+    width: 100%;
+    padding: var(--space-md);
+  }
+}

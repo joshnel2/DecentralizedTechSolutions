@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
+import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
 import { 
   Plus, Play, Pause, Clock, Calendar, DollarSign, 
   TrendingUp, Sparkles, CheckSquare, FileText, X, Edit2
@@ -23,13 +24,10 @@ export function TimeTrackingPage() {
     fetchClients()
   }, [fetchTimeEntries, fetchMatters, fetchClients])
   const { user } = useAuthStore()
+  const { timer, startTimer: globalStartTimer, stopTimer: globalStopTimer, discardTimer } = useTimer()
   const [showNewModal, setShowNewModal] = useState(false)
   const [showBillModal, setShowBillModal] = useState(false)
   const [selectedEntries, setSelectedEntries] = useState<string[]>([])
-  const [activeTimer, setActiveTimer] = useState<{ matterId: string; startTime: Date } | null>(null)
-  const [timerElapsed, setTimerElapsed] = useState(0)
-  const [showTimerSaveModal, setShowTimerSaveModal] = useState(false)
-  const [timerDescription, setTimerDescription] = useState('')
   const [editingEntry, setEditingEntry] = useState<any>(null)
 
   const weekDays = useMemo(() => {
@@ -111,65 +109,15 @@ export function TimeTrackingPage() {
   }
 
   const startTimer = (matterId: string) => {
-    setActiveTimer({ matterId, startTime: new Date() })
-    setTimerElapsed(0)
+    const matter = matters.find(m => m.id === matterId)
+    if (matter) {
+      globalStartTimer(matterId, matter.name)
+    }
   }
 
   const stopTimer = () => {
-    if (activeTimer) {
-      const hours = timerElapsed / 3600
-      // Show modal to enter description and save time entry
-      setTimerDescription('')
-      setShowTimerSaveModal(true)
-    }
+    globalStopTimer()
   }
-  
-  const saveTimerEntry = async () => {
-    if (!activeTimer) return
-    const hours = timerElapsed / 3600
-    if (hours < 0.1) {
-      alert('Timer duration too short (minimum 0.1 hours)')
-      setActiveTimer(null)
-      setTimerElapsed(0)
-      setShowTimerSaveModal(false)
-      return
-    }
-    const matter = matters.find(m => m.id === activeTimer.matterId)
-    try {
-      await addTimeEntry({
-        matterId: activeTimer.matterId,
-        date: new Date().toISOString(),
-        hours: Math.round(hours * 10) / 10,
-        description: timerDescription || 'Timer entry',
-        billable: true,
-        billed: false,
-        rate: matter?.billingRate || 450,
-        aiGenerated: false,
-        status: 'pending',
-        entryType: 'timer',
-        updatedAt: new Date().toISOString()
-      })
-      fetchTimeEntries()
-    } catch (error) {
-      console.error('Failed to save timer entry:', error)
-      alert('Failed to save timer entry')
-    }
-    setActiveTimer(null)
-    setTimerElapsed(0)
-    setShowTimerSaveModal(false)
-  }
-
-  // Timer effect - update elapsed time every second
-  useEffect(() => {
-    let interval: NodeJS.Timeout
-    if (activeTimer) {
-      interval = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - activeTimer.startTime.getTime()) / 1000)
-        setTimerElapsed(elapsed)
-      }, 1000)
-    }
-    return () => clearInterval(interval)
-  }, [activeTimer])
 
   return (
     <div className={styles.timeTrackingPage}>
@@ -280,26 +228,27 @@ export function TimeTrackingPage() {
       </div>
 
       {/* Active Timer */}
-      {activeTimer && (
+      {timer.isRunning && timer.matterId && (
         <div className={styles.activeTimer}>
           <div className={styles.timerInfo}>
             <Play size={20} className={styles.timerIcon} />
             <div>
-              <span className={styles.timerMatter}>{getMatterName(activeTimer.matterId)}</span>
-              <span className={styles.timerTime}>
-                {Math.floor(timerElapsed / 3600)}:{String(Math.floor((timerElapsed % 3600) / 60)).padStart(2, '0')}:{String(timerElapsed % 60).padStart(2, '0')}
-              </span>
+              <span className={styles.timerMatter}>{timer.matterName}</span>
+              <span className={styles.timerTime}>{formatElapsedTime(timer.elapsed)}</span>
             </div>
           </div>
           <button onClick={stopTimer} className={styles.stopBtn}>
             <Pause size={18} />
-            Stop Timer
+            Pause Timer
+          </button>
+          <button onClick={discardTimer} className={styles.discardBtn}>
+            Discard
           </button>
         </div>
       )}
 
       {/* Quick Timer */}
-      {!activeTimer && (
+      {!timer.isRunning && !timer.matterId && (
         <div className={styles.quickTimer}>
           <h3>Quick Timer</h3>
           <div className={styles.matterButtons}>
@@ -420,70 +369,6 @@ export function TimeTrackingPage() {
           matters={matters}
           userId={user?.id || ''}
         />
-      )}
-
-      {/* Timer Save Modal */}
-      {showTimerSaveModal && activeTimer && (
-        <div className={styles.modalOverlay} onClick={() => {}}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h2>Save Time Entry</h2>
-              <button onClick={() => {
-                setShowTimerSaveModal(false)
-                setActiveTimer(null)
-                setTimerElapsed(0)
-              }} className={styles.closeBtn}>×</button>
-            </div>
-            <div className={styles.modalForm}>
-              <div className={styles.timerSummary}>
-                <div className={styles.timerSummaryItem}>
-                  <span>Matter:</span>
-                  <strong>{matters.find(m => m.id === activeTimer.matterId)?.name}</strong>
-                </div>
-                <div className={styles.timerSummaryItem}>
-                  <span>Duration:</span>
-                  <strong>
-                    {Math.floor(timerElapsed / 3600)}:{String(Math.floor((timerElapsed % 3600) / 60)).padStart(2, '0')}:{String(timerElapsed % 60).padStart(2, '0')}
-                  </strong>
-                </div>
-                <div className={styles.timerSummaryItem}>
-                  <span>Hours:</span>
-                  <strong>{(timerElapsed / 3600).toFixed(2)}</strong>
-                </div>
-              </div>
-              <div className={styles.formGroup}>
-                <label>Description *</label>
-                <textarea
-                  value={timerDescription}
-                  onChange={(e) => setTimerDescription(e.target.value)}
-                  placeholder="Describe the work performed..."
-                  rows={3}
-                  autoFocus
-                />
-              </div>
-              <div className={styles.modalActions}>
-                <button 
-                  type="button" 
-                  onClick={() => {
-                    setShowTimerSaveModal(false)
-                    setActiveTimer(null)
-                    setTimerElapsed(0)
-                  }} 
-                  className={styles.cancelBtn}
-                >
-                  Discard
-                </button>
-                <button 
-                  onClick={saveTimerEntry} 
-                  className={styles.saveBtn}
-                  disabled={!timerDescription.trim()}
-                >
-                  Save Time Entry
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
       )}
 
       {showBillModal && (

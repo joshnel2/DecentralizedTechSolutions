@@ -7,7 +7,8 @@ import {
 } from 'lucide-react'
 import { 
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
-  eachDayOfInterval, isSameMonth, isSameDay, parseISO, addMonths, subMonths
+  eachDayOfInterval, isSameMonth, isSameDay, parseISO, addMonths, subMonths,
+  setMonth, setYear, getYear, getMonth
 } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './CalendarPage.module.css'
@@ -27,6 +28,21 @@ export function CalendarPage() {
   const [showNewModal, setShowNewModal] = useState(false)
   const [editingEvent, setEditingEvent] = useState<any>(null)
   const [view, setView] = useState<'month' | 'week' | 'list'>('month')
+  const [showMonthDropdown, setShowMonthDropdown] = useState(false)
+  
+  // Months and years for dropdown
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 
+                  'July', 'August', 'September', 'October', 'November', 'December']
+  const currentYear = getYear(new Date())
+  const years = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i) // 5 years back, current, 5 years forward
+  
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!showMonthDropdown) return
+    const handleClickOutside = () => setShowMonthDropdown(false)
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  }, [showMonthDropdown])
   
   // AI helper with context-specific questions
   const openAIWithContext = (questions: string[]) => {
@@ -94,9 +110,60 @@ export function CalendarPage() {
             <button onClick={() => setCurrentDate(subMonths(currentDate, 1))}>
               <ChevronLeft size={20} />
             </button>
-            <span className={styles.currentMonth}>
-              {format(currentDate, 'MMMM yyyy')}
-            </span>
+            <div className={styles.monthDropdownWrapper}>
+              <button 
+                className={styles.currentMonth}
+                onClick={() => setShowMonthDropdown(!showMonthDropdown)}
+              >
+                {format(currentDate, 'MMMM yyyy')}
+                <ChevronRight size={16} className={clsx(styles.dropdownChevron, showMonthDropdown && styles.open)} />
+              </button>
+              {showMonthDropdown && (
+                <div className={styles.monthDropdown} onClick={(e) => e.stopPropagation()}>
+                  <div className={styles.monthDropdownContent}>
+                    <div className={styles.monthGrid}>
+                      {months.map((month, index) => (
+                        <button
+                          key={month}
+                          className={clsx(
+                            styles.monthOption,
+                            getMonth(currentDate) === index && styles.active
+                          )}
+                          onClick={() => {
+                            setCurrentDate(setMonth(currentDate, index))
+                            setShowMonthDropdown(false)
+                          }}
+                        >
+                          {month.slice(0, 3)}
+                        </button>
+                      ))}
+                    </div>
+                    <div className={styles.yearSelector}>
+                      <label>Year:</label>
+                      <select
+                        value={getYear(currentDate)}
+                        onChange={(e) => {
+                          setCurrentDate(setYear(currentDate, parseInt(e.target.value)))
+                        }}
+                      >
+                        {years.map(year => (
+                          <option key={year} value={year}>{year}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <button 
+                      className={styles.todayBtn}
+                      onClick={() => {
+                        setCurrentDate(new Date())
+                        setShowMonthDropdown(false)
+                      }}
+                    >
+                      Go to Today
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
             <button onClick={() => setCurrentDate(addMonths(currentDate, 1))}>
               <ChevronRight size={20} />
             </button>

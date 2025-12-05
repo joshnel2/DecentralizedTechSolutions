@@ -711,6 +711,119 @@
   box-shadow: var(--shadow-glow);
 }
 
+/* Timer Button and Styles */
+.timerBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  border-radius: var(--radius-md);
+  color: #22c55e;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.timerBtn:hover {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.3) 0%, rgba(34, 197, 94, 0.2) 100%);
+  border-color: rgba(34, 197, 94, 0.6);
+}
+
+.activeTimerBadge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-md);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: var(--radius-lg);
+  color: #22c55e;
+  animation: timerPulse 2s ease-in-out infinite;
+}
+
+@keyframes timerPulse {
+  0%, 100% { border-color: rgba(34, 197, 94, 0.3); }
+  50% { border-color: rgba(34, 197, 94, 0.6); }
+}
+
+.timerDisplay {
+  font-family: var(--font-mono, monospace);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.timerControlBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xs);
+  background: none;
+  border: none;
+  color: var(--apex-light);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.timerControlBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--apex-white);
+}
+
+.timerControlBtn.danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.timerOnOtherMatter {
+  font-size: 0.75rem;
+  color: var(--apex-muted);
+  padding: var(--space-xs) var(--space-sm);
+}
+
+/* Mobile Timer Styles */
+@media (max-width: 768px) {
+  .timerBtn {
+    flex: 1;
+    justify-content: center;
+    min-width: 120px;
+  }
+
+  .activeTimerBadge {
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+  }
+
+  .timerDisplay {
+    font-size: 0.875rem;
+  }
+
+  .timerOnOtherMatter {
+    font-size: 0.6875rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .timerBtn span {
+    display: none;
+  }
+
+  .timerBtn {
+    min-width: auto;
+    padding: var(--space-sm);
+  }
+
+  .activeTimerBadge {
+    padding: var(--space-xs);
+  }
+}
+
 .tableCard {
   background: var(--apex-deep);
   border: 1px solid rgba(255, 255, 255, 0.05);

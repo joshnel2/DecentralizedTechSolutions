@@ -797,7 +797,7 @@ export function ReportsPage() {
                       <button className={styles.iconBtn} title="Email" onClick={(e) => { e.stopPropagation(); const email = prompt('Enter email address to send report:'); if (email) alert(`Report "${report.name}" scheduled to be sent to ${email}`); }}>
                         <Mail size={16} />
                       </button>
-                      <button className={styles.iconBtn} title="Print" onClick={(e) => { e.stopPropagation(); window.print(); }}>
+                      <button className={styles.iconBtn} title="Print" onClick={(e) => { e.stopPropagation(); runReport(report.id); }}>
                         <Printer size={16} />
                       </button>
                       <button 
@@ -832,7 +832,16 @@ export function ReportsPage() {
                     <span className={styles.savedItemMeta}>Last run: {report.lastRun}</span>
                   </div>
                   <div className={styles.savedItemActions}>
-                    <button className={styles.runReportBtn} onClick={() => runReport(report.id)}>
+                    <button className={styles.runReportBtn} onClick={() => {
+                      // Map saved report IDs to actual report IDs
+                      const reportMap: Record<string, string> = {
+                        'saved-1': 'billing-summary',
+                        'saved-2': 'timekeeper-summary',
+                        'saved-3': 'ar-aging'
+                      }
+                      const actualReportId = reportMap[report.id] || report.id
+                      runReport(actualReportId)
+                    }}>
                       <Download size={14} />
                       Run
                     </button>
