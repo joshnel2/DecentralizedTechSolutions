@@ -194,12 +194,31 @@
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-lg);
-  background: var(--apex-error);
+  background: var(--apex-gold);
   border: none;
   border-radius: var(--radius-md);
-  color: white;
+  color: var(--apex-midnight);
   font-weight: 600;
   cursor: pointer;
+}
+
+.discardBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  border-radius: var(--radius-md);
+  color: #ef4444;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.discardBtn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #ef4444;
 }
 
 /* Quick Timer */

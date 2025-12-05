@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
@@ -39,10 +39,12 @@ export function MattersPage() {
   const { user } = useAuthStore()
   const { openChat } = useAIChat()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [searchQuery, setSearchQuery] = useState('')
   const [attorneys, setAttorneys] = useState<any[]>([])
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const [prefilledClientId, setPrefilledClientId] = useState<string | null>(null)
 
   const isAdmin = user?.role === 'owner' || user?.role === 'admin'
 
@@ -70,6 +72,21 @@ export function MattersPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
+  
+  // Handle URL query parameters for opening new matter modal
+  useEffect(() => {
+    const action = searchParams.get('action')
+    const clientId = searchParams.get('clientId')
+    
+    if (action === 'new') {
+      setShowNewModal(true)
+      if (clientId) {
+        setPrefilledClientId(clientId)
+      }
+      // Clear query params after processing
+      setSearchParams({})
+    }
+  }, [searchParams, setSearchParams])
 
   const handleStatusChange = async (matterId: string, newStatus: 'intake' | 'pending_conflict' | 'active' | 'pending' | 'on_hold' | 'closed_won' | 'closed_lost' | 'closed_settled' | 'closed_dismissed' | 'closed_transferred' | 'closed_abandoned' | 'closed_other') => {
     try {
@@ -351,11 +368,15 @@ export function MattersPage() {
       {/* New Matter Modal */}
       {showNewModal && (
         <NewMatterModal 
-          onClose={() => setShowNewModal(false)}
+          onClose={() => {
+            setShowNewModal(false)
+            setPrefilledClientId(null)
+          }}
           onSave={async (data) => {
             try {
               await addMatter(data)
               setShowNewModal(false)
+              setPrefilledClientId(null)
               // Refresh the matters list
               fetchMatters()
             } catch (error) {
@@ -366,6 +387,7 @@ export function MattersPage() {
           clients={clients}
           attorneys={attorneys}
           isAdmin={isAdmin}
+          prefilledClientId={prefilledClientId}
         />
       )}
     </div>
@@ -378,6 +400,7 @@ interface NewMatterModalProps {
   clients: any[]
   attorneys: any[]
   isAdmin: boolean
+  prefilledClientId?: string | null
 }
 
 interface TeamAssignment {
@@ -386,12 +409,12 @@ interface TeamAssignment {
   billingRate: number
 }
 
-function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin }: NewMatterModalProps) {
+function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefilledClientId }: NewMatterModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    clientId: clients[0]?.id || '',
+    clientId: prefilledClientId || clients[0]?.id || '',
     type: 'litigation',
     status: 'active',
     priority: 'medium',

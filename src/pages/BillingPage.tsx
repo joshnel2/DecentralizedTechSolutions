@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
@@ -20,6 +20,7 @@ export function BillingPage() {
   const { firm } = useAuthStore()
   const { openChat } = useAIChat()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   
   // Fetch data from API on mount
   useEffect(() => {
@@ -33,6 +34,7 @@ export function BillingPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [dateFilter, setDateFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
+  const [prefilledClientId, setPrefilledClientId] = useState<string | null>(null)
   const [showEditModal, setShowEditModal] = useState<any>(null)
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -52,6 +54,21 @@ export function BillingPage() {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+  
+  // Handle URL query parameters for opening new invoice modal
+  useEffect(() => {
+    const action = searchParams.get('action')
+    const clientId = searchParams.get('clientId')
+    
+    if (action === 'new') {
+      setShowNewModal(true)
+      if (clientId) {
+        setPrefilledClientId(clientId)
+      }
+      // Clear query params after processing
+      setSearchParams({})
+    }
+  }, [searchParams, setSearchParams])
 
   const handleStatusChange = async (invoiceId: string, newStatus: 'draft' | 'sent' | 'paid' | 'overdue' | 'void' | 'partial') => {
     try {
@@ -101,7 +118,7 @@ export function BillingPage() {
           .company { font-size: 28px; font-weight: bold; color: #1a1a2e; margin-bottom: 8px; }
           .company-details { font-size: 12px; color: #666; line-height: 1.6; }
           .invoice-title { font-size: 36px; color: #F59E0B; margin-bottom: 10px; font-weight: bold; }
-          .invoice-number { font-size: 14px; color: #666; margin-bottom: 10px; }
+          .invoice-number { font-size: 16px; color: #1a1a2e; margin-bottom: 10px; font-weight: 600; }
           .info-section { display: flex; justify-content: space-between; margin-bottom: 40px; }
           .info-block { flex: 1; }
           .info-label { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 1px; }
@@ -138,7 +155,7 @@ export function BillingPage() {
           </div>
           <div style="text-align: right;">
             <div class="invoice-title">INVOICE</div>
-            <div class="invoice-number">${invoice.number}</div>
+            <div class="invoice-number">Invoice #${invoice.number}</div>
             <span class="status ${invoice.status}">${invoice.status.toUpperCase()}</span>
           </div>
         </div>
@@ -594,6 +611,20 @@ export function BillingPage() {
                       </button>
                       {openDropdownId === invoice.id && (
                         <div className={styles.dropdown}>
+                          <button 
+                            className={styles.dropdownItem}
+                            onClick={() => handleEditInvoice(invoice)}
+                          >
+                            <Edit2 size={14} />
+                            Edit Invoice
+                          </button>
+                          <button 
+                            className={styles.dropdownItem}
+                            onClick={() => setShowInvoicePreview(invoice)}
+                          >
+                            <Eye size={14} />
+                            Preview
+                          </button>
                           {invoice.status === 'draft' && (
                             <button 
                               className={styles.dropdownItem}
@@ -621,6 +652,7 @@ export function BillingPage() {
                               </button>
                             </>
                           )}
+                          <div className={styles.dropdownDivider} />
                           {invoice.status !== 'void' && invoice.status !== 'paid' && (
                             <button 
                               className={clsx(styles.dropdownItem, styles.danger)}
@@ -739,7 +771,10 @@ export function BillingPage() {
 
       {showNewModal && (
         <InvoiceModal
-          onClose={() => setShowNewModal(false)}
+          onClose={() => {
+            setShowNewModal(false)
+            setPrefilledClientId(null)
+          }}
           onSave={async (data) => {
             try {
               await addInvoice({
@@ -749,6 +784,7 @@ export function BillingPage() {
                 subtotal: data.total
               })
               setShowNewModal(false)
+              setPrefilledClientId(null)
               fetchInvoices()
             } catch (error) {
               console.error('Failed to create invoice:', error)
@@ -757,6 +793,7 @@ export function BillingPage() {
           }}
           clients={clients}
           matters={matters}
+          prefilledClientId={prefilledClientId}
         />
       )}
 
@@ -974,17 +1011,18 @@ function InvoicePreviewModal({ invoice, client, matter, firm, onClose, onDownloa
 }
 
 // Combined Invoice Modal for Create/Edit
-function InvoiceModal({ invoice, onClose, onSave, clients, matters }: { 
+function InvoiceModal({ invoice, onClose, onSave, clients, matters, prefilledClientId }: { 
   invoice?: any
   onClose: () => void
   onSave: (data: any) => Promise<void>
   clients: any[]
   matters: any[]
+  prefilledClientId?: string | null
 }) {
   const isEditing = !!invoice
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
-    clientId: invoice?.clientId || clients[0]?.id || '',
+    clientId: invoice?.clientId || prefilledClientId || clients[0]?.id || '',
     matterId: invoice?.matterId || '',
     issueDate: invoice?.issueDate ? format(parseISO(invoice.issueDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
     dueDate: invoice?.dueDate ? format(parseISO(invoice.dueDate), 'yyyy-MM-dd') : format(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
