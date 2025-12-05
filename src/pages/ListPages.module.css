@@ -749,31 +749,38 @@
 
   .table td {
     display: flex;
-    justify-content: space-between;
     align-items: center;
     padding: var(--space-xs) 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  }
+
+  /* First cell is the main card header */
+  .table td:first-child {
+    padding-bottom: var(--space-sm);
+    margin-bottom: var(--space-xs);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .table td:last-child {
     border-bottom: none;
   }
 
-  .table td::before {
-    content: attr(data-label);
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--apex-text);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-right: var(--space-md);
+  .nameCell {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-md);
+    width: 100%;
   }
 
-  .nameCell {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--space-sm);
-    padding-bottom: var(--space-sm);
+  .nameCell > div:last-of-type {
+    flex: 1;
+    text-align: left;
+  }
+
+  /* Ensure name and subtitle are left-aligned */
+  .name,
+  .subtitle {
+    text-align: left;
   }
 
   .icon {
