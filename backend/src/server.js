@@ -23,6 +23,7 @@ import migrationRoutes from './routes/migration.js';
 // AI Agent Tool Routes (v1 API)
 import billingRoutes from './routes/billing.js';
 import analyticsRoutes from './routes/analytics.js';
+import aiAgentRoutes from './routes/aiAgent.js';
 
 // Import middleware
 import { apiLimiter } from './middleware/rateLimit.js';
@@ -80,6 +81,7 @@ app.use('/api/migration', migrationRoutes);
 // AI Agent Tool Routes (v1 API - optimized for AI interaction)
 app.use('/api/v1/billing', billingRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
+app.use('/api/v1/agent', aiAgentRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -137,6 +139,7 @@ app.listen(PORT, () => {
 ║     AI Agent Tools (v1):                                  ║
 ║     • Billing:    /api/v1/billing                         ║
 ║     • Analytics:  /api/v1/analytics                       ║
+║     • AI Agent:   /api/v1/agent                           ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
   `);

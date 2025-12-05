@@ -547,10 +547,19 @@ export const firmApi = {
 // ============================================
 
 export const aiApi = {
+  // Original chat endpoint (context-based, no actions)
   async chat(message: string, page: string, context?: any, conversationHistory?: { role: string; content: string }[]) {
     return fetchWithAuth('/ai/chat', {
       method: 'POST',
       body: JSON.stringify({ message, page, context, conversationHistory }),
+    });
+  },
+
+  // New AI Agent endpoint (with function calling - can take actions!)
+  async agentChat(message: string, conversationHistory?: { role: string; content: string }[]) {
+    return fetchWithAuth('/v1/agent/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message, conversationHistory }),
     });
   },
 

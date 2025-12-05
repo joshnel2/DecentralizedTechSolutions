@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight } from 'lucide-react'
+import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap } from 'lucide-react'
 import { aiApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import styles from './AIChat.module.css'
@@ -10,6 +10,7 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
+  toolsUsed?: boolean  // Indicates if AI took an action
 }
 
 interface AIChatProps {
@@ -54,6 +55,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const [isLoading, setIsLoading] = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [showSuggestions, setShowSuggestions] = useState(true)
+  const [useAgentMode, setUseAgentMode] = useState(true) // Use AI Agent with actions by default
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -116,18 +118,27 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         content: m.content,
       }))
 
-      const response = await aiApi.chat(
-        text,
-        chatContext?.contextType || currentPage,
-        mergedContext,
-        conversationHistory
-      )
+      let response;
+      
+      if (useAgentMode) {
+        // Use the new AI Agent with function calling (can take actions!)
+        response = await aiApi.agentChat(text, conversationHistory)
+      } else {
+        // Use the original context-based chat (read-only)
+        response = await aiApi.chat(
+          text,
+          chatContext?.contextType || currentPage,
+          mergedContext,
+          conversationHistory
+        )
+      }
 
       const assistantMessage: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
         content: response.response,
         timestamp: new Date(),
+        toolsUsed: response.toolsUsed,
       }
 
       setMessages(prev => [...prev, assistantMessage])
@@ -185,6 +196,14 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           <span className={styles.contextPage}>
             {chatContext?.label || currentPage.replace('-', ' ')}
           </span>
+          <button 
+            className={`${styles.modeToggle} ${useAgentMode ? styles.agentMode : ''}`}
+            onClick={() => setUseAgentMode(!useAgentMode)}
+            title={useAgentMode ? "Agent Mode: Can take actions" : "Chat Mode: Read-only"}
+          >
+            <Zap size={14} />
+            {useAgentMode ? 'Agent' : 'Chat'}
+          </button>
         </div>
 
         {/* Messages */}
@@ -195,7 +214,11 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
                 <Sparkles size={32} />
               </div>
               <h3>How can I help you?</h3>
-              <p>I have access to your firm data and can help with questions about matters, clients, billing, and more.</p>
+              <p>
+                {useAgentMode 
+                  ? "I can answer questions AND take actions like logging time, creating events, and more."
+                  : "I have access to your firm data and can help with questions about matters, clients, billing, and more."}
+              </p>
               
               {suggestions.length > 0 && (
                 <div className={styles.suggestions}>
@@ -228,6 +251,11 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
                   )}
                   <div className={styles.messageContent}>
                     <div className={styles.messageText}>
+                      {message.toolsUsed && (
+                        <div className={styles.actionTaken}>
+                          <Zap size={12} /> Action taken
+                        </div>
+                      )}
                       {message.content.split('\n').map((line, i) => (
                         <p key={i}>{line || <br />}</p>
                       ))}
