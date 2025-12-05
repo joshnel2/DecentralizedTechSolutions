@@ -178,6 +178,13 @@ export function MattersPage() {
           confirmText: 'Reactivate',
           type: 'success' as const
         }
+      default:
+        return {
+          title: 'Confirm Action',
+          message: 'Are you sure you want to proceed?',
+          confirmText: 'Confirm',
+          type: 'info' as const
+        }
     }
   }
 
