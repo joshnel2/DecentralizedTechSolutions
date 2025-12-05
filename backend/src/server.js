@@ -20,6 +20,10 @@ import adminRoutes from './routes/admin.js';
 import secureAdminRoutes from './routes/secureAdmin.js';
 import migrationRoutes from './routes/migration.js';
 
+// AI Agent Tool Routes (v1 API)
+import billingRoutes from './routes/billing.js';
+import analyticsRoutes from './routes/analytics.js';
+
 // Import middleware
 import { apiLimiter } from './middleware/rateLimit.js';
 
@@ -73,6 +77,10 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/secure-admin', secureAdminRoutes);
 app.use('/api/migration', migrationRoutes);
 
+// AI Agent Tool Routes (v1 API - optimized for AI interaction)
+app.use('/api/v1/billing', billingRoutes);
+app.use('/api/v1/analytics', analyticsRoutes);
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);
@@ -124,7 +132,11 @@ app.listen(PORT, () => {
 ║     • Integrations: /api/integrations                     ║
 ║     • Admin:      /api/admin                              ║
 ║     • SecureAdmin: /api/secure-admin (HIPAA Compliant)   ║
-║     • Migration:  /api/migration                        ║
+║     • Migration:  /api/migration                          ║
+║                                                           ║
+║     AI Agent Tools (v1):                                  ║
+║     • Billing:    /api/v1/billing                         ║
+║     • Analytics:  /api/v1/analytics                       ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
   `);

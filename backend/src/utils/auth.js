@@ -76,6 +76,7 @@ const rolePermissions = {
     'documents:upload', 'documents:view', 'documents:edit', 'documents:delete',
     'calendar:create', 'calendar:view', 'calendar:edit', 'calendar:delete',
     'reports:view', 'reports:create', 'reports:export',
+    'analytics:view', 'analytics:export',
     'integrations:manage',
     'audit:view'
   ],
@@ -88,7 +89,18 @@ const rolePermissions = {
     'documents:upload', 'documents:view', 'documents:edit', 'documents:delete',
     'calendar:create', 'calendar:view', 'calendar:edit', 'calendar:delete',
     'reports:view', 'reports:create', 'reports:export',
+    'analytics:view', 'analytics:export',
     'integrations:manage',
+    'audit:view'
+  ],
+  partner: [
+    'matters:create', 'matters:view', 'matters:edit', 'matters:delete', 'matters:assign',
+    'clients:create', 'clients:view', 'clients:edit', 'clients:delete',
+    'billing:create', 'billing:view', 'billing:edit', 'billing:approve',
+    'documents:upload', 'documents:view', 'documents:edit', 'documents:delete',
+    'calendar:create', 'calendar:view', 'calendar:edit', 'calendar:delete',
+    'reports:view', 'reports:create', 'reports:export',
+    'analytics:view', 'analytics:export',
     'audit:view'
   ],
   attorney: [
@@ -102,7 +114,7 @@ const rolePermissions = {
   paralegal: [
     'matters:view', 'matters:edit',
     'clients:view',
-    'billing:view',
+    'billing:view', 'billing:create',
     'documents:upload', 'documents:view', 'documents:edit',
     'calendar:create', 'calendar:view', 'calendar:edit'
   ],
@@ -116,7 +128,8 @@ const rolePermissions = {
     'matters:view',
     'clients:view',
     'billing:create', 'billing:view', 'billing:edit', 'billing:approve',
-    'reports:view', 'reports:create', 'reports:export'
+    'reports:view', 'reports:create', 'reports:export',
+    'analytics:view'
   ],
   readonly: [
     'matters:view',

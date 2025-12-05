@@ -1,0 +1,1015 @@
+openapi: 3.0.3
+info:
+  title: Apex Legal AI Agent API
+  description: |
+    # Overview
+    This API enables an AI Agent to interact with the Apex Legal case management system 
+    on behalf of authenticated users. The AI Agent uses the user's JWT token to authenticate,
+    inheriting all of the user's permissions and access rights.
+
+    ## Authentication
+    All endpoints require a valid JWT token in the Authorization header:
+    ```
+    Authorization: Bearer <user_jwt_token>
+    ```
+    The token contains the user's identity (user_id, firm_id, role) and is validated on every request.
+
+    ## Multi-Tenancy & Data Isolation
+    - All data is strictly isolated by `firm_id`
+    - Users can only access data belonging to their firm
+    - No cross-firm data access is possible
+    - The AI Agent inherits these same restrictions
+
+    ## Security Model
+    - AI Agent acts AS the user, not on behalf of the user
+    - All actions are logged with the user's identity
+    - Role-based permissions are enforced on every endpoint
+    - Matter-level authorization is enforced where applicable
+
+  version: 1.0.0
+  contact:
+    name: Apex Legal Support
+
+servers:
+  - url: /api
+    description: API Base URL
+
+tags:
+  - name: AI Billing Tools
+    description: AI-optimized endpoints for billing and time tracking
+  - name: AI Analytics Tools
+    description: AI-optimized endpoints for firm analytics (Admin/Partner only)
+  - name: Matters
+    description: Legal matter management
+  - name: Clients
+    description: Client management
+  - name: Time Entries
+    description: Time tracking and billing entries
+  - name: Invoices
+    description: Invoice management
+  - name: Calendar
+    description: Calendar and event management
+  - name: Documents
+    description: Document management
+  - name: Team
+    description: Team member management
+
+paths:
+  # ============================================
+  # AI-OPTIMIZED BILLING TOOLS
+  # ============================================
+  /v1/billing/log-time:
+    post:
+      operationId: logBillableTime
+      tags: [AI Billing Tools]
+      summary: Log billable time for the authenticated user
+      description: |
+        **AI Agent Tool for Time Logging**
+        
+        Creates a time entry for the authenticated user on a specified matter.
+        
+        ## Security Context
+        - User must have `billing:create` permission
+        - User must be authorized to log time to the matter:
+          - Assigned to the matter via matter_assignments, OR
+          - Is the responsible_attorney for the matter, OR
+          - Has admin/owner role (can log to any firm matter)
+        - Time is ALWAYS logged for the authenticated user (no impersonation)
+        - Entry is marked as `ai_generated: true` for audit purposes
+        
+        ## Use Cases
+        - "Log 2 hours to the Smith case for document review"
+        - "Add 0.5 hours to matter MTR-2024-001 for client call"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogTimeRequest'
+            examples:
+              basic:
+                summary: Basic time entry
+                value:
+                  matter_id: "550e8400-e29b-41d4-a716-446655440000"
+                  hours: 2.5
+                  description: "Document review and analysis for motion to dismiss"
+              with_activity_code:
+                summary: With activity code
+                value:
+                  matter_id: "550e8400-e29b-41d4-a716-446655440000"
+                  hours: 1.0
+                  description: "Client phone call regarding case strategy"
+                  date: "2024-01-15"
+                  billable: true
+                  activity_code: "L120"
+      responses:
+        '201':
+          description: Time entry created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogTimeResponse'
+        '400':
+          description: Invalid request (missing fields, invalid hours, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: User not authorized to log time to this matter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Matter not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/billing/my-matters:
+    get:
+      operationId: getMyMatters
+      tags: [AI Billing Tools]
+      summary: Get matters the user can log time to
+      description: |
+        Returns a list of active matters that the authenticated user is authorized 
+        to log time to. Useful for the AI Agent to validate matter references.
+        
+        - Non-admin users see only matters they're assigned to
+        - Admin/Owner users see all firm matters
+      responses:
+        '200':
+          description: List of available matters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyMattersResponse'
+
+  /v1/billing/my-time-entries:
+    get:
+      operationId: getMyTimeEntries
+      tags: [AI Billing Tools]
+      summary: Get user's recent time entries
+      description: |
+        Returns the authenticated user's recent time entries with summary statistics.
+        Useful for the AI Agent to understand recent work and avoid duplicates.
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: User's time entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyTimeEntriesResponse'
+
+  # ============================================
+  # AI-OPTIMIZED ANALYTICS TOOLS
+  # ============================================
+  /v1/analytics/firm-summary:
+    get:
+      operationId: retrieveFirmAnalytics
+      tags: [AI Analytics Tools]
+      summary: Get firm-wide analytics summary
+      description: |
+        **AI Agent Tool for Firm Analytics**
+        
+        Retrieves comprehensive firm-wide analytical data for business intelligence.
+        
+        ## Security Context
+        - **RESTRICTED**: Only accessible to users with role: `owner`, `admin`, `partner`, or `billing`
+        - Data is aggregated and firm-scoped (no individual user identification)
+        - Intended for administrative queries and firm management
+        
+        ## Data Included
+        - Matter statistics (active, pending, closed, by priority)
+        - Client statistics
+        - Billing metrics (hours, revenue, utilization)
+        - Invoice status and collections
+        - Week-over-week trends
+        - Top matters and clients by revenue
+        - Team performance aggregated by role
+        
+        ## Use Cases
+        - "How is the firm doing this month?"
+        - "What's our collection rate?"
+        - "Show me revenue trends"
+        - "Which matters are generating the most revenue?"
+      parameters:
+        - name: time_period
+          in: query
+          description: Time period for analytics
+          schema:
+            type: string
+            enum:
+              - current_month
+              - last_week
+              - last_month
+              - last_quarter
+              - last_year
+              - year_to_date
+              - all_time
+            default: current_month
+      responses:
+        '200':
+          description: Firm analytics summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FirmSummaryResponse'
+        '403':
+          description: User does not have admin/partner role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/analytics/kpis:
+    get:
+      operationId: getFirmKPIs
+      tags: [AI Analytics Tools]
+      summary: Get quick KPIs
+      description: |
+        Returns key performance indicators for quick dashboards.
+        Lighter weight than full firm-summary endpoint.
+        
+        **Requires role**: `owner`, `admin`, `partner`, or `billing`
+      responses:
+        '200':
+          description: Quick KPIs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KPIsResponse'
+
+  # ============================================
+  # EXISTING ENDPOINTS (AI can use these too)
+  # ============================================
+  /matters:
+    get:
+      operationId: listMatters
+      tags: [Matters]
+      summary: List matters
+      description: |
+        Returns matters the user has access to.
+        - Admin/Owner: See all firm matters
+        - Others: See only assigned matters
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, pending, closed, on_hold]
+        - name: clientId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of matters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MattersListResponse'
+
+    post:
+      operationId: createMatter
+      tags: [Matters]
+      summary: Create a new matter
+      description: Creates a new legal matter. Requires `matters:create` permission.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMatterRequest'
+      responses:
+        '201':
+          description: Matter created
+
+  /matters/{id}:
+    get:
+      operationId: getMatter
+      tags: [Matters]
+      summary: Get matter details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Matter details
+
+    put:
+      operationId: updateMatter
+      tags: [Matters]
+      summary: Update a matter
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMatterRequest'
+      responses:
+        '200':
+          description: Matter updated
+
+  /clients:
+    get:
+      operationId: listClients
+      tags: [Clients]
+      summary: List clients
+      description: Returns all clients for the firm. Requires `clients:view` permission.
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [individual, company]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: List of clients
+
+    post:
+      operationId: createClient
+      tags: [Clients]
+      summary: Create a new client
+      description: Creates a new client. Requires `clients:create` permission.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateClientRequest'
+      responses:
+        '201':
+          description: Client created
+
+  /clients/{id}:
+    get:
+      operationId: getClient
+      tags: [Clients]
+      summary: Get client details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Client details
+
+    put:
+      operationId: updateClient
+      tags: [Clients]
+      summary: Update a client
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Client updated
+
+  /time-entries:
+    get:
+      operationId: listTimeEntries
+      tags: [Time Entries]
+      summary: List time entries
+      description: |
+        Returns time entries. 
+        - Admin/Owner/Billing: See all firm entries
+        - Others: See only their own entries
+      parameters:
+        - name: matterId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: billable
+          in: query
+          schema:
+            type: boolean
+        - name: billed
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: List of time entries
+
+    post:
+      operationId: createTimeEntry
+      tags: [Time Entries]
+      summary: Create time entry (legacy)
+      description: |
+        Creates a time entry. For AI Agent use, prefer `/v1/billing/log-time` 
+        which has better authorization checks and response format.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTimeEntryRequest'
+      responses:
+        '201':
+          description: Time entry created
+
+  /invoices:
+    get:
+      operationId: listInvoices
+      tags: [Invoices]
+      summary: List invoices
+      parameters:
+        - name: clientId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, sent, paid, overdue, partial]
+      responses:
+        '200':
+          description: List of invoices
+
+    post:
+      operationId: createInvoice
+      tags: [Invoices]
+      summary: Create an invoice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInvoiceRequest'
+      responses:
+        '201':
+          description: Invoice created
+
+  /calendar:
+    get:
+      operationId: listEvents
+      tags: [Calendar]
+      summary: List calendar events
+      parameters:
+        - name: start
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: end
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: matterId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of events
+
+    post:
+      operationId: createEvent
+      tags: [Calendar]
+      summary: Create a calendar event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventRequest'
+      responses:
+        '201':
+          description: Event created
+
+  /documents:
+    get:
+      operationId: listDocuments
+      tags: [Documents]
+      summary: List documents
+      parameters:
+        - name: matterId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: clientId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of documents
+
+  /team:
+    get:
+      operationId: listTeamMembers
+      tags: [Team]
+      summary: List team members
+      description: Returns active team members for the firm.
+      responses:
+        '200':
+          description: List of team members
+
+  /ai/chat:
+    post:
+      operationId: aiChat
+      tags: [AI]
+      summary: AI Chat (contextual assistant)
+      description: |
+        Send a message to the AI assistant with page context.
+        The AI has read access to firm data based on the current page.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                page:
+                  type: string
+                  enum: [dashboard, matters, matter-detail, clients, billing, calendar, time-tracking, documents, team, analytics]
+                context:
+                  type: object
+                conversationHistory:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: AI response
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT token containing user_id, firm_id, email, and role.
+        Obtain via POST /api/auth/login
+
+  schemas:
+    # Request Schemas
+    LogTimeRequest:
+      type: object
+      required:
+        - matter_id
+        - hours
+        - description
+      properties:
+        matter_id:
+          type: string
+          format: uuid
+          description: The matter to log time against
+        hours:
+          type: number
+          format: float
+          minimum: 0.01
+          maximum: 24
+          description: Hours worked (e.g., 2.5 for 2 hours 30 minutes)
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Description of work performed
+        date:
+          type: string
+          format: date
+          description: Date of work (defaults to today)
+        billable:
+          type: boolean
+          default: true
+          description: Whether this time is billable
+        activity_code:
+          type: string
+          description: UTBMS or custom activity code
+
+    CreateMatterRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        clientId:
+          type: string
+          format: uuid
+        type:
+          type: string
+        status:
+          type: string
+          enum: [active, pending, closed, on_hold]
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        billingType:
+          type: string
+          enum: [hourly, flat_fee, contingency, retainer]
+        billingRate:
+          type: number
+
+    UpdateMatterRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        priority:
+          type: string
+
+    CreateClientRequest:
+      type: object
+      required:
+        - displayName
+        - type
+      properties:
+        displayName:
+          type: string
+        type:
+          type: string
+          enum: [individual, company]
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+
+    CreateTimeEntryRequest:
+      type: object
+      required:
+        - matterId
+        - date
+        - hours
+        - description
+      properties:
+        matterId:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        hours:
+          type: number
+        description:
+          type: string
+        billable:
+          type: boolean
+          default: true
+
+    CreateInvoiceRequest:
+      type: object
+      required:
+        - clientId
+      properties:
+        clientId:
+          type: string
+          format: uuid
+        matterId:
+          type: string
+          format: uuid
+        lineItems:
+          type: array
+          items:
+            type: object
+        dueDate:
+          type: string
+          format: date
+
+    CreateEventRequest:
+      type: object
+      required:
+        - title
+        - startTime
+      properties:
+        title:
+          type: string
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        type:
+          type: string
+          enum: [meeting, court, deadline, reminder, other]
+        matterId:
+          type: string
+          format: uuid
+
+    # Response Schemas
+    LogTimeResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            matter_id:
+              type: string
+              format: uuid
+            matter_name:
+              type: string
+            matter_number:
+              type: string
+            user_id:
+              type: string
+              format: uuid
+            date:
+              type: string
+              format: date
+            hours:
+              type: number
+            description:
+              type: string
+            billable:
+              type: boolean
+            rate:
+              type: number
+            amount:
+              type: number
+            activity_code:
+              type: string
+            ai_generated:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+
+    MyMattersResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            matters:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  name:
+                    type: string
+                  number:
+                    type: string
+                  status:
+                    type: string
+                  billing_type:
+                    type: string
+                  billing_rate:
+                    type: number
+                  client_name:
+                    type: string
+            count:
+              type: integer
+
+    MyTimeEntriesResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            time_entries:
+              type: array
+              items:
+                type: object
+            this_month_summary:
+              type: object
+              properties:
+                total_hours:
+                  type: number
+                total_amount:
+                  type: number
+                billable_hours:
+                  type: number
+                billed_amount:
+                  type: number
+
+    FirmSummaryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            period:
+              type: object
+              properties:
+                type:
+                  type: string
+                label:
+                  type: string
+                generated_at:
+                  type: string
+                  format: date-time
+            matters:
+              type: object
+              properties:
+                total:
+                  type: integer
+                active:
+                  type: integer
+                pending:
+                  type: integer
+                closed:
+                  type: integer
+                urgent:
+                  type: integer
+                high_priority:
+                  type: integer
+            clients:
+              type: object
+              properties:
+                total:
+                  type: integer
+                active:
+                  type: integer
+            billing:
+              type: object
+              properties:
+                total_hours:
+                  type: number
+                billable_hours:
+                  type: number
+                unbilled_amount:
+                  type: number
+                utilization_rate_percent:
+                  type: number
+            invoices:
+              type: object
+              properties:
+                total_outstanding:
+                  type: number
+                total_overdue:
+                  type: number
+                collection_rate_percent:
+                  type: number
+            trends:
+              type: object
+            top_matters:
+              type: array
+              items:
+                type: object
+            top_clients:
+              type: array
+              items:
+                type: object
+
+    KPIsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            active_matters:
+              type: integer
+            priority_matters:
+              type: integer
+            mtd_hours:
+              type: number
+            mtd_revenue:
+              type: number
+            unbilled_amount:
+              type: number
+            outstanding_invoices:
+              type: number
+            overdue_invoices:
+              type: number
+            generated_at:
+              type: string
+              format: date-time
+
+    MattersListResponse:
+      type: object
+      properties:
+        matters:
+          type: array
+          items:
+            type: object
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          description: Human-readable error message
+        code:
+          type: string
+          description: Machine-readable error code
+          enum:
+            - MISSING_MATTER_ID
+            - INVALID_HOURS
+            - MISSING_DESCRIPTION
+            - INVALID_DATE
+            - MATTER_NOT_FOUND
+            - MATTER_CLOSED
+            - NOT_AUTHORIZED_FOR_MATTER
+            - INTERNAL_ERROR
+
+security:
+  - bearerAuth: []
