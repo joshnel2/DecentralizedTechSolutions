@@ -1621,28 +1621,70 @@ async function createCalendarEvent(args, user) {
   // Parse start time - handle various formats
   let startDate;
   try {
-    // Try parsing the date
+    console.log('Parsing start_time:', start_time);
+    
+    // Try parsing the date directly first
     startDate = new Date(start_time);
     
     // If the date is invalid, try some alternative formats
     if (isNaN(startDate.getTime())) {
-      // Try adding today's date if only time was provided
       const today = new Date();
-      const timeMatch = start_time.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i);
-      if (timeMatch) {
-        let hours = parseInt(timeMatch[1]);
-        const minutes = parseInt(timeMatch[2]);
-        const meridiem = timeMatch[3]?.toLowerCase();
+      
+      // Check for "tomorrow" keyword
+      if (start_time.toLowerCase().includes('tomorrow')) {
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
         
-        if (meridiem === 'pm' && hours < 12) hours += 12;
-        if (meridiem === 'am' && hours === 12) hours = 0;
-        
-        startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, minutes);
+        // Try to extract time
+        const timeMatch = start_time.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+        if (timeMatch) {
+          let hours = parseInt(timeMatch[1]);
+          const minutes = parseInt(timeMatch[2] || '0');
+          const meridiem = timeMatch[3]?.toLowerCase();
+          
+          if (meridiem === 'pm' && hours < 12) hours += 12;
+          if (meridiem === 'am' && hours === 12) hours = 0;
+          
+          startDate = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), hours, minutes);
+        } else {
+          // Default to 9am tomorrow
+          startDate = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 9, 0);
+        }
+      }
+      // Check for "today" keyword  
+      else if (start_time.toLowerCase().includes('today')) {
+        const timeMatch = start_time.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+        if (timeMatch) {
+          let hours = parseInt(timeMatch[1]);
+          const minutes = parseInt(timeMatch[2] || '0');
+          const meridiem = timeMatch[3]?.toLowerCase();
+          
+          if (meridiem === 'pm' && hours < 12) hours += 12;
+          if (meridiem === 'am' && hours === 12) hours = 0;
+          
+          startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, minutes);
+        }
+      }
+      // Try just time format (assume today)
+      else {
+        const timeMatch = start_time.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+        if (timeMatch) {
+          let hours = parseInt(timeMatch[1]);
+          const minutes = parseInt(timeMatch[2] || '0');
+          const meridiem = timeMatch[3]?.toLowerCase();
+          
+          if (meridiem === 'pm' && hours < 12) hours += 12;
+          if (meridiem === 'am' && hours === 12) hours = 0;
+          
+          startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, minutes);
+        }
       }
     }
     
+    console.log('Parsed start date:', startDate);
+    
     if (isNaN(startDate.getTime())) {
-      return { error: `Could not parse start_time "${start_time}". Please use a format like "2025-01-15T14:00:00" or "January 15, 2025 2:00 PM"` };
+      return { error: `Could not parse start_time "${start_time}". Please use a format like "2025-01-15T14:00:00" or "tomorrow at 2pm"` };
     }
   } catch (e) {
     console.error('Error parsing start_time:', e);
@@ -2239,10 +2281,13 @@ router.post('/chat', authenticate, async (req, res) => {
         try {
           functionArgs = JSON.parse(toolCall.function.arguments);
         } catch (e) {
+          console.error('Failed to parse tool arguments:', toolCall.function.arguments);
           functionArgs = {};
         }
         
+        console.log(`Calling tool: ${functionName} with args:`, JSON.stringify(functionArgs));
         const result = await executeTool(functionName, functionArgs, req.user);
+        console.log(`Tool ${functionName} result:`, JSON.stringify(result));
         
         messages.push({
           role: 'tool',
