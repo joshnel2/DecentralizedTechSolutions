@@ -10,6 +10,7 @@ import {
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './DocumentsPage.module.css'
+import { ConfirmationModal } from '../components/ConfirmationModal'
 
 export function DocumentsPage() {
   const navigate = useNavigate()
@@ -53,10 +54,19 @@ export function DocumentsPage() {
   }
   
   // Delete document
-  const handleDeleteDocument = async (docId: string) => {
-    if (!confirm('Are you sure you want to delete this document?')) return
+  const handleDeleteDocument = (docId: string) => {
+    const doc = documents.find(d => d.id === docId)
+    setConfirmModal({
+      isOpen: true,
+      docId,
+      docName: doc?.name || 'this document'
+    })
+  }
+
+  const confirmDeleteDocument = async () => {
     try {
-      await deleteDocument(docId)
+      await deleteDocument(confirmModal.docId)
+      setConfirmModal({ isOpen: false, docId: '', docName: '' })
       fetchDocuments()
     } catch (error) {
       console.error('Failed to delete document:', error)
@@ -85,6 +95,13 @@ export function DocumentsPage() {
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [selectedMatterId, setSelectedMatterId] = useState('')
   const [previewDoc, setPreviewDoc] = useState<typeof documents[0] | null>(null)
+  
+  // Confirmation modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean
+    docId: string
+    docName: string
+  }>({ isOpen: false, docId: '', docName: '' })
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
@@ -486,6 +503,17 @@ export function DocumentsPage() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal({ isOpen: false, docId: '', docName: '' })}
+        onConfirm={confirmDeleteDocument}
+        title="Delete Document"
+        message={`Are you sure you want to delete "${confirmModal.docName}"? This action cannot be undone.`}
+        confirmText="Delete"
+        type="danger"
+      />
     </div>
   )
 }
