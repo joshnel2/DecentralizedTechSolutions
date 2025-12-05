@@ -6,6 +6,7 @@ import { Plus, Search, Users, Building2, User, MoreVertical, Sparkles, Eye, Edit
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './ListPages.module.css'
+import { ConfirmationModal } from '../components/ConfirmationModal'
 
 export function ClientsPage() {
   const { clients, matters, addClient, updateClient, deleteClient, fetchClients, fetchMatters } = useDataStore()
@@ -34,6 +35,59 @@ export function ClientsPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
+  
+  // Confirmation modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean
+    clientId: string
+    clientName: string
+    action: 'delete' | 'deactivate' | 'activate'
+  }>({ isOpen: false, clientId: '', clientName: '', action: 'delete' })
+
+  const handleConfirmAction = async () => {
+    const { action, clientId } = confirmModal
+    
+    try {
+      if (action === 'delete') {
+        await deleteClient(clientId)
+      } else {
+        await updateClient(clientId, { isActive: action === 'activate' })
+      }
+      setConfirmModal({ isOpen: false, clientId: '', clientName: '', action: 'delete' })
+      setOpenDropdownId(null)
+      fetchClients()
+    } catch (error) {
+      console.error(`Failed to ${action} client:`, error)
+      alert(`Failed to ${action} client`)
+    }
+  }
+
+  const getConfirmModalContent = () => {
+    const { action, clientName } = confirmModal
+    switch (action) {
+      case 'delete':
+        return {
+          title: 'Delete Client',
+          message: `Are you sure you want to delete "${clientName}"? This action cannot be undone and will remove all associated data.`,
+          confirmText: 'Delete Client',
+          type: 'danger' as const
+        }
+      case 'deactivate':
+        return {
+          title: 'Deactivate Client',
+          message: `Are you sure you want to deactivate "${clientName}"? The client will be marked as inactive.`,
+          confirmText: 'Deactivate',
+          type: 'warning' as const
+        }
+      case 'activate':
+        return {
+          title: 'Activate Client',
+          message: `Are you sure you want to activate "${clientName}"? The client will be marked as active.`,
+          confirmText: 'Activate',
+          type: 'success' as const
+        }
+    }
+  }
 
   const filteredClients = useMemo(() => {
     return clients.filter(client => {
@@ -191,11 +245,13 @@ export function ClientsPage() {
                         <button 
                           className={styles.dropdownItem}
                           onClick={() => {
+                            setConfirmModal({
+                              isOpen: true,
+                              clientId: client.id,
+                              clientName: client.name,
+                              action: client.isActive ? 'deactivate' : 'activate'
+                            })
                             setOpenDropdownId(null)
-                            if (updateClient) {
-                              updateClient(client.id, { isActive: !client.isActive })
-                              fetchClients()
-                            }
                           }}
                         >
                           <Archive size={14} />
@@ -205,11 +261,13 @@ export function ClientsPage() {
                         <button 
                           className={clsx(styles.dropdownItem, styles.danger)}
                           onClick={() => {
-                            if (confirm(`Are you sure you want to delete "${client.name}"? This action cannot be undone.`)) {
-                              deleteClient(client.id)
-                              setOpenDropdownId(null)
-                              fetchClients()
-                            }
+                            setConfirmModal({
+                              isOpen: true,
+                              clientId: client.id,
+                              clientName: client.name,
+                              action: 'delete'
+                            })
+                            setOpenDropdownId(null)
                           }}
                         >
                           <Trash2 size={14} />
@@ -248,6 +306,14 @@ export function ClientsPage() {
           }}
         />
       )}
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal({ isOpen: false, clientId: '', clientName: '', action: 'delete' })}
+        onConfirm={handleConfirmAction}
+        {...getConfirmModalContent()}
+      />
     </div>
   )
 }

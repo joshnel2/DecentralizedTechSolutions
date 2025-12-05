@@ -14,6 +14,7 @@ import {
 import { format, parseISO, differenceInDays, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './BillingPage.module.css'
+import { ConfirmationModal } from '../components/ConfirmationModal'
 
 export function BillingPage() {
   const { invoices, clients, matters, timeEntries, expenses, fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries, addInvoice, updateInvoice } = useDataStore()
@@ -43,6 +44,13 @@ export function BillingPage() {
   const [showBillUnbilledModal, setShowBillUnbilledModal] = useState(false)
   const [showRemindersModal, setShowRemindersModal] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  
+  // Confirmation modal state for voiding invoices
+  const [confirmVoid, setConfirmVoid] = useState<{ isOpen: boolean; invoiceId: string; invoiceNumber: string }>({
+    isOpen: false,
+    invoiceId: '',
+    invoiceNumber: ''
+  })
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -656,7 +664,10 @@ export function BillingPage() {
                           {invoice.status !== 'void' && invoice.status !== 'paid' && (
                             <button 
                               className={clsx(styles.dropdownItem, styles.danger)}
-                              onClick={() => handleStatusChange(invoice.id, 'void')}
+                              onClick={() => {
+                                setConfirmVoid({ isOpen: true, invoiceId: invoice.id, invoiceNumber: invoice.number })
+                                setOpenDropdownId(null)
+                              }}
                             >
                               <XCircle size={14} />
                               Void Invoice
@@ -871,6 +882,20 @@ export function BillingPage() {
           onClose={() => setShowRemindersModal(false)}
         />
       )}
+
+      {/* Void Invoice Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmVoid.isOpen}
+        onClose={() => setConfirmVoid({ isOpen: false, invoiceId: '', invoiceNumber: '' })}
+        onConfirm={async () => {
+          await handleStatusChange(confirmVoid.invoiceId, 'void')
+          setConfirmVoid({ isOpen: false, invoiceId: '', invoiceNumber: '' })
+        }}
+        title="Void Invoice"
+        message={`Are you sure you want to void invoice ${confirmVoid.invoiceNumber}? This action will mark the invoice as voided and cannot be undone.`}
+        confirmText="Void Invoice"
+        type="danger"
+      />
     </div>
   )
 }

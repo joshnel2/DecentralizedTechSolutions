@@ -14,9 +14,7 @@ import styles from './DetailPage.module.css'
 // Client status options
 const clientStatusOptions = [
   { value: 'active', label: 'Active', color: 'var(--apex-success)' },
-  { value: 'inactive', label: 'Inactive', color: 'var(--apex-muted)' },
-  { value: 'prospect', label: 'Prospect', color: 'var(--apex-info)' },
-  { value: 'former', label: 'Former', color: 'var(--apex-warning)' }
+  { value: 'inactive', label: 'Inactive', color: 'var(--apex-muted)' }
 ]
 
 export function ClientDetailPage() {
@@ -183,10 +181,10 @@ export function ClientDetailPage() {
               <span className={styles.typeTag}>{client.type === 'company' ? 'Organization' : 'Individual'}</span>
               <div className={styles.statusDropdownWrapper} ref={statusDropdownRef}>
                 <button 
-                  className={clsx(styles.statusBadge, styles.clickable, styles[client.status || (client.isActive ? 'active' : 'inactive')])}
+                  className={clsx(styles.statusBadge, styles.clickable, styles[client.isActive ? 'active' : 'inactive'])}
                   onClick={() => setShowStatusDropdown(!showStatusDropdown)}
                 >
-                  {client.status ? client.status.charAt(0).toUpperCase() + client.status.slice(1) : (client.isActive ? 'Active' : 'Inactive')}
+                  {client.isActive ? 'Active' : 'Inactive'}
                   <ChevronDown size={12} />
                 </button>
                 {showStatusDropdown && (
@@ -196,12 +194,11 @@ export function ClientDetailPage() {
                         key={option.value}
                         className={clsx(
                           styles.statusOption,
-                          (client.status || (client.isActive ? 'active' : 'inactive')) === option.value && styles.selected
+                          (client.isActive ? 'active' : 'inactive') === option.value && styles.selected
                         )}
                         onClick={async () => {
                           await updateClient(id!, { 
-                            status: option.value,
-                            isActive: option.value === 'active' || option.value === 'prospect'
+                            isActive: option.value === 'active'
                           })
                           setShowStatusDropdown(false)
                           fetchClients()

@@ -352,6 +352,250 @@
   color: var(--apex-text);
 }
 
+/* Week View */
+.weekViewHeader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding-bottom: var(--space-lg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  margin-bottom: var(--space-lg);
+}
+
+.weekNavBtn {
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.weekNavBtn:hover {
+  background: var(--apex-muted);
+  color: var(--apex-white);
+}
+
+.weekRange {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  min-width: 200px;
+  text-align: center;
+}
+
+.weekView {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--space-sm);
+}
+
+.weekDayColumn {
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  min-height: 300px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: 1px solid transparent;
+}
+
+.weekDayColumn:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.weekDayColumn.today {
+  border-color: var(--apex-gold);
+}
+
+.weekDayColumn.selected {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: var(--apex-gold);
+}
+
+.weekDayHeader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-md);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.weekDayName {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--apex-text);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.weekDayNum {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-top: var(--space-xs);
+}
+
+.weekDayNum.todayNum {
+  background: var(--apex-gold);
+  color: var(--apex-midnight);
+  border-radius: var(--radius-full);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.weekDayEvents {
+  padding: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.weekEventCard {
+  background: var(--apex-deep);
+  border-left: 3px solid;
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.weekEventCard:hover {
+  background: var(--apex-muted);
+}
+
+.weekEventTime {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--apex-text);
+}
+
+.weekEventTitle {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--apex-white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* List View */
+.listView {
+  min-height: 400px;
+}
+
+.listViewTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.listViewEvents {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.listEventCard {
+  display: flex;
+  gap: var(--space-lg);
+  background: var(--apex-slate);
+  border-left: 4px solid;
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  transition: all var(--transition-fast);
+}
+
+.listEventCard:hover {
+  background: var(--apex-muted);
+}
+
+.listEventDate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 60px;
+  padding-right: var(--space-md);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.listEventDay {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--apex-gold);
+}
+
+.listEventMonth {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--apex-text);
+  text-transform: uppercase;
+}
+
+.listEventWeekday {
+  font-size: 0.6875rem;
+  color: var(--apex-subtle);
+  margin-top: var(--space-xs);
+}
+
+.listEventContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.listEventHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
+}
+
+.listEventHeader h4 {
+  font-size: 1rem;
+  color: var(--apex-white);
+  margin: 0;
+}
+
+.listEventActions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.listEventMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  font-size: 0.8125rem;
+  color: var(--apex-text);
+}
+
+.listEventMeta span {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.listEventMatter {
+  color: var(--apex-gold-bright) !important;
+}
+
+.listEventDesc {
+  font-size: 0.8125rem;
+  color: var(--apex-text);
+  margin-top: var(--space-sm);
+  line-height: 1.5;
+}
+
 /* Sidebar */
 .sidebar {
   background: var(--apex-deep);
@@ -837,6 +1081,72 @@
 
   .eventTime {
     font-size: 0.6875rem;
+  }
+
+  /* Week view mobile */
+  .weekView {
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+  }
+
+  .weekDayColumn {
+    min-height: 150px;
+  }
+
+  .weekDayHeader {
+    padding: var(--space-xs);
+  }
+
+  .weekDayName {
+    font-size: 0.5625rem;
+  }
+
+  .weekDayNum {
+    font-size: 0.875rem;
+  }
+
+  .weekDayNum.todayNum {
+    width: 24px;
+    height: 24px;
+    font-size: 0.75rem;
+  }
+
+  .weekEventCard {
+    padding: 2px var(--space-xs);
+  }
+
+  .weekEventTime {
+    display: none;
+  }
+
+  .weekEventTitle {
+    font-size: 0.625rem;
+  }
+
+  /* List view mobile */
+  .listEventCard {
+    flex-direction: column;
+    gap: var(--space-md);
+    padding: var(--space-md);
+  }
+
+  .listEventDate {
+    flex-direction: row;
+    gap: var(--space-sm);
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    padding-right: 0;
+    padding-bottom: var(--space-sm);
+    min-width: auto;
+  }
+
+  .listEventDay {
+    font-size: 1.25rem;
+  }
+
+  .listEventMeta {
+    flex-direction: column;
+    gap: var(--space-xs);
   }
 
   /* Modal adjustments */

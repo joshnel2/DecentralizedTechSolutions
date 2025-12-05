@@ -12,6 +12,7 @@ import {
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './ListPages.module.css'
+import { ConfirmationModal } from '../components/ConfirmationModal'
 
 const statusOptions = [
   { value: 'all', label: 'All Statuses' },
@@ -73,6 +74,14 @@ export function MattersPage() {
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
   
+  // Confirmation modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean
+    matterId: string
+    matterName: string
+    action: 'delete' | 'archive' | 'hold' | 'reactivate'
+  }>({ isOpen: false, matterId: '', matterName: '', action: 'delete' })
+  
   // Handle URL query parameters for opening new matter modal
   useEffect(() => {
     const action = searchParams.get('action')
@@ -99,17 +108,76 @@ export function MattersPage() {
     }
   }
 
-  const handleDeleteMatter = async (matterId: string, matterName: string) => {
-    if (!confirm(`Are you sure you want to delete "${matterName}"? This action cannot be undone.`)) {
-      return
-    }
+  const handleDeleteMatter = async (matterId: string) => {
     try {
       await deleteMatter(matterId)
+      setConfirmModal({ isOpen: false, matterId: '', matterName: '', action: 'delete' })
       setOpenDropdownId(null)
       fetchMatters()
     } catch (error) {
       console.error('Failed to delete matter:', error)
       alert('Failed to delete matter')
+    }
+  }
+
+  const handleConfirmAction = async () => {
+    const { action, matterId } = confirmModal
+    
+    switch (action) {
+      case 'delete':
+        await handleDeleteMatter(matterId)
+        break
+      case 'archive':
+        await handleStatusChange(matterId, 'closed_other')
+        setConfirmModal({ isOpen: false, matterId: '', matterName: '', action: 'delete' })
+        break
+      case 'hold':
+        await handleStatusChange(matterId, 'on_hold')
+        setConfirmModal({ isOpen: false, matterId: '', matterName: '', action: 'delete' })
+        break
+      case 'reactivate':
+        await handleStatusChange(matterId, 'active')
+        setConfirmModal({ isOpen: false, matterId: '', matterName: '', action: 'delete' })
+        break
+    }
+  }
+
+  const openConfirmModal = (matterId: string, matterName: string, action: 'delete' | 'archive' | 'hold' | 'reactivate') => {
+    setConfirmModal({ isOpen: true, matterId, matterName, action })
+    setOpenDropdownId(null)
+  }
+
+  const getConfirmModalContent = () => {
+    const { action, matterName } = confirmModal
+    switch (action) {
+      case 'delete':
+        return {
+          title: 'Delete Matter',
+          message: `Are you sure you want to delete "${matterName}"? This action cannot be undone and will remove all associated time entries, documents, and invoices.`,
+          confirmText: 'Delete Matter',
+          type: 'danger' as const
+        }
+      case 'archive':
+        return {
+          title: 'Archive Matter',
+          message: `Are you sure you want to archive "${matterName}"? The matter will be closed and moved to your archives.`,
+          confirmText: 'Archive Matter',
+          type: 'warning' as const
+        }
+      case 'hold':
+        return {
+          title: 'Put on Hold',
+          message: `Are you sure you want to put "${matterName}" on hold? No work should be done on this matter until it's reactivated.`,
+          confirmText: 'Put on Hold',
+          type: 'warning' as const
+        }
+      case 'reactivate':
+        return {
+          title: 'Reactivate Matter',
+          message: `Are you sure you want to reactivate "${matterName}"? The matter will be moved back to active status.`,
+          confirmText: 'Reactivate',
+          type: 'success' as const
+        }
     }
   }
 
@@ -307,7 +375,7 @@ export function MattersPage() {
                           <>
                             <button 
                               className={styles.dropdownItem}
-                              onClick={() => handleStatusChange(matter.id, 'on_hold')}
+                              onClick={() => openConfirmModal(matter.id, matter.name, 'hold')}
                             >
                               <XCircle size={14} />
                               Put On Hold
@@ -324,7 +392,7 @@ export function MattersPage() {
                         {matter.status === 'on_hold' && (
                           <button 
                             className={styles.dropdownItem}
-                            onClick={() => handleStatusChange(matter.id, 'active')}
+                            onClick={() => openConfirmModal(matter.id, matter.name, 'reactivate')}
                           >
                             <Briefcase size={14} />
                             Reactivate
@@ -333,7 +401,7 @@ export function MattersPage() {
                         {!matter.status.startsWith('closed') && (
                           <button 
                             className={styles.dropdownItem}
-                            onClick={() => handleStatusChange(matter.id, 'closed_other')}
+                            onClick={() => openConfirmModal(matter.id, matter.name, 'archive')}
                           >
                             <Archive size={14} />
                             Archive / Close
@@ -342,7 +410,7 @@ export function MattersPage() {
                         <div className={styles.dropdownDivider} />
                         <button 
                           className={clsx(styles.dropdownItem, styles.danger)}
-                          onClick={() => handleDeleteMatter(matter.id, matter.name)}
+                          onClick={() => openConfirmModal(matter.id, matter.name, 'delete')}
                         >
                           <Trash2 size={14} />
                           Delete Matter
@@ -390,6 +458,14 @@ export function MattersPage() {
           prefilledClientId={prefilledClientId}
         />
       )}
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal({ isOpen: false, matterId: '', matterName: '', action: 'delete' })}
+        onConfirm={handleConfirmAction}
+        {...getConfirmModalContent()}
+      />
     </div>
   )
 }

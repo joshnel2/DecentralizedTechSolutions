@@ -8,7 +8,8 @@ import {
 import { 
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, isSameMonth, isSameDay, parseISO, addMonths, subMonths,
-  setMonth, setYear, getYear, getMonth
+  setMonth, setYear, getYear, getMonth, addWeeks, subWeeks, isWithinInterval,
+  startOfDay, endOfDay, addDays
 } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './CalendarPage.module.css'
@@ -73,6 +74,30 @@ export function CalendarPage() {
     
     return eachDayOfInterval({ start: calendarStart, end: calendarEnd })
   }, [currentDate])
+
+  // Week view days
+  const weekDays = useMemo(() => {
+    const weekStart = startOfWeek(currentDate)
+    const weekEnd = endOfWeek(currentDate)
+    return eachDayOfInterval({ start: weekStart, end: weekEnd })
+  }, [currentDate])
+
+  // List view - upcoming events for the next 30 days
+  const listViewEvents = useMemo(() => {
+    const start = startOfDay(new Date())
+    const end = addDays(start, 30)
+    return events
+      .filter(e => {
+        const eventDate = parseISO(e.startTime)
+        return isWithinInterval(eventDate, { start, end })
+      })
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+  }, [events])
+
+  // Navigation for week view
+  const navigateWeek = (direction: 'prev' | 'next') => {
+    setCurrentDate(direction === 'prev' ? subWeeks(currentDate, 1) : addWeeks(currentDate, 1))
+  }
 
   const getEventsForDay = (date: Date) => {
     return events.filter(event => {
@@ -204,51 +229,172 @@ export function CalendarPage() {
       </div>
 
       <div className={styles.calendarLayout}>
-        {/* Calendar Grid */}
-        <div className={styles.calendarMain}>
-          <div className={styles.calendarGrid}>
-            {/* Week day headers */}
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-              <div key={day} className={styles.weekDay}>{day}</div>
-            ))}
-            
-            {/* Calendar days */}
-            {calendarDays.map(day => {
-              const dayEvents = getEventsForDay(day)
-              const isToday = isSameDay(day, new Date())
-              const isCurrentMonth = isSameMonth(day, currentDate)
-              const isSelected = selectedDate && isSameDay(day, selectedDate)
+        {/* Month View */}
+        {view === 'month' && (
+          <div className={styles.calendarMain}>
+            <div className={styles.calendarGrid}>
+              {/* Week day headers */}
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                <div key={day} className={styles.weekDay}>{day}</div>
+              ))}
               
-              return (
-                <div 
-                  key={day.toISOString()}
-                  className={clsx(
-                    styles.calendarDay,
-                    !isCurrentMonth && styles.otherMonth,
-                    isToday && styles.today,
-                    isSelected && styles.selected
-                  )}
-                  onClick={() => setSelectedDate(day)}
-                >
-                  <span className={styles.dayNumber}>{format(day, 'd')}</span>
-                  <div className={styles.dayEvents}>
-                    {dayEvents.slice(0, 3).map(event => (
-                      <div 
-                        key={event.id}
-                        className={styles.eventDot}
-                        style={{ background: event.color }}
-                        title={event.title}
-                      />
-                    ))}
-                    {dayEvents.length > 3 && (
-                      <span className={styles.moreEvents}>+{dayEvents.length - 3}</span>
+              {/* Calendar days */}
+              {calendarDays.map(day => {
+                const dayEvents = getEventsForDay(day)
+                const isToday = isSameDay(day, new Date())
+                const isCurrentMonth = isSameMonth(day, currentDate)
+                const isSelected = selectedDate && isSameDay(day, selectedDate)
+                
+                return (
+                  <div 
+                    key={day.toISOString()}
+                    className={clsx(
+                      styles.calendarDay,
+                      !isCurrentMonth && styles.otherMonth,
+                      isToday && styles.today,
+                      isSelected && styles.selected
                     )}
+                    onClick={() => setSelectedDate(day)}
+                  >
+                    <span className={styles.dayNumber}>{format(day, 'd')}</span>
+                    <div className={styles.dayEvents}>
+                      {dayEvents.slice(0, 3).map(event => (
+                        <div 
+                          key={event.id}
+                          className={styles.eventDot}
+                          style={{ background: event.color }}
+                          title={event.title}
+                        />
+                      ))}
+                      {dayEvents.length > 3 && (
+                        <span className={styles.moreEvents}>+{dayEvents.length - 3}</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Week View */}
+        {view === 'week' && (
+          <div className={styles.calendarMain}>
+            <div className={styles.weekViewHeader}>
+              <button onClick={() => navigateWeek('prev')} className={styles.weekNavBtn}>
+                <ChevronLeft size={18} />
+              </button>
+              <span className={styles.weekRange}>
+                {format(weekDays[0], 'MMM d')} - {format(weekDays[6], 'MMM d, yyyy')}
+              </span>
+              <button onClick={() => navigateWeek('next')} className={styles.weekNavBtn}>
+                <ChevronRight size={18} />
+              </button>
+            </div>
+            <div className={styles.weekView}>
+              {weekDays.map(day => {
+                const dayEvents = getEventsForDay(day)
+                const isToday = isSameDay(day, new Date())
+                const isSelected = selectedDate && isSameDay(day, selectedDate)
+                
+                return (
+                  <div 
+                    key={day.toISOString()}
+                    className={clsx(
+                      styles.weekDayColumn,
+                      isToday && styles.today,
+                      isSelected && styles.selected
+                    )}
+                    onClick={() => setSelectedDate(day)}
+                  >
+                    <div className={styles.weekDayHeader}>
+                      <span className={styles.weekDayName}>{format(day, 'EEE')}</span>
+                      <span className={clsx(styles.weekDayNum, isToday && styles.todayNum)}>
+                        {format(day, 'd')}
+                      </span>
+                    </div>
+                    <div className={styles.weekDayEvents}>
+                      {dayEvents.map(event => (
+                        <div 
+                          key={event.id}
+                          className={styles.weekEventCard}
+                          style={{ borderLeftColor: event.color }}
+                          onClick={(e) => { e.stopPropagation(); setEditingEvent(event); }}
+                        >
+                          <span className={styles.weekEventTime}>
+                            {format(parseISO(event.startTime), 'h:mm a')}
+                          </span>
+                          <span className={styles.weekEventTitle}>{event.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* List View */}
+        {view === 'list' && (
+          <div className={styles.calendarMain}>
+            <div className={styles.listView}>
+              <h3 className={styles.listViewTitle}>Upcoming Events (Next 30 Days)</h3>
+              {listViewEvents.length > 0 ? (
+                <div className={styles.listViewEvents}>
+                  {listViewEvents.map(event => (
+                    <div 
+                      key={event.id}
+                      className={styles.listEventCard}
+                      style={{ borderLeftColor: event.color }}
+                    >
+                      <div className={styles.listEventDate}>
+                        <span className={styles.listEventDay}>{format(parseISO(event.startTime), 'd')}</span>
+                        <span className={styles.listEventMonth}>{format(parseISO(event.startTime), 'MMM')}</span>
+                        <span className={styles.listEventWeekday}>{format(parseISO(event.startTime), 'EEE')}</span>
+                      </div>
+                      <div className={styles.listEventContent}>
+                        <div className={styles.listEventHeader}>
+                          <h4>{event.title}</h4>
+                          <div className={styles.listEventActions}>
+                            <button 
+                              onClick={() => setEditingEvent(event)}
+                              className={styles.eventActionBtn}
+                            >
+                              <Edit2 size={14} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteEvent(event.id)}
+                              className={styles.eventActionBtn}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                        <div className={styles.listEventMeta}>
+                          <span><Clock size={12} /> {format(parseISO(event.startTime), 'h:mm a')}</span>
+                          {event.location && <span><MapPin size={12} /> {event.location}</span>}
+                          {getMatterName(event.matterId) && (
+                            <span className={styles.listEventMatter}>{getMatterName(event.matterId)}</span>
+                          )}
+                        </div>
+                        {event.description && <p className={styles.listEventDesc}>{event.description}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className={styles.noEvents}>
+                  <CalendarIcon size={48} />
+                  <p>No upcoming events in the next 30 days</p>
+                  <button onClick={() => setShowNewModal(true)} className={styles.primaryBtn}>
+                    <Plus size={16} /> Add Event
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Sidebar */}
         <div className={styles.sidebar}>
