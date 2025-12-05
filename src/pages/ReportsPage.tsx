@@ -110,18 +110,8 @@ const reportCategories = [
   }
 ]
 
-// Saved reports
-const savedReports = [
-  { id: 'saved-1', name: 'Monthly Billing Summary', category: 'billing', lastRun: '2024-11-25' },
-  { id: 'saved-2', name: 'Weekly Productivity', category: 'productivity', lastRun: '2024-11-24' },
-  { id: 'saved-3', name: 'AR Aging 30+ Days', category: 'billing', lastRun: '2024-11-20' }
-]
-
-// Scheduled reports
-const scheduledReports = [
-  { id: 'sched-1', name: 'Weekly Billing Summary', frequency: 'Weekly', nextRun: 'Mon 9:00 AM', recipients: ['john@apex.law'] },
-  { id: 'sched-2', name: 'Monthly Client Report', frequency: 'Monthly', nextRun: 'Dec 1, 9:00 AM', recipients: ['john@apex.law', 'sarah@apex.law'] }
-]
+// Note: Saved and scheduled reports would be stored in the database in production
+// These are managed locally for the demo
 
 export function ReportsPage() {
   const { matters, clients, timeEntries, invoices, expenses } = useDataStore()
@@ -182,16 +172,28 @@ export function ReportsPage() {
     }
   }, [invoices, timeEntries, matters, clients])
 
-  // Chart data
+  // Chart data - calculated from real invoice data
   const revenueByMonth = useMemo(() => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    return months.map((month, i) => ({
-      month,
-      billed: Math.round(35000 + Math.random() * 45000),
-      collected: Math.round(30000 + Math.random() * 40000),
-      target: 50000
-    }))
-  }, [])
+    const currentYear = new Date().getFullYear()
+    
+    return months.map((month, i) => {
+      const monthInvoices = invoices.filter(inv => {
+        const date = new Date(inv.issueDate)
+        return date.getMonth() === i && date.getFullYear() === currentYear
+      })
+      
+      const billed = monthInvoices.reduce((sum, inv) => sum + inv.total, 0)
+      const collected = monthInvoices.reduce((sum, inv) => sum + inv.amountPaid, 0)
+      
+      return {
+        month,
+        billed: Math.round(billed),
+        collected: Math.round(collected),
+        target: 50000
+      }
+    })
+  }, [invoices])
 
   const utilizationByUser = useMemo(() => {
     return [
