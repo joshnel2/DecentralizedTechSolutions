@@ -358,20 +358,20 @@ const TOOLS = [
     type: "function",
     function: {
       name: "create_calendar_event",
-      description: "Create a new calendar event.",
+      description: "Create a new calendar event. Use this when the user wants to schedule a meeting, deadline, court date, or any other calendar event.",
       parameters: {
         type: "object",
         properties: {
-          title: { type: "string", description: "Event title" },
-          start_time: { type: "string", description: "Start time (ISO 8601 format)" },
-          end_time: { type: "string", description: "End time (defaults to 1 hour after start)" },
-          type: { type: "string", enum: ["meeting", "court_date", "deadline", "reminder", "task", "deposition", "other"] },
-          matter_id: { type: "string", description: "Associated matter UUID" },
-          location: { type: "string", description: "Event location" },
-          description: { type: "string", description: "Event description" },
-          all_day: { type: "boolean", description: "All-day event" }
+          title: { type: "string", description: "Event title (required)" },
+          start_time: { type: "string", description: "Start date/time in ISO 8601 format, e.g., '2025-01-15T14:00:00' (required)" },
+          end_time: { type: "string", description: "End date/time (optional, defaults to 1 hour after start)" },
+          type: { type: "string", enum: ["meeting", "court_date", "deadline", "reminder", "task", "closing", "deposition", "other"], description: "Type of event (optional, defaults to 'meeting')" },
+          matter_id: { type: "string", description: "Associated matter UUID (optional)" },
+          location: { type: "string", description: "Event location (optional)" },
+          description: { type: "string", description: "Event description/notes (optional)" },
+          all_day: { type: "boolean", description: "Whether this is an all-day event (optional, defaults to false)" }
         },
-        required: ["title", "start_time", "type"]
+        required: ["title", "start_time"]
       }
     }
   },
@@ -1546,45 +1546,110 @@ async function getCalendarEvents(args, user) {
 }
 
 async function createCalendarEvent(args, user) {
-  const { title, start_time, end_time, type, matter_id, location, description, all_day = false } = args;
+  console.log('createCalendarEvent called with args:', JSON.stringify(args));
   
-  if (!title || !start_time || !type) {
-    return { error: 'title, start_time, and type are required' };
+  const { title, start_time, end_time, type = 'meeting', matter_id, location, description, all_day = false } = args;
+  
+  if (!title) {
+    return { error: 'Event title is required' };
+  }
+  
+  if (!start_time) {
+    return { error: 'Start time is required. Please specify when the event should be scheduled.' };
   }
   
   const validTypes = ['meeting', 'court_date', 'deadline', 'reminder', 'task', 'closing', 'deposition', 'other'];
-  if (!validTypes.includes(type)) {
-    return { error: `Invalid event type. Must be one of: ${validTypes.join(', ')}` };
+  const eventType = validTypes.includes(type) ? type : 'meeting';
+  
+  // Parse start time - handle various formats
+  let startDate;
+  try {
+    // Try parsing the date
+    startDate = new Date(start_time);
+    
+    // If the date is invalid, try some alternative formats
+    if (isNaN(startDate.getTime())) {
+      // Try adding today's date if only time was provided
+      const today = new Date();
+      const timeMatch = start_time.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i);
+      if (timeMatch) {
+        let hours = parseInt(timeMatch[1]);
+        const minutes = parseInt(timeMatch[2]);
+        const meridiem = timeMatch[3]?.toLowerCase();
+        
+        if (meridiem === 'pm' && hours < 12) hours += 12;
+        if (meridiem === 'am' && hours === 12) hours = 0;
+        
+        startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, minutes);
+      }
+    }
+    
+    if (isNaN(startDate.getTime())) {
+      return { error: `Could not parse start_time "${start_time}". Please use a format like "2025-01-15T14:00:00" or "January 15, 2025 2:00 PM"` };
+    }
+  } catch (e) {
+    console.error('Error parsing start_time:', e);
+    return { error: 'Could not parse start_time' };
   }
   
-  const startDate = new Date(start_time);
-  if (isNaN(startDate.getTime())) {
-    return { error: 'Invalid start_time format' };
-  }
-  
+  // Calculate end time
   let endDate;
   if (end_time) {
-    endDate = new Date(end_time);
+    try {
+      endDate = new Date(end_time);
+      if (isNaN(endDate.getTime())) {
+        // If end_time is invalid, default to 1 hour after start
+        endDate = new Date(startDate);
+        endDate.setHours(endDate.getHours() + 1);
+      }
+    } catch (e) {
+      endDate = new Date(startDate);
+      endDate.setHours(endDate.getHours() + 1);
+    }
   } else {
     endDate = new Date(startDate);
-    if (type === 'meeting' || type === 'court_date' || type === 'deposition') {
+    if (eventType === 'meeting' || eventType === 'court_date' || eventType === 'deposition') {
       endDate.setHours(endDate.getHours() + 1);
     } else {
       endDate.setMinutes(endDate.getMinutes() + 30);
     }
   }
   
-  const result = await query(
-    `INSERT INTO calendar_events (firm_id, title, start_time, end_time, type, matter_id, location, description, all_day, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-    [user.firmId, title, startDate.toISOString(), endDate.toISOString(), type, matter_id || null, location || null, description || null, all_day, user.id]
-  );
+  // Validate matter_id if provided
+  let validMatterId = null;
+  if (matter_id) {
+    try {
+      const matterCheck = await query('SELECT id FROM matters WHERE id = $1 AND firm_id = $2', [matter_id, user.firmId]);
+      if (matterCheck.rows.length > 0) {
+        validMatterId = matter_id;
+      }
+    } catch (e) {
+      // Invalid UUID format, ignore
+      console.log('Invalid matter_id format:', matter_id);
+    }
+  }
   
-  return {
-    success: true,
-    message: `Created ${type} "${title}" for ${startDate.toLocaleString()}`,
-    data: { id: result.rows[0].id, title, start: startDate.toISOString(), type }
-  };
+  try {
+    console.log('Inserting calendar event:', { title, startDate: startDate.toISOString(), endDate: endDate.toISOString(), eventType });
+    
+    const result = await query(
+      `INSERT INTO calendar_events (firm_id, title, start_time, end_time, type, matter_id, location, description, all_day, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [user.firmId, title, startDate.toISOString(), endDate.toISOString(), eventType, validMatterId, location || null, description || null, all_day, user.id]
+    );
+    
+    const event = result.rows[0];
+    console.log('Calendar event created successfully:', event.id);
+    
+    return {
+      success: true,
+      message: `Created ${eventType} "${title}" scheduled for ${startDate.toLocaleDateString()} at ${startDate.toLocaleTimeString()}`,
+      data: { id: event.id, title: event.title, start: event.start_time, end: event.end_time, type: event.type }
+    };
+  } catch (dbError) {
+    console.error('Database error creating calendar event:', dbError);
+    return { error: `Failed to create event: ${dbError.message}` };
+  }
 }
 
 async function updateCalendarEvent(args, user) {
