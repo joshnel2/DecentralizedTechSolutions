@@ -288,7 +288,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "create_invoice",
-      description: "Create a new invoice for a client.",
+      description: "Create a new invoice for a client. Can include unbilled time entries and/or custom line items with specific amounts.",
       parameters: {
         type: "object",
         properties: {
@@ -296,7 +296,21 @@ const TOOLS = [
           matter_id: { type: "string", description: "UUID of the matter (optional)" },
           due_date: { type: "string", description: "Due date (YYYY-MM-DD)" },
           notes: { type: "string", description: "Invoice notes" },
-          include_unbilled_time: { type: "boolean", description: "Include unbilled time entries. Defaults to true." }
+          include_unbilled_time: { type: "boolean", description: "Include unbilled time entries. Defaults to false when custom items provided." },
+          items: { 
+            type: "array", 
+            description: "Custom line items to add to the invoice",
+            items: {
+              type: "object",
+              properties: {
+                description: { type: "string", description: "Item description" },
+                amount: { type: "number", description: "Item amount in dollars" },
+                quantity: { type: "number", description: "Quantity (defaults to 1)" }
+              },
+              required: ["description", "amount"]
+            }
+          },
+          amount: { type: "number", description: "Simple way to create invoice with single amount (alternative to items array)" }
         },
         required: ["client_id"]
       }
@@ -1337,11 +1351,13 @@ async function getInvoice(args, user) {
 }
 
 async function createInvoice(args, user) {
+  console.log('createInvoice called with args:', JSON.stringify(args));
+  
   if (!hasPermission(user.role, 'billing:create')) {
     return { error: 'You do not have permission to create invoices' };
   }
   
-  const { client_id, matter_id, due_date, notes, include_unbilled_time = true } = args;
+  const { client_id, matter_id, due_date, notes, items, amount, include_unbilled_time } = args;
   
   if (!client_id) {
     return { error: 'client_id is required' };
@@ -1358,11 +1374,41 @@ async function createInvoice(args, user) {
     const count = parseInt(countResult.rows[0].count) + 1;
     const number = `INV-${new Date().getFullYear()}-${String(count).padStart(4, '0')}`;
     
-    // Get unbilled time entries
     let lineItems = [];
     let subtotalFees = 0;
     
-    if (include_unbilled_time) {
+    // Add custom line items if provided
+    if (items && Array.isArray(items)) {
+      for (const item of items) {
+        const qty = item.quantity || 1;
+        const itemAmount = parseFloat(item.amount) * qty;
+        lineItems.push({
+          type: 'fee',
+          description: item.description,
+          quantity: qty,
+          rate: parseFloat(item.amount),
+          amount: itemAmount
+        });
+        subtotalFees += itemAmount;
+      }
+    }
+    
+    // If simple amount provided, add as single line item
+    if (amount && !items) {
+      lineItems.push({
+        type: 'fee',
+        description: notes || 'Professional services',
+        quantity: 1,
+        rate: parseFloat(amount),
+        amount: parseFloat(amount)
+      });
+      subtotalFees += parseFloat(amount);
+    }
+    
+    // Include unbilled time entries if requested (or if no custom items provided)
+    const shouldIncludeTime = include_unbilled_time === true || (include_unbilled_time !== false && lineItems.length === 0);
+    
+    if (shouldIncludeTime) {
       let timeQuery = `SELECT te.*, m.name as matter_name FROM time_entries te
         LEFT JOIN matters m ON te.matter_id = m.id
         WHERE te.firm_id = $1 AND te.billable = true AND te.billed = false`;
@@ -1379,28 +1425,32 @@ async function createInvoice(args, user) {
       const timeEntries = await client.query(timeQuery, timeParams);
       
       for (const te of timeEntries.rows) {
-        const amount = parseFloat(te.hours) * parseFloat(te.rate);
+        const teAmount = parseFloat(te.hours) * parseFloat(te.rate);
         lineItems.push({
           type: 'fee',
-          description: `${te.matter_name}: ${te.description}`,
+          description: `${te.matter_name || 'Time entry'}: ${te.description}`,
           quantity: parseFloat(te.hours),
           rate: parseFloat(te.rate),
-          amount: amount,
+          amount: teAmount,
           time_entry_id: te.id
         });
-        subtotalFees += amount;
-        
-        // Mark as billed
-        await client.query('UPDATE time_entries SET billed = true, invoice_id = $1 WHERE id = $2', [null, te.id]);
+        subtotalFees += teAmount;
       }
+    }
+    
+    if (lineItems.length === 0) {
+      return { error: 'No line items to invoice. Please provide items, amount, or ensure there are unbilled time entries.' };
     }
     
     const dueD = due_date || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     
+    // Calculate total
+    const total = subtotalFees;
+    
     const invoiceResult = await client.query(
       `INSERT INTO invoices (firm_id, number, matter_id, client_id, status, issue_date, due_date,
-        subtotal_fees, line_items, notes, created_by)
-       VALUES ($1, $2, $3, $4, 'draft', CURRENT_DATE, $5, $6, $7, $8, $9) RETURNING *`,
+        subtotal_fees, subtotal, total, amount_due, line_items, notes, created_by)
+       VALUES ($1, $2, $3, $4, 'draft', CURRENT_DATE, $5, $6, $6, $6, $6, $7, $8, $9) RETURNING *`,
       [user.firmId, number, matter_id || null, client_id, dueD, subtotalFees, JSON.stringify(lineItems), notes || null, user.id]
     );
     
@@ -1409,18 +1459,20 @@ async function createInvoice(args, user) {
     // Update time entries with invoice ID
     for (const item of lineItems) {
       if (item.time_entry_id) {
-        await client.query('UPDATE time_entries SET invoice_id = $1 WHERE id = $2', [invoice.id, item.time_entry_id]);
+        await client.query('UPDATE time_entries SET invoice_id = $1, billed = true WHERE id = $2', [invoice.id, item.time_entry_id]);
       }
     }
     
+    console.log('Invoice created successfully:', invoice.id, 'Total:', subtotalFees);
+    
     return {
       success: true,
-      message: `Created invoice ${number} for $${parseFloat(invoice.total).toFixed(2)}`,
+      message: `Created invoice ${number} for $${subtotalFees.toFixed(2)}`,
       data: {
         id: invoice.id,
         number: invoice.number,
         client: clientCheck.rows[0].display_name,
-        total: parseFloat(invoice.total),
+        total: subtotalFees,
         line_item_count: lineItems.length
       }
     };
@@ -1547,6 +1599,11 @@ async function getCalendarEvents(args, user) {
 
 async function createCalendarEvent(args, user) {
   console.log('createCalendarEvent called with args:', JSON.stringify(args));
+  
+  // Check permission
+  if (!hasPermission(user.role, 'calendar:create')) {
+    return { error: 'You do not have permission to create calendar events' };
+  }
   
   const { title, start_time, end_time, type = 'meeting', matter_id, location, description, all_day = false } = args;
   
