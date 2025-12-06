@@ -129,7 +129,7 @@ export function Layout() {
                 </defs>
               </svg>
             </div>
-            {(sidebarOpen || isMobile) && <span className={styles.logoText}>Apex AI</span>}
+            {(sidebarOpen || isMobile) && <span className={styles.logoText}>Apex</span>}
           </div>
           {isMobile && (
             <button 
