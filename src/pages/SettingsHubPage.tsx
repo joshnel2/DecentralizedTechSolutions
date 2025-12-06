@@ -4,9 +4,9 @@ import {
   // System
   Users, Lock, FileText,
   // Personal
-  User, Palette, Calendar, Bell,
+  User, Calendar, Bell,
   // Firm Settings
-  Building2, Workflow, ChevronRight, Settings, Sparkles
+  Building2, Workflow, ChevronRight, Settings
 } from 'lucide-react'
 import styles from './SettingsHubPage.module.css'
 
@@ -55,13 +55,6 @@ const personalSettings: SettingItem[] = [
     path: '/app/settings/profile'
   },
   {
-    id: 'appearance',
-    name: 'Appearance',
-    description: 'Customize how Apex looks on your device.',
-    icon: Palette,
-    path: '/app/settings/appearance'
-  },
-  {
     id: 'calendar-sync',
     name: 'Calendar Sync',
     description: 'Connect your account to Google, Zoom or Microsoft 365.',
@@ -92,14 +85,6 @@ const firmSettings: SettingItem[] = [
     description: "Speed up your firm's processes using automated workflows.",
     icon: Workflow,
     path: '/app/admin',
-    adminOnly: true
-  },
-  {
-    id: 'ai-configuration',
-    name: 'AI Configuration',
-    description: 'Configure AI services for intelligent features like document analysis and suggestions.',
-    icon: Sparkles,
-    path: '/app/settings/ai',
     adminOnly: true
   },
   {
