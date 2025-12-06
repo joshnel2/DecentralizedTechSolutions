@@ -44,6 +44,23 @@ export function LoginPage() {
         <div className={styles.gridOverlay} />
       </div>
 
+      {/* Mobile Header with Logo - only visible on mobile */}
+      <div className={styles.mobileHeader}>
+        <div className={styles.logo}>
+          <svg width="40" height="40" viewBox="0 0 32 32" fill="none">
+            <path d="M16 4L28 28H4L16 4Z" fill="url(#mobileGrad)" stroke="#F59E0B" strokeWidth="1.5"/>
+            <circle cx="16" cy="19" r="3" fill="#0B0F1A"/>
+            <defs>
+              <linearGradient id="mobileGrad" x1="16" y1="4" x2="16" y2="28">
+                <stop stopColor="#FBBF24"/>
+                <stop offset="1" stopColor="#F59E0B"/>
+              </linearGradient>
+            </defs>
+          </svg>
+          <span className={styles.logoText}>Apex</span>
+        </div>
+      </div>
+
       {/* Left Side - Branding */}
       <div className={styles.brandSide}>
         <div className={styles.brandContent}>
@@ -98,21 +115,6 @@ export function LoginPage() {
       {/* Right Side - Login Form */}
       <div className={styles.formSide}>
         <div className={styles.formContainer}>
-          {/* Mobile Logo */}
-          <div className={styles.mobileLogo}>
-            <svg width="40" height="40" viewBox="0 0 32 32" fill="none">
-              <path d="M16 4L28 28H4L16 4Z" fill="url(#mobileLoginGrad)" stroke="#F59E0B" strokeWidth="1.5"/>
-              <circle cx="16" cy="19" r="3" fill="#0B0F1A"/>
-              <defs>
-                <linearGradient id="mobileLoginGrad" x1="16" y1="4" x2="16" y2="28">
-                  <stop stopColor="#FBBF24"/>
-                  <stop offset="1" stopColor="#F59E0B"/>
-                </linearGradient>
-              </defs>
-            </svg>
-            <span>Apex</span>
-          </div>
-          
           <div className={styles.formHeader}>
             <h2>Welcome back</h2>
             <p>Sign in to your Apex account</p>

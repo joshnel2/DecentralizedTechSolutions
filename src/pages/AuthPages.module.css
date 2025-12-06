@@ -5,6 +5,11 @@
   overflow: hidden;
 }
 
+/* Mobile Header - hidden on desktop */
+.mobileHeader {
+  display: none;
+}
+
 /* Background Effects */
 .bgEffects {
   position: fixed;
@@ -140,27 +145,6 @@
 .formContainer {
   width: 100%;
   max-width: 400px;
-}
-
-.mobileLogo {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-sm);
-  margin-bottom: var(--space-lg);
-}
-
-.mobileLogo span {
-  font-family: var(--font-serif);
-  font-size: 1.75rem;
-  color: var(--apex-white);
-  letter-spacing: -0.02em;
-}
-
-@media (max-width: 1024px) {
-  .mobileLogo {
-    display: flex;
-  }
 }
 
 .formHeader {
@@ -514,12 +498,30 @@
     flex-direction: column;
   }
   
-  .brandSide {
-    padding: var(--space-xl);
-    order: 2;
+  .mobileHeader {
+    display: flex;
+    justify-content: center;
+    padding: var(--space-xl) var(--space-xl) var(--space-md);
+    order: 1;
+    position: relative;
+    z-index: 1;
   }
   
-  .logo {
+  .mobileHeader .logo {
+    display: flex;
+    margin-bottom: 0;
+  }
+  
+  .mobileHeader .logoText {
+    font-size: 1.75rem;
+  }
+  
+  .brandSide {
+    padding: var(--space-xl);
+    order: 3;
+  }
+  
+  .brandSide .logo {
     display: none;
   }
   
@@ -531,8 +533,8 @@
     border-left: none;
     border-top: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    order: 1;
-    padding: var(--space-xl);
+    order: 2;
+    padding: var(--space-lg) var(--space-xl);
   }
   
   .inputRow,
@@ -546,6 +548,14 @@
     min-height: auto;
   }
   
+  .mobileHeader {
+    padding: var(--space-lg) var(--space-md) var(--space-sm);
+  }
+  
+  .mobileHeader .logoText {
+    font-size: 1.5rem;
+  }
+  
   .brandSide {
     padding: var(--space-lg) var(--space-md);
   }
@@ -555,12 +565,12 @@
   }
   
   .brandTitle {
-    font-size: 1.5rem;
+    font-size: 1.375rem;
     text-align: center;
   }
   
   .brandSubtitle {
-    font-size: 1rem;
+    font-size: 0.9375rem;
     text-align: center;
     margin-bottom: var(--space-lg);
   }
@@ -587,8 +597,7 @@
   }
   
   .formSide {
-    padding: var(--space-lg) var(--space-md);
-    padding-top: var(--space-xl);
+    padding: var(--space-md);
   }
   
   .formContainer {
@@ -600,7 +609,7 @@
   }
   
   .formHeader h2 {
-    font-size: 1.5rem;
+    font-size: 1.375rem;
   }
   
   .divider {
