@@ -299,6 +299,259 @@
   text-decoration: underline;
 }
 
+.timerClientName {
+  font-weight: 400;
+  color: var(--apex-text);
+}
+
+.timerSelects {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.timerSelect {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.875rem;
+  min-width: 180px;
+}
+
+.timerSelect:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+}
+
+.startTimerBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.startTimerBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+/* Modal Styles */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn var(--transition-fast) ease;
+}
+
+.modal {
+  width: 100%;
+  max-width: 500px;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  padding: var(--space-xl);
+  animation: slideUp var(--transition-base) ease;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-xl);
+}
+
+.modalHeader h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 400;
+  color: var(--apex-white);
+}
+
+.modalHeader h2 svg {
+  color: var(--apex-gold);
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  color: var(--apex-text);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.closeBtn:hover {
+  color: var(--apex-white);
+}
+
+.modalForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.timerSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-sm);
+}
+
+.timerSummaryItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: #10B981;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.formGroup label {
+  font-size: 0.875rem;
+  color: var(--apex-light);
+}
+
+.formGroup input,
+.formGroup select,
+.formGroup textarea {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  font-family: inherit;
+}
+
+.formGroup input:focus,
+.formGroup select:focus,
+.formGroup textarea:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+
+.clientInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.875rem;
+}
+
+.clientInfo svg {
+  color: var(--apex-gold);
+}
+
+.entryTotal {
+  padding: var(--space-md);
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--apex-gold-bright);
+  font-size: 1.125rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.modalActions {
+  display: flex;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.cancelBtn {
+  flex: 1;
+  padding: var(--space-md);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.cancelBtn:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--apex-white);
+}
+
+.cancelBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.saveBtn {
+  flex: 1;
+  padding: var(--space-md);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.saveBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+.saveBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* Charts Row */
 .chartsRow {
   display: grid;

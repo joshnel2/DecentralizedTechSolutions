@@ -1,13 +1,13 @@
-import { useMemo, useEffect } from 'react'
+import { useMemo, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
-import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
+import { useTimer, formatElapsedTime, secondsToHours } from '../contexts/TimerContext'
 import { 
   Briefcase, Users, Clock, DollarSign, Calendar, TrendingUp,
   AlertCircle, ArrowRight, Sparkles, FileText, CheckCircle2,
-  Play, Pause, StopCircle, X
+  Play, Pause, StopCircle, X, Save
 } from 'lucide-react'
 import { format, isAfter, parseISO, startOfMonth, endOfMonth } from 'date-fns'
 import { 
@@ -20,15 +20,36 @@ const COLORS = ['#F59E0B', '#3B82F6', '#10B981', '#8B5CF6', '#EF4444']
 
 export function DashboardPage() {
   const { user } = useAuthStore()
-  const { matters, clients, timeEntries, invoices, events, fetchMatters, fetchClients, fetchTimeEntries, fetchInvoices, fetchEvents } = useDataStore()
+  const { matters, clients, timeEntries, invoices, events, fetchMatters, fetchClients, fetchTimeEntries, fetchInvoices, fetchEvents, addTimeEntry } = useDataStore()
   const { openChat } = useAIChat()
   const { timer, startTimer: globalStartTimer, pauseTimer, resumeTimer, stopTimer, discardTimer } = useTimer()
+  
+  // Timer selection state
+  const [selectedMatterId, setSelectedMatterId] = useState('')
+  const [selectedClientId, setSelectedClientId] = useState('')
+  const [showSaveTimerModal, setShowSaveTimerModal] = useState(false)
 
-  const startTimer = (matterId: string) => {
-    const matter = matters.find(m => m.id === matterId)
-    if (matter) {
-      globalStartTimer({ matterId, matterName: matter.name })
-    }
+  // Filter matters based on selected client
+  const filteredMatters = useMemo(() => {
+    if (!selectedClientId) return matters.filter(m => m.status === 'active')
+    return matters.filter(m => m.status === 'active' && m.clientId === selectedClientId)
+  }, [matters, selectedClientId])
+
+  const handleStartTimer = () => {
+    const matter = selectedMatterId ? matters.find(m => m.id === selectedMatterId) : null
+    const client = selectedClientId ? clients.find(c => c.id === selectedClientId) : null
+    
+    globalStartTimer({ 
+      matterId: selectedMatterId || undefined, 
+      matterName: matter?.name,
+      clientId: selectedClientId || undefined,
+      clientName: client?.name || client?.displayName
+    })
+  }
+
+  const handleStopTimer = () => {
+    stopTimer()
+    setShowSaveTimerModal(true)
   }
 
   // Fetch all data when component mounts
@@ -235,7 +256,10 @@ export function DashboardPage() {
                 <Clock size={20} />
               </div>
               <div className={styles.timerDetails}>
-                <span className={styles.timerMatterName}>{timer.matterName || 'General Time'}</span>
+                <span className={styles.timerMatterName}>
+                  {timer.matterName || 'General Time'}
+                  {timer.clientName && <span className={styles.timerClientName}> • {timer.clientName}</span>}
+                </span>
                 <span className={styles.timerElapsed}>{formatElapsedTime(timer.elapsed)}</span>
               </div>
             </div>
@@ -251,7 +275,7 @@ export function DashboardPage() {
                   Pause
                 </button>
               ) : null}
-              <button onClick={stopTimer} className={styles.stopBtn} title="Stop & Save">
+              <button onClick={handleStopTimer} className={styles.stopBtn} title="Stop & Save">
                 <StopCircle size={18} />
                 Stop
               </button>
@@ -266,27 +290,62 @@ export function DashboardPage() {
               <Clock size={20} />
               <h3>Start Timer</h3>
             </div>
-            <div className={styles.matterButtons}>
-              {matters.filter(m => m.status === 'active').slice(0, 5).map(matter => (
-                <button 
-                  key={matter.id}
-                  className={styles.matterTimerBtn}
-                  onClick={() => startTimer(matter.id)}
-                >
-                  <Play size={14} />
-                  <span>{matter.name}</span>
-                </button>
-              ))}
-              {matters.filter(m => m.status === 'active').length > 5 && (
-                <Link to="/app/time" className={styles.viewMoreBtn}>
-                  View all matters
-                  <ArrowRight size={14} />
-                </Link>
-              )}
+            <div className={styles.timerSelects}>
+              <select 
+                value={selectedClientId} 
+                onChange={(e) => {
+                  setSelectedClientId(e.target.value)
+                  setSelectedMatterId('') // Reset matter when client changes
+                }}
+                className={styles.timerSelect}
+              >
+                <option value="">All Clients</option>
+                {clients.filter(c => c.isActive).map(c => (
+                  <option key={c.id} value={c.id}>{c.name || c.displayName}</option>
+                ))}
+              </select>
+              <select 
+                value={selectedMatterId} 
+                onChange={(e) => setSelectedMatterId(e.target.value)}
+                className={styles.timerSelect}
+              >
+                <option value="">No matter (general time)</option>
+                {filteredMatters.map(m => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+              <button className={styles.startTimerBtn} onClick={handleStartTimer}>
+                <Play size={18} />
+                Start Timer
+              </button>
             </div>
           </div>
         )}
       </section>
+
+      {/* Save Timer Modal */}
+      {showSaveTimerModal && (
+        <SaveTimerModal
+          timer={timer}
+          matters={matters}
+          clients={clients}
+          onClose={() => {
+            setShowSaveTimerModal(false)
+            discardTimer()
+          }}
+          onSave={async (data) => {
+            try {
+              await addTimeEntry(data)
+              setShowSaveTimerModal(false)
+              discardTimer()
+              fetchTimeEntries({})
+            } catch (error) {
+              console.error('Failed to save time entry:', error)
+              alert('Failed to save time entry. Please try again.')
+            }
+          }}
+        />
+      )}
 
       {/* Charts Row */}
       <section className={styles.chartsRow}>
@@ -517,6 +576,173 @@ export function DashboardPage() {
           <ArrowRight size={16} />
         </button>
       </section>
+    </div>
+  )
+}
+
+// Save Timer Modal - Save stopped timer as time entry
+function SaveTimerModal({ timer, matters, clients, onClose, onSave }: {
+  timer: any
+  matters: any[]
+  clients: any[]
+  onClose: () => void
+  onSave: (data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const hours = secondsToHours(timer.elapsed)
+  const matter = timer.matterId ? matters.find((m: any) => m.id === timer.matterId) : null
+  
+  const [formData, setFormData] = useState({
+    matterId: timer.matterId || '',
+    date: format(new Date(), 'yyyy-MM-dd'),
+    hours: Math.max(0.01, hours),
+    description: '',
+    billable: true,
+    rate: matter?.billingRate || 450
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onSave({
+        ...formData,
+        matterId: formData.matterId || undefined,
+        date: new Date(formData.date).toISOString(),
+        billed: false,
+        aiGenerated: false
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // Get client name for the selected matter
+  const selectedMatter = formData.matterId ? matters.find(m => m.id === formData.matterId) : null
+  const selectedClient = selectedMatter ? clients.find(c => c.id === selectedMatter.clientId) : null
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>
+            <Save size={20} />
+            Save Time Entry
+          </h2>
+          <button onClick={onClose} className={styles.closeBtn}>×</button>
+        </div>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
+          <div className={styles.timerSummary}>
+            <div className={styles.timerSummaryItem}>
+              <Clock size={16} />
+              <span>Timer: {formatElapsedTime(timer.elapsed)}</span>
+            </div>
+            {timer.matterName && (
+              <div className={styles.timerSummaryItem}>
+                <span>Matter: {timer.matterName}</span>
+              </div>
+            )}
+            {timer.clientName && (
+              <div className={styles.timerSummaryItem}>
+                <span>Client: {timer.clientName}</span>
+              </div>
+            )}
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Matter (optional)</label>
+            <select
+              value={formData.matterId}
+              onChange={(e) => {
+                const selectedM = matters.find((m: any) => m.id === e.target.value)
+                setFormData({
+                  ...formData, 
+                  matterId: e.target.value,
+                  rate: selectedM?.billingRate || 450
+                })
+              }}
+            >
+              <option value="">No matter selected</option>
+              {matters.filter(m => m.status === 'active').map((m: any) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {selectedClient && (
+            <div className={styles.clientInfo}>
+              <Users size={14} />
+              <span>Client: {selectedClient.name || selectedClient.displayName}</span>
+            </div>
+          )}
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Date</label>
+              <input
+                type="date"
+                value={formData.date}
+                onChange={(e) => setFormData({...formData, date: e.target.value})}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Hours</label>
+              <input
+                type="number"
+                value={formData.hours}
+                onChange={(e) => setFormData({...formData, hours: parseFloat(e.target.value)})}
+                min="0.01"
+                step="0.01"
+              />
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Description</label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({...formData, description: e.target.value})}
+              placeholder="Describe the work performed..."
+              rows={3}
+            />
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Rate ($/hr)</label>
+              <input
+                type="number"
+                value={formData.rate}
+                onChange={(e) => setFormData({...formData, rate: parseInt(e.target.value)})}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Billable</label>
+              <select
+                value={formData.billable ? 'yes' : 'no'}
+                onChange={(e) => setFormData({...formData, billable: e.target.value === 'yes'})}
+              >
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </div>
+          </div>
+
+          <div className={styles.entryTotal}>
+            Total: ${(formData.hours * formData.rate).toLocaleString()}
+          </div>
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+              Discard
+            </button>
+            <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Saving...' : 'Save Entry'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }

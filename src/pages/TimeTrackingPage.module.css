@@ -201,6 +201,11 @@
   color: var(--apex-white);
 }
 
+.timerClient {
+  font-weight: 400;
+  color: var(--apex-text);
+}
+
 .timerElapsed {
   font-size: 1.5rem;
   font-weight: 600;

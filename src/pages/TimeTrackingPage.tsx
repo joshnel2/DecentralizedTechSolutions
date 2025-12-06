@@ -32,6 +32,13 @@ export function TimeTrackingPage() {
   const [selectedEntries, setSelectedEntries] = useState<string[]>([])
   const [editingEntry, setEditingEntry] = useState<any>(null)
   const [selectedMatterId, setSelectedMatterId] = useState('')
+  const [selectedClientId, setSelectedClientId] = useState('')
+
+  // Filter matters based on selected client
+  const filteredMatters = useMemo(() => {
+    if (!selectedClientId) return matters.filter(m => m.status === 'active')
+    return matters.filter(m => m.status === 'active' && m.clientId === selectedClientId)
+  }, [matters, selectedClientId])
 
   const weekDays = useMemo(() => {
     const now = new Date()
@@ -118,12 +125,15 @@ export function TimeTrackingPage() {
   }
 
   const handleStartTimer = () => {
-    if (selectedMatterId) {
-      const matter = matters.find(m => m.id === selectedMatterId)
-      startTimer({ matterId: selectedMatterId, matterName: matter?.name })
-    } else {
-      startTimer({})
-    }
+    const matter = selectedMatterId ? matters.find(m => m.id === selectedMatterId) : null
+    const client = selectedClientId ? clients.find(c => c.id === selectedClientId) : null
+    
+    startTimer({ 
+      matterId: selectedMatterId || undefined, 
+      matterName: matter?.name,
+      clientId: selectedClientId || undefined,
+      clientName: client?.name || client?.displayName
+    })
   }
 
   return (
@@ -166,7 +176,10 @@ export function TimeTrackingPage() {
                 <Clock size={20} />
               </div>
               <div className={styles.timerDetails}>
-                <span className={styles.timerMatter}>{timer.matterName || 'General Time'}</span>
+                <span className={styles.timerMatter}>
+                  {timer.matterName || 'General Time'}
+                  {timer.clientName && <span className={styles.timerClient}> • {timer.clientName}</span>}
+                </span>
                 <span className={styles.timerElapsed}>{formatElapsedTime(timer.elapsed)}</span>
               </div>
             </div>
@@ -199,12 +212,25 @@ export function TimeTrackingPage() {
             </div>
             <div className={styles.startTimerRight}>
               <select 
+                value={selectedClientId} 
+                onChange={(e) => {
+                  setSelectedClientId(e.target.value)
+                  setSelectedMatterId('') // Reset matter when client changes
+                }}
+                className={styles.matterSelect}
+              >
+                <option value="">All Clients</option>
+                {clients.filter(c => c.isActive).map(c => (
+                  <option key={c.id} value={c.id}>{c.name || c.displayName}</option>
+                ))}
+              </select>
+              <select 
                 value={selectedMatterId} 
                 onChange={(e) => setSelectedMatterId(e.target.value)}
                 className={styles.matterSelect}
               >
                 <option value="">No matter (general time)</option>
-                {matters.filter(m => m.status === 'active').map(m => (
+                {filteredMatters.map(m => (
                   <option key={m.id} value={m.id}>{m.name}</option>
                 ))}
               </select>
