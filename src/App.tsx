@@ -147,12 +147,8 @@ function AppContent() {
     <Routes>
       {/* Public Routes */}
       <Route path="/" element={<LandingPage />} />
-      <Route path="/login" element={
-        <PublicRoute><LoginPage /></PublicRoute>
-      } />
-      <Route path="/register" element={
-        <PublicRoute><RegisterPage /></PublicRoute>
-      } />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
       
       {/* Firm Setup */}
       <Route path="/setup" element={
