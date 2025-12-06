@@ -564,14 +564,46 @@ router.post('/chat', authenticate, async (req, res) => {
       return res.status(500).json({ error: 'AI service not configured' });
     }
 
-    // Build context for current page
-    const pageContext = await buildContext(page, req.user.firmId, req.user.id, additionalContext);
+    // Check if document content is provided for document analysis
+    const { documentContent, documentName, documentType } = additionalContext || {};
+    
+    let systemContent = SYSTEM_PROMPT;
+    
+    // If document content is provided, use a document-focused system prompt
+    if (documentContent && documentContent.length > 0) {
+      console.log(`[AI Chat] Document analysis mode - Document: ${documentName}, Content length: ${documentContent.length}`);
+      
+      systemContent = `You are an intelligent AI assistant for a law firm management platform called Apex Legal. You are analyzing a document that the user has uploaded.
+
+DOCUMENT INFORMATION:
+- Name: ${documentName || 'Unknown'}
+- Type: ${documentType || 'Unknown'}
+
+--- BEGIN DOCUMENT CONTENT ---
+${documentContent}
+--- END DOCUMENT CONTENT ---
+
+RULES FOR DOCUMENT ANALYSIS:
+1. Answer questions specifically about this document's content
+2. Provide accurate summaries, key points, and analysis when asked
+3. Quote relevant sections when appropriate
+4. If asked about something not in the document, say so clearly
+5. Be helpful for legal document review: identify key terms, obligations, dates, parties, etc.
+6. Format responses nicely with bullet points or numbered lists when appropriate
+7. If the document content appears corrupted or unreadable, let the user know
+
+You are speaking directly to a law firm professional about this document.`;
+    } else {
+      // Build context for current page (standard mode)
+      const pageContext = await buildContext(page, req.user.firmId, req.user.id, additionalContext);
+      systemContent = `${SYSTEM_PROMPT}\n\n${pageContext}`;
+    }
 
     // Build messages array
     const messages = [
       {
         role: 'system',
-        content: `${SYSTEM_PROMPT}\n\n${pageContext}`,
+        content: systemContent,
       },
       // Include conversation history (last 10 messages)
       ...conversationHistory.slice(-10).map(msg => ({

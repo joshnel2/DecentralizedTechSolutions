@@ -79,6 +79,7 @@ export function DocumentsPage() {
   
   const openAIWithDocContext = async (doc: typeof documents[0]) => {
     setIsExtractingForChat(true)
+    console.log('[DocumentsPage] Starting AI analysis for document:', doc.name, doc.type)
     
     try {
       // First try to get content from server
@@ -89,49 +90,66 @@ export function DocumentsPage() {
       
       // Try server-side content extraction first
       try {
+        console.log('[DocumentsPage] Trying server-side extraction...')
         const contentResponse = await fetch(`${apiUrl}/documents/${doc.id}/content`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
         
         if (contentResponse.ok) {
           const data = await contentResponse.json()
+          console.log('[DocumentsPage] Server response:', { 
+            contentLength: data.content?.length || 0,
+            hasContent: !!data.content,
+            preview: data.content?.substring(0, 100) 
+          })
           if (data.content && data.content.trim().length > 50) {
             extractedContent = data.content
+            console.log('[DocumentsPage] Using server-extracted content, length:', extractedContent.length)
           }
+        } else {
+          console.log('[DocumentsPage] Server extraction failed:', contentResponse.status)
         }
       } catch (e) {
-        console.log('Server content extraction not available, trying client-side')
+        console.log('[DocumentsPage] Server content extraction not available, trying client-side:', e)
       }
       
       // If server didn't return content, download and extract client-side
       if (!extractedContent) {
         try {
-          console.log('Downloading document for client-side extraction:', doc.name, doc.type)
+          console.log('[DocumentsPage] Downloading document for client-side extraction:', doc.name, doc.type)
           const downloadResponse = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
             headers: { 'Authorization': `Bearer ${token}` }
           })
           
           if (downloadResponse.ok) {
             const blob = await downloadResponse.blob()
-            console.log('Downloaded blob:', blob.size, 'bytes, type:', blob.type)
+            console.log('[DocumentsPage] Downloaded blob:', blob.size, 'bytes, type:', blob.type)
             // Use the document's stored type, or fall back to blob type
             const fileType = doc.type || blob.type || 'application/octet-stream'
             const file = new File([blob], doc.name, { type: fileType })
-            console.log('Created file for extraction:', file.name, file.type, file.size)
+            console.log('[DocumentsPage] Created file for extraction:', file.name, file.type, file.size)
             extractedContent = await extractFileContent(file)
-            console.log('Extracted content length:', extractedContent.length)
+            console.log('[DocumentsPage] Client-side extracted content length:', extractedContent.length)
+            console.log('[DocumentsPage] Content preview:', extractedContent.substring(0, 200))
           } else {
-            console.error('Download failed:', downloadResponse.status, downloadResponse.statusText)
+            console.error('[DocumentsPage] Download failed:', downloadResponse.status, downloadResponse.statusText)
           }
         } catch (e) {
-          console.error('Failed to download document for extraction:', e)
+          console.error('[DocumentsPage] Failed to download document for extraction:', e)
         }
       }
       
       // If we still don't have content, provide a fallback message
       if (!extractedContent) {
         extractedContent = `[Document: ${doc.name}]\nType: ${doc.type}\nSize: ${formatFileSize(doc.size)}\n\nUnable to extract text content. The document may be an image or scanned PDF.`
+        console.log('[DocumentsPage] Using fallback content')
       }
+      
+      console.log('[DocumentsPage] Final content to send to AI:', {
+        name: doc.name,
+        contentLength: extractedContent.length,
+        preview: extractedContent.substring(0, 300)
+      })
       
       // Navigate to AI page with document context
       setSelectedMode('document')

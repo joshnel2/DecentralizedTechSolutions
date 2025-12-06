@@ -155,38 +155,44 @@ export const useAIStore = create<AIState>()(
             content: m.content
           })) || []
           
-          // Build the actual message sent to AI (includes hidden context)
+          // Build the actual message sent to AI
           let aiMessage = userMessage
           
-          // Add document context invisibly for document analysis mode
+          // Build document context to send to backend (will be included in system prompt)
+          let documentContextForApi: { documentContent?: string; documentName?: string; documentType?: string } = {}
+          
+          // Add document context for document analysis mode
           if (hiddenContext) {
             aiMessage = `${hiddenContext}\n\nUser's question: ${userMessage}`
-          } else if (selectedMode === 'document' && documentContext) {
-            aiMessage = `[DOCUMENT CONTEXT - The user has uploaded a document for analysis]
-Document Name: ${documentContext.name}
-Document Type: ${documentContext.type || 'Unknown'}
-
---- DOCUMENT CONTENT ---
-${documentContext.content}
---- END DOCUMENT ---
-
-User's question about this document: ${userMessage}`
+          } else if (selectedMode === 'document' && documentContext && documentContext.content) {
+            // Send document content as context to be included in system prompt
+            documentContextForApi = {
+              documentContent: documentContext.content,
+              documentName: documentContext.name,
+              documentType: documentContext.type || 'Unknown'
+            }
+            console.log('[AI Store] Document context being sent:', {
+              name: documentContext.name,
+              contentLength: documentContext.content?.length || 0,
+              contentPreview: documentContext.content?.substring(0, 200) || 'No content'
+            })
           } else if (selectedMode === 'redline' && redlineDocuments.doc1 && redlineDocuments.doc2) {
-            aiMessage = `[REDLINE COMPARISON REQUEST - Compare these two documents and identify changes]
-
---- DOCUMENT 1: ${redlineDocuments.doc1.name} ---
+            // For redline mode, include both documents in the context
+            documentContextForApi = {
+              documentContent: `--- DOCUMENT 1: ${redlineDocuments.doc1.name} ---
 ${redlineDocuments.doc1.content}
 --- END DOCUMENT 1 ---
 
 --- DOCUMENT 2: ${redlineDocuments.doc2.name} ---
 ${redlineDocuments.doc2.content}
---- END DOCUMENT 2 ---
-
-User's request: ${userMessage}`
+--- END DOCUMENT 2 ---`,
+              documentName: `${redlineDocuments.doc1.name} vs ${redlineDocuments.doc2.name}`,
+              documentType: 'Redline Comparison'
+            }
           }
           
-          // Call real AI API
-          const result = await aiApi.chat(aiMessage, 'ai-assistant', {}, history)
+          // Call real AI API with document context
+          const result = await aiApi.chat(aiMessage, 'ai-assistant', documentContextForApi, history)
           
           addMessage(conversationId, {
             role: 'assistant',
