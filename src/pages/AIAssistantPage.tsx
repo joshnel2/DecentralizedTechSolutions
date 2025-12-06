@@ -107,29 +107,58 @@ export function AIAssistantPage() {
           resolve(`[IMAGE FILE: ${file.name}]\n\nThis appears to be an image file. For best results with legal documents, please:\n1. Convert the image to PDF format, or\n2. Use OCR software to extract the text first, or\n3. Describe what you see in the image and I can provide guidance.\n\nI can still help analyze and draft documents based on your description of the image content.`)
         }
         // Handle PDF files
-        else if (file.type === 'application/pdf') {
+        else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
           try {
             const arrayBuffer = result as ArrayBuffer
             const pdfjsLib = await import('pdfjs-dist')
             
+            // Use the worker from unpkg CDN which is more reliable for cross-origin
+            // Match the exact version from our package
             pdfjsLib.GlobalWorkerOptions.workerSrc = 
-              `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
+              `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`
             
             const uint8Array = new Uint8Array(arrayBuffer)
-            const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise
+            const loadingTask = pdfjsLib.getDocument({ 
+              data: uint8Array,
+              useSystemFonts: true,
+              // Disable some features for better compatibility
+              disableFontFace: true,
+              isEvalSupported: false
+            })
+            
+            const pdf = await loadingTask.promise
             
             let fullText = ''
             for (let i = 1; i <= pdf.numPages; i++) {
               const page = await pdf.getPage(i)
               const textContent = await page.getTextContent()
-              const pageText = textContent.items.map((item: any) => item.str).join(' ')
-              fullText += `\n--- Page ${i} ---\n${pageText}\n`
+              // Better text extraction with proper spacing
+              const pageText = textContent.items
+                .map((item: any) => {
+                  const text = item.str || ''
+                  // Add space if the item has a significant transform (new line/word)
+                  const hasTransform = item.hasEOL || (item.transform && item.transform[5] !== 0)
+                  return hasTransform ? text + ' ' : text
+                })
+                .join('')
+                .replace(/\s+/g, ' ')
+                .trim()
+              
+              if (pageText) {
+                fullText += `\n--- Page ${i} ---\n${pageText}\n`
+              }
             }
             
-            resolve(`[PDF FILE: ${file.name}]\n\nExtracted content from PDF (${pdf.numPages} pages):\n${fullText}`)
+            if (fullText.trim().length === 0) {
+              resolve(`[PDF FILE: ${file.name}]\n\nThis PDF appears to be scanned or image-based with no extractable text. For best results:\n1. Use OCR software to extract the text first, or\n2. Describe the content you need analyzed.`)
+            } else {
+              resolve(`[PDF FILE: ${file.name}]\n\nExtracted content from PDF (${pdf.numPages} pages):\n${fullText}`)
+            }
           } catch (err) {
             console.error('PDF extraction error:', err)
-            resolve(`[PDF FILE: ${file.name}]\n\nUnable to extract text. This may be a scanned/image-based PDF.`)
+            // Provide more helpful error message
+            const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+            resolve(`[PDF FILE: ${file.name}]\n\nUnable to extract text from this PDF. Error: ${errorMessage}\n\nThis may be a scanned/image-based PDF or a protected document. Please try:\n1. Using OCR software to extract the text first, or\n2. Copying and pasting the text content manually.`)
           }
         }
         // Handle Word .docx files
@@ -139,10 +168,14 @@ export function AIAssistantPage() {
             const arrayBuffer = result as ArrayBuffer
             const mammoth = await import('mammoth')
             const result2 = await mammoth.extractRawText({ arrayBuffer })
-            resolve(`[WORD DOCUMENT: ${file.name}]\n\nExtracted content:\n${result2.value}`)
+            if (result2.value.trim().length === 0) {
+              resolve(`[WORD DOCUMENT: ${file.name}]\n\nThis document appears to be empty or contains only non-text content (images, charts, etc.).`)
+            } else {
+              resolve(`[WORD DOCUMENT: ${file.name}]\n\nExtracted content:\n${result2.value}`)
+            }
           } catch (err) {
             console.error('DOCX extraction error:', err)
-            resolve(`[WORD DOCUMENT: ${file.name}]\n\nUnable to extract text from this Word document.`)
+            resolve(`[WORD DOCUMENT: ${file.name}]\n\nUnable to extract text from this Word document. The file may be corrupted or in an unsupported format.`)
           }
         }
         // Handle old Word .doc files
@@ -185,27 +218,68 @@ export function AIAssistantPage() {
             resolve(`[EXCEL FILE: ${file.name}]\n\nUnable to extract data from this Excel file.`)
           }
         }
+        // Handle RTF files
+        else if (file.type === 'application/rtf' || file.name.toLowerCase().endsWith('.rtf')) {
+          try {
+            const text = result as string
+            // Basic RTF to text conversion - strip RTF control words
+            const plainText = text
+              .replace(/\\[a-z]+\d*\s?/gi, '') // Remove RTF control words
+              .replace(/[{}]/g, '') // Remove braces
+              .replace(/\\\\/g, '\\') // Unescape backslashes
+              .replace(/\\'/g, "'") // Unescape quotes
+              .replace(/\s+/g, ' ')
+              .trim()
+            
+            if (plainText.length > 50) {
+              resolve(`[RTF FILE: ${file.name}]\n\nExtracted content:\n${plainText}`)
+            } else {
+              resolve(`[RTF FILE: ${file.name}]\n\nUnable to extract meaningful text from this RTF file.`)
+            }
+          } catch (err) {
+            resolve(`[RTF FILE: ${file.name}]\n\nUnable to extract text from this RTF file.`)
+          }
+        }
         // Handle text-based files (txt, csv, json, xml, html, md, etc.)
         else {
-          resolve(result as string)
+          const textContent = result as string
+          const fileExt = file.name.split('.').pop()?.toLowerCase() || 'txt'
+          const fileTypeLabel = {
+            'txt': 'TEXT FILE',
+            'csv': 'CSV FILE',
+            'json': 'JSON FILE',
+            'xml': 'XML FILE',
+            'html': 'HTML FILE',
+            'md': 'MARKDOWN FILE'
+          }[fileExt] || 'FILE'
+          
+          if (textContent.trim().length === 0) {
+            resolve(`[${fileTypeLabel}: ${file.name}]\n\nThis file appears to be empty.`)
+          } else {
+            resolve(`[${fileTypeLabel}: ${file.name}]\n\nContent:\n${textContent}`)
+          }
         }
       }
       
       reader.onerror = () => reject(reader.error)
       
-      // Read as ArrayBuffer for PDFs, Excel files, and Word docs
-      if (file.type === 'application/pdf' || 
-          file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-          file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-          file.type === 'application/vnd.ms-excel' ||
-          file.type === 'application/msword' ||
-          file.name.toLowerCase().endsWith('.docx') ||
-          file.name.toLowerCase().endsWith('.doc') ||
-          file.name.toLowerCase().endsWith('.xlsx') ||
-          file.name.toLowerCase().endsWith('.xls')) {
+      // Determine if file needs binary or text reading
+      const needsArrayBuffer = 
+        file.type === 'application/pdf' || 
+        file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        file.type === 'application/vnd.ms-excel' ||
+        file.type === 'application/msword' ||
+        file.name.toLowerCase().endsWith('.pdf') ||
+        file.name.toLowerCase().endsWith('.docx') ||
+        file.name.toLowerCase().endsWith('.doc') ||
+        file.name.toLowerCase().endsWith('.xlsx') ||
+        file.name.toLowerCase().endsWith('.xls')
+      
+      if (needsArrayBuffer) {
         reader.readAsArrayBuffer(file)
       } else {
-        // Read as text for CSV, TXT, and other text-based files
+        // Read as text for CSV, TXT, RTF, and other text-based files
         reader.readAsText(file)
       }
     })

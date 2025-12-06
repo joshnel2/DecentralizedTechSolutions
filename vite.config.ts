@@ -21,5 +21,18 @@ export default defineConfig({
     alias: {
       '@': '/src'
     }
+  },
+  optimizeDeps: {
+    include: ['pdfjs-dist', 'mammoth', 'xlsx']
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'pdf-worker': ['pdfjs-dist'],
+          'doc-parsers': ['mammoth', 'xlsx']
+        }
+      }
+    }
   }
 })
