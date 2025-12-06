@@ -4,7 +4,6 @@ import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { AIChat } from './AIChat'
-import { FloatingTimer } from './FloatingTimer'
 import { 
   LayoutDashboard, Briefcase, Users, Calendar, DollarSign, 
   Clock, BarChart3, Settings, LogOut, ChevronDown,
@@ -336,9 +335,6 @@ export function Layout() {
         isOpen={aiChatOpen} 
         onClose={closeChat} 
       />
-
-      {/* Floating Timer */}
-      <FloatingTimer />
     </div>
   )
 }
