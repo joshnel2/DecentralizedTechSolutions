@@ -586,6 +586,97 @@ const TOOLS = [
         required: ["matter_id", "content"]
       }
     }
+  },
+
+  // ===================== NAVIGATION =====================
+  {
+    type: "function",
+    function: {
+      name: "navigate_to_page",
+      description: "Navigate the user to a specific page in the application. Use this when the user asks to 'open', 'show me', 'go to', 'take me to', or 'pull up' a page like matters, clients, calendar, time tracking, billing, etc.",
+      parameters: {
+        type: "object",
+        properties: {
+          page: { 
+            type: "string", 
+            enum: ["dashboard", "matters", "clients", "calendar", "time", "billing", "documents", "team", "reports", "analytics", "settings"],
+            description: "The page to navigate to"
+          }
+        },
+        required: ["page"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_matter",
+      description: "Open a specific matter/case for the user to view. Use this when the user wants to see, open, view, or pull up a specific matter. Search for the matter first if you don't have the ID.",
+      parameters: {
+        type: "object",
+        properties: {
+          matter_id: { type: "string", description: "UUID of the matter to open" }
+        },
+        required: ["matter_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_client",
+      description: "Open a specific client's page for the user to view. Use this when the user wants to see, open, view, or pull up a specific client. Search for the client first if you don't have the ID.",
+      parameters: {
+        type: "object",
+        properties: {
+          client_id: { type: "string", description: "UUID of the client to open" }
+        },
+        required: ["client_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_invoice",
+      description: "Open a specific invoice for the user to view. Use this when the user wants to see or view a specific invoice.",
+      parameters: {
+        type: "object",
+        properties: {
+          invoice_id: { type: "string", description: "UUID of the invoice to open" }
+        },
+        required: ["invoice_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_new_time_entry",
+      description: "Open the time entry form for the user to log time. Use this when the user wants to add, create, or log a new time entry manually.",
+      parameters: {
+        type: "object",
+        properties: {
+          matter_id: { type: "string", description: "Optional: pre-select this matter in the form" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_new_calendar_event",
+      description: "Open the calendar event form for the user to create a new event. Use this when the user wants to add or schedule something on their calendar manually.",
+      parameters: {
+        type: "object",
+        properties: {
+          date: { type: "string", description: "Optional: pre-select this date (YYYY-MM-DD)" },
+          matter_id: { type: "string", description: "Optional: pre-select this matter" }
+        },
+        required: []
+      }
+    }
   }
 ];
 
@@ -648,6 +739,14 @@ async function executeTool(toolName, args, user) {
       
       // Notes
       case 'add_matter_note': return await addMatterNote(args, user);
+      
+      // Navigation
+      case 'navigate_to_page': return await navigateToPage(args, user);
+      case 'open_matter': return await openMatter(args, user);
+      case 'open_client': return await openClient(args, user);
+      case 'open_invoice': return await openInvoice(args, user);
+      case 'open_new_time_entry': return await openNewTimeEntry(args, user);
+      case 'open_new_calendar_event': return await openNewCalendarEvent(args, user);
       
       default:
         return { error: `Unknown tool: ${toolName}` };
@@ -2205,6 +2304,201 @@ async function addMatterNote(args, user) {
 }
 
 // =============================================================================
+// NAVIGATION FUNCTIONS
+// =============================================================================
+async function navigateToPage(args, user) {
+  const { page } = args;
+  
+  const pageRoutes = {
+    dashboard: { path: '/app', label: 'Dashboard' },
+    matters: { path: '/app/matters', label: 'Matters' },
+    clients: { path: '/app/clients', label: 'Clients' },
+    calendar: { path: '/app/calendar', label: 'Calendar' },
+    time: { path: '/app/time', label: 'Time Tracking' },
+    billing: { path: '/app/billing', label: 'Billing' },
+    documents: { path: '/app/documents', label: 'Documents' },
+    team: { path: '/app/team', label: 'Team' },
+    reports: { path: '/app/reports', label: 'Reports' },
+    analytics: { path: '/app/analytics', label: 'Analytics' },
+    settings: { path: '/app/settings', label: 'Settings' },
+  };
+  
+  const route = pageRoutes[page];
+  if (!route) {
+    return { error: `Unknown page: ${page}` };
+  }
+  
+  return {
+    success: true,
+    navigation: {
+      type: 'page',
+      path: route.path,
+      label: route.label
+    },
+    message: `Opening ${route.label}...`
+  };
+}
+
+async function openMatter(args, user) {
+  const { matter_id } = args;
+  
+  if (!matter_id) {
+    return { error: 'matter_id is required. Use search_matters to find the matter first.' };
+  }
+  
+  const result = await query(
+    `SELECT m.id, m.name, m.number, c.display_name as client_name
+     FROM matters m
+     LEFT JOIN clients c ON m.client_id = c.id
+     WHERE m.id = $1 AND m.firm_id = $2`,
+    [matter_id, user.firmId]
+  );
+  
+  if (result.rows.length === 0) {
+    return { error: 'Matter not found' };
+  }
+  
+  const matter = result.rows[0];
+  
+  return {
+    success: true,
+    navigation: {
+      type: 'matter',
+      path: `/app/matters/${matter_id}`,
+      label: matter.name,
+      id: matter_id
+    },
+    message: `Opening matter "${matter.name}" (${matter.number})${matter.client_name ? ` for ${matter.client_name}` : ''}...`
+  };
+}
+
+async function openClient(args, user) {
+  const { client_id } = args;
+  
+  if (!client_id) {
+    return { error: 'client_id is required. Use list_clients to find the client first.' };
+  }
+  
+  const result = await query(
+    `SELECT id, display_name, type FROM clients WHERE id = $1 AND firm_id = $2`,
+    [client_id, user.firmId]
+  );
+  
+  if (result.rows.length === 0) {
+    return { error: 'Client not found' };
+  }
+  
+  const client = result.rows[0];
+  
+  return {
+    success: true,
+    navigation: {
+      type: 'client',
+      path: `/app/clients/${client_id}`,
+      label: client.display_name,
+      id: client_id
+    },
+    message: `Opening client "${client.display_name}"...`
+  };
+}
+
+async function openInvoice(args, user) {
+  const { invoice_id } = args;
+  
+  if (!invoice_id) {
+    return { error: 'invoice_id is required. Use list_invoices to find the invoice first.' };
+  }
+  
+  const result = await query(
+    `SELECT i.id, i.number, i.total, c.display_name as client_name
+     FROM invoices i
+     LEFT JOIN clients c ON i.client_id = c.id
+     WHERE i.id = $1 AND i.firm_id = $2`,
+    [invoice_id, user.firmId]
+  );
+  
+  if (result.rows.length === 0) {
+    return { error: 'Invoice not found' };
+  }
+  
+  const invoice = result.rows[0];
+  
+  return {
+    success: true,
+    navigation: {
+      type: 'invoice',
+      path: `/app/billing`,
+      label: `Invoice ${invoice.number}`,
+      id: invoice_id,
+      action: 'view_invoice'
+    },
+    message: `Opening invoice ${invoice.number} ($${parseFloat(invoice.total).toLocaleString()}) for ${invoice.client_name || 'client'}...`
+  };
+}
+
+async function openNewTimeEntry(args, user) {
+  const { matter_id } = args;
+  
+  let matterInfo = null;
+  if (matter_id) {
+    const result = await query(
+      'SELECT id, name, number FROM matters WHERE id = $1 AND firm_id = $2',
+      [matter_id, user.firmId]
+    );
+    if (result.rows.length > 0) {
+      matterInfo = result.rows[0];
+    }
+  }
+  
+  return {
+    success: true,
+    navigation: {
+      type: 'form',
+      path: '/app/time',
+      action: 'new_time_entry',
+      prefill: matter_id ? { matter_id } : null,
+      label: 'New Time Entry'
+    },
+    message: matterInfo 
+      ? `Opening time entry form for "${matterInfo.name}"...`
+      : 'Opening time entry form...'
+  };
+}
+
+async function openNewCalendarEvent(args, user) {
+  const { date, matter_id } = args;
+  
+  let matterInfo = null;
+  if (matter_id) {
+    const result = await query(
+      'SELECT id, name, number FROM matters WHERE id = $1 AND firm_id = $2',
+      [matter_id, user.firmId]
+    );
+    if (result.rows.length > 0) {
+      matterInfo = result.rows[0];
+    }
+  }
+  
+  const prefill = {};
+  if (matter_id) prefill.matter_id = matter_id;
+  if (date) prefill.date = date;
+  
+  return {
+    success: true,
+    navigation: {
+      type: 'form',
+      path: '/app/calendar',
+      action: 'new_event',
+      prefill: Object.keys(prefill).length > 0 ? prefill : null,
+      label: 'New Calendar Event'
+    },
+    message: matterInfo 
+      ? `Opening calendar event form for "${matterInfo.name}"${date ? ` on ${date}` : ''}...`
+      : `Opening calendar event form${date ? ` for ${date}` : ''}...`
+  };
+}
+
+// =============================================================================
 // SYSTEM PROMPT
 // =============================================================================
 function getSystemPrompt() {
@@ -2215,7 +2509,9 @@ function getSystemPrompt() {
   return `You are an intelligent AI assistant for Apex Legal, a law firm management platform. You can both answer questions AND take actions on behalf of the user.
 
 ## Your Capabilities
-You have access to tools for managing:
+You have access to tools for:
+
+### Data Management
 - **Time Entries**: Log time, view/edit/delete entries
 - **Matters**: Create, view, update, search matters
 - **Clients**: Create, view, update, search clients
@@ -2226,14 +2522,25 @@ You have access to tools for managing:
 - **Team**: View team members
 - **Analytics**: View firm stats (admin only) and personal stats
 
+### Navigation (Opening Pages & Records)
+- **navigate_to_page**: Open pages like matters, clients, calendar, billing, time tracking, etc.
+- **open_matter**: Open a specific matter (search first to get the ID)
+- **open_client**: Open a specific client (search first to get the ID)
+- **open_invoice**: Open a specific invoice
+- **open_new_time_entry**: Open the time entry form
+- **open_new_calendar_event**: Open the calendar event form
+
 ## Guidelines
-1. When asked to DO something, use the appropriate tool immediately
-2. When asked a QUESTION, fetch data first, then answer naturally
-3. For time logging, ALWAYS search for the matter first if you don't have the ID
-4. Confirm actions with specific details (names, amounts, dates)
-5. Be concise and professional
-6. Never expose UUIDs - use names and numbers instead
-7. If you're unsure which matter/client the user means, ask for clarification
+1. When asked to OPEN, SHOW, GO TO, or PULL UP something:
+   - For pages (e.g., "show me my calendar"): use navigate_to_page
+   - For specific records (e.g., "open the Smith case"): search first to find the ID, then use open_matter/open_client/etc.
+2. When asked to DO something (create, log, add): use the appropriate action tool
+3. When asked a QUESTION: fetch data first, then answer naturally
+4. For time logging, ALWAYS search for the matter first if you don't have the ID
+5. Confirm actions with specific details (names, amounts, dates)
+6. Be concise and professional
+7. Never expose UUIDs - use names and numbers instead
+8. If you're unsure which matter/client the user means, ask for clarification
 
 ## Calendar Events - IMPORTANT
 When creating calendar events, use create_calendar_event. For start_time, you MUST provide an ISO 8601 datetime string.
@@ -2277,6 +2584,7 @@ router.post('/chat', authenticate, async (req, res) => {
     
     let iterations = 0;
     const maxIterations = 10;
+    let navigationResult = null; // Track navigation commands
     
     while (response.tool_calls && iterations < maxIterations) {
       iterations++;
@@ -2302,6 +2610,12 @@ router.post('/chat', authenticate, async (req, res) => {
         const result = await executeTool(functionName, functionArgs, req.user);
         console.log(`Tool ${functionName} result:`, JSON.stringify(result));
         
+        // Capture navigation results
+        if (result.navigation) {
+          navigationResult = result.navigation;
+          console.log('Navigation result captured:', navigationResult);
+        }
+        
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
@@ -2315,13 +2629,21 @@ router.post('/chat', authenticate, async (req, res) => {
     await query(
       `INSERT INTO audit_logs (firm_id, user_id, action, resource_type, details)
        VALUES ($1, $2, 'ai.agent_chat', 'ai', $3)`,
-      [req.user.firmId, req.user.id, JSON.stringify({ messageLength: message.length, toolCalls: iterations })]
+      [req.user.firmId, req.user.id, JSON.stringify({ messageLength: message.length, toolCalls: iterations, hasNavigation: !!navigationResult })]
     ).catch(() => {});
 
-    res.json({
+    // Build response with optional navigation
+    const responsePayload = {
       response: response.content,
       toolsUsed: iterations > 0
-    });
+    };
+    
+    // Include navigation if any navigation tool was called
+    if (navigationResult) {
+      responsePayload.navigation = navigationResult;
+    }
+
+    res.json(responsePayload);
 
   } catch (error) {
     console.error('AI Agent chat error:', error);

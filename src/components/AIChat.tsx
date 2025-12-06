@@ -1,9 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
-import { useLocation } from 'react-router-dom'
-import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap } from 'lucide-react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink } from 'lucide-react'
 import { aiApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import styles from './AIChat.module.css'
+
+interface NavigationInfo {
+  type: string
+  path: string
+  label: string
+  id?: string
+  action?: string
+  prefill?: Record<string, any>
+}
 
 interface Message {
   id: string
@@ -11,6 +20,7 @@ interface Message {
   content: string
   timestamp: Date
   toolsUsed?: boolean  // Indicates if AI took an action
+  navigation?: NavigationInfo  // Navigation command from AI
 }
 
 interface AIChatProps {
@@ -49,6 +59,7 @@ function getContextFromPath(pathname: string): Record<string, any> {
 
 export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps) {
   const location = useLocation()
+  const navigate = useNavigate()
   const { refreshSuggestions, chatContext } = useAIChat()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -56,6 +67,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [showSuggestions, setShowSuggestions] = useState(true)
   const [useAgentMode, setUseAgentMode] = useState(true) // Use AI Agent with actions by default
+  const [pendingNavigation, setPendingNavigation] = useState<NavigationInfo | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const lastUserMessageRef = useRef<HTMLDivElement>(null)
@@ -141,9 +153,15 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         content: response.response,
         timestamp: new Date(),
         toolsUsed: response.toolsUsed,
+        navigation: response.navigation,
       }
 
       setMessages(prev => [...prev, assistantMessage])
+      
+      // If there's a navigation command, set it as pending so user can click to navigate
+      if (response.navigation) {
+        setPendingNavigation(response.navigation)
+      }
     } catch (error) {
       console.error('AI chat error:', error)
       const errorMessage: Message = {
@@ -156,6 +174,15 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const handleNavigation = (nav: NavigationInfo) => {
+    // Close the chat panel
+    onClose()
+    // Navigate to the path
+    navigate(nav.path)
+    // Clear pending navigation
+    setPendingNavigation(null)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -267,6 +294,15 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
                         {message.content.split('\n').map((line, i) => (
                           <p key={i}>{line || <br />}</p>
                         ))}
+                        {message.navigation && (
+                          <button 
+                            className={styles.navigationBtn}
+                            onClick={() => handleNavigation(message.navigation!)}
+                          >
+                            <ExternalLink size={14} />
+                            Open {message.navigation.label}
+                          </button>
+                        )}
                       </div>
                       <span className={styles.timestamp}>
                         {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

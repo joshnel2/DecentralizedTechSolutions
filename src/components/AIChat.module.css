@@ -167,6 +167,37 @@
   margin-bottom: 8px;
 }
 
+/* Navigation Button - shown when AI wants to navigate user somewhere */
+.navigationBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #F59E0B, #D97706);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+}
+
+.navigationBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+}
+
+.navigationBtn:active {
+  transform: translateY(0);
+}
+
+.navigationBtn svg {
+  flex-shrink: 0;
+}
+
 /* Messages Area */
 .messages {
   flex: 1;

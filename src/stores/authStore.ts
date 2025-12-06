@@ -268,6 +268,9 @@ export const useAuthStore = create<AuthState>()(
             const demoFirm: Firm = {
               id: 'demo-firm-1',
               name: 'Demo Law Firm',
+              address: '123 Legal Way',
+              city: 'San Francisco',
+              state: 'CA',
               billingDefaults: {
                 hourlyRate: 350,
                 incrementMinutes: 6,
