@@ -6,7 +6,8 @@ import {
   Building2, CreditCard, Brain, Shield, Save, Users, Briefcase,
   DollarSign, Sparkles, CheckCircle2,
   AlertTriangle, Plus, Trash2, Edit2, UserPlus, X,
-  Mail, UserCog, UserMinus, Landmark, Wallet, PiggyBank, ArrowLeft
+  Mail, UserCog, UserMinus, Landmark, Wallet, PiggyBank, ArrowLeft,
+  Tags
 } from 'lucide-react'
 import styles from './FirmSettingsPage.module.css'
 
@@ -37,7 +38,7 @@ const groupColors = [
 export function FirmSettingsPage() {
   const navigate = useNavigate()
   const { firm, updateFirm, user } = useAuthStore()
-  const { groups, addGroup, updateGroup, deleteGroup, clients, invoices } = useDataStore()
+  const { groups, addGroup, updateGroup, deleteGroup, clients, invoices, matterTypes, addMatterType, updateMatterType, deleteMatterType, toggleMatterTypeActive } = useDataStore()
   const [activeTab, setActiveTab] = useState('accounts')
   
   // Calculate account balances
@@ -122,6 +123,8 @@ export function FirmSettingsPage() {
   })
 
   const [newPracticeArea, setNewPracticeArea] = useState('')
+  const [newMatterType, setNewMatterType] = useState('')
+  const [editingMatterType, setEditingMatterType] = useState<{ id: string; label: string } | null>(null)
 
   const handleSave = () => {
     updateFirm({
@@ -152,6 +155,24 @@ export function FirmSettingsPage() {
     }
   }
 
+  const handleAddMatterType = () => {
+    if (newMatterType.trim()) {
+      addMatterType({
+        value: newMatterType.toLowerCase().replace(/\s+/g, '_'),
+        label: newMatterType.trim()
+      })
+      setNewMatterType('')
+    }
+  }
+
+  const handleUpdateMatterType = (id: string, label: string) => {
+    updateMatterType(id, { 
+      label,
+      value: label.toLowerCase().replace(/\s+/g, '_')
+    })
+    setEditingMatterType(null)
+  }
+
   const getUserById = (id: string) => demoUsers.find(u => u.id === id)
 
   const tabs = [
@@ -160,6 +181,7 @@ export function FirmSettingsPage() {
     { id: 'users', label: 'Users & Teams', icon: Users },
     { id: 'billing', label: 'Billing & Rates', icon: DollarSign },
     { id: 'practice', label: 'Practice Areas', icon: Briefcase },
+    { id: 'matterTypes', label: 'Matter Types', icon: Tags },
     { id: 'ai', label: 'AI Configuration', icon: Brain },
     { id: 'security', label: 'Security', icon: Shield }
   ]
@@ -733,6 +755,104 @@ export function FirmSettingsPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Matter Types Tab */}
+          {activeTab === 'matterTypes' && (
+            <div className={styles.tabContent}>
+              <div className={styles.section}>
+                <div className={styles.sectionHeader}>
+                  <Tags size={20} />
+                  <div>
+                    <h2>Matter Types</h2>
+                    <p>Customize the types available when creating or editing matters</p>
+                  </div>
+                </div>
+
+                <div className={styles.addForm}>
+                  <input
+                    type="text"
+                    value={newMatterType}
+                    onChange={e => setNewMatterType(e.target.value)}
+                    placeholder="Add new matter type..."
+                    onKeyPress={e => e.key === 'Enter' && handleAddMatterType()}
+                  />
+                  <button onClick={handleAddMatterType} className={styles.addBtn}>
+                    <Plus size={18} />
+                    Add
+                  </button>
+                </div>
+
+                <div className={styles.itemsList}>
+                  {matterTypes.map(matterType => (
+                    <div key={matterType.id} className={styles.listItem}>
+                      <div className={styles.listItemContent}>
+                        <span className={`${styles.statusDot} ${matterType.active ? styles.active : styles.inactive}`}></span>
+                        {editingMatterType?.id === matterType.id ? (
+                          <input
+                            type="text"
+                            value={editingMatterType.label}
+                            onChange={e => setEditingMatterType({ ...editingMatterType, label: e.target.value })}
+                            onBlur={() => handleUpdateMatterType(matterType.id, editingMatterType.label)}
+                            onKeyPress={e => {
+                              if (e.key === 'Enter') {
+                                handleUpdateMatterType(matterType.id, editingMatterType.label)
+                              }
+                            }}
+                            autoFocus
+                            style={{ 
+                              background: 'var(--bg-secondary)', 
+                              border: '1px solid var(--gold-primary)',
+                              borderRadius: '4px',
+                              padding: '4px 8px',
+                              color: 'var(--text-primary)'
+                            }}
+                          />
+                        ) : (
+                          <span className={styles.itemName}>{matterType.label}</span>
+                        )}
+                      </div>
+                      <div className={styles.listItemActions}>
+                        <button
+                          className={styles.iconBtn}
+                          onClick={() => setEditingMatterType({ id: matterType.id, label: matterType.label })}
+                          title="Edit"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                        <button
+                          className={styles.iconBtn}
+                          onClick={() => toggleMatterTypeActive(matterType.id)}
+                        >
+                          {matterType.active ? 'Disable' : 'Enable'}
+                        </button>
+                        <button 
+                          className={styles.iconBtnDanger}
+                          onClick={() => {
+                            if (confirm(`Are you sure you want to delete "${matterType.label}"? Existing matters with this type will not be affected.`)) {
+                              deleteMatterType(matterType.id)
+                            }
+                          }}
+                          title="Delete"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {matterTypes.length === 0 && (
+                  <div className={styles.emptyGroups}>
+                    <Tags size={48} />
+                    <p>No matter types defined</p>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-tertiary)' }}>
+                      Add matter types above to categorize your legal matters
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}

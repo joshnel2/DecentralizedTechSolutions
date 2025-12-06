@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import { 
   clientsApi, 
   mattersApi, 
@@ -12,6 +13,32 @@ import type {
   Document, APIKey, Group, Notification, Expense
 } from '../types'
 
+// Matter type configuration
+export interface MatterTypeConfig {
+  id: string
+  value: string
+  label: string
+  active: boolean
+  createdAt: string
+}
+
+// Default matter types
+const defaultMatterTypes: MatterTypeConfig[] = [
+  { id: '1', value: 'litigation', label: 'Litigation', active: true, createdAt: new Date().toISOString() },
+  { id: '2', value: 'corporate', label: 'Corporate', active: true, createdAt: new Date().toISOString() },
+  { id: '3', value: 'real_estate', label: 'Real Estate', active: true, createdAt: new Date().toISOString() },
+  { id: '4', value: 'intellectual_property', label: 'Intellectual Property', active: true, createdAt: new Date().toISOString() },
+  { id: '5', value: 'employment', label: 'Employment', active: true, createdAt: new Date().toISOString() },
+  { id: '6', value: 'personal_injury', label: 'Personal Injury', active: true, createdAt: new Date().toISOString() },
+  { id: '7', value: 'estate_planning', label: 'Estate Planning', active: true, createdAt: new Date().toISOString() },
+  { id: '8', value: 'family', label: 'Family Law', active: true, createdAt: new Date().toISOString() },
+  { id: '9', value: 'criminal', label: 'Criminal', active: true, createdAt: new Date().toISOString() },
+  { id: '10', value: 'immigration', label: 'Immigration', active: true, createdAt: new Date().toISOString() },
+  { id: '11', value: 'bankruptcy', label: 'Bankruptcy', active: true, createdAt: new Date().toISOString() },
+  { id: '12', value: 'tax', label: 'Tax', active: true, createdAt: new Date().toISOString() },
+  { id: '13', value: 'other', label: 'Other', active: true, createdAt: new Date().toISOString() },
+]
+
 interface DataState {
   // Data
   clients: Client[]
@@ -24,6 +51,7 @@ interface DataState {
   apiKeys: APIKey[]
   groups: Group[]
   notifications: Notification[]
+  matterTypes: MatterTypeConfig[]
   
   // Loading states
   isLoading: boolean
@@ -79,11 +107,20 @@ interface DataState {
   updateGroup: (id: string, data: any) => Promise<void>
   deleteGroup: (id: string) => Promise<void>
   
+  // Matter Type actions
+  addMatterType: (data: { value: string; label: string }) => void
+  updateMatterType: (id: string, data: Partial<MatterTypeConfig>) => void
+  deleteMatterType: (id: string) => void
+  toggleMatterTypeActive: (id: string) => void
+  getMatterTypeOptions: () => { value: string; label: string }[]
+  
   // Clear all data (for logout)
   clearAll: () => void
 }
 
-export const useDataStore = create<DataState>()((set, get) => ({
+export const useDataStore = create<DataState>()(
+  persist(
+    (set, get) => ({
   clients: [],
   matters: [],
   timeEntries: [],
@@ -94,6 +131,7 @@ export const useDataStore = create<DataState>()((set, get) => ({
   apiKeys: [],
   groups: [],
   notifications: [],
+  matterTypes: defaultMatterTypes,
   isLoading: false,
   error: null,
 
@@ -327,6 +365,45 @@ export const useDataStore = create<DataState>()((set, get) => ({
     set(state => ({ groups: state.groups.filter(g => g.id !== id) }))
   },
 
+  // Matter Type actions
+  addMatterType: (data) => {
+    const newType: MatterTypeConfig = {
+      id: crypto.randomUUID(),
+      value: data.value.toLowerCase().replace(/\s+/g, '_'),
+      label: data.label,
+      active: true,
+      createdAt: new Date().toISOString(),
+    }
+    set(state => ({ matterTypes: [...state.matterTypes, newType] }))
+  },
+
+  updateMatterType: (id, data) => {
+    set(state => ({
+      matterTypes: state.matterTypes.map(t => 
+        t.id === id ? { ...t, ...data } : t
+      )
+    }))
+  },
+
+  deleteMatterType: (id) => {
+    set(state => ({ matterTypes: state.matterTypes.filter(t => t.id !== id) }))
+  },
+
+  toggleMatterTypeActive: (id) => {
+    set(state => ({
+      matterTypes: state.matterTypes.map(t => 
+        t.id === id ? { ...t, active: !t.active } : t
+      )
+    }))
+  },
+
+  getMatterTypeOptions: () => {
+    const { matterTypes } = get()
+    return matterTypes
+      .filter(t => t.active)
+      .map(t => ({ value: t.value, label: t.label }))
+  },
+
   // Clear all data
   clearAll: () => {
     set({
@@ -340,6 +417,13 @@ export const useDataStore = create<DataState>()((set, get) => ({
       apiKeys: [],
       groups: [],
       notifications: [],
+      matterTypes: defaultMatterTypes,
     })
   },
-}))
+}),
+    {
+      name: 'apex-data-store',
+      partialize: (state) => ({ matterTypes: state.matterTypes }),
+    }
+  )
+)

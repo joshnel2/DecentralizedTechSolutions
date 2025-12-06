@@ -38,8 +38,16 @@ export function MatterDetailPage() {
     matters, clients, timeEntries, invoices, events, documents, 
     updateMatter, addTimeEntry, addInvoice, addEvent, addDocument,
     fetchMatters, fetchClients, fetchTimeEntries, fetchInvoices, fetchEvents, fetchDocuments,
-    deleteTimeEntry, updateTimeEntry, deleteEvent, updateEvent, deleteMatter
+    deleteTimeEntry, updateTimeEntry, deleteEvent, updateEvent, deleteMatter,
+    matterTypes
   } = useDataStore()
+  
+  // Generate type options from the store's matterTypes
+  const typeOptions = useMemo(() => {
+    return matterTypes
+      .filter(t => t.active)
+      .map(t => ({ value: t.value, label: t.label }))
+  }, [matterTypes])
   const [activeTab, setActiveTab] = useState('overview')
   const [aiAnalyzing, setAiAnalyzing] = useState(false)
   const [aiSummary, setAiSummary] = useState<string | null>(null)
@@ -1463,6 +1471,7 @@ Only analyze documents actually associated with this matter.`
             <EditMatterForm 
               matter={matter}
               attorneys={attorneys}
+              typeOptions={typeOptions}
               onClose={() => setShowEditMatterModal(false)}
               onSave={async (data) => {
                 try {
@@ -2315,9 +2324,10 @@ function ContactForm({ matterName, onClose, onSave }: {
 }
 
 // Edit Matter Form Component
-function EditMatterForm({ matter, attorneys, onClose, onSave }: {
+function EditMatterForm({ matter, attorneys, typeOptions, onClose, onSave }: {
   matter: any
   attorneys: any[]
+  typeOptions: { value: string; label: string }[]
   onClose: () => void
   onSave: (data: any) => Promise<void>
 }) {
@@ -2325,7 +2335,7 @@ function EditMatterForm({ matter, attorneys, onClose, onSave }: {
   const [formData, setFormData] = useState({
     name: matter.name || '',
     description: matter.description || '',
-    type: matter.type || 'litigation',
+    type: matter.type || (typeOptions.length > 0 ? typeOptions[0].value : 'other'),
     status: matter.status || 'active',
     priority: matter.priority || 'medium',
     billingType: matter.billingType || 'hourly',
@@ -2344,17 +2354,6 @@ function EditMatterForm({ matter, attorneys, onClose, onSave }: {
       setIsSubmitting(false)
     }
   }
-
-  const typeOptions = [
-    { value: 'litigation', label: 'Litigation' },
-    { value: 'corporate', label: 'Corporate' },
-    { value: 'real_estate', label: 'Real Estate' },
-    { value: 'intellectual_property', label: 'IP' },
-    { value: 'employment', label: 'Employment' },
-    { value: 'personal_injury', label: 'Personal Injury' },
-    { value: 'estate_planning', label: 'Estate Planning' },
-    { value: 'other', label: 'Other' }
-  ]
 
   return (
     <form onSubmit={handleSubmit} className={styles.modalForm}>

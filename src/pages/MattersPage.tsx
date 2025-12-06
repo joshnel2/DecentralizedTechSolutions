@@ -23,20 +23,8 @@ const statusOptions = [
   { value: 'archived', label: 'Archived' }
 ]
 
-const typeOptions = [
-  { value: 'all', label: 'All Types' },
-  { value: 'litigation', label: 'Litigation' },
-  { value: 'corporate', label: 'Corporate' },
-  { value: 'real_estate', label: 'Real Estate' },
-  { value: 'intellectual_property', label: 'IP' },
-  { value: 'employment', label: 'Employment' },
-  { value: 'personal_injury', label: 'Personal Injury' },
-  { value: 'estate_planning', label: 'Estate Planning' },
-  { value: 'other', label: 'Other' }
-]
-
 export function MattersPage() {
-  const { matters, clients, addMatter, fetchMatters, fetchClients, updateMatter, deleteMatter } = useDataStore()
+  const { matters, clients, addMatter, fetchMatters, fetchClients, updateMatter, deleteMatter, matterTypes } = useDataStore()
   const { user } = useAuthStore()
   const { openChat } = useAIChat()
   const navigate = useNavigate()
@@ -48,6 +36,14 @@ export function MattersPage() {
   const [prefilledClientId, setPrefilledClientId] = useState<string | null>(null)
 
   const isAdmin = user?.role === 'owner' || user?.role === 'admin'
+
+  // Generate type options from the store's matterTypes
+  const typeOptions = useMemo(() => {
+    const activeTypes = matterTypes
+      .filter(t => t.active)
+      .map(t => ({ value: t.value, label: t.label }))
+    return [{ value: 'all', label: 'All Types' }, ...activeTypes]
+  }, [matterTypes])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -463,6 +459,7 @@ export function MattersPage() {
           attorneys={attorneys}
           isAdmin={isAdmin}
           prefilledClientId={prefilledClientId}
+          typeOptions={typeOptions.filter(t => t.value !== 'all')}
         />
       )}
 
@@ -484,6 +481,7 @@ interface NewMatterModalProps {
   attorneys: any[]
   isAdmin: boolean
   prefilledClientId?: string | null
+  typeOptions: { value: string; label: string }[]
 }
 
 interface TeamAssignment {
@@ -492,13 +490,13 @@ interface TeamAssignment {
   billingRate: number
 }
 
-function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefilledClientId }: NewMatterModalProps) {
+function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefilledClientId, typeOptions }: NewMatterModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     clientId: prefilledClientId || '',
-    type: 'litigation',
+    type: typeOptions.length > 0 ? typeOptions[0].value : 'other',
     status: 'active',
     priority: 'medium',
     billingType: 'hourly',
@@ -599,7 +597,7 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
                 value={formData.type}
                 onChange={(e) => setFormData({...formData, type: e.target.value})}
               >
-                {typeOptions.slice(1).map(opt => (
+                {typeOptions.map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
