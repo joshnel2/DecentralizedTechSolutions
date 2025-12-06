@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
@@ -18,6 +18,7 @@ export function TimeTrackingPage() {
   const { openChat } = useAIChat()
   const { timer, startTimer, pauseTimer, resumeTimer, stopTimer, discardTimer, isTimerActive } = useTimer()
   const navigate = useNavigate()
+  const location = useLocation()
   
   // Fetch data from API on mount
   useEffect(() => {
@@ -25,6 +26,15 @@ export function TimeTrackingPage() {
     fetchMatters()
     fetchClients()
   }, [fetchTimeEntries, fetchMatters, fetchClients])
+
+  // Check if we should show save modal (from header stop button)
+  useEffect(() => {
+    if (location.state?.showSaveModal && timer.elapsed > 0) {
+      setShowSaveTimerModal(true)
+      // Clear the state so it doesn't trigger again on refresh
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+  }, [location.state, timer.elapsed, navigate, location.pathname])
   const { user } = useAuthStore()
   const [showNewModal, setShowNewModal] = useState(false)
   const [showBillModal, setShowBillModal] = useState(false)

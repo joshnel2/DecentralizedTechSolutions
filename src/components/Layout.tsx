@@ -93,6 +93,11 @@ export function Layout() {
     navigate('/login')
   }
 
+  const handleStopTimerFromHeader = () => {
+    stopTimer()
+    navigate('/app/time', { state: { showSaveModal: true } })
+  }
+
   const toggleMobileSidebar = () => {
     setMobileSidebarOpen(!mobileSidebarOpen)
   }
@@ -264,7 +269,7 @@ export function Layout() {
                   )}
                   <button 
                     className={clsx(styles.headerTimerBtn, styles.stopBtn)}
-                    onClick={stopTimer}
+                    onClick={handleStopTimerFromHeader}
                     title="Stop Timer"
                   >
                     <Square size={14} />
