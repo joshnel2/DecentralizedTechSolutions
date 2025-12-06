@@ -2,18 +2,14 @@ import { useState, useMemo } from 'react'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { 
-  TrendingUp, DollarSign, Clock, Users, Calendar,
-  Download, Filter, ChevronDown, Sparkles, BarChart3,
-  ArrowUpRight, ArrowDownRight, Briefcase, CreditCard,
-  PieChart, AlertTriangle
+  TrendingUp, DollarSign, Clock, Users,
+  Download, Briefcase, CreditCard,
+  ArrowUpRight, ArrowDownRight, AlertTriangle, Target, Percent
 } from 'lucide-react'
 import { format, parseISO, startOfMonth, endOfMonth, subMonths, isWithinInterval } from 'date-fns'
-import { AreaChart, Area, BarChart, Bar, PieChart as RechartsPie, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { AreaChart, Area, PieChart as RechartsPie, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { AIButton } from '../components/AIButton'
 import styles from './FirmAnalyticsPage.module.css'
-
-// Team members - populated from API/team data
-const teamMembers: Array<{ id: string; name: string; role: string; rate: number; avatar: string }> = []
 
 const COLORS = ['#D4AF37', '#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#EF4444']
 
@@ -76,28 +72,25 @@ export function FirmAnalyticsPage() {
     return { totalHours, billableHours, billedAmount, utilizationRate }
   }, [timeEntries, dateFilter])
 
-  // Team productivity
-  const teamProductivity = useMemo(() => {
-    return teamMembers.map(member => {
-      const memberEntries = timeEntries.filter(e => {
-        const date = parseISO(e.date)
-        return e.userId === member.id && isWithinInterval(date, dateFilter)
-      })
-      
-      const totalHours = memberEntries.reduce((sum, e) => sum + e.hours, 0)
-      const billableHours = memberEntries.filter(e => e.billable).reduce((sum, e) => sum + e.hours, 0)
-      const revenue = memberEntries.filter(e => e.billable).reduce((sum, e) => sum + e.amount, 0)
-      const utilization = totalHours > 0 ? (billableHours / totalHours) * 100 : 0
+  // Additional metrics
+  const additionalMetrics = useMemo(() => {
+    const activeMatters = matters.filter(m => m.status === 'active').length
+    const avgMatterValue = matters.length > 0 
+      ? revenueMetrics.totalInvoiced / matters.length 
+      : 0
+    
+    // Realization rate: collected / billed amount
+    const realizationRate = hoursMetrics.billedAmount > 0 
+      ? (revenueMetrics.totalCollected / hoursMetrics.billedAmount) * 100 
+      : 0
+    
+    // Effective hourly rate: collected / billable hours
+    const effectiveRate = hoursMetrics.billableHours > 0 
+      ? revenueMetrics.totalCollected / hoursMetrics.billableHours 
+      : 0
 
-      return {
-        ...member,
-        totalHours,
-        billableHours,
-        revenue,
-        utilization
-      }
-    }).sort((a, b) => b.revenue - a.revenue)
-  }, [timeEntries, dateFilter])
+    return { activeMatters, avgMatterValue, realizationRate, effectiveRate }
+  }, [matters, revenueMetrics, hoursMetrics])
 
   // Revenue by practice area
   const revenueByPracticeArea = useMemo(() => {
@@ -145,25 +138,49 @@ export function FirmAnalyticsPage() {
 
   // Export function
   const exportReport = () => {
-    const data = teamProductivity.map(m => ({
-      Name: m.name,
-      Role: m.role,
-      'Total Hours': m.totalHours.toFixed(1),
-      'Billable Hours': m.billableHours.toFixed(1),
-      'Utilization %': m.utilization.toFixed(0),
-      'Revenue': m.revenue.toFixed(2)
-    }))
+    const reportDate = format(new Date(), 'yyyy-MM-dd')
+    const dateRangeLabel = dateRange.replace(/([A-Z])/g, ' $1').trim()
     
-    const headers = Object.keys(data[0]).join(',')
-    const rows = data.map(row => Object.values(row).join(','))
-    const csv = [headers, ...rows].join('\n')
+    // Build CSV content
+    const lines = [
+      `Firm Analytics Report - ${reportDate}`,
+      `Period: ${dateRangeLabel}`,
+      '',
+      'KEY METRICS',
+      `Total Invoiced,$${revenueMetrics.totalInvoiced.toLocaleString()}`,
+      `Total Collected,$${revenueMetrics.totalCollected.toLocaleString()}`,
+      `Outstanding,$${revenueMetrics.outstanding.toLocaleString()}`,
+      `Overdue,$${revenueMetrics.overdue.toLocaleString()}`,
+      `Collection Rate,${revenueMetrics.totalInvoiced > 0 ? ((revenueMetrics.totalCollected / revenueMetrics.totalInvoiced) * 100).toFixed(1) : 0}%`,
+      '',
+      'TIME METRICS',
+      `Total Hours,${hoursMetrics.totalHours.toFixed(1)}`,
+      `Billable Hours,${hoursMetrics.billableHours.toFixed(1)}`,
+      `Utilization Rate,${hoursMetrics.utilizationRate.toFixed(1)}%`,
+      `Effective Hourly Rate,$${additionalMetrics.effectiveRate.toFixed(2)}`,
+      '',
+      'MATTER METRICS',
+      `Active Matters,${additionalMetrics.activeMatters}`,
+      `Total Clients,${clients.length}`,
+      `Avg Matter Value,$${additionalMetrics.avgMatterValue.toFixed(2)}`,
+      `Realization Rate,${additionalMetrics.realizationRate.toFixed(1)}%`,
+      '',
+      'REVENUE BY PRACTICE AREA',
+      ...revenueByPracticeArea.map(p => `${p.name},$${p.value.toLocaleString()}`),
+      '',
+      'MONTHLY TREND',
+      'Month,Invoiced,Collected',
+      ...revenueTrend.map(m => `${m.month},$${m.invoiced.toLocaleString()},$${m.collected.toLocaleString()}`)
+    ]
     
+    const csv = lines.join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `firm-analytics-${format(new Date(), 'yyyy-MM-dd')}.csv`
+    a.download = `firm-analytics-${reportDate}.csv`
     a.click()
+    URL.revokeObjectURL(url)
   }
 
   const isAdmin = user?.role === 'admin' || user?.role === 'owner'
@@ -216,7 +233,7 @@ export function FirmAnalyticsPage() {
 
       {/* Tabs */}
       <div className={styles.tabs}>
-        {['overview', 'revenue', 'team', 'matters'].map(tab => (
+        {['overview', 'revenue', 'matters'].map(tab => (
           <button
             key={tab}
             className={`${styles.tab} ${selectedTab === tab ? styles.active : ''}`}
@@ -283,6 +300,58 @@ export function FirmAnalyticsPage() {
                 <span className={styles.kpiValue}>${revenueMetrics.outstanding.toLocaleString()}</span>
                 <span className={styles.kpiSubtext}>
                   ${revenueMetrics.overdue.toLocaleString()} overdue
+                </span>
+              </div>
+            </div>
+
+            <div className={styles.kpiCard}>
+              <div className={styles.kpiIcon} style={{ background: 'rgba(59, 130, 246, 0.1)' }}>
+                <Target size={24} style={{ color: '#3B82F6' }} />
+              </div>
+              <div className={styles.kpiContent}>
+                <span className={styles.kpiLabel}>Effective Rate</span>
+                <span className={styles.kpiValue}>${additionalMetrics.effectiveRate.toFixed(0)}/hr</span>
+                <span className={styles.kpiSubtext}>
+                  Based on collected revenue
+                </span>
+              </div>
+            </div>
+
+            <div className={styles.kpiCard}>
+              <div className={styles.kpiIcon} style={{ background: 'rgba(245, 158, 11, 0.1)' }}>
+                <Percent size={24} style={{ color: '#F59E0B' }} />
+              </div>
+              <div className={styles.kpiContent}>
+                <span className={styles.kpiLabel}>Realization Rate</span>
+                <span className={styles.kpiValue}>{additionalMetrics.realizationRate.toFixed(0)}%</span>
+                <span className={styles.kpiSubtext}>
+                  Collected vs billed
+                </span>
+              </div>
+            </div>
+
+            <div className={styles.kpiCard}>
+              <div className={styles.kpiIcon} style={{ background: 'rgba(16, 185, 129, 0.1)' }}>
+                <Briefcase size={24} style={{ color: '#10B981' }} />
+              </div>
+              <div className={styles.kpiContent}>
+                <span className={styles.kpiLabel}>Active Matters</span>
+                <span className={styles.kpiValue}>{additionalMetrics.activeMatters}</span>
+                <span className={styles.kpiSubtext}>
+                  {clients.length} clients
+                </span>
+              </div>
+            </div>
+
+            <div className={styles.kpiCard}>
+              <div className={styles.kpiIcon} style={{ background: 'rgba(139, 92, 246, 0.1)' }}>
+                <TrendingUp size={24} style={{ color: '#8B5CF6' }} />
+              </div>
+              <div className={styles.kpiContent}>
+                <span className={styles.kpiLabel}>Avg Matter Value</span>
+                <span className={styles.kpiValue}>${additionalMetrics.avgMatterValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                <span className={styles.kpiSubtext}>
+                  Per matter invoiced
                 </span>
               </div>
             </div>
@@ -364,77 +433,6 @@ export function FirmAnalyticsPage() {
             </div>
           </div>
 
-          {/* Team Performance Table */}
-          <div className={styles.tableCard}>
-            <div className={styles.tableHeader}>
-              <h3>Team Performance</h3>
-              <AIButton 
-                context="Team Performance"
-                label="AI Analyze"
-                prompts={[
-                  { label: 'Summary', prompt: 'Summarize team performance' },
-                  { label: 'Top Performers', prompt: 'Identify top performers' },
-                  { label: 'Improvements', prompt: 'Suggest improvements' }
-                ]}
-              />
-            </div>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Team Member</th>
-                  <th>Role</th>
-                  <th>Total Hours</th>
-                  <th>Billable Hours</th>
-                  <th>Utilization</th>
-                  <th>Revenue</th>
-                </tr>
-              </thead>
-              <tbody>
-                {teamProductivity.map(member => (
-                  <tr key={member.id}>
-                    <td>
-                      <div className={styles.memberCell}>
-                        <div className={styles.memberAvatar}>{member.avatar}</div>
-                        <span>{member.name}</span>
-                      </div>
-                    </td>
-                    <td>{member.role}</td>
-                    <td>{member.totalHours.toFixed(1)}h</td>
-                    <td>{member.billableHours.toFixed(1)}h</td>
-                    <td>
-                      <div className={styles.utilizationBar}>
-                        <div 
-                          className={styles.utilizationFill}
-                          style={{ 
-                            width: `${Math.min(member.utilization, 100)}%`,
-                            background: member.utilization >= 80 ? 'var(--success)' : member.utilization >= 60 ? 'var(--warning)' : '#ef4444'
-                          }}
-                        />
-                        <span>{member.utilization.toFixed(0)}%</span>
-                      </div>
-                    </td>
-                    <td className={styles.revenue}>${member.revenue.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colSpan={2}><strong>Total</strong></td>
-                  <td><strong>{teamProductivity.reduce((s, m) => s + m.totalHours, 0).toFixed(1)}h</strong></td>
-                  <td><strong>{teamProductivity.reduce((s, m) => s + m.billableHours, 0).toFixed(1)}h</strong></td>
-                  <td>
-                    <strong>
-                      {(teamProductivity.reduce((s, m) => s + m.billableHours, 0) / 
-                        Math.max(teamProductivity.reduce((s, m) => s + m.totalHours, 0), 1) * 100).toFixed(0)}%
-                    </strong>
-                  </td>
-                  <td className={styles.revenue}>
-                    <strong>${teamProductivity.reduce((s, m) => s + m.revenue, 0).toLocaleString()}</strong>
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
         </>
       )}
 
@@ -495,54 +493,6 @@ export function FirmAnalyticsPage() {
                 })}
               </tbody>
             </table>
-          </div>
-        </div>
-      )}
-
-      {selectedTab === 'team' && (
-        <div className={styles.teamTab}>
-          <div className={styles.teamGrid}>
-            {teamProductivity.map(member => (
-              <div key={member.id} className={styles.teamCard}>
-                <div className={styles.teamCardHeader}>
-                  <div className={styles.teamAvatar}>{member.avatar}</div>
-                  <div>
-                    <h4>{member.name}</h4>
-                    <span>{member.role}</span>
-                  </div>
-                  <AIButton context={member.name} variant="icon" size="sm" />
-                </div>
-                <div className={styles.teamStats}>
-                  <div className={styles.teamStat}>
-                    <span className={styles.teamStatLabel}>Hours</span>
-                    <span className={styles.teamStatValue}>{member.totalHours.toFixed(1)}h</span>
-                  </div>
-                  <div className={styles.teamStat}>
-                    <span className={styles.teamStatLabel}>Billable</span>
-                    <span className={styles.teamStatValue}>{member.billableHours.toFixed(1)}h</span>
-                  </div>
-                  <div className={styles.teamStat}>
-                    <span className={styles.teamStatLabel}>Revenue</span>
-                    <span className={styles.teamStatValue}>${member.revenue.toLocaleString()}</span>
-                  </div>
-                </div>
-                <div className={styles.teamUtilization}>
-                  <div className={styles.utilizationHeader}>
-                    <span>Utilization</span>
-                    <span>{member.utilization.toFixed(0)}%</span>
-                  </div>
-                  <div className={styles.utilizationTrack}>
-                    <div 
-                      className={styles.utilizationProgress}
-                      style={{ 
-                        width: `${Math.min(member.utilization, 100)}%`,
-                        background: member.utilization >= 80 ? 'var(--success)' : member.utilization >= 60 ? 'var(--warning)' : '#ef4444'
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       )}
