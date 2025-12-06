@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { 
   User, Lock, Bell, Shield, Save, Calendar, Clock, 
-  Globe, Palette, Download, Trash2, CheckCircle2, ArrowLeft
+  Palette, Download, Trash2, CheckCircle2, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
@@ -27,8 +27,7 @@ export function SettingsPage() {
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
-    twoFactorEnabled: false,
-    sessionTimeout: '30'
+    twoFactorEnabled: false
   })
 
   const [notificationData, setNotificationData] = useState({
@@ -306,41 +305,6 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              <div className={styles.section}>
-                <div className={styles.sectionHeader}>
-                  <Globe size={20} />
-                  <div>
-                    <h2>Session Settings</h2>
-                    <p>Control your session security preferences</p>
-                  </div>
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label>Session Timeout (minutes)</label>
-                  <select
-                    value={securityData.sessionTimeout}
-                    onChange={e => setSecurityData({...securityData, sessionTimeout: e.target.value})}
-                  >
-                    <option value="15">15 minutes</option>
-                    <option value="30">30 minutes</option>
-                    <option value="60">1 hour</option>
-                    <option value="120">2 hours</option>
-                    <option value="480">8 hours</option>
-                  </select>
-                </div>
-
-                <button 
-                  className={styles.dangerBtn}
-                  onClick={() => {
-                    if (confirm('Sign out from all other sessions? You will remain signed in on this device.')) {
-                      alert('All other sessions have been signed out.')
-                    }
-                  }}
-                >
-                  <Trash2 size={16} />
-                  Sign Out All Other Sessions
-                </button>
-              </div>
             </div>
           )}
 
