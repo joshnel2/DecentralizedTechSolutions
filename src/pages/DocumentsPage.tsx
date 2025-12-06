@@ -5,7 +5,7 @@ import { useAIStore } from '../stores/aiStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Plus, Search, FolderOpen, FileText, Upload,
-  MoreVertical, Sparkles, Download, Trash2, Wand2, Eye, X, FileSearch
+  MoreVertical, Sparkles, Download, Trash2, Wand2, Eye, X, FileSearch, Loader2
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -74,18 +74,212 @@ export function DocumentsPage() {
     }
   }
   
-  // Open AI with document context
-  const openAIWithDocContext = (doc: typeof documents[0]) => {
-    openChat({
-      label: `Document: ${doc.name}`,
-      contextType: 'documents',
-      suggestedQuestions: [
-        'Summarize this document',
-        'What are the key points in this document?',
-        'Extract important entities and dates',
-        'Are there any risks or concerns?'
-      ],
-      additionalContext: { documentId: doc.id, documentName: doc.name }
+  // Open AI with document context - extracts text content first
+  const [isExtractingForChat, setIsExtractingForChat] = useState(false)
+  
+  const openAIWithDocContext = async (doc: typeof documents[0]) => {
+    setIsExtractingForChat(true)
+    
+    try {
+      // First try to get content from server
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken') || ''
+      
+      let extractedContent = ''
+      
+      // Try server-side content extraction first
+      try {
+        const contentResponse = await fetch(`${apiUrl}/documents/${doc.id}/content`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        
+        if (contentResponse.ok) {
+          const data = await contentResponse.json()
+          if (data.content && data.content.trim().length > 50) {
+            extractedContent = data.content
+          }
+        }
+      } catch (e) {
+        console.log('Server content extraction not available, trying client-side')
+      }
+      
+      // If server didn't return content, download and extract client-side
+      if (!extractedContent) {
+        try {
+          const downloadResponse = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          
+          if (downloadResponse.ok) {
+            const blob = await downloadResponse.blob()
+            const file = new File([blob], doc.name, { type: doc.type })
+            extractedContent = await extractFileContent(file)
+          }
+        } catch (e) {
+          console.error('Failed to download document for extraction:', e)
+        }
+      }
+      
+      // If we still don't have content, provide a fallback message
+      if (!extractedContent) {
+        extractedContent = `[Document: ${doc.name}]\nType: ${doc.type}\nSize: ${formatFileSize(doc.size)}\n\nUnable to extract text content. The document may be an image or scanned PDF.`
+      }
+      
+      // Navigate to AI page with document context
+      setSelectedMode('document')
+      setDocumentContext({
+        id: doc.id,
+        name: doc.name,
+        content: extractedContent,
+        type: doc.type,
+        size: doc.size
+      })
+      createConversation('document')
+      navigate('/app/ai')
+      
+    } catch (error) {
+      console.error('Failed to extract document:', error)
+      // Navigate anyway with basic info
+      setSelectedMode('document')
+      setDocumentContext({
+        id: doc.id,
+        name: doc.name,
+        content: `[Document: ${doc.name}]\nType: ${doc.type}\nSize: ${formatFileSize(doc.size)}`,
+        type: doc.type,
+        size: doc.size
+      })
+      createConversation('document')
+      navigate('/app/ai')
+    } finally {
+      setIsExtractingForChat(false)
+    }
+  }
+  
+  // Client-side file content extraction
+  const extractFileContent = async (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader()
+      
+      reader.onload = async (e) => {
+        const result = e.target?.result
+        
+        // Handle image files
+        if (file.type.startsWith('image/')) {
+          resolve(`[IMAGE FILE: ${file.name}]\n\nThis appears to be an image file. For best results, please use OCR software to extract the text or describe what you see in the image.`)
+        }
+        // Handle PDF files
+        else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+          try {
+            const arrayBuffer = result as ArrayBuffer
+            const pdfjsLib = await import('pdfjs-dist')
+            
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 
+              `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`
+            
+            const uint8Array = new Uint8Array(arrayBuffer)
+            const loadingTask = pdfjsLib.getDocument({ 
+              data: uint8Array,
+              useSystemFonts: true,
+              disableFontFace: true,
+              isEvalSupported: false
+            })
+            
+            const pdf = await loadingTask.promise
+            
+            let fullText = ''
+            for (let i = 1; i <= pdf.numPages; i++) {
+              const page = await pdf.getPage(i)
+              const textContent = await page.getTextContent()
+              const pageText = textContent.items
+                .map((item: any) => {
+                  const text = item.str || ''
+                  const hasTransform = item.hasEOL || (item.transform && item.transform[5] !== 0)
+                  return hasTransform ? text + ' ' : text
+                })
+                .join('')
+                .replace(/\s+/g, ' ')
+                .trim()
+              
+              if (pageText) {
+                fullText += `\n--- Page ${i} ---\n${pageText}\n`
+              }
+            }
+            
+            if (fullText.trim().length === 0) {
+              resolve(`[PDF FILE: ${file.name}]\n\nThis PDF appears to be scanned or image-based with no extractable text.`)
+            } else {
+              resolve(`[PDF FILE: ${file.name}]\n\nExtracted content from PDF (${pdf.numPages} pages):\n${fullText}`)
+            }
+          } catch (err) {
+            console.error('PDF extraction error:', err)
+            resolve(`[PDF FILE: ${file.name}]\n\nUnable to extract text from this PDF.`)
+          }
+        }
+        // Handle Word .docx files
+        else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
+                 file.name.toLowerCase().endsWith('.docx')) {
+          try {
+            const arrayBuffer = result as ArrayBuffer
+            const mammoth = await import('mammoth')
+            const result2 = await mammoth.extractRawText({ arrayBuffer })
+            if (result2.value.trim().length === 0) {
+              resolve(`[WORD DOCUMENT: ${file.name}]\n\nThis document appears to be empty.`)
+            } else {
+              resolve(`[WORD DOCUMENT: ${file.name}]\n\nExtracted content:\n${result2.value}`)
+            }
+          } catch (err) {
+            resolve(`[WORD DOCUMENT: ${file.name}]\n\nUnable to extract text from this Word document.`)
+          }
+        }
+        // Handle Excel files
+        else if (file.type.includes('spreadsheet') || file.type.includes('excel') ||
+                 file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls')) {
+          try {
+            const arrayBuffer = result as ArrayBuffer
+            const XLSX = await import('xlsx')
+            const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+            
+            let fullContent = `[EXCEL FILE: ${file.name}]\n\nExtracted content:\n`
+            workbook.SheetNames.forEach((sheetName: string) => {
+              const sheet = workbook.Sheets[sheetName]
+              const csv = XLSX.utils.sheet_to_csv(sheet)
+              fullContent += `\n--- Sheet: ${sheetName} ---\n${csv}\n`
+            })
+            resolve(fullContent)
+          } catch (err) {
+            resolve(`[EXCEL FILE: ${file.name}]\n\nUnable to extract data from this Excel file.`)
+          }
+        }
+        // Handle text-based files
+        else {
+          const textContent = result as string
+          if (textContent && textContent.trim().length > 0) {
+            resolve(`[FILE: ${file.name}]\n\nContent:\n${textContent}`)
+          } else {
+            resolve(`[FILE: ${file.name}]\n\nThis file appears to be empty.`)
+          }
+        }
+      }
+      
+      reader.onerror = () => resolve(`[FILE: ${file.name}]\n\nFailed to read file.`)
+      
+      // Determine if file needs binary or text reading
+      const needsArrayBuffer = 
+        file.type === 'application/pdf' || 
+        file.type.includes('word') ||
+        file.type.includes('spreadsheet') ||
+        file.type.includes('excel') ||
+        file.name.toLowerCase().endsWith('.pdf') ||
+        file.name.toLowerCase().endsWith('.docx') ||
+        file.name.toLowerCase().endsWith('.doc') ||
+        file.name.toLowerCase().endsWith('.xlsx') ||
+        file.name.toLowerCase().endsWith('.xls')
+      
+      if (needsArrayBuffer) {
+        reader.readAsArrayBuffer(file)
+      } else {
+        reader.readAsText(file)
+      }
     })
   }
   
@@ -155,51 +349,6 @@ export function DocumentsPage() {
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
     return `${(bytes / 1024 / 1024).toFixed(2)} MB`
-  }
-
-  const analyzeDocument = async (doc: typeof documents[0]) => {
-    // Fetch document content from server using the content extraction endpoint
-    try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
-      const response = await fetch(`${apiUrl}/documents/${doc.id}/content`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('accessToken') || ''}`
-        }
-      })
-      
-      let content = ''
-      if (response.ok) {
-        const data = await response.json()
-        content = data.content || `[Document: ${doc.name}]\nNo text content extracted.`
-      } else {
-        content = `[Document: ${doc.name}]\nType: ${doc.type}\nSize: ${formatFileSize(doc.size)}\n\nDocument loaded for analysis.`
-      }
-      
-      // Set document context and navigate to AI page
-      setSelectedMode('document')
-      setDocumentContext({
-        id: doc.id,
-        name: doc.name,
-        content: content,
-        type: doc.type,
-        size: doc.size
-      })
-      createConversation('document')
-      navigate('/app/ai')
-    } catch (error) {
-      console.error('Failed to load document:', error)
-      // Navigate anyway with basic info
-      setSelectedMode('document')
-      setDocumentContext({
-        id: doc.id,
-        name: doc.name,
-        content: `[Document: ${doc.name}]\nType: ${doc.type}\nSize: ${formatFileSize(doc.size)}`,
-        type: doc.type,
-        size: doc.size
-      })
-      createConversation('document')
-      navigate('/app/ai')
-    }
   }
 
   const getDocumentUrl = (doc: typeof documents[0]) => {
@@ -350,8 +499,9 @@ export function DocumentsPage() {
                         className={styles.analyzeBtn}
                         onClick={() => openAIWithDocContext(doc)}
                         title="AI Analyze"
+                        disabled={isExtractingForChat}
                       >
-                        <Sparkles size={14} />
+                        {isExtractingForChat ? <Loader2 size={14} className={styles.spinner} /> : <Sparkles size={14} />}
                       </button>
                       <button 
                         onClick={() => handleDeleteDocument(doc.id)}
@@ -398,9 +548,10 @@ export function DocumentsPage() {
                     openAIWithDocContext(previewDoc)
                     setPreviewDoc(null)
                   }}
+                  disabled={isExtractingForChat}
                 >
-                  <Sparkles size={16} />
-                  AI Analyze
+                  {isExtractingForChat ? <Loader2 size={16} className={styles.spinner} /> : <Sparkles size={16} />}
+                  {isExtractingForChat ? 'Extracting...' : 'AI Analyze'}
                 </button>
                 <button className={styles.closePreviewBtn} onClick={() => setPreviewDoc(null)}>
                   <X size={20} />
