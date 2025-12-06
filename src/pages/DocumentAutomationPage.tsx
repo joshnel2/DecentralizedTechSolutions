@@ -1,9 +1,10 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   FileText, Search, Play, Download, X, Sparkles, Plus, 
   Edit3, Copy, Trash2, Save, Eye, ChevronDown, ChevronRight,
   FileSignature, Scale, Gavel, Building, Users, DollarSign,
-  Clock, Shield, Briefcase, FileCheck
+  Clock, Shield, Briefcase, FileCheck, MessageSquare
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './DocumentAutomationPage.module.css'
@@ -469,6 +470,7 @@ Sincerely,
 const categories = ['All', 'Client Intake', 'Litigation', 'Business', 'Estate Planning']
 
 export function DocumentAutomationPage() {
+  const navigate = useNavigate()
   const [templates, setTemplates] = useState<DocumentTemplate[]>(preAutomatedTemplates)
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('All')
@@ -476,6 +478,9 @@ export function DocumentAutomationPage() {
   const [showEditModal, setShowEditModal] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
+  const [showResultModal, setShowResultModal] = useState(false)
+  const [generatedContent, setGeneratedContent] = useState('')
+  const [generatedTemplateName, setGeneratedTemplateName] = useState('')
   const [selectedTemplate, setSelectedTemplate] = useState<DocumentTemplate | null>(null)
   const [formValues, setFormValues] = useState<Record<string, string>>({})
   const [editingTemplate, setEditingTemplate] = useState<DocumentTemplate | null>(null)
@@ -575,18 +580,43 @@ export function DocumentAutomationPage() {
         : t
     ))
     
-    // Create and download the document
-    const blob = new Blob([content], { type: 'text/plain' })
+    // Store generated content and show result modal
+    setGeneratedContent(content)
+    setGeneratedTemplateName(selectedTemplate.name)
+    setShowGenerateModal(false)
+    setShowPreviewModal(false)
+    setShowResultModal(true)
+  }
+
+  const handleDownloadDocument = () => {
+    if (!generatedContent || !generatedTemplateName) return
+    
+    const blob = new Blob([generatedContent], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${selectedTemplate.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.txt`
+    a.download = `${generatedTemplateName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.txt`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
+  }
+
+  const handleOpenInDocumentAI = () => {
+    // Store the document content in sessionStorage to pass to AI page
+    sessionStorage.setItem('documentAI_content', JSON.stringify({
+      content: generatedContent,
+      templateName: generatedTemplateName,
+      timestamp: new Date().toISOString()
+    }))
     
-    setShowGenerateModal(false)
+    // Navigate to AI Assistant page
+    navigate('/app/ai')
+    
+    // Close the modal
+    setShowResultModal(false)
+    setGeneratedContent('')
+    setGeneratedTemplateName('')
     setFormValues({})
   }
 
@@ -1102,6 +1132,55 @@ export function DocumentAutomationPage() {
                   <Save size={16} /> Create Template
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Document Generated Result Modal */}
+      {showResultModal && (
+        <div className={styles.modalOverlay} onClick={() => {
+          setShowResultModal(false)
+          setGeneratedContent('')
+          setGeneratedTemplateName('')
+          setFormValues({})
+        }}>
+          <div className={clsx(styles.modal, styles.resultModal)} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <div className={styles.modalTitle}>
+                <FileCheck size={20} />
+                <h2>Document Generated!</h2>
+              </div>
+              <button onClick={() => {
+                setShowResultModal(false)
+                setGeneratedContent('')
+                setGeneratedTemplateName('')
+                setFormValues({})
+              }} className={styles.closeBtn}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className={styles.resultContent}>
+              <div className={styles.resultSuccess}>
+                <div className={styles.successIcon}>
+                  <FileCheck size={48} />
+                </div>
+                <h3>{generatedTemplateName}</h3>
+                <p>Your document has been generated successfully. Choose what you'd like to do next:</p>
+              </div>
+              <div className={styles.resultPreview}>
+                <pre>{generatedContent.substring(0, 500)}{generatedContent.length > 500 ? '...' : ''}</pre>
+              </div>
+            </div>
+            <div className={styles.resultActions}>
+              <button onClick={handleDownloadDocument} className={styles.secondaryBtn}>
+                <Download size={18} />
+                Download Document
+              </button>
+              <button onClick={handleOpenInDocumentAI} className={styles.primaryBtn}>
+                <Sparkles size={18} />
+                Open in Document AI
+              </button>
             </div>
           </div>
         </div>
