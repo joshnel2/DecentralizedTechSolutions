@@ -739,7 +739,8 @@
   }
 
   .table tr {
-    display: block;
+    display: flex;
+    flex-direction: column;
     background: var(--apex-deep);
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: var(--radius-lg);
@@ -749,36 +750,100 @@
 
   .table td {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: var(--space-xs) 0;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: var(--space-sm) 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    width: 100%;
+  }
+
+  .table td:first-child {
+    border-bottom: none;
+    padding-bottom: var(--space-md);
+    margin-bottom: var(--space-sm);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .table td:last-child {
     border-bottom: none;
+    padding-top: var(--space-sm);
   }
 
-  .table td::before {
-    content: attr(data-label);
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--apex-text);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-right: var(--space-md);
+  /* Hide empty cells and menu column */
+  .table td:empty {
+    display: none;
   }
 
   .nameCell {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-md);
+    padding-bottom: 0;
+    width: 100%;
+  }
+
+  .nameCell > div {
+    display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: var(--space-sm);
-    padding-bottom: var(--space-sm);
+  }
+
+  .nameCell .name {
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .nameCell .subtitle {
+    font-size: 0.8125rem;
+    color: var(--apex-text);
   }
 
   .icon {
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+  }
+
+  /* Mobile card content layout */
+  .table td > div,
+  .table td > span,
+  .table td > a {
+    text-align: left;
+  }
+
+  /* Better styling for inline data on mobile */
+  .link {
+    font-size: 0.9375rem;
+  }
+
+  .typeTag {
+    margin-top: var(--space-xs);
+  }
+
+  .statusBadge,
+  .statusSelect {
+    margin-top: var(--space-xs);
+  }
+
+  .billingInfo {
+    font-size: 0.9375rem;
+    color: var(--apex-light);
+  }
+
+  .dateCell {
+    font-size: 0.875rem;
+    color: var(--apex-text);
+  }
+
+  /* Menu button on mobile cards */
+  .menuWrapper {
+    position: absolute;
+    top: var(--space-md);
+    right: var(--space-md);
+  }
+
+  .table tr {
+    position: relative;
   }
 
   /* Modal adjustments */
@@ -848,8 +913,31 @@
     font-size: 1.25rem;
   }
 
+  .headerActions {
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .aiBtn,
+  .primaryBtn {
+    width: 100%;
+  }
+
   .card {
     padding: var(--space-md);
+  }
+
+  .table tr {
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  .nameCell .name {
+    font-size: 0.9375rem;
+  }
+
+  .icon {
+    width: 36px;
+    height: 36px;
   }
 
   .statusBadge {
@@ -857,9 +945,29 @@
     padding: 3px 8px;
   }
 
+  .statusSelect {
+    font-size: 0.625rem;
+    padding: 3px 20px 3px 8px;
+  }
+
   .typeTag {
     font-size: 0.6875rem;
     padding: 3px 8px;
+  }
+
+  .modalOverlay {
+    align-items: center;
+    padding: var(--space-sm);
+  }
+
+  .modal {
+    border-radius: var(--radius-lg);
+    max-height: 95vh;
+  }
+
+  .modalForm {
+    padding: var(--space-md);
+    gap: var(--space-md);
   }
 }
 
