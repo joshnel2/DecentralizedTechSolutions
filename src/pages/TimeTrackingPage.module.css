@@ -355,18 +355,6 @@
   color: var(--apex-subtle);
 }
 
-/* Active Timer */
-.activeTimer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-lg);
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  border-radius: var(--radius-lg);
-  margin-bottom: var(--space-xl);
-}
-
 .timerInfo {
   display: flex;
   align-items: center;
