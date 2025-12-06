@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Briefcase, Users, Calendar, DollarSign, 
   Clock, BarChart3, Settings, LogOut, ChevronDown,
   Bell, Sparkles, Menu, X, FolderOpen, Shield, Key, UserCircle,
-  Building2, UsersRound, Link2, TrendingUp, Lock, Landmark, FileStack
+  Building2, UsersRound, Link2, TrendingUp, Lock, FileStack
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './Layout.module.css'
@@ -19,7 +19,6 @@ const navItems = [
   { path: '/app/clients', label: 'Clients', icon: Users },
   { path: '/app/calendar', label: 'Calendar', icon: Calendar },
   { path: '/app/billing', label: 'Billing', icon: DollarSign },
-  { path: '/app/trust', label: 'Linked Accounts', icon: Landmark },
   { path: '/app/time', label: 'Time Tracking', icon: Clock },
   { path: '/app/documents', label: 'Documents', icon: FolderOpen },
   { path: '/app/document-automation', label: 'Document Automation', icon: FileStack },
