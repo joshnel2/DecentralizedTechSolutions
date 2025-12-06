@@ -106,14 +106,22 @@ export function DocumentsPage() {
       // If server didn't return content, download and extract client-side
       if (!extractedContent) {
         try {
+          console.log('Downloading document for client-side extraction:', doc.name, doc.type)
           const downloadResponse = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
             headers: { 'Authorization': `Bearer ${token}` }
           })
           
           if (downloadResponse.ok) {
             const blob = await downloadResponse.blob()
-            const file = new File([blob], doc.name, { type: doc.type })
+            console.log('Downloaded blob:', blob.size, 'bytes, type:', blob.type)
+            // Use the document's stored type, or fall back to blob type
+            const fileType = doc.type || blob.type || 'application/octet-stream'
+            const file = new File([blob], doc.name, { type: fileType })
+            console.log('Created file for extraction:', file.name, file.type, file.size)
             extractedContent = await extractFileContent(file)
+            console.log('Extracted content length:', extractedContent.length)
+          } else {
+            console.error('Download failed:', downloadResponse.status, downloadResponse.statusText)
           }
         } catch (e) {
           console.error('Failed to download document for extraction:', e)
