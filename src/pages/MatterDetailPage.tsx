@@ -799,7 +799,7 @@ Only analyze documents actually associated with this matter.`
             <div className={styles.tabHeader}>
               <h2>Time Entries</h2>
               <div className={styles.tabActions}>
-                {timer.isRunning && timer.matterId === id ? (
+                {timer.isRunning && timer.matterId === id && (
                   <div className={styles.activeTimerBadge}>
                     <Clock size={16} />
                     <span className={styles.timerDisplay}>{formatElapsedTime(timer.elapsed)}</span>
@@ -818,16 +818,6 @@ Only analyze documents actually associated with this matter.`
                       <StopCircle size={16} />
                     </button>
                   </div>
-                ) : timer.isRunning ? (
-                  <span className={styles.timerOnOtherMatter}>Timer active on another matter</span>
-                ) : (
-                  <button 
-                    className={styles.timerBtn}
-                    onClick={() => matter && startTimer(matter.id, matter.name)}
-                  >
-                    <Play size={18} />
-                    Start Timer
-                  </button>
                 )}
                 <button 
                   className={styles.primaryBtn}
