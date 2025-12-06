@@ -4,7 +4,7 @@ import { useDataStore } from '../stores/dataStore'
 import { useAIStore } from '../stores/aiStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { 
-  Plus, Search, FolderOpen, FileText, Upload, Grid, List,
+  Plus, Search, FolderOpen, FileText, Upload,
   MoreVertical, Sparkles, Download, Trash2, Wand2, Eye, X, FileSearch
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
@@ -90,7 +90,6 @@ export function DocumentsPage() {
   }
   
   const [searchQuery, setSearchQuery] = useState('')
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list')
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [selectedMatterId, setSelectedMatterId] = useState('')
@@ -219,20 +218,6 @@ export function DocumentsPage() {
           <span className={styles.count}>{documents.length} files</span>
         </div>
         <div className={styles.headerActions}>
-          <div className={styles.viewToggle}>
-            <button 
-              className={clsx(viewMode === 'grid' && styles.active)}
-              onClick={() => setViewMode('grid')}
-            >
-              <Grid size={18} />
-            </button>
-            <button 
-              className={clsx(viewMode === 'list' && styles.active)}
-              onClick={() => setViewMode('list')}
-            >
-              <List size={18} />
-            </button>
-          </div>
           <button 
             className={styles.automationBtn}
             onClick={() => navigate('/app/settings/documents')}
@@ -324,61 +309,7 @@ export function DocumentsPage() {
         </div>
       </div>
 
-      {viewMode === 'grid' ? (
-        <div className={styles.documentsGrid}>
-          {filteredDocuments.map(doc => (
-            <div key={doc.id} className={styles.docCard}>
-              <div 
-                className={styles.docPreview}
-                onClick={() => setPreviewDoc(doc)}
-                style={{ cursor: 'pointer' }}
-              >
-                <span className={styles.fileIcon}>{getFileIcon(doc.type)}</span>
-              </div>
-              <div className={styles.docInfo}>
-                <span className={styles.docName} title={doc.name}>{doc.name}</span>
-                <span className={styles.docMeta}>
-                  {formatFileSize(doc.size)} • {format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}
-                </span>
-                {getMatterName(doc.matterId) && (
-                  <span className={styles.docMatter}>{getMatterName(doc.matterId)}</span>
-                )}
-              </div>
-              <div className={styles.docActions}>
-                <button 
-                  className={styles.previewBtn}
-                  onClick={() => setPreviewDoc(doc)}
-                  title="Preview"
-                >
-                  <Eye size={14} />
-                </button>
-                <button 
-                  className={styles.downloadBtn}
-                  onClick={() => downloadDocument(doc)}
-                  title="Download"
-                >
-                  <Download size={14} />
-                </button>
-                <button 
-                  className={styles.analyzeBtn}
-                  onClick={() => openAIWithDocContext(doc)}
-                  title="AI Analyze"
-                >
-                  <Sparkles size={14} />
-                </button>
-                <button 
-                  className={styles.deleteBtn}
-                  onClick={() => handleDeleteDocument(doc.id)}
-                  title="Delete"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className={styles.documentsTable}>
+      <div className={styles.documentsTable}>
           <table>
             <thead>
               <tr>
@@ -435,7 +366,6 @@ export function DocumentsPage() {
             </tbody>
           </table>
         </div>
-      )}
 
       {filteredDocuments.length === 0 && (
         <div className={styles.emptyState}>
