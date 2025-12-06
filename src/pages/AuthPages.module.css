@@ -142,6 +142,27 @@
   max-width: 400px;
 }
 
+.mobileLogo {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+
+.mobileLogo span {
+  font-family: var(--font-serif);
+  font-size: 1.75rem;
+  color: var(--apex-white);
+  letter-spacing: -0.02em;
+}
+
+@media (max-width: 1024px) {
+  .mobileLogo {
+    display: flex;
+  }
+}
+
 .formHeader {
   margin-bottom: var(--space-xl);
   text-align: center;
@@ -495,6 +516,11 @@
   
   .brandSide {
     padding: var(--space-xl);
+    order: 2;
+  }
+  
+  .logo {
+    display: none;
   }
   
   .brandTitle {
@@ -503,11 +529,85 @@
   
   .formSide {
     border-left: none;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    border-top: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    order: 1;
+    padding: var(--space-xl);
   }
   
   .inputRow,
   .inputRow3 {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .authPage {
+    min-height: auto;
+  }
+  
+  .brandSide {
+    padding: var(--space-lg) var(--space-md);
+  }
+  
+  .brandContent {
+    max-width: 100%;
+  }
+  
+  .brandTitle {
+    font-size: 1.5rem;
+    text-align: center;
+  }
+  
+  .brandSubtitle {
+    font-size: 1rem;
+    text-align: center;
+    margin-bottom: var(--space-lg);
+  }
+  
+  .features {
+    gap: var(--space-md);
+  }
+  
+  .feature {
+    gap: var(--space-sm);
+  }
+  
+  .featureIcon {
+    width: 36px;
+    height: 36px;
+  }
+  
+  .feature h3 {
+    font-size: 0.9375rem;
+  }
+  
+  .feature p {
+    font-size: 0.8125rem;
+  }
+  
+  .formSide {
+    padding: var(--space-lg) var(--space-md);
+    padding-top: var(--space-xl);
+  }
+  
+  .formContainer {
+    max-width: 100%;
+  }
+  
+  .formHeader {
+    margin-bottom: var(--space-lg);
+  }
+  
+  .formHeader h2 {
+    font-size: 1.5rem;
+  }
+  
+  .divider {
+    margin: var(--space-lg) 0;
+  }
+  
+  .signupPrompt {
+    margin-top: var(--space-lg);
   }
 }
