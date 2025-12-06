@@ -245,13 +245,13 @@
 }
 
 .discardBtn {
-  background: var(--apex-slate);
-  color: var(--apex-text);
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
 }
 
 .discardBtn:hover {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
 }
 
 /* Modal Styles */
