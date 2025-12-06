@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { 
   Sparkles, Check, ArrowRight, Scale, Clock, DollarSign, 
   FileText, Users, Calendar, Shield, Zap, BarChart3,
-  ChevronRight, Star, Building2, Phone, Mail
+  ChevronRight, Star, Building2, Mail
 } from 'lucide-react'
 import styles from './LandingPage.module.css'
 
@@ -33,7 +33,7 @@ const plans = [
       'Document storage (10GB)',
       'Email support'
     ],
-    cta: 'Start Free Trial',
+    cta: 'Book Demo',
     popular: false
   },
   {
@@ -52,7 +52,7 @@ const plans = [
       'Priority support',
       'API access'
     ],
-    cta: 'Start Free Trial',
+    cta: 'Book Demo',
     popular: true
   },
   {
@@ -128,10 +128,10 @@ export function LandingPage() {
           </div>
           <div className={styles.navActions}>
             <Link to="/login" className={styles.loginLink}>Sign In</Link>
-            <Link to="/register" className={styles.ctaBtn}>
-              Start Free Trial
+            <button onClick={() => setShowContactModal(true)} className={styles.ctaBtn}>
+              Book Demo
               <ArrowRight size={16} />
-            </Link>
+            </button>
           </div>
         </div>
       </nav>
@@ -151,14 +151,14 @@ export function LandingPage() {
             modern law firms work smarter, bill more, and serve clients better.
           </p>
           <div className={styles.heroActions}>
-            <Link to="/register" className={styles.primaryBtn}>
-              Start Free 14-Day Trial
+            <button onClick={() => setShowContactModal(true)} className={styles.primaryBtn}>
+              Book Demo
+              <ArrowRight size={18} />
+            </button>
+            <Link to="/login" className={styles.secondaryBtn}>
+              Sign In
               <ArrowRight size={18} />
             </Link>
-            <button onClick={() => setShowContactModal(true)} className={styles.secondaryBtn}>
-              <Phone size={18} />
-              Schedule Demo
-            </button>
           </div>
           <div className={styles.heroStats}>
             <div>
@@ -237,10 +237,10 @@ export function LandingPage() {
             <li><Check size={18} /> Document summarization</li>
             <li><Check size={18} /> Deadline and risk identification</li>
           </ul>
-          <Link to="/register" className={styles.aiCta}>
-            Try AI Features Free
+          <button onClick={() => setShowContactModal(true)} className={styles.aiCta}>
+            See AI in Action
             <ChevronRight size={18} />
-          </Link>
+          </button>
         </div>
         <div className={styles.aiVisual}>
           <div className={styles.chatPreview}>
@@ -293,15 +293,9 @@ export function LandingPage() {
                   </li>
                 ))}
               </ul>
-              {plan.price ? (
-                <Link to="/register" className={styles.planBtn}>
-                  {plan.cta}
-                </Link>
-              ) : (
-                <button onClick={() => setShowContactModal(true)} className={styles.planBtnOutline}>
-                  {plan.cta}
-                </button>
-              )}
+              <button onClick={() => setShowContactModal(true)} className={plan.popular ? styles.planBtn : styles.planBtnOutline}>
+                {plan.cta}
+              </button>
             </div>
           ))}
         </div>
@@ -342,13 +336,14 @@ export function LandingPage() {
           <h2>Ready to transform your practice?</h2>
           <p>Join 2,500+ law firms already using Apex to work smarter.</p>
           <div className={styles.ctaActions}>
-            <Link to="/register" className={styles.primaryBtn}>
-              Start Free 14-Day Trial
+            <button onClick={() => setShowContactModal(true)} className={styles.primaryBtn}>
+              Book Demo
+              <ArrowRight size={18} />
+            </button>
+            <Link to="/login" className={styles.secondaryBtn}>
+              Sign In
               <ArrowRight size={18} />
             </Link>
-            <button onClick={() => setShowContactModal(true)} className={styles.secondaryBtn}>
-              Contact Sales
-            </button>
           </div>
         </div>
       </section>
