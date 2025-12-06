@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { 
-  User, Mail, Lock, Bell, Shield, Save, Calendar, Clock, 
-  CreditCard, Globe, Palette, Download, Trash2, CheckCircle2, ArrowLeft
+  User, Lock, Bell, Shield, Save, Calendar, Clock, 
+  Globe, Palette, Download, Trash2, CheckCircle2, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
@@ -34,7 +34,6 @@ export function SettingsPage() {
   const [notificationData, setNotificationData] = useState({
     emailNotifications: true,
     deadlineReminders: true,
-    billingAlerts: true,
     matterUpdates: true,
     calendarReminders: true,
     aiInsights: true,
@@ -85,7 +84,7 @@ export function SettingsPage() {
     { id: 'security', label: 'Security', icon: Lock },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'calendar', label: 'Calendar', icon: Calendar },
-    { id: 'billing', label: 'Time & Billing', icon: Clock },
+    { id: 'billing', label: 'Time Tracking', icon: Clock },
     { id: 'display', label: 'Display', icon: Palette }
   ]
 
@@ -390,21 +389,6 @@ export function SettingsPage() {
 
                   <div className={styles.toggle}>
                     <div>
-                      <span className={styles.toggleLabel}>Billing Alerts</span>
-                      <span className={styles.toggleDesc}>Invoice and payment notifications</span>
-                    </div>
-                    <label className={styles.switch}>
-                      <input
-                        type="checkbox"
-                        checked={notificationData.billingAlerts}
-                        onChange={e => setNotificationData({...notificationData, billingAlerts: e.target.checked})}
-                      />
-                      <span className={styles.slider}></span>
-                    </label>
-                  </div>
-
-                  <div className={styles.toggle}>
-                    <div>
                       <span className={styles.toggleLabel}>Matter Updates</span>
                       <span className={styles.toggleDesc}>Activity on your assigned matters</span>
                     </div>
@@ -586,14 +570,14 @@ export function SettingsPage() {
             </div>
           )}
 
-          {/* Time & Billing Tab */}
+          {/* Time Tracking Tab */}
           {activeTab === 'billing' && (
             <div className={styles.tabContent}>
               <div className={styles.section}>
                 <div className={styles.sectionHeader}>
                   <Clock size={20} />
                   <div>
-                    <h2>Time Entry Preferences</h2>
+                    <h2>Time Tracking Preferences</h2>
                     <p>Configure your default time tracking settings</p>
                   </div>
                 </div>
