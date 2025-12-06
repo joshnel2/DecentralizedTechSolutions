@@ -7,7 +7,7 @@ import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
 import { 
   Briefcase, Users, Clock, DollarSign, Calendar, TrendingUp,
   AlertCircle, ArrowRight, Sparkles, FileText, CheckCircle2,
-  Play, Pause, StopCircle
+  Play, Pause, StopCircle, X
 } from 'lucide-react'
 import { format, isAfter, parseISO, startOfMonth, endOfMonth } from 'date-fns'
 import { 
@@ -22,7 +22,7 @@ export function DashboardPage() {
   const { user } = useAuthStore()
   const { matters, clients, timeEntries, invoices, events, fetchMatters, fetchClients, fetchTimeEntries, fetchInvoices, fetchEvents } = useDataStore()
   const { openChat } = useAIChat()
-  const { timer, startTimer: globalStartTimer, stopTimer: globalStopTimer, discardTimer } = useTimer()
+  const { timer, startTimer: globalStartTimer, pauseTimer, resumeTimer, stopTimer, discardTimer } = useTimer()
 
   const startTimer = (matterId: string) => {
     const matter = matters.find(m => m.id === matterId)
@@ -235,24 +235,28 @@ export function DashboardPage() {
                 <Clock size={20} />
               </div>
               <div className={styles.timerDetails}>
-                <span className={styles.timerMatterName}>{timer.matterName}</span>
+                <span className={styles.timerMatterName}>{timer.matterName || 'General Time'}</span>
                 <span className={styles.timerElapsed}>{formatElapsedTime(timer.elapsed)}</span>
               </div>
             </div>
             <div className={styles.timerActions}>
-              {timer.isRunning ? (
-                <button onClick={globalStopTimer} className={styles.pauseBtn}>
-                  <Pause size={18} />
-                  Pause
-                </button>
-              ) : (
-                <button onClick={() => timer.matterId && startTimer(timer.matterId)} className={styles.resumeBtn}>
+              {timer.isPaused ? (
+                <button onClick={resumeTimer} className={styles.resumeBtn}>
                   <Play size={18} />
                   Resume
                 </button>
-              )}
-              <button onClick={discardTimer} className={styles.discardBtn}>
+              ) : timer.isRunning ? (
+                <button onClick={pauseTimer} className={styles.pauseBtn}>
+                  <Pause size={18} />
+                  Pause
+                </button>
+              ) : null}
+              <button onClick={stopTimer} className={styles.stopBtn} title="Stop & Save">
                 <StopCircle size={18} />
+                Stop
+              </button>
+              <button onClick={discardTimer} className={styles.discardBtn} title="Discard">
+                <X size={18} />
               </button>
             </div>
           </div>
