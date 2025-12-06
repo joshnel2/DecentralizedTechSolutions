@@ -4,6 +4,14 @@
   background: var(--apex-midnight);
 }
 
+@media (max-width: 768px) {
+  .layout {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+}
+
 /* Mobile Overlay */
 .mobileOverlay {
   display: none;
@@ -246,6 +254,14 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .main {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
 }
 
 /* Header */
@@ -596,6 +612,9 @@
 @media (max-width: 768px) {
   .content {
     padding: var(--space-md);
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
   }
 }
 
