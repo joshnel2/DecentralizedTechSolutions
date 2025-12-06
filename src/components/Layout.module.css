@@ -1,7 +1,8 @@
 .layout {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
   background: var(--apex-midnight);
+  overflow: hidden;
 }
 
 @media (max-width: 768px) {
@@ -32,13 +33,16 @@
 /* Sidebar */
 .sidebar {
   width: 260px;
+  height: 100vh;
   background: linear-gradient(180deg, var(--apex-deep) 0%, var(--apex-midnight) 100%);
   border-right: 1px solid rgba(255, 255, 255, 0.05);
   display: flex;
   flex-direction: column;
   transition: width var(--transition-base), transform var(--transition-base);
-  position: relative;
+  position: sticky;
+  top: 0;
   z-index: 100;
+  overflow: hidden;
 }
 
 .sidebar.collapsed {
@@ -254,6 +258,8 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  height: 100vh;
+  overflow: hidden;
 }
 
 @media (max-width: 768px) {
@@ -763,6 +769,7 @@
   flex: 1;
   padding: var(--space-xl);
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 @media (max-width: 768px) {
