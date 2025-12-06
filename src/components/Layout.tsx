@@ -3,14 +3,13 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
-import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
 import { AIChat } from './AIChat'
+import { FloatingTimer } from './FloatingTimer'
 import { 
   LayoutDashboard, Briefcase, Users, Calendar, DollarSign, 
   Clock, BarChart3, Settings, LogOut, ChevronDown,
   Bell, Sparkles, Menu, X, FolderOpen, Shield, Key, UserCircle,
-  Building2, UsersRound, Link2, TrendingUp, Lock, Landmark,
-  PlayCircle, PauseCircle, StopCircle, Save
+  Building2, UsersRound, Link2, TrendingUp, Lock, Landmark
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './Layout.module.css'
@@ -40,7 +39,7 @@ const settingsItems = [
 
 export function Layout() {
   const { user, firm, logout } = useAuthStore()
-  const { notifications, matters } = useDataStore()
+  const { notifications } = useDataStore()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -50,9 +49,6 @@ export function Layout() {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const { isOpen: aiChatOpen, openChat, closeChat } = useAIChat()
-  const { timer, stopTimer, discardTimer, saveTimerEntry } = useTimer()
-  const [showTimerSaveModal, setShowTimerSaveModal] = useState(false)
-  const [timerDescription, setTimerDescription] = useState('')
 
   const unreadCount = notifications.filter(n => !n.read).length
 
@@ -228,43 +224,6 @@ export function Layout() {
           </div>
 
           <div className={styles.headerRight}>
-            {/* Global Timer Display */}
-            {(timer.isRunning || timer.elapsed > 0) && (
-              <div className={styles.globalTimer}>
-                <div className={styles.timerInfo}>
-                  <Clock size={16} />
-                  <span className={styles.timerTime}>{formatElapsedTime(timer.elapsed)}</span>
-                  <span className={styles.timerMatter}>{timer.matterName}</span>
-                </div>
-                <div className={styles.timerActions}>
-                  {timer.isRunning ? (
-                    <button 
-                      className={styles.timerBtn} 
-                      onClick={stopTimer}
-                      title="Pause timer"
-                    >
-                      <PauseCircle size={18} />
-                    </button>
-                  ) : (
-                    <button 
-                      className={styles.timerBtn}
-                      onClick={() => setShowTimerSaveModal(true)}
-                      title="Save time entry"
-                    >
-                      <Save size={18} />
-                    </button>
-                  )}
-                  <button 
-                    className={clsx(styles.timerBtn, styles.timerBtnDanger)} 
-                    onClick={discardTimer}
-                    title="Discard timer"
-                  >
-                    <StopCircle size={18} />
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* Notifications */}
             <div className={styles.headerDropdown}>
               <button 
@@ -377,48 +336,8 @@ export function Layout() {
         onClose={closeChat} 
       />
 
-      {/* Timer Save Modal */}
-      {showTimerSaveModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowTimerSaveModal(false)}>
-          <div className={styles.timerModal} onClick={(e) => e.stopPropagation()}>
-            <h3>Save Time Entry</h3>
-            <div className={styles.timerModalInfo}>
-              <p><strong>Matter:</strong> {timer.matterName}</p>
-              <p><strong>Duration:</strong> {formatElapsedTime(timer.elapsed)} ({(timer.elapsed / 3600).toFixed(2)} hours)</p>
-            </div>
-            <div className={styles.timerModalField}>
-              <label>Description</label>
-              <textarea
-                value={timerDescription}
-                onChange={(e) => setTimerDescription(e.target.value)}
-                placeholder="Enter a description for this time entry..."
-                rows={3}
-              />
-            </div>
-            <div className={styles.timerModalActions}>
-              <button 
-                className={styles.cancelBtn}
-                onClick={() => {
-                  setShowTimerSaveModal(false)
-                  setTimerDescription('')
-                }}
-              >
-                Cancel
-              </button>
-              <button 
-                className={styles.saveBtn}
-                onClick={async () => {
-                  await saveTimerEntry(timerDescription)
-                  setShowTimerSaveModal(false)
-                  setTimerDescription('')
-                }}
-              >
-                Save Entry
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Floating Timer */}
+      <FloatingTimer />
     </div>
   )
 }

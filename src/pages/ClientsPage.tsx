@@ -350,7 +350,9 @@ function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (dat
     try {
       await onSave({
         ...formData,
-        displayName: formData.name
+        displayName: formData.name,
+        email: formData.email || undefined, // Make email optional
+        phone: formData.phone || undefined
       })
     } finally {
       setIsSubmitting(false)
@@ -377,29 +379,27 @@ function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (dat
           </div>
 
           <div className={styles.formGroup}>
-            <label>{formData.type === 'company' ? 'Organization Name' : 'Full Name'}</label>
+            <label>{formData.type === 'company' ? 'Organization Name' : 'Full Name'} (optional)</label>
             <input
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({...formData, name: e.target.value})}
               placeholder={formData.type === 'company' ? 'Company Name, LLC' : 'John Smith'}
-              required
             />
           </div>
 
           <div className={styles.formRow}>
             <div className={styles.formGroup}>
-              <label>Email</label>
+              <label>Email (optional)</label>
               <input
                 type="email"
                 value={formData.email}
                 onChange={(e) => setFormData({...formData, email: e.target.value})}
                 placeholder="email@example.com"
-                required
               />
             </div>
             <div className={styles.formGroup}>
-              <label>Phone</label>
+              <label>Phone (optional)</label>
               <input
                 type="tel"
                 value={formData.phone}
@@ -410,7 +410,7 @@ function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (dat
           </div>
 
           <div className={styles.formGroup}>
-            <label>Address</label>
+            <label>Address (optional)</label>
             <input
               type="text"
               value={formData.addressStreet}
@@ -421,7 +421,7 @@ function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (dat
 
           <div className={styles.formRow}>
             <div className={styles.formGroup}>
-              <label>City</label>
+              <label>City (optional)</label>
               <input
                 type="text"
                 value={formData.addressCity}
@@ -430,7 +430,7 @@ function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (dat
               />
             </div>
             <div className={styles.formGroup}>
-              <label>State</label>
+              <label>State (optional)</label>
               <input
                 type="text"
                 value={formData.addressState}
@@ -441,7 +441,7 @@ function NewClientModal({ onClose, onSave }: { onClose: () => void; onSave: (dat
           </div>
 
           <div className={styles.formGroup}>
-            <label>Notes</label>
+            <label>Notes (optional)</label>
             <textarea
               value={formData.notes}
               onChange={(e) => setFormData({...formData, notes: e.target.value})}

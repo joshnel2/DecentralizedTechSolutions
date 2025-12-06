@@ -497,7 +497,7 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    clientId: prefilledClientId || clients[0]?.id || '',
+    clientId: prefilledClientId || '',
     type: 'litigation',
     status: 'active',
     priority: 'medium',
@@ -551,6 +551,8 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
     try {
       await onSave({
         ...formData,
+        name: formData.name || 'Untitled Matter',
+        clientId: formData.clientId || undefined,
         responsibleAttorney: formData.responsibleAttorney || undefined,
         originatingAttorney: formData.originatingAttorney || undefined,
         teamAssignments: isAdmin ? teamAssignments : undefined
@@ -569,13 +571,12 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
         </div>
         <form onSubmit={handleSubmit} className={styles.modalForm}>
           <div className={styles.formGroup}>
-            <label>Matter Name</label>
+            <label>Matter Name (optional)</label>
             <input
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({...formData, name: e.target.value})}
               placeholder="Enter matter name"
-              required
             />
           </div>
 

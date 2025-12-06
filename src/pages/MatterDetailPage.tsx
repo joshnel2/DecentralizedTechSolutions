@@ -823,7 +823,7 @@ Only analyze documents actually associated with this matter.`
                 ) : (
                   <button 
                     className={styles.timerBtn}
-                    onClick={() => matter && startTimer(matter.id, matter.name)}
+                    onClick={() => matter && startTimer({ matterId: matter.id, matterName: matter.name })}
                   >
                     <Play size={18} />
                     Start Timer

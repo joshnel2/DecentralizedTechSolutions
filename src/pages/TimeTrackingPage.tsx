@@ -3,9 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
-import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
 import { 
-  Plus, Play, Pause, Clock, Calendar, DollarSign, 
+  Plus, Clock, DollarSign, 
   TrendingUp, Sparkles, CheckSquare, FileText, X, Edit2
 } from 'lucide-react'
 import { format, parseISO, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addDays } from 'date-fns'
@@ -24,7 +23,6 @@ export function TimeTrackingPage() {
     fetchClients()
   }, [fetchTimeEntries, fetchMatters, fetchClients])
   const { user } = useAuthStore()
-  const { timer, startTimer: globalStartTimer, stopTimer: globalStopTimer, discardTimer } = useTimer()
   const [showNewModal, setShowNewModal] = useState(false)
   const [showBillModal, setShowBillModal] = useState(false)
   const [selectedEntries, setSelectedEntries] = useState<string[]>([])
@@ -81,11 +79,12 @@ export function TimeTrackingPage() {
       .reduce((sum, e) => sum + e.amount, 0)
   }, [timeEntries, selectedEntries])
 
-  const getMatterName = (matterId: string) => 
-    matters.find(m => m.id === matterId)?.name || 'Unknown'
-  const getMatterNumber = (matterId: string) => 
-    matters.find(m => m.id === matterId)?.number || ''
-  const getClientForMatter = (matterId: string) => {
+  const getMatterName = (matterId: string | null | undefined) => 
+    matterId ? (matters.find(m => m.id === matterId)?.name || 'Unknown') : 'No Matter'
+  const getMatterNumber = (matterId: string | null | undefined) => 
+    matterId ? (matters.find(m => m.id === matterId)?.number || '') : ''
+  const getClientForMatter = (matterId: string | null | undefined) => {
+    if (!matterId) return null
     const matter = matters.find(m => m.id === matterId)
     return matter ? clients.find(c => c.id === matter.clientId) : null
   }
@@ -106,17 +105,6 @@ export function TimeTrackingPage() {
     } else {
       setSelectedEntries(unbilledIds)
     }
-  }
-
-  const startTimer = (matterId: string) => {
-    const matter = matters.find(m => m.id === matterId)
-    if (matter) {
-      globalStartTimer(matterId, matter.name)
-    }
-  }
-
-  const stopTimer = () => {
-    globalStopTimer()
   }
 
   return (
@@ -227,44 +215,9 @@ export function TimeTrackingPage() {
         </div>
       </div>
 
-      {/* Active Timer */}
-      {timer.isRunning && timer.matterId && (
-        <div className={styles.activeTimer}>
-          <div className={styles.timerInfo}>
-            <Play size={20} className={styles.timerIcon} />
-            <div>
-              <span className={styles.timerMatter}>{timer.matterName}</span>
-              <span className={styles.timerTime}>{formatElapsedTime(timer.elapsed)}</span>
-            </div>
-          </div>
-          <button onClick={stopTimer} className={styles.stopBtn}>
-            <Pause size={18} />
-            Pause Timer
-          </button>
-          <button onClick={discardTimer} className={styles.discardBtn}>
-            Discard
-          </button>
-        </div>
-      )}
+      {/* Active Timer - Using floating timer component instead */}
 
-      {/* Quick Timer */}
-      {!timer.isRunning && !timer.matterId && (
-        <div className={styles.quickTimer}>
-          <h3>Quick Timer</h3>
-          <div className={styles.matterButtons}>
-            {matters.filter(m => m.status === 'active').slice(0, 6).map(matter => (
-              <button 
-                key={matter.id}
-                className={styles.matterBtn}
-                onClick={() => startTimer(matter.id)}
-              >
-                <Play size={14} />
-                <span>{matter.name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Quick Timer - Hidden when floating timer is active */}
 
       {/* Recent Entries */}
       <div className={styles.recentSection}>
@@ -441,18 +394,11 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isSubmitting) return
-    if (!formData.matterId) {
-      alert('Please select a matter')
-      return
-    }
-    if (!formData.description.trim()) {
-      alert('Please enter a description')
-      return
-    }
     setIsSubmitting(true)
     try {
       await onSave({
         ...formData,
+        matterId: formData.matterId || undefined, // Make matter optional
         date: new Date(formData.date).toISOString(),
         billed: false,
         aiGenerated: false
@@ -460,29 +406,6 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
     } finally {
       setIsSubmitting(false)
     }
-  }
-
-  if (matters.length === 0) {
-    return (
-      <div className={styles.modalOverlay} onClick={onClose}>
-        <div className={styles.modal} onClick={e => e.stopPropagation()}>
-          <div className={styles.modalHeader}>
-            <h2>New Time Entry</h2>
-            <button onClick={onClose} className={styles.closeBtn}>×</button>
-          </div>
-          <div className={styles.modalForm}>
-            <p style={{ color: 'var(--apex-text)', textAlign: 'center' }}>
-              You need to create a matter first before logging time.
-            </p>
-            <div className={styles.modalActions}>
-              <button type="button" onClick={onClose} className={styles.cancelBtn}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
   }
 
   return (
@@ -494,7 +417,7 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
         </div>
         <form onSubmit={handleSubmit} className={styles.modalForm}>
           <div className={styles.formGroup}>
-            <label>Matter *</label>
+            <label>Matter (optional)</label>
             <select
               value={formData.matterId}
               onChange={(e) => {
@@ -505,9 +428,8 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
                   rate: matter?.billingRate || 450
                 })
               }}
-              required
             >
-              <option value="">Select a matter</option>
+              <option value="">No matter selected</option>
               {matters.map((m: any) => (
                 <option key={m.id} value={m.id}>{m.name}</option>
               ))}
@@ -536,13 +458,12 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
           </div>
 
           <div className={styles.formGroup}>
-            <label>Description</label>
+            <label>Description (optional)</label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({...formData, description: e.target.value})}
               placeholder="Describe the work performed"
               rows={3}
-              required
             />
           </div>
 
@@ -594,10 +515,10 @@ function EditTimeEntryModal({ entry, matters, onClose, onSave }: {
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
-    matterId: entry.matterId,
+    matterId: entry.matterId || '',
     date: format(parseISO(entry.date), 'yyyy-MM-dd'),
     hours: entry.hours,
-    description: entry.description,
+    description: entry.description || '',
     billable: entry.billable,
     rate: entry.rate
   })
@@ -609,6 +530,7 @@ function EditTimeEntryModal({ entry, matters, onClose, onSave }: {
     try {
       await onSave({
         ...formData,
+        matterId: formData.matterId || undefined, // Make matter optional
         date: new Date(formData.date).toISOString()
       })
     } finally {
@@ -625,7 +547,7 @@ function EditTimeEntryModal({ entry, matters, onClose, onSave }: {
         </div>
         <form onSubmit={handleSubmit} className={styles.modalForm}>
           <div className={styles.formGroup}>
-            <label>Matter</label>
+            <label>Matter (optional)</label>
             <select
               value={formData.matterId}
               onChange={(e) => {
@@ -636,8 +558,8 @@ function EditTimeEntryModal({ entry, matters, onClose, onSave }: {
                   rate: matter?.billingRate || formData.rate
                 })
               }}
-              required
             >
+              <option value="">No matter selected</option>
               {matters.map((m: any) => (
                 <option key={m.id} value={m.id}>{m.name}</option>
               ))}
@@ -666,13 +588,12 @@ function EditTimeEntryModal({ entry, matters, onClose, onSave }: {
           </div>
 
           <div className={styles.formGroup}>
-            <label>Description</label>
+            <label>Description (optional)</label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({...formData, description: e.target.value})}
               placeholder="Describe the work performed"
               rows={3}
-              required
             />
           </div>
 
