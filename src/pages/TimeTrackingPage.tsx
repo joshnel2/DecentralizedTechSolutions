@@ -3,9 +3,11 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
+import { useTimer, formatElapsedTime, secondsToHours } from '../contexts/TimerContext'
 import { 
   Plus, Clock, DollarSign, 
-  TrendingUp, Sparkles, CheckSquare, FileText, X, Edit2
+  TrendingUp, Sparkles, CheckSquare, FileText, X, Edit2,
+  Play, Pause, Square, Save
 } from 'lucide-react'
 import { format, parseISO, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addDays } from 'date-fns'
 import { clsx } from 'clsx'
@@ -14,6 +16,7 @@ import styles from './TimeTrackingPage.module.css'
 export function TimeTrackingPage() {
   const { timeEntries, matters, clients, addTimeEntry, updateTimeEntry, addInvoice, fetchTimeEntries, fetchMatters, fetchClients, fetchInvoices } = useDataStore()
   const { openChat } = useAIChat()
+  const { timer, startTimer, pauseTimer, resumeTimer, stopTimer, discardTimer, isTimerActive } = useTimer()
   const navigate = useNavigate()
   
   // Fetch data from API on mount
@@ -25,8 +28,10 @@ export function TimeTrackingPage() {
   const { user } = useAuthStore()
   const [showNewModal, setShowNewModal] = useState(false)
   const [showBillModal, setShowBillModal] = useState(false)
+  const [showSaveTimerModal, setShowSaveTimerModal] = useState(false)
   const [selectedEntries, setSelectedEntries] = useState<string[]>([])
   const [editingEntry, setEditingEntry] = useState<any>(null)
+  const [selectedMatterId, setSelectedMatterId] = useState('')
 
   const weekDays = useMemo(() => {
     const now = new Date()
@@ -107,6 +112,20 @@ export function TimeTrackingPage() {
     }
   }
 
+  const handleStopTimer = () => {
+    stopTimer()
+    setShowSaveTimerModal(true)
+  }
+
+  const handleStartTimer = () => {
+    if (selectedMatterId) {
+      const matter = matters.find(m => m.id === selectedMatterId)
+      startTimer({ matterId: selectedMatterId, matterName: matter?.name })
+    } else {
+      startTimer({})
+    }
+  }
+
   return (
     <div className={styles.timeTrackingPage}>
       <div className={styles.header}>
@@ -136,6 +155,66 @@ export function TimeTrackingPage() {
             New Entry
           </button>
         </div>
+      </div>
+
+      {/* Timer Section - Always at top */}
+      <div className={styles.timerSection}>
+        {isTimerActive ? (
+          <div className={styles.activeTimer}>
+            <div className={styles.timerInfo}>
+              <div className={styles.timerPulse}>
+                <Clock size={20} />
+              </div>
+              <div className={styles.timerDetails}>
+                <span className={styles.timerMatter}>{timer.matterName || 'General Time'}</span>
+                <span className={styles.timerElapsed}>{formatElapsedTime(timer.elapsed)}</span>
+              </div>
+            </div>
+            <div className={styles.timerControls}>
+              {timer.isPaused ? (
+                <button className={styles.resumeBtn} onClick={resumeTimer} title="Resume">
+                  <Play size={18} />
+                  Resume
+                </button>
+              ) : (
+                <button className={styles.pauseBtn} onClick={pauseTimer} title="Pause">
+                  <Pause size={18} />
+                  Pause
+                </button>
+              )}
+              <button className={styles.stopBtn} onClick={handleStopTimer} title="Stop & Save">
+                <Square size={18} />
+                Stop
+              </button>
+              <button className={styles.discardBtn} onClick={discardTimer} title="Discard">
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className={styles.startTimer}>
+            <div className={styles.startTimerLeft}>
+              <Clock size={20} />
+              <span>Start Timer</span>
+            </div>
+            <div className={styles.startTimerRight}>
+              <select 
+                value={selectedMatterId} 
+                onChange={(e) => setSelectedMatterId(e.target.value)}
+                className={styles.matterSelect}
+              >
+                <option value="">No matter (general time)</option>
+                {matters.filter(m => m.status === 'active').map(m => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+              <button className={styles.startBtn} onClick={handleStartTimer}>
+                <Play size={18} />
+                Start
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Stats */}
@@ -372,6 +451,29 @@ export function TimeTrackingPage() {
             } catch (error) {
               console.error('Failed to update time entry:', error)
               alert('Failed to update time entry. Please try again.')
+            }
+          }}
+        />
+      )}
+
+      {/* Save Timer Modal */}
+      {showSaveTimerModal && (
+        <SaveTimerModal
+          timer={timer}
+          matters={matters}
+          onClose={() => {
+            setShowSaveTimerModal(false)
+            discardTimer()
+          }}
+          onSave={async (data) => {
+            try {
+              await addTimeEntry(data)
+              setShowSaveTimerModal(false)
+              discardTimer()
+              fetchTimeEntries()
+            } catch (error) {
+              console.error('Failed to save time entry:', error)
+              alert('Failed to save time entry. Please try again.')
             }
           }}
         />
@@ -628,6 +730,156 @@ function EditTimeEntryModal({ entry, matters, onClose, onSave }: {
             </button>
             <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
               {isSubmitting ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// Save Timer Modal - Save stopped timer as time entry
+function SaveTimerModal({ timer, matters, onClose, onSave }: {
+  timer: any
+  matters: any[]
+  onClose: () => void
+  onSave: (data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const hours = secondsToHours(timer.elapsed)
+  const matter = timer.matterId ? matters.find((m: any) => m.id === timer.matterId) : null
+  
+  const [formData, setFormData] = useState({
+    matterId: timer.matterId || '',
+    date: format(new Date(), 'yyyy-MM-dd'),
+    hours: Math.max(0.01, hours),
+    description: '',
+    billable: true,
+    rate: matter?.billingRate || 450
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onSave({
+        ...formData,
+        matterId: formData.matterId || undefined,
+        date: new Date(formData.date).toISOString(),
+        billed: false,
+        aiGenerated: false
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>
+            <Save size={20} style={{ marginRight: '8px' }} />
+            Save Time Entry
+          </h2>
+          <button onClick={onClose} className={styles.closeBtn}>×</button>
+        </div>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
+          <div className={styles.timerSummary}>
+            <div className={styles.timerSummaryItem}>
+              <Clock size={16} />
+              <span>Timer: {formatElapsedTime(timer.elapsed)}</span>
+            </div>
+            {timer.matterName && (
+              <div className={styles.timerSummaryItem}>
+                <span>Matter: {timer.matterName}</span>
+              </div>
+            )}
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Matter (optional)</label>
+            <select
+              value={formData.matterId}
+              onChange={(e) => {
+                const selectedMatter = matters.find((m: any) => m.id === e.target.value)
+                setFormData({
+                  ...formData, 
+                  matterId: e.target.value,
+                  rate: selectedMatter?.billingRate || 450
+                })
+              }}
+            >
+              <option value="">No matter selected</option>
+              {matters.map((m: any) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Date</label>
+              <input
+                type="date"
+                value={formData.date}
+                onChange={(e) => setFormData({...formData, date: e.target.value})}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Hours</label>
+              <input
+                type="number"
+                value={formData.hours}
+                onChange={(e) => setFormData({...formData, hours: parseFloat(e.target.value)})}
+                min="0.01"
+                step="0.01"
+              />
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Description</label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({...formData, description: e.target.value})}
+              placeholder="Describe the work performed..."
+              rows={3}
+            />
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Rate ($/hr)</label>
+              <input
+                type="number"
+                value={formData.rate}
+                onChange={(e) => setFormData({...formData, rate: parseInt(e.target.value)})}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Billable</label>
+              <select
+                value={formData.billable ? 'yes' : 'no'}
+                onChange={(e) => setFormData({...formData, billable: e.target.value === 'yes'})}
+              >
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </div>
+          </div>
+
+          <div className={styles.entryTotal}>
+            Total: ${(formData.hours * formData.rate).toLocaleString()}
+          </div>
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+              Discard
+            </button>
+            <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Saving...' : 'Save Entry'}
             </button>
           </div>
         </form>

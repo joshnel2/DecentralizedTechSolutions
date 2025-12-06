@@ -94,6 +94,202 @@
   color: var(--apex-text);
 }
 
+/* Timer Section */
+.timerSection {
+  margin-bottom: var(--space-xl);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.startTimer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg);
+  gap: var(--space-lg);
+}
+
+.startTimerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  color: var(--apex-text);
+  font-weight: 500;
+}
+
+.startTimerLeft svg {
+  color: var(--apex-gold);
+}
+
+.startTimerRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.matterSelect {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.875rem;
+  min-width: 200px;
+}
+
+.startBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.startBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+.activeTimer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border-top: 3px solid #10B981;
+}
+
+.timerInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.timerPulse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: rgba(16, 185, 129, 0.2);
+  border-radius: 50%;
+  color: #10B981;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.8; }
+}
+
+.timerDetails {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.timerMatter {
+  font-weight: 500;
+  color: var(--apex-white);
+}
+
+.timerElapsed {
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: #10B981;
+}
+
+.timerControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.pauseBtn,
+.resumeBtn,
+.stopBtn,
+.discardBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.pauseBtn {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--apex-gold);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.pauseBtn:hover {
+  background: rgba(245, 158, 11, 0.25);
+}
+
+.resumeBtn {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10B981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.resumeBtn:hover {
+  background: rgba(16, 185, 129, 0.25);
+}
+
+.stopBtn {
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  color: var(--apex-midnight);
+}
+
+.stopBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+.discardBtn {
+  background: rgba(239, 68, 68, 0.1);
+  color: #EF4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  padding: var(--space-sm);
+}
+
+.discardBtn:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+/* Timer Summary in Modal */
+.timerSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-lg);
+}
+
+.timerSummaryItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: #10B981;
+  font-weight: 500;
+}
+
 /* Weekly Chart */
 .weeklyChart {
   background: var(--apex-deep);

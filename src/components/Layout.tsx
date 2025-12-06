@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
+import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
 import { AIChat } from './AIChat'
 import { 
   LayoutDashboard, Briefcase, Users, Calendar, DollarSign, 
@@ -39,6 +40,7 @@ const settingsItems = [
 export function Layout() {
   const { user, firm, logout } = useAuthStore()
   const { notifications } = useDataStore()
+  const { timer, isTimerActive } = useTimer()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -223,6 +225,23 @@ export function Layout() {
           </div>
 
           <div className={styles.headerRight}>
+            {/* Running Timer */}
+            {timer.isRunning && (
+              <button 
+                className={styles.headerTimer}
+                onClick={() => navigate('/app/time')}
+                title="Go to Time Tracking"
+              >
+                <div className={styles.headerTimerPulse}>
+                  <Clock size={16} />
+                </div>
+                <div className={styles.headerTimerInfo}>
+                  <span className={styles.headerTimerMatter}>{timer.matterName || 'Timer'}</span>
+                  <span className={styles.headerTimerElapsed}>{formatElapsedTime(timer.elapsed)}</span>
+                </div>
+              </button>
+            )}
+
             {/* Notifications */}
             <div className={styles.headerDropdown}>
               <button 

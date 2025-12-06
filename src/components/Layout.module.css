@@ -317,6 +317,74 @@
   gap: var(--space-md);
 }
 
+/* Header Timer */
+.headerTimer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-md);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.headerTimer:hover {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(16, 185, 129, 0.1) 100%);
+  transform: translateY(-1px);
+}
+
+.headerTimerPulse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #10B981;
+  animation: headerPulse 2s ease-in-out infinite;
+}
+
+@keyframes headerPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.headerTimerInfo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.headerTimerMatter {
+  font-size: 0.6875rem;
+  color: var(--apex-text);
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerTimerElapsed {
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: #10B981;
+}
+
+@media (max-width: 768px) {
+  .headerTimer {
+    padding: var(--space-xs) var(--space-sm);
+  }
+  
+  .headerTimerMatter {
+    display: none;
+  }
+  
+  .headerTimerElapsed {
+    font-size: 0.75rem;
+  }
+}
+
 @media (max-width: 768px) {
   .header {
     height: 56px;
