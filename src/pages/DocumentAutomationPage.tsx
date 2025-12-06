@@ -464,6 +464,158 @@ Sincerely,
     lastUsed: '2024-11-15',
     usageCount: 45,
     createdAt: '2024-03-10'
+  },
+  {
+    id: '11',
+    name: 'Last Will and Testament',
+    description: 'Comprehensive last will and testament document for estate planning, including bequests, executor appointment, and guardian designation',
+    category: 'Estate Planning',
+    documentType: 'docx',
+    icon: FileSignature,
+    variables: [
+      { key: 'testator_name', label: 'Testator Full Legal Name', type: 'text', required: true, placeholder: 'Full legal name of the person making the will' },
+      { key: 'testator_address', label: 'Testator Address', type: 'textarea', required: true, placeholder: 'Complete address including city, state, and ZIP' },
+      { key: 'testator_county', label: 'County of Residence', type: 'text', required: true },
+      { key: 'testator_state', label: 'State of Residence', type: 'text', required: true },
+      { key: 'marital_status', label: 'Marital Status', type: 'select', required: true, options: ['Single', 'Married', 'Divorced', 'Widowed'] },
+      { key: 'spouse_name', label: 'Spouse Name (if married)', type: 'text', required: false, placeholder: 'Leave blank if not applicable' },
+      { key: 'children_names', label: 'Children Names', type: 'textarea', required: false, placeholder: 'List all children with full names, one per line' },
+      { key: 'executor_name', label: 'Executor Name', type: 'text', required: true, placeholder: 'Person responsible for administering the estate' },
+      { key: 'executor_address', label: 'Executor Address', type: 'textarea', required: true },
+      { key: 'executor_relationship', label: 'Executor Relationship', type: 'text', required: true, placeholder: 'e.g., spouse, child, friend, attorney' },
+      { key: 'alternate_executor_name', label: 'Alternate Executor Name', type: 'text', required: false },
+      { key: 'alternate_executor_address', label: 'Alternate Executor Address', type: 'textarea', required: false },
+      { key: 'guardian_name', label: 'Guardian for Minor Children', type: 'text', required: false, placeholder: 'Leave blank if no minor children' },
+      { key: 'guardian_address', label: 'Guardian Address', type: 'textarea', required: false },
+      { key: 'alternate_guardian_name', label: 'Alternate Guardian', type: 'text', required: false },
+      { key: 'specific_bequests', label: 'Specific Bequests', type: 'textarea', required: false, placeholder: 'List specific items and beneficiaries (e.g., "My wedding ring to my daughter Jane Smith")' },
+      { key: 'residuary_beneficiary', label: 'Residuary Beneficiary', type: 'text', required: true, placeholder: 'Person or entity to receive remainder of estate' },
+      { key: 'residuary_beneficiary_relationship', label: 'Residuary Beneficiary Relationship', type: 'text', required: true },
+      { key: 'alternate_residuary_beneficiary', label: 'Alternate Residuary Beneficiary', type: 'text', required: false },
+      { key: 'funeral_wishes', label: 'Funeral/Burial Wishes', type: 'select', required: true, options: ['Burial', 'Cremation', 'At discretion of Executor'] },
+      { key: 'special_instructions', label: 'Special Instructions', type: 'textarea', required: false, placeholder: 'Any additional wishes or instructions' }
+    ],
+    content: `LAST WILL AND TESTAMENT OF {{testator_name}}
+
+I, {{testator_name}}, a resident of {{testator_county}} County, State of {{testator_state}}, residing at {{testator_address}}, being of sound mind and memory and not acting under duress or undue influence, do hereby declare this to be my Last Will and Testament, hereby revoking all previous wills and codicils made by me.
+
+ARTICLE I - FAMILY DECLARATIONS
+
+I am currently {{marital_status}}.
+{{spouse_name}}
+{{children_names}}
+
+I declare that any references in this Will to "my children" refer to the children named above and any children subsequently born to or legally adopted by me.
+
+ARTICLE II - PAYMENT OF DEBTS AND EXPENSES
+
+I direct my Executor to pay all my legally enforceable debts, funeral expenses, costs of administration, and any estate or inheritance taxes from my residuary estate.
+
+ARTICLE III - FUNERAL ARRANGEMENTS
+
+I direct that my remains be handled as follows: {{funeral_wishes}}.
+{{special_instructions}}
+
+ARTICLE IV - SPECIFIC BEQUESTS
+
+I make the following specific bequests:
+{{specific_bequests}}
+
+If any beneficiary named in this Article does not survive me by thirty (30) days, the bequest to that beneficiary shall lapse and become part of my residuary estate.
+
+ARTICLE V - RESIDUARY ESTATE
+
+I give, devise, and bequeath all the rest, residue, and remainder of my estate, both real and personal, of whatever kind and wherever situated (my "Residuary Estate"), to {{residuary_beneficiary}}, my {{residuary_beneficiary_relationship}}.
+
+If {{residuary_beneficiary}} does not survive me by thirty (30) days, I give my Residuary Estate to {{alternate_residuary_beneficiary}}.
+
+ARTICLE VI - APPOINTMENT OF EXECUTOR
+
+I appoint {{executor_name}}, my {{executor_relationship}}, residing at {{executor_address}}, as the Executor of this Will.
+
+If {{executor_name}} is unable or unwilling to serve, I appoint {{alternate_executor_name}}, residing at {{alternate_executor_address}}, as Alternate Executor.
+
+I grant my Executor full power to manage my estate, including but not limited to the power to:
+(a) Sell, lease, or mortgage any property;
+(b) Invest and reinvest estate assets;
+(c) Settle claims and pay debts;
+(d) Distribute assets in cash or in kind;
+(e) Employ attorneys, accountants, and other professionals;
+(f) Make all tax elections and decisions.
+
+I direct that my Executor shall serve without bond to the extent permitted by law.
+
+ARTICLE VII - GUARDIAN FOR MINOR CHILDREN
+
+If I have any minor children at the time of my death, I appoint {{guardian_name}}, residing at {{guardian_address}}, as Guardian of the person and property of my minor children.
+
+If {{guardian_name}} is unable or unwilling to serve, I appoint {{alternate_guardian_name}} as Alternate Guardian.
+
+I express my wish that my minor children be raised with love and care, and I request that the Guardian maintain my children's relationships with their extended family.
+
+ARTICLE VIII - NO-CONTEST CLAUSE
+
+If any beneficiary under this Will contests the validity of this Will or any of its provisions, that beneficiary's share shall be revoked and distributed as if that beneficiary had predeceased me.
+
+ARTICLE IX - GENERAL PROVISIONS
+
+1. SURVIVORSHIP: Any beneficiary must survive me by thirty (30) days to receive any benefits under this Will.
+
+2. SIMULTANEOUS DEATH: If my spouse and I die simultaneously or under circumstances making it impossible to determine who died first, my spouse shall be deemed to have predeceased me.
+
+3. SEVERABILITY: If any provision of this Will is held to be invalid, the remaining provisions shall continue in full force and effect.
+
+4. GOVERNING LAW: This Will shall be governed by and construed in accordance with the laws of the State of {{testator_state}}.
+
+IN WITNESS WHEREOF, I have signed this Last Will and Testament on this _____ day of ______________, 20____, at ________________________, {{testator_state}}.
+
+
+_______________________________________
+{{testator_name}}, Testator
+
+
+ATTESTATION CLAUSE
+
+We, the undersigned, declare that the person who signed this Will, or asked another to sign for them, did so in our presence, and that we believe the Testator to be of sound mind. We further declare that we are not beneficiaries under this Will and that we signed this Will as witnesses in the presence of the Testator and in the presence of each other.
+
+Witness 1:
+Signature: _______________________________________
+Printed Name: ___________________________________
+Address: ________________________________________
+Date: ___________________________________________
+
+Witness 2:
+Signature: _______________________________________
+Printed Name: ___________________________________
+Address: ________________________________________
+Date: ___________________________________________
+
+
+SELF-PROVING AFFIDAVIT
+
+STATE OF {{testator_state}}
+COUNTY OF {{testator_county}}
+
+Before me, the undersigned authority, personally appeared {{testator_name}}, known to me to be the Testator, and _________________________ and _________________________, known to me to be the witnesses whose names are signed to the foregoing instrument, and all being duly sworn, the Testator declared to me and to the witnesses that the foregoing instrument is the Testator's Last Will and Testament, and that the Testator had willingly signed and executed it as a free and voluntary act for the purposes therein expressed. Each of the witnesses stated that they signed the Will as witness in the presence and at the request of the Testator and in the presence of each other witness.
+
+Testator: _______________________________________
+             {{testator_name}}
+
+Witness 1: _______________________________________
+
+Witness 2: _______________________________________
+
+Subscribed and sworn to before me by {{testator_name}}, the Testator, and by the above-named witnesses, this _____ day of ______________, 20____.
+
+
+_______________________________________
+Notary Public
+My Commission Expires: _________________
+
+[NOTARY SEAL]`,
+    lastUsed: '2024-12-02',
+    usageCount: 124,
+    createdAt: '2024-01-12'
   }
 ]
 
