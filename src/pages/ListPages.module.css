@@ -826,12 +826,17 @@
     text-align: left !important;
   }
 
-  .nameCell > .icon {
+  /* Icon container - first child */
+  .nameCell .icon {
     flex-shrink: 0 !important;
     order: 0 !important;
+    width: 42px !important;
+    height: 42px !important;
+    min-width: 42px !important;
   }
 
-  .nameCell > div {
+  /* Text container - the div that's NOT the icon */
+  .nameCell > div:not(.icon) {
     flex: 1 !important;
     display: flex !important;
     flex-direction: column !important;
@@ -841,9 +846,11 @@
     min-width: 0 !important;
   }
 
-  .nameCell > .aiTag {
+  /* AI tag */
+  .nameCell .aiTag {
     order: 2 !important;
     flex-shrink: 0 !important;
+    margin-left: auto !important;
   }
 
   .icon {
