@@ -61,6 +61,7 @@ export function AIAssistantPage() {
   const [input, setInput] = useState('')
   const [showHistory, setShowHistory] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const lastUserMessageRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const redlineInput1Ref = useRef<HTMLInputElement>(null)
   const redlineInput2Ref = useRef<HTMLInputElement>(null)
@@ -86,8 +87,11 @@ export function AIAssistantPage() {
     }
   }, [searchParams])
 
+  // Scroll to the last user message when messages change
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (lastUserMessageRef.current && activeConversation?.messages?.length) {
+      lastUserMessageRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
   }, [activeConversation?.messages])
 
   // Client-side file content extraction
@@ -382,30 +386,37 @@ export function AIAssistantPage() {
             </div>
 
             <div className={styles.messagesContainer}>
-              {activeConversation.messages.map(message => (
-                <div 
-                  key={message.id}
-                  className={clsx(
-                    styles.message,
-                    message.role === 'user' ? styles.userMessage : styles.aiMessage
-                  )}
-                >
-                  {message.role === 'assistant' && (
-                    <div className={styles.aiAvatar} style={{ background: currentMode.color }}>
-                      <Sparkles size={16} />
+              {activeConversation.messages.map((message, index) => {
+                // Find the last user message to attach the ref
+                const isLastUserMessage = message.role === 'user' && 
+                  activeConversation.messages.slice(index + 1).every(m => m.role !== 'user')
+                
+                return (
+                  <div 
+                    key={message.id}
+                    ref={isLastUserMessage ? lastUserMessageRef : null}
+                    className={clsx(
+                      styles.message,
+                      message.role === 'user' ? styles.userMessage : styles.aiMessage
+                    )}
+                  >
+                    {message.role === 'assistant' && (
+                      <div className={styles.aiAvatar} style={{ background: currentMode.color }}>
+                        <Sparkles size={16} />
+                      </div>
+                    )}
+                    <div className={styles.messageContent}>
+                      <div 
+                        className={styles.messageText}
+                        dangerouslySetInnerHTML={{ __html: formatMessageContent(message.content) }}
+                      />
+                      <span className={styles.messageTime}>
+                        {format(parseISO(message.timestamp), 'h:mm a')}
+                      </span>
                     </div>
-                  )}
-                  <div className={styles.messageContent}>
-                    <div 
-                      className={styles.messageText}
-                      dangerouslySetInnerHTML={{ __html: formatMessageContent(message.content) }}
-                    />
-                    <span className={styles.messageTime}>
-                      {format(parseISO(message.timestamp), 'h:mm a')}
-                    </span>
                   </div>
-                </div>
-              ))}
+                )
+              })}
               {isLoading && (
                 <div className={clsx(styles.message, styles.aiMessage)}>
                   <div className={styles.aiAvatar} style={{ background: currentMode.color }}>

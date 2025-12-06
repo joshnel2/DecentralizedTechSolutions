@@ -10,7 +10,7 @@ import {
   Clock, BarChart3, Settings, LogOut, ChevronDown,
   Bell, Sparkles, Menu, X, FolderOpen, Shield, Key, UserCircle,
   Building2, UsersRound, Link2, TrendingUp, Lock, Landmark,
-  PlayCircle, PauseCircle, StopCircle, Save
+  PlayCircle, PauseCircle, StopCircle, Save, FileStack
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './Layout.module.css'
@@ -24,6 +24,7 @@ const navItems = [
   { path: '/app/trust', label: 'Linked Accounts', icon: Landmark },
   { path: '/app/time', label: 'Time Tracking', icon: Clock },
   { path: '/app/documents', label: 'Documents', icon: FolderOpen },
+  { path: '/app/document-automation', label: 'Document Automation', icon: FileStack },
   { path: '/app/reports', label: 'Reports', icon: BarChart3 },
   { path: '/app/analytics', label: 'Analytics', icon: TrendingUp },
 ]
