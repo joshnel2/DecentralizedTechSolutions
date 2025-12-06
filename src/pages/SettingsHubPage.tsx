@@ -6,7 +6,7 @@ import {
   // Personal
   User, Calendar, Bell,
   // Firm Settings
-  Building2, Workflow, ChevronRight, Settings
+  Building2, ChevronRight, Settings
 } from 'lucide-react'
 import styles from './SettingsHubPage.module.css'
 
@@ -77,22 +77,6 @@ const firmSettings: SettingItem[] = [
     description: 'Matter numbering and practice areas.',
     icon: Building2,
     path: '/app/settings/firm',
-    adminOnly: true
-  },
-  {
-    id: 'automated-workflows',
-    name: 'Automated Workflows',
-    description: "Speed up your firm's processes using automated workflows.",
-    icon: Workflow,
-    path: '/app/admin',
-    adminOnly: true
-  },
-  {
-    id: 'api-keys',
-    name: 'API Keys',
-    description: 'Manage API keys for third-party integrations and developer access.',
-    icon: Settings,
-    path: '/app/settings/api-keys',
     adminOnly: true
   }
 ]
