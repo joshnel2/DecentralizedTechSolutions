@@ -6,7 +6,7 @@ import {
   Building2, CreditCard, Brain, Shield, Save, Users, Briefcase,
   DollarSign, Sparkles, CheckCircle2,
   AlertTriangle, Plus, Trash2, Edit2, UserPlus, X,
-  Mail, UserCog, UserMinus, Landmark, Wallet, TrendingUp, PiggyBank, ArrowLeft
+  Mail, UserCog, UserMinus, Landmark, Wallet, PiggyBank, ArrowLeft
 } from 'lucide-react'
 import styles from './FirmSettingsPage.module.css'
 
@@ -46,12 +46,11 @@ export function FirmSettingsPage() {
     const outstandingAR = invoices
       .filter(i => i.status !== 'paid' && i.status !== 'void')
       .reduce((sum, i) => sum + i.amountDue, 0)
-    const operatingBalance = 284750.00
     
     return {
-      operating: operatingBalance,
-      trust: totalRetainers || 127500.00,
-      outstanding: outstandingAR || 49750.00
+      operating: 0,
+      trust: totalRetainers,
+      outstanding: outstandingAR
     }
   }, [clients, invoices])
   const [saved, setSaved] = useState(false)
@@ -229,10 +228,6 @@ export function FirmSettingsPage() {
                       </span>
                       <span className={styles.accountCardNote}>Primary business account</span>
                     </div>
-                    <div className={styles.accountCardTrend} style={{ color: '#10B981' }}>
-                      <TrendingUp size={16} />
-                      <span>+2.4%</span>
-                    </div>
                   </div>
 
                   <div className={styles.accountCard}>
@@ -246,10 +241,6 @@ export function FirmSettingsPage() {
                       </span>
                       <span className={styles.accountCardNote}>Client trust funds</span>
                     </div>
-                    <div className={styles.accountCardTrend} style={{ color: '#10B981' }}>
-                      <TrendingUp size={16} />
-                      <span>+5.1%</span>
-                    </div>
                   </div>
 
                   <div className={styles.accountCard}>
@@ -262,10 +253,6 @@ export function FirmSettingsPage() {
                         ${accountBalances.outstanding.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </span>
                       <span className={styles.accountCardNote}>Accounts receivable</span>
-                    </div>
-                    <div className={styles.accountCardTrend} style={{ color: '#EF4444' }}>
-                      <TrendingUp size={16} style={{ transform: 'rotate(180deg)' }} />
-                      <span>-12.3%</span>
                     </div>
                   </div>
                 </div>
@@ -281,15 +268,15 @@ export function FirmSettingsPage() {
                     </div>
                     <div className={styles.summaryItem}>
                       <span className={styles.summaryLabel}>Collection Rate (MTD)</span>
-                      <span className={styles.summaryValue}>94.2%</span>
+                      <span className={styles.summaryValue}>—</span>
                     </div>
                     <div className={styles.summaryItem}>
                       <span className={styles.summaryLabel}>Average Days to Collect</span>
-                      <span className={styles.summaryValue}>18 days</span>
+                      <span className={styles.summaryValue}>—</span>
                     </div>
                     <div className={styles.summaryItem}>
                       <span className={styles.summaryLabel}>Last Reconciliation</span>
-                      <span className={styles.summaryValue}>Nov 24, 2025</span>
+                      <span className={styles.summaryValue}>—</span>
                     </div>
                   </div>
                 </div>
