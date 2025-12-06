@@ -12,15 +12,8 @@ import { AreaChart, Area, BarChart, Bar, PieChart as RechartsPie, Pie, Cell, XAx
 import { AIButton } from '../components/AIButton'
 import styles from './FirmAnalyticsPage.module.css'
 
-// Demo team members
-const teamMembers = [
-  { id: 'user-1', name: 'John Mitchell', role: 'Managing Partner', rate: 550, avatar: 'JM' },
-  { id: 'user-2', name: 'Sarah Chen', role: 'Partner', rate: 500, avatar: 'SC' },
-  { id: 'user-3', name: 'Michael Roberts', role: 'Associate', rate: 350, avatar: 'MR' },
-  { id: 'user-4', name: 'Emily Davis', role: 'Paralegal', rate: 150, avatar: 'ED' },
-  { id: 'user-5', name: 'James Wilson', role: 'Associate', rate: 325, avatar: 'JW' },
-  { id: 'user-6', name: 'Lisa Thompson', role: 'Legal Assistant', rate: 100, avatar: 'LT' }
-]
+// Team members - populated from API/team data
+const teamMembers: Array<{ id: string; name: string; role: string; rate: number; avatar: string }> = []
 
 const COLORS = ['#D4AF37', '#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#EF4444']
 

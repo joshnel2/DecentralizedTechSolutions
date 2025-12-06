@@ -10,15 +10,8 @@ import {
 } from 'lucide-react'
 import styles from './FirmSettingsPage.module.css'
 
-// Demo users for the firm
-const demoUsers = [
-  { id: 'user-1', firstName: 'John', lastName: 'Mitchell', email: 'john@apexlaw.com', role: 'owner', title: 'Managing Partner' },
-  { id: 'user-2', firstName: 'Sarah', lastName: 'Chen', email: 'sarah@apexlaw.com', role: 'admin', title: 'Partner' },
-  { id: 'user-3', firstName: 'Michael', lastName: 'Roberts', email: 'michael@apexlaw.com', role: 'attorney', title: 'Associate' },
-  { id: 'user-4', firstName: 'Emily', lastName: 'Davis', email: 'emily@apexlaw.com', role: 'paralegal', title: 'Senior Paralegal' },
-  { id: 'user-5', firstName: 'James', lastName: 'Wilson', email: 'james@apexlaw.com', role: 'attorney', title: 'Associate' },
-  { id: 'user-6', firstName: 'Lisa', lastName: 'Thompson', email: 'lisa@apexlaw.com', role: 'staff', title: 'Legal Assistant' }
-]
+// Users - populated from API/team data
+const demoUsers: Array<{ id: string; firstName: string; lastName: string; email: string; role: string; title: string }> = []
 
 const permissionOptions = [
   { id: 'matters:all', label: 'Matters - Full Access' },

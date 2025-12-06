@@ -884,9 +884,6 @@ export function ReportsPage() {
                 <label>Timekeeper</label>
                 <select>
                   <option value="all">All Timekeepers</option>
-                  <option value="user-1">John Mitchell</option>
-                  <option value="user-2">Sarah Chen</option>
-                  <option value="user-3">Michael Roberts</option>
                 </select>
               </div>
               <div className={styles.filterGroup}>

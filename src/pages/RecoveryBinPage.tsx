@@ -21,63 +21,7 @@ interface DeletedItem {
 
 // Demo deleted items
 const demoDeletedItems: DeletedItem[] = [
-  {
-    id: '1',
-    type: 'time_entry',
-    name: 'Research on patent filing requirements',
-    description: '2.5 hours - Quantum Technologies vs. TechCorp',
-    deletedAt: subDays(new Date(), 1).toISOString(),
-    deletedBy: 'John Mitchell',
-    expiresAt: subDays(new Date(), -29).toISOString(),
-    relatedTo: 'MTR-2024-001'
-  },
-  {
-    id: '2',
-    type: 'document',
-    name: 'Draft_Settlement_Agreement_v2.docx',
-    description: 'Settlement negotiation draft',
-    deletedAt: subDays(new Date(), 2).toISOString(),
-    deletedBy: 'Sarah Chen',
-    expiresAt: subDays(new Date(), -28).toISOString(),
-    relatedTo: 'MTR-2024-003'
-  },
-  {
-    id: '3',
-    type: 'calendar_entry',
-    name: 'Client Meeting - Anderson Family Trust',
-    description: 'Estate planning discussion',
-    deletedAt: subDays(new Date(), 3).toISOString(),
-    deletedBy: 'Michael Roberts',
-    expiresAt: subDays(new Date(), -27).toISOString()
-  },
-  {
-    id: '4',
-    type: 'task',
-    name: 'Review discovery documents',
-    description: 'High priority - Due 12/15/2024',
-    deletedAt: subDays(new Date(), 5).toISOString(),
-    deletedBy: 'Emily Davis',
-    expiresAt: subDays(new Date(), -25).toISOString(),
-    relatedTo: 'MTR-2024-002'
-  },
-  {
-    id: '5',
-    type: 'person',
-    name: 'David Thompson',
-    description: 'Former opposing counsel',
-    deletedAt: subDays(new Date(), 7).toISOString(),
-    deletedBy: 'John Mitchell',
-    expiresAt: subDays(new Date(), -23).toISOString()
-  },
-  {
-    id: '6',
-    type: 'company',
-    name: 'Inactive Corp LLC',
-    description: 'Dissolved company - no active matters',
-    deletedAt: subDays(new Date(), 10).toISOString(),
-    deletedBy: 'Sarah Chen',
-    expiresAt: subDays(new Date(), -20).toISOString()
-  }
+  // Recovery bin is empty - items will be populated when deleted
 ]
 
 const typeConfig = {

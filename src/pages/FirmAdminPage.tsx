@@ -105,17 +105,8 @@ const roles = [
   { id: 'readonly', name: 'Read Only', color: '#94A3B8', desc: 'View-only access' }
 ]
 
-// Demo audit logs
-const demoAuditLogs = [
-  { id: '1', action: 'user.login', user: 'John Mitchell', resource: 'Session', timestamp: new Date().toISOString(), ip: '192.168.1.100', details: 'Successful login' },
-  { id: '2', action: 'matter.created', user: 'John Mitchell', resource: 'Matter', resourceId: 'MTR-2024-007', timestamp: new Date(Date.now() - 3600000).toISOString(), ip: '192.168.1.100', details: 'Created new matter' },
-  { id: '3', action: 'document.uploaded', user: 'Sarah Chen', resource: 'Document', resourceId: 'Motion_to_Dismiss.pdf', timestamp: new Date(Date.now() - 7200000).toISOString(), ip: '192.168.1.101', details: 'Uploaded to Matter MTR-2024-001' },
-  { id: '4', action: 'invoice.sent', user: 'John Mitchell', resource: 'Invoice', resourceId: 'INV-2024-0043', timestamp: new Date(Date.now() - 10800000).toISOString(), ip: '192.168.1.100', details: 'Sent to Quantum Technologies' },
-  { id: '5', action: 'user.permission_changed', user: 'John Mitchell', resource: 'User', resourceId: 'Emily Davis', timestamp: new Date(Date.now() - 86400000).toISOString(), ip: '192.168.1.100', details: 'Updated role to Senior Paralegal' },
-  { id: '6', action: 'client.updated', user: 'Michael Roberts', resource: 'Client', resourceId: 'Quantum Technologies', timestamp: new Date(Date.now() - 172800000).toISOString(), ip: '192.168.1.102', details: 'Updated contact information' },
-  { id: '7', action: 'time_entry.approved', user: 'Sarah Chen', resource: 'Time Entry', resourceId: '5 entries', timestamp: new Date(Date.now() - 259200000).toISOString(), ip: '192.168.1.101', details: 'Approved 5 time entries' },
-  { id: '8', action: 'group.created', user: 'John Mitchell', resource: 'Group', resourceId: 'Real Estate Team', timestamp: new Date(Date.now() - 345600000).toISOString(), ip: '192.168.1.100', details: 'Created new practice group' }
-]
+// Audit logs - populated from API
+const demoAuditLogs: Array<{ id: string; action: string; user: string; resource: string; resourceId?: string; timestamp: string; ip: string; details: string }> = []
 
 // Matter templates
 const matterTemplates = [
