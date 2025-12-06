@@ -9,7 +9,8 @@ import {
   LayoutDashboard, Briefcase, Users, Calendar, DollarSign, 
   Clock, BarChart3, Settings, LogOut, ChevronDown,
   Bell, Sparkles, Menu, X, FolderOpen, Shield, Key, UserCircle,
-  Building2, UsersRound, Link2, TrendingUp, Lock, FileStack
+  Building2, UsersRound, Link2, TrendingUp, Lock, FileStack,
+  Play, Pause, Square
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './Layout.module.css'
@@ -40,7 +41,7 @@ const settingsItems = [
 export function Layout() {
   const { user, firm, logout } = useAuthStore()
   const { notifications } = useDataStore()
-  const { timer, isTimerActive } = useTimer()
+  const { timer, isTimerActive, pauseTimer, resumeTimer, stopTimer } = useTimer()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -226,20 +227,50 @@ export function Layout() {
 
           <div className={styles.headerRight}>
             {/* Running Timer */}
-            {timer.isRunning && (
-              <button 
-                className={styles.headerTimer}
-                onClick={() => navigate('/app/time')}
-                title="Go to Time Tracking"
-              >
-                <div className={styles.headerTimerPulse}>
-                  <Clock size={16} />
+            {isTimerActive && (
+              <div className={clsx(styles.headerTimer, timer.isPaused && styles.headerTimerPaused)}>
+                <button 
+                  className={styles.headerTimerDisplay}
+                  onClick={() => navigate('/app/time')}
+                  title="Go to Time Tracking"
+                >
+                  <div className={clsx(styles.headerTimerPulse, timer.isPaused && styles.paused)}>
+                    <Clock size={16} />
+                  </div>
+                  <div className={styles.headerTimerInfo}>
+                    <span className={styles.headerTimerMatter}>{timer.matterName || 'Timer'}</span>
+                    <span className={clsx(styles.headerTimerElapsed, timer.isPaused && styles.paused)}>
+                      {formatElapsedTime(timer.elapsed)}
+                    </span>
+                  </div>
+                </button>
+                <div className={styles.headerTimerActions}>
+                  {timer.isPaused ? (
+                    <button 
+                      className={clsx(styles.headerTimerBtn, styles.playBtn)}
+                      onClick={resumeTimer}
+                      title="Resume Timer"
+                    >
+                      <Play size={14} />
+                    </button>
+                  ) : (
+                    <button 
+                      className={clsx(styles.headerTimerBtn, styles.pauseBtn)}
+                      onClick={pauseTimer}
+                      title="Pause Timer"
+                    >
+                      <Pause size={14} />
+                    </button>
+                  )}
+                  <button 
+                    className={clsx(styles.headerTimerBtn, styles.stopBtn)}
+                    onClick={stopTimer}
+                    title="Stop Timer"
+                  >
+                    <Square size={14} />
+                  </button>
                 </div>
-                <div className={styles.headerTimerInfo}>
-                  <span className={styles.headerTimerMatter}>{timer.matterName || 'Timer'}</span>
-                  <span className={styles.headerTimerElapsed}>{formatElapsedTime(timer.elapsed)}</span>
-                </div>
-              </button>
+              </div>
             )}
 
             {/* Notifications */}

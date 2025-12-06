@@ -321,18 +321,33 @@
 .headerTimer {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-xs) var(--space-md);
+  gap: var(--space-xs);
+  padding: 4px 6px 4px 4px;
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.05) 100%);
   border: 1px solid rgba(16, 185, 129, 0.3);
   border-radius: var(--radius-full);
-  cursor: pointer;
   transition: all var(--transition-fast);
 }
 
-.headerTimer:hover {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(16, 185, 129, 0.1) 100%);
-  transform: translateY(-1px);
+.headerTimer.headerTimerPaused {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(245, 158, 11, 0.05) 100%);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.headerTimerDisplay {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  transition: all var(--transition-fast);
+}
+
+.headerTimerDisplay:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .headerTimerPulse {
@@ -341,6 +356,11 @@
   justify-content: center;
   color: #10B981;
   animation: headerPulse 2s ease-in-out infinite;
+}
+
+.headerTimerPulse.paused {
+  color: #F59E0B;
+  animation: none;
 }
 
 @keyframes headerPulse {
@@ -371,9 +391,67 @@
   color: #10B981;
 }
 
+.headerTimerElapsed.paused {
+  color: #F59E0B;
+}
+
+.headerTimerActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.headerTimerBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.headerTimerBtn.playBtn {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  color: white;
+}
+
+.headerTimerBtn.playBtn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.4);
+}
+
+.headerTimerBtn.pauseBtn {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+}
+
+.headerTimerBtn.pauseBtn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+}
+
+.headerTimerBtn.stopBtn {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.headerTimerBtn.stopBtn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  transform: scale(1.1);
+}
+
 @media (max-width: 768px) {
   .headerTimer {
-    padding: var(--space-xs) var(--space-sm);
+    padding: 3px 4px 3px 3px;
+    gap: 2px;
+  }
+  
+  .headerTimerDisplay {
+    padding: 2px 6px;
+    gap: var(--space-xs);
   }
   
   .headerTimerMatter {
@@ -382,6 +460,16 @@
   
   .headerTimerElapsed {
     font-size: 0.75rem;
+  }
+  
+  .headerTimerBtn {
+    width: 24px;
+    height: 24px;
+  }
+  
+  .headerTimerBtn svg {
+    width: 12px;
+    height: 12px;
   }
 }
 
