@@ -464,6 +464,187 @@ Sincerely,
     lastUsed: '2024-11-15',
     usageCount: 45,
     createdAt: '2024-03-10'
+  },
+  {
+    id: '11',
+    name: 'Last Will and Testament',
+    description: 'Standard last will and testament for estate planning with provisions for beneficiaries, executor appointment, and asset distribution',
+    category: 'Estate Planning',
+    documentType: 'docx',
+    icon: FileSignature,
+    variables: [
+      { key: 'testator_name', label: 'Testator Full Legal Name', type: 'text', required: true },
+      { key: 'testator_address', label: 'Testator Address', type: 'textarea', required: true },
+      { key: 'testator_county', label: 'County of Residence', type: 'text', required: true },
+      { key: 'testator_state', label: 'State of Residence', type: 'text', required: true },
+      { key: 'marital_status', label: 'Marital Status', type: 'select', required: true, options: ['Single', 'Married', 'Divorced', 'Widowed'] },
+      { key: 'spouse_name', label: 'Spouse Name (if applicable)', type: 'text', required: false },
+      { key: 'children_names', label: 'Names of Children (if any)', type: 'textarea', required: false, placeholder: 'List each child on a separate line' },
+      { key: 'executor_name', label: 'Executor Name', type: 'text', required: true },
+      { key: 'executor_address', label: 'Executor Address', type: 'textarea', required: true },
+      { key: 'executor_relationship', label: 'Executor Relationship', type: 'text', required: true, placeholder: 'e.g., spouse, sibling, friend' },
+      { key: 'alternate_executor_name', label: 'Alternate Executor Name', type: 'text', required: true },
+      { key: 'alternate_executor_address', label: 'Alternate Executor Address', type: 'textarea', required: true },
+      { key: 'specific_bequests', label: 'Specific Bequests', type: 'textarea', required: false, placeholder: 'List specific items and their recipients' },
+      { key: 'residuary_beneficiary', label: 'Residuary Beneficiary', type: 'text', required: true, placeholder: 'Who receives the remainder of the estate' },
+      { key: 'residuary_distribution', label: 'Residuary Distribution Details', type: 'textarea', required: true, placeholder: 'How should the residue be distributed' },
+      { key: 'guardian_name', label: 'Guardian for Minor Children (if applicable)', type: 'text', required: false },
+      { key: 'guardian_address', label: 'Guardian Address', type: 'textarea', required: false },
+      { key: 'alternate_guardian_name', label: 'Alternate Guardian Name', type: 'text', required: false },
+      { key: 'funeral_instructions', label: 'Funeral/Burial Instructions', type: 'select', required: true, options: ['Burial', 'Cremation', 'At discretion of Executor', 'Per separate written instructions'] },
+      { key: 'debts_provision', label: 'Debts and Expenses', type: 'select', required: true, options: ['Pay from residuary estate', 'Pay from specific fund', 'Pay proportionally from all assets'] }
+    ],
+    content: `LAST WILL AND TESTAMENT
+OF
+{{testator_name}}
+
+I, {{testator_name}}, a resident of {{testator_county}} County, State of {{testator_state}}, residing at {{testator_address}}, being of sound mind and memory, do hereby make, publish, and declare this to be my Last Will and Testament, hereby revoking all previous wills and codicils made by me.
+
+ARTICLE I - FAMILY DECLARATIONS
+
+I declare that I am {{marital_status}}.
+{{spouse_name}}
+
+I have the following children:
+{{children_names}}
+
+ARTICLE II - PAYMENT OF DEBTS AND EXPENSES
+
+I direct that all my legally enforceable debts, funeral expenses, costs of administration, and any estate or inheritance taxes be paid as follows: {{debts_provision}}.
+
+ARTICLE III - FUNERAL ARRANGEMENTS
+
+I direct that my remains be disposed of in the following manner: {{funeral_instructions}}.
+
+ARTICLE IV - SPECIFIC BEQUESTS
+
+I make the following specific bequests:
+
+{{specific_bequests}}
+
+If any beneficiary named above does not survive me by thirty (30) days, the bequest to that person shall lapse and become part of my residuary estate.
+
+ARTICLE V - RESIDUARY ESTATE
+
+I give, devise, and bequeath all the rest, residue, and remainder of my estate, of whatever kind and wherever situated, that I may own or have the right to dispose of at the time of my death (my "Residuary Estate"), to:
+
+{{residuary_beneficiary}}
+
+Distribution: {{residuary_distribution}}
+
+ARTICLE VI - APPOINTMENT OF EXECUTOR
+
+I appoint {{executor_name}}, of {{executor_address}}, my {{executor_relationship}}, as Executor of this Will.
+
+If {{executor_name}} is unable or unwilling to serve, I appoint {{alternate_executor_name}}, of {{alternate_executor_address}}, as Alternate Executor.
+
+I direct that no bond or security shall be required of any Executor serving hereunder.
+
+My Executor shall have the following powers, in addition to those granted by law:
+a) To sell, lease, or exchange any property of my estate without court order;
+b) To invest and reinvest estate funds in any investments deemed advisable;
+c) To settle claims and distribute assets in cash or in kind;
+d) To employ attorneys, accountants, and other professionals as needed;
+e) To make distributions to beneficiaries in cash or in kind, at fair market value.
+
+ARTICLE VII - GUARDIAN OF MINOR CHILDREN
+
+If any of my children are minors at the time of my death, I appoint {{guardian_name}}, of {{guardian_address}}, as Guardian of the person and property of my minor children.
+
+If {{guardian_name}} is unable or unwilling to serve, I appoint {{alternate_guardian_name}} as Alternate Guardian.
+
+I express the hope that my wishes regarding guardianship will be honored, but recognize that the court has final authority in such matters, taking into account the best interests of the children.
+
+ARTICLE VIII - SIMULTANEOUS DEATH
+
+If any beneficiary and I die under circumstances where it cannot be determined who died first, it shall be presumed that I survived such beneficiary for purposes of this Will.
+
+ARTICLE IX - NO CONTEST CLAUSE
+
+If any beneficiary under this Will contests or attacks this Will or any of its provisions, any share or interest in my estate given to that contesting beneficiary under this Will is revoked and shall be disposed of as if that contesting beneficiary had predeceased me without issue.
+
+ARTICLE X - SEVERABILITY
+
+If any provision of this Will is held to be invalid or unenforceable, such invalidity shall not affect the remaining provisions, which shall continue in full force and effect.
+
+IN WITNESS WHEREOF, I have signed this, my Last Will and Testament, consisting of this and the preceding pages, on this _______ day of _______________, 20_____.
+
+
+_______________________________________
+{{testator_name}}, Testator
+
+
+ATTESTATION CLAUSE
+
+The foregoing instrument was signed, published, and declared by {{testator_name}}, the Testator, as their Last Will and Testament, in our presence, and we, at the Testator's request and in the Testator's presence and in the presence of each other, have subscribed our names as witnesses thereto. We declare under penalty of perjury that the foregoing is true and correct.
+
+Each of us observed the signing of this Will by {{testator_name}} and by each other subscribing witness and knows that each signature is the true signature of the person whose name was signed.
+
+Each of us is now more than eighteen (18) years of age, is a competent witness, and resides at the address set forth after his or her name.
+
+Each of us is acquainted with {{testator_name}}. At this time, {{testator_name}} is over the age of eighteen (18) years and, to the best of our knowledge, is of sound mind and is not acting under duress, menace, fraud, misrepresentation, or undue influence.
+
+We declare under penalty of perjury that the foregoing is true and correct.
+
+
+Witness 1:
+_______________________________________
+Signature
+
+_______________________________________
+Printed Name
+
+_______________________________________
+Address
+
+_______________________________________
+City, State, ZIP
+
+
+Witness 2:
+_______________________________________
+Signature
+
+_______________________________________
+Printed Name
+
+_______________________________________
+Address
+
+_______________________________________
+City, State, ZIP
+
+
+SELF-PROVING AFFIDAVIT
+
+STATE OF {{testator_state}}
+COUNTY OF {{testator_county}}
+
+Before me, the undersigned authority, on this day personally appeared {{testator_name}}, the Testator, and _________________________ and _________________________, the witnesses, known to me to be the Testator and the witnesses, respectively, whose names are signed to the foregoing instrument, and all being duly sworn, the Testator declared to me and to the witnesses that the foregoing instrument is the Testator's Last Will and Testament, and that the Testator had willingly signed and executed it as a free and voluntary act for the purposes therein expressed. Each of the witnesses stated that they signed the Will as witness in the presence and at the request of the Testator and in the presence of each other.
+
+
+_______________________________________
+{{testator_name}}, Testator
+
+_______________________________________
+Witness 1
+
+_______________________________________
+Witness 2
+
+
+Subscribed and sworn before me by {{testator_name}}, the Testator, and by _________________________ and _________________________, the witnesses, on this _______ day of _______________, 20_____.
+
+
+_______________________________________
+Notary Public
+
+My Commission Expires: _________________
+
+[NOTARY SEAL]`,
+    lastUsed: '2024-11-22',
+    usageCount: 112,
+    createdAt: '2024-01-08'
   }
 ]
 
