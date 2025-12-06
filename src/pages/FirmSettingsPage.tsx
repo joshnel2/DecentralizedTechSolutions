@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
 import { 
   Building2, CreditCard, Brain, Shield, Save, Users, Briefcase,
-  DollarSign, Clock, Sparkles, CheckCircle2,
+  DollarSign, Sparkles, CheckCircle2,
   AlertTriangle, Plus, Trash2, Edit2, UserPlus, X,
   Mail, UserCog, UserMinus, Landmark, Wallet, TrendingUp, PiggyBank, ArrowLeft
 } from 'lucide-react'
@@ -100,16 +100,6 @@ export function FirmSettingsPage() {
     { id: '10', name: 'Immigration', active: false }
   ])
 
-  const [activityCodes, setActivityCodes] = useState([
-    { id: '1', code: 'A101', description: 'Legal Research', billable: true },
-    { id: '2', code: 'A102', description: 'Document Review', billable: true },
-    { id: '3', code: 'A103', description: 'Client Meeting', billable: true },
-    { id: '4', code: 'A104', description: 'Court Appearance', billable: true },
-    { id: '5', code: 'A105', description: 'Drafting', billable: true },
-    { id: '6', code: 'A201', description: 'Administrative', billable: false },
-    { id: '7', code: 'A202', description: 'Pro Bono', billable: false }
-  ])
-
   const [aiSettings, setAiSettings] = useState({
     enabled: true,
     provider: 'azure',
@@ -133,7 +123,6 @@ export function FirmSettingsPage() {
   })
 
   const [newPracticeArea, setNewPracticeArea] = useState('')
-  const [newActivityCode, setNewActivityCode] = useState({ code: '', description: '', billable: true })
 
   const handleSave = () => {
     updateFirm({
@@ -164,16 +153,6 @@ export function FirmSettingsPage() {
     }
   }
 
-  const addActivityCode = () => {
-    if (newActivityCode.code && newActivityCode.description) {
-      setActivityCodes([...activityCodes, {
-        id: Date.now().toString(),
-        ...newActivityCode
-      }])
-      setNewActivityCode({ code: '', description: '', billable: true })
-    }
-  }
-
   const getUserById = (id: string) => demoUsers.find(u => u.id === id)
 
   const tabs = [
@@ -182,7 +161,6 @@ export function FirmSettingsPage() {
     { id: 'users', label: 'Users & Teams', icon: Users },
     { id: 'billing', label: 'Billing & Rates', icon: DollarSign },
     { id: 'practice', label: 'Practice Areas', icon: Briefcase },
-    { id: 'activities', label: 'Activity Codes', icon: Clock },
     { id: 'ai', label: 'AI Configuration', icon: Brain },
     { id: 'security', label: 'Security', icon: Shield }
   ]
@@ -765,76 +743,6 @@ export function FirmSettingsPage() {
                           <Trash2 size={16} />
                         </button>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Activity Codes Tab */}
-          {activeTab === 'activities' && (
-            <div className={styles.tabContent}>
-              <div className={styles.section}>
-                <div className={styles.sectionHeader}>
-                  <Clock size={20} />
-                  <div>
-                    <h2>Activity Codes</h2>
-                    <p>Standard codes for time entries and billing</p>
-                  </div>
-                </div>
-
-                <div className={styles.addFormGrid}>
-                  <input
-                    type="text"
-                    value={newActivityCode.code}
-                    onChange={e => setNewActivityCode({...newActivityCode, code: e.target.value})}
-                    placeholder="Code (e.g., A101)"
-                  />
-                  <input
-                    type="text"
-                    value={newActivityCode.description}
-                    onChange={e => setNewActivityCode({...newActivityCode, description: e.target.value})}
-                    placeholder="Description"
-                  />
-                  <label className={styles.checkboxLabel}>
-                    <input
-                      type="checkbox"
-                      checked={newActivityCode.billable}
-                      onChange={e => setNewActivityCode({...newActivityCode, billable: e.target.checked})}
-                    />
-                    Billable
-                  </label>
-                  <button onClick={addActivityCode} className={styles.addBtn}>
-                    <Plus size={18} />
-                    Add
-                  </button>
-                </div>
-
-                <div className={styles.activityTable}>
-                  <div className={styles.tableHeader}>
-                    <span>Code</span>
-                    <span>Description</span>
-                    <span>Type</span>
-                    <span>Actions</span>
-                  </div>
-                  {activityCodes.map(code => (
-                    <div key={code.id} className={styles.tableRow}>
-                      <span className={styles.code}>{code.code}</span>
-                      <span>{code.description}</span>
-                      <span>
-                        <span className={`${styles.tag} ${code.billable ? styles.billable : styles.nonBillable}`}>
-                          {code.billable ? 'Billable' : 'Non-Billable'}
-                        </span>
-                      </span>
-                      <span>
-                        <button 
-                          className={styles.iconBtnDanger}
-                          onClick={() => setActivityCodes(activityCodes.filter(c => c.id !== code.id))}
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </span>
                     </div>
                   ))}
                 </div>
