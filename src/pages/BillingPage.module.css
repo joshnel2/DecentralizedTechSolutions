@@ -293,6 +293,7 @@
 .tabs {
   display: flex;
   gap: var(--space-xs);
+  margin-top: var(--space-lg);
   margin-bottom: var(--space-lg);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   padding-bottom: var(--space-sm);
