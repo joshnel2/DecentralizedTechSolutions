@@ -1,17 +1,22 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
+import { useDataStore } from '../stores/dataStore'
 import { 
   User, Lock, Bell, Shield, Save, Calendar, Clock, 
-  Palette, Download, Trash2, CheckCircle2, ArrowLeft
+  Palette, Download, Trash2, CheckCircle2, ArrowLeft,
+  Tags, Plus, Edit2
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
 export function SettingsPage() {
   const navigate = useNavigate()
   const { user, updateUser } = useAuthStore()
+  const { matterTypes, addMatterType, updateMatterType, deleteMatterType, toggleMatterTypeActive } = useDataStore()
   const [activeTab, setActiveTab] = useState('profile')
   const [saved, setSaved] = useState(false)
+  const [newMatterType, setNewMatterType] = useState('')
+  const [editingMatterType, setEditingMatterType] = useState<{ id: string; label: string } | null>(null)
   
   const [profileData, setProfileData] = useState({
     firstName: user?.firstName || '',
@@ -78,12 +83,35 @@ export function SettingsPage() {
     setTimeout(() => setSaved(false), 3000)
   }
 
+  const handleAddMatterType = () => {
+    if (newMatterType.trim()) {
+      addMatterType({
+        value: newMatterType.toLowerCase().replace(/\s+/g, '_'),
+        label: newMatterType.trim()
+      })
+      setNewMatterType('')
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    }
+  }
+
+  const handleUpdateMatterType = (id: string, label: string) => {
+    updateMatterType(id, { 
+      label,
+      value: label.toLowerCase().replace(/\s+/g, '_')
+    })
+    setEditingMatterType(null)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 3000)
+  }
+
   const tabs = [
     { id: 'profile', label: 'Profile', icon: User },
     { id: 'security', label: 'Security', icon: Lock },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'calendar', label: 'Calendar', icon: Calendar },
     { id: 'billing', label: 'Time Tracking', icon: Clock },
+    { id: 'matterTypes', label: 'Matter Types', icon: Tags },
     { id: 'display', label: 'Display', icon: Palette }
   ]
 
@@ -644,6 +672,190 @@ export function SettingsPage() {
                     </label>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Matter Types Tab */}
+          {activeTab === 'matterTypes' && (
+            <div className={styles.tabContent}>
+              <div className={styles.section}>
+                <div className={styles.sectionHeader}>
+                  <Tags size={20} />
+                  <div>
+                    <h2>Matter Types</h2>
+                    <p>Customize the matter types available in dropdowns when creating or editing matters</p>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
+                  <input
+                    type="text"
+                    value={newMatterType}
+                    onChange={e => setNewMatterType(e.target.value)}
+                    placeholder="Add new matter type..."
+                    onKeyPress={e => e.key === 'Enter' && handleAddMatterType()}
+                    style={{ 
+                      flex: 1,
+                      padding: '0.625rem 1rem',
+                      background: 'var(--bg-tertiary)',
+                      border: '1px solid var(--border-primary)',
+                      borderRadius: 'var(--radius-sm)',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.9rem'
+                    }}
+                  />
+                  <button 
+                    onClick={handleAddMatterType}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      padding: '0.625rem 1rem',
+                      background: 'var(--gold-primary)',
+                      border: 'none',
+                      borderRadius: 'var(--radius-sm)',
+                      color: 'var(--bg-primary)',
+                      fontSize: '0.85rem',
+                      fontWeight: 500,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <Plus size={18} />
+                    Add
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {matterTypes.map(matterType => (
+                    <div 
+                      key={matterType.id} 
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '0.75rem 1rem',
+                        background: 'var(--bg-tertiary)',
+                        borderRadius: 'var(--radius-sm)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <span 
+                          style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            background: matterType.active ? 'var(--success)' : 'var(--text-tertiary)'
+                          }}
+                        />
+                        {editingMatterType?.id === matterType.id ? (
+                          <input
+                            type="text"
+                            value={editingMatterType.label}
+                            onChange={e => setEditingMatterType({ ...editingMatterType, label: e.target.value })}
+                            onBlur={() => handleUpdateMatterType(matterType.id, editingMatterType.label)}
+                            onKeyPress={e => {
+                              if (e.key === 'Enter') {
+                                handleUpdateMatterType(matterType.id, editingMatterType.label)
+                              }
+                            }}
+                            autoFocus
+                            style={{ 
+                              background: 'var(--bg-secondary)', 
+                              border: '1px solid var(--gold-primary)',
+                              borderRadius: '4px',
+                              padding: '4px 8px',
+                              color: 'var(--text-primary)',
+                              fontSize: '0.9rem'
+                            }}
+                          />
+                        ) : (
+                          <span style={{ color: 'var(--text-primary)' }}>{matterType.label}</span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <button
+                          onClick={() => setEditingMatterType({ id: matterType.id, label: matterType.label })}
+                          title="Edit"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '32px',
+                            height: '32px',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--border-primary)',
+                            borderRadius: 'var(--radius-sm)',
+                            color: 'var(--text-secondary)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            toggleMatterTypeActive(matterType.id)
+                            setSaved(true)
+                            setTimeout(() => setSaved(false), 3000)
+                          }}
+                          style={{
+                            padding: '0.375rem 0.75rem',
+                            background: 'transparent',
+                            border: '1px solid var(--border-primary)',
+                            borderRadius: 'var(--radius-sm)',
+                            color: 'var(--text-secondary)',
+                            fontSize: '0.75rem',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {matterType.active ? 'Disable' : 'Enable'}
+                        </button>
+                        <button 
+                          onClick={() => {
+                            if (confirm(`Are you sure you want to delete "${matterType.label}"? Existing matters with this type will not be affected.`)) {
+                              deleteMatterType(matterType.id)
+                              setSaved(true)
+                              setTimeout(() => setSaved(false), 3000)
+                            }
+                          }}
+                          title="Delete"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '32px',
+                            height: '32px',
+                            background: 'transparent',
+                            border: '1px solid transparent',
+                            borderRadius: 'var(--radius-sm)',
+                            color: 'var(--text-tertiary)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {matterTypes.length === 0 && (
+                  <div style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    padding: '3rem',
+                    textAlign: 'center',
+                    color: 'var(--text-tertiary)'
+                  }}>
+                    <Tags size={48} style={{ marginBottom: '1rem', opacity: 0.5 }} />
+                    <p>No matter types defined</p>
+                    <p style={{ fontSize: '0.85rem' }}>
+                      Add matter types above to categorize your legal matters
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
