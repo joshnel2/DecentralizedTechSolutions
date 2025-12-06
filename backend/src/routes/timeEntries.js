@@ -127,20 +127,25 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
       entryType = 'manual',
     } = req.body;
 
-    if (!matterId || !date || !hours || !description) {
-      return res.status(400).json({ error: 'Matter, date, hours, and description are required' });
-    }
+    // Use defaults for optional fields
+    const entryDate = date || new Date().toISOString();
+    const entryHours = hours || 0.01;
+    const entryDescription = description || '';
 
     // Get rate from matter if not provided
     let entryRate = rate;
     if (!entryRate) {
-      const matterResult = await query(
-        'SELECT billing_rate FROM matters WHERE id = $1',
-        [matterId]
-      );
-      if (matterResult.rows.length > 0 && matterResult.rows[0].billing_rate) {
-        entryRate = matterResult.rows[0].billing_rate;
-      } else {
+      if (matterId) {
+        const matterResult = await query(
+          'SELECT billing_rate FROM matters WHERE id = $1',
+          [matterId]
+        );
+        if (matterResult.rows.length > 0 && matterResult.rows[0].billing_rate) {
+          entryRate = matterResult.rows[0].billing_rate;
+        }
+      }
+      
+      if (!entryRate) {
         // Get user's rate
         const userResult = await query(
           'SELECT hourly_rate FROM users WHERE id = $1',
@@ -157,7 +162,7 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *`,
       [
-        req.user.firmId, matterId, req.user.id, date, hours, description,
+        req.user.firmId, matterId || null, req.user.id, entryDate, entryHours, entryDescription,
         billable, entryRate, activityCode, entryType
       ]
     );

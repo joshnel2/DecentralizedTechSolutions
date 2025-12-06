@@ -876,7 +876,7 @@ function SaveTimerModal({ timer, matters, onClose, onSave }: {
           </div>
 
           <div className={styles.formGroup}>
-            <label>Description</label>
+            <label>Description (optional)</label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({...formData, description: e.target.value})}
