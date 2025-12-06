@@ -1,11 +1,29 @@
 // API Configuration
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
-// Token management
-let accessToken: string | null = null;
+// Token storage key
+const TOKEN_STORAGE_KEY = 'apex-access-token';
+
+// Token management - initialize from localStorage
+let accessToken: string | null = (() => {
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+})();
 
 export function setAccessToken(token: string | null) {
   accessToken = token;
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.warn('Failed to persist access token:', error);
+  }
 }
 
 export function getAccessToken() {
@@ -77,7 +95,7 @@ async function refreshAccessToken(): Promise<boolean> {
 
     if (response.ok) {
       const data = await response.json();
-      accessToken = data.accessToken;
+      setAccessToken(data.accessToken);
       return true;
     }
   } catch (error) {
@@ -85,7 +103,7 @@ async function refreshAccessToken(): Promise<boolean> {
   }
   
   // Clear token on refresh failure
-  accessToken = null;
+  setAccessToken(null);
   return false;
 }
 
@@ -105,7 +123,7 @@ export const authApi = {
       method: 'POST',
       body: JSON.stringify(data),
     });
-    accessToken = result.accessToken;
+    setAccessToken(result.accessToken);
     return result;
   },
 
@@ -115,7 +133,7 @@ export const authApi = {
       body: JSON.stringify({ email, password }),
     });
     if (result.accessToken) {
-      accessToken = result.accessToken;
+      setAccessToken(result.accessToken);
     }
     return result;
   },
@@ -124,7 +142,7 @@ export const authApi = {
     try {
       await fetchWithAuth('/auth/logout', { method: 'POST' });
     } finally {
-      accessToken = null;
+      setAccessToken(null);
     }
   },
 
