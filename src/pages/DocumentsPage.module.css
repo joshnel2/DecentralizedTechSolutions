@@ -551,6 +551,8 @@
 .previewContent {
   flex: 1;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .previewFrame {
@@ -558,6 +560,73 @@
   height: 100%;
   border: none;
   background: white;
+}
+
+.previewImage {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  margin: auto;
+}
+
+.pdfPreviewContainer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.pdfPreviewContainer .previewFrame {
+  flex: 1;
+}
+
+.textFallback {
+  background: var(--apex-slate);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.75rem 1rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.textFallback summary {
+  cursor: pointer;
+  color: var(--apex-text);
+  font-size: 0.85rem;
+  user-select: none;
+}
+
+.textFallback summary:hover {
+  color: var(--apex-white);
+}
+
+.textPreview {
+  flex: 1;
+  overflow: auto;
+  background: var(--apex-slate);
+  padding: 1.5rem;
+}
+
+.extractedText {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--apex-light);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  margin: 0;
+}
+
+.previewLoading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 1rem;
+  color: var(--apex-text);
+}
+
+.previewLoading p {
+  font-size: 0.9rem;
 }
 
 .noPreview {

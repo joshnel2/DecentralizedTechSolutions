@@ -363,8 +363,74 @@ export function DocumentsPage() {
     return `${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/documents/${doc.id}/download`
   }
 
-  const canPreview = (type: string) => {
-    return type.includes('pdf') || type.includes('image')
+  const canPreview = (type: string, name: string) => {
+    const lowerName = name.toLowerCase()
+    return type.includes('pdf') || 
+           type.includes('image') ||
+           type.includes('word') ||
+           type.includes('text') ||
+           type.includes('spreadsheet') ||
+           type.includes('excel') ||
+           lowerName.endsWith('.pdf') ||
+           lowerName.endsWith('.docx') ||
+           lowerName.endsWith('.doc') ||
+           lowerName.endsWith('.txt') ||
+           lowerName.endsWith('.csv') ||
+           lowerName.endsWith('.xlsx') ||
+           lowerName.endsWith('.xls') ||
+           lowerName.endsWith('.md') ||
+           lowerName.endsWith('.json')
+  }
+
+  const isImageFile = (type: string) => type.includes('image')
+  const isPdfFile = (type: string, name: string) => type.includes('pdf') || name.toLowerCase().endsWith('.pdf')
+
+  // Preview content state
+  const [previewContent, setPreviewContent] = useState<string | null>(null)
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false)
+
+  // Load preview content when preview doc changes
+  const loadPreviewContent = async (doc: typeof documents[0]) => {
+    // For images and PDFs that browser can render natively, skip extraction
+    if (isImageFile(doc.type)) {
+      setPreviewContent(null)
+      return
+    }
+
+    setIsLoadingPreview(true)
+    setPreviewContent(null)
+
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken') || ''
+
+      const downloadResponse = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+
+      if (downloadResponse.ok) {
+        const blob = await downloadResponse.blob()
+        const fileType = doc.type || blob.type || 'application/octet-stream'
+        const file = new File([blob], doc.name, { type: fileType })
+        const content = await extractFileContent(file)
+        setPreviewContent(content)
+      } else {
+        setPreviewContent('[Unable to load document preview]')
+      }
+    } catch (error) {
+      console.error('Preview error:', error)
+      setPreviewContent('[Error loading preview]')
+    } finally {
+      setIsLoadingPreview(false)
+    }
+  }
+
+  // Handle opening preview
+  const openPreview = (doc: typeof documents[0]) => {
+    setPreviewDoc(doc)
+    if (!isImageFile(doc.type)) {
+      loadPreviewContent(doc)
+    }
   }
 
   return (
@@ -492,7 +558,7 @@ export function DocumentsPage() {
                   <td>
                     <div className={styles.rowActions}>
                       <button 
-                        onClick={() => setPreviewDoc(doc)}
+                        onClick={() => openPreview(doc)}
                         title="Preview"
                       >
                         <Eye size={16} />
@@ -535,7 +601,7 @@ export function DocumentsPage() {
 
       {/* Document Preview Modal */}
       {previewDoc && (
-        <div className={styles.previewModal} onClick={() => setPreviewDoc(null)}>
+        <div className={styles.previewModal} onClick={() => { setPreviewDoc(null); setPreviewContent(null); }}>
           <div className={styles.previewContainer} onClick={e => e.stopPropagation()}>
             <div className={styles.previewHeader}>
               <div className={styles.previewTitle}>
@@ -555,25 +621,54 @@ export function DocumentsPage() {
                   onClick={() => {
                     openAIWithDocContext(previewDoc)
                     setPreviewDoc(null)
+                    setPreviewContent(null)
                   }}
                   disabled={isExtractingForChat}
                 >
                   {isExtractingForChat ? <Loader2 size={16} className={styles.spinner} /> : <Sparkles size={16} />}
                   {isExtractingForChat ? 'Extracting...' : 'AI Analyze'}
                 </button>
-                <button className={styles.closePreviewBtn} onClick={() => setPreviewDoc(null)}>
+                <button className={styles.closePreviewBtn} onClick={() => { setPreviewDoc(null); setPreviewContent(null); }}>
                   <X size={20} />
                 </button>
               </div>
             </div>
             <div className={styles.previewContent}>
-              {canPreview(previewDoc.type) ? (
-                <iframe 
+              {isImageFile(previewDoc.type) ? (
+                /* Native image preview */
+                <img 
                   src={getDocumentUrl(previewDoc)}
-                  title={previewDoc.name}
-                  className={styles.previewFrame}
+                  alt={previewDoc.name}
+                  className={styles.previewImage}
                 />
+              ) : isPdfFile(previewDoc.type, previewDoc.name) ? (
+                /* PDF preview - try iframe first, show extracted text as fallback */
+                <div className={styles.pdfPreviewContainer}>
+                  <iframe 
+                    src={getDocumentUrl(previewDoc)}
+                    title={previewDoc.name}
+                    className={styles.previewFrame}
+                  />
+                  {previewContent && (
+                    <details className={styles.textFallback}>
+                      <summary>Show extracted text</summary>
+                      <pre className={styles.extractedText}>{previewContent}</pre>
+                    </details>
+                  )}
+                </div>
+              ) : isLoadingPreview ? (
+                /* Loading state */
+                <div className={styles.previewLoading}>
+                  <Loader2 size={32} className={styles.spinner} />
+                  <p>Loading preview...</p>
+                </div>
+              ) : previewContent ? (
+                /* Text-based preview for Word, Excel, Text files */
+                <div className={styles.textPreview}>
+                  <pre className={styles.extractedText}>{previewContent}</pre>
+                </div>
               ) : (
+                /* Fallback for unsupported types */
                 <div className={styles.noPreview}>
                   <span className={styles.bigIcon}>{getFileIcon(previewDoc.type)}</span>
                   <h3>{previewDoc.name}</h3>
