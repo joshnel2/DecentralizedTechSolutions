@@ -1584,6 +1584,17 @@ Only analyze documents actually associated with this matter.`
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmText={confirmModal.confirmText}
+        type={confirmModal.type}
+      />
     </div>
   )
 }

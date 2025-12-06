@@ -10,6 +10,7 @@ import { useAIChat } from '../contexts/AIChatContext'
 import { format, parseISO, addDays } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './DetailPage.module.css'
+import { ConfirmationModal } from '../components/ConfirmationModal'
 
 // Client status options
 const clientStatusOptions = [
@@ -35,6 +36,23 @@ export function ClientDetailPage() {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
+  
+  // Confirmation modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean
+    title: string
+    message: string
+    confirmText: string
+    type: 'danger' | 'warning' | 'success' | 'info'
+    onConfirm: () => void
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    type: 'danger',
+    onConfirm: () => {}
+  })
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -156,11 +174,25 @@ export function ClientDetailPage() {
                   <div className={styles.dropdownDivider} />
                   <button 
                     className={clsx(styles.dropdownItem, styles.danger)}
-                    onClick={async () => {
-                      if (confirm(`Are you sure you want to delete "${client.name}"? This action cannot be undone.`)) {
-                        await deleteClient(id!)
-                        navigate('/app/clients')
-                      }
+                    onClick={() => {
+                      setShowDropdown(false)
+                      setConfirmModal({
+                        isOpen: true,
+                        title: 'Delete Client',
+                        message: `Are you sure you want to delete "${client.name}"? This action cannot be undone and will remove all associated matters, invoices, and documents.`,
+                        confirmText: 'Delete Client',
+                        type: 'danger',
+                        onConfirm: async () => {
+                          try {
+                            await deleteClient(id!)
+                            setConfirmModal(prev => ({ ...prev, isOpen: false }))
+                            navigate('/app/clients')
+                          } catch (error) {
+                            console.error('Failed to delete client:', error)
+                            alert('Failed to delete client')
+                          }
+                        }
+                      })
                     }}
                   >
                     <Trash2 size={14} />
@@ -539,6 +571,17 @@ export function ClientDetailPage() {
           }}
         />
       )}
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmText={confirmModal.confirmText}
+        type={confirmModal.type}
+      />
     </div>
   )
 }
