@@ -1067,6 +1067,37 @@
     font-size: 0.6875rem;
   }
 
+  .timerSection {
+    margin-bottom: var(--space-lg);
+  }
+
+  .startTimer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-md);
+    padding: var(--space-md);
+  }
+
+  .startTimerLeft {
+    justify-content: center;
+  }
+
+  .startTimerRight {
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .matterSelect {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .startBtn {
+    width: 100%;
+    justify-content: center;
+    padding: var(--space-md);
+  }
+
   .activeTimer {
     flex-direction: column;
     align-items: stretch;
@@ -1080,13 +1111,38 @@
     gap: var(--space-sm);
   }
 
+  .timerDetails {
+    align-items: center;
+  }
+
+  .timerElapsed {
+    font-size: 1.25rem;
+  }
+
+  .timerControls {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-sm);
+  }
+
+  .pauseBtn,
+  .resumeBtn,
+  .stopBtn {
+    flex: 1;
+    min-width: 80px;
+    justify-content: center;
+  }
+
+  .discardBtn {
+    padding: var(--space-sm) var(--space-md);
+  }
+
   .timerTime {
     font-size: 1.25rem;
   }
 
   .stopBtn,
   .discardBtn {
-    width: 100%;
     justify-content: center;
   }
 
