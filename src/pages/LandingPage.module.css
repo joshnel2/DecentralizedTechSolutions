@@ -89,16 +89,24 @@
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-lg);
   background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
   border-radius: var(--radius-md);
   color: var(--apex-midnight);
   font-weight: 600;
   font-size: 0.875rem;
+  cursor: pointer;
+  outline: none;
   transition: all var(--transition-fast);
 }
 
 .ctaBtn:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-glow);
+}
+
+.ctaBtn:focus {
+  outline: none;
+  border: none;
 }
 
 /* Hero */
@@ -168,12 +176,18 @@
   font-weight: 600;
   font-size: 1rem;
   cursor: pointer;
+  outline: none;
   transition: all var(--transition-fast);
 }
 
 .primaryBtn:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-glow);
+}
+
+.primaryBtn:focus {
+  outline: none;
+  border: none;
 }
 
 .secondaryBtn {
@@ -594,12 +608,16 @@
 
 .planBtn {
   display: block;
+  width: 100%;
   text-align: center;
   padding: var(--space-md);
   background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
   border-radius: var(--radius-md);
   color: var(--apex-midnight);
   font-weight: 600;
+  cursor: pointer;
+  outline: none;
   transition: all var(--transition-fast);
 }
 
@@ -893,7 +911,13 @@
   font-weight: 600;
   font-size: 1rem;
   cursor: pointer;
+  outline: none;
   margin-top: var(--space-md);
+}
+
+.submitBtn:focus {
+  outline: none;
+  border: none;
 }
 
 .successMessage {

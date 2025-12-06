@@ -2,23 +2,23 @@ import { useState, useMemo } from 'react'
 import { useDataStore } from '../stores/dataStore'
 import { 
   TrendingUp, DollarSign, Clock, Users, Briefcase,
-  Download, Calendar, FileText, CheckCircle2, Filter,
-  ChevronRight, BarChart3, PieChart as PieChartIcon, 
-  RefreshCw, Settings, AlertCircle, ArrowUpRight, ArrowDownRight,
-  Wallet, CreditCard, Scale, Target, Activity, Layers,
-  Building2, Star, X, Plus, Search, Eye,
-  Check, FileSpreadsheet, AlertTriangle
+  Download, Calendar, CheckCircle2, Filter,
+  ChevronRight, BarChart3, 
+  RefreshCw, AlertCircle, ArrowUpRight, ArrowDownRight,
+  Target, Activity,
+  X, Plus, Search, Eye,
+  FileSpreadsheet, AlertTriangle
 } from 'lucide-react'
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell, AreaChart, Area
+  PieChart, Pie, Cell, AreaChart, Area
 } from 'recharts'
-import { format, subDays, subMonths, startOfMonth, endOfMonth, parseISO } from 'date-fns'
+import { format, subDays, subMonths, startOfMonth, endOfMonth } from 'date-fns'
 import styles from './ReportsPage.module.css'
 
 const COLORS = ['#F59E0B', '#3B82F6', '#10B981', '#8B5CF6', '#EF4444', '#EC4899', '#14B8A6', '#F97316']
 
-// Report category definitions (like Clio)
+// Report category definitions - only working reports included
 const reportCategories = [
   {
     id: 'billing',
@@ -28,12 +28,7 @@ const reportCategories = [
     reports: [
       { id: 'billing-summary', name: 'Billing Summary', desc: 'Overview of all billing activity' },
       { id: 'ar-aging', name: 'Accounts Receivable Aging', desc: 'Outstanding invoices by age' },
-      { id: 'invoice-detail', name: 'Invoice Detail', desc: 'Detailed invoice breakdown' },
-      { id: 'payment-history', name: 'Payment History', desc: 'All payments received' },
-      { id: 'writeoffs', name: 'Write-offs & Discounts', desc: 'Time and expense adjustments' },
-      { id: 'revenue-by-client', name: 'Revenue by Client', desc: 'Client revenue analysis' },
-      { id: 'revenue-by-matter', name: 'Revenue by Matter', desc: 'Matter revenue breakdown' },
-      { id: 'revenue-trend', name: 'Revenue Trend', desc: 'Monthly revenue over time' }
+      { id: 'payment-history', name: 'Payment History', desc: 'All payments received' }
     ]
   },
   {
@@ -42,14 +37,8 @@ const reportCategories = [
     icon: Activity,
     color: '#3B82F6',
     reports: [
-      { id: 'utilization', name: 'Utilization Report', desc: 'Billable vs non-billable hours' },
-      { id: 'realization', name: 'Realization Report', desc: 'Billed vs worked hours' },
       { id: 'timekeeper-summary', name: 'Timekeeper Summary', desc: 'Hours by attorney/staff' },
-      { id: 'timekeeper-detail', name: 'Timekeeper Detail', desc: 'Detailed time entries' },
-      { id: 'activity-code', name: 'Activity Code Report', desc: 'Time by activity type' },
-      { id: 'daily-time', name: 'Daily Time Report', desc: 'Time entries by day' },
-      { id: 'unbilled-time', name: 'Unbilled Time', desc: 'Time not yet invoiced' },
-      { id: 'non-billable', name: 'Non-Billable Time', desc: 'Non-billable hours analysis' }
+      { id: 'unbilled-time', name: 'Unbilled Time', desc: 'Time not yet invoiced' }
     ]
   },
   {
@@ -58,14 +47,7 @@ const reportCategories = [
     icon: Briefcase,
     color: '#10B981',
     reports: [
-      { id: 'matter-status', name: 'Matter Status', desc: 'All matters by status' },
-      { id: 'matter-workload', name: 'Matter Workload', desc: 'Hours by matter' },
-      { id: 'matter-profitability', name: 'Matter Profitability', desc: 'Revenue vs cost analysis' },
-      { id: 'matter-budget', name: 'Budget vs Actual', desc: 'Budget tracking report' },
-      { id: 'matter-pipeline', name: 'Matter Pipeline', desc: 'Intake and new matters' },
-      { id: 'practice-area', name: 'Practice Area Summary', desc: 'Matters by practice area' },
-      { id: 'matter-aging', name: 'Matter Aging', desc: 'Time since last activity' },
-      { id: 'matter-timeline', name: 'Matter Timeline', desc: 'Key dates and milestones' }
+      { id: 'matter-status', name: 'Matter Status', desc: 'All matters by status' }
     ]
   },
   {
@@ -74,39 +56,7 @@ const reportCategories = [
     icon: Users,
     color: '#8B5CF6',
     reports: [
-      { id: 'client-summary', name: 'Client Summary', desc: 'All clients overview' },
-      { id: 'client-billing', name: 'Client Billing History', desc: 'Billing by client' },
-      { id: 'client-collection', name: 'Collection History', desc: 'Payment patterns' },
-      { id: 'client-profitability', name: 'Client Profitability', desc: 'Revenue analysis by client' },
-      { id: 'client-retention', name: 'Client Retention', desc: 'Repeat client analysis' },
-      { id: 'referral-source', name: 'Referral Sources', desc: 'Client acquisition analysis' },
-      { id: 'client-activity', name: 'Client Activity', desc: 'Recent client interactions' }
-    ]
-  },
-  {
-    id: 'trust',
-    name: 'Trust Accounting',
-    icon: Wallet,
-    color: '#14B8A6',
-    reports: [
-      { id: 'trust-balance', name: 'Trust Balance', desc: 'Current trust account balances' },
-      { id: 'trust-ledger', name: 'Trust Ledger', desc: 'All trust transactions' },
-      { id: 'trust-reconciliation', name: 'Trust Reconciliation', desc: 'Bank reconciliation report' },
-      { id: 'trust-three-way', name: 'Three-Way Reconciliation', desc: 'Complete trust audit' },
-      { id: 'trust-shortage', name: 'Trust Shortage Alert', desc: 'Low balance warnings' }
-    ]
-  },
-  {
-    id: 'expenses',
-    name: 'Expenses',
-    icon: CreditCard,
-    color: '#EC4899',
-    reports: [
-      { id: 'expense-summary', name: 'Expense Summary', desc: 'All expenses overview' },
-      { id: 'expense-by-matter', name: 'Expenses by Matter', desc: 'Costs per matter' },
-      { id: 'expense-by-category', name: 'Expenses by Category', desc: 'Costs by type' },
-      { id: 'unbilled-expenses', name: 'Unbilled Expenses', desc: 'Expenses not invoiced' },
-      { id: 'reimbursable', name: 'Reimbursable Expenses', desc: 'Pending reimbursements' }
+      { id: 'client-summary', name: 'Client Summary', desc: 'All clients overview' }
     ]
   }
 ]
@@ -120,24 +70,11 @@ export function ReportsPage() {
   const [selectedReport, setSelectedReport] = useState<string | null>(null)
   const [dateRange, setDateRange] = useState('this-month')
   const [exportMessage, setExportMessage] = useState<string | null>(null)
-  const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [showCustomReportModal, setShowCustomReportModal] = useState(false)
   const [showFilterPanel, setShowFilterPanel] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [showPreviewModal, setShowPreviewModal] = useState<{ report: any; category: any } | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
-  
-  // Saved reports - stored in localStorage for persistence
-  const [savedReports, setSavedReports] = useState<Array<{ id: string; name: string; category: string; lastRun: string }>>(() => {
-    const saved = localStorage.getItem('apex-saved-reports')
-    return saved ? JSON.parse(saved) : []
-  })
-  
-  // Scheduled reports - stored in localStorage for persistence
-  const [scheduledReports, setScheduledReports] = useState<Array<{ id: string; name: string; frequency: string; nextRun: string; recipients: string[] }>>(() => {
-    const saved = localStorage.getItem('apex-scheduled-reports')
-    return saved ? JSON.parse(saved) : []
-  })
 
   // Date range calculations
   const getDateRange = () => {
@@ -494,10 +431,6 @@ export function ReportsPage() {
               {exportError}
             </span>
           )}
-          <button className={styles.secondaryBtn} onClick={() => setShowScheduleModal(true)}>
-            <Calendar size={18} />
-            Schedule Report
-          </button>
           <button className={styles.primaryBtn} onClick={() => setShowCustomReportModal(true)}>
             <Plus size={18} />
             Custom Report
@@ -524,13 +457,6 @@ export function ReportsPage() {
             {cat.name}
           </button>
         ))}
-        <button 
-          className={`${styles.tab} ${activeCategory === 'saved' ? styles.active : ''}`}
-          onClick={() => setActiveCategory('saved')}
-        >
-          <Star size={18} />
-          Saved
-        </button>
       </div>
 
       {/* Overview Tab */}
@@ -951,109 +877,6 @@ export function ReportsPage() {
         </div>
       )}
 
-      {/* Saved Reports Tab */}
-      {activeCategory === 'saved' && (
-        <div className={styles.savedView}>
-          <div className={styles.savedSection}>
-            <h3>
-              <Star size={18} />
-              Saved Reports
-            </h3>
-            <div className={styles.savedList}>
-              {savedReports.length === 0 ? (
-                <div style={{ 
-                  padding: '2rem', 
-                  textAlign: 'center', 
-                  color: 'var(--apex-text)',
-                  background: 'rgba(0,0,0,0.2)',
-                  borderRadius: '8px'
-                }}>
-                  <Star size={32} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
-                  <p>No saved reports yet</p>
-                  <p style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>Run a report and click "Save" to add it here</p>
-                </div>
-              ) : (
-                savedReports.map(report => (
-                  <div key={report.id} className={styles.savedItem}>
-                    <div className={styles.savedItemInfo}>
-                      <span className={styles.savedItemName}>{report.name}</span>
-                      <span className={styles.savedItemMeta}>Last run: {report.lastRun}</span>
-                    </div>
-                    <div className={styles.savedItemActions}>
-                      <button className={styles.runReportBtn} onClick={() => {
-                        // Map saved report IDs to actual report IDs
-                        const reportMap: Record<string, string> = {
-                          'saved-1': 'billing-summary',
-                          'saved-2': 'timekeeper-summary',
-                          'saved-3': 'ar-aging'
-                        }
-                        const actualReportId = reportMap[report.id] || report.id
-                        runReport(actualReportId)
-                      }}>
-                        <Download size={14} />
-                        Run
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className={styles.savedSection}>
-            <h3>
-              <Calendar size={18} />
-              Scheduled Reports
-            </h3>
-            <div className={styles.savedList}>
-              {scheduledReports.length === 0 ? (
-                <div style={{ 
-                  padding: '2rem', 
-                  textAlign: 'center', 
-                  color: 'var(--apex-text)',
-                  background: 'rgba(0,0,0,0.2)',
-                  borderRadius: '8px'
-                }}>
-                  <Calendar size={32} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
-                  <p>No scheduled reports</p>
-                  <p style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>Click "Schedule Report" to set up automatic report delivery</p>
-                </div>
-              ) : (
-                scheduledReports.map(report => (
-                  <div key={report.id} className={styles.scheduledItem}>
-                    <div className={styles.scheduledItemInfo}>
-                      <span className={styles.scheduledItemName}>{report.name}</span>
-                      <span className={styles.scheduledItemMeta}>
-                        {report.frequency} • Next: {report.nextRun}
-                      </span>
-                      <span className={styles.scheduledItemRecipients}>
-                        Recipients: {report.recipients.join(', ')}
-                      </span>
-                    </div>
-                    <div className={styles.scheduledItemActions}>
-                      <button className={styles.iconBtn} title="Edit Schedule">
-                        <Settings size={16} />
-                      </button>
-                      <button className={styles.iconBtnDanger} title="Delete" onClick={() => {
-                        const newScheduled = scheduledReports.filter(r => r.id !== report.id)
-                        setScheduledReports(newScheduled)
-                        localStorage.setItem('apex-scheduled-reports', JSON.stringify(newScheduled))
-                      }}>
-                        <X size={16} />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Schedule Report Modal */}
-      {showScheduleModal && (
-        <ScheduleReportModal onClose={() => setShowScheduleModal(false)} />
-      )}
 
       {/* Custom Report Modal */}
       {showCustomReportModal && (
@@ -1117,128 +940,6 @@ export function ReportsPage() {
         </div>
       )}
 
-    </div>
-  )
-}
-
-// Schedule Report Modal
-function ScheduleReportModal({ onClose }: { onClose: () => void }) {
-  const [formData, setFormData] = useState({
-    report: '',
-    frequency: 'weekly',
-    dayOfWeek: 'monday',
-    dayOfMonth: '1',
-    time: '09:00',
-    format: 'pdf',
-    recipients: ''
-  })
-
-  return (
-    <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.modal} onClick={e => e.stopPropagation()}>
-        <div className={styles.modalHeader}>
-          <h2>Schedule Report</h2>
-          <button onClick={onClose} className={styles.closeBtn}><X size={20} /></button>
-        </div>
-        <div className={styles.modalBody}>
-          <div className={styles.formGroup}>
-            <label>Report</label>
-            <select 
-              value={formData.report}
-              onChange={e => setFormData({ ...formData, report: e.target.value })}
-            >
-              <option value="">Select a report...</option>
-              {reportCategories.flatMap(cat => 
-                cat.reports.map(r => (
-                  <option key={r.id} value={r.id}>{cat.name} - {r.name}</option>
-                ))
-              )}
-            </select>
-          </div>
-
-          <div className={styles.formRow}>
-            <div className={styles.formGroup}>
-              <label>Frequency</label>
-              <select
-                value={formData.frequency}
-                onChange={e => setFormData({ ...formData, frequency: e.target.value })}
-              >
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="quarterly">Quarterly</option>
-              </select>
-            </div>
-            {formData.frequency === 'weekly' && (
-              <div className={styles.formGroup}>
-                <label>Day of Week</label>
-                <select
-                  value={formData.dayOfWeek}
-                  onChange={e => setFormData({ ...formData, dayOfWeek: e.target.value })}
-                >
-                  <option value="monday">Monday</option>
-                  <option value="tuesday">Tuesday</option>
-                  <option value="wednesday">Wednesday</option>
-                  <option value="thursday">Thursday</option>
-                  <option value="friday">Friday</option>
-                </select>
-              </div>
-            )}
-            {formData.frequency === 'monthly' && (
-              <div className={styles.formGroup}>
-                <label>Day of Month</label>
-                <select
-                  value={formData.dayOfMonth}
-                  onChange={e => setFormData({ ...formData, dayOfMonth: e.target.value })}
-                >
-                  {[...Array(28)].map((_, i) => (
-                    <option key={i + 1} value={i + 1}>{i + 1}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-
-          <div className={styles.formRow}>
-            <div className={styles.formGroup}>
-              <label>Time</label>
-              <input 
-                type="time" 
-                value={formData.time}
-                onChange={e => setFormData({ ...formData, time: e.target.value })}
-              />
-            </div>
-            <div className={styles.formGroup}>
-              <label>Format</label>
-              <select
-                value={formData.format}
-                onChange={e => setFormData({ ...formData, format: e.target.value })}
-              >
-                <option value="pdf">PDF</option>
-                <option value="csv">CSV</option>
-                <option value="excel">Excel</option>
-              </select>
-            </div>
-          </div>
-
-          <div className={styles.formGroup}>
-            <label>Recipients (comma-separated emails)</label>
-            <input 
-              type="text" 
-              value={formData.recipients}
-              onChange={e => setFormData({ ...formData, recipients: e.target.value })}
-              placeholder="john@apex.law, sarah@apex.law"
-            />
-          </div>
-        </div>
-        <div className={styles.modalFooter}>
-          <button className={styles.cancelBtn} onClick={onClose}>Cancel</button>
-          <button className={styles.primaryBtn} onClick={onClose}>
-            <Calendar size={16} />
-            Schedule Report
-          </button>
-        </div>
-      </div>
     </div>
   )
 }
