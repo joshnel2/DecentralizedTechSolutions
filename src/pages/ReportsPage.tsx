@@ -6,8 +6,8 @@ import {
   ChevronRight, BarChart3, PieChart as PieChartIcon, 
   RefreshCw, Settings, AlertCircle, ArrowUpRight, ArrowDownRight,
   Wallet, CreditCard, Scale, Target, Activity, Layers,
-  Building2, Star, X, Plus, Search, Eye, Mail, Printer,
-  Send, Check, FileSpreadsheet
+  Building2, Star, X, Plus, Search, Eye,
+  Check, FileSpreadsheet, AlertTriangle
 } from 'lucide-react'
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -125,7 +125,7 @@ export function ReportsPage() {
   const [showFilterPanel, setShowFilterPanel] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [showPreviewModal, setShowPreviewModal] = useState<{ report: any; category: any } | null>(null)
-  const [showEmailModal, setShowEmailModal] = useState<{ report: any } | null>(null)
+  const [exportError, setExportError] = useState<string | null>(null)
   
   // Saved reports - stored in localStorage for persistence
   const [savedReports, setSavedReports] = useState<Array<{ id: string; name: string; category: string; lastRun: string }>>(() => {
@@ -288,6 +288,13 @@ export function ReportsPage() {
 
   // CSV Export
   const exportToCSV = (data: any[], filename: string, headers: string[]) => {
+    // Check if there's data to export
+    if (!data || data.length === 0) {
+      setExportError(`No data available to export for this report. Please ensure you have the relevant data in your system.`)
+      setTimeout(() => setExportError(null), 5000)
+      return false
+    }
+
     const csvContent = [
       headers.join(','),
       ...data.map(row => headers.map(h => {
@@ -308,12 +315,21 @@ export function ReportsPage() {
     
     setExportMessage(`${filename}.csv exported successfully!`)
     setTimeout(() => setExportMessage(null), 3000)
+    return true
   }
 
   const runReport = (reportId: string) => {
+    // Clear any previous error
+    setExportError(null)
+    
     // Map report IDs to export functions
     const exportMap: Record<string, () => void> = {
       'billing-summary': () => {
+        if (invoices.length === 0) {
+          setExportError('No invoices found. Create invoices to generate a billing summary report.')
+          setTimeout(() => setExportError(null), 5000)
+          return
+        }
         const data = invoices.map(i => ({
           invoice_number: i.number,
           client: clients.find(c => c.id === i.clientId)?.name || '',
@@ -328,7 +344,13 @@ export function ReportsPage() {
         exportToCSV(data, 'billing_summary', ['Invoice Number', 'Client', 'Matter', 'Issue Date', 'Due Date', 'Total', 'Paid', 'Balance', 'Status'])
       },
       'ar-aging': () => {
-        const data = invoices.filter(i => i.status !== 'paid').map(i => {
+        const unpaidInvoices = invoices.filter(i => i.status !== 'paid')
+        if (unpaidInvoices.length === 0) {
+          setExportError('No outstanding invoices found. All invoices are paid or there are no invoices in the system.')
+          setTimeout(() => setExportError(null), 5000)
+          return
+        }
+        const data = unpaidInvoices.map(i => {
           const daysOld = Math.floor((Date.now() - new Date(i.issueDate).getTime()) / (1000 * 60 * 60 * 24))
           return {
             invoice_number: i.number,
@@ -343,6 +365,11 @@ export function ReportsPage() {
         exportToCSV(data, 'ar_aging', ['Invoice Number', 'Client', 'Issue Date', 'Due Date', 'Days Outstanding', 'Amount', 'Aging Bucket'])
       },
       'timekeeper-summary': () => {
+        if (utilizationByUser.length === 0) {
+          setExportError('No time entries found. Log time entries to generate a timekeeper summary report.')
+          setTimeout(() => setExportError(null), 5000)
+          return
+        }
         const data = utilizationByUser.map(u => ({
           timekeeper: u.name,
           billable_hours: u.billable,
@@ -354,6 +381,11 @@ export function ReportsPage() {
         exportToCSV(data, 'timekeeper_summary', ['Timekeeper', 'Billable Hours', 'Non Billable Hours', 'Total Hours', 'Utilization', 'Target'])
       },
       'matter-status': () => {
+        if (matters.length === 0) {
+          setExportError('No matters found. Create matters to generate a matter status report.')
+          setTimeout(() => setExportError(null), 5000)
+          return
+        }
         const data = matters.map(m => ({
           number: m.number,
           name: m.name,
@@ -367,6 +399,11 @@ export function ReportsPage() {
         exportToCSV(data, 'matter_status', ['Number', 'Name', 'Client', 'Type', 'Status', 'Priority', 'Open Date', 'Billing Type'])
       },
       'client-summary': () => {
+        if (clients.length === 0) {
+          setExportError('No clients found. Add clients to generate a client summary report.')
+          setTimeout(() => setExportError(null), 5000)
+          return
+        }
         const data = clients.map(c => ({
           name: c.name,
           type: c.type === 'company' ? 'Organization' : 'Individual',
@@ -379,14 +416,48 @@ export function ReportsPage() {
           total_billed: invoices.filter(i => i.clientId === c.id).reduce((sum, i) => sum + i.total, 0)
         }))
         exportToCSV(data, 'client_summary', ['Name', 'Type', 'Email', 'Phone', 'City', 'State', 'Status', 'Matters Count', 'Total Billed'])
+      },
+      'unbilled-time': () => {
+        const unbilledEntries = timeEntries.filter(t => !t.billed && t.billable)
+        if (unbilledEntries.length === 0) {
+          setExportError('No unbilled time entries found. All billable time has been invoiced.')
+          setTimeout(() => setExportError(null), 5000)
+          return
+        }
+        const data = unbilledEntries.map(t => ({
+          date: t.date.split('T')[0],
+          matter: matters.find(m => m.id === t.matterId)?.name || '',
+          description: t.description,
+          hours: t.hours,
+          rate: t.rate,
+          amount: t.amount
+        }))
+        exportToCSV(data, 'unbilled_time', ['Date', 'Matter', 'Description', 'Hours', 'Rate', 'Amount'])
+      },
+      'payment-history': () => {
+        const paidInvoices = invoices.filter(i => i.amountPaid > 0)
+        if (paidInvoices.length === 0) {
+          setExportError('No payments found. No invoices have been paid yet.')
+          setTimeout(() => setExportError(null), 5000)
+          return
+        }
+        const data = paidInvoices.map(i => ({
+          invoice_number: i.number,
+          client: clients.find(c => c.id === i.clientId)?.name || '',
+          total: i.total,
+          amount_paid: i.amountPaid,
+          status: i.status
+        }))
+        exportToCSV(data, 'payment_history', ['Invoice Number', 'Client', 'Total', 'Amount Paid', 'Status'])
       }
     }
 
     if (exportMap[reportId]) {
       exportMap[reportId]()
     } else {
-      setExportMessage(`Report ${reportId} generated`)
-      setTimeout(() => setExportMessage(null), 3000)
+      // For reports without specific implementations, show a message that export is not available
+      setExportError(`Export for "${reportId.replace(/-/g, ' ')}" is not yet implemented. Please try one of the available reports.`)
+      setTimeout(() => setExportError(null), 5000)
     }
   }
 
@@ -415,6 +486,12 @@ export function ReportsPage() {
             <span className={styles.exportSuccess}>
               <CheckCircle2 size={16} />
               {exportMessage}
+            </span>
+          )}
+          {exportError && (
+            <span className={styles.exportError}>
+              <AlertTriangle size={16} />
+              {exportError}
             </span>
           )}
           <button className={styles.secondaryBtn} onClick={() => setShowScheduleModal(true)}>
@@ -861,18 +938,6 @@ export function ReportsPage() {
                       }}>
                         <Eye size={16} />
                       </button>
-                      <button className={styles.iconBtn} title="Email" onClick={(e) => { 
-                        e.stopPropagation(); 
-                        setShowEmailModal({ report });
-                      }}>
-                        <Mail size={16} />
-                      </button>
-                      <button className={styles.iconBtn} title="Export CSV" onClick={(e) => { 
-                        e.stopPropagation(); 
-                        runReport(report.id);
-                      }}>
-                        <Printer size={16} />
-                      </button>
                       <button 
                         className={styles.runReportBtn} 
                         onClick={(e) => { e.stopPropagation(); runReport(report.id); }}
@@ -1055,13 +1120,6 @@ export function ReportsPage() {
         </div>
       )}
 
-      {/* Email Report Modal */}
-      {showEmailModal && (
-        <EmailReportModal 
-          report={showEmailModal.report}
-          onClose={() => setShowEmailModal(null)}
-        />
-      )}
     </div>
   )
 }
@@ -1245,129 +1303,6 @@ const customReportColumns = {
     { id: 'activityType', label: 'Activity Type', default: false },
     { id: 'userId', label: 'Timekeeper', default: false }
   ]
-}
-
-// Email Report Modal
-function EmailReportModal({ report, onClose }: { report: any; onClose: () => void }) {
-  const [formData, setFormData] = useState({
-    recipients: '',
-    subject: `Report: ${report.name}`,
-    message: `Please find attached the ${report.name} report.`,
-    format: 'pdf'
-  })
-  const [sending, setSending] = useState(false)
-  const [sent, setSent] = useState(false)
-
-  const handleSend = () => {
-    if (!formData.recipients.trim()) {
-      alert('Please enter at least one recipient email address')
-      return
-    }
-    setSending(true)
-    // Simulate sending email
-    setTimeout(() => {
-      setSending(false)
-      setSent(true)
-      setTimeout(() => {
-        onClose()
-      }, 1500)
-    }, 1000)
-  }
-
-  return (
-    <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-        <div className={styles.modalHeader}>
-          <h3>Email Report</h3>
-          <button onClick={onClose}><X size={20} /></button>
-        </div>
-        <div className={styles.modalBody}>
-          {sent ? (
-            <div style={{ textAlign: 'center', padding: '2rem' }}>
-              <div style={{ 
-                width: '60px', 
-                height: '60px', 
-                borderRadius: '50%', 
-                background: 'rgba(34, 197, 94, 0.1)', 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center',
-                margin: '0 auto 1rem'
-              }}>
-                <Check size={32} style={{ color: '#22c55e' }} />
-              </div>
-              <h4 style={{ marginBottom: '0.5rem' }}>Email Sent!</h4>
-              <p style={{ color: 'var(--apex-text)' }}>Report has been sent to {formData.recipients}</p>
-            </div>
-          ) : (
-            <>
-              <div style={{ marginBottom: '1rem' }}>
-                <p style={{ color: 'var(--apex-text)', marginBottom: '0.5rem' }}>
-                  Report: <strong style={{ color: 'var(--apex-white)' }}>{report.name}</strong>
-                </p>
-              </div>
-              <div className={styles.formGroup}>
-                <label>Recipients (comma-separated)</label>
-                <input 
-                  type="text"
-                  placeholder="email@example.com, other@example.com"
-                  value={formData.recipients}
-                  onChange={e => setFormData({ ...formData, recipients: e.target.value })}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Subject</label>
-                <input 
-                  type="text"
-                  value={formData.subject}
-                  onChange={e => setFormData({ ...formData, subject: e.target.value })}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Message</label>
-                <textarea 
-                  rows={3}
-                  value={formData.message}
-                  onChange={e => setFormData({ ...formData, message: e.target.value })}
-                  style={{ resize: 'vertical' }}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Format</label>
-                <select 
-                  value={formData.format}
-                  onChange={e => setFormData({ ...formData, format: e.target.value })}
-                >
-                  <option value="pdf">PDF</option>
-                  <option value="csv">CSV</option>
-                  <option value="excel">Excel</option>
-                </select>
-              </div>
-            </>
-          )}
-        </div>
-        {!sent && (
-          <div className={styles.modalFooter}>
-            <button className={styles.cancelBtn} onClick={onClose}>Cancel</button>
-            <button 
-              className={styles.primaryBtn} 
-              onClick={handleSend}
-              disabled={sending}
-            >
-              {sending ? (
-                <>Sending...</>
-              ) : (
-                <>
-                  <Send size={16} />
-                  Send Email
-                </>
-              )}
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  )
 }
 
 // Custom Report Modal

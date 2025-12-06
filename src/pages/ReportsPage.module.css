@@ -46,6 +46,20 @@
   animation: fadeIn 0.3s ease;
 }
 
+.exportError {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(239, 68, 68, 0.15);
+  color: #EF4444;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  animation: fadeIn 0.3s ease;
+  max-width: 400px;
+  line-height: 1.4;
+}
+
 .primaryBtn {
   display: flex;
   align-items: center;
