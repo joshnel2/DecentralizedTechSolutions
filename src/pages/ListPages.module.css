@@ -671,9 +671,13 @@
 
 /* ===== MOBILE RESPONSIVE STYLES ===== */
 @media (max-width: 768px) {
+  .page {
+    padding: 0;
+  }
+
   .header {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
     gap: var(--space-md);
   }
 
@@ -689,17 +693,21 @@
 
   .headerActions {
     width: 100%;
+    display: flex;
     flex-wrap: wrap;
+    gap: var(--space-sm);
   }
 
   .aiBtn {
     flex: 1;
     justify-content: center;
+    min-width: 120px;
   }
 
   .primaryBtn {
     flex: 1;
     justify-content: center;
+    min-width: 120px;
   }
 
   .filters {
@@ -719,17 +727,19 @@
 
   /* Convert table to card layout on mobile */
   .tableContainer {
-    background: none;
+    background: transparent;
     border: none;
     overflow: visible;
+    border-radius: 0;
   }
 
   .table {
     display: block;
+    width: 100%;
   }
 
   .table thead {
-    display: none;
+    display: none !important;
   }
 
   .table tbody {
@@ -738,112 +748,142 @@
     gap: var(--space-md);
   }
 
-  .table tr {
-    display: flex;
-    flex-direction: column;
+  .table tbody tr {
+    display: block;
     background: var(--apex-deep);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--radius-lg);
     padding: var(--space-md);
-    margin-bottom: 0;
+    position: relative;
   }
 
+  .table tbody tr:hover {
+    background: var(--apex-deep);
+  }
+
+  /* Hide all table cells by default on mobile */
   .table td {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    padding: var(--space-sm) 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-    width: 100%;
-  }
-
-  .table td:first-child {
-    border-bottom: none;
-    padding-bottom: var(--space-md);
-    margin-bottom: var(--space-sm);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  }
-
-  .table td:last-child {
-    border-bottom: none;
-    padding-top: var(--space-sm);
-  }
-
-  /* Hide empty cells and menu column */
-  .table td:empty {
     display: none;
   }
 
-  .nameCell {
+  /* Show only the first cell (name/main info) */
+  .table td:first-child {
+    display: block;
+    padding: 0;
+    border: none;
+    margin-bottom: var(--space-md);
+  }
+
+  /* Show specific cells we want visible */
+  .table td:nth-child(2),
+  .table td:nth-child(4),
+  .table td:nth-child(5) {
+    display: flex;
     flex-direction: row;
     align-items: center;
+    justify-content: flex-start;
+    padding: var(--space-xs) 0;
+    border: none;
+    gap: var(--space-sm);
+  }
+
+  /* Last cell with menu button */
+  .table td:last-child {
+    display: block;
+    position: absolute;
+    top: var(--space-md);
+    right: var(--space-md);
+    padding: 0;
+    border: none;
+  }
+
+  /* Name cell styling - icon on left, text on left */
+  .nameCell {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
     gap: var(--space-md);
-    padding-bottom: 0;
+    text-align: left;
     width: 100%;
+    padding-right: 40px; /* Space for menu button */
   }
 
   .nameCell > div {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
+    text-align: left;
   }
 
   .nameCell .name {
     font-size: 1rem;
     font-weight: 600;
+    text-align: left;
   }
 
   .nameCell .subtitle {
     font-size: 0.8125rem;
     color: var(--apex-text);
-  }
-
-  .icon {
-    width: 40px;
-    height: 40px;
-    flex-shrink: 0;
-  }
-
-  /* Mobile card content layout */
-  .table td > div,
-  .table td > span,
-  .table td > a {
     text-align: left;
   }
 
-  /* Better styling for inline data on mobile */
+  .icon {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+  }
+
+  .aiTag {
+    margin-left: auto;
+  }
+
+  /* Force left alignment on all content */
+  .table td > *,
+  .table td > div,
+  .table td > span,
+  .table td > a {
+    text-align: left !important;
+    justify-content: flex-start !important;
+  }
+
   .link {
-    font-size: 0.9375rem;
+    font-size: 0.875rem;
+    text-align: left;
   }
 
   .typeTag {
-    margin-top: var(--space-xs);
+    font-size: 0.75rem;
   }
 
-  .statusBadge,
+  .statusBadge {
+    font-size: 0.6875rem;
+  }
+
   .statusSelect {
-    margin-top: var(--space-xs);
+    font-size: 0.6875rem;
   }
 
   .billingInfo {
-    font-size: 0.9375rem;
+    font-size: 0.875rem;
     color: var(--apex-light);
+    text-align: left;
   }
 
   .dateCell {
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     color: var(--apex-text);
+    text-align: left;
   }
 
-  /* Menu button on mobile cards */
+  .attorneyName,
+  .unassigned {
+    font-size: 0.8125rem;
+  }
+
+  /* Menu wrapper - positioned absolutely */
   .menuWrapper {
-    position: absolute;
-    top: var(--space-md);
-    right: var(--space-md);
-  }
-
-  .table tr {
-    position: relative;
+    position: static;
   }
 
   /* Modal adjustments */
@@ -901,10 +941,25 @@
     min-width: 100%;
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     animation: slideUpMobile 0.2s ease;
+    z-index: 1001;
   }
 
   .dropdownItem {
-    padding: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    font-size: 1rem;
+  }
+
+  .emptyState {
+    padding: var(--space-xl);
+  }
+
+  .emptyState svg {
+    width: 40px;
+    height: 40px;
+  }
+
+  .emptyState h3 {
+    font-size: 1rem;
   }
 }
 
@@ -921,14 +976,19 @@
   .aiBtn,
   .primaryBtn {
     width: 100%;
+    min-width: auto;
   }
 
   .card {
     padding: var(--space-md);
   }
 
-  .table tr {
+  .table tbody tr {
     padding: var(--space-sm) var(--space-md);
+  }
+
+  .nameCell {
+    padding-right: 36px;
   }
 
   .nameCell .name {
@@ -936,8 +996,8 @@
   }
 
   .icon {
-    width: 36px;
-    height: 36px;
+    width: 38px;
+    height: 38px;
   }
 
   .statusBadge {
