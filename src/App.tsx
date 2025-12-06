@@ -174,6 +174,7 @@ function AppContent() {
         <Route path="time" element={<TimeTrackingPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="documents" element={<DocumentsPage />} />
+        <Route path="document-automation" element={<DocumentAutomationPage />} />
         <Route path="ai" element={<AIAssistantPage />} />
         
         {/* Analytics */}

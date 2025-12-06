@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
+import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
 import { 
   Briefcase, Users, Clock, DollarSign, Calendar, TrendingUp,
-  AlertCircle, ArrowRight, Sparkles, FileText, CheckCircle2
+  AlertCircle, ArrowRight, Sparkles, FileText, CheckCircle2,
+  Play, Pause, StopCircle
 } from 'lucide-react'
 import { format, isAfter, parseISO, startOfMonth, endOfMonth } from 'date-fns'
 import { 
@@ -20,6 +22,14 @@ export function DashboardPage() {
   const { user } = useAuthStore()
   const { matters, clients, timeEntries, invoices, events, fetchMatters, fetchClients, fetchTimeEntries, fetchInvoices, fetchEvents } = useDataStore()
   const { openChat } = useAIChat()
+  const { timer, startTimer: globalStartTimer, stopTimer: globalStopTimer, discardTimer } = useTimer()
+
+  const startTimer = (matterId: string) => {
+    const matter = matters.find(m => m.id === matterId)
+    if (matter) {
+      globalStartTimer({ matterId, matterName: matter.name })
+    }
+  }
 
   // Fetch all data when component mounts
   useEffect(() => {
@@ -214,6 +224,64 @@ export function DashboardPage() {
             <span className={styles.statLabel}>Upcoming Deadlines</span>
           </div>
         </div>
+      </section>
+
+      {/* Quick Timer Section */}
+      <section className={styles.timerSection}>
+        {timer.isRunning || timer.elapsed > 0 ? (
+          <div className={styles.activeTimer}>
+            <div className={styles.activeTimerInfo}>
+              <div className={styles.timerPulse}>
+                <Clock size={20} />
+              </div>
+              <div className={styles.timerDetails}>
+                <span className={styles.timerMatterName}>{timer.matterName}</span>
+                <span className={styles.timerElapsed}>{formatElapsedTime(timer.elapsed)}</span>
+              </div>
+            </div>
+            <div className={styles.timerActions}>
+              {timer.isRunning ? (
+                <button onClick={globalStopTimer} className={styles.pauseBtn}>
+                  <Pause size={18} />
+                  Pause
+                </button>
+              ) : (
+                <button onClick={() => timer.matterId && startTimer(timer.matterId)} className={styles.resumeBtn}>
+                  <Play size={18} />
+                  Resume
+                </button>
+              )}
+              <button onClick={discardTimer} className={styles.discardBtn}>
+                <StopCircle size={18} />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className={styles.quickTimer}>
+            <div className={styles.quickTimerHeader}>
+              <Clock size={20} />
+              <h3>Start Timer</h3>
+            </div>
+            <div className={styles.matterButtons}>
+              {matters.filter(m => m.status === 'active').slice(0, 5).map(matter => (
+                <button 
+                  key={matter.id}
+                  className={styles.matterTimerBtn}
+                  onClick={() => startTimer(matter.id)}
+                >
+                  <Play size={14} />
+                  <span>{matter.name}</span>
+                </button>
+              ))}
+              {matters.filter(m => m.status === 'active').length > 5 && (
+                <Link to="/app/time" className={styles.viewMoreBtn}>
+                  View all matters
+                  <ArrowRight size={14} />
+                </Link>
+              )}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Charts Row */}

@@ -820,15 +820,7 @@ Only analyze documents actually associated with this matter.`
                   </div>
                 ) : timer.isRunning ? (
                   <span className={styles.timerOnOtherMatter}>Timer active on another matter</span>
-                ) : (
-                  <button 
-                    className={styles.timerBtn}
-                    onClick={() => matter && startTimer({ matterId: matter.id, matterName: matter.name })}
-                  >
-                    <Play size={18} />
-                    Start Timer
-                  </button>
-                )}
+                ) : null}
                 <button 
                   className={styles.primaryBtn}
                   onClick={() => setShowTimeEntryModal(true)}

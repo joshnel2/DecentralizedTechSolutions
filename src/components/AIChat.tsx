@@ -58,6 +58,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const [useAgentMode, setUseAgentMode] = useState(true) // Use AI Agent with actions by default
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const lastUserMessageRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const currentPage = getPageFromPath(location.pathname)
@@ -66,10 +67,11 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   // Merge additional context from chat context
   const mergedContext = { ...pathContext, ...additionalContext, ...(chatContext?.additionalContext || {}) }
 
-  // Scroll to bottom on new messages
+  // Scroll to the last user message when messages change
   useEffect(() => {
-    if (messagesContainerRef.current) {
-      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+    if (lastUserMessageRef.current && messages.length > 0) {
+      // Scroll to the last user message with some offset for better visibility
+      lastUserMessageRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
   }, [messages, isLoading])
 
@@ -239,33 +241,40 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
             </div>
           ) : (
             <>
-              {messages.map(message => (
-                <div
-                  key={message.id}
-                  className={`${styles.message} ${styles[message.role]}`}
-                >
-                  {message.role === 'assistant' && (
-                    <div className={styles.avatar}>
-                      <Sparkles size={16} />
+              {messages.map((message, index) => {
+                // Find the last user message to attach the ref
+                const isLastUserMessage = message.role === 'user' && 
+                  messages.slice(index + 1).every(m => m.role !== 'user')
+                
+                return (
+                  <div
+                    key={message.id}
+                    ref={isLastUserMessage ? lastUserMessageRef : null}
+                    className={`${styles.message} ${styles[message.role]}`}
+                  >
+                    {message.role === 'assistant' && (
+                      <div className={styles.avatar}>
+                        <Sparkles size={16} />
+                      </div>
+                    )}
+                    <div className={styles.messageContent}>
+                      <div className={styles.messageText}>
+                        {message.toolsUsed && (
+                          <div className={styles.actionTaken}>
+                            <Zap size={12} /> Action taken
+                          </div>
+                        )}
+                        {message.content.split('\n').map((line, i) => (
+                          <p key={i}>{line || <br />}</p>
+                        ))}
+                      </div>
+                      <span className={styles.timestamp}>
+                        {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
                     </div>
-                  )}
-                  <div className={styles.messageContent}>
-                    <div className={styles.messageText}>
-                      {message.toolsUsed && (
-                        <div className={styles.actionTaken}>
-                          <Zap size={12} /> Action taken
-                        </div>
-                      )}
-                      {message.content.split('\n').map((line, i) => (
-                        <p key={i}>{line || <br />}</p>
-                      ))}
-                    </div>
-                    <span className={styles.timestamp}>
-                      {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
                   </div>
-                </div>
-              ))}
+                )
+              })}
               {isLoading && (
                 <div className={`${styles.message} ${styles.assistant}`}>
                   <div className={styles.avatar}>
