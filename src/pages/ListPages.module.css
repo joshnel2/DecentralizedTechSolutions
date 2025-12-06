@@ -673,18 +673,23 @@
 @media (max-width: 768px) {
   .page {
     padding: 0;
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
   }
 
   .header {
     flex-direction: column;
-    align-items: stretch;
+    align-items: flex-start;
     gap: var(--space-md);
+    width: 100%;
   }
 
   .headerLeft {
     flex-direction: column;
     align-items: flex-start;
     gap: var(--space-xs);
+    width: 100%;
   }
 
   .header h1 {
@@ -713,6 +718,7 @@
   .filters {
     flex-direction: column;
     gap: var(--space-sm);
+    width: 100%;
   }
 
   .searchBox {
@@ -725,165 +731,186 @@
     min-width: auto;
   }
 
-  /* Convert table to card layout on mobile */
+  /* AGGRESSIVE TABLE RESET FOR MOBILE */
   .tableContainer {
-    background: transparent;
-    border: none;
-    overflow: visible;
-    border-radius: 0;
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  .table,
+  .table thead,
+  .table tbody,
+  .table tfoot,
+  .table tr,
+  .table th,
+  .table td {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    text-align: left !important;
+    border: none !important;
+    float: none !important;
   }
 
   .table {
-    display: block;
-    width: 100%;
+    border-collapse: collapse !important;
+    table-layout: fixed !important;
   }
 
   .table thead {
     display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
   }
 
   .table tbody {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-md);
+    display: flex !important;
+    flex-direction: column !important;
+    gap: var(--space-md) !important;
   }
 
   .table tbody tr {
-    display: block;
-    background: var(--apex-deep);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: var(--radius-lg);
-    padding: var(--space-md);
-    position: relative;
+    display: block !important;
+    position: relative !important;
+    background: var(--apex-deep) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: var(--radius-lg) !important;
+    padding: var(--space-md) !important;
+    margin: 0 !important;
   }
 
   .table tbody tr:hover {
-    background: var(--apex-deep);
+    background: var(--apex-deep) !important;
   }
 
-  /* Hide all table cells by default on mobile */
+  /* Reset ALL table cells */
   .table td {
-    display: none;
+    display: block !important;
+    width: 100% !important;
+    padding: var(--space-xs) 0 !important;
+    text-align: left !important;
+    border: none !important;
+    background: transparent !important;
   }
 
-  /* Show only the first cell (name/main info) */
+  /* First cell - main content with name */
   .table td:first-child {
-    display: block;
-    padding: 0;
-    border: none;
-    margin-bottom: var(--space-md);
+    padding-bottom: var(--space-sm) !important;
+    margin-bottom: var(--space-xs) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
   }
 
-  /* Show specific cells we want visible */
-  .table td:nth-child(2),
-  .table td:nth-child(4),
-  .table td:nth-child(5) {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-start;
-    padding: var(--space-xs) 0;
-    border: none;
-    gap: var(--space-sm);
-  }
-
-  /* Last cell with menu button */
+  /* Last cell - menu button positioned top right */
   .table td:last-child {
-    display: block;
-    position: absolute;
-    top: var(--space-md);
-    right: var(--space-md);
-    padding: 0;
-    border: none;
+    position: absolute !important;
+    top: var(--space-md) !important;
+    right: var(--space-md) !important;
+    width: auto !important;
+    padding: 0 !important;
   }
 
-  /* Name cell styling - icon on left, text on left */
+  /* Name cell - THE MAIN FIX */
   .nameCell {
     display: flex !important;
     flex-direction: row !important;
     align-items: center !important;
     justify-content: flex-start !important;
-    gap: var(--space-md);
-    text-align: left;
-    width: 100%;
-    padding-right: 40px; /* Space for menu button */
+    gap: var(--space-md) !important;
+    width: calc(100% - 40px) !important;
+    text-align: left !important;
+  }
+
+  .nameCell > .icon {
+    flex-shrink: 0 !important;
+    order: 0 !important;
   }
 
   .nameCell > div {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    text-align: left;
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    text-align: left !important;
+    order: 1 !important;
+    min-width: 0 !important;
   }
 
-  .nameCell .name {
-    font-size: 1rem;
-    font-weight: 600;
-    text-align: left;
-  }
-
-  .nameCell .subtitle {
-    font-size: 0.8125rem;
-    color: var(--apex-text);
-    text-align: left;
+  .nameCell > .aiTag {
+    order: 2 !important;
+    flex-shrink: 0 !important;
   }
 
   .icon {
-    width: 44px;
-    height: 44px;
-    flex-shrink: 0;
+    width: 42px !important;
+    height: 42px !important;
+    min-width: 42px !important;
+    flex-shrink: 0 !important;
   }
 
-  .aiTag {
-    margin-left: auto;
-  }
-
-  /* Force left alignment on all content */
-  .table td > *,
-  .table td > div,
-  .table td > span,
-  .table td > a {
+  .name {
+    display: block !important;
+    font-size: 1rem !important;
+    font-weight: 600 !important;
     text-align: left !important;
-    justify-content: flex-start !important;
+    word-break: break-word !important;
   }
 
+  .subtitle {
+    display: block !important;
+    font-size: 0.8125rem !important;
+    color: var(--apex-text) !important;
+    text-align: left !important;
+  }
+
+  /* Other cell content */
   .link {
-    font-size: 0.875rem;
-    text-align: left;
+    font-size: 0.875rem !important;
+    text-align: left !important;
+    display: block !important;
   }
 
   .typeTag {
-    font-size: 0.75rem;
+    font-size: 0.75rem !important;
+    display: inline-block !important;
   }
 
   .statusBadge {
-    font-size: 0.6875rem;
+    font-size: 0.6875rem !important;
+    display: inline-block !important;
   }
 
   .statusSelect {
-    font-size: 0.6875rem;
+    font-size: 0.75rem !important;
+    display: inline-block !important;
   }
 
   .billingInfo {
-    font-size: 0.875rem;
-    color: var(--apex-light);
-    text-align: left;
+    font-size: 0.875rem !important;
+    color: var(--apex-light) !important;
+    text-align: left !important;
   }
 
   .dateCell {
-    font-size: 0.8125rem;
-    color: var(--apex-text);
-    text-align: left;
+    font-size: 0.8125rem !important;
+    color: var(--apex-text) !important;
+    text-align: left !important;
   }
 
   .attorneyName,
   .unassigned {
-    font-size: 0.8125rem;
+    font-size: 0.8125rem !important;
+    text-align: left !important;
   }
 
-  /* Menu wrapper - positioned absolutely */
   .menuWrapper {
-    position: static;
+    position: static !important;
+    display: inline-block !important;
   }
 
   /* Modal adjustments */
@@ -933,13 +960,13 @@
   }
 
   .dropdown {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    top: auto;
-    min-width: 100%;
-    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    min-width: 100% !important;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0 !important;
     animation: slideUpMobile 0.2s ease;
     z-index: 1001;
   }
@@ -984,35 +1011,36 @@
   }
 
   .table tbody tr {
-    padding: var(--space-sm) var(--space-md);
+    padding: var(--space-sm) var(--space-md) !important;
   }
 
   .nameCell {
-    padding-right: 36px;
+    width: calc(100% - 32px) !important;
   }
 
-  .nameCell .name {
-    font-size: 0.9375rem;
+  .name {
+    font-size: 0.9375rem !important;
   }
 
   .icon {
-    width: 38px;
-    height: 38px;
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
   }
 
   .statusBadge {
-    font-size: 0.625rem;
-    padding: 3px 8px;
+    font-size: 0.625rem !important;
+    padding: 3px 8px !important;
   }
 
   .statusSelect {
-    font-size: 0.625rem;
-    padding: 3px 20px 3px 8px;
+    font-size: 0.625rem !important;
+    padding: 3px 20px 3px 8px !important;
   }
 
   .typeTag {
-    font-size: 0.6875rem;
-    padding: 3px 8px;
+    font-size: 0.6875rem !important;
+    padding: 3px 8px !important;
   }
 
   .modalOverlay {
