@@ -140,6 +140,7 @@ CREATE TABLE matters (
     retainer_amount DECIMAL(12,2),
     budget DECIMAL(12,2),
     tags TEXT[] DEFAULT '{}',
+    notes TEXT,
     ai_summary TEXT,
     conflict_cleared BOOLEAN DEFAULT false,
     custom_fields JSONB DEFAULT '{}',
