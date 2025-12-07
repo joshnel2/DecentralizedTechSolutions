@@ -154,6 +154,7 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
         retainerAmount: m.retainer_amount,
         budget: m.budget,
         tags: m.tags,
+        notes: m.notes,
         aiSummary: m.ai_summary,
         conflictCleared: m.conflict_cleared,
         createdAt: m.created_at,
@@ -237,6 +238,7 @@ router.get('/:id', authenticate, requirePermission('matters:view'), async (req, 
       retainerAmount: m.retainer_amount,
       budget: m.budget,
       tags: m.tags,
+      notes: m.notes,
       aiSummary: m.ai_summary,
       conflictCleared: m.conflict_cleared,
       customFields: m.custom_fields,
@@ -273,6 +275,7 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
       retainerAmount,
       budget,
       tags = [],
+      notes,
       conflictCleared = false,
     } = req.body;
 
@@ -304,15 +307,15 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
             responsible_attorney, originating_attorney, open_date, statute_of_limitations,
             court_name, case_number, judge, jurisdiction,
             billing_type, billing_rate, flat_fee, contingency_percent, retainer_amount,
-            budget, tags, conflict_cleared, created_by
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+            budget, tags, notes, conflict_cleared, created_by
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
           RETURNING *`,
           [
             req.user.firmId, number, name, description, safeClientId, type, status, priority,
             safeResponsibleAttorney, safeOriginatingAttorney, openDate, statuteOfLimitations,
             courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
             billingType, billingRate, flatFee, contingencyPercent, retainerAmount,
-            budget, tags, conflictCleared, req.user.id
+            budget, tags, notes || null, conflictCleared, req.user.id
           ]
         )
         : await client.query(
@@ -321,15 +324,15 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
             responsible_attorney, open_date, statute_of_limitations,
             court_name, case_number, judge, jurisdiction,
             billing_type, billing_rate, flat_fee, contingency_percent, retainer_amount,
-            budget, tags, conflict_cleared, created_by
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+            budget, tags, notes, conflict_cleared, created_by
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
           RETURNING *`,
           [
             req.user.firmId, number, name, description, safeClientId, type, status, priority,
             safeResponsibleAttorney, openDate, statuteOfLimitations,
             courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
             billingType, billingRate, flatFee, contingencyPercent, retainerAmount,
-            budget, tags, conflictCleared, req.user.id
+            budget, tags, notes || null, conflictCleared, req.user.id
           ]
         );
 
@@ -431,6 +434,7 @@ router.put('/:id', authenticate, requirePermission('matters:edit'), async (req, 
       retainerAmount,
       budget,
       tags,
+      notes,
       aiSummary,
       conflictCleared,
     } = req.body;
@@ -460,15 +464,16 @@ router.put('/:id', authenticate, requirePermission('matters:edit'), async (req, 
           retainer_amount = COALESCE($20, retainer_amount),
           budget = COALESCE($21, budget),
           tags = COALESCE($22, tags),
-          ai_summary = COALESCE($23, ai_summary),
-          conflict_cleared = COALESCE($24, conflict_cleared)
-        WHERE id = $25`,
+          notes = COALESCE($23, notes),
+          ai_summary = COALESCE($24, ai_summary),
+          conflict_cleared = COALESCE($25, conflict_cleared)
+        WHERE id = $26`,
         [
           name, description, clientId, type, status, priority, responsibleAttorney, originatingAttorney,
           openDate, closeDate, statuteOfLimitations,
           courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
           billingType, billingRate, flatFee, contingencyPercent, retainerAmount,
-          budget, tags, aiSummary, conflictCleared, req.params.id
+          budget, tags, notes, aiSummary, conflictCleared, req.params.id
         ]
       );
 
