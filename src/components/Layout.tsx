@@ -375,14 +375,16 @@ export function Layout() {
         </main>
       </div>
 
-      {/* Floating AI Button */}
-      <button 
-        className={styles.aiFloatingBtn}
-        onClick={() => openChat()}
-        title="Open AI Assistant"
-      >
-        <Sparkles size={24} />
-      </button>
+      {/* Floating AI Button - hidden on AI Assistant page to avoid blocking the chat send button */}
+      {location.pathname !== '/app/ai' && (
+        <button 
+          className={styles.aiFloatingBtn}
+          onClick={() => openChat()}
+          title="Open AI Assistant"
+        >
+          <Sparkles size={24} />
+        </button>
+      )}
 
       {/* AI Chat Panel */}
       <AIChat 
