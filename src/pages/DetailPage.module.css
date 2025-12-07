@@ -2155,14 +2155,24 @@ a.contactName:hover {
   .tabs {
     overflow-x: auto;
     margin-bottom: var(--space-md);
-    padding-bottom: var(--space-xs);
-    gap: 0;
+    padding-bottom: var(--space-sm);
+    gap: var(--space-xs);
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    flex-wrap: nowrap;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
   }
 
   .tab {
-    padding: var(--space-xs) var(--space-md);
+    padding: var(--space-sm) var(--space-md);
     font-size: 0.8125rem;
     white-space: nowrap;
+    flex-shrink: 0;
+    min-width: max-content;
   }
 
   /* Content */
@@ -2424,9 +2434,18 @@ a.contactName:hover {
     padding: 3px 8px;
   }
 
+  .tabs {
+    gap: var(--space-xs);
+    padding: 0 var(--space-xs);
+    margin-left: calc(var(--space-xs) * -1);
+    margin-right: calc(var(--space-xs) * -1);
+  }
+
   .tab {
     padding: var(--space-xs) var(--space-sm);
     font-size: 0.75rem;
+    flex-shrink: 0;
+    border-radius: var(--radius-sm);
   }
 
   .badge {
