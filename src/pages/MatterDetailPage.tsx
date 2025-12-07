@@ -1046,6 +1046,39 @@ Only analyze documents actually associated with this matter.`
                 )}
               </div>
             </div>
+
+            {/* Notes Card */}
+            <div className={styles.card} style={{ gridColumn: '1 / -1' }}>
+              <div className={styles.cardHeader}>
+                <h3>
+                  <FileText size={18} />
+                  Notes
+                </h3>
+                <button 
+                  className={styles.addBtn}
+                  onClick={() => setShowEditMatterModal(true)}
+                >
+                  <Edit2 size={14} />
+                  Edit
+                </button>
+              </div>
+              <div className={styles.notesContent}>
+                {matter.notes ? (
+                  <p style={{ 
+                    whiteSpace: 'pre-wrap', 
+                    color: 'var(--apex-white)',
+                    lineHeight: '1.6',
+                    margin: 0
+                  }}>
+                    {matter.notes}
+                  </p>
+                ) : (
+                  <p className={styles.noData} style={{ margin: 0 }}>
+                    No notes yet. Click Edit to add internal notes about this matter.
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
