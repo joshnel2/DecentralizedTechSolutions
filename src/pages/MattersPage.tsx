@@ -7,8 +7,9 @@ import { teamApi } from '../services/api'
 import { 
   Plus, Search, Filter, ChevronDown, Briefcase, 
   MoreVertical, Sparkles, Calendar, DollarSign, Users, X,
-  Edit2, Archive, CheckCircle2, Trash2, Eye, XCircle, FileText
+  Edit2, Archive, CheckCircle2, Trash2, Eye, XCircle, FileText, Settings
 } from 'lucide-react'
+import { MatterTypesManager } from '../components/MatterTypesManager'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './ListPages.module.css'
@@ -69,6 +70,7 @@ export function MattersPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
+  const [showTypesManager, setShowTypesManager] = useState(false)
   
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -263,6 +265,14 @@ export function MattersPage() {
             <option key={opt.value} value={opt.value}>{opt.label}</option>
           ))}
         </select>
+
+        <button 
+          className={styles.settingsBtn}
+          onClick={() => setShowTypesManager(true)}
+          title="Manage Matter Types"
+        >
+          <Settings size={16} />
+        </button>
       </div>
 
       {/* Table */}
@@ -469,6 +479,12 @@ export function MattersPage() {
         onClose={() => setConfirmModal({ isOpen: false, matterId: '', matterName: '', action: 'delete' })}
         onConfirm={handleConfirmAction}
         {...getConfirmModalContent()}
+      />
+
+      {/* Matter Types Manager */}
+      <MatterTypesManager 
+        isOpen={showTypesManager}
+        onClose={() => setShowTypesManager(false)}
       />
     </div>
   )

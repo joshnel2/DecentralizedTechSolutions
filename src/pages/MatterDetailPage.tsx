@@ -10,12 +10,14 @@ import {
   CheckCircle2, Scale, Building2, Brain, Loader2, 
   Copy, RefreshCw, AlertTriangle, TrendingUp,
   ListTodo, Users, Circle, Upload, Download, X, 
-  Trash2, Archive, XCircle, Eye, Play, Pause, StopCircle
+  Trash2, Archive, XCircle, Eye, Play, Pause, StopCircle,
+  MessageSquare, Settings
 } from 'lucide-react'
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './DetailPage.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+import { MatterTypesManager } from '../components/MatterTypesManager'
 
 // Task interface
 interface Task {
@@ -25,6 +27,17 @@ interface Task {
   dueDate: string
   assignee: string
   description?: string
+}
+
+// Matter Update interface for case progressions
+interface MatterUpdate {
+  id: string
+  date: string
+  title: string
+  description: string
+  category: 'general' | 'court' | 'client_communication' | 'document' | 'billing' | 'milestone'
+  createdAt: string
+  updatedAt: string
 }
 
 // Related contacts - loaded from localStorage per matter (no mock data)
@@ -116,10 +129,26 @@ export function MatterDetailPage() {
     return []
   })
   
+  // Updates state - persisted in localStorage
+  const [matterUpdates, setMatterUpdates] = useState<MatterUpdate[]>(() => {
+    const saved = localStorage.getItem(`matter-updates-${id}`)
+    if (saved) return JSON.parse(saved)
+    return []
+  })
+  
+  const [showUpdateModal, setShowUpdateModal] = useState(false)
+  const [editingUpdate, setEditingUpdate] = useState<MatterUpdate | null>(null)
+  const [showTypesManager, setShowTypesManager] = useState(false)
+  
   // Save tasks to localStorage when they change
   useEffect(() => {
     localStorage.setItem(`matter-tasks-${id}`, JSON.stringify(tasks))
   }, [tasks, id])
+  
+  // Save updates to localStorage when they change
+  useEffect(() => {
+    localStorage.setItem(`matter-updates-${id}`, JSON.stringify(matterUpdates))
+  }, [matterUpdates, id])
   
   // Save contacts to localStorage when they change
   useEffect(() => {
@@ -178,6 +207,43 @@ export function MatterDetailPage() {
       }
       return t
     }))
+  }
+  
+  // Matter Update handlers
+  const addMatterUpdate = (update: Omit<MatterUpdate, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const now = new Date().toISOString()
+    const newUpdate: MatterUpdate = {
+      ...update,
+      id: crypto.randomUUID(),
+      createdAt: now,
+      updatedAt: now
+    }
+    setMatterUpdates(prev => [newUpdate, ...prev].sort((a, b) => 
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    ))
+  }
+  
+  const updateMatterUpdate = (updateId: string, updates: Partial<MatterUpdate>) => {
+    setMatterUpdates(prev => prev.map(u => 
+      u.id === updateId 
+        ? { ...u, ...updates, updatedAt: new Date().toISOString() } 
+        : u
+    ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()))
+  }
+  
+  const deleteMatterUpdate = (updateId: string) => {
+    const update = matterUpdates.find(u => u.id === updateId)
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Update',
+      message: `Are you sure you want to delete "${update?.title || 'this update'}"?`,
+      confirmText: 'Delete',
+      type: 'danger',
+      onConfirm: () => {
+        setMatterUpdates(prev => prev.filter(u => u.id !== updateId))
+        setConfirmModal(prev => ({ ...prev, isOpen: false }))
+      }
+    })
   }
 
   // Fetch data on mount
@@ -687,7 +753,7 @@ Only analyze documents actually associated with this matter.`
 
       {/* Tabs */}
       <div className={styles.tabs}>
-        {['overview', 'tasks', 'time', 'billing', 'documents', 'calendar', 'contacts'].map(tab => (
+        {['overview', 'updates', 'tasks', 'time', 'billing', 'documents', 'calendar', 'contacts'].map(tab => (
           <button
             key={tab}
             className={clsx(styles.tab, activeTab === tab && styles.active)}
@@ -791,6 +857,55 @@ Only analyze documents actually associated with this matter.`
               </div>
             )}
 
+            {/* Recent Updates */}
+            <div className={styles.card}>
+              <div className={styles.cardHeader}>
+                <h3>
+                  <MessageSquare size={18} />
+                  Recent Updates
+                </h3>
+                <div className={styles.cardActions}>
+                  <button className={styles.addBtn} onClick={() => setShowUpdateModal(true)}>
+                    <Plus size={14} />
+                    Add
+                  </button>
+                </div>
+              </div>
+              <div className={styles.updatesList}>
+                {matterUpdates.slice(0, 3).map(update => (
+                  <div key={update.id} className={styles.updateItem} onClick={() => { setEditingUpdate(update); setShowUpdateModal(true); }}>
+                    <div className={styles.updateDate}>
+                      <span className={styles.updateDay}>{format(parseISO(update.date), 'd')}</span>
+                      <span className={styles.updateMonth}>{format(parseISO(update.date), 'MMM')}</span>
+                    </div>
+                    <div className={styles.updateContent}>
+                      <span className={styles.updateTitle}>{update.title}</span>
+                      <span className={styles.updateCategory}>{update.category.replace(/_/g, ' ')}</span>
+                    </div>
+                    <button 
+                      className={styles.iconBtn}
+                      onClick={(e) => { e.stopPropagation(); deleteMatterUpdate(update.id); }}
+                      style={{ padding: '4px', opacity: 0.6 }}
+                      title="Delete"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+                {matterUpdates.length === 0 && (
+                  <p className={styles.noData}>No updates yet</p>
+                )}
+                {matterUpdates.length > 3 && (
+                  <button 
+                    className={styles.viewAllBtn}
+                    onClick={() => setActiveTab('updates')}
+                  >
+                    View all {matterUpdates.length} updates →
+                  </button>
+                )}
+              </div>
+            </div>
+
             {/* Upcoming Events */}
             <div className={styles.card}>
               <div className={styles.cardHeader}>
@@ -876,6 +991,88 @@ Only analyze documents actually associated with this matter.`
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Updates Tab */}
+        {activeTab === 'updates' && (
+          <div className={styles.updatesTab}>
+            <div className={styles.tabHeader}>
+              <h2>Case Updates & Progress</h2>
+              <div className={styles.tabActions}>
+                <button 
+                  className={styles.primaryBtn}
+                  onClick={() => { setEditingUpdate(null); setShowUpdateModal(true); }}
+                >
+                  <Plus size={18} />
+                  Add Update
+                </button>
+              </div>
+            </div>
+
+            {matterUpdates.length === 0 ? (
+              <div className={styles.emptyUpdates}>
+                <MessageSquare size={48} />
+                <p>No updates yet</p>
+                <p style={{ fontSize: '0.875rem', color: 'var(--apex-muted)', marginTop: '8px' }}>
+                  Track case progress, client communications, and key milestones
+                </p>
+                <button 
+                  className={styles.primaryBtn} 
+                  onClick={() => setShowUpdateModal(true)}
+                  style={{ marginTop: '1rem' }}
+                >
+                  <Plus size={18} />
+                  Add First Update
+                </button>
+              </div>
+            ) : (
+              <div className={styles.updatesTimeline}>
+                {matterUpdates.map((update, index) => (
+                  <div key={update.id} className={styles.updateCard}>
+                    <div className={styles.updateTimelineMarker}>
+                      <div className={clsx(styles.updateDot, styles[update.category])} />
+                      {index < matterUpdates.length - 1 && <div className={styles.updateLine} />}
+                    </div>
+                    <div className={styles.updateCardContent}>
+                      <div className={styles.updateCardHeader}>
+                        <div>
+                          <span className={clsx(styles.updateCategoryBadge, styles[update.category])}>
+                            {update.category.replace(/_/g, ' ')}
+                          </span>
+                          <span className={styles.updateCardDate}>
+                            {format(parseISO(update.date), 'MMMM d, yyyy')}
+                          </span>
+                        </div>
+                        <div className={styles.cardActions}>
+                          <button 
+                            className={styles.iconBtn}
+                            onClick={() => { setEditingUpdate(update); setShowUpdateModal(true); }}
+                            title="Edit"
+                            style={{ padding: '6px' }}
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button 
+                            className={styles.iconBtn}
+                            onClick={() => deleteMatterUpdate(update.id)}
+                            title="Delete"
+                            style={{ padding: '6px', color: 'var(--apex-error)' }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                      <h4 className={styles.updateCardTitle}>{update.title}</h4>
+                      <p className={styles.updateCardDescription}>{update.description}</p>
+                      <span className={styles.updateCardTimestamp}>
+                        Added {formatDistanceToNow(parseISO(update.createdAt), { addSuffix: true })}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -1560,6 +1757,10 @@ Only analyze documents actually associated with this matter.`
                   alert('Failed to update matter. Please try again.')
                 }
               }}
+              onManageTypes={() => {
+                setShowEditMatterModal(false)
+                setShowTypesManager(true)
+              }}
             />
           </div>
         </div>
@@ -1663,6 +1864,32 @@ Only analyze documents actually associated with this matter.`
         </div>
       )}
 
+      {/* Update Modal */}
+      {showUpdateModal && (
+        <div className={styles.modalOverlay} onClick={() => { setShowUpdateModal(false); setEditingUpdate(null); }}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>{editingUpdate ? 'Edit Update' : 'Add Update'}</h2>
+              <button onClick={() => { setShowUpdateModal(false); setEditingUpdate(null); }} className={styles.closeBtn}>×</button>
+            </div>
+            <MatterUpdateForm 
+              matterName={matter?.name || ''}
+              existingUpdate={editingUpdate}
+              onClose={() => { setShowUpdateModal(false); setEditingUpdate(null); }}
+              onSave={(data) => {
+                if (editingUpdate) {
+                  updateMatterUpdate(editingUpdate.id, data)
+                } else {
+                  addMatterUpdate(data)
+                }
+                setShowUpdateModal(false)
+                setEditingUpdate(null)
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Confirmation Modal */}
       <ConfirmationModal
         isOpen={confirmModal.isOpen}
@@ -1672,6 +1899,12 @@ Only analyze documents actually associated with this matter.`
         message={confirmModal.message}
         confirmText={confirmModal.confirmText}
         type={confirmModal.type}
+      />
+
+      {/* Matter Types Manager */}
+      <MatterTypesManager 
+        isOpen={showTypesManager}
+        onClose={() => setShowTypesManager(false)}
       />
     </div>
   )
@@ -2400,13 +2633,105 @@ function ContactForm({ matterName, onClose, onSave }: {
   )
 }
 
+// Matter Update Form Component
+function MatterUpdateForm({ matterName, existingUpdate, onClose, onSave }: {
+  matterName: string
+  existingUpdate?: MatterUpdate | null
+  onClose: () => void
+  onSave: (data: Omit<MatterUpdate, 'id' | 'createdAt' | 'updatedAt'>) => void
+}) {
+  const [formData, setFormData] = useState({
+    date: existingUpdate?.date ? format(parseISO(existingUpdate.date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+    title: existingUpdate?.title || '',
+    description: existingUpdate?.description || '',
+    category: existingUpdate?.category || 'general' as 'general' | 'court' | 'client_communication' | 'document' | 'billing' | 'milestone'
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formData.title.trim()) {
+      alert('Please enter a title')
+      return
+    }
+    onSave({
+      ...formData,
+      date: new Date(formData.date).toISOString()
+    })
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className={styles.modalForm}>
+      <div className={styles.formInfo}>
+        <strong>Matter:</strong> {matterName}
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Date</label>
+          <input
+            type="date"
+            value={formData.date}
+            onChange={(e) => setFormData({...formData, date: e.target.value})}
+            required
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label>Category</label>
+          <select
+            value={formData.category}
+            onChange={(e) => setFormData({...formData, category: e.target.value as any})}
+          >
+            <option value="general">General Update</option>
+            <option value="court">Court Filing/Ruling</option>
+            <option value="client_communication">Client Communication</option>
+            <option value="document">Document</option>
+            <option value="billing">Billing</option>
+            <option value="milestone">Milestone</option>
+          </select>
+        </div>
+      </div>
+
+      <div className={styles.formGroup}>
+        <label>Title *</label>
+        <input
+          type="text"
+          value={formData.title}
+          onChange={(e) => setFormData({...formData, title: e.target.value})}
+          placeholder="Brief summary of the update..."
+          required
+        />
+      </div>
+
+      <div className={styles.formGroup}>
+        <label>Description</label>
+        <textarea
+          value={formData.description}
+          onChange={(e) => setFormData({...formData, description: e.target.value})}
+          placeholder="Detailed notes about what happened..."
+          rows={5}
+        />
+      </div>
+
+      <div className={styles.modalActions}>
+        <button type="button" onClick={onClose} className={styles.cancelBtn}>
+          Cancel
+        </button>
+        <button type="submit" className={styles.saveBtn}>
+          {existingUpdate ? 'Update' : 'Add Update'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
 // Edit Matter Form Component
-function EditMatterForm({ matter, attorneys, typeOptions, onClose, onSave }: {
+function EditMatterForm({ matter, attorneys, typeOptions, onClose, onSave, onManageTypes }: {
   matter: any
   attorneys: any[]
   typeOptions: { value: string; label: string }[]
   onClose: () => void
   onSave: (data: any) => Promise<void>
+  onManageTypes?: () => void
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
@@ -2447,7 +2772,29 @@ function EditMatterForm({ matter, attorneys, typeOptions, onClose, onSave }: {
 
       <div className={styles.formRow}>
         <div className={styles.formGroup}>
-          <label>Type</label>
+          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            Type
+            {onManageTypes && (
+              <button 
+                type="button"
+                onClick={onManageTypes}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--apex-gold-bright)',
+                  fontSize: '0.75rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: 0
+                }}
+              >
+                <Settings size={12} />
+                Manage
+              </button>
+            )}
+          </label>
           <select
             value={formData.type}
             onChange={(e) => setFormData({...formData, type: e.target.value})}

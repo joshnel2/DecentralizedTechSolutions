@@ -1,0 +1,349 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: 85vh;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg) var(--space-xl);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.headerTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--apex-gold-bright);
+}
+
+.headerTitle h2 {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 400;
+  color: var(--apex-white);
+  margin: 0;
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  color: var(--apex-text);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.closeBtn:hover {
+  color: var(--apex-white);
+  background: var(--apex-slate);
+}
+
+.content {
+  padding: var(--space-lg) var(--space-xl);
+  overflow-y: auto;
+  flex: 1;
+}
+
+.description {
+  font-size: 0.875rem;
+  color: var(--apex-text);
+  margin-bottom: var(--space-lg);
+  line-height: 1.5;
+}
+
+.typesList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-lg);
+}
+
+.typeItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.typeItem:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.typeItem.inactive {
+  opacity: 0.5;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.typeInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.typeLabel {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--apex-white);
+}
+
+.typeValue {
+  font-size: 0.6875rem;
+  color: var(--apex-muted);
+  font-family: var(--font-mono);
+}
+
+.typeActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.toggleBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apex-muted);
+  transition: all var(--transition-fast);
+  border-radius: var(--radius-sm);
+}
+
+.toggleBtn:hover {
+  color: var(--apex-text);
+}
+
+.toggleBtn.active {
+  color: var(--apex-success);
+}
+
+.actionBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apex-text);
+  transition: all var(--transition-fast);
+  border-radius: var(--radius-sm);
+}
+
+.actionBtn:hover {
+  color: var(--apex-white);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.actionBtn.danger {
+  color: var(--apex-error);
+}
+
+.actionBtn.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.actionBtn.cancel {
+  color: var(--apex-muted);
+}
+
+.editRow,
+.confirmRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+}
+
+.editInput {
+  flex: 1;
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--apex-deep);
+  border: 1px solid var(--apex-gold);
+  border-radius: var(--radius-sm);
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  outline: none;
+}
+
+.confirmText {
+  flex: 1;
+  font-size: 0.875rem;
+  color: var(--apex-error);
+}
+
+.addForm {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+}
+
+.addInput {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  outline: none;
+}
+
+.addInput:focus {
+  border-color: var(--apex-gold);
+}
+
+.addInput::placeholder {
+  color: var(--apex-muted);
+}
+
+.saveBtn {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-gold);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--apex-black);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.saveBtn:hover:not(:disabled) {
+  background: var(--apex-gold-bright);
+}
+
+.saveBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cancelBtn {
+  padding: var(--space-sm) var(--space-md);
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  color: var(--apex-text);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.cancelBtn:hover {
+  background: var(--apex-deep);
+  color: var(--apex-light);
+}
+
+.addTypeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-md);
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.addTypeBtn:hover {
+  border-color: var(--apex-gold);
+  color: var(--apex-gold-bright);
+  background: rgba(245, 158, 11, 0.05);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-xl);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--apex-slate);
+}
+
+.stats {
+  font-size: 0.75rem;
+  color: var(--apex-muted);
+}
+
+.doneBtn {
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.doneBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+@media (max-width: 480px) {
+  .modal {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 0;
+  }
+
+  .addForm {
+    flex-wrap: wrap;
+  }
+
+  .addInput {
+    width: 100%;
+  }
+
+  .saveBtn,
+  .cancelBtn {
+    flex: 1;
+  }
+}

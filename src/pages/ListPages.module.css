@@ -127,6 +127,25 @@
   border-color: var(--apex-gold);
 }
 
+.settingsBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-sm);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.settingsBtn:hover {
+  color: var(--apex-gold-bright);
+  border-color: var(--apex-gold);
+  background: rgba(245, 158, 11, 0.05);
+}
+
 /* Table */
 .tableContainer {
   background: var(--apex-deep);
