@@ -156,6 +156,7 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
         tags: m.tags,
         aiSummary: m.ai_summary,
         conflictCleared: m.conflict_cleared,
+        notes: m.notes,
         createdAt: m.created_at,
         updatedAt: m.updated_at,
       })),
@@ -239,6 +240,7 @@ router.get('/:id', authenticate, requirePermission('matters:view'), async (req, 
       tags: m.tags,
       aiSummary: m.ai_summary,
       conflictCleared: m.conflict_cleared,
+      notes: m.notes,
       customFields: m.custom_fields,
       createdBy: m.created_by,
       createdAt: m.created_at,
@@ -433,6 +435,7 @@ router.put('/:id', authenticate, requirePermission('matters:edit'), async (req, 
       tags,
       aiSummary,
       conflictCleared,
+      notes,
     } = req.body;
 
     await withTransaction(async (client) => {
@@ -461,14 +464,15 @@ router.put('/:id', authenticate, requirePermission('matters:edit'), async (req, 
           budget = COALESCE($21, budget),
           tags = COALESCE($22, tags),
           ai_summary = COALESCE($23, ai_summary),
-          conflict_cleared = COALESCE($24, conflict_cleared)
-        WHERE id = $25`,
+          conflict_cleared = COALESCE($24, conflict_cleared),
+          notes = COALESCE($25, notes)
+        WHERE id = $26`,
         [
           name, description, clientId, type, status, priority, responsibleAttorney, originatingAttorney,
           openDate, closeDate, statuteOfLimitations,
           courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
           billingType, billingRate, flatFee, contingencyPercent, retainerAmount,
-          budget, tags, aiSummary, conflictCleared, req.params.id
+          budget, tags, aiSummary, conflictCleared, notes, req.params.id
         ]
       );
 
@@ -512,6 +516,7 @@ router.put('/:id', authenticate, requirePermission('matters:edit'), async (req, 
       billingRate: m.billing_rate,
       tags: m.tags,
       conflictCleared: m.conflict_cleared,
+      notes: m.notes,
       updatedAt: m.updated_at,
     });
   } catch (error) {
