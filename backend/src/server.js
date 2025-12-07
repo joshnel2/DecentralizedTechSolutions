@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import authRoutes from './routes/auth.js';
 import clientRoutes from './routes/clients.js';
 import matterRoutes from './routes/matters.js';
+import matterItemRoutes from './routes/matterItems.js';
 import timeEntryRoutes from './routes/timeEntries.js';
 import invoiceRoutes from './routes/invoices.js';
 import calendarRoutes from './routes/calendar.js';
@@ -66,6 +67,7 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/matters', matterRoutes);
+app.use('/api/matters', matterItemRoutes);  // Matter tasks, updates, contacts
 app.use('/api/time-entries', timeEntryRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/calendar', calendarRoutes);

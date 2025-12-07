@@ -250,6 +250,75 @@ export const mattersApi = {
   async delete(id: string) {
     return fetchWithAuth(`/matters/${id}`, { method: 'DELETE' });
   },
+
+  // Tasks
+  async getTasks(matterId: string) {
+    return fetchWithAuth(`/matters/${matterId}/tasks`);
+  },
+
+  async createTask(matterId: string, data: { name: string; description?: string; status?: string; priority?: string; dueDate?: string; assignee?: string }) {
+    return fetchWithAuth(`/matters/${matterId}/tasks`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateTask(matterId: string, taskId: string, data: any) {
+    return fetchWithAuth(`/matters/${matterId}/tasks/${taskId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteTask(matterId: string, taskId: string) {
+    return fetchWithAuth(`/matters/${matterId}/tasks/${taskId}`, { method: 'DELETE' });
+  },
+
+  // Updates
+  async getUpdates(matterId: string) {
+    return fetchWithAuth(`/matters/${matterId}/updates`);
+  },
+
+  async createUpdate(matterId: string, data: { date: string; title: string; description: string; category?: string }) {
+    return fetchWithAuth(`/matters/${matterId}/updates`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateUpdate(matterId: string, updateId: string, data: any) {
+    return fetchWithAuth(`/matters/${matterId}/updates/${updateId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteUpdate(matterId: string, updateId: string) {
+    return fetchWithAuth(`/matters/${matterId}/updates/${updateId}`, { method: 'DELETE' });
+  },
+
+  // Contacts
+  async getContacts(matterId: string) {
+    return fetchWithAuth(`/matters/${matterId}/contacts`);
+  },
+
+  async createContact(matterId: string, data: { name: string; role?: string; firm?: string; email?: string; phone?: string; notes?: string }) {
+    return fetchWithAuth(`/matters/${matterId}/contacts`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateContact(matterId: string, contactId: string, data: any) {
+    return fetchWithAuth(`/matters/${matterId}/contacts/${contactId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteContact(matterId: string, contactId: string) {
+    return fetchWithAuth(`/matters/${matterId}/contacts/${contactId}`, { method: 'DELETE' });
+  },
 };
 
 // ============================================

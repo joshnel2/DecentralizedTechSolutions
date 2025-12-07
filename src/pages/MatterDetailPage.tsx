@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
-import { invoicesApi, teamApi } from '../services/api'
+import { invoicesApi, teamApi, mattersApi } from '../services/api'
 import { 
   Briefcase, Calendar, DollarSign, Clock, FileText,
   ChevronLeft, Sparkles, Edit2, MoreVertical, Plus,
@@ -81,11 +81,10 @@ export function MatterDetailPage() {
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [attorneys, setAttorneys] = useState<any[]>([])
   const [showContactModal, setShowContactModal] = useState(false)
-  const [matterContacts, setMatterContacts] = useState<any[]>(() => {
-    const saved = localStorage.getItem(`matter-contacts-${id}`)
-    if (saved) return JSON.parse(saved)
-    return []
-  })
+  const [matterContacts, setMatterContacts] = useState<any[]>([])
+  const [loadingTasks, setLoadingTasks] = useState(true)
+  const [loadingUpdates, setLoadingUpdates] = useState(true)
+  const [loadingContacts, setLoadingContacts] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   
@@ -122,42 +121,63 @@ export function MatterDetailPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
   
-  // Task state - persisted in localStorage for demo
-  const [tasks, setTasks] = useState<Task[]>(() => {
-    const saved = localStorage.getItem(`matter-tasks-${id}`)
-    if (saved) return JSON.parse(saved)
-    return []
-  })
+  // Task state - loaded from API
+  const [tasks, setTasks] = useState<Task[]>([])
   
-  // Updates state - persisted in localStorage
-  const [matterUpdates, setMatterUpdates] = useState<MatterUpdate[]>(() => {
-    const saved = localStorage.getItem(`matter-updates-${id}`)
-    if (saved) return JSON.parse(saved)
-    return []
-  })
+  // Updates state - loaded from API
+  const [matterUpdates, setMatterUpdates] = useState<MatterUpdate[]>([])
   
   const [showUpdateModal, setShowUpdateModal] = useState(false)
   const [editingUpdate, setEditingUpdate] = useState<MatterUpdate | null>(null)
   const [showTypesManager, setShowTypesManager] = useState(false)
   
-  // Save tasks to localStorage when they change
+  // Load tasks from API
   useEffect(() => {
-    localStorage.setItem(`matter-tasks-${id}`, JSON.stringify(tasks))
-  }, [tasks, id])
+    if (id) {
+      setLoadingTasks(true)
+      mattersApi.getTasks(id)
+        .then(data => {
+          setTasks(data.tasks || [])
+        })
+        .catch(err => console.error('Failed to load tasks:', err))
+        .finally(() => setLoadingTasks(false))
+    }
+  }, [id])
   
-  // Save updates to localStorage when they change
+  // Load updates from API
   useEffect(() => {
-    localStorage.setItem(`matter-updates-${id}`, JSON.stringify(matterUpdates))
-  }, [matterUpdates, id])
+    if (id) {
+      setLoadingUpdates(true)
+      mattersApi.getUpdates(id)
+        .then(data => {
+          setMatterUpdates(data.updates || [])
+        })
+        .catch(err => console.error('Failed to load updates:', err))
+        .finally(() => setLoadingUpdates(false))
+    }
+  }, [id])
   
-  // Save contacts to localStorage when they change
+  // Load contacts from API
   useEffect(() => {
-    localStorage.setItem(`matter-contacts-${id}`, JSON.stringify(matterContacts))
-  }, [matterContacts, id])
+    if (id) {
+      setLoadingContacts(true)
+      mattersApi.getContacts(id)
+        .then(data => {
+          setMatterContacts(data.contacts || [])
+        })
+        .catch(err => console.error('Failed to load contacts:', err))
+        .finally(() => setLoadingContacts(false))
+    }
+  }, [id])
   
-  const addContact = (contact: { name: string; role: string; firm?: string; email?: string; phone?: string }) => {
-    const newContact = { ...contact, id: crypto.randomUUID() }
-    setMatterContacts(prev => [...prev, newContact])
+  const addContact = async (contact: { name: string; role: string; firm?: string; email?: string; phone?: string }) => {
+    if (!id) return
+    try {
+      const newContact = await mattersApi.createContact(id, contact)
+      setMatterContacts(prev => [...prev, newContact])
+    } catch (err) {
+      console.error('Failed to add contact:', err)
+    }
   }
   
   const deleteContact = (contactId: string) => {
@@ -168,20 +188,37 @@ export function MatterDetailPage() {
       message: `Are you sure you want to remove "${contact?.name || 'this contact'}" from this matter?`,
       confirmText: 'Remove',
       type: 'danger',
-      onConfirm: () => {
-        setMatterContacts(prev => prev.filter(c => c.id !== contactId))
+      onConfirm: async () => {
+        if (!id) return
+        try {
+          await mattersApi.deleteContact(id, contactId)
+          setMatterContacts(prev => prev.filter(c => c.id !== contactId))
+        } catch (err) {
+          console.error('Failed to delete contact:', err)
+        }
         setConfirmModal(prev => ({ ...prev, isOpen: false }))
       }
     })
   }
   
-  const addTask = (task: Omit<Task, 'id'>) => {
-    const newTask = { ...task, id: crypto.randomUUID() }
-    setTasks(prev => [...prev, newTask])
+  const addTask = async (task: Omit<Task, 'id'>) => {
+    if (!id) return
+    try {
+      const newTask = await mattersApi.createTask(id, task)
+      setTasks(prev => [...prev, newTask])
+    } catch (err) {
+      console.error('Failed to add task:', err)
+    }
   }
   
-  const updateTask = (taskId: string, updates: Partial<Task>) => {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...updates } : t))
+  const updateTask = async (taskId: string, updates: Partial<Task>) => {
+    if (!id) return
+    try {
+      const updatedTask = await mattersApi.updateTask(id, taskId, updates)
+      setTasks(prev => prev.map(t => t.id === taskId ? updatedTask : t))
+    } catch (err) {
+      console.error('Failed to update task:', err)
+    }
   }
   
   const deleteTask = (taskId: string) => {
@@ -192,43 +229,55 @@ export function MatterDetailPage() {
       message: `Are you sure you want to delete "${task?.name || 'this task'}"?`,
       confirmText: 'Delete',
       type: 'danger',
-      onConfirm: () => {
-        setTasks(prev => prev.filter(t => t.id !== taskId))
+      onConfirm: async () => {
+        if (!id) return
+        try {
+          await mattersApi.deleteTask(id, taskId)
+          setTasks(prev => prev.filter(t => t.id !== taskId))
+        } catch (err) {
+          console.error('Failed to delete task:', err)
+        }
         setConfirmModal(prev => ({ ...prev, isOpen: false }))
       }
     })
   }
   
-  const toggleTaskStatus = (taskId: string) => {
-    setTasks(prev => prev.map(t => {
-      if (t.id === taskId) {
-        const newStatus = t.status === 'completed' ? 'pending' : 'completed'
-        return { ...t, status: newStatus }
-      }
-      return t
-    }))
+  const toggleTaskStatus = async (taskId: string) => {
+    if (!id) return
+    const task = tasks.find(t => t.id === taskId)
+    if (!task) return
+    const newStatus = task.status === 'completed' ? 'pending' : 'completed'
+    try {
+      const updatedTask = await mattersApi.updateTask(id, taskId, { status: newStatus })
+      setTasks(prev => prev.map(t => t.id === taskId ? updatedTask : t))
+    } catch (err) {
+      console.error('Failed to toggle task status:', err)
+    }
   }
   
   // Matter Update handlers
-  const addMatterUpdate = (update: Omit<MatterUpdate, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const now = new Date().toISOString()
-    const newUpdate: MatterUpdate = {
-      ...update,
-      id: crypto.randomUUID(),
-      createdAt: now,
-      updatedAt: now
+  const addMatterUpdate = async (update: Omit<MatterUpdate, 'id' | 'createdAt' | 'updatedAt'>) => {
+    if (!id) return
+    try {
+      const newUpdate = await mattersApi.createUpdate(id, update)
+      setMatterUpdates(prev => [newUpdate, ...prev].sort((a, b) => 
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+      ))
+    } catch (err) {
+      console.error('Failed to add update:', err)
     }
-    setMatterUpdates(prev => [newUpdate, ...prev].sort((a, b) => 
-      new Date(b.date).getTime() - new Date(a.date).getTime()
-    ))
   }
   
-  const updateMatterUpdate = (updateId: string, updates: Partial<MatterUpdate>) => {
-    setMatterUpdates(prev => prev.map(u => 
-      u.id === updateId 
-        ? { ...u, ...updates, updatedAt: new Date().toISOString() } 
-        : u
-    ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()))
+  const updateMatterUpdate = async (updateId: string, updates: Partial<MatterUpdate>) => {
+    if (!id) return
+    try {
+      const updatedRecord = await mattersApi.updateUpdate(id, updateId, updates)
+      setMatterUpdates(prev => prev.map(u => 
+        u.id === updateId ? updatedRecord : u
+      ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()))
+    } catch (err) {
+      console.error('Failed to update record:', err)
+    }
   }
   
   const deleteMatterUpdate = (updateId: string) => {
@@ -239,8 +288,14 @@ export function MatterDetailPage() {
       message: `Are you sure you want to delete "${update?.title || 'this update'}"?`,
       confirmText: 'Delete',
       type: 'danger',
-      onConfirm: () => {
-        setMatterUpdates(prev => prev.filter(u => u.id !== updateId))
+      onConfirm: async () => {
+        if (!id) return
+        try {
+          await mattersApi.deleteUpdate(id, updateId)
+          setMatterUpdates(prev => prev.filter(u => u.id !== updateId))
+        } catch (err) {
+          console.error('Failed to delete update:', err)
+        }
         setConfirmModal(prev => ({ ...prev, isOpen: false }))
       }
     })
