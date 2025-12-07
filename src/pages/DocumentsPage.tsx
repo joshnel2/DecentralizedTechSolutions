@@ -11,6 +11,7 @@ import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './DocumentsPage.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+import { parseDocument } from '../utils/documentParser'
 
 export function DocumentsPage() {
   const navigate = useNavigate()
@@ -118,7 +119,8 @@ export function DocumentsPage() {
             const fileType = doc.type || blob.type || 'application/octet-stream'
             const file = new File([blob], doc.name, { type: fileType })
             console.log('Created file for extraction:', file.name, file.type, file.size)
-            extractedContent = await extractFileContent(file)
+            const parseResult = await parseDocument(file)
+            extractedContent = parseResult.content
             console.log('Extracted content length:', extractedContent.length)
           } else {
             console.error('Download failed:', downloadResponse.status, downloadResponse.statusText)
@@ -161,134 +163,6 @@ export function DocumentsPage() {
     } finally {
       setIsExtractingForChat(false)
     }
-  }
-  
-  // Client-side file content extraction
-  const extractFileContent = async (file: File): Promise<string> => {
-    return new Promise((resolve) => {
-      const reader = new FileReader()
-      
-      reader.onload = async (e) => {
-        const result = e.target?.result
-        
-        // Handle image files
-        if (file.type.startsWith('image/')) {
-          resolve(`[IMAGE FILE: ${file.name}]\n\nThis appears to be an image file. For best results, please use OCR software to extract the text or describe what you see in the image.`)
-        }
-        // Handle PDF files
-        else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-          try {
-            const arrayBuffer = result as ArrayBuffer
-            const pdfjsLib = await import('pdfjs-dist')
-            
-            pdfjsLib.GlobalWorkerOptions.workerSrc = 
-              `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`
-            
-            const uint8Array = new Uint8Array(arrayBuffer)
-            const loadingTask = pdfjsLib.getDocument({ 
-              data: uint8Array,
-              useSystemFonts: true,
-              disableFontFace: true,
-              isEvalSupported: false
-            })
-            
-            const pdf = await loadingTask.promise
-            
-            let fullText = ''
-            for (let i = 1; i <= pdf.numPages; i++) {
-              const page = await pdf.getPage(i)
-              const textContent = await page.getTextContent()
-              const pageText = textContent.items
-                .map((item: any) => {
-                  const text = item.str || ''
-                  const hasTransform = item.hasEOL || (item.transform && item.transform[5] !== 0)
-                  return hasTransform ? text + ' ' : text
-                })
-                .join('')
-                .replace(/\s+/g, ' ')
-                .trim()
-              
-              if (pageText) {
-                fullText += `\n--- Page ${i} ---\n${pageText}\n`
-              }
-            }
-            
-            if (fullText.trim().length === 0) {
-              resolve(`[PDF FILE: ${file.name}]\n\nThis PDF appears to be scanned or image-based with no extractable text.`)
-            } else {
-              resolve(`[PDF FILE: ${file.name}]\n\nExtracted content from PDF (${pdf.numPages} pages):\n${fullText}`)
-            }
-          } catch (err) {
-            console.error('PDF extraction error:', err)
-            resolve(`[PDF FILE: ${file.name}]\n\nUnable to extract text from this PDF.`)
-          }
-        }
-        // Handle Word .docx files
-        else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
-                 file.name.toLowerCase().endsWith('.docx')) {
-          try {
-            const arrayBuffer = result as ArrayBuffer
-            const mammoth = await import('mammoth')
-            const result2 = await mammoth.extractRawText({ arrayBuffer })
-            if (result2.value.trim().length === 0) {
-              resolve(`[WORD DOCUMENT: ${file.name}]\n\nThis document appears to be empty.`)
-            } else {
-              resolve(`[WORD DOCUMENT: ${file.name}]\n\nExtracted content:\n${result2.value}`)
-            }
-          } catch (err) {
-            resolve(`[WORD DOCUMENT: ${file.name}]\n\nUnable to extract text from this Word document.`)
-          }
-        }
-        // Handle Excel files
-        else if (file.type.includes('spreadsheet') || file.type.includes('excel') ||
-                 file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls')) {
-          try {
-            const arrayBuffer = result as ArrayBuffer
-            const XLSX = await import('xlsx')
-            const workbook = XLSX.read(arrayBuffer, { type: 'array' })
-            
-            let fullContent = `[EXCEL FILE: ${file.name}]\n\nExtracted content:\n`
-            workbook.SheetNames.forEach((sheetName: string) => {
-              const sheet = workbook.Sheets[sheetName]
-              const csv = XLSX.utils.sheet_to_csv(sheet)
-              fullContent += `\n--- Sheet: ${sheetName} ---\n${csv}\n`
-            })
-            resolve(fullContent)
-          } catch (err) {
-            resolve(`[EXCEL FILE: ${file.name}]\n\nUnable to extract data from this Excel file.`)
-          }
-        }
-        // Handle text-based files
-        else {
-          const textContent = result as string
-          if (textContent && textContent.trim().length > 0) {
-            resolve(`[FILE: ${file.name}]\n\nContent:\n${textContent}`)
-          } else {
-            resolve(`[FILE: ${file.name}]\n\nThis file appears to be empty.`)
-          }
-        }
-      }
-      
-      reader.onerror = () => resolve(`[FILE: ${file.name}]\n\nFailed to read file.`)
-      
-      // Determine if file needs binary or text reading
-      const needsArrayBuffer = 
-        file.type === 'application/pdf' || 
-        file.type.includes('word') ||
-        file.type.includes('spreadsheet') ||
-        file.type.includes('excel') ||
-        file.name.toLowerCase().endsWith('.pdf') ||
-        file.name.toLowerCase().endsWith('.docx') ||
-        file.name.toLowerCase().endsWith('.doc') ||
-        file.name.toLowerCase().endsWith('.xlsx') ||
-        file.name.toLowerCase().endsWith('.xls')
-      
-      if (needsArrayBuffer) {
-        reader.readAsArrayBuffer(file)
-      } else {
-        reader.readAsText(file)
-      }
-    })
   }
   
   const [searchQuery, setSearchQuery] = useState('')
@@ -412,8 +286,8 @@ export function DocumentsPage() {
         const blob = await downloadResponse.blob()
         const fileType = doc.type || blob.type || 'application/octet-stream'
         const file = new File([blob], doc.name, { type: fileType })
-        const content = await extractFileContent(file)
-        setPreviewContent(content)
+        const parseResult = await parseDocument(file)
+        setPreviewContent(parseResult.content)
       } else {
         setPreviewContent('[Unable to load document preview]')
       }
