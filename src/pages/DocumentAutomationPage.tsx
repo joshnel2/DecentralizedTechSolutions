@@ -464,6 +464,152 @@ Sincerely,
     lastUsed: '2024-11-15',
     usageCount: 45,
     createdAt: '2024-03-10'
+  },
+  {
+    id: '11',
+    name: 'Retainer Agreement',
+    description: 'Comprehensive retainer agreement establishing ongoing legal representation with payment terms and conditions',
+    category: 'Client Intake',
+    documentType: 'docx',
+    icon: Briefcase,
+    variables: [
+      { key: 'client_name', label: 'Client Name', type: 'client', required: true },
+      { key: 'client_address', label: 'Client Address', type: 'textarea', required: true, placeholder: 'Enter full mailing address' },
+      { key: 'client_email', label: 'Client Email', type: 'text', required: true, placeholder: 'client@example.com' },
+      { key: 'client_phone', label: 'Client Phone', type: 'text', required: true, placeholder: '(555) 555-5555' },
+      { key: 'matter_type', label: 'Type of Legal Matter', type: 'select', required: true, options: ['General Business Counsel', 'Litigation', 'Corporate Transactions', 'Employment Matters', 'Real Estate', 'Intellectual Property', 'Estate Planning', 'Family Law', 'Criminal Defense', 'Other'] },
+      { key: 'scope_of_services', label: 'Scope of Legal Services', type: 'textarea', required: true, placeholder: 'Detailed description of legal services to be provided' },
+      { key: 'retainer_amount', label: 'Initial Retainer Amount ($)', type: 'number', required: true, defaultValue: '5000' },
+      { key: 'minimum_balance', label: 'Minimum Retainer Balance ($)', type: 'number', required: true, defaultValue: '2500' },
+      { key: 'hourly_rate_partner', label: 'Partner Hourly Rate ($)', type: 'number', required: true, defaultValue: '450' },
+      { key: 'hourly_rate_associate', label: 'Associate Hourly Rate ($)', type: 'number', required: true, defaultValue: '300' },
+      { key: 'hourly_rate_paralegal', label: 'Paralegal Hourly Rate ($)', type: 'number', required: true, defaultValue: '150' },
+      { key: 'billing_frequency', label: 'Billing Frequency', type: 'select', required: true, options: ['Monthly', 'Bi-Weekly', 'Quarterly'] },
+      { key: 'payment_due_days', label: 'Payment Due (Days)', type: 'number', required: true, defaultValue: '30' },
+      { key: 'responsible_attorney', label: 'Responsible Attorney', type: 'text', required: true },
+      { key: 'attorney_bar_number', label: 'Attorney Bar Number', type: 'text', required: true },
+      { key: 'effective_date', label: 'Effective Date', type: 'date', required: true },
+      { key: 'governing_state', label: 'Governing State', type: 'text', required: true }
+    ],
+    content: `RETAINER AGREEMENT FOR LEGAL SERVICES
+
+This Retainer Agreement ("Agreement") is entered into as of {{effective_date}} by and between:
+
+ATTORNEY/LAW FIRM:
+[Law Firm Name]
+[Firm Address]
+Responsible Attorney: {{responsible_attorney}}
+Bar Number: {{attorney_bar_number}}
+
+CLIENT:
+{{client_name}}
+{{client_address}}
+Email: {{client_email}}
+Phone: {{client_phone}}
+
+1. ENGAGEMENT AND SCOPE OF SERVICES
+
+The Client hereby retains the Law Firm to provide legal services in connection with:
+
+Matter Type: {{matter_type}}
+
+Scope of Services:
+{{scope_of_services}}
+
+This Agreement covers only the legal services described above. Any additional matters or services will require a separate agreement or written amendment to this Agreement.
+
+2. RETAINER AND FEES
+
+A. Initial Retainer
+The Client agrees to pay an initial retainer of ${'${{retainer_amount}}'} upon execution of this Agreement. This retainer will be deposited into the Firm's Client Trust Account and will be applied against fees and costs as they are incurred.
+
+B. Minimum Balance
+The Client agrees to maintain a minimum balance of ${'${{minimum_balance}}'} in the retainer account. When the balance falls below this amount, the Client will be billed for replenishment of the retainer.
+
+C. Hourly Rates
+Legal services will be billed at the following hourly rates:
+- Partners: ${'${{hourly_rate_partner}}'}/hour
+- Associates: ${'${{hourly_rate_associate}}'}/hour
+- Paralegals: ${'${{hourly_rate_paralegal}}'}/hour
+
+These rates are subject to annual review and adjustment with 30 days written notice to the Client.
+
+D. Billing and Payment
+- Invoices will be issued {{billing_frequency}}
+- Payment is due within {{payment_due_days}} days of the invoice date
+- Interest of 1.5% per month may be charged on overdue balances
+
+3. COSTS AND EXPENSES
+
+In addition to legal fees, the Client agrees to reimburse the Firm for all costs and expenses incurred in connection with the representation, including but not limited to:
+- Court filing fees and service of process costs
+- Deposition and transcript costs
+- Expert witness fees
+- Travel expenses
+- Photocopying, printing, and postage
+- Database and research services
+- Overnight delivery and messenger services
+
+4. CLIENT RESPONSIBILITIES
+
+The Client agrees to:
+- Provide complete and accurate information relevant to the matter
+- Respond promptly to requests for information or decisions
+- Keep the Firm informed of any changes in contact information
+- Pay all invoices in a timely manner
+- Cooperate fully in the legal process
+
+5. COMMUNICATION
+
+The Firm will keep the Client reasonably informed about the status of the matter. The Client may contact {{responsible_attorney}} or other assigned attorneys during normal business hours. Emails and calls will be returned within one business day.
+
+6. CONFIDENTIALITY
+
+All information shared between the Client and the Firm is protected by attorney-client privilege and will be kept strictly confidential, except as required by law or with the Client's consent.
+
+7. TERMINATION
+
+Either party may terminate this Agreement at any time with written notice. Upon termination:
+- The Client remains responsible for all fees and costs incurred through the date of termination
+- The Firm will take reasonable steps to protect the Client's interests
+- The Client's file will be made available for transfer to new counsel
+- Any unused portion of the retainer will be refunded within 30 days
+
+8. CONFLICTS OF INTEREST
+
+The Firm has conducted a conflicts check and has determined that no conflict of interest exists that would prevent representation. If a conflict arises during the representation, the Firm will promptly notify the Client and take appropriate action.
+
+9. NO GUARANTEE OF OUTCOME
+
+The Client acknowledges that the Firm has made no promises or guarantees regarding the outcome of this matter. The Firm will use its best professional efforts on the Client's behalf.
+
+10. DISPUTE RESOLUTION
+
+Any disputes arising from this Agreement shall first be submitted to mediation. If mediation is unsuccessful, disputes shall be resolved through binding arbitration in accordance with the rules of the American Arbitration Association.
+
+11. GOVERNING LAW
+
+This Agreement shall be governed by the laws of the State of {{governing_state}}.
+
+12. ENTIRE AGREEMENT
+
+This Agreement constitutes the entire understanding between the parties and supersedes all prior agreements, representations, and understandings.
+
+BY SIGNING BELOW, THE PARTIES ACKNOWLEDGE THAT THEY HAVE READ, UNDERSTAND, AND AGREE TO BE BOUND BY THE TERMS OF THIS AGREEMENT.
+
+CLIENT:
+
+_________________________________          Date: _______________
+{{client_name}}
+
+ATTORNEY/LAW FIRM:
+
+_________________________________          Date: _______________
+{{responsible_attorney}}
+Bar Number: {{attorney_bar_number}}`,
+    lastUsed: '2024-12-05',
+    usageCount: 187,
+    createdAt: '2024-01-01'
   }
 ]
 
