@@ -9,6 +9,7 @@ import authRoutes from './routes/auth.js';
 import clientRoutes from './routes/clients.js';
 import matterRoutes from './routes/matters.js';
 import matterItemRoutes from './routes/matterItems.js';
+import matterTypesRoutes from './routes/matterTypes.js';
 import timeEntryRoutes from './routes/timeEntries.js';
 import invoiceRoutes from './routes/invoices.js';
 import calendarRoutes from './routes/calendar.js';
@@ -20,6 +21,9 @@ import integrationRoutes from './routes/integrations.js';
 import adminRoutes from './routes/admin.js';
 import secureAdminRoutes from './routes/secureAdmin.js';
 import migrationRoutes from './routes/migration.js';
+import billingDataRoutes from './routes/billingData.js';
+import documentTemplatesRoutes from './routes/documentTemplates.js';
+import timerStateRoutes from './routes/timerState.js';
 
 // AI Agent Tool Routes (v1 API)
 import billingRoutes from './routes/billing.js';
@@ -68,6 +72,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/matters', matterRoutes);
 app.use('/api/matters', matterItemRoutes);  // Matter tasks, updates, contacts
+app.use('/api/matter-types', matterTypesRoutes);
 app.use('/api/time-entries', timeEntryRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/calendar', calendarRoutes);
@@ -79,6 +84,9 @@ app.use('/api/integrations', integrationRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/secure-admin', secureAdminRoutes);
 app.use('/api/migration', migrationRoutes);
+app.use('/api/billing-data', billingDataRoutes);
+app.use('/api/document-templates', documentTemplatesRoutes);
+app.use('/api/timer', timerStateRoutes);
 
 // AI Agent Tool Routes (v1 API - optimized for AI interaction)
 app.use('/api/v1/billing', billingRoutes);

@@ -1,12 +1,12 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import { 
   clientsApi, 
   mattersApi, 
   timeEntriesApi, 
   invoicesApi, 
   calendarApi, 
-  documentsApi 
+  documentsApi,
+  matterTypesApi 
 } from '../services/api'
 import type { 
   Client, Matter, TimeEntry, Invoice, CalendarEvent, 
@@ -108,10 +108,11 @@ interface DataState {
   deleteGroup: (id: string) => Promise<void>
   
   // Matter Type actions
-  addMatterType: (data: { value: string; label: string }) => void
-  updateMatterType: (id: string, data: Partial<MatterTypeConfig>) => void
-  deleteMatterType: (id: string) => void
-  toggleMatterTypeActive: (id: string) => void
+  fetchMatterTypes: () => Promise<void>
+  addMatterType: (data: { value: string; label: string }) => Promise<void>
+  updateMatterType: (id: string, data: Partial<MatterTypeConfig>) => Promise<void>
+  deleteMatterType: (id: string) => Promise<void>
+  toggleMatterTypeActive: (id: string) => Promise<void>
   getMatterTypeOptions: () => { value: string; label: string }[]
   
   // Clear all data (for logout)
@@ -119,7 +120,6 @@ interface DataState {
 }
 
 export const useDataStore = create<DataState>()(
-  persist(
     (set, get) => ({
   clients: [],
   matters: [],
@@ -366,35 +366,73 @@ export const useDataStore = create<DataState>()(
   },
 
   // Matter Type actions
-  addMatterType: (data) => {
-    const newType: MatterTypeConfig = {
-      id: crypto.randomUUID(),
-      value: data.value.toLowerCase().replace(/\s+/g, '_'),
-      label: data.label,
-      active: true,
-      createdAt: new Date().toISOString(),
+  fetchMatterTypes: async () => {
+    try {
+      const response = await matterTypesApi.getAll()
+      if (response.matterTypes && response.matterTypes.length > 0) {
+        set({ matterTypes: response.matterTypes })
+      } else {
+        // Seed defaults if empty
+        await matterTypesApi.seedDefaults()
+        const seededResponse = await matterTypesApi.getAll()
+        set({ matterTypes: seededResponse.matterTypes || defaultMatterTypes })
+      }
+    } catch (error) {
+      console.error('Failed to fetch matter types:', error)
+      // Keep default matter types on error
     }
-    set(state => ({ matterTypes: [...state.matterTypes, newType] }))
   },
 
-  updateMatterType: (id, data) => {
-    set(state => ({
-      matterTypes: state.matterTypes.map(t => 
-        t.id === id ? { ...t, ...data } : t
-      )
-    }))
+  addMatterType: async (data) => {
+    try {
+      const newType = await matterTypesApi.create(data)
+      set(state => ({ matterTypes: [...state.matterTypes, newType] }))
+    } catch (error) {
+      console.error('Failed to add matter type:', error)
+      throw error
+    }
   },
 
-  deleteMatterType: (id) => {
-    set(state => ({ matterTypes: state.matterTypes.filter(t => t.id !== id) }))
+  updateMatterType: async (id, data) => {
+    try {
+      const updated = await matterTypesApi.update(id, data)
+      set(state => ({
+        matterTypes: state.matterTypes.map(t => 
+          t.id === id ? { ...t, ...updated } : t
+        )
+      }))
+    } catch (error) {
+      console.error('Failed to update matter type:', error)
+      throw error
+    }
   },
 
-  toggleMatterTypeActive: (id) => {
-    set(state => ({
-      matterTypes: state.matterTypes.map(t => 
-        t.id === id ? { ...t, active: !t.active } : t
-      )
-    }))
+  deleteMatterType: async (id) => {
+    try {
+      await matterTypesApi.delete(id)
+      set(state => ({ matterTypes: state.matterTypes.filter(t => t.id !== id) }))
+    } catch (error) {
+      console.error('Failed to delete matter type:', error)
+      throw error
+    }
+  },
+
+  toggleMatterTypeActive: async (id) => {
+    const { matterTypes } = get()
+    const matterType = matterTypes.find(t => t.id === id)
+    if (matterType) {
+      try {
+        await matterTypesApi.update(id, { active: !matterType.active })
+        set(state => ({
+          matterTypes: state.matterTypes.map(t => 
+            t.id === id ? { ...t, active: !t.active } : t
+          )
+        }))
+      } catch (error) {
+        console.error('Failed to toggle matter type:', error)
+        throw error
+      }
+    }
   },
 
   getMatterTypeOptions: () => {
@@ -420,10 +458,5 @@ export const useDataStore = create<DataState>()(
       matterTypes: defaultMatterTypes,
     })
   },
-}),
-    {
-      name: 'apex-data-store',
-      partialize: (state) => ({ matterTypes: state.matterTypes }),
-    }
-  )
+})
 )

@@ -656,6 +656,302 @@ export const aiApi = {
 };
 
 // ============================================
+// MATTER TYPES API
+// ============================================
+
+export const matterTypesApi = {
+  async getAll() {
+    return fetchWithAuth('/matter-types');
+  },
+
+  async create(data: { value: string; label: string }) {
+    return fetchWithAuth('/matter-types', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async update(id: string, data: { value?: string; label?: string; active?: boolean }) {
+    return fetchWithAuth(`/matter-types/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async delete(id: string) {
+    return fetchWithAuth(`/matter-types/${id}`, { method: 'DELETE' });
+  },
+
+  async seedDefaults() {
+    return fetchWithAuth('/matter-types/seed-defaults', { method: 'POST' });
+  },
+};
+
+// ============================================
+// BILLING DATA API
+// ============================================
+
+export const billingDataApi = {
+  // Get all billing data at once
+  async getAll() {
+    return fetchWithAuth('/billing-data/all');
+  },
+
+  // Billing Settings
+  async getSettings() {
+    return fetchWithAuth('/billing-data/settings');
+  },
+
+  async updateSettings(data: any) {
+    return fetchWithAuth('/billing-data/settings', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Invoice Templates
+  async getInvoiceTemplates() {
+    return fetchWithAuth('/billing-data/invoice-templates');
+  },
+
+  async createInvoiceTemplate(data: any) {
+    return fetchWithAuth('/billing-data/invoice-templates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateInvoiceTemplate(id: string, data: any) {
+    return fetchWithAuth(`/billing-data/invoice-templates/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteInvoiceTemplate(id: string) {
+    return fetchWithAuth(`/billing-data/invoice-templates/${id}`, { method: 'DELETE' });
+  },
+
+  // Payment Processors
+  async getPaymentProcessors() {
+    return fetchWithAuth('/billing-data/payment-processors');
+  },
+
+  async createPaymentProcessor(data: any) {
+    return fetchWithAuth('/billing-data/payment-processors', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updatePaymentProcessor(id: string, data: any) {
+    return fetchWithAuth(`/billing-data/payment-processors/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deletePaymentProcessor(id: string) {
+    return fetchWithAuth(`/billing-data/payment-processors/${id}`, { method: 'DELETE' });
+  },
+
+  // Payment Links
+  async getPaymentLinks() {
+    return fetchWithAuth('/billing-data/payment-links');
+  },
+
+  async createPaymentLink(data: { invoiceId: string; clientId?: string; amount: number }) {
+    return fetchWithAuth('/billing-data/payment-links', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updatePaymentLink(id: string, data: { status: string }) {
+    return fetchWithAuth(`/billing-data/payment-links/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Recurring Payments
+  async getRecurringPayments() {
+    return fetchWithAuth('/billing-data/recurring-payments');
+  },
+
+  async createRecurringPayment(data: any) {
+    return fetchWithAuth('/billing-data/recurring-payments', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateRecurringPayment(id: string, data: any) {
+    return fetchWithAuth(`/billing-data/recurring-payments/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteRecurringPayment(id: string) {
+    return fetchWithAuth(`/billing-data/recurring-payments/${id}`, { method: 'DELETE' });
+  },
+
+  // Trust Accounts
+  async getTrustAccounts() {
+    return fetchWithAuth('/billing-data/trust-accounts');
+  },
+
+  async createTrustAccount(data: any) {
+    return fetchWithAuth('/billing-data/trust-accounts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateTrustAccount(id: string, data: any) {
+    return fetchWithAuth(`/billing-data/trust-accounts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteTrustAccount(id: string) {
+    return fetchWithAuth(`/billing-data/trust-accounts/${id}`, { method: 'DELETE' });
+  },
+
+  // Trust Transactions
+  async getTrustTransactions(params?: { trustAccountId?: string; clientId?: string }) {
+    const query = new URLSearchParams();
+    if (params?.trustAccountId) query.set('trustAccountId', params.trustAccountId);
+    if (params?.clientId) query.set('clientId', params.clientId);
+    return fetchWithAuth(`/billing-data/trust-transactions?${query}`);
+  },
+
+  async createTrustTransaction(data: any) {
+    return fetchWithAuth('/billing-data/trust-transactions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateTrustTransaction(id: string, data: { clearedAt?: string }) {
+    return fetchWithAuth(`/billing-data/trust-transactions/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+};
+
+// ============================================
+// DOCUMENT TEMPLATES API
+// ============================================
+
+export const documentTemplatesApi = {
+  // Get all template data at once
+  async getAll() {
+    return fetchWithAuth('/document-templates/all/data');
+  },
+
+  // Templates
+  async getTemplates(params?: { category?: string; search?: string }) {
+    const query = new URLSearchParams();
+    if (params?.category) query.set('category', params.category);
+    if (params?.search) query.set('search', params.search);
+    return fetchWithAuth(`/document-templates?${query}`);
+  },
+
+  async getTemplate(id: string) {
+    return fetchWithAuth(`/document-templates/${id}`);
+  },
+
+  async createTemplate(data: any) {
+    return fetchWithAuth('/document-templates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateTemplate(id: string, data: any) {
+    return fetchWithAuth(`/document-templates/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async duplicateTemplate(id: string) {
+    return fetchWithAuth(`/document-templates/${id}/duplicate`, { method: 'POST' });
+  },
+
+  async deleteTemplate(id: string) {
+    return fetchWithAuth(`/document-templates/${id}`, { method: 'DELETE' });
+  },
+
+  async incrementUsage(id: string) {
+    return fetchWithAuth(`/document-templates/${id}/use`, { method: 'POST' });
+  },
+
+  // Generated Documents
+  async getGeneratedDocuments(params?: { templateId?: string; matterId?: string; clientId?: string; status?: string }) {
+    const query = new URLSearchParams();
+    if (params?.templateId) query.set('templateId', params.templateId);
+    if (params?.matterId) query.set('matterId', params.matterId);
+    if (params?.clientId) query.set('clientId', params.clientId);
+    if (params?.status) query.set('status', params.status);
+    return fetchWithAuth(`/document-templates/generated/all?${query}`);
+  },
+
+  async createGeneratedDocument(data: any) {
+    return fetchWithAuth('/document-templates/generated', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateGeneratedDocument(id: string, data: any) {
+    return fetchWithAuth(`/document-templates/generated/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteGeneratedDocument(id: string) {
+    return fetchWithAuth(`/document-templates/generated/${id}`, { method: 'DELETE' });
+  },
+};
+
+// ============================================
+// TIMER STATE API
+// ============================================
+
+export const timerApi = {
+  async get() {
+    return fetchWithAuth('/timer');
+  },
+
+  async update(data: {
+    isRunning?: boolean;
+    isPaused?: boolean;
+    matterId?: string | null;
+    matterName?: string | null;
+    clientId?: string | null;
+    clientName?: string | null;
+    startTime?: string | null;
+    pausedAt?: string | null;
+    accumulatedSeconds?: number;
+  }) {
+    return fetchWithAuth('/timer', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async clear() {
+    return fetchWithAuth('/timer', { method: 'DELETE' });
+  },
+};
+
+// ============================================
 // INTEGRATIONS API
 // ============================================
 
@@ -771,6 +1067,7 @@ export default {
   auth: authApi,
   clients: clientsApi,
   matters: mattersApi,
+  matterTypes: matterTypesApi,
   timeEntries: timeEntriesApi,
   invoices: invoicesApi,
   calendar: calendarApi,
@@ -780,4 +1077,7 @@ export default {
   ai: aiApi,
   integrations: integrationsApi,
   admin: adminApi,
+  billingData: billingDataApi,
+  documentTemplates: documentTemplatesApi,
+  timer: timerApi,
 };

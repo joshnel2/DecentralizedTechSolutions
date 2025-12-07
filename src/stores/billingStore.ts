@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { billingDataApi } from '../services/api'
 
 // Trust Account Types (IOLTA Compliance)
 export interface TrustAccount {
@@ -117,6 +117,10 @@ export interface InvoiceTemplate {
 
 // Billing Store State
 interface BillingStoreState {
+  // Loading state
+  isLoading: boolean
+  isInitialized: boolean
+  
   // Trust Accounts
   trustAccounts: TrustAccount[]
   trustTransactions: TrustTransaction[]
@@ -144,512 +148,358 @@ interface BillingStoreState {
     surchargePercent: number
   }
   
+  // Fetch all data
+  fetchAll: () => Promise<void>
+  
   // Trust Account Actions
-  addTrustAccount: (account: Omit<TrustAccount, 'id' | 'createdAt'>) => TrustAccount
-  updateTrustAccount: (id: string, data: Partial<TrustAccount>) => void
-  deleteTrustAccount: (id: string) => void
-  reconcileTrustAccount: (id: string) => void
+  addTrustAccount: (account: Omit<TrustAccount, 'id' | 'createdAt'>) => Promise<TrustAccount>
+  updateTrustAccount: (id: string, data: Partial<TrustAccount>) => Promise<void>
+  deleteTrustAccount: (id: string) => Promise<void>
+  reconcileTrustAccount: (id: string) => Promise<void>
   
   // Trust Transaction Actions
-  addTrustTransaction: (transaction: Omit<TrustTransaction, 'id' | 'createdAt'>) => TrustTransaction
-  clearTransaction: (id: string) => void
+  addTrustTransaction: (transaction: Omit<TrustTransaction, 'id' | 'createdAt'>) => Promise<TrustTransaction>
+  clearTransaction: (id: string) => Promise<void>
   getClientLedger: (clientId: string) => ClientLedger
   
   // Payment Processor Actions
-  addPaymentProcessor: (processor: Omit<PaymentProcessor, 'id' | 'createdAt'>) => PaymentProcessor
-  updatePaymentProcessor: (id: string, data: Partial<PaymentProcessor>) => void
-  setDefaultProcessor: (id: string) => void
-  disconnectProcessor: (id: string) => void
+  addPaymentProcessor: (processor: Omit<PaymentProcessor, 'id' | 'createdAt'>) => Promise<PaymentProcessor>
+  updatePaymentProcessor: (id: string, data: Partial<PaymentProcessor>) => Promise<void>
+  setDefaultProcessor: (id: string) => Promise<void>
+  disconnectProcessor: (id: string) => Promise<void>
   
   // Payment Link Actions
-  createPaymentLink: (invoiceId: string, clientId: string, amount: number) => PaymentLink
-  expirePaymentLink: (id: string) => void
-  markPaymentLinkPaid: (id: string) => void
+  createPaymentLink: (invoiceId: string, clientId: string, amount: number) => Promise<PaymentLink>
+  expirePaymentLink: (id: string) => Promise<void>
+  markPaymentLinkPaid: (id: string) => Promise<void>
   
   // Recurring Payment Actions
-  addRecurringPayment: (payment: Omit<RecurringPayment, 'id' | 'createdAt'>) => RecurringPayment
-  updateRecurringPayment: (id: string, data: Partial<RecurringPayment>) => void
-  cancelRecurringPayment: (id: string) => void
+  addRecurringPayment: (payment: Omit<RecurringPayment, 'id' | 'createdAt'>) => Promise<RecurringPayment>
+  updateRecurringPayment: (id: string, data: Partial<RecurringPayment>) => Promise<void>
+  cancelRecurringPayment: (id: string) => Promise<void>
   
   // Template Actions
-  addInvoiceTemplate: (template: Omit<InvoiceTemplate, 'id' | 'createdAt'>) => InvoiceTemplate
-  updateInvoiceTemplate: (id: string, data: Partial<InvoiceTemplate>) => void
-  deleteInvoiceTemplate: (id: string) => void
-  setDefaultTemplate: (id: string) => void
+  addInvoiceTemplate: (template: Omit<InvoiceTemplate, 'id' | 'createdAt'>) => Promise<InvoiceTemplate>
+  updateInvoiceTemplate: (id: string, data: Partial<InvoiceTemplate>) => Promise<void>
+  deleteInvoiceTemplate: (id: string) => Promise<void>
+  setDefaultTemplate: (id: string) => Promise<void>
   
   // Settings Actions
-  updateBillingSettings: (settings: Partial<BillingStoreState['billingSettings']>) => void
+  updateBillingSettings: (settings: Partial<BillingStoreState['billingSettings']>) => Promise<void>
   
   // Reports
   getTrustAccountReport: (accountId: string, startDate: string, endDate: string) => any
   getThreeWayReconciliation: (accountId: string) => any
 }
 
-const generateId = () => `id-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-
-// Demo data
-const demoTrustAccounts: TrustAccount[] = [
-  {
-    id: 'trust-1',
-    firmId: 'firm-1',
-    bankName: 'First National Bank',
-    accountName: 'Apex Legal IOLTA',
-    accountNumber: '****4521',
-    routingNumber: '****0892',
-    accountType: 'iolta',
-    balance: 125750.00,
-    isVerified: true,
-    lastReconciled: '2024-11-01T00:00:00Z',
-    createdAt: '2024-01-01T00:00:00Z'
-  },
-  {
-    id: 'operating-1',
-    firmId: 'firm-1',
-    bankName: 'First National Bank',
-    accountName: 'Apex Legal Operating',
-    accountNumber: '****7834',
-    routingNumber: '****0892',
-    accountType: 'operating',
-    balance: 89420.50,
-    isVerified: true,
-    lastReconciled: '2024-11-01T00:00:00Z',
-    createdAt: '2024-01-01T00:00:00Z'
-  }
-]
-
-const demoTrustTransactions: TrustTransaction[] = [
-  {
-    id: 'tt-1',
-    trustAccountId: 'trust-1',
-    clientId: 'client-1',
-    matterId: 'matter-1',
-    type: 'deposit',
-    amount: 50000,
-    description: 'Retainer deposit - Quantum v. TechStart',
-    paymentMethod: 'wire',
-    reference: 'WIRE-20241115-001',
-    clearedAt: '2024-11-15T00:00:00Z',
-    createdBy: 'user-1',
-    createdAt: '2024-11-15T00:00:00Z'
-  },
-  {
-    id: 'tt-2',
-    trustAccountId: 'trust-1',
-    clientId: 'client-1',
-    matterId: 'matter-1',
-    type: 'withdrawal',
-    amount: 24750,
-    description: 'Transfer to operating - Invoice INV-2024-0042',
-    reference: 'INV-2024-0042',
-    createdBy: 'user-1',
-    createdAt: '2024-11-20T00:00:00Z'
-  },
-  {
-    id: 'tt-3',
-    trustAccountId: 'trust-1',
-    clientId: 'client-3',
-    matterId: 'matter-3',
-    type: 'deposit',
-    amount: 25000,
-    description: 'Retainer deposit - Meridian Development',
-    paymentMethod: 'check',
-    checkNumber: '4521',
-    clearedAt: '2024-11-10T00:00:00Z',
-    createdBy: 'user-1',
-    createdAt: '2024-11-08T00:00:00Z'
-  }
-]
-
-const demoPaymentProcessors: PaymentProcessor[] = [
-  {
-    id: 'proc-1',
-    name: 'LawPay',
-    type: 'lawpay',
-    isActive: true,
-    isDefault: true,
-    credentials: {
-      merchantId: 'LP_****7892',
-      isConnected: true
-    },
-    fees: {
-      creditCardPercent: 2.95,
-      creditCardFixed: 0.30,
-      achPercent: 0.5,
-      achFixed: 0
-    },
-    supportedMethods: ['credit_card', 'ach', 'echeck'],
-    createdAt: '2024-01-01T00:00:00Z'
-  },
-  {
-    id: 'proc-2',
-    name: 'Stripe',
-    type: 'stripe',
-    isActive: false,
-    isDefault: false,
-    credentials: {
-      publicKey: 'pk_live_****',
-      isConnected: false
-    },
-    fees: {
-      creditCardPercent: 2.9,
-      creditCardFixed: 0.30,
-      achPercent: 0.8,
-      achFixed: 5
-    },
-    supportedMethods: ['credit_card', 'ach'],
-    createdAt: '2024-01-01T00:00:00Z'
-  }
-]
-
-const demoInvoiceTemplates: InvoiceTemplate[] = [
-  {
-    id: 'template-1',
-    name: 'Standard Invoice',
-    isDefault: true,
-    header: {
-      showLogo: true,
-      showFirmAddress: true,
-      customMessage: 'Thank you for your business'
-    },
-    lineItems: {
-      showActivityCodes: true,
-      showTimekeeper: true,
-      groupByTask: false,
-      showHourlyRate: true
-    },
-    footer: {
-      showPaymentInstructions: true,
-      paymentInstructions: 'Payment is due within 30 days. Please include invoice number with your payment.',
-      showLatePolicy: true,
-      lateFeePolicy: 'A late fee of 1.5% per month will be applied to overdue balances.',
-      customNotes: ''
-    },
-    styling: {
-      primaryColor: '#F59E0B',
-      fontFamily: 'Inter'
-    },
-    createdAt: '2024-01-01T00:00:00Z'
-  },
-  {
-    id: 'template-2',
-    name: 'Detailed Litigation',
-    isDefault: false,
-    header: {
-      showLogo: true,
-      showFirmAddress: true
-    },
-    lineItems: {
-      showActivityCodes: true,
-      showTimekeeper: true,
-      groupByTask: true,
-      showHourlyRate: true
-    },
-    footer: {
-      showPaymentInstructions: true,
-      showLatePolicy: true
-    },
-    styling: {
-      primaryColor: '#F59E0B',
-      fontFamily: 'Inter'
-    },
-    createdAt: '2024-01-01T00:00:00Z'
-  }
-]
+const defaultBillingSettings = {
+  defaultPaymentTerms: 30,
+  lateFeeEnabled: true,
+  lateFeePercent: 1.5,
+  lateFeeGraceDays: 5,
+  autoSendReminders: true,
+  reminderDays: [7, 3, 1, 0],
+  acceptCreditCards: true,
+  acceptACH: true,
+  surchargeEnabled: false,
+  surchargePercent: 3
+}
 
 export const useBillingStore = create<BillingStoreState>()(
-  persist(
-    (set, get) => ({
-      trustAccounts: demoTrustAccounts,
-      trustTransactions: demoTrustTransactions,
-      clientLedgers: {},
-      paymentProcessors: demoPaymentProcessors,
-      paymentLinks: [],
-      recurringPayments: [],
-      invoiceTemplates: demoInvoiceTemplates,
-      billingSettings: {
-        defaultPaymentTerms: 30,
-        lateFeeEnabled: true,
-        lateFeePercent: 1.5,
-        lateFeeGraceDays: 5,
-        autoSendReminders: true,
-        reminderDays: [7, 3, 1, 0],
-        acceptCreditCards: true,
-        acceptACH: true,
-        surchargeEnabled: false,
-        surchargePercent: 3
-      },
+  (set, get) => ({
+    isLoading: false,
+    isInitialized: false,
+    trustAccounts: [],
+    trustTransactions: [],
+    clientLedgers: {},
+    paymentProcessors: [],
+    paymentLinks: [],
+    recurringPayments: [],
+    invoiceTemplates: [],
+    billingSettings: defaultBillingSettings,
 
-      // Trust Account Actions
-      addTrustAccount: (data) => {
-        const account: TrustAccount = {
-          ...data,
-          id: generateId(),
-          createdAt: new Date().toISOString()
-        }
-        set(state => ({ trustAccounts: [...state.trustAccounts, account] }))
-        return account
-      },
+    // Fetch all billing data from database
+    fetchAll: async () => {
+      if (get().isLoading) return
+      set({ isLoading: true })
+      try {
+        const data = await billingDataApi.getAll()
+        set({
+          trustAccounts: data.trustAccounts || [],
+          trustTransactions: data.trustTransactions || [],
+          paymentProcessors: data.paymentProcessors || [],
+          paymentLinks: data.paymentLinks || [],
+          recurringPayments: data.recurringPayments || [],
+          invoiceTemplates: data.invoiceTemplates || [],
+          billingSettings: data.billingSettings || defaultBillingSettings,
+          isInitialized: true,
+          isLoading: false,
+        })
+      } catch (error) {
+        console.error('Failed to fetch billing data:', error)
+        set({ isLoading: false, isInitialized: true })
+      }
+    },
 
-      updateTrustAccount: (id, data) => {
-        set(state => ({
-          trustAccounts: state.trustAccounts.map(a => 
-            a.id === id ? { ...a, ...data } : a
-          )
-        }))
-      },
+    // Trust Account Actions
+    addTrustAccount: async (data) => {
+      const account = await billingDataApi.createTrustAccount(data)
+      set(state => ({ trustAccounts: [...state.trustAccounts, account] }))
+      return account
+    },
 
-      deleteTrustAccount: (id) => {
-        set(state => ({ trustAccounts: state.trustAccounts.filter(a => a.id !== id) }))
-      },
+    updateTrustAccount: async (id, data) => {
+      await billingDataApi.updateTrustAccount(id, data)
+      set(state => ({
+        trustAccounts: state.trustAccounts.map(a => 
+          a.id === id ? { ...a, ...data } : a
+        )
+      }))
+    },
 
-      reconcileTrustAccount: (id) => {
+    deleteTrustAccount: async (id) => {
+      await billingDataApi.deleteTrustAccount(id)
+      set(state => ({ trustAccounts: state.trustAccounts.filter(a => a.id !== id) }))
+    },
+
+    reconcileTrustAccount: async (id) => {
+      const lastReconciled = new Date().toISOString()
+      await billingDataApi.updateTrustAccount(id, { lastReconciled })
+      set(state => ({
+        trustAccounts: state.trustAccounts.map(a =>
+          a.id === id ? { ...a, lastReconciled } : a
+        )
+      }))
+    },
+
+    // Trust Transaction Actions
+    addTrustTransaction: async (data) => {
+      const transaction = await billingDataApi.createTrustTransaction(data)
+      
+      // Update local account balance
+      const account = get().trustAccounts.find(a => a.id === data.trustAccountId)
+      if (account) {
+        const balanceChange = data.type === 'deposit' || data.type === 'interest' 
+          ? data.amount 
+          : -data.amount
         set(state => ({
           trustAccounts: state.trustAccounts.map(a =>
-            a.id === id ? { ...a, lastReconciled: new Date().toISOString() } : a
+            a.id === data.trustAccountId ? { ...a, balance: a.balance + balanceChange } : a
           )
         }))
-      },
+      }
+      
+      set(state => ({ 
+        trustTransactions: [...state.trustTransactions, transaction] 
+      }))
+      return transaction
+    },
 
-      // Trust Transaction Actions
-      addTrustTransaction: (data) => {
-        const transaction: TrustTransaction = {
-          ...data,
-          id: generateId(),
-          createdAt: new Date().toISOString()
-        }
-        
-        // Update account balance
-        const account = get().trustAccounts.find(a => a.id === data.trustAccountId)
-        if (account) {
-          const balanceChange = data.type === 'deposit' || data.type === 'interest' 
-            ? data.amount 
-            : -data.amount
-          get().updateTrustAccount(account.id, { 
-            balance: account.balance + balanceChange 
-          })
-        }
-        
-        set(state => ({ 
-          trustTransactions: [...state.trustTransactions, transaction] 
-        }))
-        return transaction
-      },
-
-      clearTransaction: (id) => {
-        set(state => ({
-          trustTransactions: state.trustTransactions.map(t =>
-            t.id === id ? { ...t, clearedAt: new Date().toISOString() } : t
-          )
-        }))
-      },
-
-      getClientLedger: (clientId) => {
-        const transactions = get().trustTransactions.filter(t => t.clientId === clientId)
-        const trustBalance = transactions.reduce((sum, t) => {
-          if (t.type === 'deposit' || t.type === 'interest') return sum + t.amount
-          if (t.type === 'withdrawal' || t.type === 'fee') return sum - t.amount
-          return sum
-        }, 0)
-        
-        return {
-          clientId,
-          trustBalance,
-          operatingBalance: 0,
-          transactions
-        }
-      },
-
-      // Payment Processor Actions
-      addPaymentProcessor: (data) => {
-        const processor: PaymentProcessor = {
-          ...data,
-          id: generateId(),
-          createdAt: new Date().toISOString()
-        }
-        set(state => ({ paymentProcessors: [...state.paymentProcessors, processor] }))
-        return processor
-      },
-
-      updatePaymentProcessor: (id, data) => {
-        set(state => ({
-          paymentProcessors: state.paymentProcessors.map(p =>
-            p.id === id ? { ...p, ...data } : p
-          )
-        }))
-      },
-
-      setDefaultProcessor: (id) => {
-        set(state => ({
-          paymentProcessors: state.paymentProcessors.map(p => ({
-            ...p,
-            isDefault: p.id === id
-          }))
-        }))
-      },
-
-      disconnectProcessor: (id) => {
-        set(state => ({
-          paymentProcessors: state.paymentProcessors.map(p =>
-            p.id === id ? { 
-              ...p, 
-              isActive: false,
-              credentials: { ...p.credentials, isConnected: false }
-            } : p
-          )
-        }))
-      },
-
-      // Payment Link Actions
-      createPaymentLink: (invoiceId, clientId, amount) => {
-        const link: PaymentLink = {
-          id: generateId(),
-          invoiceId,
-          clientId,
-          amount,
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-          url: `https://pay.apexlegal.com/${generateId()}`,
-          status: 'active',
-          createdAt: new Date().toISOString()
-        }
-        set(state => ({ paymentLinks: [...state.paymentLinks, link] }))
-        return link
-      },
-
-      expirePaymentLink: (id) => {
-        set(state => ({
-          paymentLinks: state.paymentLinks.map(l =>
-            l.id === id ? { ...l, status: 'expired' as const } : l
-          )
-        }))
-      },
-
-      markPaymentLinkPaid: (id) => {
-        set(state => ({
-          paymentLinks: state.paymentLinks.map(l =>
-            l.id === id ? { ...l, status: 'paid' as const } : l
-          )
-        }))
-      },
-
-      // Recurring Payment Actions
-      addRecurringPayment: (data) => {
-        const payment: RecurringPayment = {
-          ...data,
-          id: generateId(),
-          createdAt: new Date().toISOString()
-        }
-        set(state => ({ recurringPayments: [...state.recurringPayments, payment] }))
-        return payment
-      },
-
-      updateRecurringPayment: (id, data) => {
-        set(state => ({
-          recurringPayments: state.recurringPayments.map(p =>
-            p.id === id ? { ...p, ...data } : p
-          )
-        }))
-      },
-
-      cancelRecurringPayment: (id) => {
-        set(state => ({
-          recurringPayments: state.recurringPayments.map(p =>
-            p.id === id ? { ...p, status: 'cancelled' as const } : p
-          )
-        }))
-      },
-
-      // Template Actions
-      addInvoiceTemplate: (data) => {
-        const template: InvoiceTemplate = {
-          ...data,
-          id: generateId(),
-          createdAt: new Date().toISOString()
-        }
-        set(state => ({ invoiceTemplates: [...state.invoiceTemplates, template] }))
-        return template
-      },
-
-      updateInvoiceTemplate: (id, data) => {
-        set(state => ({
-          invoiceTemplates: state.invoiceTemplates.map(t =>
-            t.id === id ? { ...t, ...data } : t
-          )
-        }))
-      },
-
-      deleteInvoiceTemplate: (id) => {
-        set(state => ({ 
-          invoiceTemplates: state.invoiceTemplates.filter(t => t.id !== id) 
-        }))
-      },
-
-      setDefaultTemplate: (id) => {
-        set(state => ({
-          invoiceTemplates: state.invoiceTemplates.map(t => ({
-            ...t,
-            isDefault: t.id === id
-          }))
-        }))
-      },
-
-      // Settings Actions
-      updateBillingSettings: (settings) => {
-        set(state => ({
-          billingSettings: { ...state.billingSettings, ...settings }
-        }))
-      },
-
-      // Reports
-      getTrustAccountReport: (accountId, startDate, endDate) => {
-        const transactions = get().trustTransactions.filter(t => 
-          t.trustAccountId === accountId &&
-          t.createdAt >= startDate &&
-          t.createdAt <= endDate
+    clearTransaction: async (id) => {
+      await billingDataApi.updateTrustTransaction(id, { clearedAt: new Date().toISOString() })
+      set(state => ({
+        trustTransactions: state.trustTransactions.map(t =>
+          t.id === id ? { ...t, clearedAt: new Date().toISOString() } : t
         )
-        
-        const deposits = transactions.filter(t => t.type === 'deposit').reduce((s, t) => s + t.amount, 0)
-        const withdrawals = transactions.filter(t => t.type === 'withdrawal').reduce((s, t) => s + t.amount, 0)
-        
-        return {
-          transactions,
-          summary: {
-            totalDeposits: deposits,
-            totalWithdrawals: withdrawals,
-            netChange: deposits - withdrawals,
-            transactionCount: transactions.length
-          }
-        }
-      },
+      }))
+    },
 
-      getThreeWayReconciliation: (accountId) => {
-        const account = get().trustAccounts.find(a => a.id === accountId)
-        const transactions = get().trustTransactions.filter(t => t.trustAccountId === accountId)
-        
-        // Group by client
-        const clientBalances: Record<string, number> = {}
-        transactions.forEach(t => {
-          if (!clientBalances[t.clientId]) clientBalances[t.clientId] = 0
-          if (t.type === 'deposit' || t.type === 'interest') {
-            clientBalances[t.clientId] += t.amount
-          } else {
-            clientBalances[t.clientId] -= t.amount
-          }
-        })
-        
-        const totalClientBalances = Object.values(clientBalances).reduce((s, b) => s + b, 0)
-        
-        return {
-          bankBalance: account?.balance || 0,
-          bookBalance: totalClientBalances,
-          clientLedgerTotal: totalClientBalances,
-          isReconciled: account?.balance === totalClientBalances,
-          clientBalances,
-          discrepancy: (account?.balance || 0) - totalClientBalances
+    getClientLedger: (clientId) => {
+      const transactions = get().trustTransactions.filter(t => t.clientId === clientId)
+      const trustBalance = transactions.reduce((sum, t) => {
+        if (t.type === 'deposit' || t.type === 'interest') return sum + t.amount
+        if (t.type === 'withdrawal' || t.type === 'fee') return sum - t.amount
+        return sum
+      }, 0)
+      
+      return {
+        clientId,
+        trustBalance,
+        operatingBalance: 0,
+        transactions
+      }
+    },
+
+    // Payment Processor Actions
+    addPaymentProcessor: async (data) => {
+      const processor = await billingDataApi.createPaymentProcessor(data)
+      set(state => ({ paymentProcessors: [...state.paymentProcessors, processor] }))
+      return processor
+    },
+
+    updatePaymentProcessor: async (id, data) => {
+      await billingDataApi.updatePaymentProcessor(id, data)
+      set(state => ({
+        paymentProcessors: state.paymentProcessors.map(p =>
+          p.id === id ? { ...p, ...data } : p
+        )
+      }))
+    },
+
+    setDefaultProcessor: async (id) => {
+      await billingDataApi.updatePaymentProcessor(id, { isDefault: true })
+      set(state => ({
+        paymentProcessors: state.paymentProcessors.map(p => ({
+          ...p,
+          isDefault: p.id === id
+        }))
+      }))
+    },
+
+    disconnectProcessor: async (id) => {
+      await billingDataApi.updatePaymentProcessor(id, { 
+        isActive: false,
+        credentials: { isConnected: false }
+      })
+      set(state => ({
+        paymentProcessors: state.paymentProcessors.map(p =>
+          p.id === id ? { 
+            ...p, 
+            isActive: false,
+            credentials: { ...p.credentials, isConnected: false }
+          } : p
+        )
+      }))
+    },
+
+    // Payment Link Actions
+    createPaymentLink: async (invoiceId, clientId, amount) => {
+      const link = await billingDataApi.createPaymentLink({ invoiceId, clientId, amount })
+      set(state => ({ paymentLinks: [...state.paymentLinks, link] }))
+      return link
+    },
+
+    expirePaymentLink: async (id) => {
+      await billingDataApi.updatePaymentLink(id, { status: 'expired' })
+      set(state => ({
+        paymentLinks: state.paymentLinks.map(l =>
+          l.id === id ? { ...l, status: 'expired' as const } : l
+        )
+      }))
+    },
+
+    markPaymentLinkPaid: async (id) => {
+      await billingDataApi.updatePaymentLink(id, { status: 'paid' })
+      set(state => ({
+        paymentLinks: state.paymentLinks.map(l =>
+          l.id === id ? { ...l, status: 'paid' as const } : l
+        )
+      }))
+    },
+
+    // Recurring Payment Actions
+    addRecurringPayment: async (data) => {
+      const payment = await billingDataApi.createRecurringPayment(data)
+      set(state => ({ recurringPayments: [...state.recurringPayments, payment] }))
+      return payment
+    },
+
+    updateRecurringPayment: async (id, data) => {
+      await billingDataApi.updateRecurringPayment(id, data)
+      set(state => ({
+        recurringPayments: state.recurringPayments.map(p =>
+          p.id === id ? { ...p, ...data } : p
+        )
+      }))
+    },
+
+    cancelRecurringPayment: async (id) => {
+      await billingDataApi.updateRecurringPayment(id, { status: 'cancelled' })
+      set(state => ({
+        recurringPayments: state.recurringPayments.map(p =>
+          p.id === id ? { ...p, status: 'cancelled' as const } : p
+        )
+      }))
+    },
+
+    // Template Actions
+    addInvoiceTemplate: async (data) => {
+      const template = await billingDataApi.createInvoiceTemplate(data)
+      set(state => ({ invoiceTemplates: [...state.invoiceTemplates, template] }))
+      return template
+    },
+
+    updateInvoiceTemplate: async (id, data) => {
+      await billingDataApi.updateInvoiceTemplate(id, data)
+      set(state => ({
+        invoiceTemplates: state.invoiceTemplates.map(t =>
+          t.id === id ? { ...t, ...data } : t
+        )
+      }))
+    },
+
+    deleteInvoiceTemplate: async (id) => {
+      await billingDataApi.deleteInvoiceTemplate(id)
+      set(state => ({ 
+        invoiceTemplates: state.invoiceTemplates.filter(t => t.id !== id) 
+      }))
+    },
+
+    setDefaultTemplate: async (id) => {
+      await billingDataApi.updateInvoiceTemplate(id, { isDefault: true })
+      set(state => ({
+        invoiceTemplates: state.invoiceTemplates.map(t => ({
+          ...t,
+          isDefault: t.id === id
+        }))
+      }))
+    },
+
+    // Settings Actions
+    updateBillingSettings: async (settings) => {
+      await billingDataApi.updateSettings(settings)
+      set(state => ({
+        billingSettings: { ...state.billingSettings, ...settings }
+      }))
+    },
+
+    // Reports (computed locally from fetched data)
+    getTrustAccountReport: (accountId, startDate, endDate) => {
+      const transactions = get().trustTransactions.filter(t => 
+        t.trustAccountId === accountId &&
+        t.createdAt >= startDate &&
+        t.createdAt <= endDate
+      )
+      
+      const deposits = transactions.filter(t => t.type === 'deposit').reduce((s, t) => s + t.amount, 0)
+      const withdrawals = transactions.filter(t => t.type === 'withdrawal').reduce((s, t) => s + t.amount, 0)
+      
+      return {
+        transactions,
+        summary: {
+          totalDeposits: deposits,
+          totalWithdrawals: withdrawals,
+          netChange: deposits - withdrawals,
+          transactionCount: transactions.length
         }
       }
-    }),
-    {
-      name: 'apex-billing'
+    },
+
+    getThreeWayReconciliation: (accountId) => {
+      const account = get().trustAccounts.find(a => a.id === accountId)
+      const transactions = get().trustTransactions.filter(t => t.trustAccountId === accountId)
+      
+      // Group by client
+      const clientBalances: Record<string, number> = {}
+      transactions.forEach(t => {
+        if (!clientBalances[t.clientId]) clientBalances[t.clientId] = 0
+        if (t.type === 'deposit' || t.type === 'interest') {
+          clientBalances[t.clientId] += t.amount
+        } else {
+          clientBalances[t.clientId] -= t.amount
+        }
+      })
+      
+      const totalClientBalances = Object.values(clientBalances).reduce((s, b) => s + b, 0)
+      
+      return {
+        bankBalance: account?.balance || 0,
+        bookBalance: totalClientBalances,
+        clientLedgerTotal: totalClientBalances,
+        isReconciled: account?.balance === totalClientBalances,
+        clientBalances,
+        discrepancy: (account?.balance || 0) - totalClientBalances
+      }
     }
-  )
+  })
 )

@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
+import { useBillingStore } from '../stores/billingStore'
+import { useTemplateStore } from '../stores/templateStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
 import { AIChat } from './AIChat'
@@ -40,7 +42,9 @@ const settingsItems = [
 
 export function Layout() {
   const { user, firm, logout } = useAuthStore()
-  const { notifications } = useDataStore()
+  const { notifications, fetchMatterTypes } = useDataStore()
+  const { fetchAll: fetchBillingData, isInitialized: billingInitialized } = useBillingStore()
+  const { fetchAll: fetchTemplateData, isInitialized: templateInitialized } = useTemplateStore()
   const { timer, isTimerActive, pauseTimer, resumeTimer, stopTimer } = useTimer()
   const navigate = useNavigate()
   const location = useLocation()
@@ -53,6 +57,17 @@ export function Layout() {
   const { isOpen: aiChatOpen, openChat, closeChat } = useAIChat()
 
   const unreadCount = notifications.filter(n => !n.read).length
+
+  // Initialize stores with data from database
+  useEffect(() => {
+    fetchMatterTypes()
+    if (!billingInitialized) {
+      fetchBillingData()
+    }
+    if (!templateInitialized) {
+      fetchTemplateData()
+    }
+  }, [fetchMatterTypes, fetchBillingData, fetchTemplateData, billingInitialized, templateInitialized])
 
   // Handle mobile detection and window resize
   useEffect(() => {

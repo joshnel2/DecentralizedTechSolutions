@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react'
 import { useDataStore } from '../stores/dataStore'
+import { timerApi } from '../services/api'
 
 interface TimerState {
   isRunning: boolean
@@ -41,60 +42,97 @@ const initialTimerState: TimerState = {
 
 export function TimerProvider({ children }: { children: ReactNode }) {
   const { matters, clients } = useDataStore()
-  
-  const [timer, setTimer] = useState<TimerState>(() => {
-    // Restore timer from localStorage
-    const saved = localStorage.getItem('global-timer')
-    if (saved) {
+  const [timer, setTimer] = useState<TimerState>(initialTimerState)
+  const [isInitialized, setIsInitialized] = useState(false)
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Load timer state from database on mount
+  useEffect(() => {
+    const loadTimerState = async () => {
       try {
-        const parsed = JSON.parse(saved)
-        if (parsed.startTime) {
-          const startTime = new Date(parsed.startTime)
-          const accumulatedTime = parsed.accumulatedTime || 0
+        const data = await timerApi.get()
+        if (data && data.startTime) {
+          const startTime = new Date(data.startTime)
+          const accumulatedTime = data.accumulatedSeconds || 0
           
-          if (parsed.isRunning && !parsed.isPaused) {
+          if (data.isRunning && !data.isPaused) {
             // Timer was running, calculate elapsed time
-            return {
-              ...parsed,
+            setTimer({
+              isRunning: true,
+              isPaused: false,
+              matterId: data.matterId,
+              matterName: data.matterName,
+              clientId: data.clientId,
+              clientName: data.clientName,
               startTime,
               pausedAt: null,
+              accumulatedTime,
               elapsed: accumulatedTime + Math.floor((Date.now() - startTime.getTime()) / 1000)
-            }
-          } else if (parsed.isPaused) {
-            // Timer was paused, keep the accumulated time
-            return {
-              ...parsed,
+            })
+          } else if (data.isPaused) {
+            // Timer was paused
+            setTimer({
+              isRunning: true,
+              isPaused: true,
+              matterId: data.matterId,
+              matterName: data.matterName,
+              clientId: data.clientId,
+              clientName: data.clientName,
               startTime,
-              pausedAt: parsed.pausedAt ? new Date(parsed.pausedAt) : null,
+              pausedAt: data.pausedAt ? new Date(data.pausedAt) : null,
+              accumulatedTime,
               elapsed: accumulatedTime
-            }
+            })
           }
         }
-      } catch (e) {
-        console.error('Failed to restore timer:', e)
+      } catch (error) {
+        console.error('Failed to load timer state:', error)
       }
+      setIsInitialized(true)
     }
-    return initialTimerState
-  })
 
-  // Persist timer to localStorage
-  useEffect(() => {
-    if (timer.startTime) {
-      localStorage.setItem('global-timer', JSON.stringify({
-        isRunning: timer.isRunning,
-        isPaused: timer.isPaused,
-        matterId: timer.matterId,
-        matterName: timer.matterName,
-        clientId: timer.clientId,
-        clientName: timer.clientName,
-        startTime: timer.startTime?.toISOString(),
-        pausedAt: timer.pausedAt?.toISOString(),
-        accumulatedTime: timer.accumulatedTime
-      }))
-    } else {
-      localStorage.removeItem('global-timer')
+    loadTimerState()
+  }, [])
+
+  // Save timer state to database (debounced)
+  const saveTimerState = useCallback(async (state: TimerState) => {
+    if (!isInitialized) return
+    
+    // Clear any pending save
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
     }
-  }, [timer])
+    
+    // Debounce the save
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        if (state.startTime) {
+          await timerApi.update({
+            isRunning: state.isRunning,
+            isPaused: state.isPaused,
+            matterId: state.matterId,
+            matterName: state.matterName,
+            clientId: state.clientId,
+            clientName: state.clientName,
+            startTime: state.startTime?.toISOString(),
+            pausedAt: state.pausedAt?.toISOString() || null,
+            accumulatedSeconds: state.accumulatedTime,
+          })
+        } else {
+          await timerApi.clear()
+        }
+      } catch (error) {
+        console.error('Failed to save timer state:', error)
+      }
+    }, 1000) // Save after 1 second of no changes
+  }, [isInitialized])
+
+  // Save timer state when it changes (but not every second for elapsed)
+  useEffect(() => {
+    if (isInitialized && (timer.isRunning || timer.isPaused || timer.startTime)) {
+      saveTimerState(timer)
+    }
+  }, [timer.isRunning, timer.isPaused, timer.matterId, timer.startTime, timer.accumulatedTime, isInitialized, saveTimerState])
 
   // Update elapsed time every second
   useEffect(() => {
@@ -110,7 +148,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(interval)
   }, [timer.isRunning, timer.isPaused, timer.startTime])
 
-  const startTimer = useCallback((options: { 
+  const startTimer = useCallback(async (options: { 
     matterId?: string; 
     matterName?: string; 
     clientId?: string; 
@@ -130,29 +168,48 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       clientName = client?.name || client?.displayName || 'Unknown Client'
     }
     
-    setTimer({
+    const startTime = new Date()
+    const newState: TimerState = {
       isRunning: true,
       isPaused: false,
       matterId: options.matterId || null,
       matterName: matterName || null,
       clientId: options.clientId || null,
       clientName: clientName || null,
-      startTime: new Date(),
+      startTime,
       pausedAt: null,
       accumulatedTime: 0,
       elapsed: 0
-    })
+    }
+    
+    setTimer(newState)
+    
+    // Save immediately when starting
+    try {
+      await timerApi.update({
+        isRunning: true,
+        isPaused: false,
+        matterId: options.matterId || null,
+        matterName: matterName || null,
+        clientId: options.clientId || null,
+        clientName: clientName || null,
+        startTime: startTime.toISOString(),
+        pausedAt: null,
+        accumulatedSeconds: 0,
+      })
+    } catch (error) {
+      console.error('Failed to save timer start:', error)
+    }
   }, [matters, clients])
 
-  const pauseTimer = useCallback(() => {
+  const pauseTimer = useCallback(async () => {
     setTimer(prev => {
       if (!prev.isRunning || prev.isPaused) return prev
       
-      // Calculate current elapsed and store it
       const currentElapsed = prev.accumulatedTime + 
         Math.floor((Date.now() - (prev.startTime?.getTime() || Date.now())) / 1000)
       
-      return {
+      const newState = {
         ...prev,
         isRunning: true,
         isPaused: true,
@@ -160,35 +217,87 @@ export function TimerProvider({ children }: { children: ReactNode }) {
         accumulatedTime: currentElapsed,
         elapsed: currentElapsed
       }
+      
+      // Save pause state
+      timerApi.update({
+        isRunning: true,
+        isPaused: true,
+        matterId: prev.matterId,
+        matterName: prev.matterName,
+        clientId: prev.clientId,
+        clientName: prev.clientName,
+        startTime: prev.startTime?.toISOString() || null,
+        pausedAt: newState.pausedAt.toISOString(),
+        accumulatedSeconds: currentElapsed,
+      }).catch(err => console.error('Failed to save pause state:', err))
+      
+      return newState
     })
   }, [])
 
-  const resumeTimer = useCallback(() => {
+  const resumeTimer = useCallback(async () => {
     setTimer(prev => {
       if (!prev.isPaused) return prev
       
-      return {
+      const newState = {
         ...prev,
         isRunning: true,
         isPaused: false,
-        startTime: new Date(), // Reset start time to now
+        startTime: new Date(),
         pausedAt: null
-        // accumulatedTime stays the same
       }
+      
+      // Save resume state
+      timerApi.update({
+        isRunning: true,
+        isPaused: false,
+        matterId: prev.matterId,
+        matterName: prev.matterName,
+        clientId: prev.clientId,
+        clientName: prev.clientName,
+        startTime: newState.startTime.toISOString(),
+        pausedAt: null,
+        accumulatedSeconds: prev.accumulatedTime,
+      }).catch(err => console.error('Failed to save resume state:', err))
+      
+      return newState
     })
   }, [])
 
-  const stopTimer = useCallback(() => {
-    // Just stop updating elapsed, keep state for saving
+  const stopTimer = useCallback(async () => {
     setTimer(prev => ({ 
       ...prev, 
       isRunning: false,
       isPaused: false 
     }))
-  }, [])
+    
+    // Save stopped state
+    try {
+      await timerApi.update({
+        isRunning: false,
+        isPaused: false,
+        matterId: timer.matterId,
+        matterName: timer.matterName,
+        clientId: timer.clientId,
+        clientName: timer.clientName,
+        startTime: timer.startTime?.toISOString() || null,
+        pausedAt: null,
+        accumulatedSeconds: timer.accumulatedTime,
+      })
+    } catch (error) {
+      console.error('Failed to save stop state:', error)
+    }
+  }, [timer])
 
-  const discardTimer = useCallback(() => {
+  const discardTimer = useCallback(async () => {
     setTimer(initialTimerState)
+    
+    // Clear timer in database
+    try {
+      await timerApi.clear()
+    } catch (error) {
+      console.error('Failed to clear timer:', error)
+    }
   }, [])
 
   const isTimerActive = timer.isRunning || timer.elapsed > 0
