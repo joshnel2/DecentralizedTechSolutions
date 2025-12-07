@@ -2449,31 +2449,32 @@ a.contactName:hover {
 .quickTimeWidget {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-md);
-  background: var(--apex-slate);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-lg);
-  margin-top: var(--space-lg);
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-md);
+  font-size: 0.8125rem;
 }
 
 .quickTimeControls {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
+  gap: 2px;
 }
 
 .quickTimeBtn {
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--apex-deep);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-sm);
   color: var(--apex-text);
-  font-size: 1.25rem;
+  font-size: 1rem;
   font-weight: 500;
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -2493,10 +2494,10 @@ a.contactName:hover {
 .quickTimeDisplay {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
-  min-width: 80px;
+  gap: 4px;
+  min-width: 65px;
   justify-content: center;
-  font-size: 1.125rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--apex-white);
   font-family: var(--font-mono);
@@ -2504,16 +2505,18 @@ a.contactName:hover {
 
 .quickTimeDisplay svg {
   color: var(--apex-gold-bright);
+  width: 14px;
+  height: 14px;
 }
 
 .quickTimeNotes {
   flex: 1;
-  padding: var(--space-sm) var(--space-md);
+  padding: 6px 10px;
   background: var(--apex-deep);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   color: var(--apex-white);
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   outline: none;
   transition: border-color var(--transition-fast);
 }
@@ -2529,13 +2532,13 @@ a.contactName:hover {
 .quickTimeSave {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
-  padding: var(--space-sm) var(--space-md);
+  gap: 4px;
+  padding: 6px 12px;
   background: var(--apex-gold);
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   color: var(--apex-black);
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -2554,13 +2557,18 @@ a.contactName:hover {
 .quickTimeLabel {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
-  font-size: 0.75rem;
+  gap: 4px;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: var(--apex-gold-bright);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   white-space: nowrap;
+}
+
+.quickTimeLabel svg {
+  width: 12px;
+  height: 12px;
 }
 
 @media (max-width: 768px) {
