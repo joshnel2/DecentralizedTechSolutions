@@ -2594,18 +2594,51 @@ a.contactName:hover {
   .quickTimeWidget {
     flex-wrap: wrap;
     gap: var(--space-sm);
+    padding: var(--space-md);
+  }
+
+  .quickTimeLabel {
+    width: 100%;
+    margin-bottom: var(--space-xs);
+  }
+
+  .quickTimeControls {
+    flex: 1;
+    justify-content: center;
+    gap: var(--space-xs);
+  }
+
+  .quickTimeBtn {
+    width: 40px;
+    height: 40px;
+    font-size: 1.25rem;
+    border-radius: var(--radius-md);
+  }
+
+  .quickTimeDisplay {
+    min-width: 80px;
+    font-size: 1rem;
+    padding: 0 var(--space-sm);
   }
   
   .quickTimeNotes {
     order: 3;
     width: 100%;
     flex: none;
+    padding: var(--space-sm) var(--space-md);
+    font-size: 16px; /* Prevents iOS zoom */
+    min-height: 44px;
+    border-radius: var(--radius-md);
   }
   
   .quickTimeSave {
     order: 4;
     width: 100%;
     justify-content: center;
+    padding: var(--space-sm) var(--space-md);
+    min-height: 44px;
+    font-size: 0.875rem;
+    border-radius: var(--radius-md);
   }
 }
 
