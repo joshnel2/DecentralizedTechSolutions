@@ -749,6 +749,18 @@
   padding: var(--space-lg);
 }
 
+/* Notes Content */
+.notesContent {
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  min-height: 80px;
+}
+
+.notesContent p {
+  font-size: 0.9rem;
+}
+
 /* Tab Content */
 .tabHeader {
   display: flex;

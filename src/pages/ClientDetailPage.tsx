@@ -493,12 +493,35 @@ export function ClientDetailPage() {
               </div>
             </div>
 
-            {client.notes && (
-              <div className={styles.card}>
-                <h3>Notes</h3>
-                <p className={styles.notes}>{client.notes}</p>
+            {/* Notes Card - Always visible */}
+            <div className={styles.card}>
+              <div className={styles.cardHeader}>
+                <h3><FileText size={18} /> Notes</h3>
+                <button 
+                  className={styles.addBtn}
+                  onClick={() => setShowEditModal(true)}
+                >
+                  <Edit2 size={14} />
+                  Edit
+                </button>
               </div>
-            )}
+              <div className={styles.notesContent}>
+                {client.notes ? (
+                  <p style={{ 
+                    whiteSpace: 'pre-wrap', 
+                    color: 'var(--apex-white)',
+                    lineHeight: '1.6',
+                    margin: 0
+                  }}>
+                    {client.notes}
+                  </p>
+                ) : (
+                  <p className={styles.noData} style={{ margin: 0 }}>
+                    No notes yet. Click Edit to add notes about this client.
+                  </p>
+                )}
+              </div>
+            </div>
 
             <div className={styles.card}>
               <div className={styles.cardHeader}>
