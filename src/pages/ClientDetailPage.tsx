@@ -4,7 +4,8 @@ import { useDataStore } from '../stores/dataStore'
 import { 
   Building2, User, ChevronLeft, Edit2, MoreVertical, 
   Briefcase, DollarSign, FileText, Mail, Phone, MapPin, Plus,
-  Sparkles, Archive, Trash2, X, CheckCircle2, Clock, AlertCircle, ChevronDown
+  Sparkles, Archive, Trash2, X, CheckCircle2, Clock, AlertCircle, ChevronDown,
+  TrendingUp
 } from 'lucide-react'
 import { teamApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
@@ -23,11 +24,11 @@ export function ClientDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { 
-    clients, matters, invoices, documents, 
+    clients, matters, invoices, documents, timeEntries,
     updateClient, deleteClient, fetchClients,
     addMatter, fetchMatters,
     addInvoice, fetchInvoices,
-    addTimeEntry, fetchTimeEntries
+    addTimeEntry, fetchTimeEntries, updateTimeEntry, deleteTimeEntry
   } = useDataStore()
   const { openChat } = useAIChat()
   const [activeTab, setActiveTab] = useState('overview')
@@ -35,6 +36,8 @@ export function ClientDetailPage() {
   const [showDropdown, setShowDropdown] = useState(false)
   const [showNewMatterModal, setShowNewMatterModal] = useState(false)
   const [showNewInvoiceModal, setShowNewInvoiceModal] = useState(false)
+  const [showNewTimeEntryModal, setShowNewTimeEntryModal] = useState(false)
+  const [editingTimeEntry, setEditingTimeEntry] = useState<any>(null)
   const [showStatusDropdown, setShowStatusDropdown] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
@@ -95,6 +98,25 @@ export function ClientDetailPage() {
     [documents, id]
   )
 
+  // Get all time entries for this client's matters
+  const clientMatterIds = useMemo(() => clientMatters.map(m => m.id), [clientMatters])
+  
+  const clientTimeEntries = useMemo(() => 
+    timeEntries
+      .filter(t => clientMatterIds.includes(t.matterId))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [timeEntries, clientMatterIds]
+  )
+
+  const timeStats = useMemo(() => {
+    const totalHours = clientTimeEntries.reduce((sum, t) => sum + t.hours, 0)
+    const billableHours = clientTimeEntries.filter(t => t.billable).reduce((sum, t) => sum + t.hours, 0)
+    const totalBilled = clientTimeEntries.filter(t => t.billed).reduce((sum, t) => sum + t.amount, 0)
+    const totalUnbilled = clientTimeEntries.filter(t => !t.billed && t.billable).reduce((sum, t) => sum + t.amount, 0)
+    
+    return { totalHours, billableHours, totalBilled, totalUnbilled }
+  }, [clientTimeEntries])
+
   const stats = useMemo(() => {
     const totalMatters = clientMatters.length
     const activeMatters = clientMatters.filter(m => m.status === 'active').length
@@ -143,6 +165,39 @@ export function ClientDetailPage() {
       setSelectedMatterForTime(clientMatters[0].id)
     }
   }, [clientMatters, selectedMatterForTime])
+
+  // Fetch time entries on mount
+  useEffect(() => {
+    fetchTimeEntries()
+  }, [])
+
+  // Handle time entry delete
+  const handleDeleteTimeEntry = async (entryId: string) => {
+    const entry = clientTimeEntries.find(e => e.id === entryId)
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Time Entry',
+      message: `Are you sure you want to delete this time entry? (${entry?.hours || 0} hours - $${entry?.amount?.toLocaleString() || 0})`,
+      confirmText: 'Delete',
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          await deleteTimeEntry(entryId)
+          fetchTimeEntries()
+          setConfirmModal(prev => ({ ...prev, isOpen: false }))
+        } catch (error) {
+          console.error('Failed to delete time entry:', error)
+          alert('Failed to delete time entry')
+        }
+      }
+    })
+  }
+
+  // Get matter name for time entry
+  const getMatterName = (matterId: string) => {
+    const matter = clientMatters.find(m => m.id === matterId)
+    return matter?.name || 'Unknown Matter'
+  }
 
   if (!client) {
     return (
@@ -395,7 +450,7 @@ export function ClientDetailPage() {
 
       {/* Tabs */}
       <div className={styles.tabs}>
-        {['overview', 'matters', 'billing', 'documents'].map(tab => (
+        {['overview', 'matters', 'time', 'billing', 'documents'].map(tab => (
           <button
             key={tab}
             className={clsx(styles.tab, activeTab === tab && styles.active)}
@@ -542,6 +597,130 @@ export function ClientDetailPage() {
           </div>
         )}
 
+        {activeTab === 'time' && (
+          <div className={styles.timeTab}>
+            <div className={styles.tabHeader}>
+              <h2>Time Entries</h2>
+              <div className={styles.tabActions}>
+                <button 
+                  className={styles.primaryBtn}
+                  onClick={() => setShowNewTimeEntryModal(true)}
+                  disabled={clientMatters.length === 0}
+                >
+                  <Plus size={18} />
+                  New Time Entry
+                </button>
+              </div>
+            </div>
+
+            {/* Time Stats */}
+            <div className={styles.timeStats}>
+              <div className={styles.timeStat}>
+                <Clock size={20} />
+                <div>
+                  <span className={styles.timeStatValue}>{timeStats.totalHours.toFixed(1)}h</span>
+                  <span className={styles.timeStatLabel}>Total Hours</span>
+                </div>
+              </div>
+              <div className={styles.timeStat}>
+                <TrendingUp size={20} />
+                <div>
+                  <span className={styles.timeStatValue}>{timeStats.billableHours.toFixed(1)}h</span>
+                  <span className={styles.timeStatLabel}>Billable</span>
+                </div>
+              </div>
+              <div className={styles.timeStat}>
+                <DollarSign size={20} />
+                <div>
+                  <span className={styles.timeStatValue}>${timeStats.totalUnbilled.toLocaleString()}</span>
+                  <span className={styles.timeStatLabel}>Unbilled</span>
+                </div>
+              </div>
+              <div className={styles.timeStat}>
+                <CheckCircle2 size={20} />
+                <div>
+                  <span className={styles.timeStatValue}>${timeStats.totalBilled.toLocaleString()}</span>
+                  <span className={styles.timeStatLabel}>Billed</span>
+                </div>
+              </div>
+            </div>
+
+            {clientMatters.length === 0 ? (
+              <div className={styles.emptyTime}>
+                <Briefcase size={48} />
+                <p>No matters for this client yet</p>
+                <button 
+                  className={styles.primaryBtn} 
+                  onClick={() => setShowNewMatterModal(true)}
+                >
+                  <Plus size={18} />
+                  Create First Matter
+                </button>
+              </div>
+            ) : clientTimeEntries.length === 0 ? (
+              <div className={styles.emptyTime}>
+                <Clock size={48} />
+                <p>No time entries yet</p>
+                <button 
+                  className={styles.primaryBtn} 
+                  onClick={() => setShowNewTimeEntryModal(true)}
+                >
+                  <Plus size={18} />
+                  Log First Time Entry
+                </button>
+              </div>
+            ) : (
+              <div className={styles.timeEntryCards}>
+                {clientTimeEntries.map(entry => (
+                  <div key={entry.id} className={styles.timeEntryCard}>
+                    <div className={styles.timeEntryDate}>
+                      <span className={styles.timeEntryDay}>
+                        {format(parseISO(entry.date), 'd')}
+                      </span>
+                      <span className={styles.timeEntryMonth}>
+                        {format(parseISO(entry.date), 'MMM')}
+                      </span>
+                    </div>
+                    <div className={styles.timeEntryContent}>
+                      <span className={styles.timeEntryDesc}>{entry.description || 'No description'}</span>
+                      <div className={styles.timeEntryMeta}>
+                        <Link to={`/app/matters/${entry.matterId}`} style={{ color: 'var(--apex-gold-bright)' }}>
+                          {getMatterName(entry.matterId)}
+                        </Link>
+                        <span style={{ marginLeft: '8px' }}>{entry.hours}h @ ${entry.rate}/hr</span>
+                      </div>
+                    </div>
+                    <div className={styles.timeEntryRight}>
+                      <span className={styles.timeEntryAmount}>${entry.amount.toLocaleString()}</span>
+                      <span className={clsx(styles.badge, entry.billed ? styles.billed : styles.unbilled)}>
+                        {entry.billed ? 'Billed' : 'Unbilled'}
+                      </span>
+                    </div>
+                    <div className={styles.cardActions} style={{ marginLeft: '12px' }}>
+                      <button 
+                        className={styles.iconBtn}
+                        onClick={() => setEditingTimeEntry(entry)}
+                        title="Edit"
+                        style={{ padding: '6px' }}
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                      <button 
+                        className={styles.iconBtn}
+                        onClick={() => handleDeleteTimeEntry(entry.id)}
+                        title="Delete"
+                        style={{ padding: '6px', color: 'var(--apex-error)' }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === 'billing' && (
           <div className={styles.billingTab}>
             <div className={styles.tabHeader}>
@@ -675,6 +854,35 @@ export function ClientDetailPage() {
             await addInvoice(data)
             setShowNewInvoiceModal(false)
             fetchInvoices()
+          }}
+        />
+      )}
+
+      {/* New Time Entry Modal */}
+      {showNewTimeEntryModal && (
+        <TimeEntryModal
+          clientName={client.name}
+          clientMatters={clientMatters}
+          onClose={() => setShowNewTimeEntryModal(false)}
+          onSave={async (data) => {
+            await addTimeEntry(data)
+            setShowNewTimeEntryModal(false)
+            fetchTimeEntries()
+          }}
+        />
+      )}
+
+      {/* Edit Time Entry Modal */}
+      {editingTimeEntry && (
+        <TimeEntryModal
+          clientName={client.name}
+          clientMatters={clientMatters}
+          existingEntry={editingTimeEntry}
+          onClose={() => setEditingTimeEntry(null)}
+          onSave={async (data) => {
+            await updateTimeEntry(editingTimeEntry.id, data)
+            setEditingTimeEntry(null)
+            fetchTimeEntries()
           }}
         />
       )}
@@ -967,6 +1175,156 @@ function NewMatterModal({ clientId, clientName, onClose, onSave }: {
             </button>
             <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
               {isSubmitting ? 'Creating...' : 'Create Matter'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// Time Entry Modal
+function TimeEntryModal({ clientName, clientMatters, existingEntry, onClose, onSave }: {
+  clientName: string
+  clientMatters: any[]
+  existingEntry?: any
+  onClose: () => void
+  onSave: (data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState({
+    matterId: existingEntry?.matterId || clientMatters[0]?.id || '',
+    date: existingEntry?.date ? format(parseISO(existingEntry.date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+    hours: existingEntry?.hours || 1,
+    rate: existingEntry?.rate || clientMatters[0]?.billingRate || 450,
+    description: existingEntry?.description || '',
+    billable: existingEntry?.billable !== undefined ? existingEntry.billable : true
+  })
+
+  // Update rate when matter changes
+  const handleMatterChange = (matterId: string) => {
+    const matter = clientMatters.find(m => m.id === matterId)
+    setFormData({
+      ...formData,
+      matterId,
+      rate: matter?.billingRate || formData.rate
+    })
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isSubmitting) return
+    if (!formData.matterId) {
+      alert('Please select a matter')
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      await onSave({
+        ...formData,
+        date: new Date(formData.date).toISOString(),
+        billed: existingEntry?.billed || false,
+        aiGenerated: false
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const selectedMatter = clientMatters.find(m => m.id === formData.matterId)
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>{existingEntry ? 'Edit Time Entry' : 'New Time Entry'}</h2>
+          <button onClick={onClose} className={styles.closeBtn}><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
+          <div className={styles.formInfo}>
+            <strong>Client:</strong> {clientName}
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Matter *</label>
+            <select
+              value={formData.matterId}
+              onChange={(e) => handleMatterChange(e.target.value)}
+              required
+            >
+              <option value="">Select a matter...</option>
+              {clientMatters.map(m => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Date</label>
+              <input
+                type="date"
+                value={formData.date}
+                onChange={(e) => setFormData({...formData, date: e.target.value})}
+                required
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Hours</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0.1"
+                value={formData.hours}
+                onChange={(e) => setFormData({...formData, hours: parseFloat(e.target.value) || 0})}
+                required
+              />
+            </div>
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Rate ($/hr)</label>
+              <input
+                type="number"
+                value={formData.rate}
+                onChange={(e) => setFormData({...formData, rate: parseFloat(e.target.value) || 0})}
+                required
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Total</label>
+              <div className={styles.formValue}>${(formData.hours * formData.rate).toFixed(2)}</div>
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Description</label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({...formData, description: e.target.value})}
+              placeholder="Describe the work performed..."
+              rows={3}
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label className={styles.checkboxLabel}>
+              <input
+                type="checkbox"
+                checked={formData.billable}
+                onChange={(e) => setFormData({...formData, billable: e.target.checked})}
+              />
+              Billable
+            </label>
+          </div>
+
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+              Cancel
+            </button>
+            <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Saving...' : (existingEntry ? 'Update Time Entry' : 'Save Time Entry')}
             </button>
           </div>
         </form>
