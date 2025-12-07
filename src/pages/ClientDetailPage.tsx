@@ -117,8 +117,13 @@ export function ClientDetailPage() {
         hours: quickTimeMinutes / 60, // Convert minutes to hours
         description: quickTimeNotes || `Quick time entry - ${quickTimeMinutes} minutes`,
         billable: true,
-        rate: selectedMatter?.billingRate || 0
-      })
+        billed: false,
+        rate: selectedMatter?.billingRate || 0,
+        aiGenerated: false,
+        status: 'pending',
+        entryType: 'manual',
+        updatedAt: new Date().toISOString()
+      } as any)
       // Reset form
       setQuickTimeMinutes(10)
       setQuickTimeNotes('')
