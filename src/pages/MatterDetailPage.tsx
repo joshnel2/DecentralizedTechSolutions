@@ -2791,6 +2791,7 @@ function EditMatterForm({ matter, attorneys, typeOptions, onClose, onSave, onMan
   const [formData, setFormData] = useState({
     name: matter.name || '',
     description: matter.description || '',
+    notes: matter.notes || '',
     type: matter.type || (typeOptions.length > 0 ? typeOptions[0].value : 'other'),
     status: matter.status || 'active',
     priority: matter.priority || 'medium',
@@ -2952,6 +2953,16 @@ function EditMatterForm({ matter, attorneys, typeOptions, onClose, onSave, onMan
           onChange={(e) => setFormData({...formData, description: e.target.value})}
           placeholder="Brief description of the matter"
           rows={3}
+        />
+      </div>
+
+      <div className={styles.formGroup}>
+        <label>Notes</label>
+        <textarea
+          value={formData.notes}
+          onChange={(e) => setFormData({...formData, notes: e.target.value})}
+          placeholder="Internal notes about this matter (not shown on invoices)"
+          rows={4}
         />
       </div>
 
