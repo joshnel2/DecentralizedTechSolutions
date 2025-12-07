@@ -2087,13 +2087,12 @@ function TimeEntryForm({ matterId, matterName, defaultRate, onClose, onSave, exi
       </div>
 
       <div className={styles.formGroup}>
-        <label>Description</label>
+        <label>Description (optional)</label>
         <textarea
           value={formData.description}
           onChange={(e) => setFormData({...formData, description: e.target.value})}
           placeholder="Describe the work performed..."
           rows={3}
-          required
         />
       </div>
 
