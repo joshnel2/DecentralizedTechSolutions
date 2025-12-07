@@ -6,6 +6,7 @@ import {
   Briefcase, DollarSign, FileText, Mail, Phone, MapPin, Plus,
   Sparkles, Archive, Trash2, X, CheckCircle2, Clock, AlertCircle, ChevronDown
 } from 'lucide-react'
+import { teamApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import { format, parseISO, addDays } from 'date-fns'
 import { clsx } from 'clsx'
@@ -25,7 +26,8 @@ export function ClientDetailPage() {
     clients, matters, invoices, documents, 
     updateClient, deleteClient, fetchClients,
     addMatter, fetchMatters,
-    addInvoice, fetchInvoices
+    addInvoice, fetchInvoices,
+    addTimeEntry, fetchTimeEntries
   } = useDataStore()
   const { openChat } = useAIChat()
   const [activeTab, setActiveTab] = useState('overview')
@@ -36,6 +38,12 @@ export function ClientDetailPage() {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
+  
+  // Quick time entry state
+  const [quickTimeMinutes, setQuickTimeMinutes] = useState(10)
+  const [quickTimeNotes, setQuickTimeNotes] = useState('')
+  const [quickTimeSaving, setQuickTimeSaving] = useState(false)
+  const [selectedMatterForTime, setSelectedMatterForTime] = useState<string>('')
   
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -96,6 +104,40 @@ export function ClientDetailPage() {
     
     return { totalMatters, activeMatters, totalBilled, totalPaid, outstanding }
   }, [clientMatters, clientInvoices])
+
+  // Handle quick time entry save for client
+  const handleQuickTimeSave = async () => {
+    if (quickTimeMinutes <= 0 || !selectedMatterForTime) return
+    setQuickTimeSaving(true)
+    try {
+      const selectedMatter = clientMatters.find(m => m.id === selectedMatterForTime)
+      await addTimeEntry({
+        matterId: selectedMatterForTime,
+        date: new Date().toISOString(),
+        hours: quickTimeMinutes / 60, // Convert minutes to hours
+        description: quickTimeNotes || `Quick time entry - ${quickTimeMinutes} minutes`,
+        billable: true,
+        rate: selectedMatter?.billingRate || 0
+      })
+      // Reset form
+      setQuickTimeMinutes(10)
+      setQuickTimeNotes('')
+      // Refresh time entries
+      fetchTimeEntries({ matterId: selectedMatterForTime })
+    } catch (error) {
+      console.error('Failed to save quick time entry:', error)
+      alert('Failed to save time entry')
+    } finally {
+      setQuickTimeSaving(false)
+    }
+  }
+
+  // Auto-select first matter if available
+  useEffect(() => {
+    if (clientMatters.length > 0 && !selectedMatterForTime) {
+      setSelectedMatterForTime(clientMatters[0].id)
+    }
+  }, [clientMatters, selectedMatterForTime])
 
   if (!client) {
     return (
@@ -284,6 +326,66 @@ export function ClientDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* Quick Time Entry - only show if client has matters */}
+        {clientMatters.length > 0 && (
+          <div className={styles.quickTimeWidget}>
+            <span className={styles.quickTimeLabel}>
+              <Plus size={14} />
+              Quick Time
+            </span>
+            <select
+              value={selectedMatterForTime}
+              onChange={(e) => setSelectedMatterForTime(e.target.value)}
+              style={{
+                padding: '0.5rem 0.75rem',
+                background: 'var(--apex-deep)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--apex-white)',
+                fontSize: '0.875rem',
+                maxWidth: '200px'
+              }}
+            >
+              {clientMatters.map(m => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+            <div className={styles.quickTimeControls}>
+              <button 
+                className={styles.quickTimeBtn}
+                onClick={() => setQuickTimeMinutes(Math.max(0, quickTimeMinutes - 10))}
+              >
+                −
+              </button>
+              <div className={styles.quickTimeDisplay}>
+                <Clock size={16} />
+                {quickTimeMinutes} min
+              </div>
+              <button 
+                className={styles.quickTimeBtn}
+                onClick={() => setQuickTimeMinutes(quickTimeMinutes + 10)}
+              >
+                +
+              </button>
+            </div>
+            <input
+              type="text"
+              className={styles.quickTimeNotes}
+              placeholder="What did you work on?"
+              value={quickTimeNotes}
+              onChange={(e) => setQuickTimeNotes(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleQuickTimeSave()}
+            />
+            <button 
+              className={styles.quickTimeSave}
+              onClick={handleQuickTimeSave}
+              disabled={quickTimeMinutes <= 0 || !selectedMatterForTime || quickTimeSaving}
+            >
+              {quickTimeSaving ? 'Saving...' : 'Add Time'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}

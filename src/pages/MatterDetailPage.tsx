@@ -76,6 +76,11 @@ export function MatterDetailPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   
+  // Quick time entry state
+  const [quickTimeMinutes, setQuickTimeMinutes] = useState(10)
+  const [quickTimeNotes, setQuickTimeNotes] = useState('')
+  const [quickTimeSaving, setQuickTimeSaving] = useState(false)
+  
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean
@@ -209,6 +214,37 @@ export function MatterDetailPage() {
     } catch (error) {
       console.error('Failed to update matter status:', error)
       alert('Failed to update matter status')
+    }
+  }
+
+  // Handle quick time entry save
+  const handleQuickTimeSave = async () => {
+    if (quickTimeMinutes <= 0) return
+    setQuickTimeSaving(true)
+    try {
+      await addTimeEntry({
+        matterId: id!,
+        date: new Date().toISOString(),
+        hours: quickTimeMinutes / 60, // Convert minutes to hours
+        description: quickTimeNotes || `Quick time entry - ${quickTimeMinutes} minutes`,
+        billable: true,
+        billed: false,
+        rate: matter?.billingRate || 0,
+        aiGenerated: false,
+        status: 'pending',
+        entryType: 'manual',
+        updatedAt: new Date().toISOString()
+      } as any)
+      // Reset form
+      setQuickTimeMinutes(10)
+      setQuickTimeNotes('')
+      // Refresh time entries
+      fetchTimeEntries({ matterId: id })
+    } catch (error) {
+      console.error('Failed to save quick time entry:', error)
+      alert('Failed to save time entry')
+    } finally {
+      setQuickTimeSaving(false)
     }
   }
 
@@ -605,6 +641,47 @@ Only analyze documents actually associated with this matter.`
               <span className={styles.statLabel}>Collected</span>
             </div>
           </div>
+        </div>
+
+        {/* Quick Time Entry */}
+        <div className={styles.quickTimeWidget}>
+          <span className={styles.quickTimeLabel}>
+            <Plus size={14} />
+            Quick Time
+          </span>
+          <div className={styles.quickTimeControls}>
+            <button 
+              className={styles.quickTimeBtn}
+              onClick={() => setQuickTimeMinutes(Math.max(0, quickTimeMinutes - 10))}
+            >
+              −
+            </button>
+            <div className={styles.quickTimeDisplay}>
+              <Clock size={16} />
+              {quickTimeMinutes} min
+            </div>
+            <button 
+              className={styles.quickTimeBtn}
+              onClick={() => setQuickTimeMinutes(quickTimeMinutes + 10)}
+            >
+              +
+            </button>
+          </div>
+          <input
+            type="text"
+            className={styles.quickTimeNotes}
+            placeholder="What did you work on?"
+            value={quickTimeNotes}
+            onChange={(e) => setQuickTimeNotes(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleQuickTimeSave()}
+          />
+          <button 
+            className={styles.quickTimeSave}
+            onClick={handleQuickTimeSave}
+            disabled={quickTimeMinutes <= 0 || quickTimeSaving}
+          >
+            {quickTimeSaving ? 'Saving...' : 'Add Time'}
+          </button>
         </div>
       </div>
 

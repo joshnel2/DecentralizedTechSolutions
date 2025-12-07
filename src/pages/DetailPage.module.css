@@ -2444,3 +2444,140 @@ a.contactName:hover {
     padding: 3px 6px;
   }
 }
+
+/* Quick Time Entry Widget */
+.quickTimeWidget {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  margin-top: var(--space-lg);
+}
+
+.quickTimeControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.quickTimeBtn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 1.25rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.quickTimeBtn:hover {
+  background: var(--apex-gold);
+  border-color: var(--apex-gold);
+  color: var(--apex-black);
+}
+
+.quickTimeBtn:active {
+  transform: scale(0.95);
+}
+
+.quickTimeDisplay {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 80px;
+  justify-content: center;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  font-family: var(--font-mono);
+}
+
+.quickTimeDisplay svg {
+  color: var(--apex-gold-bright);
+}
+
+.quickTimeNotes {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.quickTimeNotes:focus {
+  border-color: var(--apex-gold);
+}
+
+.quickTimeNotes::placeholder {
+  color: var(--apex-muted);
+}
+
+.quickTimeSave {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-gold);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-black);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.quickTimeSave:hover {
+  background: var(--apex-gold-bright);
+}
+
+.quickTimeSave:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.quickTimeLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--apex-gold-bright);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .quickTimeWidget {
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+  }
+  
+  .quickTimeNotes {
+    order: 3;
+    width: 100%;
+    flex: none;
+  }
+  
+  .quickTimeSave {
+    order: 4;
+    width: 100%;
+    justify-content: center;
+  }
+}
