@@ -2726,7 +2726,7 @@ a.contactName:hover {
 
 .updateCard {
   display: flex;
-  gap: var(--space-lg);
+  gap: var(--space-md);
 }
 
 .updateTimelineMarker {
@@ -2737,11 +2737,11 @@ a.contactName:hover {
 }
 
 .updateDot {
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--apex-gold);
-  border: 3px solid var(--apex-deep);
+  border: 2px solid var(--apex-deep);
   box-shadow: 0 0 0 2px var(--apex-gold);
   flex-shrink: 0;
 }
@@ -2780,16 +2780,16 @@ a.contactName:hover {
   width: 2px;
   flex: 1;
   background: rgba(255, 255, 255, 0.1);
-  min-height: 40px;
+  min-height: 20px;
 }
 
 .updateCardContent {
   flex: 1;
   background: var(--apex-deep);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  margin-bottom: var(--space-lg);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin-bottom: var(--space-sm);
   transition: all var(--transition-fast);
 }
 
@@ -2799,22 +2799,22 @@ a.contactName:hover {
 
 .updateCardHeader {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--space-sm);
+  margin-bottom: var(--space-xs);
 }
 
 .updateCardHeader > div:first-child {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: var(--space-xs);
   flex-wrap: wrap;
 }
 
 .updateCategoryBadge {
-  padding: 4px 10px;
+  padding: 2px 8px;
   border-radius: var(--radius-full);
-  font-size: 0.6875rem;
+  font-size: 0.625rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -2851,41 +2851,63 @@ a.contactName:hover {
 }
 
 .updateCardDate {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   color: var(--apex-text);
 }
 
 .updateCardTitle {
-  font-size: 1rem;
+  font-size: 0.9375rem;
   font-weight: 600;
   color: var(--apex-white);
-  margin-bottom: var(--space-sm);
+  margin-bottom: var(--space-xs);
 }
 
 .updateCardDescription {
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   color: var(--apex-light);
-  line-height: 1.6;
+  line-height: 1.5;
   white-space: pre-wrap;
-  margin-bottom: var(--space-md);
+  margin-bottom: var(--space-xs);
 }
 
 .updateCardTimestamp {
-  font-size: 0.6875rem;
+  font-size: 0.625rem;
   color: var(--apex-muted);
 }
 
 @media (max-width: 768px) {
   .updateCard {
-    gap: var(--space-md);
+    gap: var(--space-sm);
   }
   
   .updateCardContent {
-    padding: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
   }
   
   .updateCardHeader {
-    flex-direction: column;
-    gap: var(--space-sm);
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-bottom: var(--space-xs);
+  }
+
+  .updateCardTitle {
+    font-size: 0.875rem;
+    margin-bottom: 2px;
+  }
+
+  .updateCardDescription {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    margin-bottom: var(--space-xs);
+  }
+
+  .updateDot {
+    width: 8px;
+    height: 8px;
+  }
+
+  .updateLine {
+    min-height: 12px;
   }
 }
