@@ -21,8 +21,9 @@ export function TimeTrackingPage() {
   const location = useLocation()
   
   // Fetch data from API on mount
+  // Request a higher limit to ensure older time entries are available for invoicing
   useEffect(() => {
-    fetchTimeEntries()
+    fetchTimeEntries({ limit: 500 })
     fetchMatters()
     fetchClients()
   }, [fetchTimeEntries, fetchMatters, fetchClients])

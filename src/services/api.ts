@@ -390,6 +390,8 @@ export const timeEntriesApi = {
     endDate?: string;
     billable?: boolean;
     billed?: boolean;
+    limit?: number;
+    offset?: number;
   }) {
     const query = new URLSearchParams();
     if (params?.matterId) query.set('matterId', params.matterId);
@@ -398,6 +400,8 @@ export const timeEntriesApi = {
     if (params?.endDate) query.set('endDate', params.endDate);
     if (params?.billable !== undefined) query.set('billable', String(params.billable));
     if (params?.billed !== undefined) query.set('billed', String(params.billed));
+    if (params?.limit !== undefined) query.set('limit', String(params.limit));
+    if (params?.offset !== undefined) query.set('offset', String(params.offset));
     
     return fetchWithAuth(`/time-entries?${query}`);
   },

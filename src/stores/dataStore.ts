@@ -60,7 +60,7 @@ interface DataState {
   // Fetch actions
   fetchClients: () => Promise<void>
   fetchMatters: () => Promise<void>
-  fetchTimeEntries: (params?: { matterId?: string }) => Promise<void>
+  fetchTimeEntries: (params?: { matterId?: string; limit?: number; offset?: number }) => Promise<void>
   fetchInvoices: () => Promise<void>
   fetchEvents: (params?: { startDate?: string; endDate?: string }) => Promise<void>
   fetchDocuments: (params?: { matterId?: string }) => Promise<void>
