@@ -677,6 +677,73 @@ const TOOLS = [
         required: []
       }
     }
+  },
+
+  // ===================== MATTER PERMISSIONS & SHARING =====================
+  {
+    type: "function",
+    function: {
+      name: "get_matter_permissions",
+      description: "Get the list of users and groups who have access to a specific matter. Shows the visibility setting (firm_wide or restricted), responsible attorney, originating attorney, and all explicit permissions. Use this when the user asks 'who can see this matter?', 'who has access?', 'is this matter shared?', etc.",
+      parameters: {
+        type: "object",
+        properties: {
+          matter_id: { type: "string", description: "UUID of the matter. Use search_matters first to find it." }
+        },
+        required: ["matter_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "share_matter",
+      description: "Share a matter with a user or group, granting them access. This adds them to the matter's permissions. If the matter is currently 'firm_wide', it will automatically be changed to 'restricted'. Only admins, owners, billing users, or the responsible attorney can share a matter.",
+      parameters: {
+        type: "object",
+        properties: {
+          matter_id: { type: "string", description: "UUID of the matter to share. Use search_matters to find it." },
+          user_id: { type: "string", description: "UUID of the user to share with. Use list_team_members to find users. Either user_id OR group_id is required, not both." },
+          group_id: { type: "string", description: "UUID of the group to share with. Either user_id OR group_id is required, not both." },
+          permission_level: { type: "string", enum: ["view", "edit", "admin"], description: "Level of access: 'view' (see matter), 'edit' (see and modify), 'admin' (full control including managing permissions). Defaults to 'view'." },
+          can_view_documents: { type: "boolean", description: "Whether the user can view documents. Defaults to true." },
+          can_view_notes: { type: "boolean", description: "Whether the user can view notes. Defaults to true." },
+          can_edit: { type: "boolean", description: "Whether the user can edit the matter. Defaults to false for 'view' level, true for 'edit' and 'admin' levels." }
+        },
+        required: ["matter_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "remove_matter_permission",
+      description: "Remove a user's or group's access to a matter. This revokes their permission to see the restricted matter. Only admins, owners, billing users, or the responsible attorney can remove permissions.",
+      parameters: {
+        type: "object",
+        properties: {
+          matter_id: { type: "string", description: "UUID of the matter. Use search_matters to find it." },
+          user_id: { type: "string", description: "UUID of the user whose permission to remove. Either user_id OR permission_id is required." },
+          permission_id: { type: "string", description: "UUID of the specific permission to remove. Get this from get_matter_permissions." }
+        },
+        required: ["matter_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_matter_visibility",
+      description: "Change a matter's visibility between 'firm_wide' (everyone can see) and 'restricted' (only selected users/groups can see). When changing to 'restricted', existing assigned users keep access. Only admins, owners, billing users, or the responsible attorney can change visibility.",
+      parameters: {
+        type: "object",
+        properties: {
+          matter_id: { type: "string", description: "UUID of the matter. Use search_matters to find it." },
+          visibility: { type: "string", enum: ["firm_wide", "restricted"], description: "'firm_wide' = everyone in the firm can see, 'restricted' = only selected users/groups" }
+        },
+        required: ["matter_id", "visibility"]
+      }
+    }
   }
 ];
 
@@ -747,6 +814,12 @@ async function executeTool(toolName, args, user) {
       case 'open_invoice': return await openInvoice(args, user);
       case 'open_new_time_entry': return await openNewTimeEntry(args, user);
       case 'open_new_calendar_event': return await openNewCalendarEvent(args, user);
+      
+      // Matter Permissions & Sharing
+      case 'get_matter_permissions': return await getMatterPermissions(args, user);
+      case 'share_matter': return await shareMatter(args, user);
+      case 'remove_matter_permission': return await removeMatterPermission(args, user);
+      case 'update_matter_visibility': return await updateMatterVisibility(args, user);
       
       default:
         return { error: `Unknown tool: ${toolName}` };
@@ -2499,6 +2572,459 @@ async function openNewCalendarEvent(args, user) {
 }
 
 // =============================================================================
+// MATTER PERMISSIONS & SHARING FUNCTIONS
+// =============================================================================
+
+// Roles that have full access to all matters and can manage permissions
+const FULL_ACCESS_ROLES = ['owner', 'admin', 'billing'];
+
+async function getMatterPermissions(args, user) {
+  const { matter_id } = args;
+  
+  if (!matter_id) {
+    return { error: 'matter_id is required. Use search_matters to find the matter first.' };
+  }
+  
+  // Get matter info including visibility and attorneys
+  const matterResult = await query(`
+    SELECT 
+      m.id, m.name, m.number, m.visibility,
+      m.responsible_attorney,
+      m.originating_attorney,
+      ra.first_name || ' ' || ra.last_name as responsible_attorney_name,
+      ra.email as responsible_attorney_email,
+      oa.first_name || ' ' || oa.last_name as originating_attorney_name,
+      oa.email as originating_attorney_email
+    FROM matters m
+    LEFT JOIN users ra ON m.responsible_attorney = ra.id
+    LEFT JOIN users oa ON m.originating_attorney = oa.id
+    WHERE m.id = $1 AND m.firm_id = $2
+  `, [matter_id, user.firmId]);
+  
+  if (matterResult.rows.length === 0) {
+    return { error: 'Matter not found' };
+  }
+  
+  const matter = matterResult.rows[0];
+  
+  // Check if user can access this matter
+  const isAdmin = FULL_ACCESS_ROLES.includes(user.role);
+  const isResponsible = matter.responsible_attorney === user.id;
+  const isOriginating = matter.originating_attorney === user.id;
+  
+  // For non-admins, check if they have access to this matter
+  if (!isAdmin && !isResponsible && !isOriginating) {
+    // Check if user is assigned or has permission
+    const accessCheck = await query(`
+      SELECT 1 FROM matter_assignments WHERE matter_id = $1 AND user_id = $2
+      UNION
+      SELECT 1 FROM matter_permissions WHERE matter_id = $1 AND user_id = $2
+    `, [matter_id, user.id]);
+    
+    if (accessCheck.rows.length === 0 && matter.visibility === 'restricted') {
+      return { error: 'You do not have access to view this matter\'s permissions' };
+    }
+  }
+  
+  // Get explicit permissions
+  const permissionsResult = await query(`
+    SELECT 
+      mp.id as permission_id,
+      mp.user_id,
+      mp.group_id,
+      mp.permission_level,
+      mp.can_view_documents,
+      mp.can_view_notes,
+      mp.can_edit,
+      mp.granted_at,
+      u.first_name || ' ' || u.last_name as user_name,
+      u.email as user_email,
+      u.role as user_role,
+      g.name as group_name,
+      grantor.first_name || ' ' || grantor.last_name as granted_by_name
+    FROM matter_permissions mp
+    LEFT JOIN users u ON mp.user_id = u.id
+    LEFT JOIN groups g ON mp.group_id = g.id
+    LEFT JOIN users grantor ON mp.granted_by = grantor.id
+    WHERE mp.matter_id = $1
+    ORDER BY mp.granted_at DESC
+  `, [matter_id]);
+  
+  // Get assigned users
+  const assignmentsResult = await query(`
+    SELECT 
+      ma.user_id,
+      u.first_name || ' ' || u.last_name as user_name,
+      u.email as user_email,
+      u.role as user_role
+    FROM matter_assignments ma
+    JOIN users u ON ma.user_id = u.id
+    WHERE ma.matter_id = $1
+  `, [matter_id]);
+  
+  // Build human-readable response
+  const permissions = permissionsResult.rows.map(p => ({
+    permissionId: p.permission_id,
+    type: p.user_id ? 'user' : 'group',
+    name: p.user_name || p.group_name,
+    email: p.user_email || null,
+    role: p.user_role || null,
+    permissionLevel: p.permission_level,
+    canViewDocuments: p.can_view_documents,
+    canViewNotes: p.can_view_notes,
+    canEdit: p.can_edit,
+    grantedBy: p.granted_by_name,
+    grantedAt: p.granted_at
+  }));
+  
+  const assignments = assignmentsResult.rows.map(a => ({
+    name: a.user_name,
+    email: a.user_email,
+    role: a.user_role
+  }));
+  
+  // Determine who can manage permissions
+  const canManagePermissions = isAdmin || isResponsible;
+  
+  return {
+    matter: {
+      name: matter.name,
+      number: matter.number,
+      visibility: matter.visibility,
+      visibilityDescription: matter.visibility === 'firm_wide' 
+        ? 'Everyone in the firm can see this matter' 
+        : 'Only selected users and groups can see this matter'
+    },
+    responsibleAttorney: matter.responsible_attorney_name 
+      ? { name: matter.responsible_attorney_name, email: matter.responsible_attorney_email }
+      : null,
+    originatingAttorney: matter.originating_attorney_name
+      ? { name: matter.originating_attorney_name, email: matter.originating_attorney_email }
+      : null,
+    assignedUsers: assignments,
+    explicitPermissions: permissions,
+    summary: {
+      totalPermissions: permissions.length,
+      totalAssigned: assignments.length,
+      canManagePermissions
+    },
+    note: matter.visibility === 'firm_wide' 
+      ? 'Since this matter is firm_wide, all firm members can see it regardless of explicit permissions.'
+      : 'This matter is restricted. Only the people listed above (plus admins/owners/billing) can access it.'
+  };
+}
+
+async function shareMatter(args, user) {
+  const { matter_id, user_id, group_id, permission_level = 'view', can_view_documents = true, can_view_notes = true, can_edit } = args;
+  
+  if (!matter_id) {
+    return { error: 'matter_id is required. Use search_matters to find the matter first.' };
+  }
+  
+  if (!user_id && !group_id) {
+    return { error: 'Either user_id or group_id is required. Use list_team_members to find users.' };
+  }
+  
+  if (user_id && group_id) {
+    return { error: 'Cannot specify both user_id and group_id. Share with one at a time.' };
+  }
+  
+  // Get matter info
+  const matterResult = await query(`
+    SELECT id, name, number, visibility, responsible_attorney 
+    FROM matters WHERE id = $1 AND firm_id = $2
+  `, [matter_id, user.firmId]);
+  
+  if (matterResult.rows.length === 0) {
+    return { error: 'Matter not found' };
+  }
+  
+  const matter = matterResult.rows[0];
+  
+  // Check if user can manage permissions
+  const isAdmin = FULL_ACCESS_ROLES.includes(user.role);
+  const isResponsible = matter.responsible_attorney === user.id;
+  
+  if (!isAdmin && !isResponsible) {
+    return { error: 'You do not have permission to share this matter. Only admins, owners, billing users, or the responsible attorney can share matters.' };
+  }
+  
+  // Verify the target user/group exists in the firm
+  let targetName = '';
+  if (user_id) {
+    const userCheck = await query(
+      'SELECT id, first_name, last_name, email FROM users WHERE id = $1 AND firm_id = $2 AND is_active = true',
+      [user_id, user.firmId]
+    );
+    if (userCheck.rows.length === 0) {
+      return { error: 'User not found or not active in your firm. Use list_team_members to find valid users.' };
+    }
+    targetName = `${userCheck.rows[0].first_name} ${userCheck.rows[0].last_name}`;
+  }
+  
+  if (group_id) {
+    const groupCheck = await query(
+      'SELECT id, name FROM groups WHERE id = $1 AND firm_id = $2',
+      [group_id, user.firmId]
+    );
+    if (groupCheck.rows.length === 0) {
+      return { error: 'Group not found in your firm.' };
+    }
+    targetName = groupCheck.rows[0].name + ' (group)';
+  }
+  
+  // Check current permission count (max 20)
+  const countResult = await query(
+    'SELECT COUNT(*) FROM matter_permissions WHERE matter_id = $1',
+    [matter_id]
+  );
+  if (parseInt(countResult.rows[0].count) >= 20) {
+    return { error: 'This matter has reached the maximum of 20 explicit permissions. Remove some permissions first.' };
+  }
+  
+  // Determine can_edit based on permission level if not explicitly set
+  const finalCanEdit = can_edit !== undefined ? can_edit : (permission_level === 'edit' || permission_level === 'admin');
+  
+  // Add permission (upsert)
+  try {
+    await query(`
+      INSERT INTO matter_permissions (
+        matter_id, user_id, group_id, permission_level, 
+        can_view_documents, can_view_notes, can_edit, granted_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (matter_id, user_id) WHERE user_id IS NOT NULL
+      DO UPDATE SET 
+        permission_level = $4,
+        can_view_documents = $5,
+        can_view_notes = $6,
+        can_edit = $7,
+        granted_by = $8,
+        granted_at = NOW()
+    `, [
+      matter_id, 
+      user_id || null, 
+      group_id || null, 
+      permission_level,
+      can_view_documents,
+      can_view_notes,
+      finalCanEdit,
+      user.id
+    ]);
+  } catch (dbError) {
+    console.error('Error adding permission:', dbError);
+    return { error: 'Failed to add permission. It may already exist for this group.' };
+  }
+  
+  // If matter was firm_wide, change to restricted
+  let visibilityChanged = false;
+  if (matter.visibility === 'firm_wide') {
+    await query(
+      'UPDATE matters SET visibility = $1, updated_at = NOW() WHERE id = $2',
+      ['restricted', matter_id]
+    );
+    visibilityChanged = true;
+  }
+  
+  // Log the action
+  await query(`
+    INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
+    VALUES ($1, $2, 'matter.permission_added', 'matter', $3, $4)
+  `, [
+    user.firmId,
+    user.id,
+    matter_id,
+    JSON.stringify({ targetUserId: user_id, targetGroupId: group_id, permissionLevel: permission_level })
+  ]);
+  
+  return {
+    success: true,
+    message: `Shared "${matter.name}" (${matter.number}) with ${targetName} at "${permission_level}" level.`,
+    details: {
+      matterName: matter.name,
+      matterNumber: matter.number,
+      sharedWith: targetName,
+      permissionLevel: permission_level,
+      canViewDocuments: can_view_documents,
+      canViewNotes: can_view_notes,
+      canEdit: finalCanEdit,
+      visibilityChangedToRestricted: visibilityChanged
+    },
+    note: visibilityChanged 
+      ? 'The matter visibility was automatically changed from "firm_wide" to "restricted" since you added explicit permissions.'
+      : null
+  };
+}
+
+async function removeMatterPermission(args, user) {
+  const { matter_id, user_id, permission_id } = args;
+  
+  if (!matter_id) {
+    return { error: 'matter_id is required. Use search_matters to find the matter first.' };
+  }
+  
+  if (!user_id && !permission_id) {
+    return { error: 'Either user_id or permission_id is required. Use get_matter_permissions to see current permissions.' };
+  }
+  
+  // Get matter info
+  const matterResult = await query(`
+    SELECT id, name, number, responsible_attorney 
+    FROM matters WHERE id = $1 AND firm_id = $2
+  `, [matter_id, user.firmId]);
+  
+  if (matterResult.rows.length === 0) {
+    return { error: 'Matter not found' };
+  }
+  
+  const matter = matterResult.rows[0];
+  
+  // Check if user can manage permissions
+  const isAdmin = FULL_ACCESS_ROLES.includes(user.role);
+  const isResponsible = matter.responsible_attorney === user.id;
+  
+  if (!isAdmin && !isResponsible) {
+    return { error: 'You do not have permission to modify this matter\'s sharing settings. Only admins, owners, billing users, or the responsible attorney can do this.' };
+  }
+  
+  let result;
+  let removedName = '';
+  
+  if (permission_id) {
+    // Get the permission info first
+    const permInfo = await query(`
+      SELECT mp.*, u.first_name, u.last_name, g.name as group_name
+      FROM matter_permissions mp
+      LEFT JOIN users u ON mp.user_id = u.id
+      LEFT JOIN groups g ON mp.group_id = g.id
+      WHERE mp.id = $1 AND mp.matter_id = $2
+    `, [permission_id, matter_id]);
+    
+    if (permInfo.rows.length === 0) {
+      return { error: 'Permission not found for this matter.' };
+    }
+    
+    removedName = permInfo.rows[0].first_name 
+      ? `${permInfo.rows[0].first_name} ${permInfo.rows[0].last_name}`
+      : permInfo.rows[0].group_name + ' (group)';
+    
+    result = await query(
+      'DELETE FROM matter_permissions WHERE id = $1 AND matter_id = $2 RETURNING id',
+      [permission_id, matter_id]
+    );
+  } else if (user_id) {
+    // Get user name first
+    const userInfo = await query(
+      'SELECT first_name, last_name FROM users WHERE id = $1',
+      [user_id]
+    );
+    if (userInfo.rows.length > 0) {
+      removedName = `${userInfo.rows[0].first_name} ${userInfo.rows[0].last_name}`;
+    }
+    
+    result = await query(
+      'DELETE FROM matter_permissions WHERE matter_id = $1 AND user_id = $2 RETURNING id',
+      [matter_id, user_id]
+    );
+  }
+  
+  if (!result || result.rows.length === 0) {
+    return { error: 'No permission found to remove. The user may not have explicit permission (they might have access through their role or assignments instead).' };
+  }
+  
+  // Log the action
+  await query(`
+    INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
+    VALUES ($1, $2, 'matter.permission_removed', 'matter', $3, $4)
+  `, [
+    user.firmId,
+    user.id,
+    matter_id,
+    JSON.stringify({ removedUserId: user_id, removedPermissionId: permission_id })
+  ]);
+  
+  return {
+    success: true,
+    message: `Removed ${removedName}'s access to "${matter.name}" (${matter.number}).`,
+    note: 'If the user is an admin, owner, billing user, responsible attorney, or originating attorney, they will still have access regardless of explicit permissions.'
+  };
+}
+
+async function updateMatterVisibility(args, user) {
+  const { matter_id, visibility } = args;
+  
+  if (!matter_id) {
+    return { error: 'matter_id is required. Use search_matters to find the matter first.' };
+  }
+  
+  if (!visibility || !['firm_wide', 'restricted'].includes(visibility)) {
+    return { error: 'visibility must be either "firm_wide" or "restricted".' };
+  }
+  
+  // Get matter info
+  const matterResult = await query(`
+    SELECT id, name, number, visibility, responsible_attorney 
+    FROM matters WHERE id = $1 AND firm_id = $2
+  `, [matter_id, user.firmId]);
+  
+  if (matterResult.rows.length === 0) {
+    return { error: 'Matter not found' };
+  }
+  
+  const matter = matterResult.rows[0];
+  
+  // Check if user can manage permissions
+  const isAdmin = FULL_ACCESS_ROLES.includes(user.role);
+  const isResponsible = matter.responsible_attorney === user.id;
+  
+  if (!isAdmin && !isResponsible) {
+    return { error: 'You do not have permission to change this matter\'s visibility. Only admins, owners, billing users, or the responsible attorney can do this.' };
+  }
+  
+  // Check if already at desired visibility
+  if (matter.visibility === visibility) {
+    return {
+      success: true,
+      message: `"${matter.name}" is already set to "${visibility}".`,
+      noChange: true
+    };
+  }
+  
+  // Update visibility
+  await query(
+    'UPDATE matters SET visibility = $1, updated_at = NOW() WHERE id = $2',
+    [visibility, matter_id]
+  );
+  
+  // Log the action
+  await query(`
+    INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
+    VALUES ($1, $2, 'matter.visibility_changed', 'matter', $3, $4)
+  `, [
+    user.firmId,
+    user.id,
+    matter_id,
+    JSON.stringify({ from: matter.visibility, to: visibility })
+  ]);
+  
+  const visibilityDescriptions = {
+    firm_wide: 'Everyone in the firm can now see this matter.',
+    restricted: 'Only users with explicit permissions, assignments, or special roles (admin/owner/billing/responsible attorney) can see this matter.'
+  };
+  
+  return {
+    success: true,
+    message: `Changed "${matter.name}" (${matter.number}) visibility from "${matter.visibility}" to "${visibility}".`,
+    details: {
+      matterName: matter.name,
+      matterNumber: matter.number,
+      previousVisibility: matter.visibility,
+      newVisibility: visibility,
+      description: visibilityDescriptions[visibility]
+    }
+  };
+}
+
+// =============================================================================
 // SYSTEM PROMPT
 // =============================================================================
 function getSystemPrompt() {
@@ -2521,6 +3047,12 @@ You have access to tools for:
 - **Expenses**: Create and view expenses
 - **Team**: View team members
 - **Analytics**: View firm stats (admin only) and personal stats
+
+### Matter Permissions & Sharing
+- **get_matter_permissions**: See who has access to a matter
+- **share_matter**: Share a matter with a user or group
+- **remove_matter_permission**: Remove someone's access to a matter
+- **update_matter_visibility**: Change a matter between "firm_wide" and "restricted"
 
 ### Navigation (Opening Pages & Records)
 - **navigate_to_page**: Open pages like matters, clients, calendar, billing, time tracking, etc.
@@ -2548,6 +3080,48 @@ When creating calendar events, use create_calendar_event. For start_time, you MU
 - Tomorrow is: ${tomorrow.toISOString().split('T')[0]}
 - For "tomorrow at 2pm", use: "${tomorrow.toISOString().split('T')[0]}T14:00:00"
 - For "today at 3pm", use: "${today.toISOString().split('T')[0]}T15:00:00"
+
+## Matter Permissions System - HOW IT WORKS
+Apex Legal uses a Clio-like visibility system for matters:
+
+### Visibility Types
+- **firm_wide** (default): Everyone in the firm can see the matter
+- **restricted**: Only selected users and groups can access the matter
+
+### Who Always Has Access (regardless of visibility setting)
+1. **Owner, Admin, and Billing roles**: Can see ALL matters in the firm - no restrictions apply to them
+2. **Responsible Attorney**: The attorney assigned as responsible for the matter always has full access
+3. **Originating Attorney**: The attorney who originated the matter always has access (for credit tracking)
+4. **Assigned Users**: Users explicitly assigned to work on the matter (in matter_assignments)
+5. **Users with Permissions**: Users granted explicit permission (in matter_permissions)
+6. **Group Members**: Users in groups that have been granted permission to the matter
+
+### Permission Levels (for restricted matters)
+- **view**: Can see the matter and its basic information
+- **edit**: Can see and modify the matter
+- **admin**: Can see, modify, and manage permissions for the matter
+
+### Additional Permission Controls
+- **can_view_documents**: Whether the user can view documents attached to the matter
+- **can_view_notes**: Whether the user can view notes on the matter
+- **can_edit**: Whether the user can edit the matter details
+
+### Who Can Manage Permissions
+Only the following can change visibility or share a matter:
+- Owner, Admin, or Billing role users
+- The Responsible Attorney of the matter
+
+### How to Share a Matter
+1. If matter is "firm_wide", first change visibility to "restricted" (use update_matter_visibility)
+2. Add users or groups with share_matter tool
+3. Specify the permission level (view, edit, or admin)
+
+### Common Scenarios
+- "Share the Smith case with Sarah": Search for the matter, search for Sarah's user, then use share_matter
+- "Who can see the Johnson matter?": Use get_matter_permissions to see who has access
+- "Remove John from the case": Use remove_matter_permission
+- "Make a matter private/restricted": Use update_matter_visibility with visibility="restricted"
+- "Make a matter visible to everyone": Use update_matter_visibility with visibility="firm_wide"
 
 ## Current User
 - Role: {{USER_ROLE}}
