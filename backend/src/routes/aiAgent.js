@@ -1200,19 +1200,31 @@ async function getMatter(args, user) {
 }
 
 async function createMatter(args, user) {
-  if (!hasPermission(user.role, 'matters:create')) {
-    return { error: 'You do not have permission to create matters' };
-  }
-  
   const { name, client_id, description, type = 'other', priority = 'medium', billing_type = 'hourly', billing_rate, court_name, case_number } = args;
   
   if (!name) {
     return { error: 'Matter name is required' };
   }
   
-  const countResult = await query('SELECT COUNT(*) FROM matters WHERE firm_id = $1', [user.firmId]);
-  const count = parseInt(countResult.rows[0].count) + 1;
-  const number = `MTR-${new Date().getFullYear()}-${String(count).padStart(3, '0')}`;
+  // Generate matter number - find max existing number for this year and increment
+  const year = new Date().getFullYear();
+  const prefix = `MTR-${year}-`;
+  const maxResult = await query(
+    `SELECT number FROM matters 
+     WHERE firm_id = $1 AND number LIKE $2 
+     ORDER BY number DESC LIMIT 1`,
+    [user.firmId, `${prefix}%`]
+  );
+  
+  let nextNum = 1;
+  if (maxResult.rows.length > 0) {
+    const lastNumber = maxResult.rows[0].number;
+    const lastNum = parseInt(lastNumber.replace(prefix, ''), 10);
+    if (!isNaN(lastNum)) {
+      nextNum = lastNum + 1;
+    }
+  }
+  const number = `${prefix}${String(nextNum).padStart(3, '0')}`;
   
   if (client_id) {
     const clientCheck = await query('SELECT id FROM clients WHERE id = $1 AND firm_id = $2', [client_id, user.firmId]);
@@ -1361,10 +1373,6 @@ async function getClient(args, user) {
 }
 
 async function createClient(args, user) {
-  if (!hasPermission(user.role, 'clients:create')) {
-    return { error: 'You do not have permission to create clients' };
-  }
-  
   const { display_name, type = 'person', email, phone, first_name, last_name, company_name, address_street, address_city, address_state, address_zip, notes } = args;
   
   if (!display_name) {

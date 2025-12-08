@@ -112,28 +112,28 @@ const rolePermissions = {
     'reports:view'
   ],
   paralegal: [
-    'matters:view', 'matters:edit',
-    'clients:view',
+    'matters:create', 'matters:view', 'matters:edit',
+    'clients:create', 'clients:view',
     'billing:view', 'billing:create',
     'documents:upload', 'documents:view', 'documents:edit',
     'calendar:create', 'calendar:view', 'calendar:edit'
   ],
   staff: [
-    'matters:view',
-    'clients:view',
+    'matters:create', 'matters:view',
+    'clients:create', 'clients:view',
     'documents:view',
     'calendar:view'
   ],
   billing: [
-    'matters:view',
-    'clients:view',
+    'matters:create', 'matters:view',
+    'clients:create', 'clients:view',
     'billing:create', 'billing:view', 'billing:edit', 'billing:approve',
     'reports:view', 'reports:create', 'reports:export',
     'analytics:view'
   ],
   readonly: [
-    'matters:view',
-    'clients:view',
+    'matters:create', 'matters:view',
+    'clients:create', 'clients:view',
     'documents:view',
     'calendar:view',
     'reports:view'
