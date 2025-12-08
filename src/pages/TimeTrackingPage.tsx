@@ -955,7 +955,8 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
       await onSave({
         ...formData,
         matterId: formData.matterId || undefined, // Make matter optional
-        date: new Date(formData.date).toISOString(),
+        // Use noon local time to avoid timezone issues where UTC midnight falls on the previous day
+        date: new Date(formData.date + 'T12:00:00').toISOString(),
         billed: false,
         aiGenerated: false
       })
@@ -1087,7 +1088,8 @@ function EditTimeEntryModal({ entry, matters, onClose, onSave }: {
       await onSave({
         ...formData,
         matterId: formData.matterId || undefined, // Make matter optional
-        date: new Date(formData.date).toISOString()
+        // Use noon local time to avoid timezone issues where UTC midnight falls on the previous day
+        date: new Date(formData.date + 'T12:00:00').toISOString()
       })
     } finally {
       setIsSubmitting(false)
@@ -1220,7 +1222,8 @@ function SaveTimerModal({ timer, matters, onClose, onSave }: {
       await onSave({
         ...formData,
         matterId: formData.matterId || undefined,
-        date: new Date(formData.date).toISOString(),
+        // Use noon local time to avoid timezone issues where UTC midnight falls on the previous day
+        date: new Date(formData.date + 'T12:00:00').toISOString(),
         billed: false,
         aiGenerated: false
       })
