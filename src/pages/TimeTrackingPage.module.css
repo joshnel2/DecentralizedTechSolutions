@@ -568,6 +568,17 @@
   font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;
+  border: none;
+}
+
+.statusBadge.clickable {
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.statusBadge.clickable:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .statusBadge.billed {
@@ -575,9 +586,17 @@
   color: var(--apex-success);
 }
 
+.statusBadge.billed.clickable:hover {
+  background: rgba(16, 185, 129, 0.2);
+}
+
 .statusBadge.unbilled {
   background: rgba(245, 158, 11, 0.1);
   color: var(--apex-warning);
+}
+
+.statusBadge.unbilled.clickable:hover {
+  background: rgba(245, 158, 11, 0.2);
 }
 
 /* Edit Button */

@@ -143,6 +143,16 @@ export function TimeTrackingPage() {
     )
   }
 
+  const toggleBilledStatus = async (entry: any) => {
+    try {
+      await updateTimeEntry(entry.id, { billed: !entry.billed })
+      fetchTimeEntries({ limit: 500 })
+    } catch (error) {
+      console.error('Failed to toggle billed status:', error)
+      alert('Failed to update billing status. Please try again.')
+    }
+  }
+
   const toggleRecentUnbilled = () => {
     const unbilledIds = unbilledRecentEntries.map(e => e.id)
     const allSelected = unbilledIds.every(id => selectedEntries.includes(id))
@@ -458,9 +468,13 @@ export function TimeTrackingPage() {
                     <td>{entry.hours}h</td>
                     <td>${entry.amount.toLocaleString()}</td>
                     <td>
-                      <span className={clsx(styles.statusBadge, entry.billed ? styles.billed : styles.unbilled)}>
+                      <button
+                        className={clsx(styles.statusBadge, styles.clickable, entry.billed ? styles.billed : styles.unbilled)}
+                        onClick={() => toggleBilledStatus(entry)}
+                        title={entry.billed ? 'Click to mark as unbilled' : 'Click to mark as billed'}
+                      >
                         {entry.billed ? 'Billed' : 'Unbilled'}
-                      </span>
+                      </button>
                     </td>
                     <td>
                       <button 
@@ -556,9 +570,13 @@ export function TimeTrackingPage() {
                     <td>{entry.hours}h</td>
                     <td>${entry.amount.toLocaleString()}</td>
                     <td>
-                      <span className={clsx(styles.statusBadge, entry.billed ? styles.billed : styles.unbilled)}>
+                      <button
+                        className={clsx(styles.statusBadge, styles.clickable, entry.billed ? styles.billed : styles.unbilled)}
+                        onClick={() => toggleBilledStatus(entry)}
+                        title={entry.billed ? 'Click to mark as unbilled' : 'Click to mark as billed'}
+                      >
                         {entry.billed ? 'Billed' : 'Unbilled'}
-                      </span>
+                      </button>
                     </td>
                     <td>
                       <button 

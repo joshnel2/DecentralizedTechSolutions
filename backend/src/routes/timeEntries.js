@@ -202,7 +202,7 @@ router.put('/:id', authenticate, requirePermission('billing:edit'), async (req, 
       return res.status(404).json({ error: 'Time entry not found' });
     }
 
-    const { matterId, date, hours, description, billable, rate, activityCode, status } = req.body;
+    const { matterId, date, hours, description, billable, billed, rate, activityCode, status } = req.body;
 
     const result = await query(
       `UPDATE time_entries SET
@@ -213,10 +213,11 @@ router.put('/:id', authenticate, requirePermission('billing:edit'), async (req, 
         billable = COALESCE($5, billable),
         rate = COALESCE($6, rate),
         activity_code = COALESCE($7, activity_code),
-        status = COALESCE($8, status)
-      WHERE id = $9
+        status = COALESCE($8, status),
+        billed = COALESCE($9, billed)
+      WHERE id = $10
       RETURNING *`,
-      [matterId, date, hours, description, billable, rate, activityCode, status, req.params.id]
+      [matterId, date, hours, description, billable, rate, activityCode, status, billed, req.params.id]
     );
 
     const te = result.rows[0];
