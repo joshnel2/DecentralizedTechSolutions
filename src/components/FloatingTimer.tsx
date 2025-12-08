@@ -64,7 +64,7 @@ export function FloatingTimer() {
         updatedAt: new Date().toISOString()
       } as any)
       
-      fetchTimeEntries()
+      await fetchTimeEntries({ limit: 500 })
       discardTimer()
       setShowSaveModal(false)
     } catch (error) {

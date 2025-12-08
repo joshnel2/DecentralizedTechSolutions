@@ -56,7 +56,7 @@ export function DashboardPage() {
   useEffect(() => {
     fetchClients()
     fetchMatters()
-    fetchTimeEntries({})
+    fetchTimeEntries({ limit: 500 })
     fetchInvoices()
     fetchEvents({})
   }, [])
@@ -338,7 +338,7 @@ export function DashboardPage() {
               await addTimeEntry(data)
               setShowSaveTimerModal(false)
               discardTimer()
-              fetchTimeEntries({})
+              await fetchTimeEntries({ limit: 500 })
             } catch (error) {
               console.error('Failed to save time entry:', error)
               alert('Failed to save time entry. Please try again.')

@@ -27,7 +27,7 @@ export function BillingPage() {
     fetchInvoices()
     fetchClients()
     fetchMatters()
-    fetchTimeEntries()
+    fetchTimeEntries({ limit: 500 })
   }, [fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries])
   
   const [searchQuery, setSearchQuery] = useState('')

@@ -375,7 +375,7 @@ export function MatterDetailPage() {
       setQuickTimeMinutes(10)
       setQuickTimeNotes('')
       // Refresh time entries
-      fetchTimeEntries({ matterId: id })
+      await fetchTimeEntries({ matterId: id })
     } catch (error) {
       console.error('Failed to save quick time entry:', error)
       alert('Failed to save time entry')
@@ -417,7 +417,7 @@ export function MatterDetailPage() {
       onConfirm: async () => {
         try {
           await deleteTimeEntry(entryId)
-          fetchTimeEntries({ matterId: id })
+          await fetchTimeEntries({ matterId: id })
           setConfirmModal(prev => ({ ...prev, isOpen: false }))
         } catch (error) {
           console.error('Failed to delete time entry:', error)
@@ -1907,7 +1907,7 @@ Only analyze documents actually associated with this matter.`
                 try {
                   await addTimeEntry(data)
                   setShowTimeEntryModal(false)
-                  fetchTimeEntries({ matterId: id })
+                  await fetchTimeEntries({ matterId: id })
                 } catch (error) {
                   console.error('Failed to save time entry:', error)
                   alert('Failed to save time entry. Please try again.')
@@ -2087,7 +2087,7 @@ Only analyze documents actually associated with this matter.`
                 try {
                   await updateTimeEntry(editingTimeEntry.id, data)
                   setEditingTimeEntry(null)
-                  fetchTimeEntries({ matterId: id })
+                  await fetchTimeEntries({ matterId: id })
                 } catch (error) {
                   console.error('Failed to update time entry:', error)
                   alert('Failed to update time entry. Please try again.')

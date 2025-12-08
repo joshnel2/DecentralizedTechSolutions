@@ -183,7 +183,7 @@ export function ClientDetailPage() {
       setQuickTimeMinutes(10)
       setQuickTimeNotes('')
       // Refresh time entries
-      fetchTimeEntries({ matterId: selectedMatterForTime })
+      await fetchTimeEntries({ limit: 500 })
     } catch (error) {
       console.error('Failed to save quick time entry:', error)
       alert('Failed to save time entry')
@@ -201,7 +201,7 @@ export function ClientDetailPage() {
 
   // Fetch time entries on mount
   useEffect(() => {
-    fetchTimeEntries()
+    fetchTimeEntries({ limit: 500 })
   }, [])
 
   // Handle time entry delete
@@ -216,7 +216,7 @@ export function ClientDetailPage() {
       onConfirm: async () => {
         try {
           await deleteTimeEntry(entryId)
-          fetchTimeEntries()
+          await fetchTimeEntries({ limit: 500 })
           setConfirmModal(prev => ({ ...prev, isOpen: false }))
         } catch (error) {
           console.error('Failed to delete time entry:', error)
@@ -1081,7 +1081,7 @@ export function ClientDetailPage() {
           onSave={async (data) => {
             await addTimeEntry(data)
             setShowNewTimeEntryModal(false)
-            fetchTimeEntries()
+            await fetchTimeEntries({ limit: 500 })
           }}
         />
       )}
@@ -1096,7 +1096,7 @@ export function ClientDetailPage() {
           onSave={async (data) => {
             await updateTimeEntry(editingTimeEntry.id, data)
             setEditingTimeEntry(null)
-            fetchTimeEntries()
+            await fetchTimeEntries({ limit: 500 })
           }}
         />
       )}
@@ -1118,7 +1118,7 @@ export function ClientDetailPage() {
               for (const entryId of selectedTimeEntries) {
                 await updateTimeEntry(entryId, { billed: true })
               }
-              await fetchTimeEntries()
+              await fetchTimeEntries({ limit: 500 })
               await fetchInvoices()
               setSelectedTimeEntries([])
               setShowBillEntriesModal(false)
