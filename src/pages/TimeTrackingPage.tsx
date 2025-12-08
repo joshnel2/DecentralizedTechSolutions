@@ -105,6 +105,15 @@ export function TimeTrackingPage() {
     return timeEntries.filter(e => !e.billed && e.billable)
   }, [timeEntries])
 
+  // Unbilled entries split by recent/older
+  const unbilledRecentEntries = useMemo(() => {
+    return recentEntries.filter(e => !e.billed && e.billable)
+  }, [recentEntries])
+
+  const unbilledOlderEntries = useMemo(() => {
+    return olderEntries.filter(e => !e.billed && e.billable)
+  }, [olderEntries])
+
   const unbilledTotal = useMemo(() => {
     return unbilledEntries.reduce((sum, e) => sum + e.amount, 0)
   }, [unbilledEntries])
@@ -133,13 +142,27 @@ export function TimeTrackingPage() {
     )
   }
 
-  const toggleAllUnbilled = () => {
-    const unbilledIds = unbilledEntries.map(e => e.id)
+  const toggleRecentUnbilled = () => {
+    const unbilledIds = unbilledRecentEntries.map(e => e.id)
     const allSelected = unbilledIds.every(id => selectedEntries.includes(id))
     if (allSelected) {
-      setSelectedEntries([])
+      // Deselect only recent unbilled entries
+      setSelectedEntries(prev => prev.filter(id => !unbilledIds.includes(id)))
     } else {
-      setSelectedEntries(unbilledIds)
+      // Add recent unbilled entries to selection
+      setSelectedEntries(prev => [...new Set([...prev, ...unbilledIds])])
+    }
+  }
+
+  const toggleOlderUnbilled = () => {
+    const unbilledIds = unbilledOlderEntries.map(e => e.id)
+    const allSelected = unbilledIds.every(id => selectedEntries.includes(id))
+    if (allSelected) {
+      // Deselect only older unbilled entries
+      setSelectedEntries(prev => prev.filter(id => !unbilledIds.includes(id)))
+    } else {
+      // Add older unbilled entries to selection
+      setSelectedEntries(prev => [...new Set([...prev, ...unbilledIds])])
     }
   }
 
@@ -356,14 +379,14 @@ export function TimeTrackingPage() {
             <span className={styles.sectionSubtitle}>Past 7 days</span>
           </div>
           <div className={styles.headerActions}>
-            {unbilledEntries.length > 0 && (
+            {unbilledRecentEntries.length > 0 && (
               <button 
                 className={styles.selectAllBtn}
-                onClick={toggleAllUnbilled}
+                onClick={toggleRecentUnbilled}
               >
-                {unbilledEntries.every(e => selectedEntries.includes(e.id)) 
-                  ? 'Deselect All' 
-                  : `Select All Unbilled (${unbilledEntries.length})`}
+                {unbilledRecentEntries.every(e => selectedEntries.includes(e.id)) 
+                  ? 'Deselect Recent' 
+                  : `Select Unbilled (${unbilledRecentEntries.length})`}
               </button>
             )}
           </div>
@@ -462,6 +485,18 @@ export function TimeTrackingPage() {
             <div className={styles.sectionTitleGroup}>
               <h3>All Time Entries</h3>
               <span className={styles.sectionSubtitle}>Older entries</span>
+            </div>
+            <div className={styles.headerActions}>
+              {unbilledOlderEntries.length > 0 && (
+                <button 
+                  className={styles.selectAllBtn}
+                  onClick={toggleOlderUnbilled}
+                >
+                  {unbilledOlderEntries.every(e => selectedEntries.includes(e.id)) 
+                    ? 'Deselect Older' 
+                    : `Select Unbilled (${unbilledOlderEntries.length})`}
+                </button>
+              )}
             </div>
           </div>
           <div className={styles.entriesTable}>
