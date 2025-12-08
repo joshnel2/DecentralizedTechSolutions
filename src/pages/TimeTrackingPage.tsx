@@ -81,11 +81,25 @@ export function TimeTrackingPage() {
     return { totalHours, billableHours, totalValue, byDay }
   }, [timeEntries, weekDays])
 
+  // Get entries from past 7 days
+  const sevenDaysAgo = useMemo(() => {
+    const date = new Date()
+    date.setDate(date.getDate() - 7)
+    date.setHours(0, 0, 0, 0)
+    return date
+  }, [])
+
   const recentEntries = useMemo(() => {
     return [...timeEntries]
+      .filter(e => parseISO(e.date) >= sevenDaysAgo)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 20) // Show more entries
-  }, [timeEntries])
+  }, [timeEntries, sevenDaysAgo])
+
+  const olderEntries = useMemo(() => {
+    return [...timeEntries]
+      .filter(e => parseISO(e.date) < sevenDaysAgo)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  }, [timeEntries, sevenDaysAgo])
 
   const unbilledEntries = useMemo(() => {
     return timeEntries.filter(e => !e.billed && e.billable)
@@ -334,92 +348,198 @@ export function TimeTrackingPage() {
 
       {/* Quick Timer - Hidden when floating timer is active */}
 
-      {/* Recent Entries */}
+      {/* Recent Entries (Past 7 Days) */}
       <div className={styles.recentSection}>
         <div className={styles.recentHeader}>
-          <h3>Recent Time Entries</h3>
-          {unbilledEntries.length > 0 && (
-            <button 
-              className={styles.selectAllBtn}
-              onClick={toggleAllUnbilled}
-            >
-              {unbilledEntries.every(e => selectedEntries.includes(e.id)) 
-                ? 'Deselect All Unbilled' 
-                : `Select All Unbilled (${unbilledEntries.length})`}
+          <div className={styles.sectionTitleGroup}>
+            <h3>Recent Time Entries</h3>
+            <span className={styles.sectionSubtitle}>Past 7 days</span>
+          </div>
+          <div className={styles.headerActions}>
+            {unbilledEntries.length > 0 && (
+              <button 
+                className={styles.selectAllBtn}
+                onClick={toggleAllUnbilled}
+              >
+                {unbilledEntries.every(e => selectedEntries.includes(e.id)) 
+                  ? 'Deselect All' 
+                  : `Select All Unbilled (${unbilledEntries.length})`}
+              </button>
+            )}
+          </div>
+        </div>
+        {recentEntries.length === 0 ? (
+          <div className={styles.emptyState}>
+            <Clock size={24} />
+            <p>No time entries in the past 7 days</p>
+            <button className={styles.addEntryBtn} onClick={() => setShowNewModal(true)}>
+              <Plus size={16} />
+              Add Time Entry
             </button>
-          )}
-        </div>
-        <div className={styles.entriesTable}>
-          <table>
-            <thead>
-              <tr>
-                <th style={{ width: '40px' }}></th>
-                <th>Date</th>
-                <th>Matter</th>
-                <th>Description</th>
-                <th>Hours</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th style={{ width: '60px' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentEntries.map(entry => (
-                <tr 
-                  key={entry.id} 
-                  className={clsx(
-                    selectedEntries.includes(entry.id) && styles.selectedRow
-                  )}
-                >
-                  <td>
-                    {!entry.billed && entry.billable && (
-                      <input
-                        type="checkbox"
-                        checked={selectedEntries.includes(entry.id)}
-                        onChange={() => toggleEntrySelection(entry.id)}
-                        className={styles.entryCheckbox}
-                      />
-                    )}
-                  </td>
-                  <td>{format(parseISO(entry.date), 'MMM d, yyyy')}</td>
-                  <td>
-                    <Link to={`/app/matters/${entry.matterId}`}>
-                      <div className={styles.matterCell}>
-                        <span>{getMatterName(entry.matterId)}</span>
-                        <span className={styles.matterNum}>{getMatterNumber(entry.matterId)}</span>
-                      </div>
-                    </Link>
-                  </td>
-                  <td>
-                    <div className={styles.descCell}>
-                      {entry.description}
-                      {entry.aiGenerated && (
-                        <span className={styles.aiTag}><Sparkles size={10} /></span>
-                      )}
-                    </div>
-                  </td>
-                  <td>{entry.hours}h</td>
-                  <td>${entry.amount.toLocaleString()}</td>
-                  <td>
-                    <span className={clsx(styles.statusBadge, entry.billed ? styles.billed : styles.unbilled)}>
-                      {entry.billed ? 'Billed' : 'Unbilled'}
-                    </span>
-                  </td>
-                  <td>
-                    <button 
-                      className={styles.editBtn}
-                      onClick={() => setEditingEntry(entry)}
-                      title="Edit Entry"
-                    >
-                      <Edit2 size={14} />
-                    </button>
-                  </td>
+          </div>
+        ) : (
+          <div className={styles.entriesTable}>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: '40px' }}></th>
+                  <th>Date</th>
+                  <th>Matter</th>
+                  <th>Description</th>
+                  <th>Hours</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                  <th style={{ width: '60px' }}>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {recentEntries.map(entry => (
+                  <tr 
+                    key={entry.id} 
+                    className={clsx(
+                      selectedEntries.includes(entry.id) && styles.selectedRow
+                    )}
+                  >
+                    <td>
+                      {!entry.billed && entry.billable && (
+                        <input
+                          type="checkbox"
+                          checked={selectedEntries.includes(entry.id)}
+                          onChange={() => toggleEntrySelection(entry.id)}
+                          className={styles.entryCheckbox}
+                        />
+                      )}
+                    </td>
+                    <td>{format(parseISO(entry.date), 'MMM d, yyyy')}</td>
+                    <td>
+                      {entry.matterId ? (
+                        <Link to={`/app/matters/${entry.matterId}`}>
+                          <div className={styles.matterCell}>
+                            <span>{getMatterName(entry.matterId)}</span>
+                            <span className={styles.matterNum}>{getMatterNumber(entry.matterId)}</span>
+                          </div>
+                        </Link>
+                      ) : (
+                        <span className={styles.noMatter}>No Matter</span>
+                      )}
+                    </td>
+                    <td>
+                      <div className={styles.descCell}>
+                        {entry.description || <span className={styles.noDesc}>No description</span>}
+                        {entry.aiGenerated && (
+                          <span className={styles.aiTag}><Sparkles size={10} /></span>
+                        )}
+                      </div>
+                    </td>
+                    <td>{entry.hours}h</td>
+                    <td>${entry.amount.toLocaleString()}</td>
+                    <td>
+                      <span className={clsx(styles.statusBadge, entry.billed ? styles.billed : styles.unbilled)}>
+                        {entry.billed ? 'Billed' : 'Unbilled'}
+                      </span>
+                    </td>
+                    <td>
+                      <button 
+                        className={styles.editBtn}
+                        onClick={() => setEditingEntry(entry)}
+                        title="Edit Entry"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
+
+      {/* All Time Entries (Older than 7 days) */}
+      {olderEntries.length > 0 && (
+        <div className={styles.recentSection}>
+          <div className={styles.recentHeader}>
+            <div className={styles.sectionTitleGroup}>
+              <h3>All Time Entries</h3>
+              <span className={styles.sectionSubtitle}>Older entries</span>
+            </div>
+          </div>
+          <div className={styles.entriesTable}>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: '40px' }}></th>
+                  <th>Date</th>
+                  <th>Matter</th>
+                  <th>Description</th>
+                  <th>Hours</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                  <th style={{ width: '60px' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {olderEntries.map(entry => (
+                  <tr 
+                    key={entry.id} 
+                    className={clsx(
+                      selectedEntries.includes(entry.id) && styles.selectedRow
+                    )}
+                  >
+                    <td>
+                      {!entry.billed && entry.billable && (
+                        <input
+                          type="checkbox"
+                          checked={selectedEntries.includes(entry.id)}
+                          onChange={() => toggleEntrySelection(entry.id)}
+                          className={styles.entryCheckbox}
+                        />
+                      )}
+                    </td>
+                    <td>{format(parseISO(entry.date), 'MMM d, yyyy')}</td>
+                    <td>
+                      {entry.matterId ? (
+                        <Link to={`/app/matters/${entry.matterId}`}>
+                          <div className={styles.matterCell}>
+                            <span>{getMatterName(entry.matterId)}</span>
+                            <span className={styles.matterNum}>{getMatterNumber(entry.matterId)}</span>
+                          </div>
+                        </Link>
+                      ) : (
+                        <span className={styles.noMatter}>No Matter</span>
+                      )}
+                    </td>
+                    <td>
+                      <div className={styles.descCell}>
+                        {entry.description || <span className={styles.noDesc}>No description</span>}
+                        {entry.aiGenerated && (
+                          <span className={styles.aiTag}><Sparkles size={10} /></span>
+                        )}
+                      </div>
+                    </td>
+                    <td>{entry.hours}h</td>
+                    <td>${entry.amount.toLocaleString()}</td>
+                    <td>
+                      <span className={clsx(styles.statusBadge, entry.billed ? styles.billed : styles.unbilled)}>
+                        {entry.billed ? 'Billed' : 'Unbilled'}
+                      </span>
+                    </td>
+                    <td>
+                      <button 
+                        className={styles.editBtn}
+                        onClick={() => setEditingEntry(entry)}
+                        title="Edit Entry"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {showNewModal && (
         <NewTimeEntryModal 
@@ -948,9 +1068,10 @@ function BillTimeModal({
     selectedEntries.forEach(entry => {
       const matter = matters.find(m => m.id === entry.matterId)
       const client = matter ? clients.find(c => c.id === matter.clientId) : null
+      const matterId = entry.matterId || 'no-matter'
       
-      if (!groups[entry.matterId]) {
-        groups[entry.matterId] = {
+      if (!groups[matterId]) {
+        groups[matterId] = {
           matter,
           client,
           entries: [],
@@ -958,12 +1079,12 @@ function BillTimeModal({
           hours: 0
         }
       }
-      groups[entry.matterId].entries.push(entry)
-      groups[entry.matterId].total += entry.amount
-      groups[entry.matterId].hours += entry.hours
+      groups[matterId].entries.push(entry)
+      groups[matterId].total += entry.amount
+      groups[matterId].hours += entry.hours
     })
     
-    return Object.values(groups)
+    return Object.values(groups).filter(g => g.matter && g.client)
   }, [selectedEntries, matters, clients])
 
   // Group entries by client
@@ -992,22 +1113,23 @@ function BillTimeModal({
       groups[clientId].hours += entry.hours
     })
     
-    return Object.values(groups)
+    return Object.values(groups).filter(g => g.client)
   }, [selectedEntries, matters, clients])
 
   const totalAmount = selectedEntries.reduce((sum, e) => sum + e.amount, 0)
   const totalHours = selectedEntries.reduce((sum, e) => sum + e.hours, 0)
+  
+  const invoiceCount = groupBy === 'matter' ? entriesByMatter.length : entriesByClient.length
 
   const handleCreateInvoices = async () => {
     setIsSubmitting(true)
     try {
       if (groupBy === 'matter') {
-        // Create one invoice per matter
         for (const group of entriesByMatter) {
           if (!group.matter || !group.client) continue
           
           const lineItems = group.entries.map(entry => ({
-            description: entry.description,
+            description: entry.description || 'Legal services',
             quantity: entry.hours,
             rate: entry.rate,
             amount: entry.amount
@@ -1027,21 +1149,19 @@ function BillTimeModal({
           })
         }
       } else {
-        // Create one invoice per client (combining all matters)
         for (const group of entriesByClient) {
           if (!group.client) continue
           
           const lineItems = group.entries.map(entry => {
             const matter = matters.find(m => m.id === entry.matterId)
             return {
-              description: `${matter?.name || 'Legal Services'}: ${entry.description}`,
+              description: `${matter?.name || 'Legal Services'}: ${entry.description || 'Services rendered'}`,
               quantity: entry.hours,
               rate: entry.rate,
               amount: entry.amount
             }
           })
           
-          // Use first matter for the invoice (or could leave null)
           const primaryMatter = group.matters[0]
           
           await onCreateInvoice({
@@ -1066,108 +1186,104 @@ function BillTimeModal({
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
       <div className={styles.billModal} onClick={e => e.stopPropagation()}>
-        <div className={styles.modalHeader}>
-          <h2>Create Invoice from Time Entries</h2>
+        <div className={styles.billModalHeader}>
+          <div className={styles.billModalTitle}>
+            <FileText size={20} />
+            <h2>Create Invoice</h2>
+          </div>
           <button onClick={onClose} className={styles.closeBtn}><X size={20} /></button>
         </div>
         
-        <div className={styles.billModalBody}>
-          {/* Summary */}
-          <div className={styles.billSummary}>
-            <div className={styles.billSummaryItem}>
-              <span>{selectedEntries.length}</span>
-              <label>Time Entries</label>
+        <div className={styles.billModalContent}>
+          {/* Summary Stats */}
+          <div className={styles.billSummaryCompact}>
+            <div className={styles.billStatItem}>
+              <span className={styles.billStatValue}>{selectedEntries.length}</span>
+              <span className={styles.billStatLabel}>Entries</span>
             </div>
-            <div className={styles.billSummaryItem}>
-              <span>{totalHours.toFixed(1)}h</span>
-              <label>Total Hours</label>
+            <div className={styles.billStatDivider} />
+            <div className={styles.billStatItem}>
+              <span className={styles.billStatValue}>{totalHours.toFixed(1)}h</span>
+              <span className={styles.billStatLabel}>Hours</span>
             </div>
-            <div className={styles.billSummaryItem}>
-              <span>${totalAmount.toLocaleString()}</span>
-              <label>Total Amount</label>
+            <div className={styles.billStatDivider} />
+            <div className={styles.billStatItem}>
+              <span className={styles.billStatValue}>${totalAmount.toLocaleString()}</span>
+              <span className={styles.billStatLabel}>Total</span>
             </div>
           </div>
 
-          {/* Grouping Option */}
-          <div className={styles.groupingOption}>
-            <label>Create invoices grouped by:</label>
-            <div className={styles.groupingBtns}>
+          {/* Grouping Toggle */}
+          <div className={styles.groupingToggle}>
+            <span className={styles.groupingLabel}>Group by:</span>
+            <div className={styles.toggleGroup}>
               <button 
-                className={clsx(styles.groupBtn, groupBy === 'matter' && styles.active)}
+                className={clsx(styles.toggleBtn, groupBy === 'matter' && styles.active)}
                 onClick={() => setGroupBy('matter')}
               >
-                Matter ({entriesByMatter.length} invoice{entriesByMatter.length !== 1 ? 's' : ''})
+                Matter
               </button>
               <button 
-                className={clsx(styles.groupBtn, groupBy === 'client' && styles.active)}
+                className={clsx(styles.toggleBtn, groupBy === 'client' && styles.active)}
                 onClick={() => setGroupBy('client')}
               >
-                Client ({entriesByClient.length} invoice{entriesByClient.length !== 1 ? 's' : ''})
+                Client
               </button>
             </div>
           </div>
 
-          {/* Preview */}
-          <div className={styles.invoicePreview}>
-            <h4>Invoice Preview</h4>
-            {groupBy === 'matter' ? (
-              <div className={styles.previewList}>
-                {entriesByMatter.map((group, i) => (
-                  <div key={i} className={styles.previewItem}>
-                    <div className={styles.previewHeader}>
-                      <div>
-                        <strong>{group.client?.name || 'Unknown Client'}</strong>
-                        <span className={styles.previewMatter}>{group.matter?.name || 'Unknown Matter'}</span>
-                      </div>
-                      <span className={styles.previewAmount}>${group.total.toLocaleString()}</span>
+          {/* Preview List */}
+          <div className={styles.invoicePreviewCompact}>
+            <div className={styles.previewHeader}>
+              <span>{invoiceCount} invoice{invoiceCount !== 1 ? 's' : ''} to create</span>
+            </div>
+            <div className={styles.previewListCompact}>
+              {groupBy === 'matter' ? (
+                entriesByMatter.map((group, i) => (
+                  <div key={i} className={styles.previewItemCompact}>
+                    <div className={styles.previewItemLeft}>
+                      <span className={styles.previewClientName}>{group.client?.name || 'Unknown'}</span>
+                      <span className={styles.previewMatterName}>{group.matter?.name || 'Unknown'}</span>
                     </div>
-                    <div className={styles.previewDetails}>
-                      {group.entries.length} entries • {group.hours.toFixed(1)} hours
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className={styles.previewList}>
-                {entriesByClient.map((group, i) => (
-                  <div key={i} className={styles.previewItem}>
-                    <div className={styles.previewHeader}>
-                      <div>
-                        <strong>{group.client?.name || 'Unknown Client'}</strong>
-                        <span className={styles.previewMatter}>
-                          {group.matters.length} matter{group.matters.length !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                      <span className={styles.previewAmount}>${group.total.toLocaleString()}</span>
-                    </div>
-                    <div className={styles.previewDetails}>
-                      {group.entries.length} entries • {group.hours.toFixed(1)} hours
+                    <div className={styles.previewItemRight}>
+                      <span className={styles.previewItemHours}>{group.hours.toFixed(1)}h</span>
+                      <span className={styles.previewItemAmount}>${group.total.toLocaleString()}</span>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
+                ))
+              ) : (
+                entriesByClient.map((group, i) => (
+                  <div key={i} className={styles.previewItemCompact}>
+                    <div className={styles.previewItemLeft}>
+                      <span className={styles.previewClientName}>{group.client?.name || 'Unknown'}</span>
+                      <span className={styles.previewMatterName}>{group.matters.length} matter{group.matters.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div className={styles.previewItemRight}>
+                      <span className={styles.previewItemHours}>{group.hours.toFixed(1)}h</span>
+                      <span className={styles.previewItemAmount}>${group.total.toLocaleString()}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
 
-          {/* Info */}
-          <div className={styles.billInfo}>
-            <p>
-              Invoices will be created as <strong>Draft</strong> and you can review them before sending.
-              Time entries will be marked as <strong>Billed</strong> after invoice creation.
-            </p>
+          {/* Info Note */}
+          <div className={styles.billNote}>
+            <span>Invoices created as drafts • Time entries marked as billed</span>
           </div>
         </div>
 
-        <div className={styles.modalActions}>
-          <button onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+        <div className={styles.billModalFooter}>
+          <button onClick={onClose} className={styles.cancelBtnSecondary} disabled={isSubmitting}>
             Cancel
           </button>
           <button 
             onClick={handleCreateInvoices} 
-            className={styles.saveBtn}
-            disabled={isSubmitting}
+            className={styles.createInvoiceBtn}
+            disabled={isSubmitting || invoiceCount === 0}
           >
-            {isSubmitting ? 'Creating...' : `Create ${groupBy === 'matter' ? entriesByMatter.length : entriesByClient.length} Invoice${(groupBy === 'matter' ? entriesByMatter.length : entriesByClient.length) !== 1 ? 's' : ''}`}
+            {isSubmitting ? 'Creating...' : `Create ${invoiceCount} Invoice${invoiceCount !== 1 ? 's' : ''}`}
           </button>
         </div>
       </div>
