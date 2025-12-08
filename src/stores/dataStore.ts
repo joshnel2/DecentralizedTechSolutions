@@ -59,7 +59,7 @@ interface DataState {
   
   // Fetch actions
   fetchClients: () => Promise<void>
-  fetchMatters: () => Promise<void>
+  fetchMatters: (params?: { view?: 'my' | 'all' }) => Promise<void>
   fetchTimeEntries: (params?: { matterId?: string; limit?: number; offset?: number }) => Promise<void>
   fetchInvoices: () => Promise<void>
   fetchEvents: (params?: { startDate?: string; endDate?: string }) => Promise<void>
@@ -148,10 +148,10 @@ export const useDataStore = create<DataState>()(
   },
 
   // Fetch matters from API
-  fetchMatters: async () => {
+  fetchMatters: async (params?: { view?: 'my' | 'all' }) => {
     set({ isLoading: true, error: null })
     try {
-      const response = await mattersApi.getAll()
+      const response = await mattersApi.getAll({ view: params?.view || 'my' })
       set({ matters: response.matters, isLoading: false })
     } catch (error) {
       console.error('Failed to fetch matters:', error)

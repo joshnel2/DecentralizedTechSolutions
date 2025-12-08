@@ -24,6 +24,11 @@ const statusOptions = [
   { value: 'archived', label: 'Archived' }
 ]
 
+const viewOptions = [
+  { value: 'my', label: 'My Matters' },
+  { value: 'all', label: 'All Matters' }
+]
+
 export function MattersPage() {
   const { matters, clients, addMatter, fetchMatters, fetchClients, updateMatter, deleteMatter, matterTypes } = useDataStore()
   const { user } = useAuthStore()
@@ -35,6 +40,7 @@ export function MattersPage() {
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const [prefilledClientId, setPrefilledClientId] = useState<string | null>(null)
+  const [viewFilter, setViewFilter] = useState<'my' | 'all'>('my') // Default to "My Matters"
 
   const isAdmin = user?.role === 'owner' || user?.role === 'admin'
 
@@ -57,16 +63,16 @@ export function MattersPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Fetch data when component mounts
+  // Fetch data when component mounts or view filter changes
   useEffect(() => {
-    fetchMatters()
+    fetchMatters({ view: viewFilter })
     fetchClients()
     
     // Fetch attorneys for attorney selection dropdowns
     teamApi.getAttorneys()
       .then(data => setAttorneys(data.attorneys || []))
       .catch(err => console.log('Could not fetch attorneys:', err))
-  }, [])
+  }, [viewFilter])
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
@@ -206,8 +212,8 @@ export function MattersPage() {
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <h1>Matters</h1>
-          <span className={styles.count}>{matters.length} total</span>
+          <h1>{viewFilter === 'my' ? 'My Matters' : 'All Matters'}</h1>
+          <span className={styles.count}>{matters.length} {viewFilter === 'my' ? 'assigned to you' : 'total'}</span>
         </div>
         <div className={styles.headerActions}>
           <button 
@@ -236,6 +242,20 @@ export function MattersPage() {
 
       {/* Filters */}
       <div className={styles.filters}>
+        {/* View Toggle - My Matters vs All Matters */}
+        <div className={styles.viewToggle}>
+          {viewOptions.map(opt => (
+            <button
+              key={opt.value}
+              className={clsx(styles.viewToggleBtn, viewFilter === opt.value && styles.active)}
+              onClick={() => setViewFilter(opt.value as 'my' | 'all')}
+            >
+              {opt.value === 'my' ? <Users size={14} /> : <Briefcase size={14} />}
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
         <div className={styles.searchBox}>
           <Search size={18} />
           <input

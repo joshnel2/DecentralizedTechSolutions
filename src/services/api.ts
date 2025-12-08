@@ -218,6 +218,7 @@ export const mattersApi = {
     type?: string;
     clientId?: string;
     priority?: string;
+    view?: 'my' | 'all'; // 'my' = my matters only, 'all' = all matters I can see
   }) {
     const query = new URLSearchParams();
     if (params?.search) query.set('search', params.search);
@@ -225,6 +226,7 @@ export const mattersApi = {
     if (params?.type) query.set('type', params.type);
     if (params?.clientId) query.set('clientId', params.clientId);
     if (params?.priority) query.set('priority', params.priority);
+    if (params?.view) query.set('view', params.view);
     
     return fetchWithAuth(`/matters?${query}`);
   },
