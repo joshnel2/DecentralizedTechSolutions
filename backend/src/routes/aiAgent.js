@@ -135,7 +135,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "create_matter",
-      description: "Create a new legal matter/case.",
+      description: "Create a new legal matter/case. ALL users can create matters - no special permissions required. Just provide a name and optionally other details.",
       parameters: {
         type: "object",
         properties: {
@@ -208,7 +208,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "create_client",
-      description: "Create a new client.",
+      description: "Create a new client. ALL users can create clients - no special permissions required.",
       parameters: {
         type: "object",
         properties: {
