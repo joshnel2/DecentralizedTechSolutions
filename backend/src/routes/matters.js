@@ -459,6 +459,11 @@ router.put('/:id', authenticate, requirePermission('matters:edit'), async (req, 
       notes,
     } = req.body;
 
+    // Convert empty strings to null for UUID fields (PostgreSQL can't cast "" to UUID)
+    const safeClientId = clientId && clientId.trim() !== '' ? clientId : null;
+    const safeResponsibleAttorney = responsibleAttorney && responsibleAttorney.trim() !== '' ? responsibleAttorney : null;
+    const safeOriginatingAttorney = originatingAttorney && originatingAttorney.trim() !== '' ? originatingAttorney : null;
+
     await withTransaction(async (client) => {
       await client.query(
         `UPDATE matters SET
@@ -489,7 +494,7 @@ router.put('/:id', authenticate, requirePermission('matters:edit'), async (req, 
           notes = COALESCE($25, notes)
         WHERE id = $26`,
         [
-          name, description, clientId, type, status, priority, responsibleAttorney, originatingAttorney,
+          name, description, safeClientId, type, status, priority, safeResponsibleAttorney, safeOriginatingAttorney,
           openDate, closeDate, statuteOfLimitations,
           courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
           billingType, billingRate, flatFee, contingencyPercent, retainerAmount,
