@@ -794,44 +794,129 @@
   color: var(--apex-warning);
 }
 
-/* Bill Bar */
-.billBar {
+/* Selection Bar */
+.selectionBar {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-md);
   padding: var(--space-md) var(--space-lg);
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%);
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: var(--radius-lg);
   margin-bottom: var(--space-lg);
-  animation: fadeIn 0.2s ease;
 }
 
-.billBarInfo {
+.selectionLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+}
+
+.quickSelect {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.quickSelectLabel {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--apex-text);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.quickSelectDropdown {
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  min-width: 120px;
+}
+
+.quickSelectDropdown:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.filterSection {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-left: var(--space-md);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--apex-subtle);
+}
+
+.filterDropdown {
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  min-width: 120px;
+}
+
+.filterDropdown:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.clearFilterBtn {
+  padding: var(--space-xs) var(--space-sm);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.clearFilterBtn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--apex-light);
+}
+
+.selectionActions {
   display: flex;
   align-items: center;
   gap: var(--space-md);
-  color: var(--apex-success);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius-md);
 }
 
-.billBarAmount {
-  font-weight: 600;
-  font-size: 1.125rem;
-  color: var(--apex-white);
-}
-
-.billBarActions {
+.selectionInfo {
   display: flex;
-  gap: var(--space-md);
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--apex-success);
+  font-size: 0.875rem;
+}
+
+.selectionAmount {
+  font-weight: 600;
+  color: var(--apex-white);
+  padding-left: var(--space-sm);
+  border-left: 1px solid rgba(16, 185, 129, 0.3);
+  margin-left: var(--space-xs);
 }
 
 .clearSelectionBtn {
-  padding: var(--space-sm) var(--space-md);
+  padding: var(--space-xs) var(--space-sm);
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   color: var(--apex-text);
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   cursor: pointer;
   transition: all var(--transition-fast);
 }
@@ -841,22 +926,22 @@
   color: var(--apex-white);
 }
 
-.billSelectedBtn {
+.createInvoiceBtn {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-lg);
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
   background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   color: var(--apex-midnight);
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
-.billSelectedBtn:hover {
+.createInvoiceBtn:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-glow);
 }
@@ -871,10 +956,19 @@
 }
 
 .recentHeader h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
   font-size: 1rem;
   font-weight: 600;
   color: var(--apex-white);
   margin: 0;
+}
+
+.headerNote {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--apex-subtle);
 }
 
 .selectAllBtn {
@@ -892,6 +986,66 @@
   background: rgba(245, 158, 11, 0.2);
 }
 
+/* Archived Section */
+.archivedSection {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin-top: var(--space-lg);
+}
+
+.archivedHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--space-md) var(--space-lg);
+  background: rgba(255, 255, 255, 0.02);
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.archivedHeader:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.archivedHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--apex-text);
+}
+
+.archivedHeaderLeft h3 {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--apex-light);
+  margin: 0;
+}
+
+.archivedCount {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-full);
+}
+
+.archivedSummary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  font-size: 0.8125rem;
+  color: var(--apex-text);
+}
+
+.archivedAmount {
+  font-weight: 500;
+  color: var(--apex-warning);
+}
+
 /* Entry Checkbox */
 .entryCheckbox {
   width: 18px;
@@ -900,6 +1054,12 @@
   accent-color: var(--apex-gold);
   flex-shrink: 0;
   margin-top: 2px;
+}
+
+.entryCheckboxPlaceholder {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 /* Bill Modal */
@@ -1307,25 +1467,54 @@
     padding: var(--space-md);
   }
 
-  .billBar {
+  .selectionBar {
     flex-direction: column;
     align-items: stretch;
     gap: var(--space-md);
     padding: var(--space-md);
   }
 
-  .billBarInfo {
-    justify-content: center;
-  }
-
-  .billBarActions {
+  .selectionLeft {
     flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-sm);
   }
 
-  .clearSelectionBtn,
-  .billSelectedBtn {
-    width: 100%;
+  .quickSelect {
+    flex-wrap: wrap;
+  }
+
+  .quickSelectDropdown {
+    flex: 1;
+    min-width: 100px;
+  }
+
+  .filterSection {
+    padding-left: 0;
+    border-left: none;
+    padding-top: var(--space-sm);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    flex-wrap: wrap;
+  }
+
+  .filterDropdown {
+    flex: 1;
+    min-width: 100px;
+  }
+
+  .selectionActions {
+    flex-wrap: wrap;
     justify-content: center;
+  }
+
+  .archivedHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-sm);
+  }
+
+  .archivedSummary {
+    padding-left: calc(18px + var(--space-sm));
   }
 
   .billSummary {

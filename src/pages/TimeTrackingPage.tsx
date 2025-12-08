@@ -7,9 +7,9 @@ import { useTimer, formatElapsedTime, secondsToHours } from '../contexts/TimerCo
 import { 
   Plus, Clock, DollarSign, 
   TrendingUp, Sparkles, CheckSquare, FileText, X, Edit2,
-  Play, Pause, Square, Save
+  Play, Pause, Square, Save, ChevronDown, ChevronRight, Filter
 } from 'lucide-react'
-import { format, parseISO, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addDays } from 'date-fns'
+import { format, parseISO, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addDays, subDays, isAfter } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './TimeTrackingPage.module.css'
 
@@ -43,12 +43,21 @@ export function TimeTrackingPage() {
   const [editingEntry, setEditingEntry] = useState<any>(null)
   const [selectedMatterId, setSelectedMatterId] = useState('')
   const [selectedClientId, setSelectedClientId] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
+  const [filterMatterId, setFilterMatterId] = useState('')
+  const [filterClientId, setFilterClientId] = useState('')
 
   // Filter matters based on selected client
   const filteredMatters = useMemo(() => {
     if (!selectedClientId) return matters.filter(m => m.status === 'active')
     return matters.filter(m => m.status === 'active' && m.clientId === selectedClientId)
   }, [matters, selectedClientId])
+
+  // Get matters for filter dropdown based on filter client
+  const filterMatters = useMemo(() => {
+    if (!filterClientId) return matters.filter(m => m.status === 'active')
+    return matters.filter(m => m.status === 'active' && m.clientId === filterClientId)
+  }, [matters, filterClientId])
 
   const weekDays = useMemo(() => {
     const now = new Date()
@@ -81,15 +90,48 @@ export function TimeTrackingPage() {
     return { totalHours, billableHours, totalValue, byDay }
   }, [timeEntries, weekDays])
 
-  const recentEntries = useMemo(() => {
-    return [...timeEntries]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 20) // Show more entries
-  }, [timeEntries])
+  // Split entries into recent (last 7 days) and archived (older)
+  const sevenDaysAgo = useMemo(() => subDays(new Date(), 7), [])
+  
+  const { recentEntries, archivedEntries } = useMemo(() => {
+    const sorted = [...timeEntries].sort((a, b) => 
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    )
+    
+    // Apply filters
+    const filtered = sorted.filter(entry => {
+      if (filterClientId) {
+        const matter = matters.find(m => m.id === entry.matterId)
+        if (!matter || matter.clientId !== filterClientId) return false
+      }
+      if (filterMatterId && entry.matterId !== filterMatterId) return false
+      return true
+    })
+    
+    const recent: typeof timeEntries = []
+    const archived: typeof timeEntries = []
+    
+    filtered.forEach(entry => {
+      const entryDate = parseISO(entry.date)
+      if (isAfter(entryDate, sevenDaysAgo)) {
+        recent.push(entry)
+      } else {
+        archived.push(entry)
+      }
+    })
+    
+    return { recentEntries: recent, archivedEntries: archived }
+  }, [timeEntries, sevenDaysAgo, filterClientId, filterMatterId, matters])
 
   const unbilledEntries = useMemo(() => {
     return timeEntries.filter(e => !e.billed && e.billable)
   }, [timeEntries])
+  
+  // Unbilled entries in current view (filtered)
+  const visibleUnbilledEntries = useMemo(() => {
+    const allVisible = [...recentEntries, ...(showArchived ? archivedEntries : [])]
+    return allVisible.filter(e => !e.billed && e.billable)
+  }, [recentEntries, archivedEntries, showArchived])
 
   const unbilledTotal = useMemo(() => {
     return unbilledEntries.reduce((sum, e) => sum + e.amount, 0)
@@ -119,14 +161,33 @@ export function TimeTrackingPage() {
     )
   }
 
-  const toggleAllUnbilled = () => {
-    const unbilledIds = unbilledEntries.map(e => e.id)
-    const allSelected = unbilledIds.every(id => selectedEntries.includes(id))
+  const toggleAllVisible = () => {
+    const visibleIds = visibleUnbilledEntries.map(e => e.id)
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedEntries.includes(id))
     if (allSelected) {
       setSelectedEntries([])
     } else {
-      setSelectedEntries(unbilledIds)
+      setSelectedEntries(visibleIds)
     }
+  }
+
+  const selectByMatter = (matterId: string) => {
+    const matterEntries = unbilledEntries.filter(e => e.matterId === matterId).map(e => e.id)
+    setSelectedEntries(prev => {
+      const withoutMatter = prev.filter(id => !matterEntries.includes(id))
+      const allAlreadySelected = matterEntries.every(id => prev.includes(id))
+      return allAlreadySelected ? withoutMatter : [...new Set([...prev, ...matterEntries])]
+    })
+  }
+
+  const selectByClient = (clientId: string) => {
+    const clientMatters = matters.filter(m => m.clientId === clientId).map(m => m.id)
+    const clientEntries = unbilledEntries.filter(e => clientMatters.includes(e.matterId)).map(e => e.id)
+    setSelectedEntries(prev => {
+      const withoutClient = prev.filter(id => !clientEntries.includes(id))
+      const allAlreadySelected = clientEntries.every(id => prev.includes(id))
+      return allAlreadySelected ? withoutClient : [...new Set([...prev, ...clientEntries])]
+    })
   }
 
   const handleStopTimer = () => {
@@ -285,31 +346,103 @@ export function TimeTrackingPage() {
         </div>
       </div>
 
-      {/* Bill Selected Bar */}
-      {selectedEntries.length > 0 && (
-        <div className={styles.billBar}>
-          <div className={styles.billBarInfo}>
-            <CheckSquare size={18} />
-            <span>{selectedEntries.length} entries selected</span>
-            <span className={styles.billBarAmount}>${selectedTotal.toLocaleString()}</span>
+      {/* Quick Select & Filter Bar */}
+      <div className={styles.selectionBar}>
+        <div className={styles.selectionLeft}>
+          <div className={styles.quickSelect}>
+            <span className={styles.quickSelectLabel}>Quick Select:</span>
+            <select 
+              className={styles.quickSelectDropdown}
+              value=""
+              onChange={(e) => {
+                if (e.target.value) selectByClient(e.target.value)
+              }}
+            >
+              <option value="">By Client...</option>
+              {clients.filter(c => c.isActive).map(c => {
+                const count = unbilledEntries.filter(entry => {
+                  const matter = matters.find(m => m.id === entry.matterId)
+                  return matter?.clientId === c.id
+                }).length
+                return count > 0 ? (
+                  <option key={c.id} value={c.id}>{c.name || c.displayName} ({count})</option>
+                ) : null
+              })}
+            </select>
+            <select 
+              className={styles.quickSelectDropdown}
+              value=""
+              onChange={(e) => {
+                if (e.target.value) selectByMatter(e.target.value)
+              }}
+            >
+              <option value="">By Matter...</option>
+              {matters.filter(m => m.status === 'active').map(m => {
+                const count = unbilledEntries.filter(e => e.matterId === m.id).length
+                return count > 0 ? (
+                  <option key={m.id} value={m.id}>{m.name} ({count})</option>
+                ) : null
+              })}
+            </select>
           </div>
-          <div className={styles.billBarActions}>
+          <div className={styles.filterSection}>
+            <Filter size={14} />
+            <select
+              className={styles.filterDropdown}
+              value={filterClientId}
+              onChange={(e) => {
+                setFilterClientId(e.target.value)
+                setFilterMatterId('')
+              }}
+            >
+              <option value="">All Clients</option>
+              {clients.filter(c => c.isActive).map(c => (
+                <option key={c.id} value={c.id}>{c.name || c.displayName}</option>
+              ))}
+            </select>
+            <select
+              className={styles.filterDropdown}
+              value={filterMatterId}
+              onChange={(e) => setFilterMatterId(e.target.value)}
+            >
+              <option value="">All Matters</option>
+              {filterMatters.map(m => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+            {(filterClientId || filterMatterId) && (
+              <button 
+                className={styles.clearFilterBtn}
+                onClick={() => { setFilterClientId(''); setFilterMatterId('') }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+        {selectedEntries.length > 0 && (
+          <div className={styles.selectionActions}>
+            <div className={styles.selectionInfo}>
+              <CheckSquare size={16} />
+              <span>{selectedEntries.length} selected</span>
+              <span className={styles.selectionAmount}>${selectedTotal.toLocaleString()}</span>
+            </div>
             <button 
               className={styles.clearSelectionBtn}
               onClick={() => setSelectedEntries([])}
             >
-              Clear Selection
+              Clear
             </button>
             <button 
-              className={styles.billSelectedBtn}
+              className={styles.createInvoiceBtn}
               onClick={() => setShowBillModal(true)}
             >
               <FileText size={16} />
               Create Invoice
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Weekly Chart */}
       <div className={styles.weeklyChart}>
@@ -337,87 +470,75 @@ export function TimeTrackingPage() {
       {/* Recent Entries */}
       <div className={styles.recentSection}>
         <div className={styles.recentHeader}>
-          <h3>Recent Time Entries</h3>
-          {unbilledEntries.length > 0 && (
+          <h3>Recent Time Entries <span className={styles.headerNote}>Last 7 days</span></h3>
+          {visibleUnbilledEntries.length > 0 && (
             <button 
               className={styles.selectAllBtn}
-              onClick={toggleAllUnbilled}
+              onClick={toggleAllVisible}
             >
-              {unbilledEntries.every(e => selectedEntries.includes(e.id)) 
+              {visibleUnbilledEntries.every(e => selectedEntries.includes(e.id)) 
                 ? 'Deselect All' 
-                : `Select All Unbilled (${unbilledEntries.length})`}
+                : `Select All Unbilled (${visibleUnbilledEntries.length})`}
             </button>
           )}
         </div>
         <div className={styles.entriesList}>
-          {recentEntries.map(entry => {
-            const client = getClientForMatter(entry.matterId)
-            return (
-              <div 
-                key={entry.id} 
-                className={clsx(
-                  styles.entryCard,
-                  selectedEntries.includes(entry.id) && styles.entrySelected
-                )}
-              >
-                <div className={styles.entryLeft}>
-                  {!entry.billed && entry.billable && (
-                    <input
-                      type="checkbox"
-                      checked={selectedEntries.includes(entry.id)}
-                      onChange={() => toggleEntrySelection(entry.id)}
-                      className={styles.entryCheckbox}
-                    />
-                  )}
-                  <div className={styles.entryMain}>
-                    <div className={styles.entryTop}>
-                      {entry.matterId ? (
-                        <Link to={`/app/matters/${entry.matterId}`} className={styles.entryMatter}>
-                          {getMatterName(entry.matterId)}
-                        </Link>
-                      ) : (
-                        <span className={styles.entryMatterNone}>No Matter</span>
-                      )}
-                      {client && <span className={styles.entryClient}>{client.name || client.displayName}</span>}
-                    </div>
-                    {entry.description && (
-                      <p className={styles.entryDesc}>
-                        {entry.description}
-                        {entry.aiGenerated && <Sparkles size={12} className={styles.aiIcon} />}
-                      </p>
-                    )}
-                    <div className={styles.entryMeta}>
-                      <span className={styles.entryDate}>{format(parseISO(entry.date), 'MMM d')}</span>
-                      <span className={clsx(styles.entryStatus, entry.billed ? styles.billed : styles.unbilled)}>
-                        {entry.billed ? 'Billed' : 'Unbilled'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div className={styles.entryRight}>
-                  <div className={styles.entryAmounts}>
-                    <span className={styles.entryHours}>{entry.hours}h</span>
-                    <span className={styles.entryAmount}>${entry.amount.toLocaleString()}</span>
-                  </div>
-                  <button 
-                    className={styles.entryEditBtn}
-                    onClick={() => setEditingEntry(entry)}
-                    title="Edit Entry"
-                  >
-                    <Edit2 size={14} />
-                  </button>
-                </div>
-              </div>
-            )
-          })}
+          {recentEntries.map(entry => (
+            <TimeEntryCard
+              key={entry.id}
+              entry={entry}
+              isSelected={selectedEntries.includes(entry.id)}
+              onToggleSelect={() => toggleEntrySelection(entry.id)}
+              onEdit={() => setEditingEntry(entry)}
+              getMatterName={getMatterName}
+              getClientForMatter={getClientForMatter}
+            />
+          ))}
           {recentEntries.length === 0 && (
             <div className={styles.emptyState}>
               <Clock size={24} />
-              <p>No time entries yet</p>
+              <p>{filterClientId || filterMatterId ? 'No entries match your filter' : 'No recent time entries'}</p>
             </div>
           )}
         </div>
       </div>
+
+      {/* Archived Entries */}
+      {archivedEntries.length > 0 && (
+        <div className={styles.archivedSection}>
+          <button 
+            className={styles.archivedHeader}
+            onClick={() => setShowArchived(!showArchived)}
+          >
+            <div className={styles.archivedHeaderLeft}>
+              {showArchived ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+              <h3>Archived Time Entries</h3>
+              <span className={styles.archivedCount}>{archivedEntries.length} entries</span>
+            </div>
+            <div className={styles.archivedSummary}>
+              <span>{archivedEntries.filter(e => !e.billed).length} unbilled</span>
+              <span className={styles.archivedAmount}>
+                ${archivedEntries.filter(e => !e.billed).reduce((sum, e) => sum + e.amount, 0).toLocaleString()}
+              </span>
+            </div>
+          </button>
+          {showArchived && (
+            <div className={styles.entriesList}>
+              {archivedEntries.map(entry => (
+                <TimeEntryCard
+                  key={entry.id}
+                  entry={entry}
+                  isSelected={selectedEntries.includes(entry.id)}
+                  onToggleSelect={() => toggleEntrySelection(entry.id)}
+                  onEdit={() => setEditingEntry(entry)}
+                  getMatterName={getMatterName}
+                  getClientForMatter={getClientForMatter}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {showNewModal && (
         <NewTimeEntryModal 
@@ -512,6 +633,84 @@ export function TimeTrackingPage() {
           }}
         />
       )}
+    </div>
+  )
+}
+
+// Time Entry Card Component
+function TimeEntryCard({ 
+  entry, 
+  isSelected, 
+  onToggleSelect, 
+  onEdit,
+  getMatterName,
+  getClientForMatter
+}: { 
+  entry: any
+  isSelected: boolean
+  onToggleSelect: () => void
+  onEdit: () => void
+  getMatterName: (matterId: string | null | undefined) => string
+  getClientForMatter: (matterId: string | null | undefined) => any
+}) {
+  const client = getClientForMatter(entry.matterId)
+  
+  return (
+    <div 
+      className={clsx(
+        styles.entryCard,
+        isSelected && styles.entrySelected
+      )}
+    >
+      <div className={styles.entryLeft}>
+        {!entry.billed && entry.billable && (
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={onToggleSelect}
+            className={styles.entryCheckbox}
+          />
+        )}
+        {entry.billed && <div className={styles.entryCheckboxPlaceholder} />}
+        {!entry.billable && <div className={styles.entryCheckboxPlaceholder} />}
+        <div className={styles.entryMain}>
+          <div className={styles.entryTop}>
+            {entry.matterId ? (
+              <Link to={`/app/matters/${entry.matterId}`} className={styles.entryMatter}>
+                {getMatterName(entry.matterId)}
+              </Link>
+            ) : (
+              <span className={styles.entryMatterNone}>No Matter</span>
+            )}
+            {client && <span className={styles.entryClient}>{client.name || client.displayName}</span>}
+          </div>
+          {entry.description && (
+            <p className={styles.entryDesc}>
+              {entry.description}
+              {entry.aiGenerated && <Sparkles size={12} className={styles.aiIcon} />}
+            </p>
+          )}
+          <div className={styles.entryMeta}>
+            <span className={styles.entryDate}>{format(parseISO(entry.date), 'MMM d, yyyy')}</span>
+            <span className={clsx(styles.entryStatus, entry.billed ? styles.billed : styles.unbilled)}>
+              {entry.billed ? 'Billed' : 'Unbilled'}
+            </span>
+          </div>
+        </div>
+      </div>
+      <div className={styles.entryRight}>
+        <div className={styles.entryAmounts}>
+          <span className={styles.entryHours}>{entry.hours}h</span>
+          <span className={styles.entryAmount}>${entry.amount.toLocaleString()}</span>
+        </div>
+        <button 
+          className={styles.entryEditBtn}
+          onClick={onEdit}
+          title="Edit Entry"
+        >
+          <Edit2 size={14} />
+        </button>
+      </div>
     </div>
   )
 }
