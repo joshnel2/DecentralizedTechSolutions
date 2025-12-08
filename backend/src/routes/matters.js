@@ -311,13 +311,25 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
     const hasOrigAtty = await checkOriginatingAttorneyColumn();
     
     const result = await withTransaction(async (client) => {
-      // Generate matter number
-      const countResult = await client.query(
-        'SELECT COUNT(*) FROM matters WHERE firm_id = $1',
-        [req.user.firmId]
+      // Generate matter number - find max existing number for this year and increment
+      const year = new Date().getFullYear();
+      const prefix = `MTR-${year}-`;
+      const maxResult = await client.query(
+        `SELECT number FROM matters 
+         WHERE firm_id = $1 AND number LIKE $2 
+         ORDER BY number DESC LIMIT 1`,
+        [req.user.firmId, `${prefix}%`]
       );
-      const count = parseInt(countResult.rows[0].count) + 1;
-      const number = `MTR-${new Date().getFullYear()}-${String(count).padStart(3, '0')}`;
+      
+      let nextNum = 1;
+      if (maxResult.rows.length > 0) {
+        const lastNumber = maxResult.rows[0].number;
+        const lastNum = parseInt(lastNumber.replace(prefix, ''), 10);
+        if (!isNaN(lastNum)) {
+          nextNum = lastNum + 1;
+        }
+      }
+      const number = `${prefix}${String(nextNum).padStart(3, '0')}`;
 
       // Create matter - conditionally include originating_attorney
       const matterResult = hasOrigAtty 
