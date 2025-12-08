@@ -106,6 +106,47 @@ export function TimeTrackingPage() {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }, [timeEntries, sevenDaysAgo])
 
+  // Filtered recent entries based on search and filters
+  const filteredRecentEntries = useMemo(() => {
+    return recentEntries.filter(entry => {
+      // Search filter - search in description, matter name, and client name
+      if (recentEntriesSearch) {
+        const searchLower = recentEntriesSearch.toLowerCase()
+        const matter = entry.matterId ? matters.find(m => m.id === entry.matterId) : null
+        const matterName = matter?.name?.toLowerCase() || ''
+        const matterNumber = matter?.number?.toLowerCase() || ''
+        const client = matter ? clients.find(c => c.id === matter.clientId) : null
+        const clientName = (client?.name || client?.displayName || '').toLowerCase()
+        const description = (entry.description || '').toLowerCase()
+        
+        const matchesSearch = 
+          description.includes(searchLower) ||
+          matterName.includes(searchLower) ||
+          matterNumber.includes(searchLower) ||
+          clientName.includes(searchLower)
+        
+        if (!matchesSearch) return false
+      }
+      
+      // Matter filter
+      if (recentEntriesFilterMatter && entry.matterId !== recentEntriesFilterMatter) {
+        return false
+      }
+      
+      // Status filter
+      if (recentEntriesFilterStatus === 'billed' && !entry.billed) return false
+      if (recentEntriesFilterStatus === 'unbilled' && entry.billed) return false
+      
+      return true
+    })
+  }, [recentEntries, recentEntriesSearch, recentEntriesFilterMatter, recentEntriesFilterStatus, matters, clients])
+
+  // Get unique matters from recent entries for the filter dropdown
+  const recentEntriesMatters = useMemo(() => {
+    const matterIds = [...new Set(recentEntries.map(e => e.matterId).filter(Boolean))]
+    return matters.filter(m => matterIds.includes(m.id))
+  }, [recentEntries, matters])
+
   const olderEntries = useMemo(() => {
     return [...timeEntries]
       .filter(e => parseISO(e.date) < sevenDaysAgo)
@@ -153,8 +194,8 @@ export function TimeTrackingPage() {
 
   // Unbilled entries split by recent/older
   const unbilledRecentEntries = useMemo(() => {
-    return recentEntries.filter(e => !e.billed && e.billable)
-  }, [recentEntries])
+    return filteredRecentEntries.filter(e => !e.billed && e.billable)
+  }, [filteredRecentEntries])
 
   const unbilledOlderEntries = useMemo(() => {
     return filteredOlderEntries.filter(e => !e.billed && e.billable)
@@ -438,7 +479,11 @@ export function TimeTrackingPage() {
         <div className={styles.recentHeader}>
           <div className={styles.sectionTitleGroup}>
             <h3>Recent Time Entries</h3>
-            <span className={styles.sectionSubtitle}>Past 7 days</span>
+            <span className={styles.sectionSubtitle}>
+              {filteredRecentEntries.length === recentEntries.length 
+                ? `Past 7 days` 
+                : `Showing ${filteredRecentEntries.length} of ${recentEntries.length} entries`}
+            </span>
           </div>
           <div className={styles.headerActions}>
             {unbilledRecentEntries.length > 0 && (
@@ -453,6 +498,62 @@ export function TimeTrackingPage() {
             )}
           </div>
         </div>
+        
+        {/* Search and Filter Bar */}
+        <div className={styles.filterBar}>
+          <div className={styles.searchInputWrapper}>
+            <Search size={16} className={styles.searchIcon} />
+            <input
+              type="text"
+              placeholder="Search by description, matter, or client..."
+              value={recentEntriesSearch}
+              onChange={(e) => setRecentEntriesSearch(e.target.value)}
+              className={styles.searchInput}
+            />
+            {recentEntriesSearch && (
+              <button 
+                className={styles.clearSearchBtn}
+                onClick={() => setRecentEntriesSearch('')}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <div className={styles.filterControls}>
+            <select
+              value={recentEntriesFilterMatter}
+              onChange={(e) => setRecentEntriesFilterMatter(e.target.value)}
+              className={styles.filterSelect}
+            >
+              <option value="">All Matters</option>
+              {recentEntriesMatters.map(m => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+            <select
+              value={recentEntriesFilterStatus}
+              onChange={(e) => setRecentEntriesFilterStatus(e.target.value as 'all' | 'billed' | 'unbilled')}
+              className={styles.filterSelect}
+            >
+              <option value="all">All Status</option>
+              <option value="unbilled">Unbilled</option>
+              <option value="billed">Billed</option>
+            </select>
+            {(recentEntriesSearch || recentEntriesFilterMatter || recentEntriesFilterStatus !== 'all') && (
+              <button 
+                className={styles.clearFiltersBtn}
+                onClick={() => {
+                  setRecentEntriesSearch('')
+                  setRecentEntriesFilterMatter('')
+                  setRecentEntriesFilterStatus('all')
+                }}
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
+        </div>
+
         {recentEntries.length === 0 ? (
           <div className={styles.emptyState}>
             <Clock size={24} />
@@ -460,6 +561,21 @@ export function TimeTrackingPage() {
             <button className={styles.addEntryBtn} onClick={() => setShowNewModal(true)}>
               <Plus size={16} />
               Add Time Entry
+            </button>
+          </div>
+        ) : filteredRecentEntries.length === 0 ? (
+          <div className={styles.emptyState}>
+            <Filter size={24} />
+            <p>No entries match your filters</p>
+            <button 
+              className={styles.addEntryBtn}
+              onClick={() => {
+                setRecentEntriesSearch('')
+                setRecentEntriesFilterMatter('')
+                setRecentEntriesFilterStatus('all')
+              }}
+            >
+              Clear Filters
             </button>
           </div>
         ) : (
@@ -478,7 +594,7 @@ export function TimeTrackingPage() {
                 </tr>
               </thead>
               <tbody>
-                {recentEntries.map(entry => (
+                {filteredRecentEntries.map(entry => (
                   <tr 
                     key={entry.id} 
                     className={clsx(
