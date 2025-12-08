@@ -7,7 +7,7 @@ import { teamApi } from '../services/api'
 import { 
   Plus, Search, Filter, ChevronDown, Briefcase, 
   MoreVertical, Sparkles, Calendar, DollarSign, Users, X,
-  Edit2, Archive, CheckCircle2, Trash2, Eye, XCircle, FileText, Settings, Shield
+  Edit2, Archive, CheckCircle2, Trash2, Eye, XCircle, FileText, Settings
 } from 'lucide-react'
 import { MatterTypesManager } from '../components/MatterTypesManager'
 import { format, parseISO } from 'date-fns'
@@ -210,16 +210,6 @@ export function MattersPage() {
           <span className={styles.count}>{matters.length} total</span>
         </div>
         <div className={styles.headerActions}>
-          {isAdmin && (
-            <button 
-              className={styles.secondaryBtn}
-              onClick={() => navigate('/app/matters/bulk-permissions')}
-              title="Bulk Edit Permissions"
-            >
-              <Shield size={16} />
-              Bulk Permissions
-            </button>
-          )}
           <button 
             className={styles.aiBtn} 
             onClick={() => openChat({
