@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useAIStore, type AIMode } from '../stores/aiStore'
 import { useAuthStore } from '../stores/authStore'
 import { 
@@ -42,6 +42,7 @@ const AI_MODES = {
 
 export function AIAssistantPage() {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const { 
     conversations, 
     activeConversationId, 
@@ -153,6 +154,11 @@ export function AIAssistantPage() {
   }
 
   const handleModeSelect = (mode: AIMode) => {
+    // Navigate to dedicated Redline AI page
+    if (mode === 'redline') {
+      navigate('/app/ai/redline')
+      return
+    }
     setSelectedMode(mode)
     clearDocumentContext()
     setActiveConversation(null)

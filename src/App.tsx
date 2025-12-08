@@ -53,6 +53,7 @@ import { SharingSettingsPage } from './pages/SharingSettingsPage'
 import { TextMessagingPage } from './pages/TextMessagingPage'
 import { AIConfigPage } from './pages/AIConfigPage'
 import { ReportingSettingsPage } from './pages/ReportingSettingsPage'
+import { RedlineAIPage } from './pages/RedlineAIPage'
 
 // Scroll to top on route changes
 function ScrollToTop() {
@@ -173,6 +174,7 @@ function AppContent() {
         <Route path="documents" element={<DocumentsPage />} />
         <Route path="document-automation" element={<DocumentAutomationPage />} />
         <Route path="ai" element={<AIAssistantPage />} />
+        <Route path="ai/redline" element={<RedlineAIPage />} />
         
         {/* Analytics */}
         <Route path="analytics" element={<FirmAnalyticsPage />} />
