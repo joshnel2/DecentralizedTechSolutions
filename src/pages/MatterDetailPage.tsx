@@ -3140,7 +3140,8 @@ function MatterUpdateForm({ matterName, existingUpdate, onClose, onSave }: {
     }
     onSave({
       ...formData,
-      date: new Date(formData.date).toISOString()
+      // Use noon local time to avoid timezone issues where UTC midnight falls on the previous day
+      date: new Date(formData.date + 'T12:00:00').toISOString()
     })
   }
 
