@@ -22,19 +22,24 @@ const viewOptions = [
 
 export function BillingPage() {
   const { invoices, clients, matters, timeEntries, expenses, fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries, addInvoice, updateInvoice } = useDataStore()
-  const { firm } = useAuthStore()
+  const { firm, user } = useAuthStore()
   const { openChat } = useAIChat()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  
+  // Only admins can see the toggle
+  const isAdmin = user?.role === 'owner' || user?.role === 'admin'
   const [viewFilter, setViewFilter] = useState<'my' | 'all'>('my')
   
   // Fetch data from API on mount or when view filter changes
+  // Non-admins always see 'my' view only
   useEffect(() => {
-    fetchInvoices({ view: viewFilter })
-    fetchClients({ view: viewFilter })
-    fetchMatters({ view: viewFilter })
+    const effectiveView = isAdmin ? viewFilter : 'my'
+    fetchInvoices({ view: effectiveView })
+    fetchClients({ view: effectiveView })
+    fetchMatters({ view: effectiveView })
     fetchTimeEntries({ limit: 500 })
-  }, [viewFilter])
+  }, [viewFilter, isAdmin])
   
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -369,8 +374,8 @@ export function BillingPage() {
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <h1>{viewFilter === 'my' ? 'My Billing' : 'All Billing'}</h1>
-          <p className={styles.headerSubtitle}>{viewFilter === 'my' ? 'Your invoices, payments, and billing' : 'Manage all invoices, payments, and billing'}</p>
+          <h1>{isAdmin && viewFilter === 'all' ? 'All Billing' : 'My Billing'}</h1>
+          <p className={styles.headerSubtitle}>{isAdmin && viewFilter === 'all' ? 'Manage all firm invoices, payments, and billing' : 'Your invoices, payments, and billing'}</p>
         </div>
         <div className={styles.headerActions}>
           <button className={styles.aiBtn} onClick={() => openChat({
@@ -459,19 +464,21 @@ export function BillingPage() {
 
       {/* Filters */}
       <div className={styles.filters}>
-        {/* View Toggle - My Billing vs All Billing */}
-        <div className={styles.viewToggle}>
-          {viewOptions.map(opt => (
-            <button
-              key={opt.value}
-              className={clsx(styles.viewToggleBtn, viewFilter === opt.value && styles.active)}
-              onClick={() => setViewFilter(opt.value as 'my' | 'all')}
-            >
-              {opt.value === 'my' ? <User size={14} /> : <Users size={14} />}
-              {opt.label}
-            </button>
-          ))}
-        </div>
+        {/* View Toggle - Only for admins */}
+        {isAdmin && (
+          <div className={styles.viewToggle}>
+            {viewOptions.map(opt => (
+              <button
+                key={opt.value}
+                className={clsx(styles.viewToggleBtn, viewFilter === opt.value && styles.active)}
+                onClick={() => setViewFilter(opt.value as 'my' | 'all')}
+              >
+                {opt.value === 'my' ? <User size={14} /> : <Users size={14} />}
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className={styles.searchBox}>
           <Search size={18} />
