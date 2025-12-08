@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { 
   Sparkles, Check, ArrowRight, Scale, Clock, DollarSign, 
   FileText, Users, Calendar, Shield, Zap, BarChart3,
-  ChevronRight, Building2, Mail
+  ChevronRight, Building2, Mail, Lock, BadgeCheck
 } from 'lucide-react'
 import styles from './LandingPage.module.css'
 
@@ -159,6 +159,46 @@ export function LandingPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Value & Compliance Section */}
+      <section className={styles.valueSection}>
+        <div className={styles.sectionHeader}>
+          <h2>Enterprise AI at a fraction of the cost</h2>
+          <p>Direct integration with Azure OpenAI means lower costs and enterprise-grade security</p>
+        </div>
+        <div className={styles.valueGrid}>
+          <div className={styles.valueCard}>
+            <div className={styles.valueIcon}>
+              <DollarSign size={28} />
+            </div>
+            <h3>Lower Cost Than Competitors</h3>
+            <p>
+              Our direct enterprise partnership with Azure OpenAI eliminates middleman markup. 
+              You get powerful AI capabilities at a fraction of what other legal tech providers charge.
+            </p>
+          </div>
+          <div className={styles.valueCard}>
+            <div className={styles.valueIcon}>
+              <BadgeCheck size={28} />
+            </div>
+            <h3>SOC 2 Certified Infrastructure</h3>
+            <p>
+              Your data is hosted on Microsoft Azure's SOC 2 Type II certified infrastructure, 
+              ensuring the highest standards of security, availability, and confidentiality.
+            </p>
+          </div>
+          <div className={styles.valueCard}>
+            <div className={styles.valueIcon}>
+              <Lock size={28} />
+            </div>
+            <h3>Fully HIPAA Compliant</h3>
+            <p>
+              Apex is completely HIPAA compliant, making it safe for firms handling sensitive 
+              healthcare-related legal matters. Your client data is protected to the highest standards.
+            </p>
           </div>
         </div>
       </section>

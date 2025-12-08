@@ -512,6 +512,60 @@
   color: var(--apex-gold-bright);
 }
 
+/* Value & Compliance Section */
+.valueSection {
+  padding: 100px var(--space-xl);
+  max-width: 1280px;
+  margin: 0 auto;
+  background: linear-gradient(180deg, transparent 0%, rgba(16, 185, 129, 0.02) 50%, transparent 100%);
+}
+
+.valueGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-lg);
+}
+
+.valueCard {
+  padding: var(--space-xl);
+  background: var(--apex-deep);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius-xl);
+  text-align: center;
+  transition: all var(--transition-fast);
+}
+
+.valueCard:hover {
+  border-color: rgba(16, 185, 129, 0.4);
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px rgba(16, 185, 129, 0.1);
+}
+
+.valueIcon {
+  width: 60px;
+  height: 60px;
+  background: rgba(16, 185, 129, 0.1);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apex-success);
+  margin: 0 auto var(--space-lg);
+}
+
+.valueCard h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: var(--space-md);
+}
+
+.valueCard p {
+  font-size: 0.9375rem;
+  color: var(--apex-text);
+  line-height: 1.7;
+}
+
 /* Pricing */
 .pricing {
   padding: 100px var(--space-xl);
@@ -1021,7 +1075,8 @@
   
   .featuresGrid,
   .pricingGrid,
-  .testimonialsGrid {
+  .testimonialsGrid,
+  .valueGrid {
     grid-template-columns: 1fr;
   }
   
@@ -1189,6 +1244,28 @@
 
   .aiMessage p {
     font-size: 0.75rem;
+  }
+
+  /* Value Section */
+  .valueSection {
+    padding: 60px var(--space-md);
+  }
+
+  .valueCard {
+    padding: var(--space-lg);
+  }
+
+  .valueIcon {
+    width: 50px;
+    height: 50px;
+  }
+
+  .valueCard h3 {
+    font-size: 1.125rem;
+  }
+
+  .valueCard p {
+    font-size: 0.875rem;
   }
 
   /* Pricing */
