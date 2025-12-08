@@ -19,6 +19,10 @@ export interface ParsedDocument {
   fileType: string
   pageCount?: number
   error?: string
+  imageData?: {
+    base64: string
+    mimeType: string
+  }
 }
 
 // PDF.js worker URL - we'll set this dynamically
@@ -656,32 +660,60 @@ function extractEmail(value: string): string {
 }
 
 /**
- * Handle image files (no OCR, but helpful message)
+ * Handle image files - convert to base64 for AI vision analysis
  */
-function handleImageFile(fileName: string, fileType: string): ParsedDocument {
-  return {
-    success: false,
-    content: `[IMAGE FILE: ${fileName}]
+async function handleImageFile(file: File, fileName: string, fileType: string): Promise<ParsedDocument> {
+  try {
+    // Convert image to base64 for AI vision analysis
+    const base64 = await fileToBase64(file)
+    
+    return {
+      success: true,
+      content: `[IMAGE FILE: ${fileName}]
 
-This is an image file (${fileType}).
+This is an image file that will be analyzed using AI vision capabilities.
+The AI can read text from this image, describe its contents, and answer questions about it.`,
+      fileName,
+      fileType,
+      imageData: {
+        base64,
+        mimeType: fileType || `image/${fileName.split('.').pop()?.toLowerCase() || 'png'}`
+      }
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    return {
+      success: false,
+      content: `[IMAGE FILE: ${fileName}]
 
-I cannot directly extract text from images. To analyze document images:
+Failed to process this image file. Error: ${errorMessage}
 
-1. **If it's a scanned document**: Use OCR software to convert it to a searchable PDF:
-   - Adobe Acrobat Pro (File > Create PDF > From Scanner)
-   - Microsoft OneNote (paste image, right-click, "Copy Text")
-   - Google Drive (upload image, open with Google Docs)
-   - Free online OCR tools (ocr.space, onlineocr.net)
-
-2. **If it contains a chart/graph**: Describe what you see and I can help analyze it
-
-3. **If it's a photo of a document**: Take a clearer photo or scan it properly
-
-Once you have the text extracted, paste it here or upload the converted document.`,
-    fileName,
-    fileType,
-    error: 'Image files require OCR for text extraction'
+Please try:
+1. Re-uploading the image
+2. Using a different image format (PNG, JPG, WEBP)
+3. Ensuring the image file is not corrupted`,
+      fileName,
+      fileType,
+      error: errorMessage
+    }
   }
+}
+
+/**
+ * Convert a file to base64 string
+ */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      // Remove the data URL prefix (e.g., "data:image/png;base64,")
+      const base64 = result.split(',')[1]
+      resolve(base64)
+    }
+    reader.onerror = () => reject(new Error('Failed to read file'))
+    reader.readAsDataURL(file)
+  })
 }
 
 /**
@@ -753,9 +785,9 @@ export async function parseDocument(file: File): Promise<ParsedDocument> {
   console.log(`Parsing document: ${fileName} (type: ${fileType}, ext: ${ext})`)
 
   try {
-    // Image files
+    // Image files - convert to base64 for AI vision analysis
     if (fileType.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff', 'webp', 'svg'].includes(ext)) {
-      return handleImageFile(fileName, fileType || `image/${ext}`)
+      return await handleImageFile(file, fileName, fileType || `image/${ext}`)
     }
 
     // PDF files

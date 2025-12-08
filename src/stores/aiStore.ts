@@ -12,6 +12,10 @@ interface DocumentContext {
   content: string
   type?: string
   size?: number
+  imageData?: {
+    base64: string
+    mimeType: string
+  }
 }
 
 interface AIState {
@@ -157,12 +161,29 @@ export const useAIStore = create<AIState>()(
           
           // Build the actual message sent to AI (includes hidden context)
           let aiMessage = userMessage
+          let imageData: { base64: string; mimeType: string } | undefined
           
           // Add document context invisibly for document analysis mode
           if (hiddenContext) {
             aiMessage = `${hiddenContext}\n\nUser's question: ${userMessage}`
           } else if (selectedMode === 'document' && documentContext) {
-            aiMessage = `[DOCUMENT CONTEXT - The user has uploaded a document for analysis]
+            // Check if this is an image document
+            if (documentContext.imageData) {
+              // For images, we'll send the image data along with the message
+              imageData = documentContext.imageData
+              aiMessage = `[IMAGE ANALYSIS REQUEST]
+The user has uploaded an image file: ${documentContext.name}
+
+Please analyze this image and respond to the user's question. You can:
+- Read and extract any text visible in the image (OCR)
+- Describe the contents of the image
+- Answer questions about what you see
+- Identify document types, forms, or structured content
+
+User's question about this image: ${userMessage}`
+            } else {
+              // For text documents
+              aiMessage = `[DOCUMENT CONTEXT - The user has uploaded a document for analysis]
 Document Name: ${documentContext.name}
 Document Type: ${documentContext.type || 'Unknown'}
 
@@ -171,6 +192,7 @@ ${documentContext.content}
 --- END DOCUMENT ---
 
 User's question about this document: ${userMessage}`
+            }
           } else if (selectedMode === 'redline' && redlineDocuments.doc1 && redlineDocuments.doc2) {
             aiMessage = `[REDLINE COMPARISON REQUEST - Compare these two documents and identify changes]
 
@@ -185,8 +207,8 @@ ${redlineDocuments.doc2.content}
 User's request: ${userMessage}`
           }
           
-          // Call real AI API
-          const result = await aiApi.chat(aiMessage, 'ai-assistant', {}, history)
+          // Call real AI API with optional image data
+          const result = await aiApi.chat(aiMessage, 'ai-assistant', { imageData }, history)
           
           addMessage(conversationId, {
             role: 'assistant',

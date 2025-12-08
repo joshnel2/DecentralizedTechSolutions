@@ -5,7 +5,7 @@ import { useAuthStore } from '../stores/authStore'
 import { 
   Sparkles, Send, Plus, MessageSquare, Trash2, 
   MessageCircle, FileEdit, FileText, Paperclip, X,
-  FileSearch, History, ChevronRight, Loader2
+  FileSearch, History, ChevronRight, Loader2, Image
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -95,12 +95,6 @@ export function AIAssistantPage() {
     }
   }, [activeConversation?.messages])
 
-  // Client-side file content extraction using the robust document parser
-  const readFileContent = async (file: File): Promise<string> => {
-    const result = await parseDocument(file)
-    return result.content
-  }
-
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, target?: 'doc1' | 'doc2') => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -110,12 +104,14 @@ export function AIAssistantPage() {
     setIsExtracting(true)
 
     try {
-      const content = await readFileContent(file)
+      const result = await parseDocument(file)
       const doc = {
         name: file.name,
-        content,
+        content: result.content,
         type: file.type,
-        size: file.size
+        size: file.size,
+        // Include image data if present (for AI vision analysis)
+        imageData: result.imageData
       }
       
       if (selectedMode === 'redline' && target) {
@@ -265,7 +261,7 @@ export function AIAssistantPage() {
               </div>
               {documentContext && selectedMode === 'document' && (
                 <div className={styles.documentIndicator}>
-                  <FileText size={14} />
+                  {documentContext.imageData ? <Image size={14} /> : <FileText size={14} />}
                   <span>{documentContext.name}</span>
                 </div>
               )}
@@ -364,7 +360,7 @@ export function AIAssistantPage() {
                   <FileSearch size={48} />
                 </div>
                 <h2>Document Analyzer</h2>
-                <p>Upload a document to analyze. Ask questions, get summaries, or extract key information.</p>
+                <p>Upload a document or image to analyze. Ask questions, get summaries, extract text from images, or identify key information.</p>
                 
                 {isExtracting ? (
                   <div className={styles.uploadedDoc}>
@@ -382,7 +378,9 @@ export function AIAssistantPage() {
                     <div className={styles.uploadedDocInfo}>
                       <span className={styles.uploadedDocName}>{documentContext.name}</span>
                       <span className={styles.uploadedDocMeta}>
-                        {documentContext.type} • Ready to analyze
+                        {documentContext.imageData 
+                          ? 'Image • AI Vision ready' 
+                          : `${documentContext.type} • Ready to analyze`}
                       </span>
                     </div>
                     <button onClick={() => setDocumentContext(null)} className={styles.removeDoc}>
