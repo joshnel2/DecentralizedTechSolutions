@@ -481,7 +481,7 @@ export function ClientDetailPage() {
 
       {/* Tabs */}
       <div className={styles.tabs}>
-        {['overview', 'matters', 'time', 'billing', 'documents'].map(tab => (
+        {['overview', 'notes', 'matters', 'time', 'billing', 'documents'].map(tab => (
           <button
             key={tab}
             className={clsx(styles.tab, activeTab === tab && styles.active)}
@@ -522,77 +522,6 @@ export function ClientDetailPage() {
                   </div>
                 )}
               </div>
-            </div>
-
-            {/* Notes Section - Editable Inline */}
-            <div className={styles.notesSection}>
-              <div className={styles.notesSectionHeader}>
-                <h3>
-                  <FileText size={18} />
-                  Notes
-                </h3>
-                <div className={styles.notesSectionActions}>
-                  {isEditingNotes ? (
-                    <>
-                      <button 
-                        className={styles.notesCancelBtn}
-                        onClick={handleCancelEditingNotes}
-                        disabled={notesSaving}
-                      >
-                        <X size={14} />
-                        Cancel
-                      </button>
-                      <button 
-                        className={styles.notesSaveBtn}
-                        onClick={handleSaveNotes}
-                        disabled={notesSaving}
-                      >
-                        <Save size={14} />
-                        {notesSaving ? 'Saving...' : 'Save Notes'}
-                      </button>
-                    </>
-                  ) : (
-                    <button 
-                      className={styles.notesEditBtn}
-                      onClick={handleStartEditingNotes}
-                    >
-                      <Edit2 size={14} />
-                      Edit
-                    </button>
-                  )}
-                </div>
-              </div>
-              {isEditingNotes ? (
-                <div>
-                  <textarea
-                    className={styles.notesTextarea}
-                    value={notesText}
-                    onChange={(e) => setNotesText(e.target.value)}
-                    placeholder="Add notes about this client... (e.g., preferences, important contacts, history)"
-                    autoFocus
-                    maxLength={5000}
-                  />
-                  <div className={clsx(
-                    styles.notesCharCount,
-                    notesText.length > 4500 && styles.warning,
-                    notesText.length > 4900 && styles.error
-                  )}>
-                    {notesText.length}/5000 characters
-                  </div>
-                </div>
-              ) : (
-                <div className={styles.notesDisplay}>
-                  {client.notes ? (
-                    <p className={styles.notesDisplayText}>
-                      {client.notes}
-                    </p>
-                  ) : (
-                    <p className={styles.notesEmpty}>
-                      No notes yet. Click "Edit" to add notes about this client.
-                    </p>
-                  )}
-                </div>
-              )}
             </div>
 
             <div className={styles.card}>
@@ -642,6 +571,98 @@ export function ClientDetailPage() {
                   <p className={styles.noData}>No invoices yet</p>
                 )}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Notes Tab */}
+        {activeTab === 'notes' && (
+          <div className={styles.notesTab}>
+            <div className={styles.tabHeader}>
+              <h2>Notes</h2>
+              <div className={styles.tabActions}>
+                {isEditingNotes ? (
+                  <>
+                    <button 
+                      className={styles.cancelBtn}
+                      onClick={handleCancelEditingNotes}
+                      disabled={notesSaving}
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      className={styles.primaryBtn}
+                      onClick={handleSaveNotes}
+                      disabled={notesSaving}
+                    >
+                      <Save size={18} />
+                      {notesSaving ? 'Saving...' : 'Save Notes'}
+                    </button>
+                  </>
+                ) : (
+                  <button 
+                    className={styles.primaryBtn}
+                    onClick={handleStartEditingNotes}
+                  >
+                    <Edit2 size={18} />
+                    {client.notes ? 'Edit Notes' : 'Add Notes'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className={styles.notesFullSection}>
+              {isEditingNotes ? (
+                <div className={styles.notesEditContainer}>
+                  <textarea
+                    className={styles.notesFullTextarea}
+                    value={notesText}
+                    onChange={(e) => setNotesText(e.target.value)}
+                    placeholder="Add notes about this client...
+
+Examples of what to include:
+• Client preferences and communication style
+• Important contacts and relationships
+• Billing preferences and payment history
+• Background information and history
+• Special considerations or requirements"
+                    autoFocus
+                  />
+                  <div className={styles.notesFooter}>
+                    <span className={styles.notesHint}>
+                      Use this space for internal notes that help you serve this client better.
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className={styles.notesViewContainer}>
+                  {client.notes ? (
+                    <div className={styles.notesFullContent}>
+                      <p className={styles.notesFullText}>
+                        {client.notes}
+                      </p>
+                      <div className={styles.notesFooter}>
+                        <span className={styles.notesLastUpdated}>
+                          Last updated: {client.updatedAt ? format(parseISO(client.updatedAt), 'MMM d, yyyy h:mm a') : 'Unknown'}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={styles.notesEmptyState}>
+                      <FileText size={48} />
+                      <h3>No Notes Yet</h3>
+                      <p>Add notes about this client to keep track of important details, preferences, and history.</p>
+                      <button 
+                        className={styles.primaryBtn}
+                        onClick={handleStartEditingNotes}
+                      >
+                        <Plus size={18} />
+                        Add Notes
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

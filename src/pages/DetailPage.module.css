@@ -1012,6 +1012,159 @@
   }
 }
 
+/* Notes Tab - Full Page Section */
+.notesTab {
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+.notesFullSection {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  min-height: 400px;
+}
+
+.notesEditContainer {
+  padding: var(--space-lg);
+}
+
+.notesFullTextarea {
+  width: 100%;
+  min-height: 350px;
+  padding: var(--space-lg);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  resize: vertical;
+  transition: border-color var(--transition-fast);
+}
+
+.notesFullTextarea:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+.notesFullTextarea::placeholder {
+  color: var(--apex-muted);
+  line-height: 1.8;
+}
+
+.notesViewContainer {
+  padding: var(--space-lg);
+}
+
+.notesFullContent {
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  padding: var(--space-xl);
+  min-height: 300px;
+}
+
+.notesFullText {
+  white-space: pre-wrap;
+  color: var(--apex-white);
+  line-height: 1.7;
+  font-size: 0.9375rem;
+  margin: 0;
+}
+
+.notesFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.notesHint {
+  font-size: 0.8125rem;
+  color: var(--apex-muted);
+  font-style: italic;
+}
+
+.notesLastUpdated {
+  font-size: 0.75rem;
+  color: var(--apex-muted);
+}
+
+.notesEmptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3xl);
+  text-align: center;
+  color: var(--apex-text);
+}
+
+.notesEmptyState svg {
+  opacity: 0.3;
+  margin-bottom: var(--space-lg);
+  color: var(--apex-gold-bright);
+}
+
+.notesEmptyState h3 {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 400;
+  color: var(--apex-white);
+  margin-bottom: var(--space-sm);
+}
+
+.notesEmptyState p {
+  font-size: 0.9375rem;
+  color: var(--apex-text);
+  max-width: 400px;
+  margin-bottom: var(--space-xl);
+  line-height: 1.6;
+}
+
+@media (max-width: 768px) {
+  .notesFullSection {
+    min-height: 300px;
+  }
+
+  .notesEditContainer,
+  .notesViewContainer {
+    padding: var(--space-md);
+  }
+
+  .notesFullTextarea {
+    min-height: 250px;
+    padding: var(--space-md);
+    font-size: 16px; /* Prevents iOS zoom */
+  }
+
+  .notesFullContent {
+    padding: var(--space-lg);
+    min-height: 200px;
+  }
+
+  .notesFooter {
+    flex-direction: column;
+    gap: var(--space-sm);
+    align-items: flex-start;
+  }
+
+  .notesEmptyState {
+    padding: var(--space-2xl) var(--space-lg);
+  }
+
+  .notesEmptyState h3 {
+    font-size: 1.125rem;
+  }
+
+  .notesEmptyState p {
+    font-size: 0.875rem;
+  }
+}
+
 /* Tab Content */
 .tabHeader {
   display: flex;

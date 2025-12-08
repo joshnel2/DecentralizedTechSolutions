@@ -1107,40 +1107,97 @@ Only analyze documents actually associated with this matter.`
               </div>
             </div>
 
-            {/* Notes Preview Card */}
-            <div className={styles.card} style={{ gridColumn: '1 / -1' }}>
-              <div className={styles.cardHeader}>
-                <h3>
-                  <FileText size={18} />
-                  Notes
-                </h3>
-                <button 
-                  className={styles.addBtn}
-                  onClick={() => setActiveTab('notes')}
-                >
-                  {matter.notes ? 'View All' : 'Add Notes'}
-                </button>
-              </div>
-              <div className={styles.notesContent}>
-                {matter.notes ? (
-                  <p style={{ 
-                    whiteSpace: 'pre-wrap', 
-                    color: 'var(--apex-white)',
-                    lineHeight: '1.6',
-                    margin: 0,
-                    display: '-webkit-box',
-                    WebkitLineClamp: 3,
-                    WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden'
-                  }}>
-                    {matter.notes}
-                  </p>
+          </div>
+        )}
+
+        {/* Notes Tab */}
+        {activeTab === 'notes' && (
+          <div className={styles.notesTab}>
+            <div className={styles.tabHeader}>
+              <h2>Notes</h2>
+              <div className={styles.tabActions}>
+                {isEditingNotes ? (
+                  <>
+                    <button 
+                      className={styles.cancelBtn}
+                      onClick={handleCancelEditingNotes}
+                      disabled={notesSaving}
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      className={styles.primaryBtn}
+                      onClick={handleSaveNotes}
+                      disabled={notesSaving}
+                    >
+                      <Save size={18} />
+                      {notesSaving ? 'Saving...' : 'Save Notes'}
+                    </button>
+                  </>
                 ) : (
-                  <p className={styles.noData} style={{ margin: 0 }}>
-                    No notes yet. Click "Add Notes" to add internal notes about this matter.
-                  </p>
+                  <button 
+                    className={styles.primaryBtn}
+                    onClick={handleStartEditingNotes}
+                  >
+                    <Edit2 size={18} />
+                    {matter.notes ? 'Edit Notes' : 'Add Notes'}
+                  </button>
                 )}
               </div>
+            </div>
+
+            <div className={styles.notesFullSection}>
+              {isEditingNotes ? (
+                <div className={styles.notesEditContainer}>
+                  <textarea
+                    className={styles.notesFullTextarea}
+                    value={notesText}
+                    onChange={(e) => setNotesText(e.target.value)}
+                    placeholder="Add internal notes about this matter...
+
+Examples of what to include:
+• Case strategy and key arguments
+• Important facts and evidence
+• Client preferences and concerns
+• Internal reminders and follow-ups
+• Research notes and citations"
+                    autoFocus
+                  />
+                  <div className={styles.notesFooter}>
+                    <span className={styles.notesHint}>
+                      Use this space for internal notes that won't be shared with the client.
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className={styles.notesViewContainer}>
+                  {matter.notes ? (
+                    <div className={styles.notesFullContent}>
+                      <p className={styles.notesFullText}>
+                        {matter.notes}
+                      </p>
+                      <div className={styles.notesFooter}>
+                        <span className={styles.notesLastUpdated}>
+                          Last updated: {matter.updatedAt ? format(parseISO(matter.updatedAt), 'MMM d, yyyy h:mm a') : 'Unknown'}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={styles.notesEmptyState}>
+                      <FileText size={48} />
+                      <h3>No Notes Yet</h3>
+                      <p>Add internal notes about this matter to keep track of important details, strategy, and reminders.</p>
+                      <button 
+                        className={styles.primaryBtn}
+                        onClick={handleStartEditingNotes}
+                      >
+                        <Plus size={18} />
+                        Add Notes
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
