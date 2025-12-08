@@ -947,6 +947,15 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
     rate: 450
   })
 
+  // Convert date string to ISO format preserving the local date
+  const dateToISO = (dateStr: string) => {
+    // Parse the date parts to avoid timezone issues
+    const [year, month, day] = dateStr.split('-').map(Number)
+    // Create date at noon local time to avoid day boundary issues
+    const date = new Date(year, month - 1, day, 12, 0, 0)
+    return date.toISOString()
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isSubmitting) return
@@ -955,8 +964,7 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
       await onSave({
         ...formData,
         matterId: formData.matterId || undefined, // Make matter optional
-        // Use noon local time to avoid timezone issues where UTC midnight falls on the previous day
-        date: new Date(formData.date + 'T12:00:00').toISOString(),
+        date: dateToISO(formData.date),
         billed: false,
         aiGenerated: false
       })
@@ -1080,6 +1088,13 @@ function EditTimeEntryModal({ entry, matters, onClose, onSave }: {
     rate: entry.rate
   })
 
+  // Convert date string to ISO format preserving the local date
+  const dateToISO = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number)
+    const date = new Date(year, month - 1, day, 12, 0, 0)
+    return date.toISOString()
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isSubmitting) return
@@ -1088,8 +1103,7 @@ function EditTimeEntryModal({ entry, matters, onClose, onSave }: {
       await onSave({
         ...formData,
         matterId: formData.matterId || undefined, // Make matter optional
-        // Use noon local time to avoid timezone issues where UTC midnight falls on the previous day
-        date: new Date(formData.date + 'T12:00:00').toISOString()
+        date: dateToISO(formData.date)
       })
     } finally {
       setIsSubmitting(false)
@@ -1214,6 +1228,13 @@ function SaveTimerModal({ timer, matters, onClose, onSave }: {
     rate: matter?.billingRate || 450
   })
 
+  // Convert date string to ISO format preserving the local date
+  const dateToISO = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number)
+    const date = new Date(year, month - 1, day, 12, 0, 0)
+    return date.toISOString()
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isSubmitting) return
@@ -1222,8 +1243,7 @@ function SaveTimerModal({ timer, matters, onClose, onSave }: {
       await onSave({
         ...formData,
         matterId: formData.matterId || undefined,
-        // Use noon local time to avoid timezone issues where UTC midnight falls on the previous day
-        date: new Date(formData.date + 'T12:00:00').toISOString(),
+        date: dateToISO(formData.date),
         billed: false,
         aiGenerated: false
       })

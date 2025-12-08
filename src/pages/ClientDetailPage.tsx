@@ -1637,6 +1637,13 @@ function TimeEntryModal({ clientName, clientMatters, existingEntry, onClose, onS
     })
   }
 
+  // Convert date string to ISO format preserving the local date
+  const dateToISO = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number)
+    const date = new Date(year, month - 1, day, 12, 0, 0)
+    return date.toISOString()
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isSubmitting) return
@@ -1648,8 +1655,7 @@ function TimeEntryModal({ clientName, clientMatters, existingEntry, onClose, onS
     try {
       await onSave({
         ...formData,
-        // Use noon local time to avoid timezone issues where UTC midnight falls on the previous day
-        date: new Date(formData.date + 'T12:00:00').toISOString(),
+        date: dateToISO(formData.date),
         billed: existingEntry?.billed || false,
         aiGenerated: false
       })

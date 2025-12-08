@@ -3132,6 +3132,13 @@ function MatterUpdateForm({ matterName, existingUpdate, onClose, onSave }: {
     category: existingUpdate?.category || 'general' as 'general' | 'court' | 'client_communication' | 'document' | 'billing' | 'milestone'
   })
 
+  // Convert date string to ISO format preserving the local date
+  const dateToISO = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number)
+    const date = new Date(year, month - 1, day, 12, 0, 0)
+    return date.toISOString()
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.title.trim()) {
@@ -3140,8 +3147,7 @@ function MatterUpdateForm({ matterName, existingUpdate, onClose, onSave }: {
     }
     onSave({
       ...formData,
-      // Use noon local time to avoid timezone issues where UTC midnight falls on the previous day
-      date: new Date(formData.date + 'T12:00:00').toISOString()
+      date: dateToISO(formData.date)
     })
   }
 
