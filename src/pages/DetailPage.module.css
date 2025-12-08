@@ -3100,3 +3100,373 @@ a.contactName:hover {
     min-height: 12px;
   }
 }
+
+/* ===== TIME ENTRY SELECTION STYLES ===== */
+
+/* Selection Bar */
+.selectionBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-lg);
+  animation: fadeIn 0.2s ease;
+}
+
+.selectionInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  color: var(--apex-success);
+  font-weight: 500;
+}
+
+.selectionAmount {
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.selectionActions {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.clearSelectionBtn {
+  padding: var(--space-xs) var(--space-md);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.clearSelectionBtn:hover {
+  border-color: var(--apex-text);
+  color: var(--apex-white);
+}
+
+.createInvoiceBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.createInvoiceBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+/* Select All Bar */
+.selectAllBar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-md);
+}
+
+.selectAllBtn {
+  padding: var(--space-xs) var(--space-md);
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--apex-gold-bright);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.selectAllBtn:hover {
+  background: rgba(245, 158, 11, 0.2);
+}
+
+/* Entry Checkbox */
+.entryCheckbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.entryCheckbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--apex-gold);
+}
+
+/* Selected Time Entry Card */
+.timeEntryCard.selected {
+  background: rgba(16, 185, 129, 0.05);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+/* ===== BILL MODAL STYLES ===== */
+
+.billModal {
+  width: 100%;
+  max-width: 450px;
+  max-height: 80vh;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.billModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+}
+
+.billModalTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.billModalTitle svg {
+  color: var(--apex-gold);
+}
+
+.billModalTitle h2 {
+  font-family: var(--font-serif);
+  font-size: 1.125rem;
+  font-weight: 400;
+  color: var(--apex-white);
+  margin: 0;
+}
+
+.billModalContent {
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  overflow-y: auto;
+  flex: 1;
+}
+
+.billModalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--apex-slate);
+  flex-shrink: 0;
+}
+
+/* Client Info */
+.billClientInfo {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  color: var(--apex-light);
+}
+
+.billClientInfo div {
+  margin-bottom: var(--space-xs);
+}
+
+.billClientInfo div:last-child {
+  margin-bottom: 0;
+}
+
+.billClientInfo strong {
+  color: var(--apex-text);
+}
+
+/* Summary Stats */
+.billSummaryCompact {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-lg);
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+}
+
+.billStatItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.billStatValue {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--apex-gold-bright);
+}
+
+.billStatLabel {
+  font-size: 0.6875rem;
+  color: var(--apex-text);
+  text-transform: uppercase;
+}
+
+.billStatDivider {
+  width: 1px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Preview List */
+.billPreviewList {
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.billPreviewHeader {
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  background: rgba(0, 0, 0, 0.2);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.billPreviewItems {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.billPreviewItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.billPreviewItem:last-child {
+  border-bottom: none;
+}
+
+.billPreviewItemLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.billPreviewDesc {
+  font-size: 0.8125rem;
+  color: var(--apex-white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.billPreviewMeta {
+  font-size: 0.6875rem;
+  color: var(--apex-text);
+}
+
+.billPreviewItemRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-shrink: 0;
+}
+
+.billPreviewHours {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
+.billPreviewAmount {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--apex-gold-bright);
+}
+
+/* Bill Note */
+.billNote {
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(59, 130, 246, 0.08);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
+.billNote span {
+  font-size: 0.75rem;
+  color: rgba(147, 197, 253, 0.9);
+}
+
+/* Mobile Bill Modal */
+@media (max-width: 768px) {
+  .selectionBar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-md);
+    padding: var(--space-md);
+  }
+
+  .selectionInfo {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .selectionActions {
+    flex-direction: column;
+  }
+
+  .clearSelectionBtn,
+  .createInvoiceBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .billModal {
+    max-width: 100%;
+    max-height: 85vh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+
+  .billSummaryCompact {
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  .billStatValue {
+    font-size: 1rem;
+  }
+
+  .billPreviewItems {
+    max-height: 150px;
+  }
+
+  .billModalFooter {
+    flex-direction: column-reverse;
+    gap: var(--space-sm);
+  }
+
+  .billModalFooter .cancelBtn,
+  .billModalFooter .saveBtn {
+    width: 100%;
+    padding: var(--space-md);
+  }
+}

@@ -48,6 +48,10 @@ export function ClientDetailPage() {
   const [quickTimeSaving, setQuickTimeSaving] = useState(false)
   const [selectedMatterForTime, setSelectedMatterForTime] = useState<string>('')
   
+  // Time entry selection for billing
+  const [selectedTimeEntries, setSelectedTimeEntries] = useState<string[]>([])
+  const [showBillEntriesModal, setShowBillEntriesModal] = useState(false)
+  
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean
@@ -192,6 +196,43 @@ export function ClientDetailPage() {
       }
     })
   }
+
+  // Toggle time entry selection for billing
+  const toggleTimeEntrySelection = (entryId: string) => {
+    setSelectedTimeEntries(prev => 
+      prev.includes(entryId) 
+        ? prev.filter(id => id !== entryId)
+        : [...prev, entryId]
+    )
+  }
+
+  // Select all unbilled entries
+  const toggleAllUnbilledEntries = () => {
+    const unbilledIds = clientTimeEntries.filter(e => !e.billed && e.billable).map(e => e.id)
+    const allSelected = unbilledIds.every(id => selectedTimeEntries.includes(id))
+    if (allSelected) {
+      setSelectedTimeEntries([])
+    } else {
+      setSelectedTimeEntries(unbilledIds)
+    }
+  }
+
+  // Get selected entries total
+  const selectedEntriesTotal = useMemo(() => {
+    return clientTimeEntries
+      .filter(e => selectedTimeEntries.includes(e.id))
+      .reduce((sum, e) => sum + e.amount, 0)
+  }, [clientTimeEntries, selectedTimeEntries])
+
+  const selectedEntriesHours = useMemo(() => {
+    return clientTimeEntries
+      .filter(e => selectedTimeEntries.includes(e.id))
+      .reduce((sum, e) => sum + e.hours, 0)
+  }, [clientTimeEntries, selectedTimeEntries])
+
+  const unbilledEntries = useMemo(() => {
+    return clientTimeEntries.filter(e => !e.billed && e.billable)
+  }, [clientTimeEntries])
 
   // Get matter name for time entry
   const getMatterName = (matterId: string) => {
@@ -668,6 +709,46 @@ export function ClientDetailPage() {
               </div>
             </div>
 
+            {/* Selection Bar */}
+            {selectedTimeEntries.length > 0 && (
+              <div className={styles.selectionBar}>
+                <div className={styles.selectionInfo}>
+                  <CheckCircle2 size={18} />
+                  <span>{selectedTimeEntries.length} entries selected</span>
+                  <span className={styles.selectionAmount}>
+                    {selectedEntriesHours.toFixed(1)}h • ${selectedEntriesTotal.toLocaleString()}
+                  </span>
+                </div>
+                <div className={styles.selectionActions}>
+                  <button 
+                    className={styles.clearSelectionBtn}
+                    onClick={() => setSelectedTimeEntries([])}
+                  >
+                    Clear
+                  </button>
+                  <button 
+                    className={styles.createInvoiceBtn}
+                    onClick={() => setShowBillEntriesModal(true)}
+                  >
+                    <FileText size={16} />
+                    Create Invoice
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Select All Unbilled */}
+            {unbilledEntries.length > 0 && selectedTimeEntries.length === 0 && (
+              <div className={styles.selectAllBar}>
+                <button 
+                  className={styles.selectAllBtn}
+                  onClick={toggleAllUnbilledEntries}
+                >
+                  Select All Unbilled ({unbilledEntries.length})
+                </button>
+              </div>
+            )}
+
             {clientMatters.length === 0 ? (
               <div className={styles.emptyTime}>
                 <Briefcase size={48} />
@@ -695,7 +776,23 @@ export function ClientDetailPage() {
             ) : (
               <div className={styles.timeEntryCards}>
                 {clientTimeEntries.map(entry => (
-                  <div key={entry.id} className={styles.timeEntryCard}>
+                  <div 
+                    key={entry.id} 
+                    className={clsx(
+                      styles.timeEntryCard,
+                      selectedTimeEntries.includes(entry.id) && styles.selected
+                    )}
+                  >
+                    {/* Checkbox for unbilled entries */}
+                    {!entry.billed && entry.billable && (
+                      <div className={styles.entryCheckbox}>
+                        <input
+                          type="checkbox"
+                          checked={selectedTimeEntries.includes(entry.id)}
+                          onChange={() => toggleTimeEntrySelection(entry.id)}
+                        />
+                      </div>
+                    )}
                     <div className={styles.timeEntryDate}>
                       <span className={styles.timeEntryDay}>
                         {format(parseISO(entry.date), 'd')}
@@ -906,6 +1003,35 @@ export function ClientDetailPage() {
             await updateTimeEntry(editingTimeEntry.id, data)
             setEditingTimeEntry(null)
             fetchTimeEntries()
+          }}
+        />
+      )}
+
+      {/* Bill Time Entries Modal */}
+      {showBillEntriesModal && client && (
+        <ClientBillEntriesModal
+          onClose={() => {
+            setShowBillEntriesModal(false)
+            setSelectedTimeEntries([])
+          }}
+          selectedEntries={clientTimeEntries.filter(e => selectedTimeEntries.includes(e.id))}
+          client={client}
+          matters={clientMatters}
+          onCreateInvoice={async (invoiceData) => {
+            try {
+              await addInvoice(invoiceData)
+              // Mark entries as billed
+              for (const entryId of selectedTimeEntries) {
+                await updateTimeEntry(entryId, { billed: true })
+              }
+              await fetchTimeEntries()
+              await fetchInvoices()
+              setSelectedTimeEntries([])
+              setShowBillEntriesModal(false)
+            } catch (error) {
+              console.error('Failed to create invoice:', error)
+              alert('Failed to create invoice. Please try again.')
+            }
           }}
         />
       )}
@@ -1201,6 +1327,189 @@ function NewMatterModal({ clientId, clientName, onClose, onSave }: {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+// Client Bill Entries Modal - Creates invoice from selected time entries
+function ClientBillEntriesModal({ 
+  onClose, 
+  selectedEntries, 
+  client,
+  matters,
+  onCreateInvoice 
+}: { 
+  onClose: () => void
+  selectedEntries: any[]
+  client: any
+  matters: any[]
+  onCreateInvoice: (data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [selectedMatterId, setSelectedMatterId] = useState<string>('')
+
+  const totalAmount = selectedEntries.reduce((sum, e) => sum + e.amount, 0)
+  const totalHours = selectedEntries.reduce((sum, e) => sum + e.hours, 0)
+
+  // Group entries by matter for preview
+  const entriesByMatter = useMemo(() => {
+    const groups: Record<string, { matter: any, entries: any[], total: number, hours: number }> = {}
+    
+    selectedEntries.forEach(entry => {
+      const matter = matters.find(m => m.id === entry.matterId)
+      const matterId = entry.matterId || 'no-matter'
+      
+      if (!groups[matterId]) {
+        groups[matterId] = {
+          matter,
+          entries: [],
+          total: 0,
+          hours: 0
+        }
+      }
+      groups[matterId].entries.push(entry)
+      groups[matterId].total += entry.amount
+      groups[matterId].hours += entry.hours
+    })
+    
+    return Object.values(groups)
+  }, [selectedEntries, matters])
+
+  // Get unique matter IDs from selected entries
+  const uniqueMatters = useMemo(() => {
+    const matterIds = [...new Set(selectedEntries.map(e => e.matterId))]
+    return matterIds.map(id => matters.find(m => m.id === id)).filter(Boolean)
+  }, [selectedEntries, matters])
+
+  // Auto-select first matter if only one
+  useEffect(() => {
+    if (uniqueMatters.length === 1) {
+      setSelectedMatterId(uniqueMatters[0].id)
+    }
+  }, [uniqueMatters])
+
+  const handleCreateInvoice = async () => {
+    setIsSubmitting(true)
+    try {
+      const lineItems = selectedEntries.map(entry => {
+        const matter = matters.find(m => m.id === entry.matterId)
+        return {
+          description: `${matter?.name || 'Legal Services'}: ${entry.description || 'Services rendered'}`,
+          quantity: entry.hours,
+          rate: entry.rate,
+          amount: entry.amount
+        }
+      })
+      
+      await onCreateInvoice({
+        clientId: client.id,
+        matterId: selectedMatterId || uniqueMatters[0]?.id,
+        issueDate: new Date().toISOString(),
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        status: 'draft',
+        subtotal: totalAmount,
+        total: totalAmount,
+        amountPaid: 0,
+        lineItems,
+        timeEntryIds: selectedEntries.map(e => e.id)
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.billModal} onClick={e => e.stopPropagation()}>
+        <div className={styles.billModalHeader}>
+          <div className={styles.billModalTitle}>
+            <FileText size={20} />
+            <h2>Create Invoice</h2>
+          </div>
+          <button onClick={onClose} className={styles.closeBtn}><X size={20} /></button>
+        </div>
+        
+        <div className={styles.billModalContent}>
+          {/* Client Info */}
+          <div className={styles.billClientInfo}>
+            <div><strong>Client:</strong> {client.name}</div>
+            {uniqueMatters.length === 1 && (
+              <div><strong>Matter:</strong> {uniqueMatters[0].name}</div>
+            )}
+          </div>
+
+          {/* Matter Selection if multiple */}
+          {uniqueMatters.length > 1 && (
+            <div className={styles.formGroup}>
+              <label>Primary Matter for Invoice</label>
+              <select
+                value={selectedMatterId}
+                onChange={(e) => setSelectedMatterId(e.target.value)}
+              >
+                <option value="">Select matter...</option>
+                {uniqueMatters.map(m => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Summary Stats */}
+          <div className={styles.billSummaryCompact}>
+            <div className={styles.billStatItem}>
+              <span className={styles.billStatValue}>{selectedEntries.length}</span>
+              <span className={styles.billStatLabel}>Entries</span>
+            </div>
+            <div className={styles.billStatDivider} />
+            <div className={styles.billStatItem}>
+              <span className={styles.billStatValue}>{totalHours.toFixed(1)}h</span>
+              <span className={styles.billStatLabel}>Hours</span>
+            </div>
+            <div className={styles.billStatDivider} />
+            <div className={styles.billStatItem}>
+              <span className={styles.billStatValue}>${totalAmount.toLocaleString()}</span>
+              <span className={styles.billStatLabel}>Total</span>
+            </div>
+          </div>
+
+          {/* Preview by Matter */}
+          <div className={styles.billPreviewList}>
+            <div className={styles.billPreviewHeader}>Time Entries by Matter</div>
+            <div className={styles.billPreviewItems}>
+              {entriesByMatter.map((group, i) => (
+                <div key={i} className={styles.billPreviewItem}>
+                  <div className={styles.billPreviewItemLeft}>
+                    <span className={styles.billPreviewDesc}>{group.matter?.name || 'Unknown Matter'}</span>
+                    <span className={styles.billPreviewMeta}>{group.entries.length} entries</span>
+                  </div>
+                  <div className={styles.billPreviewItemRight}>
+                    <span className={styles.billPreviewHours}>{group.hours.toFixed(1)}h</span>
+                    <span className={styles.billPreviewAmount}>${group.total.toLocaleString()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Info Note */}
+          <div className={styles.billNote}>
+            <span>Invoice created as draft • Time entries marked as billed</span>
+          </div>
+        </div>
+
+        <div className={styles.billModalFooter}>
+          <button onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+            Cancel
+          </button>
+          <button 
+            onClick={handleCreateInvoice} 
+            className={styles.saveBtn}
+            disabled={isSubmitting || selectedEntries.length === 0}
+          >
+            {isSubmitting ? 'Creating...' : `Create Invoice ($${totalAmount.toLocaleString()})`}
+          </button>
+        </div>
       </div>
     </div>
   )

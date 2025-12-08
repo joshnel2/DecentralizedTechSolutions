@@ -99,6 +99,10 @@ export function MatterDetailPage() {
   const [quickTimeNotes, setQuickTimeNotes] = useState('')
   const [quickTimeSaving, setQuickTimeSaving] = useState(false)
   
+  // Time entry selection for billing
+  const [selectedTimeEntries, setSelectedTimeEntries] = useState<string[]>([])
+  const [showBillEntriesModal, setShowBillEntriesModal] = useState(false)
+  
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean
@@ -417,6 +421,15 @@ export function MatterDetailPage() {
       }
     })
   }
+
+  // Toggle time entry selection for billing
+  const toggleTimeEntrySelection = (entryId: string) => {
+    setSelectedTimeEntries(prev => 
+      prev.includes(entryId) 
+        ? prev.filter(id => id !== entryId)
+        : [...prev, entryId]
+    )
+  }
   
   // Handle event delete
   const handleDeleteEvent = async (eventId: string) => {
@@ -475,6 +488,34 @@ export function MatterDetailPage() {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
     [timeEntries, id]
   )
+
+  // Get selected entries total
+  const selectedEntriesTotal = useMemo(() => {
+    return matterTimeEntries
+      .filter(e => selectedTimeEntries.includes(e.id))
+      .reduce((sum, e) => sum + e.amount, 0)
+  }, [matterTimeEntries, selectedTimeEntries])
+
+  const selectedEntriesHours = useMemo(() => {
+    return matterTimeEntries
+      .filter(e => selectedTimeEntries.includes(e.id))
+      .reduce((sum, e) => sum + e.hours, 0)
+  }, [matterTimeEntries, selectedTimeEntries])
+
+  const unbilledEntries = useMemo(() => {
+    return matterTimeEntries.filter(e => !e.billed && e.billable)
+  }, [matterTimeEntries])
+
+  // Select all unbilled entries
+  const toggleAllUnbilledEntries = () => {
+    const unbilledIds = matterTimeEntries.filter(e => !e.billed && e.billable).map(e => e.id)
+    const allSelected = unbilledIds.every(id => selectedTimeEntries.includes(id))
+    if (allSelected) {
+      setSelectedTimeEntries([])
+    } else {
+      setSelectedTimeEntries(unbilledIds)
+    }
+  }
   
   const matterInvoices = useMemo(() => 
     invoices.filter(i => i.matterId === id),
@@ -1255,6 +1296,46 @@ Only analyze documents actually associated with this matter.`
               </div>
             </div>
 
+            {/* Selection Bar */}
+            {selectedTimeEntries.length > 0 && (
+              <div className={styles.selectionBar}>
+                <div className={styles.selectionInfo}>
+                  <CheckCircle2 size={18} />
+                  <span>{selectedTimeEntries.length} entries selected</span>
+                  <span className={styles.selectionAmount}>
+                    {selectedEntriesHours.toFixed(1)}h • ${selectedEntriesTotal.toLocaleString()}
+                  </span>
+                </div>
+                <div className={styles.selectionActions}>
+                  <button 
+                    className={styles.clearSelectionBtn}
+                    onClick={() => setSelectedTimeEntries([])}
+                  >
+                    Clear
+                  </button>
+                  <button 
+                    className={styles.createInvoiceBtn}
+                    onClick={() => setShowBillEntriesModal(true)}
+                  >
+                    <FileText size={16} />
+                    Create Invoice
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Select All Unbilled */}
+            {unbilledEntries.length > 0 && selectedTimeEntries.length === 0 && (
+              <div className={styles.selectAllBar}>
+                <button 
+                  className={styles.selectAllBtn}
+                  onClick={toggleAllUnbilledEntries}
+                >
+                  Select All Unbilled ({unbilledEntries.length})
+                </button>
+              </div>
+            )}
+
             {matterTimeEntries.length === 0 ? (
               <div className={styles.emptyTime}>
                 <Clock size={48} />
@@ -1270,7 +1351,23 @@ Only analyze documents actually associated with this matter.`
             ) : (
               <div className={styles.timeEntryCards}>
                 {matterTimeEntries.map(entry => (
-                  <div key={entry.id} className={styles.timeEntryCard}>
+                  <div 
+                    key={entry.id} 
+                    className={clsx(
+                      styles.timeEntryCard,
+                      selectedTimeEntries.includes(entry.id) && styles.selected
+                    )}
+                  >
+                    {/* Checkbox for unbilled entries */}
+                    {!entry.billed && entry.billable && (
+                      <div className={styles.entryCheckbox}>
+                        <input
+                          type="checkbox"
+                          checked={selectedTimeEntries.includes(entry.id)}
+                          onChange={() => toggleTimeEntrySelection(entry.id)}
+                        />
+                      </div>
+                    )}
                     <div className={styles.timeEntryDate}>
                       <span className={styles.timeEntryDay}>
                         {format(parseISO(entry.date), 'd')}
@@ -1280,7 +1377,7 @@ Only analyze documents actually associated with this matter.`
                       </span>
                     </div>
                     <div className={styles.timeEntryContent}>
-                      <span className={styles.timeEntryDesc}>{entry.description}</span>
+                      <span className={styles.timeEntryDesc}>{entry.description || 'No description'}</span>
                       <div className={styles.timeEntryMeta}>
                         <span>{entry.hours}h @ ${entry.rate}/hr</span>
                       </div>
@@ -2007,6 +2104,35 @@ Only analyze documents actually associated with this matter.`
         </div>
       )}
 
+      {/* Bill Time Entries Modal */}
+      {showBillEntriesModal && client && (
+        <BillEntriesModal
+          onClose={() => {
+            setShowBillEntriesModal(false)
+            setSelectedTimeEntries([])
+          }}
+          selectedEntries={matterTimeEntries.filter(e => selectedTimeEntries.includes(e.id))}
+          matter={matter}
+          client={client}
+          onCreateInvoice={async (invoiceData) => {
+            try {
+              await addInvoice(invoiceData)
+              // Mark entries as billed
+              for (const entryId of selectedTimeEntries) {
+                await updateTimeEntry(entryId, { billed: true })
+              }
+              await fetchTimeEntries({ matterId: id })
+              await fetchInvoices()
+              setSelectedTimeEntries([])
+              setShowBillEntriesModal(false)
+            } catch (error) {
+              console.error('Failed to create invoice:', error)
+              alert('Failed to create invoice. Please try again.')
+            }
+          }}
+        />
+      )}
+
       {/* Confirmation Modal */}
       <ConfirmationModal
         isOpen={confirmModal.isOpen}
@@ -2155,6 +2281,130 @@ function TaskForm({ matterName, onClose, onSave, existingTask }: {
         </button>
       </div>
     </form>
+  )
+}
+
+// Bill Entries Modal - Creates invoice from selected time entries
+function BillEntriesModal({ 
+  onClose, 
+  selectedEntries, 
+  matter,
+  client,
+  onCreateInvoice 
+}: { 
+  onClose: () => void
+  selectedEntries: any[]
+  matter: any
+  client: any
+  onCreateInvoice: (data: any) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const totalAmount = selectedEntries.reduce((sum, e) => sum + e.amount, 0)
+  const totalHours = selectedEntries.reduce((sum, e) => sum + e.hours, 0)
+
+  const handleCreateInvoice = async () => {
+    setIsSubmitting(true)
+    try {
+      const lineItems = selectedEntries.map(entry => ({
+        description: entry.description || 'Legal services',
+        quantity: entry.hours,
+        rate: entry.rate,
+        amount: entry.amount
+      }))
+      
+      await onCreateInvoice({
+        clientId: client.id,
+        matterId: matter.id,
+        issueDate: new Date().toISOString(),
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        status: 'draft',
+        subtotal: totalAmount,
+        total: totalAmount,
+        amountPaid: 0,
+        lineItems,
+        timeEntryIds: selectedEntries.map(e => e.id)
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.billModal} onClick={e => e.stopPropagation()}>
+        <div className={styles.billModalHeader}>
+          <div className={styles.billModalTitle}>
+            <FileText size={20} />
+            <h2>Create Invoice</h2>
+          </div>
+          <button onClick={onClose} className={styles.closeBtn}><X size={20} /></button>
+        </div>
+        
+        <div className={styles.billModalContent}>
+          {/* Client & Matter Info */}
+          <div className={styles.billClientInfo}>
+            <div><strong>Client:</strong> {client.name}</div>
+            <div><strong>Matter:</strong> {matter.name}</div>
+          </div>
+
+          {/* Summary Stats */}
+          <div className={styles.billSummaryCompact}>
+            <div className={styles.billStatItem}>
+              <span className={styles.billStatValue}>{selectedEntries.length}</span>
+              <span className={styles.billStatLabel}>Entries</span>
+            </div>
+            <div className={styles.billStatDivider} />
+            <div className={styles.billStatItem}>
+              <span className={styles.billStatValue}>{totalHours.toFixed(1)}h</span>
+              <span className={styles.billStatLabel}>Hours</span>
+            </div>
+            <div className={styles.billStatDivider} />
+            <div className={styles.billStatItem}>
+              <span className={styles.billStatValue}>${totalAmount.toLocaleString()}</span>
+              <span className={styles.billStatLabel}>Total</span>
+            </div>
+          </div>
+
+          {/* Preview List */}
+          <div className={styles.billPreviewList}>
+            <div className={styles.billPreviewHeader}>Line Items</div>
+            <div className={styles.billPreviewItems}>
+              {selectedEntries.map((entry, i) => (
+                <div key={i} className={styles.billPreviewItem}>
+                  <div className={styles.billPreviewItemLeft}>
+                    <span className={styles.billPreviewDesc}>{entry.description || 'Legal services'}</span>
+                    <span className={styles.billPreviewMeta}>{format(parseISO(entry.date), 'MMM d, yyyy')}</span>
+                  </div>
+                  <div className={styles.billPreviewItemRight}>
+                    <span className={styles.billPreviewHours}>{entry.hours}h</span>
+                    <span className={styles.billPreviewAmount}>${entry.amount.toLocaleString()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Info Note */}
+          <div className={styles.billNote}>
+            <span>Invoice created as draft • Time entries marked as billed</span>
+          </div>
+        </div>
+
+        <div className={styles.billModalFooter}>
+          <button onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+            Cancel
+          </button>
+          <button 
+            onClick={handleCreateInvoice} 
+            className={styles.saveBtn}
+            disabled={isSubmitting || selectedEntries.length === 0}
+          >
+            {isSubmitting ? 'Creating...' : `Create Invoice ($${totalAmount.toLocaleString()})`}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
