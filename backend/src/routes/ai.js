@@ -26,7 +26,7 @@ RULES:
 You are speaking directly to a law firm professional. Be their intelligent assistant.`;
 
 // Helper to call Azure OpenAI
-async function callAzureOpenAI(messages) {
+async function callAzureOpenAI(messages, options = {}) {
   const url = `${AZURE_ENDPOINT}openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${API_VERSION}`;
   
   const response = await fetch(url, {
@@ -37,8 +37,8 @@ async function callAzureOpenAI(messages) {
     },
     body: JSON.stringify({
       messages,
-      temperature: 0.7,
-      max_tokens: 2000,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.max_tokens ?? 2000,
       top_p: 0.95,
     }),
   });
@@ -47,6 +47,61 @@ async function callAzureOpenAI(messages) {
     const error = await response.text();
     console.error('Azure OpenAI error:', error);
     throw new Error(`Azure OpenAI API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
+// Helper to call Azure OpenAI with vision (for image analysis)
+async function callAzureOpenAIVision(messages, imageData) {
+  // For vision requests, we need to use a vision-capable model
+  // Azure OpenAI GPT-4 Vision uses a different message format
+  const visionDeployment = process.env.AZURE_OPENAI_VISION_DEPLOYMENT || AZURE_DEPLOYMENT;
+  const url = `${AZURE_ENDPOINT}openai/deployments/${visionDeployment}/chat/completions?api-version=${API_VERSION}`;
+  
+  // Convert the last user message to include the image
+  const messagesWithImage = messages.map((msg, index) => {
+    if (index === messages.length - 1 && msg.role === 'user') {
+      // Convert user message to include image
+      return {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: msg.content
+          },
+          {
+            type: 'image_url',
+            image_url: {
+              url: `data:${imageData.mimeType};base64,${imageData.base64}`,
+              detail: 'high'
+            }
+          }
+        ]
+      };
+    }
+    return msg;
+  });
+  
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'api-key': AZURE_API_KEY,
+    },
+    body: JSON.stringify({
+      messages: messagesWithImage,
+      temperature: 0.7,
+      max_tokens: 4000,
+      top_p: 0.95,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error('Azure OpenAI Vision error:', error);
+    throw new Error(`Azure OpenAI Vision API error: ${response.status}`);
   }
 
   const data = await response.json();
@@ -564,14 +619,44 @@ router.post('/chat', authenticate, async (req, res) => {
       return res.status(500).json({ error: 'AI service not configured' });
     }
 
-    // Build context for current page
-    const pageContext = await buildContext(page, req.user.firmId, req.user.id, additionalContext);
+    // Check if there's image data in the context (for vision analysis)
+    const imageData = additionalContext?.imageData;
+    const hasImage = imageData && imageData.base64 && imageData.mimeType;
+
+    // Build context for current page (exclude imageData from context building)
+    const contextWithoutImage = { ...additionalContext };
+    delete contextWithoutImage.imageData;
+    const pageContext = await buildContext(page, req.user.firmId, req.user.id, contextWithoutImage);
+
+    // Build system prompt - adjust for image analysis if needed
+    let systemPrompt = SYSTEM_PROMPT;
+    if (hasImage) {
+      systemPrompt = `You are an intelligent AI assistant for a law firm management platform called Apex Legal. 
+
+You have vision capabilities and can analyze images. When the user uploads an image:
+1. Read and extract any text visible in the image (OCR)
+2. Describe the contents accurately
+3. Answer questions about what you see
+4. Identify document types, forms, or structured content
+5. Be thorough in extracting text - include all visible text
+
+For legal documents, identify:
+- Document type (contract, letter, pleading, etc.)
+- Key parties mentioned
+- Important dates
+- Signatures or signature blocks
+- Any notable terms or clauses visible
+
+Be professional, accurate, and helpful.
+
+${pageContext}`;
+    }
 
     // Build messages array
     const messages = [
       {
         role: 'system',
-        content: `${SYSTEM_PROMPT}\n\n${pageContext}`,
+        content: systemPrompt,
       },
       // Include conversation history (last 10 messages)
       ...conversationHistory.slice(-10).map(msg => ({
@@ -584,14 +669,20 @@ router.post('/chat', authenticate, async (req, res) => {
       },
     ];
 
-    // Call Azure OpenAI
-    const response = await callAzureOpenAI(messages);
+    // Call Azure OpenAI (with or without vision)
+    let response;
+    if (hasImage) {
+      console.log('Processing image with vision API, mimeType:', imageData.mimeType);
+      response = await callAzureOpenAIVision(messages, imageData);
+    } else {
+      response = await callAzureOpenAI(messages);
+    }
 
     // Log AI usage (optional - for analytics)
     await query(
       `INSERT INTO audit_logs (firm_id, user_id, action, resource_type, details)
        VALUES ($1, $2, 'ai.chat', 'ai', $3)`,
-      [req.user.firmId, req.user.id, JSON.stringify({ page, messageLength: message.length })]
+      [req.user.firmId, req.user.id, JSON.stringify({ page, messageLength: message.length, hasImage })]
     ).catch(() => {}); // Don't fail if logging fails
 
     res.json({
