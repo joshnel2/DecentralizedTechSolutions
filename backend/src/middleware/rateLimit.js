@@ -21,7 +21,7 @@ const keyGenerator = (req) => {
 // General API rate limit
 export const apiLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 300, // Limit each IP to 300 requests per minute
+  max: 1000, // Limit each IP to 1000 requests per minute
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
