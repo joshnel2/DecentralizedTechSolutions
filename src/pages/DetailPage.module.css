@@ -884,74 +884,83 @@
 .timerBtn {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-lg);
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%);
-  border: 1px solid rgba(34, 197, 94, 0.4);
-  border-radius: var(--radius-md);
+  gap: 6px;
+  padding: 5px 12px;
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: var(--radius-sm);
   color: #22c55e;
-  font-weight: 600;
-  font-size: 0.875rem;
+  font-weight: 500;
+  font-size: 0.75rem;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
+.timerBtn svg {
+  width: 14px;
+  height: 14px;
+}
+
 .timerBtn:hover {
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.3) 0%, rgba(34, 197, 94, 0.2) 100%);
-  border-color: rgba(34, 197, 94, 0.6);
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.4);
 }
 
 .activeTimerBadge {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-xs) var(--space-md);
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%);
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  border-radius: var(--radius-lg);
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: var(--radius-sm);
   color: #22c55e;
-  animation: timerPulse 2s ease-in-out infinite;
-}
-
-@keyframes timerPulse {
-  0%, 100% { border-color: rgba(34, 197, 94, 0.3); }
-  50% { border-color: rgba(34, 197, 94, 0.6); }
 }
 
 .timerDisplay {
-  font-family: var(--font-mono, monospace);
-  font-size: 1rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Mono", "Roboto Mono", monospace;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .timerControlBtn {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-xs);
+  padding: 3px;
   background: none;
   border: none;
-  color: var(--apex-light);
+  color: var(--apex-text);
   cursor: pointer;
-  border-radius: var(--radius-sm);
+  border-radius: 3px;
   transition: all var(--transition-fast);
+  opacity: 0.7;
+}
+
+.timerControlBtn svg {
+  width: 14px;
+  height: 14px;
 }
 
 .timerControlBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--apex-white);
+  opacity: 1;
 }
 
 .timerControlBtn.danger:hover {
-  background: rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.15);
   color: #ef4444;
 }
 
 .timerOnOtherMatter {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color: var(--apex-muted);
-  padding: var(--space-xs) var(--space-sm);
+  padding: 2px 8px;
+  font-style: italic;
 }
 
 /* Mobile Timer Styles */
@@ -2564,42 +2573,42 @@ a.contactName:hover {
 .quickTimeWidget {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--radius-md);
-  margin-top: var(--space-md);
-  font-size: 0.8125rem;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  margin-top: var(--space-sm);
 }
 
 .quickTimeControls {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
 }
 
 .quickTimeBtn {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--apex-deep);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
   color: var(--apex-text);
-  font-size: 1rem;
-  font-weight: 500;
+  font-size: 0.875rem;
+  font-weight: 400;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   cursor: pointer;
   transition: all var(--transition-fast);
   user-select: none;
 }
 
 .quickTimeBtn:hover {
-  background: var(--apex-gold);
-  border-color: var(--apex-gold);
-  color: var(--apex-black);
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: var(--apex-gold-bright);
 }
 
 .quickTimeBtn:active {
@@ -2609,59 +2618,64 @@ a.contactName:hover {
 .quickTimeDisplay {
   display: flex;
   align-items: center;
-  gap: 4px;
-  min-width: 65px;
+  gap: 3px;
+  min-width: 55px;
   justify-content: center;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--apex-white);
-  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--apex-light);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Mono", "Roboto Mono", monospace;
 }
 
 .quickTimeDisplay svg {
-  color: var(--apex-gold-bright);
-  width: 14px;
-  height: 14px;
+  color: var(--apex-text);
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
 }
 
 .quickTimeNotes {
   flex: 1;
-  padding: 6px 10px;
-  background: var(--apex-deep);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
   color: var(--apex-white);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   outline: none;
   transition: border-color var(--transition-fast);
 }
 
 .quickTimeNotes:focus {
-  border-color: var(--apex-gold);
+  border-color: rgba(245, 158, 11, 0.4);
 }
 
 .quickTimeNotes::placeholder {
   color: var(--apex-muted);
+  font-size: 0.75rem;
 }
 
 .quickTimeSave {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  background: var(--apex-gold);
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--apex-black);
-  font-size: 0.75rem;
-  font-weight: 600;
+  gap: 3px;
+  padding: 5px 10px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 3px;
+  color: var(--apex-gold-bright);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   cursor: pointer;
   transition: all var(--transition-fast);
   white-space: nowrap;
 }
 
 .quickTimeSave:hover {
-  background: var(--apex-gold-bright);
+  background: rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.4);
 }
 
 .quickTimeSave:disabled {
@@ -2672,69 +2686,71 @@ a.contactName:hover {
 .quickTimeLabel {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  color: var(--apex-gold-bright);
+  gap: 3px;
+  font-size: 0.625rem;
+  font-weight: 500;
+  color: var(--apex-text);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   white-space: nowrap;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 .quickTimeLabel svg {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
+  opacity: 0.7;
 }
 
 @media (max-width: 768px) {
   .quickTimeWidget {
     flex-wrap: wrap;
-    gap: var(--space-sm);
-    padding: var(--space-md);
+    gap: 8px;
+    padding: 10px;
   }
 
   .quickTimeLabel {
     width: 100%;
-    margin-bottom: var(--space-xs);
+    margin-bottom: 2px;
   }
 
   .quickTimeControls {
     flex: 1;
     justify-content: center;
-    gap: var(--space-xs);
+    gap: 4px;
   }
 
   .quickTimeBtn {
-    width: 40px;
-    height: 40px;
-    font-size: 1.25rem;
-    border-radius: var(--radius-md);
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+    border-radius: var(--radius-sm);
   }
 
   .quickTimeDisplay {
-    min-width: 80px;
-    font-size: 1rem;
-    padding: 0 var(--space-sm);
+    min-width: 70px;
+    font-size: 0.875rem;
+    padding: 0 var(--space-xs);
   }
   
   .quickTimeNotes {
     order: 3;
     width: 100%;
     flex: none;
-    padding: var(--space-sm) var(--space-md);
+    padding: 10px 12px;
     font-size: 16px; /* Prevents iOS zoom */
-    min-height: 44px;
-    border-radius: var(--radius-md);
+    min-height: 40px;
+    border-radius: var(--radius-sm);
   }
   
   .quickTimeSave {
     order: 4;
     width: 100%;
     justify-content: center;
-    padding: var(--space-sm) var(--space-md);
-    min-height: 44px;
-    font-size: 0.875rem;
-    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    min-height: 40px;
+    font-size: 0.8125rem;
+    border-radius: var(--radius-sm);
   }
 }
 
