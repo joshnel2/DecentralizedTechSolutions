@@ -5,7 +5,7 @@ import {
   Building2, User, ChevronLeft, Edit2, MoreVertical, 
   Briefcase, DollarSign, FileText, Mail, Phone, MapPin, Plus,
   Sparkles, Archive, Trash2, X, CheckCircle2, Clock, AlertCircle, ChevronDown,
-  TrendingUp
+  TrendingUp, Search, Filter
 } from 'lucide-react'
 import { teamApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
@@ -51,6 +51,10 @@ export function ClientDetailPage() {
   // Time entry selection for billing
   const [selectedTimeEntries, setSelectedTimeEntries] = useState<string[]>([])
   const [showBillEntriesModal, setShowBillEntriesModal] = useState(false)
+  
+  // Time entries filter state
+  const [timeEntriesSearch, setTimeEntriesSearch] = useState('')
+  const [timeEntriesFilterStatus, setTimeEntriesFilterStatus] = useState<'all' | 'billed' | 'unbilled'>('all')
   
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -111,6 +115,31 @@ export function ClientDetailPage() {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
     [timeEntries, clientMatterIds]
   )
+
+  // Filtered time entries based on search and filters
+  const filteredTimeEntries = useMemo(() => {
+    return clientTimeEntries.filter(entry => {
+      // Search filter
+      if (timeEntriesSearch) {
+        const searchLower = timeEntriesSearch.toLowerCase()
+        const matter = entry.matterId ? matters.find(m => m.id === entry.matterId) : null
+        const matterName = matter?.name?.toLowerCase() || ''
+        const description = (entry.description || '').toLowerCase()
+        
+        const matchesSearch = 
+          description.includes(searchLower) ||
+          matterName.includes(searchLower)
+        
+        if (!matchesSearch) return false
+      }
+      
+      // Status filter
+      if (timeEntriesFilterStatus === 'billed' && !entry.billed) return false
+      if (timeEntriesFilterStatus === 'unbilled' && entry.billed) return false
+      
+      return true
+    })
+  }, [clientTimeEntries, timeEntriesSearch, timeEntriesFilterStatus, matters])
 
   const timeStats = useMemo(() => {
     const totalHours = clientTimeEntries.reduce((sum, t) => sum + t.hours, 0)
@@ -231,8 +260,8 @@ export function ClientDetailPage() {
   }, [clientTimeEntries, selectedTimeEntries])
 
   const unbilledEntries = useMemo(() => {
-    return clientTimeEntries.filter(e => !e.billed && e.billable)
-  }, [clientTimeEntries])
+    return filteredTimeEntries.filter(e => !e.billed && e.billable)
+  }, [filteredTimeEntries])
 
   // Get matter name for time entry
   const getMatterName = (matterId: string) => {
@@ -749,6 +778,57 @@ export function ClientDetailPage() {
               </div>
             )}
 
+            {/* Search and Filter Bar */}
+            {clientTimeEntries.length > 0 && (
+              <div className={styles.filterBar}>
+                <div className={styles.searchInputWrapper}>
+                  <Search size={16} className={styles.searchIcon} />
+                  <input
+                    type="text"
+                    placeholder="Search by description or matter..."
+                    value={timeEntriesSearch}
+                    onChange={(e) => setTimeEntriesSearch(e.target.value)}
+                    className={styles.searchInput}
+                  />
+                  {timeEntriesSearch && (
+                    <button 
+                      className={styles.clearSearchBtn}
+                      onClick={() => setTimeEntriesSearch('')}
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+                <div className={styles.filterControls}>
+                  <select
+                    value={timeEntriesFilterStatus}
+                    onChange={(e) => setTimeEntriesFilterStatus(e.target.value as 'all' | 'billed' | 'unbilled')}
+                    className={styles.filterSelect}
+                  >
+                    <option value="all">All Status</option>
+                    <option value="unbilled">Unbilled</option>
+                    <option value="billed">Billed</option>
+                  </select>
+                  {(timeEntriesSearch || timeEntriesFilterStatus !== 'all') && (
+                    <button 
+                      className={styles.clearFiltersBtn}
+                      onClick={() => {
+                        setTimeEntriesSearch('')
+                        setTimeEntriesFilterStatus('all')
+                      }}
+                    >
+                      Clear Filters
+                    </button>
+                  )}
+                </div>
+                {filteredTimeEntries.length !== clientTimeEntries.length && (
+                  <span className={styles.filterCount}>
+                    Showing {filteredTimeEntries.length} of {clientTimeEntries.length} entries
+                  </span>
+                )}
+              </div>
+            )}
+
             {clientMatters.length === 0 ? (
               <div className={styles.emptyTime}>
                 <Briefcase size={48} />
@@ -773,9 +853,23 @@ export function ClientDetailPage() {
                   Log First Time Entry
                 </button>
               </div>
+            ) : filteredTimeEntries.length === 0 ? (
+              <div className={styles.emptyTime}>
+                <Filter size={48} />
+                <p>No entries match your filters</p>
+                <button 
+                  className={styles.primaryBtn} 
+                  onClick={() => {
+                    setTimeEntriesSearch('')
+                    setTimeEntriesFilterStatus('all')
+                  }}
+                >
+                  Clear Filters
+                </button>
+              </div>
             ) : (
               <div className={styles.timeEntryCards}>
-                {clientTimeEntries.map(entry => (
+                {filteredTimeEntries.map(entry => (
                   <div 
                     key={entry.id} 
                     className={clsx(

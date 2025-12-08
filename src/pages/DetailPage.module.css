@@ -2136,6 +2136,139 @@ a.contactName:hover {
   color: var(--apex-text);
 }
 
+/* Filter Bar for Time Entries */
+.filterBar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-md);
+}
+
+.searchInputWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 12px;
+  color: var(--apex-text);
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 0.625rem 2.5rem 0.625rem 2.5rem;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.searchInput::placeholder {
+  color: var(--apex-subtle);
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+}
+
+.clearSearchBtn {
+  position: absolute;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clearSearchBtn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--apex-white);
+}
+
+.filterControls {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.filterSelect {
+  min-width: 140px;
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  background-color: var(--apex-deep);
+  background-image: 
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23F59E0B' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+
+.filterSelect:hover {
+  border-color: rgba(245, 158, 11, 0.3);
+  background-color: rgba(30, 41, 59, 0.8);
+}
+
+.filterSelect:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.1);
+}
+
+.filterSelect option {
+  background-color: var(--apex-deep);
+  color: var(--apex-white);
+}
+
+.clearFiltersBtn {
+  padding: 0.5rem 0.75rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  color: #f87171;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clearFiltersBtn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.filterCount {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  padding: 0.25rem 0.5rem;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: var(--radius-sm);
+}
+
 .emptyTime {
   text-align: center;
   padding: var(--space-3xl);

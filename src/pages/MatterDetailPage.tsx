@@ -11,7 +11,8 @@ import {
   Copy, RefreshCw, AlertTriangle, TrendingUp,
   ListTodo, Users, Circle, Upload, Download, X, 
   Trash2, Archive, XCircle, Eye, Play, Pause, StopCircle,
-  MessageSquare, Settings, Share2, Globe, Lock, Shield
+  MessageSquare, Settings, Share2, Globe, Lock, Shield,
+  Search, Filter
 } from 'lucide-react'
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
@@ -102,6 +103,10 @@ export function MatterDetailPage() {
   // Time entry selection for billing
   const [selectedTimeEntries, setSelectedTimeEntries] = useState<string[]>([])
   const [showBillEntriesModal, setShowBillEntriesModal] = useState(false)
+  
+  // Time entries filter state
+  const [timeEntriesSearch, setTimeEntriesSearch] = useState('')
+  const [timeEntriesFilterStatus, setTimeEntriesFilterStatus] = useState<'all' | 'billed' | 'unbilled'>('all')
   
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -489,6 +494,25 @@ export function MatterDetailPage() {
     [timeEntries, id]
   )
 
+  // Filtered time entries based on search and filters
+  const filteredTimeEntries = useMemo(() => {
+    return matterTimeEntries.filter(entry => {
+      // Search filter
+      if (timeEntriesSearch) {
+        const searchLower = timeEntriesSearch.toLowerCase()
+        const description = (entry.description || '').toLowerCase()
+        
+        if (!description.includes(searchLower)) return false
+      }
+      
+      // Status filter
+      if (timeEntriesFilterStatus === 'billed' && !entry.billed) return false
+      if (timeEntriesFilterStatus === 'unbilled' && entry.billed) return false
+      
+      return true
+    })
+  }, [matterTimeEntries, timeEntriesSearch, timeEntriesFilterStatus])
+
   // Get selected entries total
   const selectedEntriesTotal = useMemo(() => {
     return matterTimeEntries
@@ -503,8 +527,8 @@ export function MatterDetailPage() {
   }, [matterTimeEntries, selectedTimeEntries])
 
   const unbilledEntries = useMemo(() => {
-    return matterTimeEntries.filter(e => !e.billed && e.billable)
-  }, [matterTimeEntries])
+    return filteredTimeEntries.filter(e => !e.billed && e.billable)
+  }, [filteredTimeEntries])
 
   // Select all unbilled entries
   const toggleAllUnbilledEntries = () => {
@@ -1336,6 +1360,57 @@ Only analyze documents actually associated with this matter.`
               </div>
             )}
 
+            {/* Search and Filter Bar */}
+            {matterTimeEntries.length > 0 && (
+              <div className={styles.filterBar}>
+                <div className={styles.searchInputWrapper}>
+                  <Search size={16} className={styles.searchIcon} />
+                  <input
+                    type="text"
+                    placeholder="Search by description..."
+                    value={timeEntriesSearch}
+                    onChange={(e) => setTimeEntriesSearch(e.target.value)}
+                    className={styles.searchInput}
+                  />
+                  {timeEntriesSearch && (
+                    <button 
+                      className={styles.clearSearchBtn}
+                      onClick={() => setTimeEntriesSearch('')}
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+                <div className={styles.filterControls}>
+                  <select
+                    value={timeEntriesFilterStatus}
+                    onChange={(e) => setTimeEntriesFilterStatus(e.target.value as 'all' | 'billed' | 'unbilled')}
+                    className={styles.filterSelect}
+                  >
+                    <option value="all">All Status</option>
+                    <option value="unbilled">Unbilled</option>
+                    <option value="billed">Billed</option>
+                  </select>
+                  {(timeEntriesSearch || timeEntriesFilterStatus !== 'all') && (
+                    <button 
+                      className={styles.clearFiltersBtn}
+                      onClick={() => {
+                        setTimeEntriesSearch('')
+                        setTimeEntriesFilterStatus('all')
+                      }}
+                    >
+                      Clear Filters
+                    </button>
+                  )}
+                </div>
+                {filteredTimeEntries.length !== matterTimeEntries.length && (
+                  <span className={styles.filterCount}>
+                    Showing {filteredTimeEntries.length} of {matterTimeEntries.length} entries
+                  </span>
+                )}
+              </div>
+            )}
+
             {matterTimeEntries.length === 0 ? (
               <div className={styles.emptyTime}>
                 <Clock size={48} />
@@ -1348,9 +1423,23 @@ Only analyze documents actually associated with this matter.`
                   Log First Time Entry
                 </button>
               </div>
+            ) : filteredTimeEntries.length === 0 ? (
+              <div className={styles.emptyTime}>
+                <Filter size={48} />
+                <p>No entries match your filters</p>
+                <button 
+                  className={styles.primaryBtn} 
+                  onClick={() => {
+                    setTimeEntriesSearch('')
+                    setTimeEntriesFilterStatus('all')
+                  }}
+                >
+                  Clear Filters
+                </button>
+              </div>
             ) : (
               <div className={styles.timeEntryCards}>
-                {matterTimeEntries.map(entry => (
+                {filteredTimeEntries.map(entry => (
                   <div 
                     key={entry.id} 
                     className={clsx(
