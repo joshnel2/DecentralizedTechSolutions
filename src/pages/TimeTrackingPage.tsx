@@ -45,6 +45,11 @@ export function TimeTrackingPage() {
   const [selectedMatterId, setSelectedMatterId] = useState('')
   const [selectedClientId, setSelectedClientId] = useState('')
   
+  // Filter state for recent entries
+  const [recentEntriesSearch, setRecentEntriesSearch] = useState('')
+  const [recentEntriesFilterMatter, setRecentEntriesFilterMatter] = useState('')
+  const [recentEntriesFilterStatus, setRecentEntriesFilterStatus] = useState<'all' | 'billed' | 'unbilled'>('all')
+  
   // Filter state for older entries
   const [olderEntriesSearch, setOlderEntriesSearch] = useState('')
   const [olderEntriesFilterMatter, setOlderEntriesFilterMatter] = useState('')
