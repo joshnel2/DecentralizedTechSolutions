@@ -101,9 +101,9 @@
 /* Timer Section */
 .timerSection {
   background: var(--apex-deep);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
 }
 
 .activeTimer {
@@ -236,22 +236,32 @@
 
 .quickTimer {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: var(--space-md);
+  padding: var(--space-sm) 0;
 }
 
 .quickTimerHeader {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: 6px;
   color: var(--apex-text);
+  flex-shrink: 0;
+}
+
+.quickTimerHeader svg {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
 }
 
 .quickTimerHeader h3 {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--apex-white);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--apex-text);
   margin: 0;
+  letter-spacing: 0.01em;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 .matterButtons {
@@ -307,43 +317,54 @@
 .timerSelects {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
-  flex-wrap: wrap;
+  gap: var(--space-sm);
+  flex: 1;
 }
 
 .timerSelect {
-  padding: var(--space-sm) var(--space-md);
+  padding: 6px 10px;
   background: var(--apex-slate);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-md);
-  color: var(--apex-white);
-  font-size: 0.875rem;
-  min-width: 180px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  color: var(--apex-light);
+  font-size: 0.75rem;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  min-width: 140px;
+  max-width: 180px;
+  height: 32px;
 }
 
 .timerSelect:focus {
   outline: none;
-  border-color: var(--apex-gold);
+  border-color: rgba(245, 158, 11, 0.4);
 }
 
 .startTimerBtn {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-lg);
-  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--apex-midnight);
-  font-weight: 600;
-  font-size: 0.875rem;
+  gap: 6px;
+  padding: 6px 14px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-sm);
+  color: var(--apex-gold-bright);
+  font-weight: 500;
+  font-size: 0.75rem;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   cursor: pointer;
   transition: all var(--transition-fast);
+  height: 32px;
+  white-space: nowrap;
+}
+
+.startTimerBtn svg {
+  width: 14px;
+  height: 14px;
 }
 
 .startTimerBtn:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-glow);
+  background: rgba(245, 158, 11, 0.25);
+  border-color: rgba(245, 158, 11, 0.5);
 }
 
 /* Modal Styles */
@@ -945,6 +966,26 @@
   }
 
   .timerActions {
+    justify-content: center;
+  }
+
+  .quickTimer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-sm);
+  }
+
+  .timerSelects {
+    flex-wrap: wrap;
+  }
+
+  .timerSelect {
+    flex: 1;
+    min-width: 120px;
+  }
+
+  .startTimerBtn {
+    width: 100%;
     justify-content: center;
   }
 

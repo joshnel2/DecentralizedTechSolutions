@@ -287,8 +287,8 @@ export function DashboardPage() {
         ) : (
           <div className={styles.quickTimer}>
             <div className={styles.quickTimerHeader}>
-              <Clock size={20} />
-              <h3>Start Timer</h3>
+              <Clock size={16} />
+              <h3>Quick Timer</h3>
             </div>
             <div className={styles.timerSelects}>
               <select 
@@ -315,8 +315,8 @@ export function DashboardPage() {
                 ))}
               </select>
               <button className={styles.startTimerBtn} onClick={handleStartTimer}>
-                <Play size={18} />
-                Start Timer
+                <Play size={14} />
+                Start
               </button>
             </div>
           </div>
