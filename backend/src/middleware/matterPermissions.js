@@ -12,7 +12,7 @@
 import { query } from '../db/connection.js';
 
 // Roles that bypass all permission checks
-const FULL_ACCESS_ROLES = ['owner', 'admin', 'billing'];
+export const FULL_ACCESS_ROLES = ['owner', 'admin', 'billing'];
 
 /**
  * Check if user has access to a specific matter
