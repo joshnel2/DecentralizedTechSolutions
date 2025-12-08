@@ -703,13 +703,46 @@
 }
 
 .auditFilters select {
-  padding: 0.5rem 1rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
+  padding: 0.5rem 2.25rem 0.5rem 0.875rem;
+  background-color: var(--apex-slate);
+  background-image:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23F59E0B' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: auto, 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
   color: var(--apex-text);
   font-size: 0.85rem;
+  font-weight: 500;
   cursor: pointer;
+  transition: all 0.2s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.auditFilters select:hover {
+  border-color: rgba(245, 158, 11, 0.4);
+  background-color: rgba(30, 41, 59, 0.9);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(245, 158, 11, 0.1);
+}
+
+.auditFilters select:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+  box-shadow:
+    0 0 0 3px rgba(245, 158, 11, 0.15),
+    0 2px 8px rgba(0, 0, 0, 0.2);
+  background-image:
+    linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23FBBF24' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
 }
 
 .auditList {
@@ -1120,8 +1153,7 @@
   margin-bottom: 0.5rem;
 }
 
-.formGroup input,
-.formGroup select {
+.formGroup input {
   width: 100%;
   padding: 0.75rem;
   background: rgba(255, 255, 255, 0.05);
@@ -1132,11 +1164,56 @@
   transition: all 0.2s;
 }
 
-.formGroup input:focus,
-.formGroup select:focus {
+.formGroup select {
+  width: 100%;
+  padding: 0.625rem 2.5rem 0.625rem 1rem;
+  background-color: var(--apex-slate);
+  background-image:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23F59E0B' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: auto, 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: var(--apex-text);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.formGroup input:focus {
   outline: none;
   border-color: var(--apex-gold);
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+}
+
+.formGroup select:hover {
+  border-color: rgba(245, 158, 11, 0.4);
+  background-color: rgba(30, 41, 59, 0.9);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(245, 158, 11, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.formGroup select:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+  box-shadow:
+    0 0 0 3px rgba(245, 158, 11, 0.15),
+    0 2px 8px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  background-image:
+    linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23FBBF24' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
 }
 
 .formGroup input:disabled,

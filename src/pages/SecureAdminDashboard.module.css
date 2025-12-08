@@ -448,8 +448,7 @@
   color: #9ca3af;
 }
 
-.formGroup input,
-.formGroup select {
+.formGroup input {
   width: 100%;
   padding: 0.75rem 1rem;
   background: rgba(0, 0, 0, 0.3);
@@ -460,15 +459,53 @@
   transition: all 0.2s ease;
 }
 
-.formGroup input:focus,
-.formGroup select:focus {
+.formGroup select {
+  width: 100%;
+  padding: 0.625rem 2.5rem 0.625rem 1rem;
+  background-color: rgba(0, 0, 0, 0.3);
+  background-image:
+    linear-gradient(135deg, rgba(220, 38, 38, 0.04) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23dc2626' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: auto, 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.formGroup input:focus {
   outline: none;
   border-color: #dc2626;
   box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
 }
 
-.formGroup select {
-  cursor: pointer;
+.formGroup select:hover {
+  border-color: rgba(220, 38, 38, 0.4);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(220, 38, 38, 0.1);
+}
+
+.formGroup select:focus {
+  outline: none;
+  border-color: #dc2626;
+  box-shadow:
+    0 0 0 3px rgba(220, 38, 38, 0.15),
+    0 2px 8px rgba(0, 0, 0, 0.25);
+  background-image:
+    linear-gradient(135deg, rgba(220, 38, 38, 0.05) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23ef4444' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
 }
 
 .formRow {
