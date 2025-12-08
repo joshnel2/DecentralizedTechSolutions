@@ -7,6 +7,31 @@ import {
 } from 'lucide-react'
 import styles from './LandingPage.module.css'
 
+// Footer navigation links
+const footerLinks = {
+  product: [
+    { label: 'Features', href: '#features', isAnchor: true },
+    { label: 'Security', href: '/security' },
+    { label: 'Integrations', href: '/integrations' },
+  ],
+  company: [
+    { label: 'About', href: '/about' },
+    { label: 'Blog', href: '/blog' },
+    { label: 'Contact', href: '/contact' },
+  ],
+  resources: [
+    { label: 'Documentation', href: '/docs' },
+    { label: 'API Reference', href: '/api' },
+    { label: 'Support', href: '/support' },
+    { label: 'Status', href: '/status' },
+  ],
+  legal: [
+    { label: 'Privacy Policy', href: '/privacy' },
+    { label: 'Terms of Service', href: '/terms' },
+    { label: 'Compliance', href: '/compliance' },
+  ],
+}
+
 const features = [
   { icon: Scale, title: 'Matter Management', desc: 'Track cases, deadlines, and court dates in one place' },
   { icon: Clock, title: 'Time Tracking', desc: 'Effortless time capture with AI-powered suggestions' },
@@ -243,35 +268,36 @@ export function LandingPage() {
           <div className={styles.footerLinks}>
             <div>
               <h4>Product</h4>
-              <a href="#features">Features</a>
-              <a href="#">Security</a>
-              <a href="#">Integrations</a>
+              {footerLinks.product.map((link) => (
+                link.isAnchor ? (
+                  <a key={link.label} href={link.href}>{link.label}</a>
+                ) : (
+                  <Link key={link.label} to={link.href}>{link.label}</Link>
+                )
+              ))}
             </div>
             <div>
               <h4>Company</h4>
-              <a href="#">About</a>
-              <a href="#">Careers</a>
-              <a href="#">Blog</a>
-              <a href="#">Contact</a>
+              {footerLinks.company.map((link) => (
+                <Link key={link.label} to={link.href}>{link.label}</Link>
+              ))}
             </div>
             <div>
               <h4>Resources</h4>
-              <a href="#">Documentation</a>
-              <a href="#">API Reference</a>
-              <a href="#">Support</a>
-              <a href="#">Status</a>
+              {footerLinks.resources.map((link) => (
+                <Link key={link.label} to={link.href}>{link.label}</Link>
+              ))}
             </div>
             <div>
               <h4>Legal</h4>
-              <a href="#">Privacy Policy</a>
-              <a href="#">Terms of Service</a>
-              <a href="#">Security</a>
-              <a href="#">Compliance</a>
+              {footerLinks.legal.map((link) => (
+                <Link key={link.label} to={link.href}>{link.label}</Link>
+              ))}
             </div>
           </div>
         </div>
         <div className={styles.footerBottom}>
-          <p>© 2024 Apex Legal Technologies. All rights reserved.</p>
+          <p>© 2025 Apex Legal Technologies. All rights reserved.</p>
         </div>
       </footer>
 

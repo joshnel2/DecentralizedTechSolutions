@@ -54,6 +54,19 @@ import { TextMessagingPage } from './pages/TextMessagingPage'
 import { AIConfigPage } from './pages/AIConfigPage'
 import { ReportingSettingsPage } from './pages/ReportingSettingsPage'
 import { RedlineAIPage } from './pages/RedlineAIPage'
+// Public Pages
+import { AboutPage } from './pages/AboutPage'
+import { SecurityPage } from './pages/SecurityPage'
+import { IntegrationsPublicPage } from './pages/IntegrationsPublicPage'
+import { BlogPage } from './pages/BlogPage'
+import { ContactPage } from './pages/ContactPage'
+import { DocsPage } from './pages/DocsPage'
+import { APIReferencePage } from './pages/APIReferencePage'
+import { SupportPage } from './pages/SupportPage'
+import { StatusPage } from './pages/StatusPage'
+import { PrivacyPage } from './pages/PrivacyPage'
+import { TermsPage } from './pages/TermsPage'
+import { CompliancePage } from './pages/CompliancePage'
 
 // Scroll to top on route changes
 function ScrollToTop() {
@@ -151,6 +164,19 @@ function AppContent() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+      {/* Public Footer Pages */}
+      <Route path="/about" element={<AboutPage />} />
+      <Route path="/security" element={<SecurityPage />} />
+      <Route path="/integrations" element={<IntegrationsPublicPage />} />
+      <Route path="/blog" element={<BlogPage />} />
+      <Route path="/contact" element={<ContactPage />} />
+      <Route path="/docs" element={<DocsPage />} />
+      <Route path="/api" element={<APIReferencePage />} />
+      <Route path="/support" element={<SupportPage />} />
+      <Route path="/status" element={<StatusPage />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/terms" element={<TermsPage />} />
+      <Route path="/compliance" element={<CompliancePage />} />
       
       {/* Firm Setup */}
       <Route path="/setup" element={
