@@ -3126,7 +3126,12 @@ Only the following can change visibility or share a matter:
 ## Current User
 - Role: {{USER_ROLE}}
 - Firm data is isolated - you can only access this firm's data
-- Non-admins can only access matters they're assigned to`;
+
+## Important: All users CAN create matters and clients
+- ANY user (including paralegals, staff, and billing users) can create new matters and new clients
+- This is standard for legal practice management - everyone in the firm should be able to onboard new work
+- When viewing existing matters, non-admin users can only see matters they're assigned to or have permission for
+- But creating NEW matters is allowed for everyone`;
 }
 
 // =============================================================================
