@@ -20,8 +20,8 @@ const keyGenerator = (req) => {
 
 // General API rate limit
 export const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 300, // Limit each IP to 300 requests per minute
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -32,7 +32,7 @@ export const apiLimiter = rateLimit({
 // Strict rate limit for auth endpoints
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 login attempts per 15 minutes
+  max: 30, // Limit each IP to 30 login attempts per 15 minutes
   message: { error: 'Too many login attempts, please try again after 15 minutes.' },
   standardHeaders: true,
   legacyHeaders: false,
