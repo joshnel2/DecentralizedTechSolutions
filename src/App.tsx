@@ -35,6 +35,7 @@ import { CourtRulesPage } from './pages/CourtRulesPage'
 import { TextSnippetsPage } from './pages/TextSnippetsPage'
 import { DocumentAutomationPage } from './pages/DocumentAutomationPage'
 import { WorkflowsPage } from './pages/WorkflowsPage'
+import { BulkPermissionsPage } from './pages/BulkPermissionsPage'
 import { AdminPortalPage } from './pages/AdminPortalPage'
 import SecureAdminLogin from './pages/SecureAdminLogin'
 import SecureAdminDashboard from './pages/SecureAdminDashboard'
@@ -190,6 +191,7 @@ function AppContent() {
         <Route path="settings/snippets" element={<TextSnippetsPage />} />
         <Route path="settings/documents" element={<DocumentAutomationPage />} />
         <Route path="settings/workflows" element={<WorkflowsPage />} />
+        <Route path="settings/bulk-permissions" element={<BulkPermissionsPage />} />
         {/* Additional Settings Routes */}
         <Route path="settings/account" element={<AccountSettingsPage />} />
         <Route path="settings/appearance" element={<AppearanceSettingsPage />} />

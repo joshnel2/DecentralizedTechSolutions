@@ -5,14 +5,11 @@ import { hashPassword, generateSecureToken, hashToken, getPermissionsForRole } f
 
 const router = Router();
 
-// Get attorneys for matter assignment (admins/owners only, lower permission requirement)
+// Get attorneys/team members for matter assignment (all authenticated users can access)
 router.get('/attorneys', authenticate, async (req, res) => {
   try {
-    // Only admins and owners can get attorney list for assignment
-    if (!['owner', 'admin'].includes(req.user.role)) {
-      return res.status(403).json({ error: 'Not authorized' });
-    }
-
+    // All authenticated users can get the attorney/team list for matter assignment
+    // This is needed for editing matters, assigning responsible/originating attorneys
     const result = await query(
       `SELECT id, email, first_name, last_name, role, hourly_rate, is_active
        FROM users
@@ -27,7 +24,7 @@ router.get('/attorneys', authenticate, async (req, res) => {
         email: u.email,
         firstName: u.first_name,
         lastName: u.last_name,
-        name: `${u.first_name} ${u.last_name}`,
+        name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email,
         role: u.role,
         hourlyRate: parseFloat(u.hourly_rate) || 0,
         isActive: u.is_active,

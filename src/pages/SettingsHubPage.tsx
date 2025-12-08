@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import {
   // System
-  Users, Lock, FileText,
+  Users, Lock, FileText, Shield,
   // Personal
   User, Calendar, Bell,
   // Firm Settings
@@ -27,6 +27,14 @@ const systemSettings: SettingItem[] = [
     description: 'Manage users associated with this account.',
     icon: Users,
     path: '/app/admin',
+    adminOnly: true
+  },
+  {
+    id: 'bulk-permissions',
+    name: 'Bulk Permissions',
+    description: 'Manage matter visibility and permissions in bulk.',
+    icon: Shield,
+    path: '/app/settings/bulk-permissions',
     adminOnly: true
   },
   {
