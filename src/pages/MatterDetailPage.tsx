@@ -95,7 +95,7 @@ export function MatterDetailPage() {
   const dropdownRef = useRef<HTMLDivElement>(null)
   
   // Quick time entry state
-  const [quickTimeMinutes, setQuickTimeMinutes] = useState(10)
+  const [quickTimeMinutes, setQuickTimeMinutes] = useState(5)
   const [quickTimeNotes, setQuickTimeNotes] = useState('')
   const [quickTimeSaving, setQuickTimeSaving] = useState(false)
   
@@ -802,17 +802,17 @@ Only analyze documents actually associated with this matter.`
           <div className={styles.quickTimeControls}>
             <button 
               className={styles.quickTimeBtn}
-              onClick={() => setQuickTimeMinutes(Math.max(0, quickTimeMinutes - 10))}
+              onClick={() => setQuickTimeMinutes(Math.max(0, quickTimeMinutes - 5))}
             >
               −
             </button>
             <div className={styles.quickTimeDisplay}>
-              <Clock size={16} />
+              <Clock size={14} />
               {quickTimeMinutes} min
             </div>
             <button 
               className={styles.quickTimeBtn}
-              onClick={() => setQuickTimeMinutes(quickTimeMinutes + 10)}
+              onClick={() => setQuickTimeMinutes(quickTimeMinutes + 5)}
             >
               +
             </button>
