@@ -5,7 +5,7 @@ import {
   Building2, User, ChevronLeft, Edit2, MoreVertical, 
   Briefcase, DollarSign, FileText, Mail, Phone, MapPin, Plus,
   Sparkles, Archive, Trash2, X, CheckCircle2, Clock, AlertCircle, ChevronDown,
-  TrendingUp
+  TrendingUp, Save
 } from 'lucide-react'
 import { teamApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
@@ -47,6 +47,11 @@ export function ClientDetailPage() {
   const [quickTimeNotes, setQuickTimeNotes] = useState('')
   const [quickTimeSaving, setQuickTimeSaving] = useState(false)
   const [selectedMatterForTime, setSelectedMatterForTime] = useState<string>('')
+  
+  // Notes editing state
+  const [isEditingNotes, setIsEditingNotes] = useState(false)
+  const [notesText, setNotesText] = useState('')
+  const [notesSaving, setNotesSaving] = useState(false)
   
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -156,6 +161,32 @@ export function ClientDetailPage() {
       alert('Failed to save time entry')
     } finally {
       setQuickTimeSaving(false)
+    }
+  }
+
+  // Handle notes editing
+  const handleStartEditingNotes = () => {
+    setNotesText(client?.notes || '')
+    setIsEditingNotes(true)
+  }
+  
+  const handleCancelEditingNotes = () => {
+    setIsEditingNotes(false)
+    setNotesText('')
+  }
+  
+  const handleSaveNotes = async () => {
+    if (notesSaving) return
+    setNotesSaving(true)
+    try {
+      await updateClient(id!, { notes: notesText })
+      setIsEditingNotes(false)
+      fetchClients()
+    } catch (error) {
+      console.error('Failed to save notes:', error)
+      alert('Failed to save notes')
+    } finally {
+      setNotesSaving(false)
     }
   }
 
@@ -493,34 +524,75 @@ export function ClientDetailPage() {
               </div>
             </div>
 
-            {/* Notes Card - Always visible */}
-            <div className={styles.card}>
-              <div className={styles.cardHeader}>
-                <h3><FileText size={18} /> Notes</h3>
-                <button 
-                  className={styles.addBtn}
-                  onClick={() => setShowEditModal(true)}
-                >
-                  <Edit2 size={14} />
-                  Edit
-                </button>
+            {/* Notes Section - Editable Inline */}
+            <div className={styles.notesSection}>
+              <div className={styles.notesSectionHeader}>
+                <h3>
+                  <FileText size={18} />
+                  Notes
+                </h3>
+                <div className={styles.notesSectionActions}>
+                  {isEditingNotes ? (
+                    <>
+                      <button 
+                        className={styles.notesCancelBtn}
+                        onClick={handleCancelEditingNotes}
+                        disabled={notesSaving}
+                      >
+                        <X size={14} />
+                        Cancel
+                      </button>
+                      <button 
+                        className={styles.notesSaveBtn}
+                        onClick={handleSaveNotes}
+                        disabled={notesSaving}
+                      >
+                        <Save size={14} />
+                        {notesSaving ? 'Saving...' : 'Save Notes'}
+                      </button>
+                    </>
+                  ) : (
+                    <button 
+                      className={styles.notesEditBtn}
+                      onClick={handleStartEditingNotes}
+                    >
+                      <Edit2 size={14} />
+                      Edit
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className={styles.notesContent}>
-                {client.notes ? (
-                  <p style={{ 
-                    whiteSpace: 'pre-wrap', 
-                    color: 'var(--apex-white)',
-                    lineHeight: '1.6',
-                    margin: 0
-                  }}>
-                    {client.notes}
-                  </p>
-                ) : (
-                  <p className={styles.noData} style={{ margin: 0 }}>
-                    No notes yet. Click Edit to add notes about this client.
-                  </p>
-                )}
-              </div>
+              {isEditingNotes ? (
+                <div>
+                  <textarea
+                    className={styles.notesTextarea}
+                    value={notesText}
+                    onChange={(e) => setNotesText(e.target.value)}
+                    placeholder="Add notes about this client... (e.g., preferences, important contacts, history)"
+                    autoFocus
+                    maxLength={5000}
+                  />
+                  <div className={clsx(
+                    styles.notesCharCount,
+                    notesText.length > 4500 && styles.warning,
+                    notesText.length > 4900 && styles.error
+                  )}>
+                    {notesText.length}/5000 characters
+                  </div>
+                </div>
+              ) : (
+                <div className={styles.notesDisplay}>
+                  {client.notes ? (
+                    <p className={styles.notesDisplayText}>
+                      {client.notes}
+                    </p>
+                  ) : (
+                    <p className={styles.notesEmpty}>
+                      No notes yet. Click "Edit" to add notes about this client.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className={styles.card}>

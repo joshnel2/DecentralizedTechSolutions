@@ -11,7 +11,7 @@ import {
   Copy, RefreshCw, AlertTriangle, TrendingUp,
   ListTodo, Users, Circle, Upload, Download, X, 
   Trash2, Archive, XCircle, Eye, Play, Pause, StopCircle,
-  MessageSquare, Settings, Share2, Globe, Lock, Shield
+  MessageSquare, Settings, Share2, Globe, Lock, Shield, Save
 } from 'lucide-react'
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
@@ -98,6 +98,11 @@ export function MatterDetailPage() {
   const [quickTimeMinutes, setQuickTimeMinutes] = useState(10)
   const [quickTimeNotes, setQuickTimeNotes] = useState('')
   const [quickTimeSaving, setQuickTimeSaving] = useState(false)
+  
+  // Notes editing state
+  const [isEditingNotes, setIsEditingNotes] = useState(false)
+  const [notesText, setNotesText] = useState('')
+  const [notesSaving, setNotesSaving] = useState(false)
   
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -372,6 +377,32 @@ export function MatterDetailPage() {
       alert('Failed to save time entry')
     } finally {
       setQuickTimeSaving(false)
+    }
+  }
+  
+  // Handle notes editing
+  const handleStartEditingNotes = () => {
+    setNotesText(matter?.notes || '')
+    setIsEditingNotes(true)
+  }
+  
+  const handleCancelEditingNotes = () => {
+    setIsEditingNotes(false)
+    setNotesText('')
+  }
+  
+  const handleSaveNotes = async () => {
+    if (notesSaving) return
+    setNotesSaving(true)
+    try {
+      await updateMatter(id!, { notes: notesText })
+      setIsEditingNotes(false)
+      fetchMatters()
+    } catch (error) {
+      console.error('Failed to save notes:', error)
+      alert('Failed to save notes')
+    } finally {
+      setNotesSaving(false)
     }
   }
 
@@ -1076,37 +1107,75 @@ Only analyze documents actually associated with this matter.`
               </div>
             </div>
 
-            {/* Notes Card */}
-            <div className={styles.card} style={{ gridColumn: '1 / -1' }}>
-              <div className={styles.cardHeader}>
+            {/* Notes Section - Editable Inline */}
+            <div className={styles.notesSection} style={{ gridColumn: '1 / -1' }}>
+              <div className={styles.notesSectionHeader}>
                 <h3>
                   <FileText size={18} />
                   Notes
                 </h3>
-                <button 
-                  className={styles.addBtn}
-                  onClick={() => setShowEditMatterModal(true)}
-                >
-                  <Edit2 size={14} />
-                  Edit
-                </button>
+                <div className={styles.notesSectionActions}>
+                  {isEditingNotes ? (
+                    <>
+                      <button 
+                        className={styles.notesCancelBtn}
+                        onClick={handleCancelEditingNotes}
+                        disabled={notesSaving}
+                      >
+                        <X size={14} />
+                        Cancel
+                      </button>
+                      <button 
+                        className={styles.notesSaveBtn}
+                        onClick={handleSaveNotes}
+                        disabled={notesSaving}
+                      >
+                        <Save size={14} />
+                        {notesSaving ? 'Saving...' : 'Save Notes'}
+                      </button>
+                    </>
+                  ) : (
+                    <button 
+                      className={styles.notesEditBtn}
+                      onClick={handleStartEditingNotes}
+                    >
+                      <Edit2 size={14} />
+                      Edit
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className={styles.notesContent}>
-                {matter.notes ? (
-                  <p style={{ 
-                    whiteSpace: 'pre-wrap', 
-                    color: 'var(--apex-white)',
-                    lineHeight: '1.6',
-                    margin: 0
-                  }}>
-                    {matter.notes}
-                  </p>
-                ) : (
-                  <p className={styles.noData} style={{ margin: 0 }}>
-                    No notes yet. Click Edit to add internal notes about this matter.
-                  </p>
-                )}
-              </div>
+              {isEditingNotes ? (
+                <div>
+                  <textarea
+                    className={styles.notesTextarea}
+                    value={notesText}
+                    onChange={(e) => setNotesText(e.target.value)}
+                    placeholder="Add internal notes about this matter... (e.g., case strategy, key facts, reminders)"
+                    autoFocus
+                    maxLength={5000}
+                  />
+                  <div className={clsx(
+                    styles.notesCharCount,
+                    notesText.length > 4500 && styles.warning,
+                    notesText.length > 4900 && styles.error
+                  )}>
+                    {notesText.length}/5000 characters
+                  </div>
+                </div>
+              ) : (
+                <div className={styles.notesDisplay}>
+                  {matter.notes ? (
+                    <p className={styles.notesDisplayText}>
+                      {matter.notes}
+                    </p>
+                  ) : (
+                    <p className={styles.notesEmpty}>
+                      No notes yet. Click "Edit" to add internal notes about this matter.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

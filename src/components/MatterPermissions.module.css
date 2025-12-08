@@ -1,9 +1,10 @@
 /* MatterPermissions Component Styles */
 
 .container {
-  background: var(--bg-primary, #fff);
+  background: var(--apex-deep, #0F172A);
   border-radius: 12px;
   padding: 20px;
+  color: var(--apex-light, #E2E8F0);
 }
 
 .container.compact {
@@ -16,7 +17,7 @@
   align-items: center;
   margin-bottom: 20px;
   padding-bottom: 16px;
-  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .header h3 {
@@ -26,7 +27,7 @@
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: var(--text-primary, #111827);
+  color: var(--apex-white, #F8FAFC);
 }
 
 .closeBtn {
@@ -35,13 +36,13 @@
   padding: 8px;
   border-radius: 8px;
   cursor: pointer;
-  color: var(--text-secondary, #6b7280);
+  color: var(--apex-text, #CBD5E1);
   transition: all 0.2s;
 }
 
 .closeBtn:hover {
-  background: var(--bg-secondary, #f3f4f6);
-  color: var(--text-primary, #111827);
+  background: var(--apex-slate, #1E293B);
+  color: var(--apex-white, #F8FAFC);
 }
 
 /* Loading state */
@@ -52,7 +53,7 @@
   justify-content: center;
   padding: 40px;
   gap: 12px;
-  color: var(--text-secondary, #6b7280);
+  color: var(--apex-text, #CBD5E1);
 }
 
 .spinner {
@@ -70,10 +71,10 @@
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
   border-radius: 8px;
-  color: #dc2626;
+  color: var(--apex-error, #EF4444);
   font-size: 14px;
   margin-bottom: 16px;
 }
@@ -97,7 +98,7 @@
   display: block;
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-secondary, #6b7280);
+  color: var(--apex-text, #CBD5E1);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 10px;
@@ -118,16 +119,18 @@
 .visibilityToggle {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .visibilityOption {
   flex: 1;
+  min-width: 180px;
   display: flex;
   align-items: flex-start;
   gap: 12px;
   padding: 16px;
-  background: var(--bg-secondary, #f9fafb);
-  border: 2px solid var(--border-color, #e5e7eb);
+  background: var(--apex-slate, #1E293B);
+  border: 2px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s;
@@ -135,13 +138,13 @@
 }
 
 .visibilityOption:hover:not(:disabled) {
-  border-color: var(--primary-color, #3b82f6);
-  background: #eff6ff;
+  border-color: var(--apex-gold, #D97706);
+  background: rgba(245, 158, 11, 0.08);
 }
 
 .visibilityOption.active {
-  border-color: var(--primary-color, #3b82f6);
-  background: #eff6ff;
+  border-color: var(--apex-gold-bright, #F59E0B);
+  background: rgba(245, 158, 11, 0.12);
 }
 
 .visibilityOption:disabled {
@@ -151,33 +154,37 @@
 
 .visibilityOption > svg:first-child {
   flex-shrink: 0;
-  color: var(--text-secondary, #6b7280);
+  color: var(--apex-text, #CBD5E1);
   margin-top: 2px;
 }
 
 .visibilityOption.active > svg:first-child {
-  color: var(--primary-color, #3b82f6);
+  color: var(--apex-gold-bright, #F59E0B);
 }
 
 .optionContent {
   flex: 1;
+  min-width: 0;
 }
 
 .optionTitle {
   display: block;
   font-weight: 600;
-  color: var(--text-primary, #111827);
-  margin-bottom: 2px;
+  color: var(--apex-white, #F8FAFC);
+  margin-bottom: 4px;
+  font-size: 0.9375rem;
+  white-space: nowrap;
 }
 
 .optionDesc {
   display: block;
-  font-size: 13px;
-  color: var(--text-secondary, #6b7280);
+  font-size: 0.8125rem;
+  color: var(--apex-text, #CBD5E1);
+  line-height: 1.4;
 }
 
 .checkIcon {
-  color: var(--primary-color, #3b82f6);
+  color: var(--apex-gold-bright, #F59E0B);
   flex-shrink: 0;
 }
 
@@ -187,7 +194,7 @@
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  background: var(--bg-secondary, #f9fafb);
+  background: var(--apex-slate, #1E293B);
   border-radius: 10px;
 }
 
@@ -195,8 +202,8 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-  color: white;
+  background: linear-gradient(135deg, var(--apex-gold, #D97706) 0%, var(--apex-gold-dark, #B45309) 100%);
+  color: var(--apex-midnight, #0B0F1A);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -219,8 +226,8 @@
 .badge {
   margin-left: auto;
   padding: 4px 10px;
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--apex-gold-bright, #F59E0B);
   border-radius: 20px;
   font-size: 12px;
   font-weight: 500;
@@ -232,18 +239,19 @@
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: var(--primary-color, #3b82f6);
-  color: white;
+  background: linear-gradient(135deg, var(--apex-gold, #D97706) 0%, var(--apex-gold-dark, #B45309) 100%);
+  color: var(--apex-midnight, #0B0F1A);
   border: none;
   border-radius: 8px;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .addBtn:hover:not(:disabled) {
-  background: var(--primary-hover, #2563eb);
+  transform: translateY(-1px);
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.3);
 }
 
 .addBtn:disabled {
@@ -255,18 +263,18 @@
 .emptyPermissions {
   text-align: center;
   padding: 32px 20px;
-  background: var(--bg-secondary, #f9fafb);
+  background: var(--apex-slate, #1E293B);
   border-radius: 12px;
-  border: 2px dashed var(--border-color, #e5e7eb);
+  border: 2px dashed rgba(255, 255, 255, 0.15);
 }
 
 .emptyPermissions svg {
-  color: var(--text-secondary, #9ca3af);
+  color: var(--apex-muted, #475569);
   margin-bottom: 12px;
 }
 
 .emptyPermissions p {
-  color: var(--text-secondary, #6b7280);
+  color: var(--apex-text, #CBD5E1);
   margin: 0 0 16px 0;
   font-size: 14px;
 }
@@ -276,18 +284,19 @@
   align-items: center;
   gap: 8px;
   padding: 10px 20px;
-  background: var(--primary-color, #3b82f6);
-  color: white;
+  background: linear-gradient(135deg, var(--apex-gold, #D97706) 0%, var(--apex-gold-dark, #B45309) 100%);
+  color: var(--apex-midnight, #0B0F1A);
   border: none;
   border-radius: 8px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .addFirstBtn:hover {
-  background: var(--primary-hover, #2563eb);
+  transform: translateY(-1px);
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.3);
 }
 
 /* Permissions List */
@@ -302,13 +311,13 @@
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  background: var(--bg-secondary, #f9fafb);
+  background: var(--apex-slate, #1E293B);
   border-radius: 10px;
   transition: all 0.2s;
 }
 
 .permissionItem:hover {
-  background: var(--bg-hover, #f3f4f6);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .permInfo {
@@ -319,7 +328,7 @@
 .permName {
   display: block;
   font-weight: 500;
-  color: var(--text-primary, #111827);
+  color: var(--apex-white, #F8FAFC);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -328,7 +337,7 @@
 .permMeta {
   display: block;
   font-size: 13px;
-  color: var(--text-secondary, #6b7280);
+  color: var(--apex-text, #CBD5E1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -353,18 +362,18 @@
 }
 
 .permLevel.view {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: rgba(100, 116, 139, 0.2);
+  color: var(--apex-text, #CBD5E1);
 }
 
 .permLevel.edit {
-  background: #fef3c7;
-  color: #d97706;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--apex-gold-bright, #F59E0B);
 }
 
 .permLevel.admin {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: rgba(59, 130, 246, 0.15);
+  color: #60A5FA;
 }
 
 .removeBtn {
@@ -373,13 +382,13 @@
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: var(--text-secondary, #9ca3af);
+  color: var(--apex-muted, #475569);
   transition: all 0.2s;
 }
 
 .removeBtn:hover:not(:disabled) {
-  background: #fef2f2;
-  color: #dc2626;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--apex-error, #EF4444);
 }
 
 .removeBtn:disabled {
@@ -391,7 +400,8 @@
 .pickerOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -400,14 +410,15 @@
 }
 
 .picker {
-  background: var(--bg-primary, #fff);
+  background: var(--apex-deep, #0F172A);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 16px;
   width: 100%;
   max-width: 420px;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
 .pickerHeader {
@@ -415,14 +426,14 @@
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .pickerHeader h4 {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: var(--text-primary, #111827);
+  color: var(--apex-white, #F8FAFC);
 }
 
 .pickerHeader button {
@@ -431,19 +442,20 @@
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: var(--text-secondary, #6b7280);
+  color: var(--apex-text, #CBD5E1);
   transition: all 0.2s;
 }
 
 .pickerHeader button:hover {
-  background: var(--bg-secondary, #f3f4f6);
+  background: var(--apex-slate, #1E293B);
+  color: var(--apex-white, #F8FAFC);
 }
 
 .pickerTabs {
   display: flex;
   padding: 12px 20px;
   gap: 8px;
-  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .pickerTabs button {
@@ -453,23 +465,23 @@
   justify-content: center;
   gap: 8px;
   padding: 10px 16px;
-  background: var(--bg-secondary, #f3f4f6);
+  background: var(--apex-slate, #1E293B);
   border: none;
   border-radius: 8px;
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-secondary, #6b7280);
+  color: var(--apex-text, #CBD5E1);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .pickerTabs button:hover {
-  background: var(--bg-hover, #e5e7eb);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .pickerTabs button.activeTab {
-  background: var(--primary-color, #3b82f6);
-  color: white;
+  background: linear-gradient(135deg, var(--apex-gold, #D97706) 0%, var(--apex-gold-dark, #B45309) 100%);
+  color: var(--apex-midnight, #0B0F1A);
 }
 
 .searchBox {
@@ -477,11 +489,11 @@
   align-items: center;
   gap: 10px;
   padding: 12px 20px;
-  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .searchBox svg {
-  color: var(--text-secondary, #9ca3af);
+  color: var(--apex-muted, #475569);
   flex-shrink: 0;
 }
 
@@ -490,12 +502,12 @@
   border: none;
   background: none;
   font-size: 14px;
-  color: var(--text-primary, #111827);
+  color: var(--apex-white, #F8FAFC);
   outline: none;
 }
 
 .searchBox input::placeholder {
-  color: var(--text-secondary, #9ca3af);
+  color: var(--apex-muted, #475569);
 }
 
 .pickerList {
@@ -510,13 +522,13 @@
   align-items: center;
   justify-content: center;
   padding: 40px;
-  color: var(--text-secondary, #6b7280);
+  color: var(--apex-text, #CBD5E1);
 }
 
 .pickerEmpty {
   text-align: center;
   padding: 40px 20px;
-  color: var(--text-secondary, #6b7280);
+  color: var(--apex-text, #CBD5E1);
   font-size: 14px;
 }
 
@@ -535,7 +547,7 @@
 }
 
 .pickerItem:hover:not(:disabled) {
-  background: var(--bg-secondary, #f3f4f6);
+  background: var(--apex-slate, #1E293B);
 }
 
 .pickerItem:disabled {
@@ -551,13 +563,13 @@
 .pickerItemName {
   display: block;
   font-weight: 500;
-  color: var(--text-primary, #111827);
+  color: var(--apex-white, #F8FAFC);
 }
 
 .pickerItemMeta {
   display: block;
   font-size: 13px;
-  color: var(--text-secondary, #6b7280);
+  color: var(--apex-text, #CBD5E1);
 }
 
 .roleBadge {
@@ -569,43 +581,31 @@
 }
 
 .roleBadge.owner {
-  background: #fef3c7;
-  color: #d97706;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--apex-gold-bright, #F59E0B);
 }
 
 .roleBadge.admin {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: rgba(59, 130, 246, 0.15);
+  color: #60A5FA;
 }
 
 .roleBadge.attorney {
-  background: #dcfce7;
-  color: #16a34a;
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--apex-success, #10B981);
 }
 
 .roleBadge.paralegal {
-  background: #f3e8ff;
-  color: #9333ea;
+  background: rgba(139, 92, 246, 0.15);
+  color: var(--apex-ai, #8B5CF6);
 }
 
 .roleBadge.staff {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: rgba(100, 116, 139, 0.2);
+  color: var(--apex-text, #CBD5E1);
 }
 
 .roleBadge.billing {
-  background: #fce7f3;
-  color: #db2777;
-}
-
-/* Dark mode support */
-@media (prefers-color-scheme: dark) {
-  .container {
-    --bg-primary: #1f2937;
-    --bg-secondary: #374151;
-    --bg-hover: #4b5563;
-    --border-color: #4b5563;
-    --text-primary: #f9fafb;
-    --text-secondary: #9ca3af;
-  }
+  background: rgba(236, 72, 153, 0.15);
+  color: #F472B6;
 }

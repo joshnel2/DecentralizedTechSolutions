@@ -442,3 +442,119 @@ html, body {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ===== PROFESSIONAL DROPDOWN/SELECT STYLES ===== */
+
+/* Base select styling */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-color: var(--apex-slate);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23CBD5E1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  padding: 10px 40px 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  min-height: 42px;
+  line-height: 1.4;
+}
+
+select:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  background-color: var(--apex-deep);
+}
+
+select:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: var(--apex-midnight);
+}
+
+/* Option styling for webkit browsers */
+select option {
+  background-color: var(--apex-deep);
+  color: var(--apex-white);
+  padding: 12px 14px;
+  font-size: 0.9375rem;
+}
+
+select option:hover,
+select option:focus,
+select option:checked {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(245, 158, 11, 0.1) 100%);
+  color: var(--apex-gold-bright);
+}
+
+/* Multiple select styling */
+select[multiple] {
+  padding: 8px;
+  background-image: none;
+  height: auto;
+  min-height: 120px;
+}
+
+select[multiple] option {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 2px;
+}
+
+/* Small select variant */
+select.select-sm {
+  padding: 6px 32px 6px 10px;
+  font-size: 0.8125rem;
+  min-height: 34px;
+  background-size: 14px;
+  background-position: right 8px center;
+}
+
+/* Large select variant */
+select.select-lg {
+  padding: 14px 44px 14px 16px;
+  font-size: 1rem;
+  min-height: 50px;
+  border-radius: var(--radius-lg);
+}
+
+/* Firefox specific styling */
+@-moz-document url-prefix() {
+  select {
+    text-indent: 0.01px;
+    text-overflow: '';
+  }
+}
+
+/* Custom dropdown wrapper for enhanced styling */
+.custom-select-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.custom-select-wrapper::after {
+  content: '';
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23CBD5E1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
