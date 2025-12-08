@@ -868,7 +868,7 @@ Only analyze documents actually associated with this matter.`
 
       {/* Tabs */}
       <div className={styles.tabs}>
-        {['overview', 'updates', 'tasks', 'time', 'billing', 'documents', 'calendar', 'contacts'].map(tab => (
+        {['overview', 'notes', 'updates', 'tasks', 'time', 'billing', 'documents', 'calendar', 'contacts'].map(tab => (
           <button
             key={tab}
             className={clsx(styles.tab, activeTab === tab && styles.active)}
@@ -1107,75 +1107,40 @@ Only analyze documents actually associated with this matter.`
               </div>
             </div>
 
-            {/* Notes Section - Editable Inline */}
-            <div className={styles.notesSection} style={{ gridColumn: '1 / -1' }}>
-              <div className={styles.notesSectionHeader}>
+            {/* Notes Preview Card */}
+            <div className={styles.card} style={{ gridColumn: '1 / -1' }}>
+              <div className={styles.cardHeader}>
                 <h3>
                   <FileText size={18} />
                   Notes
                 </h3>
-                <div className={styles.notesSectionActions}>
-                  {isEditingNotes ? (
-                    <>
-                      <button 
-                        className={styles.notesCancelBtn}
-                        onClick={handleCancelEditingNotes}
-                        disabled={notesSaving}
-                      >
-                        <X size={14} />
-                        Cancel
-                      </button>
-                      <button 
-                        className={styles.notesSaveBtn}
-                        onClick={handleSaveNotes}
-                        disabled={notesSaving}
-                      >
-                        <Save size={14} />
-                        {notesSaving ? 'Saving...' : 'Save Notes'}
-                      </button>
-                    </>
-                  ) : (
-                    <button 
-                      className={styles.notesEditBtn}
-                      onClick={handleStartEditingNotes}
-                    >
-                      <Edit2 size={14} />
-                      Edit
-                    </button>
-                  )}
-                </div>
+                <button 
+                  className={styles.addBtn}
+                  onClick={() => setActiveTab('notes')}
+                >
+                  {matter.notes ? 'View All' : 'Add Notes'}
+                </button>
               </div>
-              {isEditingNotes ? (
-                <div>
-                  <textarea
-                    className={styles.notesTextarea}
-                    value={notesText}
-                    onChange={(e) => setNotesText(e.target.value)}
-                    placeholder="Add internal notes about this matter... (e.g., case strategy, key facts, reminders)"
-                    autoFocus
-                    maxLength={5000}
-                  />
-                  <div className={clsx(
-                    styles.notesCharCount,
-                    notesText.length > 4500 && styles.warning,
-                    notesText.length > 4900 && styles.error
-                  )}>
-                    {notesText.length}/5000 characters
-                  </div>
-                </div>
-              ) : (
-                <div className={styles.notesDisplay}>
-                  {matter.notes ? (
-                    <p className={styles.notesDisplayText}>
-                      {matter.notes}
-                    </p>
-                  ) : (
-                    <p className={styles.notesEmpty}>
-                      No notes yet. Click "Edit" to add internal notes about this matter.
-                    </p>
-                  )}
-                </div>
-              )}
+              <div className={styles.notesContent}>
+                {matter.notes ? (
+                  <p style={{ 
+                    whiteSpace: 'pre-wrap', 
+                    color: 'var(--apex-white)',
+                    lineHeight: '1.6',
+                    margin: 0,
+                    display: '-webkit-box',
+                    WebkitLineClamp: 3,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden'
+                  }}>
+                    {matter.notes}
+                  </p>
+                ) : (
+                  <p className={styles.noData} style={{ margin: 0 }}>
+                    No notes yet. Click "Add Notes" to add internal notes about this matter.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         )}
