@@ -464,95 +464,188 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.entriesTable table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.entriesTable th {
-  text-align: left;
-  padding: var(--space-md) var(--space-lg);
-  background: var(--apex-slate);
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--apex-text);
-  text-transform: uppercase;
-}
-
-.entriesTable td {
-  padding: var(--space-md) var(--space-lg);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  font-size: 0.875rem;
-  color: var(--apex-light);
-}
-
-.entriesTable a {
-  color: var(--apex-gold-bright);
-}
-
-.matterCell {
+/* Entries List - Card Layout */
+.entriesList {
   display: flex;
   flex-direction: column;
 }
 
-.matterNum {
+.entryCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  transition: background var(--transition-fast);
+}
+
+.entryCard:last-child {
+  border-bottom: none;
+}
+
+.entryCard:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.entrySelected {
+  background: rgba(16, 185, 129, 0.05);
+}
+
+.entrySelected:hover {
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.entryLeft {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  flex: 1;
+  min-width: 0;
+}
+
+.entryMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.entryTop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+
+.entryMatter {
+  font-weight: 500;
+  color: var(--apex-gold-bright);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.entryMatter:hover {
+  color: var(--apex-gold);
+}
+
+.entryMatterNone {
+  font-weight: 500;
+  color: var(--apex-text);
+}
+
+.entryClient {
+  font-size: 0.8125rem;
+  color: var(--apex-subtle);
+}
+
+.entryClient::before {
+  content: '•';
+  margin-right: var(--space-sm);
+  color: var(--apex-subtle);
+}
+
+.entryDesc {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--apex-light);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.aiIcon {
+  display: inline;
+  vertical-align: middle;
+  margin-left: var(--space-xs);
+  color: var(--apex-ai);
+}
+
+.entryMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+}
+
+.entryDate {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.entryStatus {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.entryStatus.billed {
+  color: var(--apex-success);
+}
+
+.entryStatus.unbilled {
+  color: var(--apex-warning);
+}
+
+.entryRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  flex-shrink: 0;
+}
+
+.entryAmounts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.entryHours {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--apex-white);
+}
+
+.entryAmount {
   font-size: 0.75rem;
   color: var(--apex-text);
 }
 
-.descCell {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.aiTag {
+.entryEditBtn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  background: rgba(139, 92, 246, 0.1);
-  border-radius: var(--radius-full);
-  color: var(--apex-ai);
-}
-
-.statusBadge {
-  padding: 4px 10px;
-  border-radius: var(--radius-full);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.statusBadge.billed {
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--apex-success);
-}
-
-.statusBadge.unbilled {
-  background: rgba(245, 158, 11, 0.1);
-  color: var(--apex-warning);
-}
-
-/* Edit Button */
-.editBtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px;
-  background: var(--apex-slate);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-sm);
-  color: var(--apex-text);
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  color: var(--apex-subtle);
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
-.editBtn:hover {
-  background: var(--apex-muted);
+.entryEditBtn:hover {
+  background: var(--apex-slate);
   border-color: var(--apex-gold);
   color: var(--apex-gold);
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3xl);
+  color: var(--apex-subtle);
+  gap: var(--space-sm);
+}
+
+.emptyState p {
+  margin: 0;
+  font-size: 0.875rem;
 }
 
 /* Modal */
@@ -805,15 +898,8 @@
   height: 18px;
   cursor: pointer;
   accent-color: var(--apex-gold);
-}
-
-/* Selected Row */
-.selectedRow {
-  background: rgba(16, 185, 129, 0.05) !important;
-}
-
-.selectedRow td {
-  border-color: rgba(16, 185, 129, 0.2) !important;
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 
 /* Bill Modal */
@@ -1151,20 +1237,37 @@
   }
 
   .recentSection {
-    overflow-x: auto;
+    overflow: hidden;
   }
 
-  .entriesTable {
-    overflow-x: auto;
+  .entryCard {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-md);
+    padding: var(--space-md);
   }
 
-  .entriesTable table {
-    min-width: 600px;
+  .entryLeft {
+    flex-direction: row;
+    align-items: flex-start;
   }
 
-  .entriesTable th,
-  .entriesTable td {
-    padding: var(--space-sm) var(--space-md);
+  .entryRight {
+    flex-direction: row-reverse;
+    justify-content: space-between;
+    padding-left: calc(18px + var(--space-md));
+  }
+
+  .entryAmounts {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-md);
+  }
+
+  .entryAmount::before {
+    content: '•';
+    margin-right: var(--space-md);
+    color: var(--apex-subtle);
   }
 
   /* Modal adjustments */
@@ -1257,8 +1360,17 @@
     font-size: 0.5rem;
   }
 
-  .statusBadge {
-    font-size: 0.625rem;
-    padding: 3px 8px;
+  .entryTop {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .entryClient::before {
+    display: none;
+  }
+
+  .entryRight {
+    padding-left: 0;
   }
 }

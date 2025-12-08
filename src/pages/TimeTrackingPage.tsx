@@ -344,80 +344,78 @@ export function TimeTrackingPage() {
               onClick={toggleAllUnbilled}
             >
               {unbilledEntries.every(e => selectedEntries.includes(e.id)) 
-                ? 'Deselect All Unbilled' 
+                ? 'Deselect All' 
                 : `Select All Unbilled (${unbilledEntries.length})`}
             </button>
           )}
         </div>
-        <div className={styles.entriesTable}>
-          <table>
-            <thead>
-              <tr>
-                <th style={{ width: '40px' }}></th>
-                <th>Date</th>
-                <th>Matter</th>
-                <th>Description</th>
-                <th>Hours</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th style={{ width: '60px' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentEntries.map(entry => (
-                <tr 
-                  key={entry.id} 
-                  className={clsx(
-                    selectedEntries.includes(entry.id) && styles.selectedRow
+        <div className={styles.entriesList}>
+          {recentEntries.map(entry => {
+            const client = getClientForMatter(entry.matterId)
+            return (
+              <div 
+                key={entry.id} 
+                className={clsx(
+                  styles.entryCard,
+                  selectedEntries.includes(entry.id) && styles.entrySelected
+                )}
+              >
+                <div className={styles.entryLeft}>
+                  {!entry.billed && entry.billable && (
+                    <input
+                      type="checkbox"
+                      checked={selectedEntries.includes(entry.id)}
+                      onChange={() => toggleEntrySelection(entry.id)}
+                      className={styles.entryCheckbox}
+                    />
                   )}
-                >
-                  <td>
-                    {!entry.billed && entry.billable && (
-                      <input
-                        type="checkbox"
-                        checked={selectedEntries.includes(entry.id)}
-                        onChange={() => toggleEntrySelection(entry.id)}
-                        className={styles.entryCheckbox}
-                      />
-                    )}
-                  </td>
-                  <td>{format(parseISO(entry.date), 'MMM d, yyyy')}</td>
-                  <td>
-                    <Link to={`/app/matters/${entry.matterId}`}>
-                      <div className={styles.matterCell}>
-                        <span>{getMatterName(entry.matterId)}</span>
-                        <span className={styles.matterNum}>{getMatterNumber(entry.matterId)}</span>
-                      </div>
-                    </Link>
-                  </td>
-                  <td>
-                    <div className={styles.descCell}>
-                      {entry.description}
-                      {entry.aiGenerated && (
-                        <span className={styles.aiTag}><Sparkles size={10} /></span>
+                  <div className={styles.entryMain}>
+                    <div className={styles.entryTop}>
+                      {entry.matterId ? (
+                        <Link to={`/app/matters/${entry.matterId}`} className={styles.entryMatter}>
+                          {getMatterName(entry.matterId)}
+                        </Link>
+                      ) : (
+                        <span className={styles.entryMatterNone}>No Matter</span>
                       )}
+                      {client && <span className={styles.entryClient}>{client.name || client.displayName}</span>}
                     </div>
-                  </td>
-                  <td>{entry.hours}h</td>
-                  <td>${entry.amount.toLocaleString()}</td>
-                  <td>
-                    <span className={clsx(styles.statusBadge, entry.billed ? styles.billed : styles.unbilled)}>
-                      {entry.billed ? 'Billed' : 'Unbilled'}
-                    </span>
-                  </td>
-                  <td>
-                    <button 
-                      className={styles.editBtn}
-                      onClick={() => setEditingEntry(entry)}
-                      title="Edit Entry"
-                    >
-                      <Edit2 size={14} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    {entry.description && (
+                      <p className={styles.entryDesc}>
+                        {entry.description}
+                        {entry.aiGenerated && <Sparkles size={12} className={styles.aiIcon} />}
+                      </p>
+                    )}
+                    <div className={styles.entryMeta}>
+                      <span className={styles.entryDate}>{format(parseISO(entry.date), 'MMM d')}</span>
+                      <span className={clsx(styles.entryStatus, entry.billed ? styles.billed : styles.unbilled)}>
+                        {entry.billed ? 'Billed' : 'Unbilled'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className={styles.entryRight}>
+                  <div className={styles.entryAmounts}>
+                    <span className={styles.entryHours}>{entry.hours}h</span>
+                    <span className={styles.entryAmount}>${entry.amount.toLocaleString()}</span>
+                  </div>
+                  <button 
+                    className={styles.entryEditBtn}
+                    onClick={() => setEditingEntry(entry)}
+                    title="Edit Entry"
+                  >
+                    <Edit2 size={14} />
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+          {recentEntries.length === 0 && (
+            <div className={styles.emptyState}>
+              <Clock size={24} />
+              <p>No time entries yet</p>
+            </div>
+          )}
         </div>
       </div>
 
