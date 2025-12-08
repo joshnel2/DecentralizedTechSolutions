@@ -4,10 +4,13 @@ import { authenticate, requirePermission } from '../middleware/auth.js';
 
 const router = Router();
 
+// Roles that see all clients
+const FULL_ACCESS_ROLES = ['owner', 'admin', 'billing'];
+
 // Get all clients
 router.get('/', authenticate, requirePermission('clients:view'), async (req, res) => {
   try {
-    const { search, type, isActive, limit = 100, offset = 0 } = req.query;
+    const { search, type, isActive, view = 'my', limit = 100, offset = 0 } = req.query;
     
     let sql = `
       SELECT c.*, 
@@ -19,6 +22,24 @@ router.get('/', authenticate, requirePermission('clients:view'), async (req, res
     `;
     const params = [req.user.firmId];
     let paramIndex = 2;
+
+    // "My Clients" filter - only show clients user created or has matters with
+    // Admins/owners/billing always see all when they choose "all", but default is still "my"
+    if (view === 'my') {
+      sql += ` AND (
+        c.created_by = $${paramIndex}
+        OR EXISTS (
+          SELECT 1 FROM matters m2 
+          WHERE m2.client_id = c.id 
+          AND (m2.responsible_attorney = $${paramIndex} 
+               OR m2.originating_attorney = $${paramIndex}
+               OR m2.created_by = $${paramIndex}
+               OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m2.id AND ma.user_id = $${paramIndex}))
+        )
+      )`;
+      params.push(req.user.id);
+      paramIndex++;
+    }
 
     if (search) {
       sql += ` AND (c.display_name ILIKE $${paramIndex} OR c.email ILIKE $${paramIndex})`;

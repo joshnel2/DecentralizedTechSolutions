@@ -8,12 +8,17 @@ import {
   Plus, Search, DollarSign, FileText, TrendingUp, AlertCircle,
   CheckCircle2, Clock, Send, MoreVertical, Sparkles, Download,
   CreditCard, XCircle, Eye, ChevronRight, Filter, Calendar,
-  ArrowUpRight, ArrowDownRight, Wallet, Receipt, Trash2, Edit2
+  ArrowUpRight, ArrowDownRight, Wallet, Receipt, Trash2, Edit2, User, Users
 } from 'lucide-react'
 import { format, parseISO, differenceInDays, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './BillingPage.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+
+const viewOptions = [
+  { value: 'my', label: 'My Billing' },
+  { value: 'all', label: 'All Billing' }
+]
 
 export function BillingPage() {
   const { invoices, clients, matters, timeEntries, expenses, fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries, addInvoice, updateInvoice } = useDataStore()
@@ -21,14 +26,15 @@ export function BillingPage() {
   const { openChat } = useAIChat()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const [viewFilter, setViewFilter] = useState<'my' | 'all'>('my')
   
-  // Fetch data from API on mount
+  // Fetch data from API on mount or when view filter changes
   useEffect(() => {
-    fetchInvoices()
-    fetchClients()
-    fetchMatters()
+    fetchInvoices({ view: viewFilter })
+    fetchClients({ view: viewFilter })
+    fetchMatters({ view: viewFilter })
     fetchTimeEntries({ limit: 500 })
-  }, [fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries])
+  }, [viewFilter])
   
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -363,8 +369,8 @@ export function BillingPage() {
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <h1>Billing</h1>
-          <p className={styles.headerSubtitle}>Manage invoices, payments, and billing</p>
+          <h1>{viewFilter === 'my' ? 'My Billing' : 'All Billing'}</h1>
+          <p className={styles.headerSubtitle}>{viewFilter === 'my' ? 'Your invoices, payments, and billing' : 'Manage all invoices, payments, and billing'}</p>
         </div>
         <div className={styles.headerActions}>
           <button className={styles.aiBtn} onClick={() => openChat({
@@ -453,6 +459,20 @@ export function BillingPage() {
 
       {/* Filters */}
       <div className={styles.filters}>
+        {/* View Toggle - My Billing vs All Billing */}
+        <div className={styles.viewToggle}>
+          {viewOptions.map(opt => (
+            <button
+              key={opt.value}
+              className={clsx(styles.viewToggleBtn, viewFilter === opt.value && styles.active)}
+              onClick={() => setViewFilter(opt.value as 'my' | 'all')}
+            >
+              {opt.value === 'my' ? <User size={14} /> : <Users size={14} />}
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
         <div className={styles.searchBox}>
           <Search size={18} />
           <input

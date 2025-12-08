@@ -58,10 +58,10 @@ interface DataState {
   error: string | null
   
   // Fetch actions
-  fetchClients: () => Promise<void>
+  fetchClients: (params?: { view?: 'my' | 'all' }) => Promise<void>
   fetchMatters: (params?: { view?: 'my' | 'all' }) => Promise<void>
   fetchTimeEntries: (params?: { matterId?: string; limit?: number; offset?: number }) => Promise<void>
-  fetchInvoices: () => Promise<void>
+  fetchInvoices: (params?: { view?: 'my' | 'all' }) => Promise<void>
   fetchEvents: (params?: { startDate?: string; endDate?: string }) => Promise<void>
   fetchDocuments: (params?: { matterId?: string }) => Promise<void>
   
@@ -136,10 +136,10 @@ export const useDataStore = create<DataState>()(
   error: null,
 
   // Fetch clients from API
-  fetchClients: async () => {
+  fetchClients: async (params?: { view?: 'my' | 'all' }) => {
     set({ isLoading: true, error: null })
     try {
-      const response = await clientsApi.getAll()
+      const response = await clientsApi.getAll({ view: params?.view || 'my' })
       set({ clients: response.clients, isLoading: false })
     } catch (error) {
       console.error('Failed to fetch clients:', error)
@@ -172,10 +172,10 @@ export const useDataStore = create<DataState>()(
   },
 
   // Fetch invoices from API
-  fetchInvoices: async () => {
+  fetchInvoices: async (params?: { view?: 'my' | 'all' }) => {
     set({ isLoading: true, error: null })
     try {
-      const response = await invoicesApi.getAll()
+      const response = await invoicesApi.getAll({ view: params?.view || 'my' })
       set({ invoices: response.invoices, isLoading: false })
     } catch (error) {
       console.error('Failed to fetch invoices:', error)

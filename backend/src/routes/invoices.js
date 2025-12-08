@@ -4,10 +4,13 @@ import { authenticate, requirePermission } from '../middleware/auth.js';
 
 const router = Router();
 
+// Roles that see all invoices
+const FULL_ACCESS_ROLES = ['owner', 'admin', 'billing'];
+
 // Get invoices
 router.get('/', authenticate, requirePermission('billing:view'), async (req, res) => {
   try {
-    const { clientId, matterId, status, limit = 100, offset = 0 } = req.query;
+    const { clientId, matterId, status, view = 'my', limit = 100, offset = 0 } = req.query;
     
     let sql = `
       SELECT i.*,
@@ -21,6 +24,23 @@ router.get('/', authenticate, requirePermission('billing:view'), async (req, res
     `;
     const params = [req.user.firmId];
     let paramIndex = 2;
+
+    // "My Invoices" filter - only show invoices user created or for their matters
+    if (view === 'my') {
+      sql += ` AND (
+        i.created_by = $${paramIndex}
+        OR EXISTS (
+          SELECT 1 FROM matters m2 
+          WHERE m2.id = i.matter_id 
+          AND (m2.responsible_attorney = $${paramIndex} 
+               OR m2.originating_attorney = $${paramIndex}
+               OR m2.created_by = $${paramIndex}
+               OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m2.id AND ma.user_id = $${paramIndex}))
+        )
+      )`;
+      params.push(req.user.id);
+      paramIndex++;
+    }
 
     if (clientId) {
       sql += ` AND i.client_id = $${paramIndex}`;

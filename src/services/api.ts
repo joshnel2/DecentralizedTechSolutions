@@ -175,11 +175,12 @@ export const authApi = {
 // ============================================
 
 export const clientsApi = {
-  async getAll(params?: { search?: string; type?: string; isActive?: boolean }) {
+  async getAll(params?: { search?: string; type?: string; isActive?: boolean; view?: 'my' | 'all' }) {
     const query = new URLSearchParams();
     if (params?.search) query.set('search', params.search);
     if (params?.type) query.set('type', params.type);
     if (params?.isActive !== undefined) query.set('isActive', String(params.isActive));
+    if (params?.view) query.set('view', params.view);
     
     return fetchWithAuth(`/clients?${query}`);
   },
@@ -432,11 +433,12 @@ export const timeEntriesApi = {
 // ============================================
 
 export const invoicesApi = {
-  async getAll(params?: { clientId?: string; matterId?: string; status?: string }) {
+  async getAll(params?: { clientId?: string; matterId?: string; status?: string; view?: 'my' | 'all' }) {
     const query = new URLSearchParams();
     if (params?.clientId) query.set('clientId', params.clientId);
     if (params?.matterId) query.set('matterId', params.matterId);
     if (params?.status) query.set('status', params.status);
+    if (params?.view) query.set('view', params.view);
     
     return fetchWithAuth(`/invoices?${query}`);
   },

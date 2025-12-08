@@ -343,6 +343,47 @@
   display: flex;
   gap: var(--space-md);
   margin-bottom: var(--space-lg);
+  flex-wrap: wrap;
+}
+
+/* View Toggle (My Billing / All Billing) */
+.viewToggle {
+  display: flex;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 2px;
+}
+
+.viewToggleBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--apex-text);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.viewToggleBtn:hover {
+  color: var(--apex-light);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.viewToggleBtn.active {
+  background: var(--apex-gold);
+  color: var(--apex-midnight);
+}
+
+.viewToggleBtn.active:hover {
+  background: var(--apex-gold-bright);
 }
 
 .searchBox {
