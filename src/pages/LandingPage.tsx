@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { 
   Sparkles, Check, ArrowRight, Scale, Clock, DollarSign, 
   FileText, Users, Calendar, Shield, Zap, BarChart3,
-  ChevronRight, Star, Building2, Mail
+  ChevronRight, Building2, Mail
 } from 'lucide-react'
 import styles from './LandingPage.module.css'
 
@@ -76,27 +76,6 @@ const plans = [
   }
 ]
 
-const testimonials = [
-  {
-    quote: "Apex has transformed how we manage our practice. The AI features alone save us 10+ hours per week.",
-    author: "Sarah Mitchell",
-    title: "Partner, Mitchell & Associates",
-    rating: 5
-  },
-  {
-    quote: "Finally, a legal practice management system that actually understands how modern firms work.",
-    author: "James Chen",
-    title: "Managing Partner, Chen Law Group",
-    rating: 5
-  },
-  {
-    quote: "The billing features are incredible. We've reduced our AR by 40% since switching to Apex.",
-    author: "Maria Rodriguez",
-    title: "Founder, Rodriguez Legal",
-    rating: 5
-  }
-]
-
 export function LandingPage() {
   const [showContactModal, setShowContactModal] = useState(false)
 
@@ -121,7 +100,6 @@ export function LandingPage() {
           <div className={styles.navLinks}>
             <a href="#features">Features</a>
             <a href="#pricing">Pricing</a>
-            <a href="#testimonials">Testimonials</a>
             <button onClick={() => setShowContactModal(true)} className={styles.contactBtn}>
               Contact Sales
             </button>
@@ -160,20 +138,6 @@ export function LandingPage() {
               <ArrowRight size={18} />
             </Link>
           </div>
-          <div className={styles.heroStats}>
-            <div>
-              <span className={styles.statNumber}>2,500+</span>
-              <span className={styles.statLabel}>Law Firms</span>
-            </div>
-            <div>
-              <span className={styles.statNumber}>$1.2B</span>
-              <span className={styles.statLabel}>Billed Through Apex</span>
-            </div>
-            <div>
-              <span className={styles.statNumber}>99.9%</span>
-              <span className={styles.statLabel}>Uptime SLA</span>
-            </div>
-          </div>
         </div>
         <div className={styles.heroVisual}>
           <div className={styles.dashboardPreview}>
@@ -187,11 +151,6 @@ export function LandingPage() {
               <div className={styles.previewCard}>
                 <Sparkles size={20} />
                 <span>AI Assistant Ready</span>
-              </div>
-              <div className={styles.previewStats}>
-                <div><strong>24</strong>Active Matters</div>
-                <div><strong>$125k</strong>This Month</div>
-                <div><strong>156h</strong>Billable Hours</div>
               </div>
             </div>
           </div>
@@ -246,16 +205,15 @@ export function LandingPage() {
           <div className={styles.chatPreview}>
             <div className={styles.chatMessage}>
               <div className={styles.userMessage}>
-                Find recent case law on trade secret misappropriation in California
+                Help me research case law on this topic
               </div>
             </div>
             <div className={styles.chatMessage}>
               <div className={styles.aiMessage}>
                 <div className={styles.aiAvatar}><Sparkles size={14} /></div>
                 <div>
-                  <strong>Found 12 relevant cases:</strong>
-                  <p>1. <em>Waymo v. Uber</em> (N.D. Cal. 2018) - Key precedent on...</p>
-                  <p>2. <em>Cadence v. Avant!</em> (Cal. Ct. App. 2002) - Established...</p>
+                  <strong>AI-powered legal research</strong>
+                  <p>Get instant analysis and relevant case law tailored to your needs.</p>
                 </div>
               </div>
             </div>
@@ -301,40 +259,11 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Testimonials */}
-      <section id="testimonials" className={styles.testimonials}>
-        <div className={styles.sectionHeader}>
-          <h2>Trusted by leading firms</h2>
-          <p>See what legal professionals are saying about Apex</p>
-        </div>
-        <div className={styles.testimonialsGrid}>
-          {testimonials.map((t, i) => (
-            <div key={i} className={styles.testimonialCard}>
-              <div className={styles.stars}>
-                {[...Array(t.rating)].map((_, j) => (
-                  <Star key={j} size={16} fill="#F59E0B" color="#F59E0B" />
-                ))}
-              </div>
-              <p>"{t.quote}"</p>
-              <div className={styles.testimonialAuthor}>
-                <div className={styles.authorAvatar}>
-                  {t.author.split(' ').map(n => n[0]).join('')}
-                </div>
-                <div>
-                  <strong>{t.author}</strong>
-                  <span>{t.title}</span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
       {/* CTA Section */}
       <section className={styles.ctaSection}>
         <div className={styles.ctaContent}>
           <h2>Ready to transform your practice?</h2>
-          <p>Join 2,500+ law firms already using Apex to work smarter.</p>
+          <p>See how Apex can help your firm work smarter.</p>
           <div className={styles.ctaActions}>
             <button onClick={() => setShowContactModal(true)} className={styles.primaryBtn}>
               Book Demo
