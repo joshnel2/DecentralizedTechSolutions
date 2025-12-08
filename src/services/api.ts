@@ -319,6 +319,63 @@ export const mattersApi = {
   async deleteContact(matterId: string, contactId: string) {
     return fetchWithAuth(`/matters/${matterId}/contacts/${contactId}`, { method: 'DELETE' });
   },
+
+  // Permissions
+  async getPermissions(matterId: string) {
+    return fetchWithAuth(`/matters/${matterId}/permissions`);
+  },
+
+  async updateVisibility(matterId: string, visibility: 'firm_wide' | 'restricted') {
+    return fetchWithAuth(`/matters/${matterId}/visibility`, {
+      method: 'PUT',
+      body: JSON.stringify({ visibility }),
+    });
+  },
+
+  async addPermission(matterId: string, data: {
+    userId?: string;
+    groupId?: string;
+    permissionLevel?: 'view' | 'edit' | 'admin';
+    canViewDocuments?: boolean;
+    canViewNotes?: boolean;
+    canEdit?: boolean;
+  }) {
+    return fetchWithAuth(`/matters/${matterId}/permissions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async removePermission(matterId: string, permissionId: string) {
+    return fetchWithAuth(`/matters/${matterId}/permissions/${permissionId}`, { method: 'DELETE' });
+  },
+
+  async bulkUpdatePermissions(data: {
+    matterIds: string[];
+    action: 'add' | 'remove';
+    userId?: string;
+    groupId?: string;
+    visibility?: 'firm_wide' | 'restricted';
+    permissionLevel?: 'view' | 'edit' | 'admin';
+  }) {
+    return fetchWithAuth('/matters/bulk-permissions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getAvailableUsers(excludeMatterId?: string, search?: string) {
+    const query = new URLSearchParams();
+    if (excludeMatterId) query.set('excludeMatterId', excludeMatterId);
+    if (search) query.set('search', search);
+    return fetchWithAuth(`/matters/permissions/users?${query}`);
+  },
+
+  async getAvailableGroups(excludeMatterId?: string) {
+    const query = new URLSearchParams();
+    if (excludeMatterId) query.set('excludeMatterId', excludeMatterId);
+    return fetchWithAuth(`/matters/permissions/groups?${query}`);
+  },
 };
 
 // ============================================

@@ -75,6 +75,7 @@ async function seed() {
       ['emily@apex.law', 'Emily', 'Davis', 'paralegal', 200],
       ['james@apex.law', 'James', 'Wilson', 'attorney', 475],
       ['lisa@apex.law', 'Lisa', 'Thompson', 'staff', 150],
+      ['billing@apex.law', 'Karen', 'Martinez', 'billing', 0],
     ];
 
     for (const [email, firstName, lastName, role, rate] of teamMembers) {
@@ -165,6 +166,72 @@ async function seed() {
     );
 
     console.log('Created trust accounts');
+
+    // Update some matters with visibility settings (Clio-like permissions)
+    // First, check if visibility column exists
+    const visibilityCheck = await client.query(`
+      SELECT column_name FROM information_schema.columns 
+      WHERE table_name = 'matters' AND column_name = 'visibility'
+    `);
+
+    if (visibilityCheck.rows.length > 0) {
+      // Set MTR-2024-003 (Meridian Plaza Development) as restricted
+      await client.query(`
+        UPDATE matters SET visibility = 'restricted' 
+        WHERE number = 'MTR-2024-003' AND firm_id = $1
+      `, [firmId]);
+
+      // Set MTR-2024-005 (Atlas Employment Dispute) as restricted
+      await client.query(`
+        UPDATE matters SET visibility = 'restricted' 
+        WHERE number = 'MTR-2024-005' AND firm_id = $1
+      `, [firmId]);
+
+      console.log('Set up matter visibility (restricted matters created)');
+
+      // Add permissions for the restricted matters
+      // Get the matter IDs
+      const restrictedMatters = await client.query(`
+        SELECT id, number FROM matters 
+        WHERE visibility = 'restricted' AND firm_id = $1
+      `, [firmId]);
+
+      // Get some user IDs for permissions
+      const emilyResult = await client.query(`
+        SELECT id FROM users WHERE email = 'emily@apex.law'
+      `);
+      const jamesResult = await client.query(`
+        SELECT id FROM users WHERE email = 'james@apex.law'
+      `);
+      const litigationGroup = await client.query(`
+        SELECT id FROM groups WHERE name = 'Litigation Team' AND firm_id = $1
+      `, [firmId]);
+
+      // Add permissions to restricted matters
+      for (const matter of restrictedMatters.rows) {
+        // Add Emily (paralegal) to the matter
+        if (emilyResult.rows.length > 0) {
+          await client.query(`
+            INSERT INTO matter_permissions (matter_id, user_id, permission_level, can_view_documents, can_view_notes, can_edit, granted_by)
+            VALUES ($1, $2, 'view', true, true, false, $3)
+            ON CONFLICT DO NOTHING
+          `, [matter.id, emilyResult.rows[0].id, userId]);
+        }
+
+        // Add Litigation Team group to matters
+        if (litigationGroup.rows.length > 0) {
+          await client.query(`
+            INSERT INTO matter_permissions (matter_id, group_id, permission_level, can_view_documents, can_view_notes, can_edit, granted_by)
+            VALUES ($1, $2, 'edit', true, true, true, $3)
+            ON CONFLICT DO NOTHING
+          `, [matter.id, litigationGroup.rows[0].id, userId]);
+        }
+      }
+
+      console.log('Created matter permissions for restricted matters');
+    } else {
+      console.log('Visibility column not found - run migration first: add_matter_permissions.sql');
+    }
 
     console.log('\n✅ Database seeded successfully!');
     console.log('\n📧 Demo Login Credentials:');

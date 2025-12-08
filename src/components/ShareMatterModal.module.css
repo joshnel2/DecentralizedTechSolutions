@@ -1,0 +1,440 @@
+/* ShareMatterModal Styles */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal {
+  background: var(--bg-primary, #fff);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  animation: slideUp 0.2s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 20px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.headerContent {
+  display: flex;
+  gap: 12px;
+}
+
+.headerContent > svg {
+  flex-shrink: 0;
+  color: var(--primary-color, #3b82f6);
+  margin-top: 2px;
+}
+
+.header h3 {
+  margin: 0 0 4px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+}
+
+.matterName {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary, #6b7280);
+  max-width: 280px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.closeBtn {
+  padding: 8px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-secondary, #6b7280);
+  transition: all 0.2s;
+}
+
+.closeBtn:hover {
+  background: var(--bg-secondary, #f3f4f6);
+  color: var(--text-primary, #111827);
+}
+
+/* Visibility info */
+.visibilityInfo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  background: var(--bg-secondary, #f3f4f6);
+  font-size: 13px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.visibilityInfo svg {
+  flex-shrink: 0;
+  color: var(--primary-color, #3b82f6);
+}
+
+.visibilityInfo strong {
+  color: var(--text-primary, #111827);
+}
+
+/* Messages */
+.error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 20px 0;
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #dc2626;
+  font-size: 14px;
+}
+
+.success {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 20px 0;
+  padding: 12px 16px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  color: #16a34a;
+  font-size: 14px;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  padding: 16px 20px 0;
+  gap: 8px;
+}
+
+.tabs button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--bg-secondary, #f3f4f6);
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tabs button:hover {
+  background: var(--bg-hover, #e5e7eb);
+}
+
+.tabs button.activeTab {
+  background: var(--primary-color, #3b82f6);
+  color: white;
+}
+
+/* Search */
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 20px 0;
+  padding: 12px 16px;
+  background: var(--bg-secondary, #f9fafb);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+}
+
+.searchBox svg {
+  color: var(--text-secondary, #9ca3af);
+  flex-shrink: 0;
+}
+
+.searchBox input {
+  flex: 1;
+  border: none;
+  background: none;
+  font-size: 14px;
+  color: var(--text-primary, #111827);
+  outline: none;
+}
+
+.searchBox input::placeholder {
+  color: var(--text-secondary, #9ca3af);
+}
+
+/* Content */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  min-height: 200px;
+  max-height: 350px;
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  gap: 12px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-secondary, #6b7280);
+  font-size: 14px;
+}
+
+/* List */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-secondary, #f9fafb);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.item:hover {
+  background: var(--bg-hover, #f3f4f6);
+}
+
+.item.selected {
+  background: #eff6ff;
+  border-color: var(--primary-color, #3b82f6);
+}
+
+.item input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary-color, #3b82f6);
+  cursor: pointer;
+}
+
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.groupAvatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.itemInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.itemName {
+  display: block;
+  font-weight: 500;
+  color: var(--text-primary, #111827);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.itemMeta {
+  display: block;
+  font-size: 13px;
+  color: var(--text-secondary, #6b7280);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.roleBadge {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  flex-shrink: 0;
+}
+
+.roleBadge.owner {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.roleBadge.admin {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.roleBadge.attorney {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.roleBadge.paralegal {
+  background: #f3e8ff;
+  color: #9333ea;
+}
+
+.roleBadge.staff {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.roleBadge.billing {
+  background: #fce7f3;
+  color: #db2777;
+}
+
+/* Footer */
+.footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+  background: var(--bg-secondary, #f9fafb);
+  border-radius: 0 0 16px 16px;
+}
+
+.selectionCount {
+  font-size: 13px;
+  color: var(--text-secondary, #6b7280);
+  font-weight: 500;
+}
+
+.footerActions {
+  display: flex;
+  gap: 10px;
+}
+
+.cancelBtn {
+  padding: 10px 20px;
+  background: var(--bg-primary, #fff);
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cancelBtn:hover:not(:disabled) {
+  background: var(--bg-hover, #f3f4f6);
+  color: var(--text-primary, #111827);
+}
+
+.cancelBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.shareBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  background: var(--primary-color, #3b82f6);
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.shareBtn:hover:not(:disabled) {
+  background: var(--primary-hover, #2563eb);
+}
+
+.shareBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .modal {
+    --bg-primary: #1f2937;
+    --bg-secondary: #374151;
+    --bg-hover: #4b5563;
+    --border-color: #4b5563;
+    --text-primary: #f9fafb;
+    --text-secondary: #9ca3af;
+  }
+}

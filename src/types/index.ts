@@ -383,6 +383,11 @@ export interface Matter {
   stage?: string // Custom workflow stage
   priority: 'low' | 'medium' | 'high' | 'urgent'
   
+  // Visibility & Permissions
+  visibility?: 'firm_wide' | 'restricted'
+  canManagePermissions?: boolean
+  accessLevel?: string
+  
   // Dates
   openDate: string
   closeDate?: string

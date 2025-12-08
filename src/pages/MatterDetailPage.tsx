@@ -11,13 +11,16 @@ import {
   Copy, RefreshCw, AlertTriangle, TrendingUp,
   ListTodo, Users, Circle, Upload, Download, X, 
   Trash2, Archive, XCircle, Eye, Play, Pause, StopCircle,
-  MessageSquare, Settings
+  MessageSquare, Settings, Share2, Globe, Lock, Shield
 } from 'lucide-react'
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './DetailPage.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { MatterTypesManager } from '../components/MatterTypesManager'
+import { ShareMatterModal } from '../components/ShareMatterModal'
+import { MatterPermissions } from '../components/MatterPermissions'
+import { useAuthStore } from '../stores/authStore'
 
 // Task interface
 interface Task {
@@ -85,6 +88,9 @@ export function MatterDetailPage() {
   const [loadingTasks, setLoadingTasks] = useState(true)
   const [loadingUpdates, setLoadingUpdates] = useState(true)
   const [loadingContacts, setLoadingContacts] = useState(true)
+  const [showShareModal, setShowShareModal] = useState(false)
+  const [showPermissionsPanel, setShowPermissionsPanel] = useState(false)
+  const { user } = useAuthStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   
@@ -622,6 +628,29 @@ Only analyze documents actually associated with this matter.`
             Back to Matters
           </Link>
           <div className={styles.headerActions}>
+            {/* Visibility Badge */}
+            <button 
+              className={clsx(
+                styles.visibilityBadge,
+                matter.visibility === 'restricted' && styles.restricted
+              )}
+              onClick={() => setShowPermissionsPanel(true)}
+              title={matter.visibility === 'restricted' ? 'Restricted - Click to manage access' : 'Firm Wide - Click to manage access'}
+            >
+              {matter.visibility === 'restricted' ? (
+                <><Lock size={14} /> Restricted</>
+              ) : (
+                <><Globe size={14} /> Firm Wide</>
+              )}
+            </button>
+            <button 
+              className={styles.shareBtn}
+              onClick={() => setShowShareModal(true)}
+              title="Share Matter"
+            >
+              <Share2 size={16} />
+              Share
+            </button>
             <button 
               className={styles.aiBtn}
               onClick={() => openAIWithContext(`Matter: ${matter.name}`, [
@@ -1994,6 +2023,36 @@ Only analyze documents actually associated with this matter.`
         isOpen={showTypesManager}
         onClose={() => setShowTypesManager(false)}
       />
+
+      {/* Share Matter Modal */}
+      <ShareMatterModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        matterId={id || ''}
+        matterName={matter.name}
+        currentVisibility={matter.visibility || 'firm_wide'}
+        onPermissionsChanged={() => {
+          // Refresh matter data after permissions changed
+          fetchMatters()
+        }}
+      />
+
+      {/* Permissions Panel (Slide-out) */}
+      {showPermissionsPanel && (
+        <div className={styles.permissionsPanelOverlay} onClick={() => setShowPermissionsPanel(false)}>
+          <div className={styles.permissionsPanel} onClick={(e) => e.stopPropagation()}>
+            <MatterPermissions
+              matterId={id || ''}
+              matterName={matter.name}
+              canManagePermissions={
+                ['owner', 'admin', 'billing'].includes(user?.role || '') ||
+                matter.responsibleAttorney === user?.id
+              }
+              onClose={() => setShowPermissionsPanel(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

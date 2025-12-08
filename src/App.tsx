@@ -35,6 +35,7 @@ import { CourtRulesPage } from './pages/CourtRulesPage'
 import { TextSnippetsPage } from './pages/TextSnippetsPage'
 import { DocumentAutomationPage } from './pages/DocumentAutomationPage'
 import { WorkflowsPage } from './pages/WorkflowsPage'
+import { BulkPermissionsPage } from './pages/BulkPermissionsPage'
 import { AdminPortalPage } from './pages/AdminPortalPage'
 import SecureAdminLogin from './pages/SecureAdminLogin'
 import SecureAdminDashboard from './pages/SecureAdminDashboard'
@@ -163,6 +164,7 @@ function AppContent() {
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="matters" element={<MattersPage />} />
         <Route path="matters/:id" element={<MatterDetailPage />} />
+        <Route path="matters/bulk-permissions" element={<BulkPermissionsPage />} />
         <Route path="clients" element={<ClientsPage />} />
         <Route path="clients/:id" element={<ClientDetailPage />} />
         <Route path="calendar" element={<CalendarPage />} />

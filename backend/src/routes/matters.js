@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
+import { buildVisibilityFilter, canAccessMatter, FULL_ACCESS_ROLES } from '../middleware/matterPermissions.js';
 
 const router = Router();
 
@@ -24,15 +25,15 @@ async function checkOriginatingAttorneyColumn() {
 router.get('/', authenticate, requirePermission('matters:view'), async (req, res) => {
   try {
     const { 
-      search, status, type, clientId, assignedTo, priority,
+      search, status, type, clientId, assignedTo, priority, visibility,
       limit = 100, offset = 0 
     } = req.query;
     
-    // Check if user is admin/owner - they see all firm matters
-    const isAdmin = ['owner', 'admin'].includes(req.user.role);
-    
     // Check if originating_attorney column exists
     const hasOrigAtty = await checkOriginatingAttorneyColumn();
+    
+    // Build visibility filter based on user role
+    const visibilityFilter = buildVisibilityFilter(req.user.id, req.user.role, req.user.firmId, 1);
     
     let sql = hasOrigAtty ? `
       SELECT m.*,
@@ -45,7 +46,7 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
       LEFT JOIN users u ON m.responsible_attorney = u.id
       LEFT JOIN users ou ON m.originating_attorney = ou.id
       LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
-      WHERE m.firm_id = $1
+      WHERE ${visibilityFilter.clause}
     ` : `
       SELECT m.*,
              c.display_name as client_name,
@@ -56,17 +57,15 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
       LEFT JOIN clients c ON m.client_id = c.id
       LEFT JOIN users u ON m.responsible_attorney = u.id
       LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
-      WHERE m.firm_id = $1
+      WHERE ${visibilityFilter.clause}
     `;
-    const params = [req.user.firmId];
-    let paramIndex = 2;
+    const params = [...visibilityFilter.params];
+    let paramIndex = visibilityFilter.nextParamIndex;
 
-    // Non-admins only see matters they're assigned to or responsible for
-    if (!isAdmin) {
-      sql += ` AND (m.responsible_attorney = $${paramIndex} OR EXISTS (
-        SELECT 1 FROM matter_assignments WHERE matter_id = m.id AND user_id = $${paramIndex}
-      ))`;
-      params.push(req.user.id);
+    // Filter by visibility type if specified
+    if (visibility && ['firm_wide', 'restricted'].includes(visibility)) {
+      sql += ` AND m.visibility = $${paramIndex}`;
+      params.push(visibility);
       paramIndex++;
     }
 
@@ -133,6 +132,7 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
         type: m.type || 'other',
         status: m.status,
         priority: m.priority,
+        visibility: m.visibility || 'firm_wide',
         assignedTo: m.assigned_to || [],
         responsibleAttorney: m.responsible_attorney,
         responsibleAttorneyName: m.responsible_attorney_name,
@@ -173,6 +173,18 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
 // Get single matter
 router.get('/:id', authenticate, requirePermission('matters:view'), async (req, res) => {
   try {
+    // Check if user has access to this matter
+    const access = await canAccessMatter(
+      req.user.id,
+      req.user.role,
+      req.params.id,
+      req.user.firmId
+    );
+
+    if (!access.hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this matter' });
+    }
+
     const hasOrigAtty = await checkOriginatingAttorneyColumn();
     
     const sql = hasOrigAtty 
@@ -207,6 +219,11 @@ router.get('/:id', authenticate, requirePermission('matters:view'), async (req, 
     }
 
     const m = result.rows[0];
+    
+    // Check if user can manage permissions
+    const canManagePermissions = FULL_ACCESS_ROLES.includes(req.user.role) || 
+                                  m.responsible_attorney === req.user.id;
+
     res.json({
       id: m.id,
       number: m.number,
@@ -217,6 +234,7 @@ router.get('/:id', authenticate, requirePermission('matters:view'), async (req, 
       type: m.type || 'other',
       status: m.status,
       priority: m.priority,
+      visibility: m.visibility || 'firm_wide',
       assignedTo: m.assigned_to || [],
       responsibleAttorney: m.responsible_attorney,
       responsibleAttorneyName: m.responsible_attorney_name,
@@ -245,6 +263,9 @@ router.get('/:id', authenticate, requirePermission('matters:view'), async (req, 
       createdBy: m.created_by,
       createdAt: m.created_at,
       updatedAt: m.updated_at,
+      // Permission info
+      canManagePermissions,
+      accessLevel: access.accessLevel,
     });
   } catch (error) {
     console.error('Get matter error:', error);

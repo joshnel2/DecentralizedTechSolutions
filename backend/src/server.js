@@ -10,6 +10,7 @@ import clientRoutes from './routes/clients.js';
 import matterRoutes from './routes/matters.js';
 import matterItemRoutes from './routes/matterItems.js';
 import matterTypesRoutes from './routes/matterTypes.js';
+import matterPermissionsRoutes from './routes/matterPermissions.js';
 import timeEntryRoutes from './routes/timeEntries.js';
 import invoiceRoutes from './routes/invoices.js';
 import calendarRoutes from './routes/calendar.js';
@@ -72,6 +73,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/matters', matterRoutes);
 app.use('/api/matters', matterItemRoutes);  // Matter tasks, updates, contacts
+app.use('/api/matters', matterPermissionsRoutes);  // Matter permissions and visibility
 app.use('/api/matter-types', matterTypesRoutes);
 app.use('/api/time-entries', timeEntryRoutes);
 app.use('/api/invoices', invoiceRoutes);
