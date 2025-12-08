@@ -6,8 +6,8 @@ import {
   ChevronRight, BarChart3, 
   RefreshCw, AlertCircle, ArrowUpRight, ArrowDownRight,
   Target, Activity,
-  X, Plus, Search, Eye,
-  FileSpreadsheet, AlertTriangle
+  X, Plus, Search,
+  AlertTriangle
 } from 'lucide-react'
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -73,7 +73,6 @@ export function ReportsPage() {
   const [showCustomReportModal, setShowCustomReportModal] = useState(false)
   const [showFilterPanel, setShowFilterPanel] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [showPreviewModal, setShowPreviewModal] = useState<{ report: any; category: any } | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
 
   // Date range calculations
@@ -855,12 +854,6 @@ export function ReportsPage() {
                       <span className={styles.reportItemDesc}>{report.desc}</span>
                     </div>
                     <div className={styles.reportItemActions}>
-                      <button className={styles.iconBtn} title="Preview" onClick={(e) => { 
-                        e.stopPropagation(); 
-                        setShowPreviewModal({ report, category: reportCategories.find(c => c.id === activeCategory) });
-                      }}>
-                        <Eye size={16} />
-                      </button>
                       <button 
                         className={styles.runReportBtn} 
                         onClick={(e) => { e.stopPropagation(); runReport(report.id); }}
@@ -891,53 +884,6 @@ export function ReportsPage() {
           invoices={invoices}
           timeEntries={timeEntries}
         />
-      )}
-
-      {/* Report Preview Modal */}
-      {showPreviewModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowPreviewModal(null)}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
-            <div className={styles.modalHeader}>
-              <h3>Report Preview: {showPreviewModal.report.name}</h3>
-              <button onClick={() => setShowPreviewModal(null)}><X size={20} /></button>
-            </div>
-            <div className={styles.modalBody}>
-              <div style={{ marginBottom: '1rem' }}>
-                <p style={{ color: 'var(--apex-text)', marginBottom: '1rem' }}>{showPreviewModal.report.desc}</p>
-                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
-                  <span style={{ fontSize: '0.875rem', color: 'var(--apex-text)' }}>
-                    <strong>Category:</strong> {showPreviewModal.category?.name || 'General'}
-                  </span>
-                  <span style={{ fontSize: '0.875rem', color: 'var(--apex-text)' }}>
-                    <strong>Date Range:</strong> {dateRange.replace('-', ' ')}
-                  </span>
-                </div>
-              </div>
-              <div style={{ 
-                background: 'rgba(0,0,0,0.2)', 
-                border: '1px solid rgba(255,255,255,0.1)', 
-                borderRadius: '8px', 
-                padding: '1.5rem',
-                textAlign: 'center',
-                color: 'var(--apex-text)'
-              }}>
-                <FileSpreadsheet size={48} style={{ marginBottom: '1rem', opacity: 0.5 }} />
-                <p style={{ marginBottom: '0.5rem' }}>Report data will be generated based on current filters</p>
-                <p style={{ fontSize: '0.875rem' }}>Click "Run Report" to generate and download the full report</p>
-              </div>
-            </div>
-            <div className={styles.modalFooter}>
-              <button className={styles.cancelBtn} onClick={() => setShowPreviewModal(null)}>Close</button>
-              <button className={styles.primaryBtn} onClick={() => {
-                runReport(showPreviewModal.report.id)
-                setShowPreviewModal(null)
-              }}>
-                <Download size={16} />
-                Run Report
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
     </div>
