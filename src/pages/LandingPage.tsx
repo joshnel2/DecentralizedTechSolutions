@@ -19,63 +19,6 @@ const features = [
   { icon: BarChart3, title: 'Reports & Analytics', desc: 'Real-time insights into firm performance' }
 ]
 
-const plans = [
-  {
-    name: 'Starter',
-    price: 49,
-    period: 'per user/month',
-    description: 'For solo practitioners getting started',
-    features: [
-      'Up to 50 active matters',
-      'Basic time tracking',
-      'Invoice generation',
-      'Calendar & deadlines',
-      'Document storage (10GB)',
-      'Email support'
-    ],
-    cta: 'Book Demo',
-    popular: false
-  },
-  {
-    name: 'Professional',
-    price: 99,
-    period: 'per user/month',
-    description: 'For growing law firms',
-    features: [
-      'Unlimited matters',
-      'Advanced time tracking',
-      'Custom invoicing',
-      'Client portal',
-      'Document storage (100GB)',
-      'AI Assistant (500 queries/mo)',
-      'Trust accounting',
-      'Priority support',
-      'API access'
-    ],
-    cta: 'Book Demo',
-    popular: true
-  },
-  {
-    name: 'Enterprise',
-    price: null,
-    period: 'custom pricing',
-    description: 'For large firms with advanced needs',
-    features: [
-      'Everything in Professional',
-      'Unlimited AI queries',
-      'Custom integrations',
-      'Dedicated account manager',
-      'SSO / SAML authentication',
-      'Advanced security & compliance',
-      'Custom training',
-      'SLA guarantee',
-      'On-premise option'
-    ],
-    cta: 'Contact Sales',
-    popular: false
-  }
-]
-
 export function LandingPage() {
   const [showContactModal, setShowContactModal] = useState(false)
 
@@ -99,7 +42,6 @@ export function LandingPage() {
           </div>
           <div className={styles.navLinks}>
             <a href="#features">Features</a>
-            <a href="#pricing">Pricing</a>
             <button onClick={() => setShowContactModal(true)} className={styles.contactBtn}>
               Contact Sales
             </button>
@@ -221,44 +163,6 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Pricing Section */}
-      <section id="pricing" className={styles.pricing}>
-        <div className={styles.sectionHeader}>
-          <h2>Simple, transparent pricing</h2>
-          <p>Choose the plan that's right for your firm</p>
-        </div>
-        <div className={styles.pricingGrid}>
-          {plans.map((plan, i) => (
-            <div key={i} className={`${styles.pricingCard} ${plan.popular ? styles.popular : ''}`}>
-              {plan.popular && <div className={styles.popularBadge}>Most Popular</div>}
-              <h3>{plan.name}</h3>
-              <div className={styles.priceRow}>
-                {plan.price ? (
-                  <>
-                    <span className={styles.price}>${plan.price}</span>
-                    <span className={styles.period}>{plan.period}</span>
-                  </>
-                ) : (
-                  <span className={styles.customPrice}>Custom</span>
-                )}
-              </div>
-              <p className={styles.planDesc}>{plan.description}</p>
-              <ul className={styles.planFeatures}>
-                {plan.features.map((feature, j) => (
-                  <li key={j}>
-                    <Check size={16} />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
-              <button onClick={() => setShowContactModal(true)} className={plan.popular ? styles.planBtn : styles.planBtnOutline}>
-                {plan.cta}
-              </button>
-            </div>
-          ))}
-        </div>
-      </section>
-
       {/* CTA Section */}
       <section className={styles.ctaSection}>
         <div className={styles.ctaContent}>
@@ -300,7 +204,6 @@ export function LandingPage() {
             <div>
               <h4>Product</h4>
               <a href="#features">Features</a>
-              <a href="#pricing">Pricing</a>
               <a href="#">Security</a>
               <a href="#">Integrations</a>
             </div>
