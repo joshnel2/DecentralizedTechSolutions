@@ -1210,9 +1210,25 @@ async function createMatter(args, user) {
     return { error: 'Matter name is required' };
   }
   
-  const countResult = await query('SELECT COUNT(*) FROM matters WHERE firm_id = $1', [user.firmId]);
-  const count = parseInt(countResult.rows[0].count) + 1;
-  const number = `MTR-${new Date().getFullYear()}-${String(count).padStart(3, '0')}`;
+  // Generate matter number - find max existing number for this firm/year and increment
+  const year = new Date().getFullYear();
+  const prefix = `MTR-${year}-`;
+  const maxResult = await query(
+    `SELECT number FROM matters 
+     WHERE firm_id = $1 AND number LIKE $2 
+     ORDER BY number DESC LIMIT 1`,
+    [user.firmId, `${prefix}%`]
+  );
+  
+  let nextNum = 1;
+  if (maxResult.rows.length > 0) {
+    const lastNumber = maxResult.rows[0].number;
+    const lastNum = parseInt(lastNumber.replace(prefix, ''), 10);
+    if (!isNaN(lastNum)) {
+      nextNum = lastNum + 1;
+    }
+  }
+  let number = `${prefix}${String(nextNum).padStart(3, '0')}`;
   
   if (client_id) {
     const clientCheck = await query('SELECT id FROM clients WHERE id = $1 AND firm_id = $2', [client_id, user.firmId]);
@@ -1224,23 +1240,63 @@ async function createMatter(args, user) {
   // Use today's date for open_date
   const openDate = new Date().toISOString().split('T')[0];
   
-  const result = await query(
-    `INSERT INTO matters (firm_id, number, name, description, client_id, type, status, priority,
-      responsible_attorney, billing_type, billing_rate, court_name, case_number, open_date, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10, $11, $12, $13, $8) RETURNING *`,
-    [user.firmId, number, name, description || null, client_id || null, type, priority, 
-     user.id, billing_type, billing_rate || null, court_name || null, case_number || null, openDate]
-  );
-  
-  const matter = result.rows[0];
-  
-  await query('INSERT INTO matter_assignments (matter_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [matter.id, user.id]);
-  
-  return {
-    success: true,
-    message: `Created matter "${name}" (${number})`,
-    data: { id: matter.id, name: matter.name, number: matter.number, status: matter.status }
-  };
+  try {
+    const result = await query(
+      `INSERT INTO matters (firm_id, number, name, description, client_id, type, status, priority,
+        responsible_attorney, billing_type, billing_rate, court_name, case_number, open_date, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10, $11, $12, $13, $8) RETURNING *`,
+      [user.firmId, number, name, description || null, client_id || null, type, priority, 
+       user.id, billing_type, billing_rate || null, court_name || null, case_number || null, openDate]
+    );
+    
+    const matter = result.rows[0];
+    
+    await query('INSERT INTO matter_assignments (matter_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [matter.id, user.id]);
+    
+    return {
+      success: true,
+      message: `Created matter "${name}" (${number})`,
+      data: { id: matter.id, name: matter.name, number: matter.number, status: matter.status }
+    };
+  } catch (dbError) {
+    console.error('Database error creating matter:', dbError);
+    if (dbError.code === '23505') { // unique_violation - number already exists
+      // Find the global max for this prefix and use next number
+      const globalMaxResult = await query(
+        `SELECT number FROM matters 
+         WHERE number LIKE $1 
+         ORDER BY number DESC LIMIT 1`,
+        [`${prefix}%`]
+      );
+      
+      let retryNum = nextNum + 1;
+      if (globalMaxResult.rows.length > 0) {
+        const globalLastNum = parseInt(globalMaxResult.rows[0].number.replace(prefix, ''), 10);
+        if (!isNaN(globalLastNum)) {
+          retryNum = globalLastNum + 1;
+        }
+      }
+      const retryNumber = `${prefix}${String(retryNum).padStart(3, '0')}`;
+      
+      const retryResult = await query(
+        `INSERT INTO matters (firm_id, number, name, description, client_id, type, status, priority,
+          responsible_attorney, billing_type, billing_rate, court_name, case_number, open_date, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10, $11, $12, $13, $8) RETURNING *`,
+        [user.firmId, retryNumber, name, description || null, client_id || null, type, priority, 
+         user.id, billing_type, billing_rate || null, court_name || null, case_number || null, openDate]
+      );
+      
+      const matter = retryResult.rows[0];
+      await query('INSERT INTO matter_assignments (matter_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [matter.id, user.id]);
+      
+      return {
+        success: true,
+        message: `Created matter "${name}" (${retryNumber})`,
+        data: { id: matter.id, name: matter.name, number: matter.number, status: matter.status }
+      };
+    }
+    return { error: `Failed to create matter: ${dbError.message}` };
+  }
 }
 
 async function updateMatter(args, user) {
