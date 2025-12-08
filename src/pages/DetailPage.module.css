@@ -81,27 +81,27 @@
 
 .dropdown {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 6px);
   right: 0;
-  min-width: 200px;
-  margin-top: var(--space-xs);
+  min-width: 220px;
   background: var(--apex-deep);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: var(--radius-md);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
   z-index: 100;
   overflow: hidden;
-  animation: dropdownFadeIn 0.15s ease;
+  animation: dropdownFadeIn 0.2s ease;
+  padding: var(--space-xs) 0;
 }
 
 @keyframes dropdownFadeIn {
   from {
     opacity: 0;
-    transform: translateY(-8px);
+    transform: translateY(-8px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -110,19 +110,29 @@
   align-items: center;
   gap: var(--space-sm);
   width: 100%;
-  padding: var(--space-sm) var(--space-md);
+  padding: 10px 16px;
   background: none;
   border: none;
   color: var(--apex-light);
   font-size: 0.875rem;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .dropdownItem:hover {
-  background: var(--apex-slate);
+  background: rgba(255, 255, 255, 0.06);
   color: var(--apex-white);
+}
+
+.dropdownItem svg {
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+}
+
+.dropdownItem:hover svg {
+  opacity: 1;
 }
 
 .dropdownItem.success {
@@ -130,7 +140,7 @@
 }
 
 .dropdownItem.success:hover {
-  background: rgba(16, 185, 129, 0.1);
+  background: rgba(16, 185, 129, 0.12);
 }
 
 .dropdownItem.danger {
@@ -138,12 +148,12 @@
 }
 
 .dropdownItem.danger:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(239, 68, 68, 0.12);
 }
 
 .dropdownDivider {
   height: 1px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   margin: var(--space-xs) 0;
 }
 
@@ -1992,7 +2002,6 @@ a.contactName:hover {
 }
 
 .formGroup input,
-.formGroup select,
 .formGroup textarea {
   padding: var(--space-sm) var(--space-md);
   background: var(--apex-slate);
@@ -2001,6 +2010,32 @@ a.contactName:hover {
   color: var(--apex-white);
   font-size: 0.9375rem;
   font-family: inherit;
+  transition: all var(--transition-fast);
+}
+
+.formGroup select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding: 10px 40px 10px 14px;
+  background-color: var(--apex-slate);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23CBD5E1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.formGroup input:hover,
+.formGroup select:hover,
+.formGroup textarea:hover {
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .formGroup input:focus,
@@ -2008,6 +2043,13 @@ a.contactName:hover {
 .formGroup textarea:focus {
   outline: none;
   border-color: var(--apex-gold);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+.formGroup select option {
+  background-color: var(--apex-deep);
+  color: var(--apex-white);
+  padding: 10px;
 }
 
 .formGroup textarea {

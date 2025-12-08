@@ -112,19 +112,40 @@
 }
 
 .filterSelect {
-  padding: var(--space-sm) var(--space-md);
-  background: var(--apex-slate);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding: 10px 40px 10px 14px;
+  background-color: var(--apex-slate);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23CBD5E1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-md);
-  color: var(--apex-light);
-  font-size: 0.875rem;
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  font-weight: 500;
   cursor: pointer;
-  min-width: 140px;
+  min-width: 160px;
+  transition: all var(--transition-fast);
+}
+
+.filterSelect:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  background-color: var(--apex-deep);
 }
 
 .filterSelect:focus {
   outline: none;
   border-color: var(--apex-gold);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+.filterSelect option {
+  background-color: var(--apex-deep);
+  color: var(--apex-white);
+  padding: 12px;
 }
 
 .settingsBtn {
@@ -310,19 +331,25 @@
 
 /* Status Select Dropdown */
 .statusSelect {
-  padding: 4px 24px 4px 10px;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding: 6px 28px 6px 12px;
   border-radius: var(--radius-full);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  border: none;
+  border: 1px solid transparent;
   cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 6px center;
-  background-size: 10px;
+  background-position: right 8px center;
+  background-size: 12px;
+  transition: all var(--transition-fast);
+}
+
+.statusSelect:hover {
+  filter: brightness(1.1);
 }
 
 .statusSelect:focus {
@@ -331,35 +358,53 @@
 }
 
 .statusSelect.active {
-  background-color: rgba(16, 185, 129, 0.1);
+  background-color: rgba(16, 185, 129, 0.15);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2310B981' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   color: var(--apex-success);
+  border-color: rgba(16, 185, 129, 0.3);
 }
 
 .statusSelect.pending,
 .statusSelect.on_hold {
-  background-color: rgba(245, 158, 11, 0.1);
+  background-color: rgba(245, 158, 11, 0.15);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23F59E0B' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   color: var(--apex-warning);
+  border-color: rgba(245, 158, 11, 0.3);
 }
 
 .statusSelect.intake {
-  background-color: rgba(59, 130, 246, 0.1);
+  background-color: rgba(59, 130, 246, 0.15);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%233B82F6' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   color: #3B82F6;
+  border-color: rgba(59, 130, 246, 0.3);
 }
 
 .statusSelect.closed_won,
 .statusSelect.closed_settled {
-  background-color: rgba(16, 185, 129, 0.1);
+  background-color: rgba(16, 185, 129, 0.15);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2310B981' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   color: var(--apex-success);
+  border-color: rgba(16, 185, 129, 0.3);
 }
 
 .statusSelect.closed_lost {
-  background-color: rgba(239, 68, 68, 0.1);
+  background-color: rgba(239, 68, 68, 0.15);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23EF4444' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   color: var(--apex-error);
+  border-color: rgba(239, 68, 68, 0.3);
 }
 
 .statusSelect.closed_other {
-  background-color: rgba(148, 163, 184, 0.1);
+  background-color: rgba(148, 163, 184, 0.15);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   color: var(--apex-text);
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
+.statusSelect option {
+  background-color: var(--apex-deep);
+  color: var(--apex-white);
+  padding: 8px;
 }
 
 .billingInfo {
@@ -402,28 +447,34 @@
   color: var(--apex-white);
 }
 
+.menuWrapper {
+  position: relative;
+  display: inline-block;
+}
+
 .dropdown {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 6px);
   right: 0;
-  min-width: 180px;
+  min-width: 200px;
   background: var(--apex-deep);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-md);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
-  z-index: 100;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  z-index: 1000;
   overflow: hidden;
-  animation: dropdownFadeIn 0.15s ease;
+  animation: dropdownFadeIn 0.2s ease;
+  padding: var(--space-xs) 0;
 }
 
 @keyframes dropdownFadeIn {
   from {
     opacity: 0;
-    transform: translateY(-8px);
+    transform: translateY(-8px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -432,19 +483,29 @@
   align-items: center;
   gap: var(--space-sm);
   width: 100%;
-  padding: var(--space-sm) var(--space-md);
+  padding: 10px 16px;
   background: none;
   border: none;
   color: var(--apex-light);
   font-size: 0.875rem;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .dropdownItem:hover {
-  background: var(--apex-slate);
+  background: rgba(255, 255, 255, 0.06);
   color: var(--apex-white);
+}
+
+.dropdownItem svg {
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+}
+
+.dropdownItem:hover svg {
+  opacity: 1;
 }
 
 .dropdownItem.success {
@@ -452,7 +513,7 @@
 }
 
 .dropdownItem.success:hover {
-  background: rgba(16, 185, 129, 0.1);
+  background: rgba(16, 185, 129, 0.12);
 }
 
 .dropdownItem.danger {
@@ -460,33 +521,13 @@
 }
 
 .dropdownItem.danger:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(239, 68, 68, 0.12);
 }
 
 .dropdownDivider {
   height: 1px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   margin: var(--space-xs) 0;
-}
-
-/* Ensure dropdown is visible and positioned correctly */
-.menuWrapper {
-  position: relative;
-  display: inline-block;
-}
-
-.dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  min-width: 180px;
-  background: var(--apex-deep);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: var(--radius-md);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-  z-index: 1000;
-  overflow: hidden;
-  animation: dropdownFadeIn 0.15s ease;
 }
 
 /* Empty State */
@@ -582,7 +623,6 @@
 }
 
 .formGroup input,
-.formGroup select,
 .formGroup textarea {
   padding: var(--space-sm) var(--space-md);
   background: var(--apex-slate);
@@ -591,6 +631,32 @@
   color: var(--apex-white);
   font-size: 0.9375rem;
   font-family: inherit;
+  transition: all var(--transition-fast);
+}
+
+.formGroup select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding: 10px 40px 10px 14px;
+  background-color: var(--apex-slate);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23CBD5E1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.formGroup input:hover,
+.formGroup select:hover,
+.formGroup textarea:hover {
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .formGroup input:focus,
@@ -598,6 +664,13 @@
 .formGroup textarea:focus {
   outline: none;
   border-color: var(--apex-gold);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+.formGroup select option {
+  background-color: var(--apex-deep);
+  color: var(--apex-white);
+  padding: 10px;
 }
 
 .formGroup textarea {
