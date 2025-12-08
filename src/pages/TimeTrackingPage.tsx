@@ -7,7 +7,7 @@ import { useTimer, formatElapsedTime, secondsToHours } from '../contexts/TimerCo
 import { 
   Plus, Clock, DollarSign, 
   TrendingUp, Sparkles, CheckSquare, FileText, X, Edit2,
-  Play, Pause, Square, Save
+  Play, Pause, Square, Save, Search, Filter
 } from 'lucide-react'
 import { format, parseISO, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addDays } from 'date-fns'
 import { clsx } from 'clsx'
@@ -44,6 +44,11 @@ export function TimeTrackingPage() {
   const [editingEntry, setEditingEntry] = useState<any>(null)
   const [selectedMatterId, setSelectedMatterId] = useState('')
   const [selectedClientId, setSelectedClientId] = useState('')
+  
+  // Filter state for older entries
+  const [olderEntriesSearch, setOlderEntriesSearch] = useState('')
+  const [olderEntriesFilterMatter, setOlderEntriesFilterMatter] = useState('')
+  const [olderEntriesFilterStatus, setOlderEntriesFilterStatus] = useState<'all' | 'billed' | 'unbilled'>('all')
 
   // Filter matters based on selected client
   const filteredMatters = useMemo(() => {
@@ -102,6 +107,41 @@ export function TimeTrackingPage() {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }, [timeEntries, sevenDaysAgo])
 
+  // Filtered older entries based on search and filters
+  const filteredOlderEntries = useMemo(() => {
+    return olderEntries.filter(entry => {
+      // Search filter - search in description, matter name, and client name
+      if (olderEntriesSearch) {
+        const searchLower = olderEntriesSearch.toLowerCase()
+        const matter = entry.matterId ? matters.find(m => m.id === entry.matterId) : null
+        const matterName = matter?.name?.toLowerCase() || ''
+        const matterNumber = matter?.number?.toLowerCase() || ''
+        const client = matter ? clients.find(c => c.id === matter.clientId) : null
+        const clientName = (client?.name || client?.displayName || '').toLowerCase()
+        const description = (entry.description || '').toLowerCase()
+        
+        const matchesSearch = 
+          description.includes(searchLower) ||
+          matterName.includes(searchLower) ||
+          matterNumber.includes(searchLower) ||
+          clientName.includes(searchLower)
+        
+        if (!matchesSearch) return false
+      }
+      
+      // Matter filter
+      if (olderEntriesFilterMatter && entry.matterId !== olderEntriesFilterMatter) {
+        return false
+      }
+      
+      // Status filter
+      if (olderEntriesFilterStatus === 'billed' && !entry.billed) return false
+      if (olderEntriesFilterStatus === 'unbilled' && entry.billed) return false
+      
+      return true
+    })
+  }, [olderEntries, olderEntriesSearch, olderEntriesFilterMatter, olderEntriesFilterStatus, matters, clients])
+
   const unbilledEntries = useMemo(() => {
     return timeEntries.filter(e => !e.billed && e.billable)
   }, [timeEntries])
@@ -112,8 +152,14 @@ export function TimeTrackingPage() {
   }, [recentEntries])
 
   const unbilledOlderEntries = useMemo(() => {
-    return olderEntries.filter(e => !e.billed && e.billable)
-  }, [olderEntries])
+    return filteredOlderEntries.filter(e => !e.billed && e.billable)
+  }, [filteredOlderEntries])
+
+  // Get unique matters from older entries for the filter dropdown
+  const olderEntriesMatters = useMemo(() => {
+    const matterIds = [...new Set(olderEntries.map(e => e.matterId).filter(Boolean))]
+    return matters.filter(m => matterIds.includes(m.id))
+  }, [olderEntries, matters])
 
   const unbilledTotal = useMemo(() => {
     return unbilledEntries.reduce((sum, e) => sum + e.amount, 0)
@@ -499,7 +545,11 @@ export function TimeTrackingPage() {
           <div className={styles.recentHeader}>
             <div className={styles.sectionTitleGroup}>
               <h3>All Time Entries</h3>
-              <span className={styles.sectionSubtitle}>Older entries</span>
+              <span className={styles.sectionSubtitle}>
+                {filteredOlderEntries.length === olderEntries.length 
+                  ? `${olderEntries.length} older entries` 
+                  : `Showing ${filteredOlderEntries.length} of ${olderEntries.length} entries`}
+              </span>
             </div>
             <div className={styles.headerActions}>
               {unbilledOlderEntries.length > 0 && (
@@ -514,6 +564,78 @@ export function TimeTrackingPage() {
               )}
             </div>
           </div>
+          
+          {/* Search and Filter Bar */}
+          <div className={styles.filterBar}>
+            <div className={styles.searchInputWrapper}>
+              <Search size={16} className={styles.searchIcon} />
+              <input
+                type="text"
+                placeholder="Search by description, matter, or client..."
+                value={olderEntriesSearch}
+                onChange={(e) => setOlderEntriesSearch(e.target.value)}
+                className={styles.searchInput}
+              />
+              {olderEntriesSearch && (
+                <button 
+                  className={styles.clearSearchBtn}
+                  onClick={() => setOlderEntriesSearch('')}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <div className={styles.filterControls}>
+              <select
+                value={olderEntriesFilterMatter}
+                onChange={(e) => setOlderEntriesFilterMatter(e.target.value)}
+                className={styles.filterSelect}
+              >
+                <option value="">All Matters</option>
+                {olderEntriesMatters.map(m => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+              <select
+                value={olderEntriesFilterStatus}
+                onChange={(e) => setOlderEntriesFilterStatus(e.target.value as 'all' | 'billed' | 'unbilled')}
+                className={styles.filterSelect}
+              >
+                <option value="all">All Status</option>
+                <option value="unbilled">Unbilled</option>
+                <option value="billed">Billed</option>
+              </select>
+              {(olderEntriesSearch || olderEntriesFilterMatter || olderEntriesFilterStatus !== 'all') && (
+                <button 
+                  className={styles.clearFiltersBtn}
+                  onClick={() => {
+                    setOlderEntriesSearch('')
+                    setOlderEntriesFilterMatter('')
+                    setOlderEntriesFilterStatus('all')
+                  }}
+                >
+                  Clear Filters
+                </button>
+              )}
+            </div>
+          </div>
+
+          {filteredOlderEntries.length === 0 ? (
+            <div className={styles.emptyState}>
+              <Filter size={24} />
+              <p>No entries match your filters</p>
+              <button 
+                className={styles.addEntryBtn}
+                onClick={() => {
+                  setOlderEntriesSearch('')
+                  setOlderEntriesFilterMatter('')
+                  setOlderEntriesFilterStatus('all')
+                }}
+              >
+                Clear Filters
+              </button>
+            </div>
+          ) : (
           <div className={styles.entriesTable}>
             <table>
               <thead>
@@ -529,7 +651,7 @@ export function TimeTrackingPage() {
                 </tr>
               </thead>
               <tbody>
-                {olderEntries.map(entry => (
+                {filteredOlderEntries.map(entry => (
                   <tr 
                     key={entry.id} 
                     className={clsx(
@@ -592,6 +714,7 @@ export function TimeTrackingPage() {
               </tbody>
             </table>
           </div>
+          )}
         </div>
       )}
 
