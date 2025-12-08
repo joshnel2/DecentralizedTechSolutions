@@ -178,14 +178,40 @@
 }
 
 .filterSelect {
-  padding: 10px 14px;
-  background: var(--bg-secondary, #f9fafb);
-  border: 1px solid var(--border-color, #e5e7eb);
-  border-radius: 8px;
-  font-size: 14px;
-  color: var(--text-primary, #111827);
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding: 10px 40px 10px 14px;
+  background-color: var(--apex-slate, #1E293B);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23CBD5E1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-md);
+  color: var(--apex-white, #F8FAFC);
+  font-size: 0.9375rem;
+  font-weight: 500;
   cursor: pointer;
   min-width: 160px;
+  transition: all 0.15s ease;
+}
+
+.filterSelect:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  background-color: var(--apex-deep, #0F172A);
+}
+
+.filterSelect:focus {
+  outline: none;
+  border-color: var(--apex-gold, #D97706);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+.filterSelect option {
+  background-color: var(--apex-deep, #0F172A);
+  color: var(--apex-white, #F8FAFC);
+  padding: 10px;
 }
 
 .selectAllBtn {
