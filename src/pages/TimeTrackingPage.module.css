@@ -686,6 +686,7 @@
 
 .formGroup input,
 .formGroup textarea {
+  width: 100%;
   padding: var(--space-sm) var(--space-md);
   background: var(--apex-slate);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -697,6 +698,7 @@
 }
 
 .formGroup select {
+  width: 100%;
   padding: 0.625rem 2.5rem 0.625rem 1rem;
   background-color: var(--apex-slate);
   background-image: 
