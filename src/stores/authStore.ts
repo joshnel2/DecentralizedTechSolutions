@@ -160,7 +160,7 @@ const rolePermissions: Record<UserRole, string[]> = {
     'matters:view',
     'clients:view',
     'documents:view',
-    'calendar:view'
+    'calendar:create', 'calendar:view', 'calendar:edit'
   ],
   billing: [
     'matters:view',
