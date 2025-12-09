@@ -4,13 +4,18 @@ import { authenticate, requirePermission } from '../middleware/auth.js';
 
 const router = Router();
 
-// Roles that see all invoices
+// Roles that can see all firm invoices (not just their own)
 const FULL_ACCESS_ROLES = ['owner', 'admin', 'billing'];
 
 // Get invoices
 router.get('/', authenticate, requirePermission('billing:view'), async (req, res) => {
   try {
     const { clientId, matterId, status, view = 'my', limit = 100, offset = 0 } = req.query;
+    
+    // Enforce role-based access: only privileged roles can view all invoices
+    // Other roles are forced to 'my' view regardless of what they request
+    const canViewAll = FULL_ACCESS_ROLES.includes(req.user.role);
+    const effectiveView = canViewAll ? view : 'my';
     
     let sql = `
       SELECT i.*,
@@ -26,7 +31,8 @@ router.get('/', authenticate, requirePermission('billing:view'), async (req, res
     let paramIndex = 2;
 
     // "My Invoices" filter - only show invoices user created or for their matters
-    if (view === 'my') {
+    // This is enforced for non-privileged roles regardless of the view parameter
+    if (effectiveView === 'my') {
       sql += ` AND (
         i.created_by = $${paramIndex}
         OR EXISTS (

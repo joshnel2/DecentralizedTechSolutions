@@ -27,19 +27,19 @@ export function BillingPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   
-  // Only admins can see the toggle
-  const isAdmin = user?.role === 'owner' || user?.role === 'admin'
+  // Only certain roles can see all firm billing (owner, admin, billing specialist)
+  const canViewAllBilling = user?.role === 'owner' || user?.role === 'admin' || user?.role === 'billing'
   const [viewFilter, setViewFilter] = useState<'my' | 'all'>('my')
   
   // Fetch data from API on mount or when view filter changes
-  // Non-admins always see 'my' view only
+  // Only privileged roles (owner, admin, billing) can see all firm billing
   useEffect(() => {
-    const effectiveView = isAdmin ? viewFilter : 'my'
+    const effectiveView = canViewAllBilling ? viewFilter : 'my'
     fetchInvoices({ view: effectiveView })
     fetchClients({ view: effectiveView })
     fetchMatters({ view: effectiveView })
     fetchTimeEntries({ limit: 500 })
-  }, [viewFilter, isAdmin])
+  }, [viewFilter, canViewAllBilling])
   
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -374,8 +374,8 @@ export function BillingPage() {
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <h1>{isAdmin && viewFilter === 'all' ? 'All Billing' : 'My Billing'}</h1>
-          <p className={styles.headerSubtitle}>{isAdmin && viewFilter === 'all' ? 'Manage all firm invoices, payments, and billing' : 'Your invoices, payments, and billing'}</p>
+          <h1>{canViewAllBilling && viewFilter === 'all' ? 'All Billing' : 'My Billing'}</h1>
+          <p className={styles.headerSubtitle}>{canViewAllBilling && viewFilter === 'all' ? 'Manage all firm invoices, payments, and billing' : 'Your invoices, payments, and billing'}</p>
         </div>
         <div className={styles.headerActions}>
           <button className={styles.aiBtn} onClick={() => openChat({
@@ -465,7 +465,7 @@ export function BillingPage() {
       {/* Filters */}
       <div className={styles.filters}>
         {/* View Toggle - Only for admins */}
-        {isAdmin && (
+        {canViewAllBilling && (
           <div className={styles.viewToggle}>
             {viewOptions.map(opt => (
               <button
