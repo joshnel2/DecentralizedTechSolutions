@@ -1338,11 +1338,13 @@ export default function SecureAdminDashboard() {
                           <h4><UserPlus size={16} /> Change Role</h4>
                           <div className={styles.actionContent}>
                             <select value={selectedRole} onChange={e => setSelectedRole(e.target.value)}>
+                              <option value="owner">Owner</option>
                               <option value="admin">Admin</option>
-                              <option value="partner">Partner</option>
                               <option value="attorney">Attorney</option>
                               <option value="paralegal">Paralegal</option>
                               <option value="staff">Staff</option>
+                              <option value="billing">Billing</option>
+                              <option value="readonly">Read Only</option>
                             </select>
                             <button 
                               onClick={handleChangeRole}
@@ -2163,11 +2165,13 @@ function UserModal({
                 value={formData.role}
                 onChange={e => setFormData({ ...formData, role: e.target.value })}
               >
+                <option value="owner">Owner</option>
                 <option value="admin">Admin</option>
-                <option value="partner">Partner</option>
                 <option value="attorney">Attorney</option>
                 <option value="paralegal">Paralegal</option>
                 <option value="staff">Staff</option>
+                <option value="billing">Billing</option>
+                <option value="readonly">Read Only</option>
               </select>
             </div>
             <div className={styles.formGroup}>

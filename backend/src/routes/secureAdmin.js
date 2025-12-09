@@ -624,7 +624,7 @@ router.post('/account-tools/change-role', requireSecureAdmin, async (req, res) =
       return res.status(400).json({ error: 'userId and newRole required' });
     }
 
-    const validRoles = ['admin', 'partner', 'attorney', 'paralegal', 'staff'];
+    const validRoles = ['owner', 'admin', 'attorney', 'paralegal', 'staff', 'billing', 'readonly'];
     if (!validRoles.includes(newRole)) {
       return res.status(400).json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` });
     }

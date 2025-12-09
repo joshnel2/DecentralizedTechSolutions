@@ -1094,14 +1094,39 @@
   color: #818cf8;
 }
 
-.roleBadge.admin {
-  background: rgba(220, 38, 38, 0.1);
-  color: #f87171;
+.roleBadge.owner {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
 }
 
-.roleBadge.partner {
-  background: rgba(234, 179, 8, 0.1);
-  color: #facc15;
+.roleBadge.admin {
+  background: rgba(139, 92, 246, 0.1);
+  color: #a78bfa;
+}
+
+.roleBadge.attorney {
+  background: rgba(59, 130, 246, 0.1);
+  color: #60a5fa;
+}
+
+.roleBadge.paralegal {
+  background: rgba(16, 185, 129, 0.1);
+  color: #34d399;
+}
+
+.roleBadge.staff {
+  background: rgba(100, 116, 139, 0.1);
+  color: #94a3b8;
+}
+
+.roleBadge.billing {
+  background: rgba(236, 72, 153, 0.1);
+  color: #f472b6;
+}
+
+.roleBadge.readonly {
+  background: rgba(148, 163, 184, 0.1);
+  color: #cbd5e1;
 }
 
 .actionBadge {
