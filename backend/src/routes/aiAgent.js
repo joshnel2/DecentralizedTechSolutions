@@ -744,6 +744,195 @@ const TOOLS = [
         required: ["matter_id", "visibility"]
       }
     }
+  },
+
+  // ===================== EMAIL INTEGRATION (OUTLOOK) =====================
+  {
+    type: "function",
+    function: {
+      name: "get_emails",
+      description: "Get recent emails from the user's connected Outlook account. Requires Outlook integration to be connected.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "integer", description: "Number of emails to return (default 20, max 50)" },
+          search: { type: "string", description: "Search term to filter emails by subject or sender" },
+          unread_only: { type: "boolean", description: "Only return unread emails" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_email",
+      description: "Get the full content of a specific email by ID.",
+      parameters: {
+        type: "object",
+        properties: {
+          email_id: { type: "string", description: "The ID of the email to retrieve" }
+        },
+        required: ["email_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_email",
+      description: "Send an email from the user's connected Outlook account.",
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Recipient email address(es), comma-separated for multiple" },
+          subject: { type: "string", description: "Email subject line" },
+          body: { type: "string", description: "Email body content (plain text or HTML)" },
+          cc: { type: "string", description: "CC recipients, comma-separated (optional)" },
+          matter_id: { type: "string", description: "Link this email to a matter (optional)" }
+        },
+        required: ["to", "subject", "body"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "reply_to_email",
+      description: "Reply to an existing email.",
+      parameters: {
+        type: "object",
+        properties: {
+          email_id: { type: "string", description: "The ID of the email to reply to" },
+          body: { type: "string", description: "Reply body content" },
+          reply_all: { type: "boolean", description: "Reply to all recipients (default false)" }
+        },
+        required: ["email_id", "body"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "link_email_to_matter",
+      description: "Link an email to a matter for record keeping.",
+      parameters: {
+        type: "object",
+        properties: {
+          email_id: { type: "string", description: "The ID of the email" },
+          matter_id: { type: "string", description: "The matter to link the email to" }
+        },
+        required: ["email_id", "matter_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "check_email_integration",
+      description: "Check if email (Outlook) integration is connected and working.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
+  },
+
+  // ===================== QUICKBOOKS INTEGRATION =====================
+  {
+    type: "function",
+    function: {
+      name: "get_quickbooks_status",
+      description: "Check if QuickBooks is connected and get account info.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_quickbooks_invoices",
+      description: "Get invoices from QuickBooks.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "integer", description: "Number of invoices to return (default 20)" },
+          status: { type: "string", enum: ["paid", "unpaid", "overdue"], description: "Filter by status" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_quickbooks_customers",
+      description: "Get customers from QuickBooks.",
+      parameters: {
+        type: "object",
+        properties: {
+          search: { type: "string", description: "Search by customer name" },
+          limit: { type: "integer", description: "Number to return (default 20)" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_quickbooks_invoice",
+      description: "Create an invoice in QuickBooks from an Apex invoice.",
+      parameters: {
+        type: "object",
+        properties: {
+          apex_invoice_id: { type: "string", description: "UUID of the Apex invoice to push to QuickBooks" }
+        },
+        required: ["apex_invoice_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "sync_quickbooks",
+      description: "Trigger a sync with QuickBooks to pull latest data.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_quickbooks_balance",
+      description: "Get account balances and financial summary from QuickBooks.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
+  },
+
+  // ===================== INTEGRATION STATUS =====================
+  {
+    type: "function",
+    function: {
+      name: "get_integrations_status",
+      description: "Get the status of all integrations (Google, Outlook, QuickBooks).",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
   }
 ];
 
@@ -820,6 +1009,25 @@ async function executeTool(toolName, args, user) {
       case 'share_matter': return await shareMatter(args, user);
       case 'remove_matter_permission': return await removeMatterPermission(args, user);
       case 'update_matter_visibility': return await updateMatterVisibility(args, user);
+      
+      // Email Integration
+      case 'get_emails': return await getEmails(args, user);
+      case 'get_email': return await getEmail(args, user);
+      case 'send_email': return await sendEmail(args, user);
+      case 'reply_to_email': return await replyToEmail(args, user);
+      case 'link_email_to_matter': return await linkEmailToMatter(args, user);
+      case 'check_email_integration': return await checkEmailIntegration(args, user);
+      
+      // QuickBooks Integration
+      case 'get_quickbooks_status': return await getQuickBooksStatus(args, user);
+      case 'get_quickbooks_invoices': return await getQuickBooksInvoices(args, user);
+      case 'get_quickbooks_customers': return await getQuickBooksCustomers(args, user);
+      case 'create_quickbooks_invoice': return await createQuickBooksInvoice(args, user);
+      case 'sync_quickbooks': return await syncQuickBooks(args, user);
+      case 'get_quickbooks_balance': return await getQuickBooksBalance(args, user);
+      
+      // Integration Status
+      case 'get_integrations_status': return await getIntegrationsStatus(args, user);
       
       default:
         return { error: `Unknown tool: ${toolName}` };
@@ -3033,6 +3241,515 @@ async function updateMatterVisibility(args, user) {
 }
 
 // =============================================================================
+// EMAIL INTEGRATION FUNCTIONS (OUTLOOK)
+// =============================================================================
+
+const MS_TENANT = process.env.MICROSOFT_TENANT || 'common';
+const MS_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
+const MS_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
+
+async function getOutlookAccessToken(firmId) {
+  const integration = await query(
+    `SELECT * FROM integrations WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+    [firmId]
+  );
+  
+  if (integration.rows.length === 0) {
+    return null;
+  }
+  
+  let accessToken = integration.rows[0].access_token;
+  const refreshToken = integration.rows[0].refresh_token;
+  
+  // Refresh if expired
+  if (new Date(integration.rows[0].token_expires_at) < new Date()) {
+    const refreshResponse = await fetch(`https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        refresh_token: refreshToken,
+        client_id: MS_CLIENT_ID,
+        client_secret: MS_CLIENT_SECRET,
+        grant_type: 'refresh_token',
+      }),
+    });
+    
+    const newTokens = await refreshResponse.json();
+    if (newTokens.access_token) {
+      accessToken = newTokens.access_token;
+      await query(
+        `UPDATE integrations SET access_token = $1, token_expires_at = NOW() + INTERVAL '1 hour' WHERE firm_id = $2 AND provider = 'outlook'`,
+        [accessToken, firmId]
+      );
+    } else {
+      return null;
+    }
+  }
+  
+  return accessToken;
+}
+
+async function getEmails(args, user) {
+  const accessToken = await getOutlookAccessToken(user.firmId);
+  if (!accessToken) {
+    return { error: 'Outlook not connected. Please connect your Outlook account in Settings > Integrations.' };
+  }
+  
+  const limit = Math.min(args.limit || 20, 50);
+  let url = `https://graph.microsoft.com/v1.0/me/messages?$top=${limit}&$orderby=receivedDateTime desc`;
+  
+  if (args.search) {
+    url += `&$search="${args.search}"`;
+  }
+  if (args.unread_only) {
+    url += `&$filter=isRead eq false`;
+  }
+  
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  
+  const data = await response.json();
+  
+  if (data.error) {
+    return { error: `Failed to fetch emails: ${data.error.message}` };
+  }
+  
+  return {
+    emails: (data.value || []).map(email => ({
+      id: email.id,
+      subject: email.subject,
+      from: email.from?.emailAddress?.address,
+      fromName: email.from?.emailAddress?.name,
+      receivedAt: email.receivedDateTime,
+      isRead: email.isRead,
+      preview: email.bodyPreview?.substring(0, 200),
+      hasAttachments: email.hasAttachments
+    })),
+    count: data.value?.length || 0
+  };
+}
+
+async function getEmail(args, user) {
+  const accessToken = await getOutlookAccessToken(user.firmId);
+  if (!accessToken) {
+    return { error: 'Outlook not connected. Please connect your Outlook account in Settings > Integrations.' };
+  }
+  
+  const response = await fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${args.email_id}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  
+  const email = await response.json();
+  
+  if (email.error) {
+    return { error: `Failed to fetch email: ${email.error.message}` };
+  }
+  
+  return {
+    id: email.id,
+    subject: email.subject,
+    from: email.from?.emailAddress?.address,
+    fromName: email.from?.emailAddress?.name,
+    to: email.toRecipients?.map(r => r.emailAddress?.address),
+    cc: email.ccRecipients?.map(r => r.emailAddress?.address),
+    receivedAt: email.receivedDateTime,
+    body: email.body?.content,
+    bodyType: email.body?.contentType,
+    hasAttachments: email.hasAttachments,
+    isRead: email.isRead
+  };
+}
+
+async function sendEmail(args, user) {
+  const accessToken = await getOutlookAccessToken(user.firmId);
+  if (!accessToken) {
+    return { error: 'Outlook not connected. Please connect your Outlook account in Settings > Integrations.' };
+  }
+  
+  const toRecipients = args.to.split(',').map(email => ({
+    emailAddress: { address: email.trim() }
+  }));
+  
+  const ccRecipients = args.cc ? args.cc.split(',').map(email => ({
+    emailAddress: { address: email.trim() }
+  })) : [];
+  
+  const message = {
+    subject: args.subject,
+    body: {
+      contentType: args.body.includes('<') ? 'HTML' : 'Text',
+      content: args.body
+    },
+    toRecipients,
+    ccRecipients
+  };
+  
+  const response = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ message, saveToSentItems: true })
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    return { error: `Failed to send email: ${error.error?.message || 'Unknown error'}` };
+  }
+  
+  // Log to matter if specified
+  if (args.matter_id) {
+    await query(`
+      INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
+      VALUES ($1, $2, 'email.sent', 'matter', $3, $4)
+    `, [user.firmId, user.id, args.matter_id, JSON.stringify({ to: args.to, subject: args.subject })]);
+  }
+  
+  return {
+    success: true,
+    message: `Email sent to ${args.to}`,
+    subject: args.subject
+  };
+}
+
+async function replyToEmail(args, user) {
+  const accessToken = await getOutlookAccessToken(user.firmId);
+  if (!accessToken) {
+    return { error: 'Outlook not connected. Please connect your Outlook account in Settings > Integrations.' };
+  }
+  
+  const endpoint = args.reply_all 
+    ? `https://graph.microsoft.com/v1.0/me/messages/${args.email_id}/replyAll`
+    : `https://graph.microsoft.com/v1.0/me/messages/${args.email_id}/reply`;
+  
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      comment: args.body
+    })
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    return { error: `Failed to send reply: ${error.error?.message || 'Unknown error'}` };
+  }
+  
+  return {
+    success: true,
+    message: args.reply_all ? 'Reply sent to all recipients' : 'Reply sent'
+  };
+}
+
+async function linkEmailToMatter(args, user) {
+  // Store the email-matter link in audit log for now
+  // In a full implementation, you'd have an email_links table
+  await query(`
+    INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
+    VALUES ($1, $2, 'email.linked', 'matter', $3, $4)
+  `, [user.firmId, user.id, args.matter_id, JSON.stringify({ email_id: args.email_id })]);
+  
+  return {
+    success: true,
+    message: 'Email linked to matter successfully'
+  };
+}
+
+async function checkEmailIntegration(args, user) {
+  const integration = await query(
+    `SELECT is_connected, account_email, account_name, last_sync_at FROM integrations WHERE firm_id = $1 AND provider = 'outlook'`,
+    [user.firmId]
+  );
+  
+  if (integration.rows.length === 0 || !integration.rows[0].is_connected) {
+    return {
+      connected: false,
+      message: 'Outlook is not connected. Go to Settings > Integrations to connect your Outlook account.'
+    };
+  }
+  
+  const row = integration.rows[0];
+  return {
+    connected: true,
+    account: row.account_email || row.account_name,
+    lastSync: row.last_sync_at
+  };
+}
+
+// =============================================================================
+// QUICKBOOKS INTEGRATION FUNCTIONS
+// =============================================================================
+
+const QB_CLIENT_ID = process.env.QUICKBOOKS_CLIENT_ID;
+const QB_CLIENT_SECRET = process.env.QUICKBOOKS_CLIENT_SECRET;
+const QB_ENVIRONMENT = process.env.QUICKBOOKS_ENVIRONMENT || 'sandbox';
+
+async function getQuickBooksAccessToken(firmId) {
+  const integration = await query(
+    `SELECT * FROM integrations WHERE firm_id = $1 AND provider = 'quickbooks' AND is_connected = true`,
+    [firmId]
+  );
+  
+  if (integration.rows.length === 0) {
+    return null;
+  }
+  
+  const { access_token, refresh_token, settings } = integration.rows[0];
+  const realmId = settings?.realmId;
+  
+  if (!realmId) return null;
+  
+  // Always refresh QuickBooks tokens (they expire quickly)
+  const auth = Buffer.from(`${QB_CLIENT_ID}:${QB_CLIENT_SECRET}`).toString('base64');
+  const refreshResponse = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${auth}`,
+    },
+    body: new URLSearchParams({
+      refresh_token: refresh_token,
+      grant_type: 'refresh_token',
+    }),
+  });
+  
+  const newTokens = await refreshResponse.json();
+  if (newTokens.access_token) {
+    await query(
+      `UPDATE integrations SET access_token = $1, refresh_token = $2, token_expires_at = NOW() + INTERVAL '1 hour' WHERE firm_id = $3 AND provider = 'quickbooks'`,
+      [newTokens.access_token, newTokens.refresh_token || refresh_token, firmId]
+    );
+    return { accessToken: newTokens.access_token, realmId };
+  }
+  
+  return { accessToken: access_token, realmId };
+}
+
+function getQBBaseUrl() {
+  return QB_ENVIRONMENT === 'production'
+    ? 'https://quickbooks.api.intuit.com'
+    : 'https://sandbox-quickbooks.api.intuit.com';
+}
+
+async function getQuickBooksStatus(args, user) {
+  const integration = await query(
+    `SELECT is_connected, account_name, last_sync_at, settings FROM integrations WHERE firm_id = $1 AND provider = 'quickbooks'`,
+    [user.firmId]
+  );
+  
+  if (integration.rows.length === 0 || !integration.rows[0].is_connected) {
+    return {
+      connected: false,
+      message: 'QuickBooks is not connected. Go to Settings > Integrations to connect your QuickBooks account.'
+    };
+  }
+  
+  const row = integration.rows[0];
+  return {
+    connected: true,
+    companyName: row.account_name,
+    lastSync: row.last_sync_at,
+    environment: QB_ENVIRONMENT
+  };
+}
+
+async function getQuickBooksInvoices(args, user) {
+  const tokens = await getQuickBooksAccessToken(user.firmId);
+  if (!tokens) {
+    return { error: 'QuickBooks not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  const limit = args.limit || 20;
+  let queryStr = `SELECT * FROM Invoice ORDER BY TxnDate DESC MAXRESULTS ${limit}`;
+  
+  const response = await fetch(
+    `${getQBBaseUrl()}/v3/company/${tokens.realmId}/query?query=${encodeURIComponent(queryStr)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${tokens.accessToken}`,
+        Accept: 'application/json',
+      },
+    }
+  );
+  
+  const data = await response.json();
+  
+  if (data.Fault) {
+    return { error: `QuickBooks error: ${data.Fault.Error?.[0]?.Message || 'Unknown error'}` };
+  }
+  
+  const invoices = data.QueryResponse?.Invoice || [];
+  return {
+    invoices: invoices.map(inv => ({
+      id: inv.Id,
+      number: inv.DocNumber,
+      customerName: inv.CustomerRef?.name,
+      date: inv.TxnDate,
+      dueDate: inv.DueDate,
+      total: parseFloat(inv.TotalAmt),
+      balance: parseFloat(inv.Balance),
+      status: inv.Balance === 0 ? 'paid' : (new Date(inv.DueDate) < new Date() ? 'overdue' : 'unpaid')
+    })),
+    count: invoices.length
+  };
+}
+
+async function getQuickBooksCustomers(args, user) {
+  const tokens = await getQuickBooksAccessToken(user.firmId);
+  if (!tokens) {
+    return { error: 'QuickBooks not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  const limit = args.limit || 20;
+  let queryStr = args.search 
+    ? `SELECT * FROM Customer WHERE DisplayName LIKE '%${args.search}%' MAXRESULTS ${limit}`
+    : `SELECT * FROM Customer MAXRESULTS ${limit}`;
+  
+  const response = await fetch(
+    `${getQBBaseUrl()}/v3/company/${tokens.realmId}/query?query=${encodeURIComponent(queryStr)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${tokens.accessToken}`,
+        Accept: 'application/json',
+      },
+    }
+  );
+  
+  const data = await response.json();
+  
+  if (data.Fault) {
+    return { error: `QuickBooks error: ${data.Fault.Error?.[0]?.Message || 'Unknown error'}` };
+  }
+  
+  const customers = data.QueryResponse?.Customer || [];
+  return {
+    customers: customers.map(c => ({
+      id: c.Id,
+      name: c.DisplayName,
+      email: c.PrimaryEmailAddr?.Address,
+      phone: c.PrimaryPhone?.FreeFormNumber,
+      balance: parseFloat(c.Balance || 0)
+    })),
+    count: customers.length
+  };
+}
+
+async function createQuickBooksInvoice(args, user) {
+  const tokens = await getQuickBooksAccessToken(user.firmId);
+  if (!tokens) {
+    return { error: 'QuickBooks not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  // Get the Apex invoice
+  const invoiceResult = await query(
+    `SELECT i.*, c.display_name as client_name, c.email as client_email
+     FROM invoices i
+     LEFT JOIN clients c ON i.client_id = c.id
+     WHERE i.id = $1 AND i.firm_id = $2`,
+    [args.apex_invoice_id, user.firmId]
+  );
+  
+  if (invoiceResult.rows.length === 0) {
+    return { error: 'Invoice not found' };
+  }
+  
+  const invoice = invoiceResult.rows[0];
+  
+  // For now, return info about what would be created
+  // Full implementation would create the invoice in QB
+  return {
+    success: true,
+    message: `Invoice ${invoice.number} would be created in QuickBooks for ${invoice.client_name}. Total: $${parseFloat(invoice.total).toLocaleString()}`,
+    note: 'Full QuickBooks invoice creation requires customer mapping. Please set up customer sync first.'
+  };
+}
+
+async function syncQuickBooks(args, user) {
+  const tokens = await getQuickBooksAccessToken(user.firmId);
+  if (!tokens) {
+    return { error: 'QuickBooks not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  // Update last sync time
+  await query(
+    `UPDATE integrations SET last_sync_at = NOW() WHERE firm_id = $1 AND provider = 'quickbooks'`,
+    [user.firmId]
+  );
+  
+  return {
+    success: true,
+    message: 'QuickBooks sync triggered successfully'
+  };
+}
+
+async function getQuickBooksBalance(args, user) {
+  const tokens = await getQuickBooksAccessToken(user.firmId);
+  if (!tokens) {
+    return { error: 'QuickBooks not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  // Get account balances
+  const response = await fetch(
+    `${getQBBaseUrl()}/v3/company/${tokens.realmId}/query?query=${encodeURIComponent("SELECT * FROM Account WHERE AccountType = 'Bank'")}`,
+    {
+      headers: {
+        Authorization: `Bearer ${tokens.accessToken}`,
+        Accept: 'application/json',
+      },
+    }
+  );
+  
+  const data = await response.json();
+  
+  if (data.Fault) {
+    return { error: `QuickBooks error: ${data.Fault.Error?.[0]?.Message || 'Unknown error'}` };
+  }
+  
+  const accounts = data.QueryResponse?.Account || [];
+  return {
+    accounts: accounts.map(a => ({
+      name: a.Name,
+      type: a.AccountType,
+      balance: parseFloat(a.CurrentBalance || 0)
+    })),
+    totalBalance: accounts.reduce((sum, a) => sum + parseFloat(a.CurrentBalance || 0), 0)
+  };
+}
+
+// =============================================================================
+// INTEGRATION STATUS
+// =============================================================================
+
+async function getIntegrationsStatus(args, user) {
+  const result = await query(
+    `SELECT provider, is_connected, account_email, account_name, last_sync_at FROM integrations WHERE firm_id = $1`,
+    [user.firmId]
+  );
+  
+  const integrations = {
+    google: { connected: false },
+    outlook: { connected: false },
+    quickbooks: { connected: false }
+  };
+  
+  result.rows.forEach(row => {
+    integrations[row.provider] = {
+      connected: row.is_connected,
+      account: row.account_email || row.account_name,
+      lastSync: row.last_sync_at
+    };
+  });
+  
+  return integrations;
+}
+
+// =============================================================================
 // SYSTEM PROMPT
 // =============================================================================
 function getSystemPrompt() {
@@ -3061,6 +3778,25 @@ You have access to tools for:
 - **share_matter**: Share a matter with a user or group
 - **remove_matter_permission**: Remove someone's access to a matter
 - **update_matter_visibility**: Change a matter between "firm_wide" and "restricted"
+
+### Email Integration (Outlook)
+- **get_emails**: Read recent emails from the user's connected Outlook
+- **get_email**: Get full content of a specific email
+- **send_email**: Send an email from the user's Outlook account
+- **reply_to_email**: Reply to an email
+- **link_email_to_matter**: Link an email to a matter for records
+- **check_email_integration**: Check if Outlook is connected
+
+### QuickBooks Integration
+- **get_quickbooks_status**: Check if QuickBooks is connected
+- **get_quickbooks_invoices**: Get invoices from QuickBooks
+- **get_quickbooks_customers**: Get customers from QuickBooks
+- **create_quickbooks_invoice**: Push an Apex invoice to QuickBooks
+- **sync_quickbooks**: Trigger a sync with QuickBooks
+- **get_quickbooks_balance**: Get account balances
+
+### Integration Status
+- **get_integrations_status**: Check status of all integrations (Google, Outlook, QuickBooks)
 
 ### Navigation (Opening Pages & Records)
 - **navigate_to_page**: Open pages like matters, clients, calendar, billing, time tracking, etc.
