@@ -7,7 +7,8 @@ import {
   ChevronRight, XCircle, CheckCircle2, UserPlus, Key,
   Mail, ToggleLeft, ToggleRight, ArrowRightLeft, Zap,
   TrendingUp, UserCheck, AlertCircle, BarChart3, Copy,
-  Settings, ChevronDown, ExternalLink, Briefcase, FileText
+  Settings, ChevronDown, ExternalLink, Briefcase, FileText,
+  ShieldCheck, Check, X
 } from 'lucide-react'
 import styles from './SecureAdminDashboard.module.css'
 
