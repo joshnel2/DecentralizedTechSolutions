@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useDataStore } from '../stores/dataStore'
+import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { 
   ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon,
-  Clock, MapPin, Users, Sparkles, Edit2, Trash2, X
+  Clock, MapPin, Users, Sparkles, Edit2, Trash2, X, Video, Link2, UserPlus, Check
 } from 'lucide-react'
 import { 
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
@@ -16,13 +17,15 @@ import styles from './CalendarPage.module.css'
 
 export function CalendarPage() {
   const { events, matters, clients, addEvent, updateEvent, deleteEvent, fetchEvents, fetchMatters } = useDataStore()
+  const { teamMembers, loadTeamMembers } = useAuthStore()
   const { openChat } = useAIChat()
   
   // Fetch data from API on mount
   useEffect(() => {
     fetchEvents()
     fetchMatters()
-  }, [fetchEvents, fetchMatters])
+    loadTeamMembers()
+  }, [fetchEvents, fetchMatters, loadTeamMembers])
   
   const [currentDate, setCurrentDate] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
@@ -520,6 +523,7 @@ export function CalendarPage() {
           }}
           matters={matters}
           defaultDate={selectedDate}
+          teamMembers={teamMembers}
         />
       )}
       
@@ -539,14 +543,16 @@ export function CalendarPage() {
           matters={matters}
           defaultDate={selectedDate}
           existingEvent={editingEvent}
+          teamMembers={teamMembers}
         />
       )}
     </div>
   )
 }
 
-function NewEventModal({ onClose, onSave, matters, defaultDate, existingEvent }: { onClose: () => void; onSave: (data: any) => Promise<void>; matters: any[]; defaultDate: Date | null; existingEvent?: any }) {
+function NewEventModal({ onClose, onSave, matters, defaultDate, existingEvent, teamMembers }: { onClose: () => void; onSave: (data: any) => Promise<void>; matters: any[]; defaultDate: Date | null; existingEvent?: any; teamMembers: any[] }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showAttendeePicker, setShowAttendeePicker] = useState(false)
   const [formData, setFormData] = useState({
     title: existingEvent?.title || '',
     description: existingEvent?.description || '',
@@ -560,10 +566,25 @@ function NewEventModal({ onClose, onSave, matters, defaultDate, existingEvent }:
       : (defaultDate ? format(defaultDate, "yyyy-MM-dd'T'10:00") : format(new Date(), "yyyy-MM-dd'T'10:00")),
     allDay: existingEvent?.allDay || false,
     location: existingEvent?.location || '',
+    meetingLink: existingEvent?.meetingLink || '',
     attendees: existingEvent?.attendees || [],
     reminders: existingEvent?.reminders || [{ type: 'notification', minutes: 15 }],
     color: existingEvent?.color || '#3B82F6'
   })
+
+  const toggleAttendee = (userId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      attendees: prev.attendees.includes(userId)
+        ? prev.attendees.filter((id: string) => id !== userId)
+        : [...prev.attendees, userId]
+    }))
+  }
+
+  const getAttendeeName = (userId: string) => {
+    const member = teamMembers.find(m => m.id === userId)
+    return member ? `${member.firstName} ${member.lastName}` : 'Unknown'
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -573,7 +594,11 @@ function NewEventModal({ onClose, onSave, matters, defaultDate, existingEvent }:
       await onSave({
         ...formData,
         startTime: new Date(formData.startTime).toISOString(),
-        endTime: new Date(formData.endTime).toISOString()
+        endTime: new Date(formData.endTime).toISOString(),
+        // Combine location and meeting link for display purposes
+        location: formData.meetingLink 
+          ? (formData.location ? `${formData.location} | ${formData.meetingLink}` : formData.meetingLink)
+          : formData.location
       })
     } finally {
       setIsSubmitting(false)
@@ -669,8 +694,65 @@ function NewEventModal({ onClose, onSave, matters, defaultDate, existingEvent }:
               type="text"
               value={formData.location}
               onChange={(e) => setFormData({...formData, location: e.target.value})}
-              placeholder="Location or video conference link"
+              placeholder="Office, courthouse, etc."
             />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label><Video size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />Meeting Link (Zoom, Teams, etc.)</label>
+            <input
+              type="url"
+              value={formData.meetingLink}
+              onChange={(e) => setFormData({...formData, meetingLink: e.target.value})}
+              placeholder="https://zoom.us/j/... or https://teams.microsoft.com/..."
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label><Users size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />Invite Team Members</label>
+            <div className={styles.attendeesSection}>
+              {formData.attendees.length > 0 && (
+                <div className={styles.selectedAttendees}>
+                  {formData.attendees.map((userId: string) => (
+                    <span key={userId} className={styles.attendeeTag}>
+                      {getAttendeeName(userId)}
+                      <button type="button" onClick={() => toggleAttendee(userId)}>×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className={styles.attendeePickerWrapper}>
+                <button 
+                  type="button" 
+                  className={styles.addAttendeeBtn}
+                  onClick={() => setShowAttendeePicker(!showAttendeePicker)}
+                >
+                  <UserPlus size={16} />
+                  {formData.attendees.length === 0 ? 'Add attendees' : 'Add more'}
+                </button>
+                {showAttendeePicker && (
+                  <div className={styles.attendeePicker}>
+                    {teamMembers.length > 0 ? (
+                      teamMembers.map(member => (
+                        <div 
+                          key={member.id} 
+                          className={clsx(styles.attendeeOption, formData.attendees.includes(member.id) && styles.selected)}
+                          onClick={() => toggleAttendee(member.id)}
+                        >
+                          <div className={styles.attendeeInfo}>
+                            <span className={styles.attendeeName}>{member.firstName} {member.lastName}</span>
+                            <span className={styles.attendeeEmail}>{member.email}</span>
+                          </div>
+                          {formData.attendees.includes(member.id) && <Check size={16} />}
+                        </div>
+                      ))
+                    ) : (
+                      <div className={styles.noAttendees}>No team members found</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className={styles.formGroup}>

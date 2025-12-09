@@ -1023,6 +1023,130 @@
   transform: scale(1.1);
 }
 
+/* Attendee Picker Styles */
+.attendeesSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.selectedAttendees {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.attendeeTag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  color: var(--apex-gold);
+}
+
+.attendeeTag button {
+  background: none;
+  border: none;
+  color: var(--apex-gold);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 2px;
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+}
+
+.attendeeTag button:hover {
+  opacity: 1;
+}
+
+.attendeePickerWrapper {
+  position: relative;
+}
+
+.addAttendeeBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.addAttendeeBtn:hover {
+  border-color: var(--apex-gold);
+  color: var(--apex-gold);
+  background: rgba(245, 158, 11, 0.05);
+}
+
+.attendeePicker {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+}
+
+.attendeeOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.attendeeOption:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.attendeeOption.selected {
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.attendeeOption.selected svg {
+  color: var(--apex-gold);
+}
+
+.attendeeInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.attendeeName {
+  font-size: 0.9375rem;
+  color: var(--apex-white);
+}
+
+.attendeeEmail {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
+.noAttendees {
+  padding: var(--space-lg);
+  text-align: center;
+  color: var(--apex-text);
+  font-size: 0.875rem;
+}
+
 .modalActions {
   display: flex;
   justify-content: flex-end;
