@@ -619,6 +619,21 @@ router.post('/chat', authenticate, async (req, res) => {
       return res.status(500).json({ error: 'AI service not configured' });
     }
 
+    // Fetch user's custom AI instructions
+    let userCustomInstructions = '';
+    try {
+      const userResult = await query(
+        'SELECT ai_custom_instructions FROM users WHERE id = $1',
+        [req.user.id]
+      );
+      if (userResult.rows.length > 0 && userResult.rows[0].ai_custom_instructions) {
+        userCustomInstructions = userResult.rows[0].ai_custom_instructions;
+      }
+    } catch (err) {
+      console.error('Error fetching user AI instructions:', err);
+      // Continue without custom instructions if there's an error
+    }
+
     // Check if there's image data in the context (for vision analysis)
     const imageData = additionalContext?.imageData;
     const hasImage = imageData && imageData.base64 && imageData.mimeType;
@@ -629,7 +644,15 @@ router.post('/chat', authenticate, async (req, res) => {
     const pageContext = await buildContext(page, req.user.firmId, req.user.id, contextWithoutImage);
 
     // Build system prompt - adjust for image analysis if needed
+    // Include user's custom instructions if they exist
     let systemPrompt = SYSTEM_PROMPT;
+    
+    if (userCustomInstructions) {
+      systemPrompt = `${SYSTEM_PROMPT}
+
+USER'S CUSTOM INSTRUCTIONS (follow these preferences when responding to this user):
+${userCustomInstructions}`;
+    }
     if (hasImage) {
       systemPrompt = `You are an intelligent AI assistant for a law firm management platform called Apex Legal. 
 
@@ -648,7 +671,10 @@ For legal documents, identify:
 - Any notable terms or clauses visible
 
 Be professional, accurate, and helpful.
-
+${userCustomInstructions ? `
+USER'S CUSTOM INSTRUCTIONS (follow these preferences when responding to this user):
+${userCustomInstructions}
+` : ''}
 ${pageContext}`;
     }
 

@@ -695,6 +695,23 @@ export const firmApi = {
 };
 
 // ============================================
+// USER SETTINGS API
+// ============================================
+
+export const userSettingsApi = {
+  async getAISettings() {
+    return fetchWithAuth('/user-settings/ai');
+  },
+
+  async updateAISettings(data: { aiCustomInstructions: string }) {
+    return fetchWithAuth('/user-settings/ai', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+};
+
+// ============================================
 // AI API
 // ============================================
 
@@ -1140,6 +1157,7 @@ export default {
   team: teamApi,
   firm: firmApi,
   ai: aiApi,
+  userSettings: userSettingsApi,
   integrations: integrationsApi,
   admin: adminApi,
   billingData: billingDataApi,

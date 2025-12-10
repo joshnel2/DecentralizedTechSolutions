@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
+import { userSettingsApi } from '../services/api'
 import { 
   User, Lock, Bell, Shield, Save, Calendar, Clock, 
   Palette, Download, Trash2, CheckCircle2, ArrowLeft,
-  Tags, Plus, Edit2
+  Tags, Plus, Edit2, Bot, Sparkles
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
@@ -74,11 +75,47 @@ export function SettingsPage() {
     compactMode: false
   })
 
-  const handleSave = () => {
+  const [aiSettings, setAiSettings] = useState({
+    customInstructions: ''
+  })
+  const [aiSettingsLoading, setAiSettingsLoading] = useState(false)
+
+  // Load AI settings on mount
+  useEffect(() => {
+    const loadAISettings = async () => {
+      try {
+        const result = await userSettingsApi.getAISettings()
+        setAiSettings({
+          customInstructions: result.aiCustomInstructions || ''
+        })
+      } catch (error) {
+        console.error('Failed to load AI settings:', error)
+      }
+    }
+    loadAISettings()
+  }, [])
+
+  const handleSave = async () => {
+    // Save profile updates
     updateUser({
       firstName: profileData.firstName,
       lastName: profileData.lastName
     })
+
+    // Save AI settings if on that tab
+    if (activeTab === 'aiPreferences') {
+      setAiSettingsLoading(true)
+      try {
+        await userSettingsApi.updateAISettings({
+          aiCustomInstructions: aiSettings.customInstructions
+        })
+      } catch (error) {
+        console.error('Failed to save AI settings:', error)
+      } finally {
+        setAiSettingsLoading(false)
+      }
+    }
+
     setSaved(true)
     setTimeout(() => setSaved(false), 3000)
   }
@@ -112,6 +149,7 @@ export function SettingsPage() {
     { id: 'calendar', label: 'Calendar', icon: Calendar },
     { id: 'billing', label: 'Time Tracking', icon: Clock },
     { id: 'matterTypes', label: 'Matter Types', icon: Tags },
+    { id: 'aiPreferences', label: 'AI Assistant', icon: Bot },
     { id: 'display', label: 'Display', icon: Palette }
   ]
 
@@ -856,6 +894,92 @@ export function SettingsPage() {
                     </p>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* AI Preferences Tab */}
+          {activeTab === 'aiPreferences' && (
+            <div className={styles.tabContent}>
+              <div className={styles.section}>
+                <div className={styles.sectionHeader}>
+                  <Bot size={20} />
+                  <div>
+                    <h2>AI Assistant Preferences</h2>
+                    <p>Customize how the AI assistant behaves when interacting with you</p>
+                  </div>
+                </div>
+
+                <div style={{
+                  background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(59, 130, 246, 0.1))',
+                  border: '1px solid rgba(139, 92, 246, 0.2)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: 'var(--spacing-lg)',
+                  marginBottom: 'var(--spacing-lg)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '1rem' }}>
+                    <Sparkles size={20} style={{ color: 'var(--gold-primary)', flexShrink: 0, marginTop: '2px' }} />
+                    <div>
+                      <h3 style={{ margin: 0, marginBottom: '0.5rem', fontSize: '1rem', color: 'var(--text-primary)' }}>
+                        Custom Instructions
+                      </h3>
+                      <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                        Tell the AI about yourself and how you'd like it to respond. These instructions will be applied to all your conversations with the AI assistant.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>What would you like the AI to know about you?</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                      {aiSettings.customInstructions.length}/2000
+                    </span>
+                  </label>
+                  <textarea
+                    value={aiSettings.customInstructions}
+                    onChange={e => setAiSettings({ ...aiSettings, customInstructions: e.target.value.slice(0, 2000) })}
+                    placeholder="Examples:
+• I specialize in intellectual property and patent law
+• I prefer concise, bullet-point responses
+• Always use formal language in your responses
+• When drafting documents, use our firm's standard formatting
+• I work with clients primarily in the healthcare industry
+• Remind me about statute of limitations when relevant"
+                    rows={8}
+                    style={{ 
+                      resize: 'vertical',
+                      minHeight: '180px',
+                      fontFamily: 'inherit',
+                      lineHeight: 1.6
+                    }}
+                  />
+                </div>
+
+                <div style={{
+                  background: 'var(--bg-tertiary)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: 'var(--spacing-md)',
+                  marginTop: 'var(--spacing-md)'
+                }}>
+                  <h4 style={{ margin: 0, marginBottom: '0.75rem', fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                    💡 Tips for effective instructions:
+                  </h4>
+                  <ul style={{ 
+                    margin: 0, 
+                    paddingLeft: '1.25rem', 
+                    fontSize: '0.85rem', 
+                    color: 'var(--text-secondary)',
+                    lineHeight: 1.7
+                  }}>
+                    <li>Share your practice area or specialization</li>
+                    <li>Mention preferred response format (detailed vs. concise)</li>
+                    <li>Include any firm-specific terminology or procedures</li>
+                    <li>Specify your preferred communication style</li>
+                    <li>Note any recurring tasks you need help with</li>
+                  </ul>
+                </div>
               </div>
             </div>
           )}
