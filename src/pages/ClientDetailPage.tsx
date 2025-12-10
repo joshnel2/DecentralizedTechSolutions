@@ -10,6 +10,7 @@ import {
 import { teamApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import { format, parseISO, addDays } from 'date-fns'
+import { parseAsLocalDate, localDateToISO } from '../utils/dateUtils'
 import { clsx } from 'clsx'
 import styles from './DetailPage.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
@@ -889,10 +890,10 @@ export function ClientDetailPage() {
                     )}
                     <div className={styles.timeEntryDate}>
                       <span className={styles.timeEntryDay}>
-                        {format(parseISO(entry.date), 'd')}
+                        {format(parseAsLocalDate(entry.date), 'd')}
                       </span>
                       <span className={styles.timeEntryMonth}>
-                        {format(parseISO(entry.date), 'MMM')}
+                        {format(parseAsLocalDate(entry.date), 'MMM')}
                       </span>
                     </div>
                     <div className={styles.timeEntryContent}>
@@ -1620,7 +1621,7 @@ function TimeEntryModal({ clientName, clientMatters, existingEntry, onClose, onS
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     matterId: existingEntry?.matterId || clientMatters[0]?.id || '',
-    date: existingEntry?.date ? format(parseISO(existingEntry.date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+    date: existingEntry?.date ? format(parseAsLocalDate(existingEntry.date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
     hours: existingEntry?.hours || 1,
     rate: existingEntry?.rate || clientMatters[0]?.billingRate || 450,
     description: existingEntry?.description || '',

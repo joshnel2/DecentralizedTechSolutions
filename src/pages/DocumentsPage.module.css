@@ -237,10 +237,39 @@
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  transition: all var(--transition-fast);
+}
+
+.nameCell:hover {
+  color: var(--apex-gold);
 }
 
 .nameCell .fileIcon {
   font-size: 1.25rem;
+}
+
+.docNameLink {
+  transition: color var(--transition-fast);
+}
+
+.nameCell:hover .docNameLink {
+  color: var(--apex-gold-bright);
+  text-decoration: underline;
+}
+
+.actionBtn {
+  background: none !important;
+  border: none;
+  padding: 6px !important;
+  color: var(--apex-text) !important;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.actionBtn:hover {
+  background: var(--apex-slate) !important;
+  color: var(--apex-gold-bright) !important;
 }
 
 .rowActions {
@@ -533,6 +562,27 @@
   font-weight: 500;
 }
 
+.previewIcon {
+  font-size: 1.5rem;
+}
+
+.previewTitleText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.previewFileName {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--apex-white);
+}
+
+.previewFileMeta {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
 .previewTitle svg {
   color: var(--apex-gold);
 }
@@ -541,6 +591,56 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+/* Improved Preview Action Buttons */
+.previewActionBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  background: var(--apex-muted);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.previewActionBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--apex-white);
+  transform: translateY(-1px);
+}
+
+.previewAIBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  background: linear-gradient(135deg, var(--apex-accent) 0%, #7C3AED 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+}
+
+.previewAIBtn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #9333EA 0%, #6D28D9 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+}
+
+.previewAIBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 .previewActions .analyzeBtn {

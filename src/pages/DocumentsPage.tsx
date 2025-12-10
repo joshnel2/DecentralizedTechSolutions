@@ -5,7 +5,7 @@ import { useAIStore } from '../stores/aiStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Plus, Search, FolderOpen, FileText, Upload,
-  MoreVertical, Sparkles, Download, Trash2, Wand2, Eye, X, FileSearch, Loader2
+  MoreVertical, Sparkles, Download, Trash2, Wand2, X, FileSearch, Loader2
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -421,9 +421,14 @@ export function DocumentsPage() {
               {filteredDocuments.map(doc => (
                 <tr key={doc.id}>
                   <td>
-                    <div className={styles.nameCell}>
+                    <div 
+                      className={styles.nameCell} 
+                      onClick={() => openPreview(doc)}
+                      style={{ cursor: 'pointer' }}
+                      title="Click to view"
+                    >
                       <span className={styles.fileIcon}>{getFileIcon(doc.type)}</span>
-                      <span>{doc.name}</span>
+                      <span className={styles.docNameLink}>{doc.name}</span>
                     </div>
                   </td>
                   <td>{getMatterName(doc.matterId) || '-'}</td>
@@ -432,14 +437,9 @@ export function DocumentsPage() {
                   <td>
                     <div className={styles.rowActions}>
                       <button 
-                        onClick={() => openPreview(doc)}
-                        title="Preview"
-                      >
-                        <Eye size={16} />
-                      </button>
-                      <button 
                         onClick={() => downloadDocument(doc)}
                         title="Download"
+                        className={styles.actionBtn}
                       >
                         <Download size={16} />
                       </button>
@@ -454,6 +454,7 @@ export function DocumentsPage() {
                       <button 
                         onClick={() => handleDeleteDocument(doc.id)}
                         title="Delete"
+                        className={styles.deleteBtn}
                       >
                         <Trash2 size={16} />
                       </button>
@@ -479,19 +480,22 @@ export function DocumentsPage() {
           <div className={styles.previewContainer} onClick={e => e.stopPropagation()}>
             <div className={styles.previewHeader}>
               <div className={styles.previewTitle}>
-                <FileText size={20} />
-                <span>{previewDoc.name}</span>
+                <span className={styles.previewIcon}>{getFileIcon(previewDoc.type)}</span>
+                <div className={styles.previewTitleText}>
+                  <span className={styles.previewFileName}>{previewDoc.name}</span>
+                  <span className={styles.previewFileMeta}>{formatFileSize(previewDoc.size)}</span>
+                </div>
               </div>
               <div className={styles.previewActions}>
                 <button 
-                  className={styles.downloadBtnLarge}
+                  className={styles.previewActionBtn}
                   onClick={() => downloadDocument(previewDoc)}
                 >
-                  <Download size={16} />
-                  Download
+                  <Download size={18} />
+                  <span>Download</span>
                 </button>
                 <button 
-                  className={styles.analyzeBtn}
+                  className={styles.previewAIBtn}
                   onClick={() => {
                     openAIWithDocContext(previewDoc)
                     setPreviewDoc(null)
@@ -499,8 +503,8 @@ export function DocumentsPage() {
                   }}
                   disabled={isExtractingForChat}
                 >
-                  {isExtractingForChat ? <Loader2 size={16} className={styles.spinner} /> : <Sparkles size={16} />}
-                  {isExtractingForChat ? 'Extracting...' : 'AI Analyze'}
+                  {isExtractingForChat ? <Loader2 size={18} className={styles.spinner} /> : <Sparkles size={18} />}
+                  <span>{isExtractingForChat ? 'Analyzing...' : 'AI Analyze'}</span>
                 </button>
                 <button className={styles.closePreviewBtn} onClick={() => { setPreviewDoc(null); setPreviewContent(null); }}>
                   <X size={20} />
