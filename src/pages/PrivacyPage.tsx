@@ -139,7 +139,7 @@ export function PrivacyPage() {
             <li>Withdraw consent where processing is based on consent</li>
           </ul>
           <p>
-            To exercise these rights, please contact us at <a href="mailto:privacy@apexlegal.com">privacy@apexlegal.com</a>.
+            To exercise these rights, please contact us at <a href="mailto:admin@strappedai.com">admin@strappedai.com</a>.
           </p>
         </section>
 
@@ -174,8 +174,7 @@ export function PrivacyPage() {
             If you have questions about this Privacy Policy or our privacy practices, please contact us at:
           </p>
           <p>
-            <strong>Email:</strong> <a href="mailto:privacy@apexlegal.com">privacy@apexlegal.com</a><br />
-            <strong>Address:</strong> Apex Legal Technologies, 123 Legal Tech Way, San Francisco, CA 94105
+            <strong>Email:</strong> <a href="mailto:admin@strappedai.com">admin@strappedai.com</a>
           </p>
         </section>
       </div>

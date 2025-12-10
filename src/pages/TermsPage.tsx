@@ -196,8 +196,7 @@ export function TermsPage() {
             For questions about these Terms, please contact us at:
           </p>
           <p>
-            <strong>Email:</strong> <a href="mailto:legal@apexlegal.com">legal@apexlegal.com</a><br />
-            <strong>Address:</strong> Apex Legal Technologies, 123 Legal Tech Way, San Francisco, CA 94105
+            <strong>Email:</strong> <a href="mailto:admin@strappedai.com">admin@strappedai.com</a>
           </p>
         </section>
       </div>
