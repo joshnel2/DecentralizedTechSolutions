@@ -383,13 +383,15 @@
   gap: var(--spacing-sm);
 }
 
-.comingSoon {
-  opacity: 0.5;
-  cursor: not-allowed;
+.appList {
+  margin: var(--spacing-sm) 0 0 var(--spacing-md);
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
 }
 
-.comingSoon:hover {
-  background: var(--bg-tertiary);
+.appList li {
+  margin-bottom: var(--spacing-xs);
 }
 
 .setupInstruction {

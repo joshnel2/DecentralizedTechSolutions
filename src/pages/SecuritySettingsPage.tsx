@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/authStore'
 import {
   Shield, Smartphone, Key, Monitor, Globe, Clock, AlertTriangle,
   CheckCircle2, XCircle, Copy, Eye, EyeOff, RefreshCw, Trash2,
-  Lock, Fingerprint, Mail, MessageSquare, Download, History, ArrowLeft
+  Lock, Fingerprint, Download, History, ArrowLeft
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import styles from './SecuritySettingsPage.module.css'
@@ -26,7 +26,6 @@ export function SecuritySettingsPage() {
 
   const [activeTab, setActiveTab] = useState('2fa')
   const [showSetup2FA, setShowSetup2FA] = useState(false)
-  const [selected2FAMethod, setSelected2FAMethod] = useState<'authenticator' | 'sms' | 'email'>('authenticator')
   const [verificationCode, setVerificationCode] = useState('')
   const [showBackupCodes, setShowBackupCodes] = useState(false)
   const [backupCodes, setBackupCodes] = useState<string[]>([])
@@ -43,7 +42,7 @@ export function SecuritySettingsPage() {
   const handleEnable2FA = async () => {
     setSetupError(null)
     try {
-      const result = await enable2FA(selected2FAMethod)
+      const result = await enable2FA('authenticator')
       if (result.qrCode) {
         setQrCode(result.qrCode)
         setSecret(result.secret || null)
@@ -243,50 +242,19 @@ export function SecuritySettingsPage() {
                   <div className={styles.setup2FA}>
                     {setupStep === 'choose' ? (
                       <>
-                        <h3>Choose your 2FA method</h3>
-                        <div className={styles.methodOptions}>
-                          <label className={`${styles.methodOption} ${selected2FAMethod === 'authenticator' ? styles.selected : ''}`}>
-                            <input
-                              type="radio"
-                              name="2fa-method"
-                              checked={selected2FAMethod === 'authenticator'}
-                              onChange={() => setSelected2FAMethod('authenticator')}
-                            />
+                        <h3>Setup Authenticator App</h3>
+                        <div className={styles.methodInfo}>
+                          <div className={styles.methodIcon}>
                             <Smartphone size={24} />
-                            <div>
-                              <span>Authenticator App</span>
-                              <small>Use Google Authenticator, Authy, or similar</small>
-                            </div>
-                            <span className={styles.recommended}>Recommended</span>
-                          </label>
-                          <label className={`${styles.methodOption} ${selected2FAMethod === 'sms' ? styles.selected : ''} ${styles.comingSoon}`}>
-                            <input
-                              type="radio"
-                              name="2fa-method"
-                              checked={selected2FAMethod === 'sms'}
-                              onChange={() => setSelected2FAMethod('sms')}
-                              disabled
-                            />
-                            <MessageSquare size={24} />
-                            <div>
-                              <span>SMS</span>
-                              <small>Coming soon</small>
-                            </div>
-                          </label>
-                          <label className={`${styles.methodOption} ${selected2FAMethod === 'email' ? styles.selected : ''} ${styles.comingSoon}`}>
-                            <input
-                              type="radio"
-                              name="2fa-method"
-                              checked={selected2FAMethod === 'email'}
-                              onChange={() => setSelected2FAMethod('email')}
-                              disabled
-                            />
-                            <Mail size={24} />
-                            <div>
-                              <span>Email</span>
-                              <small>Coming soon</small>
-                            </div>
-                          </label>
+                          </div>
+                          <div>
+                            <p>You'll need an authenticator app on your phone, such as:</p>
+                            <ul className={styles.appList}>
+                              <li>Google Authenticator</li>
+                              <li>Microsoft Authenticator</li>
+                              <li>Authy</li>
+                            </ul>
+                          </div>
                         </div>
 
                         {setupError && (
@@ -306,7 +274,6 @@ export function SecuritySettingsPage() {
                           <button 
                             className={styles.primaryBtn}
                             onClick={handleEnable2FA}
-                            disabled={selected2FAMethod !== 'authenticator'}
                           >
                             Continue Setup
                           </button>
