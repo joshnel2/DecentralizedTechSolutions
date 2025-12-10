@@ -30,7 +30,7 @@ export function DocumentsPage() {
   // Download document
   const downloadDocument = async (doc: typeof documents[0]) => {
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
-    const token = localStorage.getItem('token')
+    const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
     try {
       const response = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -46,11 +46,12 @@ export function DocumentsPage() {
         window.URL.revokeObjectURL(url)
         document.body.removeChild(a)
       } else {
-        alert('Failed to download document')
+        console.error('Download failed:', response.status, response.statusText)
+        alert('Failed to download document. Please try again.')
       }
     } catch (error) {
       console.error('Download error:', error)
-      alert('Failed to download document')
+      alert('Failed to download document. Please try again.')
     }
   }
   
