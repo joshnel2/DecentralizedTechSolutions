@@ -243,3 +243,7 @@ If you encounter issues, check:
 1. Azure Portal → Resource → **Activity log** for errors
 2. App Service → **Log stream** for real-time logs
 3. GitHub → **Actions** tab for deployment logs
+
+---
+
+*Last updated: December 2024*
