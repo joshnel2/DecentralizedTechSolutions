@@ -15,6 +15,7 @@ import {
   Search, Filter
 } from 'lucide-react'
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
+import { parseAsLocalDate, localDateToISO } from '../utils/dateUtils'
 import { clsx } from 'clsx'
 import styles from './DetailPage.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
@@ -1118,7 +1119,7 @@ Only analyze documents actually associated with this matter.`
                     <div style={{ flex: 1 }}>
                       <span className={styles.timeDesc}>{entry.description}</span>
                       <span className={styles.timeDate}>
-                        {format(parseISO(entry.date), 'MMM d, yyyy')}
+                        {format(parseAsLocalDate(entry.date), 'MMM d, yyyy')}
                       </span>
                     </div>
                     <div className={styles.timeHours}>
@@ -1459,10 +1460,10 @@ Only analyze documents actually associated with this matter.`
                     )}
                     <div className={styles.timeEntryDate}>
                       <span className={styles.timeEntryDay}>
-                        {format(parseISO(entry.date), 'd')}
+                        {format(parseAsLocalDate(entry.date), 'd')}
                       </span>
                       <span className={styles.timeEntryMonth}>
-                        {format(parseISO(entry.date), 'MMM')}
+                        {format(parseAsLocalDate(entry.date), 'MMM')}
                       </span>
                     </div>
                     <div className={styles.timeEntryContent}>
@@ -2463,7 +2464,7 @@ function BillEntriesModal({
                 <div key={i} className={styles.billPreviewItem}>
                   <div className={styles.billPreviewItemLeft}>
                     <span className={styles.billPreviewDesc}>{entry.description || 'Legal services'}</span>
-                    <span className={styles.billPreviewMeta}>{format(parseISO(entry.date), 'MMM d, yyyy')}</span>
+                    <span className={styles.billPreviewMeta}>{format(parseAsLocalDate(entry.date), 'MMM d, yyyy')}</span>
                   </div>
                   <div className={styles.billPreviewItemRight}>
                     <span className={styles.billPreviewHours}>{entry.hours}h</span>
@@ -2509,7 +2510,7 @@ function TimeEntryForm({ matterId, matterName, defaultRate, onClose, onSave, exi
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     matterId,
-    date: existingEntry?.date ? format(parseISO(existingEntry.date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+    date: existingEntry?.date ? format(parseAsLocalDate(existingEntry.date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
     hours: existingEntry?.hours || 1,
     rate: existingEntry?.rate || defaultRate,
     description: existingEntry?.description || '',

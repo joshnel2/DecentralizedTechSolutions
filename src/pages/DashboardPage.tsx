@@ -10,6 +10,7 @@ import {
   Play, Pause, StopCircle, X, Save
 } from 'lucide-react'
 import { format, isAfter, parseISO, startOfMonth, endOfMonth } from 'date-fns'
+import { parseAsLocalDate } from '../utils/dateUtils'
 import { 
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell
@@ -70,7 +71,7 @@ export function DashboardPage() {
     const totalClients = clients.filter(c => c.isActive).length
     
     const monthlyEntries = timeEntries.filter(t => {
-      const date = parseISO(t.date)
+      const date = parseAsLocalDate(t.date)
       return date >= monthStart && date <= monthEnd
     })
     const billableHours = monthlyEntries.filter(t => t.billable).reduce((sum, t) => sum + t.hours, 0)
@@ -127,7 +128,7 @@ export function DashboardPage() {
     return months.map((month, i) => {
       // Filter time entries for this month
       const monthEntries = timeEntries.filter(t => {
-        const date = parseISO(t.date)
+        const date = parseAsLocalDate(t.date)
         return date.getMonth() === i && date.getFullYear() === currentYear
       })
       

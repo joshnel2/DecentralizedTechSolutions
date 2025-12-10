@@ -7,6 +7,7 @@ import {
   ArrowUpRight, ArrowDownRight, AlertTriangle, Target, Percent
 } from 'lucide-react'
 import { format, parseISO, startOfMonth, endOfMonth, subMonths, isWithinInterval } from 'date-fns'
+import { parseAsLocalDate } from '../utils/dateUtils'
 import { AreaChart, Area, PieChart as RechartsPie, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { AIButton } from '../components/AIButton'
 import styles from './FirmAnalyticsPage.module.css'
@@ -60,7 +61,7 @@ export function FirmAnalyticsPage() {
   // Billable hours metrics
   const hoursMetrics = useMemo(() => {
     const filteredEntries = timeEntries.filter(entry => {
-      const date = parseISO(entry.date)
+      const date = parseAsLocalDate(entry.date)
       return isWithinInterval(date, dateFilter)
     })
 
@@ -97,7 +98,7 @@ export function FirmAnalyticsPage() {
     const practiceRevenue: Record<string, number> = {}
     
     timeEntries.forEach(entry => {
-      const date = parseISO(entry.date)
+      const date = parseAsLocalDate(entry.date)
       if (isWithinInterval(date, dateFilter) && entry.billable) {
         const matter = matters.find(m => m.id === entry.matterId)
         if (matter) {

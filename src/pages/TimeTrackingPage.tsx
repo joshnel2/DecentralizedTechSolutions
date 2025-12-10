@@ -9,7 +9,8 @@ import {
   TrendingUp, Sparkles, CheckSquare, FileText, X, Edit2,
   Play, Pause, Square, Save, Search, Filter
 } from 'lucide-react'
-import { format, parseISO, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addDays } from 'date-fns'
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addDays } from 'date-fns'
+import { parseAsLocalDate, localDateToISO } from '../utils/dateUtils'
 import { clsx } from 'clsx'
 import styles from './TimeTrackingPage.module.css'
 
@@ -74,7 +75,7 @@ export function TimeTrackingPage() {
     const end = endOfWeek(now)
     
     const weekEntries = timeEntries.filter(e => {
-      const date = parseISO(e.date)
+      const date = parseAsLocalDate(e.date)
       return date >= start && date <= end
     })
 
@@ -85,7 +86,7 @@ export function TimeTrackingPage() {
     const byDay = weekDays.map(day => ({
       day,
       hours: weekEntries
-        .filter(e => isSameDay(parseISO(e.date), day))
+        .filter(e => isSameDay(parseAsLocalDate(e.date), day))
         .reduce((sum, e) => sum + e.hours, 0)
     }))
 
@@ -102,7 +103,7 @@ export function TimeTrackingPage() {
 
   const recentEntries = useMemo(() => {
     return [...timeEntries]
-      .filter(e => parseISO(e.date) >= sevenDaysAgo)
+      .filter(e => parseAsLocalDate(e.date) >= sevenDaysAgo)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }, [timeEntries, sevenDaysAgo])
 
@@ -149,7 +150,7 @@ export function TimeTrackingPage() {
 
   const olderEntries = useMemo(() => {
     return [...timeEntries]
-      .filter(e => parseISO(e.date) < sevenDaysAgo)
+      .filter(e => parseAsLocalDate(e.date) < sevenDaysAgo)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }, [timeEntries, sevenDaysAgo])
 
@@ -611,7 +612,7 @@ export function TimeTrackingPage() {
                         />
                       )}
                     </td>
-                    <td>{format(parseISO(entry.date), 'MMM d, yyyy')}</td>
+                    <td>{format(parseAsLocalDate(entry.date), 'MMM d, yyyy')}</td>
                     <td>
                       {entry.matterId ? (
                         <Link to={`/app/matters/${entry.matterId}`}>
@@ -789,7 +790,7 @@ export function TimeTrackingPage() {
                         />
                       )}
                     </td>
-                    <td>{format(parseISO(entry.date), 'MMM d, yyyy')}</td>
+                    <td>{format(parseAsLocalDate(entry.date), 'MMM d, yyyy')}</td>
                     <td>
                       {entry.matterId ? (
                         <Link to={`/app/matters/${entry.matterId}`}>
@@ -947,15 +948,6 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
     rate: 450
   })
 
-  // Convert date string to ISO format preserving the local date
-  const dateToISO = (dateStr: string) => {
-    // Parse the date parts to avoid timezone issues
-    const [year, month, day] = dateStr.split('-').map(Number)
-    // Create date at noon local time to avoid day boundary issues
-    const date = new Date(year, month - 1, day, 12, 0, 0)
-    return date.toISOString()
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isSubmitting) return
@@ -964,7 +956,7 @@ function NewTimeEntryModal({ onClose, onSave, matters, userId }: { onClose: () =
       await onSave({
         ...formData,
         matterId: formData.matterId || undefined, // Make matter optional
-        date: dateToISO(formData.date),
+        date: localDateToISO(formData.date),
         billed: false,
         aiGenerated: false
       })
@@ -1081,19 +1073,12 @@ function EditTimeEntryModal({ entry, matters, onClose, onSave }: {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     matterId: entry.matterId || '',
-    date: format(parseISO(entry.date), 'yyyy-MM-dd'),
+    date: format(parseAsLocalDate(entry.date), 'yyyy-MM-dd'),
     hours: entry.hours,
     description: entry.description || '',
     billable: entry.billable,
     rate: entry.rate
   })
-
-  // Convert date string to ISO format preserving the local date
-  const dateToISO = (dateStr: string) => {
-    const [year, month, day] = dateStr.split('-').map(Number)
-    const date = new Date(year, month - 1, day, 12, 0, 0)
-    return date.toISOString()
-  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1103,7 +1088,7 @@ function EditTimeEntryModal({ entry, matters, onClose, onSave }: {
       await onSave({
         ...formData,
         matterId: formData.matterId || undefined, // Make matter optional
-        date: dateToISO(formData.date)
+        date: localDateToISO(formData.date)
       })
     } finally {
       setIsSubmitting(false)
@@ -1228,13 +1213,6 @@ function SaveTimerModal({ timer, matters, onClose, onSave }: {
     rate: matter?.billingRate || 450
   })
 
-  // Convert date string to ISO format preserving the local date
-  const dateToISO = (dateStr: string) => {
-    const [year, month, day] = dateStr.split('-').map(Number)
-    const date = new Date(year, month - 1, day, 12, 0, 0)
-    return date.toISOString()
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isSubmitting) return
@@ -1243,7 +1221,7 @@ function SaveTimerModal({ timer, matters, onClose, onSave }: {
       await onSave({
         ...formData,
         matterId: formData.matterId || undefined,
-        date: dateToISO(formData.date),
+        date: localDateToISO(formData.date),
         billed: false,
         aiGenerated: false
       })
