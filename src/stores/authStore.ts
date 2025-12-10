@@ -59,6 +59,7 @@ interface AuthState {
   twoFactorRequired: boolean
   twoFactorVerified: boolean
   twoFactorSetup: TwoFactorSetup | null
+  twoFactorTempToken: string | null // Temporary token for 2FA verification during login
   sessions: Session[]
   auditLog: AuditLogEntry[]
   
@@ -88,7 +89,8 @@ interface AuthState {
   
   // 2FA
   enable2FA: (method: TwoFactorSetup['method']) => Promise<{ secret?: string; qrCode?: string }>
-  disable2FA: () => void
+  verify2FASetup: (code: string) => Promise<boolean>
+  disable2FA: (password: string) => Promise<boolean>
   generateBackupCodes: () => string[]
   
   // Sessions
@@ -187,6 +189,7 @@ export const useAuthStore = create<AuthState>()(
       twoFactorRequired: false,
       twoFactorVerified: false,
       twoFactorSetup: null,
+      twoFactorTempToken: null,
       sessions: [],
       auditLog: [],
       teamMembers: [],
@@ -203,6 +206,7 @@ export const useAuthStore = create<AuthState>()(
             set({ 
               isLoading: false,
               twoFactorRequired: true,
+              twoFactorTempToken: result.tempToken,
             })
             return { requires2FA: true }
           }
@@ -300,16 +304,60 @@ export const useAuthStore = create<AuthState>()(
       },
 
       verify2FA: async (code: string) => {
-        // TODO: Implement real 2FA verification
-        if (code.length === 6) {
-          set({
-            isAuthenticated: true,
-            twoFactorRequired: false,
-            twoFactorVerified: true,
-          })
-          return true
+        const tempToken = get().twoFactorTempToken
+        if (!tempToken) {
+          console.error('No temp token available for 2FA verification')
+          return false
         }
-        return false
+
+        try {
+          const result = await authApi.verify2FA(code, tempToken)
+          
+          if (result.success) {
+            const user: User = {
+              id: result.user.id,
+              email: result.user.email,
+              firstName: result.user.firstName,
+              lastName: result.user.lastName,
+              role: result.user.role,
+              groupIds: [],
+              permissions: result.user.permissions || [],
+              isActive: true,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+
+            const firm: Firm = result.firm ? {
+              id: result.firm.id,
+              name: result.firm.name,
+              address: result.firm.address,
+              city: result.firm.city,
+              state: result.firm.state,
+              zipCode: result.firm.zipCode,
+              phone: result.firm.phone,
+              email: result.firm.email,
+              website: result.firm.website,
+              billingDefaults: result.firm.billingDefaults,
+            } : null as any
+
+            set({
+              user,
+              firm,
+              isAuthenticated: true,
+              twoFactorRequired: false,
+              twoFactorVerified: true,
+              twoFactorTempToken: null,
+              userPermissions: rolePermissions[user.role],
+            })
+
+            setAccessToken(result.accessToken)
+            return true
+          }
+          return false
+        } catch (error) {
+          console.error('2FA verification error:', error)
+          return false
+        }
       },
 
       logout: async () => {
@@ -325,6 +373,7 @@ export const useAuthStore = create<AuthState>()(
             isAuthenticated: false,
             twoFactorRequired: false,
             twoFactorVerified: false,
+            twoFactorTempToken: null,
             teamMembers: [],
             userPermissions: [],
             sessions: []
@@ -466,27 +515,64 @@ export const useAuthStore = create<AuthState>()(
       },
 
       enable2FA: async (method) => {
-        const setup: TwoFactorSetup = {
-          enabled: true,
-          method,
-          verifiedAt: new Date().toISOString(),
-          backupCodes: get().generateBackupCodes()
-        }
-
-        set({ twoFactorSetup: setup })
-
         if (method === 'authenticator') {
-          return {
-            secret: 'JBSWY3DPEHPK3PXP',
-            qrCode: 'otpauth://totp/Apex:user@apex.law?secret=JBSWY3DPEHPK3PXP&issuer=Apex'
+          try {
+            // Step 1: Get the secret and QR code from backend
+            const result = await authApi.setup2FA()
+            
+            // Store setup state (not enabled yet - needs verification)
+            const setup: TwoFactorSetup = {
+              enabled: false,
+              method,
+              verifiedAt: undefined,
+              backupCodes: []
+            }
+            set({ twoFactorSetup: setup })
+            
+            return {
+              secret: result.secret,
+              qrCode: result.qrCode
+            }
+          } catch (error) {
+            console.error('Failed to setup 2FA:', error)
+            throw error
           }
         }
         
+        // SMS and email methods not implemented yet
         return {}
       },
 
-      disable2FA: () => {
-        set({ twoFactorSetup: null })
+      // Verify the 2FA setup code and enable 2FA
+      verify2FASetup: async (code: string) => {
+        try {
+          const result = await authApi.verifySetup2FA(code)
+          if (result.success) {
+            const setup: TwoFactorSetup = {
+              enabled: true,
+              method: 'authenticator',
+              verifiedAt: new Date().toISOString(),
+              backupCodes: get().generateBackupCodes()
+            }
+            set({ twoFactorSetup: setup })
+            return true
+          }
+          return false
+        } catch (error) {
+          console.error('Failed to verify 2FA setup:', error)
+          return false
+        }
+      },
+
+      disable2FA: async (password: string) => {
+        try {
+          await authApi.disable2FA(password)
+          set({ twoFactorSetup: null })
+          return true
+        } catch (error) {
+          console.error('Failed to disable 2FA:', error)
+          return false
+        }
       },
 
       generateBackupCodes: () => {

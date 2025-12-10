@@ -168,6 +168,40 @@ export const authApi = {
   async revokeAllSessions() {
     return fetchWithAuth('/auth/sessions', { method: 'DELETE' });
   },
+
+  // 2FA methods
+  async setup2FA() {
+    return fetchWithAuth('/auth/2fa/setup', { method: 'POST' });
+  },
+
+  async verifySetup2FA(code: string) {
+    return fetchWithAuth('/auth/2fa/verify-setup', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+  },
+
+  async verify2FA(code: string, tempToken: string) {
+    const result = await fetchWithAuth('/auth/2fa/verify', {
+      method: 'POST',
+      body: JSON.stringify({ code, tempToken }),
+    });
+    if (result.accessToken) {
+      setAccessToken(result.accessToken);
+    }
+    return result;
+  },
+
+  async disable2FA(password: string, code?: string) {
+    return fetchWithAuth('/auth/2fa/disable', {
+      method: 'POST',
+      body: JSON.stringify({ password, code }),
+    });
+  },
+
+  async get2FAStatus() {
+    return fetchWithAuth('/auth/2fa/status');
+  },
 };
 
 // ============================================

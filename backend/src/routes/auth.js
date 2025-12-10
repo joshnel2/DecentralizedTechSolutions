@@ -9,6 +9,8 @@ import {
   hashToken,
   generateSecureToken,
   getPermissionsForRole,
+  generate2FATempToken,
+  verify2FATempToken,
 } from '../utils/auth.js';
 import { authenticate } from '../middleware/auth.js';
 import { authLimiter } from '../middleware/rateLimit.js';
@@ -140,9 +142,8 @@ router.post('/login', authLimiter, async (req, res) => {
 
     // Check if 2FA is required
     if (user.two_factor_enabled) {
-      // Generate temporary token for 2FA flow
-      // We'll use a signed JWT as the temp token instead of storing in DB
-      const tempToken = generateSecureToken(16);
+      // Generate a signed JWT temp token for the 2FA verification step
+      const tempToken = generate2FATempToken(user.id);
       
       return res.json({
         requires2FA: true,
@@ -585,60 +586,43 @@ router.post('/2fa/verify-setup', authenticate, async (req, res) => {
 // Verify 2FA code during login
 router.post('/2fa/verify', authLimiter, async (req, res) => {
   try {
-    const { code, tempToken, userId } = req.body;
+    const { code, tempToken } = req.body;
 
-    if (!code || !tempToken || !userId) {
-      return res.status(400).json({ error: 'Code, tempToken, and userId are required' });
+    if (!code || !tempToken) {
+      return res.status(400).json({ error: 'Code and tempToken are required' });
     }
 
-    // Get user and verify temp token
+    // Verify the temp token (JWT)
+    const decoded = verify2FATempToken(tempToken);
+    if (!decoded) {
+      return res.status(401).json({ error: 'Session expired. Please login again.' });
+    }
+
+    const userId = decoded.userId;
+
+    // Get user with 2FA secret
     const userResult = await query(
-      `SELECT u.*, f.name as firm_name, f.id as firm_id
+      `SELECT u.*, f.name as firm_name
        FROM users u
        LEFT JOIN firms f ON u.firm_id = f.id
-       WHERE u.id = $1`,
+       WHERE u.id = $1 AND u.two_factor_enabled = true`,
       [userId]
     );
 
     if (userResult.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid session' });
+      return res.status(401).json({ error: 'Invalid session or 2FA not enabled' });
     }
 
     const user = userResult.rows[0];
 
-    // Verify temp token matches
-    if (user.two_factor_secret !== hashToken(tempToken) && hashToken(tempToken) !== user.two_factor_secret) {
-      // Check if tempToken hash matches stored value
-      const storedHash = user.two_factor_secret;
-      // For backward compatibility, we stored the tempToken hash in two_factor_secret during login
-      // Now we need to get the actual secret from somewhere - let's use a different approach
-    }
-
-    // Get the actual TOTP secret - we need to store it separately from temp token
-    // For now, let's query the original secret
-    const secretResult = await query(
-      'SELECT two_factor_secret FROM users WHERE id = $1 AND two_factor_enabled = true',
-      [userId]
-    );
-
-    if (secretResult.rows.length === 0 || !secretResult.rows[0].two_factor_secret) {
+    if (!user.two_factor_secret) {
       return res.status(401).json({ error: '2FA not properly configured' });
-    }
-
-    // The secret might have been overwritten with temp token hash during login
-    // We need to fix the login flow - for now, let's verify the code
-    let secret = secretResult.rows[0].two_factor_secret;
-    
-    // If the secret looks like a hash (64 chars hex), it was overwritten
-    // In that case, we need to reject - the flow needs fixing
-    if (secret.length === 64 && /^[a-f0-9]+$/i.test(secret)) {
-      return res.status(401).json({ error: 'Session expired. Please login again.' });
     }
 
     // Verify the TOTP code
     const isValid = authenticator.verify({
       token: code,
-      secret: secret,
+      secret: user.two_factor_secret,
     });
 
     if (!isValid) {

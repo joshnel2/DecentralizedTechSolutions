@@ -64,6 +64,28 @@ export function generateSecureToken(length = 32) {
   return crypto.randomBytes(length).toString('hex');
 }
 
+// Generate a short-lived 2FA temp token (JWT)
+export function generate2FATempToken(userId) {
+  return jwt.sign(
+    { userId, type: '2fa_pending' },
+    process.env.JWT_SECRET,
+    { expiresIn: '5m' } // 5 minute expiry for 2FA verification
+  );
+}
+
+// Verify 2FA temp token
+export function verify2FATempToken(token) {
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.type !== '2fa_pending') {
+      return null;
+    }
+    return decoded;
+  } catch (error) {
+    return null;
+  }
+}
+
 // Role-based permissions
 const rolePermissions = {
   owner: [

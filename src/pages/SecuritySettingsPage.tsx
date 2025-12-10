@@ -14,7 +14,8 @@ export function SecuritySettingsPage() {
   const { 
     user, 
     twoFactorSetup, 
-    enable2FA, 
+    enable2FA,
+    verify2FASetup,
     disable2FA, 
     generateBackupCodes,
     sessions,
@@ -30,19 +31,63 @@ export function SecuritySettingsPage() {
   const [showBackupCodes, setShowBackupCodes] = useState(false)
   const [backupCodes, setBackupCodes] = useState<string[]>([])
   const [qrCode, setQrCode] = useState<string | null>(null)
+  const [secret, setSecret] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [setupStep, setSetupStep] = useState<'choose' | 'verify'>('choose')
+  const [setupError, setSetupError] = useState<string | null>(null)
+  const [disablePassword, setDisablePassword] = useState('')
+  const [showDisableModal, setShowDisableModal] = useState(false)
 
   const recentActivity = getAuditLog({}).slice(0, 10)
 
   const handleEnable2FA = async () => {
-    const result = await enable2FA(selected2FAMethod)
-    if (result.qrCode) {
-      setQrCode(result.qrCode)
+    setSetupError(null)
+    try {
+      const result = await enable2FA(selected2FAMethod)
+      if (result.qrCode) {
+        setQrCode(result.qrCode)
+        setSecret(result.secret || null)
+        setSetupStep('verify')
+      }
+    } catch (error: any) {
+      setSetupError(error.message || 'Failed to setup 2FA')
     }
-    const codes = generateBackupCodes()
-    setBackupCodes(codes)
-    setShowBackupCodes(true)
-    setShowSetup2FA(false)
+  }
+
+  const handleVerify2FASetup = async () => {
+    setSetupError(null)
+    if (verificationCode.length !== 6) {
+      setSetupError('Please enter a 6-digit code')
+      return
+    }
+    
+    const success = await verify2FASetup(verificationCode)
+    if (success) {
+      const codes = generateBackupCodes()
+      setBackupCodes(codes)
+      setShowBackupCodes(true)
+      setShowSetup2FA(false)
+      setSetupStep('choose')
+      setVerificationCode('')
+      setQrCode(null)
+      setSecret(null)
+    } else {
+      setSetupError('Invalid verification code. Please try again.')
+    }
+  }
+
+  const handleDisable2FA = async () => {
+    if (!disablePassword) {
+      setSetupError('Password is required')
+      return
+    }
+    const success = await disable2FA(disablePassword)
+    if (success) {
+      setShowDisableModal(false)
+      setDisablePassword('')
+    } else {
+      setSetupError('Invalid password')
+    }
   }
 
   const copyBackupCodes = () => {
@@ -172,7 +217,7 @@ export function SecuritySettingsPage() {
                   </button>
                   <button 
                     className={styles.dangerBtn}
-                    onClick={disable2FA}
+                    onClick={() => setShowDisableModal(true)}
                   >
                     Disable 2FA
                   </button>
@@ -196,64 +241,136 @@ export function SecuritySettingsPage() {
                   </>
                 ) : (
                   <div className={styles.setup2FA}>
-                    <h3>Choose your 2FA method</h3>
-                    <div className={styles.methodOptions}>
-                      <label className={`${styles.methodOption} ${selected2FAMethod === 'authenticator' ? styles.selected : ''}`}>
-                        <input
-                          type="radio"
-                          name="2fa-method"
-                          checked={selected2FAMethod === 'authenticator'}
-                          onChange={() => setSelected2FAMethod('authenticator')}
-                        />
-                        <Smartphone size={24} />
-                        <div>
-                          <span>Authenticator App</span>
-                          <small>Use Google Authenticator, Authy, or similar</small>
+                    {setupStep === 'choose' ? (
+                      <>
+                        <h3>Choose your 2FA method</h3>
+                        <div className={styles.methodOptions}>
+                          <label className={`${styles.methodOption} ${selected2FAMethod === 'authenticator' ? styles.selected : ''}`}>
+                            <input
+                              type="radio"
+                              name="2fa-method"
+                              checked={selected2FAMethod === 'authenticator'}
+                              onChange={() => setSelected2FAMethod('authenticator')}
+                            />
+                            <Smartphone size={24} />
+                            <div>
+                              <span>Authenticator App</span>
+                              <small>Use Google Authenticator, Authy, or similar</small>
+                            </div>
+                            <span className={styles.recommended}>Recommended</span>
+                          </label>
+                          <label className={`${styles.methodOption} ${selected2FAMethod === 'sms' ? styles.selected : ''} ${styles.comingSoon}`}>
+                            <input
+                              type="radio"
+                              name="2fa-method"
+                              checked={selected2FAMethod === 'sms'}
+                              onChange={() => setSelected2FAMethod('sms')}
+                              disabled
+                            />
+                            <MessageSquare size={24} />
+                            <div>
+                              <span>SMS</span>
+                              <small>Coming soon</small>
+                            </div>
+                          </label>
+                          <label className={`${styles.methodOption} ${selected2FAMethod === 'email' ? styles.selected : ''} ${styles.comingSoon}`}>
+                            <input
+                              type="radio"
+                              name="2fa-method"
+                              checked={selected2FAMethod === 'email'}
+                              onChange={() => setSelected2FAMethod('email')}
+                              disabled
+                            />
+                            <Mail size={24} />
+                            <div>
+                              <span>Email</span>
+                              <small>Coming soon</small>
+                            </div>
+                          </label>
                         </div>
-                        <span className={styles.recommended}>Recommended</span>
-                      </label>
-                      <label className={`${styles.methodOption} ${selected2FAMethod === 'sms' ? styles.selected : ''}`}>
-                        <input
-                          type="radio"
-                          name="2fa-method"
-                          checked={selected2FAMethod === 'sms'}
-                          onChange={() => setSelected2FAMethod('sms')}
-                        />
-                        <MessageSquare size={24} />
-                        <div>
-                          <span>SMS</span>
-                          <small>Receive codes via text message</small>
-                        </div>
-                      </label>
-                      <label className={`${styles.methodOption} ${selected2FAMethod === 'email' ? styles.selected : ''}`}>
-                        <input
-                          type="radio"
-                          name="2fa-method"
-                          checked={selected2FAMethod === 'email'}
-                          onChange={() => setSelected2FAMethod('email')}
-                        />
-                        <Mail size={24} />
-                        <div>
-                          <span>Email</span>
-                          <small>Receive codes via email</small>
-                        </div>
-                      </label>
-                    </div>
 
-                    <div className={styles.setupActions}>
-                      <button 
-                        className={styles.secondaryBtn}
-                        onClick={() => setShowSetup2FA(false)}
-                      >
-                        Cancel
-                      </button>
-                      <button 
-                        className={styles.primaryBtn}
-                        onClick={handleEnable2FA}
-                      >
-                        Continue Setup
-                      </button>
-                    </div>
+                        {setupError && (
+                          <p className={styles.error}>{setupError}</p>
+                        )}
+
+                        <div className={styles.setupActions}>
+                          <button 
+                            className={styles.secondaryBtn}
+                            onClick={() => {
+                              setShowSetup2FA(false)
+                              setSetupError(null)
+                            }}
+                          >
+                            Cancel
+                          </button>
+                          <button 
+                            className={styles.primaryBtn}
+                            onClick={handleEnable2FA}
+                            disabled={selected2FAMethod !== 'authenticator'}
+                          >
+                            Continue Setup
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <h3>Scan QR Code</h3>
+                        <p className={styles.setupInstruction}>
+                          Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)
+                        </p>
+                        
+                        {qrCode && (
+                          <div className={styles.qrCodeContainer}>
+                            <img src={qrCode} alt="2FA QR Code" className={styles.qrCode} />
+                          </div>
+                        )}
+                        
+                        {secret && (
+                          <div className={styles.secretKey}>
+                            <p>Or enter this key manually:</p>
+                            <code>{secret}</code>
+                          </div>
+                        )}
+
+                        <div className={styles.verifyStep}>
+                          <label>Enter the 6-digit code from your app:</label>
+                          <input
+                            type="text"
+                            value={verificationCode}
+                            onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                            placeholder="000000"
+                            maxLength={6}
+                            className={styles.codeInput}
+                          />
+                        </div>
+
+                        {setupError && (
+                          <p className={styles.error}>{setupError}</p>
+                        )}
+
+                        <div className={styles.setupActions}>
+                          <button 
+                            className={styles.secondaryBtn}
+                            onClick={() => {
+                              setSetupStep('choose')
+                              setQrCode(null)
+                              setSecret(null)
+                              setVerificationCode('')
+                              setSetupError(null)
+                            }}
+                          >
+                            Back
+                          </button>
+                          <button 
+                            className={styles.primaryBtn}
+                            onClick={handleVerify2FASetup}
+                            disabled={verificationCode.length !== 6}
+                          >
+                            Verify & Enable
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -283,6 +400,53 @@ export function SecuritySettingsPage() {
                   </button>
                   <button onClick={() => setShowBackupCodes(false)} className={styles.primaryBtn}>
                     Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Disable 2FA Modal */}
+          {showDisableModal && (
+            <div className={styles.modal}>
+              <div className={styles.modalContent}>
+                <div className={styles.modalHeader}>
+                  <AlertTriangle size={24} color="var(--error)" />
+                  <h2>Disable Two-Factor Authentication</h2>
+                </div>
+                <p className={styles.modalDesc}>
+                  This will remove the extra layer of security from your account. Enter your password to confirm.
+                </p>
+                <div className={styles.formGroup}>
+                  <label>Password</label>
+                  <input
+                    type="password"
+                    value={disablePassword}
+                    onChange={(e) => setDisablePassword(e.target.value)}
+                    placeholder="Enter your password"
+                    className={styles.passwordInput}
+                  />
+                </div>
+                {setupError && (
+                  <p className={styles.error}>{setupError}</p>
+                )}
+                <div className={styles.modalActions}>
+                  <button 
+                    onClick={() => {
+                      setShowDisableModal(false)
+                      setDisablePassword('')
+                      setSetupError(null)
+                    }} 
+                    className={styles.secondaryBtn}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleDisable2FA} 
+                    className={styles.dangerBtn}
+                    disabled={!disablePassword}
+                  >
+                    Disable 2FA
                   </button>
                 </div>
               </div>
