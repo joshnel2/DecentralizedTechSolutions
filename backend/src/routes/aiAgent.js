@@ -14,6 +14,76 @@ const API_VERSION = '2024-08-01-preview';
 // Default timezone for date formatting (US Eastern)
 const DEFAULT_TIMEZONE = 'America/New_York';
 
+// Helper to get the current date/time in a specific timezone
+// Returns an object with year, month (0-indexed), day, hours, minutes, seconds
+function getDatePartsInTimezone(date, timezone = DEFAULT_TIMEZONE) {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  const parts = formatter.formatToParts(date);
+  const getPart = (type) => parts.find(p => p.type === type)?.value;
+  return {
+    year: parseInt(getPart('year')),
+    month: parseInt(getPart('month')) - 1, // 0-indexed like JS Date
+    day: parseInt(getPart('day')),
+    hours: parseInt(getPart('hour')),
+    minutes: parseInt(getPart('minute')),
+    seconds: parseInt(getPart('second'))
+  };
+}
+
+// Get today's date string (YYYY-MM-DD) in the specified timezone
+function getTodayInTimezone(timezone = DEFAULT_TIMEZONE) {
+  const parts = getDatePartsInTimezone(new Date(), timezone);
+  return `${parts.year}-${String(parts.month + 1).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+}
+
+// Get tomorrow's date string (YYYY-MM-DD) in the specified timezone
+function getTomorrowInTimezone(timezone = DEFAULT_TIMEZONE) {
+  const now = new Date();
+  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const parts = getDatePartsInTimezone(tomorrow, timezone);
+  return `${parts.year}-${String(parts.month + 1).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+}
+
+// Get a Date object representing midnight of a specific date in the user's timezone
+// Takes a date string like "2025-12-11" and returns a Date that represents that day correctly
+function createDateInTimezone(dateStr, hours = 0, minutes = 0, timezone = DEFAULT_TIMEZONE) {
+  // Parse the date string
+  const [year, month, day] = dateStr.split('-').map(Number);
+  
+  // Create a date at the specified time, adjusting for timezone offset
+  // We need to find what UTC time corresponds to the desired local time
+  const testDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0));
+  
+  // Get the offset for this date in the target timezone
+  const localParts = getDatePartsInTimezone(testDate, timezone);
+  
+  // Calculate the difference and adjust
+  const hourDiff = hours - localParts.hours;
+  const minDiff = minutes - localParts.minutes;
+  const dayDiff = day - localParts.day;
+  
+  // Adjust the UTC time to get the correct local time
+  testDate.setUTCHours(testDate.getUTCHours() + hourDiff);
+  testDate.setUTCMinutes(testDate.getUTCMinutes() + minDiff);
+  testDate.setUTCDate(testDate.getUTCDate() + dayDiff);
+  
+  return testDate;
+}
+
+// Get current time parts in timezone (for relative time references like "today at 3pm")
+function getCurrentTimePartsInTimezone(timezone = DEFAULT_TIMEZONE) {
+  return getDatePartsInTimezone(new Date(), timezone);
+}
+
 // Helper to format date in user's timezone
 function formatDate(dateValue, timezone = DEFAULT_TIMEZONE) {
   const date = new Date(dateValue);
@@ -1107,7 +1177,7 @@ async function logTime(args, user) {
     billingRate = userResult.rows[0]?.hourly_rate || 350;
   }
   
-  const entryDate = date || new Date().toISOString().split('T')[0];
+  const entryDate = date || getTodayInTimezone(DEFAULT_TIMEZONE);
   
   const result = await query(
     `INSERT INTO time_entries (firm_id, matter_id, user_id, date, hours, description, billable, rate, activity_code, entry_type, ai_generated)
@@ -1465,8 +1535,8 @@ async function createMatter(args, user) {
     }
   }
   
-  // Use today's date for open_date
-  const openDate = new Date().toISOString().split('T')[0];
+  // Use today's date for open_date (in Eastern timezone)
+  const openDate = getTodayInTimezone(DEFAULT_TIMEZONE);
   
   const result = await query(
     `INSERT INTO matters (firm_id, number, name, description, client_id, type, status, priority,
@@ -1854,7 +1924,12 @@ async function createInvoice(args, user) {
       return { error: 'No line items to invoice. Please provide items, amount, or ensure there are unbilled time entries.' };
     }
     
-    const dueD = due_date || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    // Default due date is 30 days from today (in Eastern timezone)
+    const dueD = due_date || (() => {
+      const futureDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const parts = getDatePartsInTimezone(futureDate, DEFAULT_TIMEZONE);
+      return `${parts.year}-${String(parts.month + 1).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+    })();
     
     // Calculate total
     const total = subtotalFees;
@@ -1941,7 +2016,7 @@ async function recordPayment(args, user) {
       `INSERT INTO payments (firm_id, invoice_id, client_id, amount, payment_method, reference, payment_date, notes, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [user.firmId, invoice_id, invoice.client_id, amount, payment_method || null, reference || null, 
-       payment_date || new Date().toISOString().split('T')[0], notes || null, user.id]
+       payment_date || getTodayInTimezone(DEFAULT_TIMEZONE), notes || null, user.id]
     );
     
     const newAmountPaid = parseFloat(invoice.amount_paid) + amount;
@@ -2031,71 +2106,87 @@ async function createCalendarEvent(args, user) {
   const eventType = validTypes.includes(type) ? type : 'meeting';
   
   // Parse start time - handle various formats
+  // IMPORTANT: All times should be interpreted as Eastern timezone
   let startDate;
   try {
     console.log('Parsing start_time:', start_time);
     
-    // Try parsing the date directly first
-    startDate = new Date(start_time);
+    // Get today and tomorrow in the correct timezone
+    const todayStr = getTodayInTimezone(DEFAULT_TIMEZONE);
+    const tomorrowStr = getTomorrowInTimezone(DEFAULT_TIMEZONE);
     
-    // If the date is invalid, try some alternative formats
-    if (isNaN(startDate.getTime())) {
-      const today = new Date();
+    // Check if this is an ISO-style datetime string (e.g., "2025-12-11T14:00:00")
+    const isoMatch = start_time.match(/^(\d{4}-\d{2}-\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?)?/);
+    
+    if (isoMatch) {
+      // This is an ISO format - interpret as Eastern timezone
+      const dateStr = isoMatch[1];
+      const hours = parseInt(isoMatch[2] || '9');
+      const minutes = parseInt(isoMatch[3] || '0');
       
-      // Check for "tomorrow" keyword
-      if (start_time.toLowerCase().includes('tomorrow')) {
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
+      // Create the date in Eastern timezone
+      startDate = createDateInTimezone(dateStr, hours, minutes, DEFAULT_TIMEZONE);
+      console.log('Parsed ISO datetime as Eastern:', { dateStr, hours, minutes, result: startDate.toISOString() });
+    }
+    // Check for "tomorrow" keyword
+    else if (start_time.toLowerCase().includes('tomorrow')) {
+      // Try to extract time
+      const timeMatch = start_time.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+      let hours = 9; // Default to 9am
+      let minutes = 0;
+      
+      if (timeMatch) {
+        hours = parseInt(timeMatch[1]);
+        minutes = parseInt(timeMatch[2] || '0');
+        const meridiem = timeMatch[3]?.toLowerCase();
         
-        // Try to extract time
-        const timeMatch = start_time.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
-        if (timeMatch) {
-          let hours = parseInt(timeMatch[1]);
-          const minutes = parseInt(timeMatch[2] || '0');
-          const meridiem = timeMatch[3]?.toLowerCase();
-          
-          if (meridiem === 'pm' && hours < 12) hours += 12;
-          if (meridiem === 'am' && hours === 12) hours = 0;
-          
-          startDate = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), hours, minutes);
-        } else {
-          // Default to 9am tomorrow
-          startDate = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 9, 0);
-        }
+        if (meridiem === 'pm' && hours < 12) hours += 12;
+        if (meridiem === 'am' && hours === 12) hours = 0;
       }
-      // Check for "today" keyword  
-      else if (start_time.toLowerCase().includes('today')) {
-        const timeMatch = start_time.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
-        if (timeMatch) {
-          let hours = parseInt(timeMatch[1]);
-          const minutes = parseInt(timeMatch[2] || '0');
-          const meridiem = timeMatch[3]?.toLowerCase();
-          
-          if (meridiem === 'pm' && hours < 12) hours += 12;
-          if (meridiem === 'am' && hours === 12) hours = 0;
-          
-          startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, minutes);
-        }
+      
+      startDate = createDateInTimezone(tomorrowStr, hours, minutes, DEFAULT_TIMEZONE);
+      console.log('Parsed "tomorrow" as Eastern:', { tomorrowStr, hours, minutes, result: startDate.toISOString() });
+    }
+    // Check for "today" keyword  
+    else if (start_time.toLowerCase().includes('today')) {
+      const timeMatch = start_time.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+      let hours = 9; // Default to 9am
+      let minutes = 0;
+      
+      if (timeMatch) {
+        hours = parseInt(timeMatch[1]);
+        minutes = parseInt(timeMatch[2] || '0');
+        const meridiem = timeMatch[3]?.toLowerCase();
+        
+        if (meridiem === 'pm' && hours < 12) hours += 12;
+        if (meridiem === 'am' && hours === 12) hours = 0;
       }
-      // Try just time format (assume today)
-      else {
-        const timeMatch = start_time.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
-        if (timeMatch) {
-          let hours = parseInt(timeMatch[1]);
-          const minutes = parseInt(timeMatch[2] || '0');
-          const meridiem = timeMatch[3]?.toLowerCase();
-          
-          if (meridiem === 'pm' && hours < 12) hours += 12;
-          if (meridiem === 'am' && hours === 12) hours = 0;
-          
-          startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, minutes);
-        }
+      
+      startDate = createDateInTimezone(todayStr, hours, minutes, DEFAULT_TIMEZONE);
+      console.log('Parsed "today" as Eastern:', { todayStr, hours, minutes, result: startDate.toISOString() });
+    }
+    // Try just time format (assume today)
+    else {
+      const timeMatch = start_time.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+      if (timeMatch) {
+        let hours = parseInt(timeMatch[1]);
+        const minutes = parseInt(timeMatch[2] || '0');
+        const meridiem = timeMatch[3]?.toLowerCase();
+        
+        if (meridiem === 'pm' && hours < 12) hours += 12;
+        if (meridiem === 'am' && hours === 12) hours = 0;
+        
+        startDate = createDateInTimezone(todayStr, hours, minutes, DEFAULT_TIMEZONE);
+        console.log('Parsed time-only as Eastern today:', { todayStr, hours, minutes, result: startDate.toISOString() });
+      } else {
+        // Last resort - try native Date parsing (will use server timezone)
+        startDate = new Date(start_time);
       }
     }
     
-    console.log('Parsed start date:', startDate);
+    console.log('Final parsed start date:', startDate);
     
-    if (isNaN(startDate.getTime())) {
+    if (!startDate || isNaN(startDate.getTime())) {
       return { error: `Could not parse start_time "${start_time}". Please use a format like "2025-01-15T14:00:00" or "tomorrow at 2pm"` };
     }
   } catch (e) {
@@ -2107,22 +2198,31 @@ async function createCalendarEvent(args, user) {
   let endDate;
   if (end_time) {
     try {
-      endDate = new Date(end_time);
+      // Check if this is an ISO-style datetime string
+      const isoMatch = end_time.match(/^(\d{4}-\d{2}-\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?)?/);
+      
+      if (isoMatch) {
+        // This is an ISO format - interpret as Eastern timezone
+        const dateStr = isoMatch[1];
+        const hours = parseInt(isoMatch[2] || '9');
+        const minutes = parseInt(isoMatch[3] || '0');
+        endDate = createDateInTimezone(dateStr, hours, minutes, DEFAULT_TIMEZONE);
+      } else {
+        endDate = new Date(end_time);
+      }
+      
       if (isNaN(endDate.getTime())) {
         // If end_time is invalid, default to 1 hour after start
-        endDate = new Date(startDate);
-        endDate.setHours(endDate.getHours() + 1);
+        endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
       }
     } catch (e) {
-      endDate = new Date(startDate);
-      endDate.setHours(endDate.getHours() + 1);
+      endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
     }
   } else {
-    endDate = new Date(startDate);
     if (eventType === 'meeting' || eventType === 'court_date' || eventType === 'deposition') {
-      endDate.setHours(endDate.getHours() + 1);
+      endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // 1 hour
     } else {
-      endDate.setMinutes(endDate.getMinutes() + 30);
+      endDate = new Date(startDate.getTime() + 30 * 60 * 1000); // 30 minutes
     }
   }
   
@@ -2395,7 +2495,7 @@ async function createExpense(args, user) {
     return { error: 'Matter not found' };
   }
   
-  const expenseDate = date || new Date().toISOString().split('T')[0];
+  const expenseDate = date || getTodayInTimezone(DEFAULT_TIMEZONE);
   
   const result = await query(
     `INSERT INTO expenses (firm_id, matter_id, user_id, date, description, amount, category, billable)
@@ -3777,9 +3877,12 @@ async function getIntegrationsStatus(args, user) {
 // SYSTEM PROMPT
 // =============================================================================
 function getSystemPrompt() {
-  const today = new Date();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+  // Use timezone-aware date calculations to ensure "today" and "tomorrow"
+  // are correct for US Eastern time, regardless of server timezone
+  const todayStr = getTodayInTimezone(DEFAULT_TIMEZONE);
+  const tomorrowStr = getTomorrowInTimezone(DEFAULT_TIMEZONE);
+  const currentTimeParts = getCurrentTimePartsInTimezone(DEFAULT_TIMEZONE);
+  const currentTimeFormatted = `${String(currentTimeParts.hours).padStart(2, '0')}:${String(currentTimeParts.minutes).padStart(2, '0')}`;
   
   return `You are an intelligent AI assistant for Apex Legal, a law firm management platform. You can both answer questions AND take actions on behalf of the user.
 
@@ -3844,10 +3947,11 @@ You have access to tools for:
 
 ## Calendar Events - IMPORTANT
 When creating calendar events, use create_calendar_event. For start_time, you MUST provide an ISO 8601 datetime string.
-- Today is: ${today.toISOString().split('T')[0]}
-- Tomorrow is: ${tomorrow.toISOString().split('T')[0]}
-- For "tomorrow at 2pm", use: "${tomorrow.toISOString().split('T')[0]}T14:00:00"
-- For "today at 3pm", use: "${today.toISOString().split('T')[0]}T15:00:00"
+- Today is: ${todayStr} (current time: ${currentTimeFormatted} Eastern)
+- Tomorrow is: ${tomorrowStr}
+- For "tomorrow at 2pm", use: "${tomorrowStr}T14:00:00"
+- For "today at 3pm", use: "${todayStr}T15:00:00"
+- All times should be specified in Eastern time format (e.g., T14:00:00 for 2pm)
 
 ## Matter Permissions System - HOW IT WORKS
 Apex Legal uses a Clio-like visibility system for matters:
