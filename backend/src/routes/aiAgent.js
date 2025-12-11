@@ -1991,8 +1991,8 @@ async function getCalendarEvents(args, user) {
     events: result.rows.map(e => ({
       id: e.id,
       title: e.title,
-      start: e.start_time,
-      end: e.end_time,
+      start: formatDateTime(e.start_time),
+      end: formatDateTime(e.end_time),
       type: e.type,
       location: e.location,
       status: e.status,
@@ -2173,7 +2173,7 @@ async function createCalendarEvent(args, user) {
     return {
       success: true,
       message: `Created ${eventType} "${title}" scheduled for ${formatDateTime(startDate)}`,
-      data: { id: event.id, title: event.title, start: event.start_time, end: event.end_time, type: event.type }
+      data: { id: event.id, title: event.title, start: formatDateTime(event.start_time), end: formatDateTime(event.end_time), type: event.type }
     };
   } catch (dbError) {
     console.error('Database error creating calendar event:', dbError);
