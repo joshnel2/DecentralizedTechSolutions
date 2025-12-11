@@ -10,6 +10,30 @@ const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
 const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
 const API_VERSION = '2024-02-15-preview';
 
+// Default timezone for date formatting (US Eastern)
+const DEFAULT_TIMEZONE = 'America/New_York';
+
+// Helper to format date in user's timezone
+function formatDate(dateValue, timezone = DEFAULT_TIMEZONE) {
+  const date = new Date(dateValue);
+  return date.toLocaleDateString('en-US', { timeZone: timezone });
+}
+
+// Helper to format time in user's timezone
+function formatTime(dateValue, timezone = DEFAULT_TIMEZONE) {
+  const date = new Date(dateValue);
+  return date.toLocaleTimeString('en-US', { 
+    timeZone: timezone, 
+    hour: '2-digit', 
+    minute: '2-digit' 
+  });
+}
+
+// Helper to format date and time together
+function formatDateTime(dateValue, timezone = DEFAULT_TIMEZONE) {
+  return `${formatDate(dateValue, timezone)} ${formatTime(dateValue, timezone)}`;
+}
+
 // System prompt for the AI
 const SYSTEM_PROMPT = `You are an intelligent AI assistant for a law firm management platform called Apex Legal. You have access to the firm's data shown in the context below.
 
@@ -158,7 +182,7 @@ FIRM OVERVIEW:
 - Overdue Amount: $${parseFloat(overdue?.due || 0).toLocaleString()}
 
 UPCOMING EVENTS (Next 7 Days):
-${eventsRes.rows.map(e => `- ${new Date(e.start_time).toLocaleDateString()} ${new Date(e.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}: ${e.title} (${e.type})${e.location ? ` at ${e.location}` : ''}`).join('\n') || 'No upcoming events'}
+${eventsRes.rows.map(e => `- ${formatDateTime(e.start_time)}: ${e.title} (${e.type})${e.location ? ` at ${e.location}` : ''}`).join('\n') || 'No upcoming events'}
 `;
         
         // Get urgent matters
@@ -240,7 +264,7 @@ Client: ${m.client_name || 'None'} ${m.client_email ? `(${m.client_email})` : ''
 Status: ${m.status} | Priority: ${m.priority} | Type: ${m.type}
 Responsible Attorney: ${m.attorney_name || 'Unassigned'}
 Billing: ${m.billing_type} ${m.billing_rate ? `at $${m.billing_rate}/hr` : ''}
-Opened: ${m.open_date ? new Date(m.open_date).toLocaleDateString() : 'Unknown'}
+Opened: ${m.open_date ? formatDate(m.open_date) : 'Unknown'}
 ${m.description ? `Description: ${m.description}` : ''}
 
 BILLING SUMMARY:
@@ -248,13 +272,13 @@ BILLING SUMMARY:
 - Total Billed: $${totalBilled.toLocaleString()}
 
 RECENT TIME ENTRIES:
-${timeRes.rows.map(t => `- ${new Date(t.date).toLocaleDateString()}: ${t.hours}hrs - ${t.description} (${t.user_name})`).join('\n') || 'No time entries'}
+${timeRes.rows.map(t => `- ${formatDate(t.date)}: ${t.hours}hrs - ${t.description} (${t.user_name})`).join('\n') || 'No time entries'}
 
 DOCUMENTS (${docsRes.rows.length}):
 ${docsRes.rows.map(d => `- ${d.name} (${d.type})`).join('\n') || 'No documents'}
 
 UPCOMING EVENTS:
-${eventsRes.rows.map(e => `- ${new Date(e.start_time).toLocaleDateString()}: ${e.title} (${e.type})`).join('\n') || 'No upcoming events'}
+${eventsRes.rows.map(e => `- ${formatDateTime(e.start_time)}: ${e.title} (${e.type})`).join('\n') || 'No upcoming events'}
 `;
         break;
       }
@@ -350,7 +374,7 @@ UNBILLED WORK:
 - Unbilled Amount: $${parseFloat(unbilled?.total || 0).toLocaleString()}
 
 RECENT INVOICES:
-${invoicesRes.rows.map(i => `- ${i.number} | ${i.client_name || 'Unknown'} | $${parseFloat(i.total).toLocaleString()} | ${i.status}${i.status !== 'paid' ? ` | Due: ${new Date(i.due_date).toLocaleDateString()}` : ''}`).join('\n')}
+${invoicesRes.rows.map(i => `- ${i.number} | ${i.client_name || 'Unknown'} | $${parseFloat(i.total).toLocaleString()} | ${i.status}${i.status !== 'paid' ? ` | Due: ${formatDate(i.due_date)}` : ''}`).join('\n')}
 `;
         break;
       }
@@ -372,7 +396,7 @@ UPCOMING EVENTS:
 ${events.rows.map(e => {
   const start = new Date(e.start_time);
   const isPast = start < new Date();
-  return `- ${isPast ? '[PAST] ' : ''}${start.toLocaleDateString()} ${start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+  return `- ${isPast ? '[PAST] ' : ''}${formatDateTime(e.start_time)}
   ${e.title} (${e.type})
   ${e.matter_name ? `Matter: ${e.matter_name}` : ''}${e.location ? ` | Location: ${e.location}` : ''}`;
 }).join('\n\n') || 'No events scheduled'}
@@ -438,7 +462,7 @@ RECENT CALENDAR EVENTS (past 2 weeks + upcoming week):
 ${eventsRes.rows.length > 0 ? eventsRes.rows.map(e => {
   const start = new Date(e.start_time);
   const duration = e.end_time ? ((new Date(e.end_time) - start) / 3600000).toFixed(1) : '?';
-  return `- ${start.toLocaleDateString()} ${start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}: ${e.title} (${e.type}) - ${duration}hrs${e.matter_name ? ` - Matter: ${e.matter_name}` : ''}`;
+  return `- ${formatDateTime(e.start_time)}: ${e.title} (${e.type}) - ${duration}hrs${e.matter_name ? ` - Matter: ${e.matter_name}` : ''}`;
 }).join('\n') : 'No recent calendar events found.'}
 
 RECENT TIME ENTRIES:
