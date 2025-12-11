@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
+import { getTodayInTimezone, createDateInTimezone } from '../utils/dateUtils.js';
 
 const router = Router();
 
@@ -55,8 +56,16 @@ router.post('/log-time', authenticate, requirePermission('billing:create'), asyn
       });
     }
 
-    // Validate date if provided
-    const entryDate = date ? new Date(date) : new Date();
+    // Validate date if provided - use Eastern timezone for consistent dates
+    let entryDate;
+    if (date) {
+      // If date is provided, parse it as a date string and create at noon to avoid day boundary issues
+      const dateStr = date.split('T')[0]; // Get just the date part if ISO string
+      entryDate = createDateInTimezone(dateStr, 12, 0);
+    } else {
+      // Use today in Eastern timezone
+      entryDate = createDateInTimezone(getTodayInTimezone(), 12, 0);
+    }
     if (isNaN(entryDate.getTime())) {
       return res.status(400).json({ 
         success: false,

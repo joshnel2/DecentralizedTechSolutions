@@ -2,6 +2,18 @@ import { Router } from 'express';
 import { query, withTransaction } from '../db/connection.js';
 import { authenticate } from '../middleware/auth.js';
 import { hasPermission } from '../utils/auth.js';
+import {
+  DEFAULT_TIMEZONE,
+  getDatePartsInTimezone,
+  getTodayInTimezone,
+  getTomorrowInTimezone,
+  createDateInTimezone,
+  getCurrentTimePartsInTimezone,
+  formatDate,
+  formatTime,
+  formatDateTime,
+  getDateInTimezone
+} from '../utils/dateUtils.js';
 
 const router = Router();
 
@@ -10,100 +22,6 @@ const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
 const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
 const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
 const API_VERSION = '2024-08-01-preview';
-
-// Default timezone for date formatting (US Eastern)
-const DEFAULT_TIMEZONE = 'America/New_York';
-
-// Helper to get the current date/time in a specific timezone
-// Returns an object with year, month (0-indexed), day, hours, minutes, seconds
-function getDatePartsInTimezone(date, timezone = DEFAULT_TIMEZONE) {
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  });
-  const parts = formatter.formatToParts(date);
-  const getPart = (type) => parts.find(p => p.type === type)?.value;
-  return {
-    year: parseInt(getPart('year')),
-    month: parseInt(getPart('month')) - 1, // 0-indexed like JS Date
-    day: parseInt(getPart('day')),
-    hours: parseInt(getPart('hour')),
-    minutes: parseInt(getPart('minute')),
-    seconds: parseInt(getPart('second'))
-  };
-}
-
-// Get today's date string (YYYY-MM-DD) in the specified timezone
-function getTodayInTimezone(timezone = DEFAULT_TIMEZONE) {
-  const parts = getDatePartsInTimezone(new Date(), timezone);
-  return `${parts.year}-${String(parts.month + 1).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
-}
-
-// Get tomorrow's date string (YYYY-MM-DD) in the specified timezone
-function getTomorrowInTimezone(timezone = DEFAULT_TIMEZONE) {
-  const now = new Date();
-  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-  const parts = getDatePartsInTimezone(tomorrow, timezone);
-  return `${parts.year}-${String(parts.month + 1).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
-}
-
-// Get a Date object representing midnight of a specific date in the user's timezone
-// Takes a date string like "2025-12-11" and returns a Date that represents that day correctly
-function createDateInTimezone(dateStr, hours = 0, minutes = 0, timezone = DEFAULT_TIMEZONE) {
-  // Parse the date string
-  const [year, month, day] = dateStr.split('-').map(Number);
-  
-  // Create a date at the specified time, adjusting for timezone offset
-  // We need to find what UTC time corresponds to the desired local time
-  const testDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0));
-  
-  // Get the offset for this date in the target timezone
-  const localParts = getDatePartsInTimezone(testDate, timezone);
-  
-  // Calculate the difference and adjust
-  const hourDiff = hours - localParts.hours;
-  const minDiff = minutes - localParts.minutes;
-  const dayDiff = day - localParts.day;
-  
-  // Adjust the UTC time to get the correct local time
-  testDate.setUTCHours(testDate.getUTCHours() + hourDiff);
-  testDate.setUTCMinutes(testDate.getUTCMinutes() + minDiff);
-  testDate.setUTCDate(testDate.getUTCDate() + dayDiff);
-  
-  return testDate;
-}
-
-// Get current time parts in timezone (for relative time references like "today at 3pm")
-function getCurrentTimePartsInTimezone(timezone = DEFAULT_TIMEZONE) {
-  return getDatePartsInTimezone(new Date(), timezone);
-}
-
-// Helper to format date in user's timezone
-function formatDate(dateValue, timezone = DEFAULT_TIMEZONE) {
-  const date = new Date(dateValue);
-  return date.toLocaleDateString('en-US', { timeZone: timezone });
-}
-
-// Helper to format time in user's timezone
-function formatTime(dateValue, timezone = DEFAULT_TIMEZONE) {
-  const date = new Date(dateValue);
-  return date.toLocaleTimeString('en-US', { 
-    timeZone: timezone, 
-    hour: '2-digit', 
-    minute: '2-digit' 
-  });
-}
-
-// Helper to format date and time together
-function formatDateTime(dateValue, timezone = DEFAULT_TIMEZONE) {
-  return `${formatDate(dateValue, timezone)} ${formatTime(dateValue, timezone)}`;
-}
 
 // =============================================================================
 // TOOL DEFINITIONS - Complete set of user actions

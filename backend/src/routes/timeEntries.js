@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
+import { getTodayInTimezone } from '../utils/dateUtils.js';
 
 const router = Router();
 
@@ -127,8 +128,8 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
       entryType = 'manual',
     } = req.body;
 
-    // Use defaults for optional fields
-    const entryDate = date || new Date().toISOString();
+    // Use defaults for optional fields - use Eastern timezone for consistent dates
+    const entryDate = date || getTodayInTimezone();
     const entryHours = hours || 0.01;
     const entryDescription = description || '';
 

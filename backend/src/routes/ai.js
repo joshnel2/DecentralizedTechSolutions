@@ -1,6 +1,13 @@
 import { Router } from 'express';
 import { query } from '../db/connection.js';
 import { authenticate } from '../middleware/auth.js';
+import {
+  DEFAULT_TIMEZONE,
+  formatDate,
+  formatTime,
+  formatDateTime,
+  formatMonthYear
+} from '../utils/dateUtils.js';
 
 const router = Router();
 
@@ -9,75 +16,6 @@ const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
 const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
 const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
 const API_VERSION = '2024-02-15-preview';
-
-// Default timezone for date formatting (US Eastern)
-const DEFAULT_TIMEZONE = 'America/New_York';
-
-// Helper to get the current date/time in a specific timezone
-function getDatePartsInTimezone(date, timezone = DEFAULT_TIMEZONE) {
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  });
-  const parts = formatter.formatToParts(date);
-  const getPart = (type) => parts.find(p => p.type === type)?.value;
-  return {
-    year: parseInt(getPart('year')),
-    month: parseInt(getPart('month')) - 1,
-    day: parseInt(getPart('day')),
-    hours: parseInt(getPart('hour')),
-    minutes: parseInt(getPart('minute')),
-    seconds: parseInt(getPart('second'))
-  };
-}
-
-// Get today's date string (YYYY-MM-DD) in the specified timezone
-function getTodayInTimezone(timezone = DEFAULT_TIMEZONE) {
-  const parts = getDatePartsInTimezone(new Date(), timezone);
-  return `${parts.year}-${String(parts.month + 1).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
-}
-
-// Get current time in timezone for "past" comparisons
-function getNowInTimezone(timezone = DEFAULT_TIMEZONE) {
-  return new Date(); // For comparisons, we can use actual Date objects since the DB stores UTC
-}
-
-// Helper to format date in user's timezone
-function formatDate(dateValue, timezone = DEFAULT_TIMEZONE) {
-  const date = new Date(dateValue);
-  return date.toLocaleDateString('en-US', { timeZone: timezone });
-}
-
-// Helper to format time in user's timezone
-function formatTime(dateValue, timezone = DEFAULT_TIMEZONE) {
-  const date = new Date(dateValue);
-  return date.toLocaleTimeString('en-US', { 
-    timeZone: timezone, 
-    hour: '2-digit', 
-    minute: '2-digit' 
-  });
-}
-
-// Helper to format date and time together
-function formatDateTime(dateValue, timezone = DEFAULT_TIMEZONE) {
-  return `${formatDate(dateValue, timezone)} ${formatTime(dateValue, timezone)}`;
-}
-
-// Helper to format month and year (for reports)
-function formatMonthYear(dateValue, timezone = DEFAULT_TIMEZONE) {
-  const date = new Date(dateValue);
-  return date.toLocaleDateString('en-US', { 
-    timeZone: timezone, 
-    month: 'short', 
-    year: 'numeric' 
-  });
-}
 
 // System prompt for the AI
 const SYSTEM_PROMPT = `You are an intelligent AI assistant for a law firm management platform called Apex Legal. You have access to the firm's data shown in the context below.

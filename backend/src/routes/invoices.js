@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
+import { getTodayInTimezone, getCurrentYear } from '../utils/dateUtils.js';
 
 const router = Router();
 
@@ -195,7 +196,7 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
         [req.user.firmId]
       );
       const count = parseInt(countResult.rows[0].count) + 1;
-      const number = `INV-${new Date().getFullYear()}-${String(count).padStart(4, '0')}`;
+      const number = `INV-${getCurrentYear()}-${String(count).padStart(4, '0')}`;
 
       // Calculate totals from line items
       const subtotalFees = lineItems
@@ -350,7 +351,7 @@ router.post('/:id/payments', authenticate, requirePermission('billing:edit'), as
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           req.user.firmId, invoice.id, invoice.client_id, amount,
-          paymentMethod, reference, paymentDate || new Date(), notes, req.user.id
+          paymentMethod, reference, paymentDate || getTodayInTimezone(), notes, req.user.id
         ]
       );
 

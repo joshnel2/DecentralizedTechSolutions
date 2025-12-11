@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query, withTransaction } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import { buildVisibilityFilter, canAccessMatter, FULL_ACCESS_ROLES } from '../middleware/matterPermissions.js';
+import { getCurrentYear } from '../utils/dateUtils.js';
 
 const router = Router();
 
@@ -326,7 +327,7 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
     
     const result = await withTransaction(async (client) => {
       // Generate matter number - find max existing number for this year and increment
-      const year = new Date().getFullYear();
+      const year = getCurrentYear();
       const prefix = `MTR-${year}-`;
       const maxResult = await client.query(
         `SELECT number FROM matters 

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db/connection.js';
 import { authenticate } from '../middleware/auth.js';
+import { getDateInTimezone, getTodayInTimezone, createDateInTimezone } from '../utils/dateUtils.js';
 
 const router = Router();
 
@@ -431,7 +432,8 @@ router.post('/payment-links', authenticate, async (req, res) => {
     }
 
     const url = `https://pay.apexlegal.com/${crypto.randomUUID()}`;
-    const expiry = expiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    // Default expiry is 30 days from today
+    const expiry = expiresAt || createDateInTimezone(getDateInTimezone(30), 23, 59).toISOString();
 
     const result = await query(
       `INSERT INTO payment_links (firm_id, invoice_id, client_id, amount, url, expires_at)
@@ -876,7 +878,7 @@ router.put('/trust-transactions/:id', authenticate, async (req, res) => {
       `UPDATE trust_transactions SET cleared_at = $1
        WHERE id = $2 AND trust_account_id IN (SELECT id FROM trust_accounts WHERE firm_id = $3)
        RETURNING *`,
-      [clearedAt || new Date().toISOString(), req.params.id, req.user.firmId]
+      [clearedAt || createDateInTimezone(getTodayInTimezone(), 12, 0).toISOString(), req.params.id, req.user.firmId]
     );
 
     if (result.rows.length === 0) {

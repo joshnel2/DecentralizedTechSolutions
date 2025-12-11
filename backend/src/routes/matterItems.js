@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
+import { getTodayInTimezone } from '../utils/dateUtils.js';
 
 const router = Router();
 
@@ -269,7 +270,7 @@ router.post('/:matterId/updates', authenticate, requirePermission('matters:edit'
       `INSERT INTO matter_updates (firm_id, matter_id, date, title, description, category, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [req.user.firmId, matterId, date || new Date().toISOString().split('T')[0], title, description, category, req.user.id]
+      [req.user.firmId, matterId, date || getTodayInTimezone(), title, description, category, req.user.id]
     );
     
     const u = result.rows[0];
