@@ -34,6 +34,16 @@ function formatDateTime(dateValue, timezone = DEFAULT_TIMEZONE) {
   return `${formatDate(dateValue, timezone)} ${formatTime(dateValue, timezone)}`;
 }
 
+// Helper to format month and year (for reports)
+function formatMonthYear(dateValue, timezone = DEFAULT_TIMEZONE) {
+  const date = new Date(dateValue);
+  return date.toLocaleDateString('en-US', { 
+    timeZone: timezone, 
+    month: 'short', 
+    year: 'numeric' 
+  });
+}
+
 // System prompt for the AI
 const SYSTEM_PROMPT = `You are an intelligent AI assistant for a law firm management platform called Apex Legal. You have access to the firm's data shown in the context below.
 
@@ -466,7 +476,7 @@ ${eventsRes.rows.length > 0 ? eventsRes.rows.map(e => {
 }).join('\n') : 'No recent calendar events found.'}
 
 RECENT TIME ENTRIES:
-${entriesRes.rows.length > 0 ? entriesRes.rows.map(e => `- ${new Date(e.date).toLocaleDateString()} | ${e.hours}hrs | $${parseFloat(e.amount || 0).toLocaleString()}
+${entriesRes.rows.length > 0 ? entriesRes.rows.map(e => `- ${formatDate(e.date)} | ${e.hours}hrs | $${parseFloat(e.amount || 0).toLocaleString()}
   ${e.matter_name || 'No matter'} | ${e.user_name}
   ${e.description}`).join('\n\n') : 'No recent time entries found.'}
 
@@ -492,7 +502,7 @@ SUGGESTION: Compare calendar events with time entries to identify work that may 
 RECENT DOCUMENTS:
 ${docs.rows.map(d => `- ${d.name} (${d.type || 'unknown type'})
   ${d.matter_name ? `Matter: ${d.matter_name}` : ''}${d.client_name ? ` | Client: ${d.client_name}` : ''}
-  Uploaded: ${new Date(d.created_at).toLocaleDateString()}`).join('\n\n') || 'No documents'}
+  Uploaded: ${formatDate(d.created_at)}`).join('\n\n') || 'No documents'}
 `;
         break;
       }
@@ -554,7 +564,7 @@ MATTER BREAKDOWN:
 ${Object.entries(matterStats).map(([status, count]) => `- ${status}: ${count}`).join('\n')}
 
 MONTHLY REVENUE (Last 6 Months):
-${revenueRes.rows.map(r => `- ${new Date(r.month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}: ${parseFloat(r.hours || 0).toFixed(1)} hrs / $${parseFloat(r.revenue || 0).toLocaleString()}`).join('\n') || 'No data'}
+${revenueRes.rows.map(r => `- ${formatMonthYear(r.month)}: ${parseFloat(r.hours || 0).toFixed(1)} hrs / $${parseFloat(r.revenue || 0).toLocaleString()}`).join('\n') || 'No data'}
 
 TEAM PERFORMANCE (This Month):
 ${teamRes.rows.map(t => `- ${t.name} (${t.role}): ${parseFloat(t.total_hours || 0).toFixed(1)} hrs / $${parseFloat(t.total_revenue || 0).toLocaleString()}`).join('\n')}
@@ -605,7 +615,7 @@ ${clientsRes.rows.map(c => `- ${c.display_name} (${c.type})`).join('\n') || 'No 
 ${urgentRes.rows.length > 0 ? `URGENT/HIGH PRIORITY:\n${urgentRes.rows.map(m => `- ${m.name} (${m.number}) - ${m.priority.toUpperCase()}`).join('\n')}` : ''}
 
 UPCOMING (Next 7 Days):
-${upcomingRes.rows.map(e => `- ${new Date(e.start_time).toLocaleDateString()}: ${e.title} (${e.type})`).join('\n') || 'Nothing scheduled'}
+${upcomingRes.rows.map(e => `- ${formatDateTime(e.start_time)}: ${e.title} (${e.type})`).join('\n') || 'Nothing scheduled'}
 
 UNBILLED WORK: ${parseFloat(unbilled?.hours || 0).toFixed(1)} hrs ($${parseFloat(unbilled?.amount || 0).toLocaleString()})
 `;

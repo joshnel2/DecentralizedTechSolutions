@@ -11,6 +11,30 @@ const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
 const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
 const API_VERSION = '2024-08-01-preview';
 
+// Default timezone for date formatting (US Eastern)
+const DEFAULT_TIMEZONE = 'America/New_York';
+
+// Helper to format date in user's timezone
+function formatDate(dateValue, timezone = DEFAULT_TIMEZONE) {
+  const date = new Date(dateValue);
+  return date.toLocaleDateString('en-US', { timeZone: timezone });
+}
+
+// Helper to format time in user's timezone
+function formatTime(dateValue, timezone = DEFAULT_TIMEZONE) {
+  const date = new Date(dateValue);
+  return date.toLocaleTimeString('en-US', { 
+    timeZone: timezone, 
+    hour: '2-digit', 
+    minute: '2-digit' 
+  });
+}
+
+// Helper to format date and time together
+function formatDateTime(dateValue, timezone = DEFAULT_TIMEZONE) {
+  return `${formatDate(dateValue, timezone)} ${formatTime(dateValue, timezone)}`;
+}
+
 // =============================================================================
 // TOOL DEFINITIONS - Complete set of user actions
 // =============================================================================
@@ -2130,7 +2154,7 @@ async function createCalendarEvent(args, user) {
     
     return {
       success: true,
-      message: `Created ${eventType} "${title}" scheduled for ${startDate.toLocaleDateString()} at ${startDate.toLocaleTimeString()}`,
+      message: `Created ${eventType} "${title}" scheduled for ${formatDateTime(startDate)}`,
       data: { id: event.id, title: event.title, start: event.start_time, end: event.end_time, type: event.type }
     };
   } catch (dbError) {
@@ -2581,7 +2605,7 @@ async function addMatterNote(args, user) {
   
   // Append to ai_summary field as a note (since there's no dedicated notes table)
   const existingNotes = matterCheck.rows[0].ai_summary || '';
-  const timestamp = new Date().toLocaleString();
+  const timestamp = formatDateTime(new Date());
   const newNote = `\n\n[${timestamp} - ${user.firstName} ${user.lastName}]\n${content}`;
   
   await query('UPDATE matters SET ai_summary = $1 WHERE id = $2', [existingNotes + newNote, matter_id]);
