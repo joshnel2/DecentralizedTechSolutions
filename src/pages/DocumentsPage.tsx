@@ -4,22 +4,32 @@ import { useDataStore } from '../stores/dataStore'
 import { useAIStore } from '../stores/aiStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { 
-  Plus, Search, FolderOpen, FileText, Upload,
-  MoreVertical, Sparkles, Download, Trash2, Wand2, X, FileSearch, Loader2
+  Search, FolderOpen, FileText, Upload,
+  Sparkles, Download, Trash2, Wand2, X, Loader2,
+  FileSearch, Scale, AlertTriangle, List, MessageSquare
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
-import { clsx } from 'clsx'
 import styles from './DocumentsPage.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { parseDocument } from '../utils/documentParser'
 
+// AI suggestion prompts for document analysis
+const AI_SUGGESTIONS = [
+  { icon: FileSearch, label: 'Summarize', prompt: 'Please provide a concise summary of this document, highlighting the key points and main takeaways.' },
+  { icon: Scale, label: 'Legal Analysis', prompt: 'Analyze this document from a legal perspective. Identify any legal issues, risks, or important clauses.' },
+  { icon: AlertTriangle, label: 'Find Risks', prompt: 'Review this document and identify any potential risks, red flags, or areas of concern.' },
+  { icon: List, label: 'Extract Key Terms', prompt: 'Extract and list all the key terms, definitions, and important provisions from this document.' },
+  { icon: MessageSquare, label: 'Ask Questions', prompt: '' },
+]
+
 export function DocumentsPage() {
   const navigate = useNavigate()
   const { documents, matters, fetchDocuments, fetchMatters, addDocument, deleteDocument } = useDataStore()
-  const { setSelectedMode, setDocumentContext, createConversation } = useAIStore()
+  const { setSelectedMode, setDocumentContext, createConversation, setInitialMessage } = useAIStore()
   const { openChat } = useAIChat()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [isExtracting, setIsExtracting] = useState(false)
   
   // Fetch data from API on mount
   useEffect(() => {
@@ -28,7 +38,8 @@ export function DocumentsPage() {
   }, [fetchDocuments, fetchMatters])
   
   // Download document
-  const downloadDocument = async (doc: typeof documents[0]) => {
+  const downloadDocument = async (doc: typeof documents[0], e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
     const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
     try {
@@ -40,7 +51,7 @@ export function DocumentsPage() {
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = doc.name
+        a.download = doc.originalName || doc.name
         document.body.appendChild(a)
         a.click()
         window.URL.revokeObjectURL(url)
@@ -56,7 +67,8 @@ export function DocumentsPage() {
   }
   
   // Delete document
-  const handleDeleteDocument = (docId: string) => {
+  const handleDeleteDocument = (docId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
     const doc = documents.find(d => d.id === docId)
     setConfirmModal({
       isOpen: true,
@@ -69,6 +81,7 @@ export function DocumentsPage() {
     try {
       await deleteDocument(confirmModal.docId)
       setConfirmModal({ isOpen: false, docId: '', docName: '' })
+      setSelectedDoc(null)
       fetchDocuments()
     } catch (error) {
       console.error('Failed to delete document:', error)
@@ -76,16 +89,13 @@ export function DocumentsPage() {
     }
   }
   
-  // Open AI with document context - extracts text content first
-  const [isExtractingForChat, setIsExtractingForChat] = useState(false)
-  
-  const openAIWithDocContext = async (doc: typeof documents[0]) => {
-    setIsExtractingForChat(true)
+  // Open AI with document context and optional prompt
+  const openAIWithDocument = async (doc: typeof documents[0], prompt?: string) => {
+    setIsExtracting(true)
     
     try {
-      // First try to get content from server
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
-      const token = localStorage.getItem('token') || localStorage.getItem('accessToken') || ''
+      const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
       
       let extractedContent = ''
       
@@ -108,23 +118,16 @@ export function DocumentsPage() {
       // If server didn't return content, download and extract client-side
       if (!extractedContent) {
         try {
-          console.log('Downloading document for client-side extraction:', doc.name, doc.type)
           const downloadResponse = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
             headers: { 'Authorization': `Bearer ${token}` }
           })
           
           if (downloadResponse.ok) {
             const blob = await downloadResponse.blob()
-            console.log('Downloaded blob:', blob.size, 'bytes, type:', blob.type)
-            // Use the document's stored type, or fall back to blob type
             const fileType = doc.type || blob.type || 'application/octet-stream'
             const file = new File([blob], doc.name, { type: fileType })
-            console.log('Created file for extraction:', file.name, file.type, file.size)
             const parseResult = await parseDocument(file)
             extractedContent = parseResult.content
-            console.log('Extracted content length:', extractedContent.length)
-          } else {
-            console.error('Download failed:', downloadResponse.status, downloadResponse.statusText)
           }
         } catch (e) {
           console.error('Failed to download document for extraction:', e)
@@ -136,7 +139,7 @@ export function DocumentsPage() {
         extractedContent = `[Document: ${doc.name}]\nType: ${doc.type}\nSize: ${formatFileSize(doc.size)}\n\nUnable to extract text content. The document may be an image or scanned PDF.`
       }
       
-      // Navigate to AI page with document context
+      // Set up AI context
       setSelectedMode('document')
       setDocumentContext({
         id: doc.id,
@@ -145,24 +148,21 @@ export function DocumentsPage() {
         type: doc.type,
         size: doc.size
       })
+      
+      // Set initial message if prompt provided
+      if (prompt && setInitialMessage) {
+        setInitialMessage(prompt)
+      }
+      
       createConversation('document')
+      setSelectedDoc(null)
       navigate('/app/ai')
       
     } catch (error) {
       console.error('Failed to extract document:', error)
-      // Navigate anyway with basic info
-      setSelectedMode('document')
-      setDocumentContext({
-        id: doc.id,
-        name: doc.name,
-        content: `[Document: ${doc.name}]\nType: ${doc.type}\nSize: ${formatFileSize(doc.size)}`,
-        type: doc.type,
-        size: doc.size
-      })
-      createConversation('document')
-      navigate('/app/ai')
+      alert('Failed to analyze document. Please try again.')
     } finally {
-      setIsExtractingForChat(false)
+      setIsExtracting(false)
     }
   }
   
@@ -170,7 +170,7 @@ export function DocumentsPage() {
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [selectedMatterId, setSelectedMatterId] = useState('')
-  const [previewDoc, setPreviewDoc] = useState<typeof documents[0] | null>(null)
+  const [selectedDoc, setSelectedDoc] = useState<typeof documents[0] | null>(null)
   
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -221,91 +221,18 @@ export function DocumentsPage() {
     matterId ? matters.find(m => m.id === matterId)?.name : null
 
   const getFileIcon = (type: string) => {
-    if (type.includes('pdf')) return '📄'
-    if (type.includes('word') || type.includes('document')) return '📝'
-    if (type.includes('spreadsheet') || type.includes('excel')) return '📊'
-    if (type.includes('image')) return '🖼️'
+    if (type?.includes('pdf')) return '📄'
+    if (type?.includes('word') || type?.includes('document')) return '📝'
+    if (type?.includes('spreadsheet') || type?.includes('excel')) return '📊'
+    if (type?.includes('image')) return '🖼️'
     return '📁'
   }
 
   const formatFileSize = (bytes: number) => {
+    if (!bytes) return '0 B'
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
     return `${(bytes / 1024 / 1024).toFixed(2)} MB`
-  }
-
-  const getDocumentUrl = (doc: typeof documents[0]) => {
-    return `${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/documents/${doc.id}/download`
-  }
-
-  const canPreview = (type: string, name: string) => {
-    const lowerName = name.toLowerCase()
-    return type.includes('pdf') || 
-           type.includes('image') ||
-           type.includes('word') ||
-           type.includes('text') ||
-           type.includes('spreadsheet') ||
-           type.includes('excel') ||
-           lowerName.endsWith('.pdf') ||
-           lowerName.endsWith('.docx') ||
-           lowerName.endsWith('.doc') ||
-           lowerName.endsWith('.txt') ||
-           lowerName.endsWith('.csv') ||
-           lowerName.endsWith('.xlsx') ||
-           lowerName.endsWith('.xls') ||
-           lowerName.endsWith('.md') ||
-           lowerName.endsWith('.json')
-  }
-
-  const isImageFile = (type: string) => type.includes('image')
-  const isPdfFile = (type: string, name: string) => type.includes('pdf') || name.toLowerCase().endsWith('.pdf')
-
-  // Preview content state
-  const [previewContent, setPreviewContent] = useState<string | null>(null)
-  const [isLoadingPreview, setIsLoadingPreview] = useState(false)
-
-  // Load preview content when preview doc changes
-  const loadPreviewContent = async (doc: typeof documents[0]) => {
-    // For images and PDFs that browser can render natively, skip extraction
-    if (isImageFile(doc.type)) {
-      setPreviewContent(null)
-      return
-    }
-
-    setIsLoadingPreview(true)
-    setPreviewContent(null)
-
-    try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
-      const token = localStorage.getItem('token') || localStorage.getItem('accessToken') || ''
-
-      const downloadResponse = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-
-      if (downloadResponse.ok) {
-        const blob = await downloadResponse.blob()
-        const fileType = doc.type || blob.type || 'application/octet-stream'
-        const file = new File([blob], doc.name, { type: fileType })
-        const parseResult = await parseDocument(file)
-        setPreviewContent(parseResult.content)
-      } else {
-        setPreviewContent('[Unable to load document preview]')
-      }
-    } catch (error) {
-      console.error('Preview error:', error)
-      setPreviewContent('[Error loading preview]')
-    } finally {
-      setIsLoadingPreview(false)
-    }
-  }
-
-  // Handle opening preview
-  const openPreview = (doc: typeof documents[0]) => {
-    setPreviewDoc(doc)
-    if (!isImageFile(doc.type)) {
-      loadPreviewContent(doc)
-    }
   }
 
   return (
@@ -342,6 +269,7 @@ export function DocumentsPage() {
         </div>
       </div>
 
+      {/* Upload Modal */}
       {showUploadModal && (
         <div className={styles.modalOverlay} onClick={() => setShowUploadModal(false)}>
           <div className={styles.modal} onClick={e => e.stopPropagation()}>
@@ -408,64 +336,51 @@ export function DocumentsPage() {
       </div>
 
       <div className={styles.documentsTable}>
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Matter</th>
-                <th>Size</th>
-                <th>Uploaded</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredDocuments.map(doc => (
-                <tr key={doc.id}>
-                  <td>
-                    <div 
-                      className={styles.nameCell} 
-                      onClick={() => openPreview(doc)}
-                      style={{ cursor: 'pointer' }}
-                      title="Click to view"
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Matter</th>
+              <th>Size</th>
+              <th>Uploaded</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredDocuments.map(doc => (
+              <tr key={doc.id} onClick={() => setSelectedDoc(doc)} className={styles.clickableRow}>
+                <td>
+                  <div className={styles.nameCell}>
+                    <span className={styles.fileIcon}>{getFileIcon(doc.type)}</span>
+                    <span className={styles.docNameLink}>{doc.name}</span>
+                  </div>
+                </td>
+                <td>{getMatterName(doc.matterId) || '-'}</td>
+                <td>{formatFileSize(doc.size)}</td>
+                <td>{format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}</td>
+                <td>
+                  <div className={styles.rowActions}>
+                    <button 
+                      onClick={(e) => downloadDocument(doc, e)}
+                      title="Download"
+                      className={styles.actionBtn}
                     >
-                      <span className={styles.fileIcon}>{getFileIcon(doc.type)}</span>
-                      <span className={styles.docNameLink}>{doc.name}</span>
-                    </div>
-                  </td>
-                  <td>{getMatterName(doc.matterId) || '-'}</td>
-                  <td>{formatFileSize(doc.size)}</td>
-                  <td>{format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}</td>
-                  <td>
-                    <div className={styles.rowActions}>
-                      <button 
-                        onClick={() => downloadDocument(doc)}
-                        title="Download"
-                        className={styles.actionBtn}
-                      >
-                        <Download size={16} />
-                      </button>
-                      <button 
-                        className={styles.analyzeBtn}
-                        onClick={() => openAIWithDocContext(doc)}
-                        title="AI Analyze"
-                        disabled={isExtractingForChat}
-                      >
-                        {isExtractingForChat ? <Loader2 size={14} className={styles.spinner} /> : <Sparkles size={14} />}
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteDocument(doc.id)}
-                        title="Delete"
-                        className={styles.deleteBtn}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                      <Download size={16} />
+                    </button>
+                    <button 
+                      onClick={(e) => handleDeleteDocument(doc.id, e)}
+                      title="Delete"
+                      className={styles.deleteBtn}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {filteredDocuments.length === 0 && (
         <div className={styles.emptyState}>
@@ -475,93 +390,70 @@ export function DocumentsPage() {
         </div>
       )}
 
-      {/* Document Preview Modal */}
-      {previewDoc && (
-        <div className={styles.previewModal} onClick={() => { setPreviewDoc(null); setPreviewContent(null); }}>
-          <div className={styles.previewContainer} onClick={e => e.stopPropagation()}>
-            <div className={styles.previewHeader}>
-              <div className={styles.previewTitle}>
-                <span className={styles.previewIcon}>{getFileIcon(previewDoc.type)}</span>
-                <div className={styles.previewTitleText}>
-                  <span className={styles.previewFileName}>{previewDoc.name}</span>
-                  <span className={styles.previewFileMeta}>{formatFileSize(previewDoc.size)}</span>
+      {/* Document Quick Actions Modal */}
+      {selectedDoc && (
+        <div className={styles.modalOverlay} onClick={() => setSelectedDoc(null)}>
+          <div className={styles.docModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.docModalHeader}>
+              <div className={styles.docModalTitle}>
+                <span className={styles.docModalIcon}>{getFileIcon(selectedDoc.type)}</span>
+                <div className={styles.docModalInfo}>
+                  <h3>{selectedDoc.name}</h3>
+                  <span className={styles.docModalMeta}>
+                    {formatFileSize(selectedDoc.size)} • {format(parseISO(selectedDoc.uploadedAt), 'MMM d, yyyy')}
+                    {getMatterName(selectedDoc.matterId) && ` • ${getMatterName(selectedDoc.matterId)}`}
+                  </span>
                 </div>
               </div>
-              <div className={styles.previewActions}>
+              <button className={styles.closeBtn} onClick={() => setSelectedDoc(null)}>
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div className={styles.docModalContent}>
+              <div className={styles.quickActions}>
                 <button 
-                  className={styles.previewActionBtn}
-                  onClick={() => downloadDocument(previewDoc)}
+                  className={styles.downloadBtn}
+                  onClick={() => downloadDocument(selectedDoc)}
                 >
                   <Download size={18} />
-                  <span>Download</span>
+                  Download
                 </button>
                 <button 
-                  className={styles.previewAIBtn}
-                  onClick={() => {
-                    openAIWithDocContext(previewDoc)
-                    setPreviewDoc(null)
-                    setPreviewContent(null)
-                  }}
-                  disabled={isExtractingForChat}
+                  className={styles.deleteDocBtn}
+                  onClick={() => handleDeleteDocument(selectedDoc.id)}
                 >
-                  {isExtractingForChat ? <Loader2 size={18} className={styles.spinner} /> : <Sparkles size={18} />}
-                  <span>{isExtractingForChat ? 'Analyzing...' : 'AI Analyze'}</span>
-                </button>
-                <button className={styles.closePreviewBtn} onClick={() => { setPreviewDoc(null); setPreviewContent(null); }}>
-                  <X size={20} />
+                  <Trash2 size={18} />
+                  Delete
                 </button>
               </div>
-            </div>
-            <div className={styles.previewContent}>
-              {isImageFile(previewDoc.type) ? (
-                /* Native image preview */
-                <img 
-                  src={getDocumentUrl(previewDoc)}
-                  alt={previewDoc.name}
-                  className={styles.previewImage}
-                />
-              ) : isPdfFile(previewDoc.type, previewDoc.name) ? (
-                /* PDF preview - try iframe first, show extracted text as fallback */
-                <div className={styles.pdfPreviewContainer}>
-                  <iframe 
-                    src={getDocumentUrl(previewDoc)}
-                    title={previewDoc.name}
-                    className={styles.previewFrame}
-                  />
-                  {previewContent && (
-                    <details className={styles.textFallback}>
-                      <summary>Show extracted text</summary>
-                      <pre className={styles.extractedText}>{previewContent}</pre>
-                    </details>
-                  )}
+
+              <div className={styles.aiSection}>
+                <div className={styles.aiSectionHeader}>
+                  <Sparkles size={16} />
+                  <span>AI Document Analysis</span>
                 </div>
-              ) : isLoadingPreview ? (
-                /* Loading state */
-                <div className={styles.previewLoading}>
-                  <Loader2 size={32} className={styles.spinner} />
-                  <p>Loading preview...</p>
-                </div>
-              ) : previewContent ? (
-                /* Text-based preview for Word, Excel, Text files */
-                <div className={styles.textPreview}>
-                  <pre className={styles.extractedText}>{previewContent}</pre>
-                </div>
-              ) : (
-                /* Fallback for unsupported types */
-                <div className={styles.noPreview}>
-                  <span className={styles.bigIcon}>{getFileIcon(previewDoc.type)}</span>
-                  <h3>{previewDoc.name}</h3>
-                  <p>{previewDoc.type} • {formatFileSize(previewDoc.size)}</p>
-                  <p className={styles.noPreviewHint}>Preview not available for this file type</p>
-                  <button 
-                    onClick={() => downloadDocument(previewDoc)}
-                    className={styles.downloadBtnLarge}
-                  >
-                    <Download size={18} />
-                    Download to View
-                  </button>
-                </div>
-              )}
+                
+                {isExtracting ? (
+                  <div className={styles.extractingState}>
+                    <Loader2 size={24} className={styles.spinner} />
+                    <span>Preparing document for analysis...</span>
+                  </div>
+                ) : (
+                  <div className={styles.aiSuggestions}>
+                    {AI_SUGGESTIONS.map((suggestion, i) => (
+                      <button
+                        key={i}
+                        className={styles.suggestionBtn}
+                        onClick={() => openAIWithDocument(selectedDoc, suggestion.prompt)}
+                      >
+                        <suggestion.icon size={16} />
+                        <span>{suggestion.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
