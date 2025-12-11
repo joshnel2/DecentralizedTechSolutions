@@ -91,6 +91,35 @@ export function AIAssistantPage() {
     }
   }, [searchParams])
 
+  // Handle document passed via sessionStorage (from Document Automation page)
+  useEffect(() => {
+    const storedData = sessionStorage.getItem('documentAI_content')
+    if (storedData) {
+      try {
+        const { content, templateName } = JSON.parse(storedData)
+        if (content && templateName) {
+          // Clear the sessionStorage to prevent re-loading on refresh
+          sessionStorage.removeItem('documentAI_content')
+          
+          // Set up document context with the generated document
+          setSelectedMode('document')
+          setDocumentContext({
+            name: `${templateName}.txt`,
+            content: content,
+            type: 'text/plain'
+          })
+          
+          // Create a conversation and start analysis
+          const conv = createConversation('document')
+          generateResponse(conv.id, `I just generated this ${templateName} document. Please review it and let me know if there are any issues, missing information, or improvements I should make.`)
+        }
+      } catch (e) {
+        console.error('Error parsing document automation content:', e)
+        sessionStorage.removeItem('documentAI_content')
+      }
+    }
+  }, [])
+
   // Handle initial message from document page AI suggestions
   useEffect(() => {
     if (initialMessage) {

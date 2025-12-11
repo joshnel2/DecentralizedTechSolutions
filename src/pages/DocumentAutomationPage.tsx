@@ -1312,7 +1312,7 @@ export function DocumentAutomationPage() {
                   <FileCheck size={48} />
                 </div>
                 <h3>{generatedTemplateName}</h3>
-                <p>Your document has been generated successfully. Choose what you'd like to do next:</p>
+                <p>Your document has been generated successfully. Download it or have AI review it for issues and improvements.</p>
               </div>
               <div className={styles.resultPreview}>
                 <pre>{generatedContent.substring(0, 500)}{generatedContent.length > 500 ? '...' : ''}</pre>
@@ -1325,7 +1325,7 @@ export function DocumentAutomationPage() {
               </button>
               <button onClick={handleOpenInDocumentAI} className={styles.primaryBtn}>
                 <Sparkles size={18} />
-                Open in Document AI
+                Review with AI
               </button>
             </div>
           </div>
