@@ -48,11 +48,13 @@ export function AIAssistantPage() {
     activeConversationId, 
     selectedMode,
     isLoading,
+    initialMessage,
     documentContext,
     redlineDocuments,
     setSelectedMode,
     setDocumentContext,
     setRedlineDocument,
+    setInitialMessage,
     createConversation, 
     setActiveConversation,
     generateResponse,
@@ -88,6 +90,14 @@ export function AIAssistantPage() {
       createConversation('document')
     }
   }, [searchParams])
+
+  // Handle initial message from document page AI suggestions
+  useEffect(() => {
+    if (initialMessage) {
+      setInput(initialMessage)
+      setInitialMessage(null)
+    }
+  }, [initialMessage, setInitialMessage])
 
   // Scroll to the last user message when messages change
   useEffect(() => {

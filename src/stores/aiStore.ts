@@ -23,6 +23,7 @@ interface AIState {
   activeConversationId: string | null
   selectedMode: AIMode
   isLoading: boolean
+  initialMessage: string | null
   
   // Document context (invisible to user, sent to AI)
   documentContext: DocumentContext | null
@@ -31,6 +32,7 @@ interface AIState {
   setSelectedMode: (mode: AIMode) => void
   setDocumentContext: (doc: DocumentContext | null) => void
   setRedlineDocument: (which: 'doc1' | 'doc2', doc: DocumentContext | null) => void
+  setInitialMessage: (message: string | null) => void
   createConversation: (mode?: AIMode, initialContext?: string) => AIConversation
   setActiveConversation: (id: string | null) => void
   addMessage: (conversationId: string, message: Omit<AIMessage, 'id' | 'timestamp'>) => void
@@ -48,6 +50,7 @@ export const useAIStore = create<AIState>()(
       activeConversationId: null,
       selectedMode: 'standard',
       isLoading: false,
+      initialMessage: null,
       documentContext: null,
       redlineDocuments: { doc1: null, doc2: null },
 
@@ -57,6 +60,10 @@ export const useAIStore = create<AIState>()(
 
       setDocumentContext: (doc) => {
         set({ documentContext: doc })
+      },
+
+      setInitialMessage: (message) => {
+        set({ initialMessage: message })
       },
 
       setRedlineDocument: (which, doc) => {

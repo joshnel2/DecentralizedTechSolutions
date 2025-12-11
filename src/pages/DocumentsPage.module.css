@@ -507,333 +507,198 @@
   cursor: not-allowed;
 }
 
-/* Preview Button */
-.previewBtn {
-  background: var(--apex-slate) !important;
-  color: var(--apex-light) !important;
-  border-radius: var(--radius-sm);
-  padding: 6px !important;
-}
-
-.previewBtn:hover {
-  background: var(--apex-muted) !important;
-  color: white !important;
-}
-
-/* Preview Modal */
-.previewModal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(8px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1100;
-  padding: 2rem;
-}
-
-.previewContainer {
+/* Document Quick Actions Modal */
+.docModal {
   width: 100%;
-  max-width: 1200px;
-  height: 90vh;
+  max-width: 420px;
   background: var(--apex-deep);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-xl);
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
+  animation: modalSlideIn 0.2s ease;
 }
 
-.previewHeader {
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.docModalHeader {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 1rem 1.5rem;
+  padding: 1.25rem;
   background: var(--apex-slate);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.previewTitle {
+.docModalTitle {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.75rem;
-  color: var(--apex-white);
-  font-weight: 500;
+  flex: 1;
+  min-width: 0;
 }
 
-.previewIcon {
-  font-size: 1.5rem;
+.docModalIcon {
+  font-size: 1.75rem;
+  flex-shrink: 0;
 }
 
-.previewTitleText {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.docModalInfo {
+  flex: 1;
+  min-width: 0;
 }
 
-.previewFileName {
+.docModalInfo h3 {
   font-size: 1rem;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--apex-white);
+  margin: 0 0 4px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.previewFileMeta {
+.docModalMeta {
   font-size: 0.75rem;
   color: var(--apex-text);
 }
 
-.previewTitle svg {
-  color: var(--apex-gold);
+.docModalContent {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
-.previewActions {
+.quickActions {
   display: flex;
-  align-items: center;
   gap: 0.75rem;
 }
 
-/* Improved Preview Action Buttons */
-.previewActionBtn {
+.downloadBtn {
+  flex: 1;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
-  padding: 0.625rem 1.25rem;
-  background: var(--apex-muted);
+  padding: 0.625rem 1rem;
+  background: var(--apex-slate);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-md);
   color: var(--apex-light);
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.previewActionBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: var(--apex-white);
-  transform: translateY(-1px);
-}
-
-.previewAIBtn {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.625rem 1.25rem;
-  background: linear-gradient(135deg, var(--apex-accent) 0%, #7C3AED 100%);
-  border: none;
-  border-radius: var(--radius-md);
-  color: white;
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
-}
-
-.previewAIBtn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #9333EA 0%, #6D28D9 100%);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
-}
-
-.previewAIBtn:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.previewActions .analyzeBtn {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem !important;
-  font-size: 0.875rem;
-}
-
-.downloadBtn {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: var(--apex-muted);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-md);
-  color: var(--apex-light);
-  font-size: 0.875rem;
-  text-decoration: none;
   transition: all var(--transition-fast);
 }
 
 .downloadBtn:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: var(--apex-white);
+  border-color: var(--apex-gold);
+  color: var(--apex-gold);
 }
 
-.closePreviewBtn {
-  background: none;
-  border: none;
-  padding: 0.5rem;
-  color: var(--apex-text);
-  cursor: pointer;
+.deleteDocBtn {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
   border-radius: var(--radius-md);
+  color: #F87171;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
   transition: all var(--transition-fast);
 }
 
-.closePreviewBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--apex-white);
+.deleteDocBtn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #FCA5A5;
 }
 
-.previewContent {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
+.aiSection {
+  background: rgba(139, 92, 246, 0.05);
+  border: 1px solid rgba(139, 92, 246, 0.15);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
 }
 
-.previewFrame {
-  width: 100%;
-  height: 100%;
-  border: none;
-  background: white;
-}
-
-.previewImage {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  margin: auto;
-}
-
-.pdfPreviewContainer {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.pdfPreviewContainer .previewFrame {
-  flex: 1;
-}
-
-.textFallback {
-  background: var(--apex-slate);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 0.75rem 1rem;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.textFallback summary {
-  cursor: pointer;
-  color: var(--apex-text);
-  font-size: 0.85rem;
-  user-select: none;
-}
-
-.textFallback summary:hover {
-  color: var(--apex-white);
-}
-
-.textPreview {
-  flex: 1;
-  overflow: auto;
-  background: var(--apex-slate);
-  padding: 1.5rem;
-}
-
-.extractedText {
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  line-height: 1.6;
-  color: var(--apex-light);
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  margin: 0;
-}
-
-.previewLoading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: 1rem;
-  color: var(--apex-text);
-}
-
-.previewLoading p {
-  font-size: 0.9rem;
-}
-
-.noPreview {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  text-align: center;
-  color: var(--apex-text);
-}
-
-.bigIcon {
-  font-size: 4rem;
-  margin-bottom: 1.5rem;
-}
-
-.noPreview h3 {
-  color: var(--apex-white);
-  margin-bottom: 0.5rem;
-}
-
-.noPreview p {
-  color: var(--apex-subtle);
-  margin-bottom: 0.25rem;
-}
-
-.noPreviewHint {
-  color: var(--apex-text);
-  margin-bottom: 1.5rem !important;
-}
-
-.downloadBtnLarge {
+.aiSectionHeader {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.75rem 1.5rem;
-  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--apex-midnight);
+  margin-bottom: 0.875rem;
+  color: #A78BFA;
+  font-size: 0.8125rem;
   font-weight: 600;
-  font-size: 0.9375rem;
-  text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.aiSuggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.suggestionBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  font-size: 0.875rem;
+  font-weight: 500;
   cursor: pointer;
   transition: all var(--transition-fast);
+  text-align: left;
 }
 
-.downloadBtnLarge:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-glow);
+.suggestionBtn:hover {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.4);
+  color: var(--apex-white);
+  transform: translateX(4px);
 }
 
-/* Download Button in doc actions */
-.docActions .downloadBtn {
-  background: none !important;
-  border: none;
-  padding: 6px !important;
-  color: var(--apex-text) !important;
+.suggestionBtn svg {
+  color: #A78BFA;
+  flex-shrink: 0;
+}
+
+.extractingState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  gap: 0.75rem;
+  color: var(--apex-text);
+  font-size: 0.875rem;
+}
+
+.clickableRow {
   cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: all var(--transition-fast);
+  transition: background var(--transition-fast);
 }
 
-.docActions .downloadBtn:hover {
-  background: var(--apex-slate) !important;
-  color: var(--apex-gold-bright) !important;
+.clickableRow:hover {
+  background: rgba(255, 255, 255, 0.02);
 }
 
 /* ===== MOBILE RESPONSIVE STYLES ===== */
