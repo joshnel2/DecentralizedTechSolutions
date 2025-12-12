@@ -1,0 +1,153 @@
+INTEGRATION + 2FA DIRECTIONS (simple checklist)
+
+============================================================
+PART A) TURN ON 2FA (Authenticator App) – REQUIRED STEPS
+============================================================
+
+Goal: Use Google Authenticator / Authy / 1Password (TOTP codes).
+
+1) Deploy the updated BACKEND and FRONTEND.
+   - 2FA will not work correctly unless BOTH are deployed.
+
+2) Apply database migration(s) (required for login challenge flow).
+   - Ensure your DB has the columns:
+     - users.two_factor_temp_token_hash
+     - users.two_factor_temp_token_created_at
+
+3) Enable 2FA in the app:
+   - Go to: Settings → Security → Two‑Factor Auth
+   - Choose: “Authenticator App”
+   - Copy/scan the provided otpauth://... string in your authenticator
+   - Enter the 6‑digit code to confirm
+
+Notes:
+- SMS and Email 2FA are NOT wired in this project yet.
+  To support SMS/Email you must integrate a provider (Twilio/SendGrid/etc.) and build verification flows.
+
+
+============================================================
+PART B) GET ALL INTEGRATIONS WORKING (Google / Outlook / QuickBooks)
+============================================================
+
+There are 3 things that MUST be correct:
+(1) The database table exists
+(2) The backend environment variables are set
+(3) The OAuth apps at each provider have the correct redirect URL
+
+
+------------------------------
+B1) DATABASE (must-have)
+------------------------------
+
+1) Create the integrations table by applying the SQL migration:
+   backend/src/db/migrations/add_integrations.sql
+
+2) Important: this migration also adds required external sync columns:
+   - calendar_events.external_id, calendar_events.external_source
+   - invoices.external_id, invoices.external_source
+
+If the table does not exist, the Integrations page/connect/sync will fail.
+
+
+------------------------------
+B2) BACKEND ENV VARS (must-have)
+------------------------------
+
+Set these in your Azure App Service (backend) Application Settings.
+
+A) Always required
+- FRONTEND_URL=https://<YOUR-FRONTEND>.azurestaticapps.net
+
+B) Google Calendar OAuth
+- GOOGLE_CLIENT_ID=<from Google Cloud>
+- GOOGLE_CLIENT_SECRET=<from Google Cloud>
+- GOOGLE_REDIRECT_URI=https://<YOUR-BACKEND>.azurewebsites.net/api/integrations/google/callback
+
+C) Microsoft (Outlook) OAuth
+- MICROSOFT_CLIENT_ID=<from Azure App Registration>
+- MICROSOFT_CLIENT_SECRET=<from Azure App Registration>
+- MICROSOFT_TENANT=common   (or your tenant ID)
+- MICROSOFT_REDIRECT_URI=https://<YOUR-BACKEND>.azurewebsites.net/api/integrations/outlook/callback
+
+D) QuickBooks OAuth
+- QUICKBOOKS_CLIENT_ID=<from Intuit Developer Portal>
+- QUICKBOOKS_CLIENT_SECRET=<from Intuit Developer Portal>
+- QUICKBOOKS_ENVIRONMENT=sandbox   (or production)
+- QUICKBOOKS_REDIRECT_URI=https://<YOUR-BACKEND>.azurewebsites.net/api/integrations/quickbooks/callback
+
+CRITICAL:
+- The redirect URIs must match EXACTLY (including https, domain, and path).
+
+
+------------------------------
+B3) OAUTH APP SETUP (must-have)
+------------------------------
+
+Google (Calendar)
+1) Google Cloud Console:
+   - Create OAuth Client (Web)
+   - Add Authorized redirect URI:
+     https://<YOUR-BACKEND>.azurewebsites.net/api/integrations/google/callback
+2) Enable required APIs:
+   - Google Calendar API
+3) Complete the OAuth Consent Screen:
+   - If the app is in “Testing”, add your users as test users.
+
+Microsoft (Outlook)
+1) Azure Portal → App registrations:
+   - Create app registration
+   - Add a Web redirect URI:
+     https://<YOUR-BACKEND>.azurewebsites.net/api/integrations/outlook/callback
+2) API permissions:
+   - Grant permissions matching what the app uses (Mail + Calendar + offline_access)
+   - Admin consent may be required for your tenant.
+
+QuickBooks
+1) Intuit Developer Portal:
+   - Create an app
+   - Set redirect URI:
+     https://<YOUR-BACKEND>.azurewebsites.net/api/integrations/quickbooks/callback
+2) Make sure sandbox vs production matches QUICKBOOKS_ENVIRONMENT.
+
+
+------------------------------
+B4) HOW USERS CONNECT (in-app)
+------------------------------
+
+Once the DB + env vars + redirect URIs are correct:
+1) Login
+2) Go to: Settings → Integrations
+3) Click Connect for:
+   - Google
+   - Outlook
+   - QuickBooks
+4) Complete provider consent
+5) You will be returned to:
+   /app/settings/integrations
+
+
+------------------------------
+B5) QUICK TROUBLESHOOTING
+------------------------------
+
+If “Connect” fails immediately:
+- Missing env vars on backend (CLIENT_ID/SECRET/REDIRECT)
+
+If provider says “redirect_uri_mismatch”:
+- Your provider redirect URI does not exactly match the backend env var.
+
+If you can connect but “Sync” fails:
+- The integrations table or external_id columns were not created (migration not applied)
+- Token refresh may fail if refresh_token was not issued (common if Google consent didn’t include offline access/consent)
+
+
+============================================================
+Fill in your URLs here (so you don’t guess):
+============================================================
+
+YOUR FRONTEND URL:
+https://________________________________.azurestaticapps.net
+
+YOUR BACKEND URL:
+https://________________________________.azurewebsites.net
+

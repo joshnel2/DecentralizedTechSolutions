@@ -15,6 +15,7 @@ export function SecuritySettingsPage() {
     user, 
     twoFactorSetup, 
     enable2FA, 
+    confirmEnable2FA,
     disable2FA, 
     generateBackupCodes,
     sessions,
@@ -39,10 +40,30 @@ export function SecuritySettingsPage() {
     if (result.qrCode) {
       setQrCode(result.qrCode)
     }
+    setShowSetup2FA(false)
+  }
+
+  const handleConfirmEnable2FA = async () => {
+    const ok = await confirmEnable2FA(verificationCode.trim())
+    if (!ok) {
+      alert('Invalid code. Please try again.')
+      return
+    }
+
     const codes = generateBackupCodes()
     setBackupCodes(codes)
     setShowBackupCodes(true)
-    setShowSetup2FA(false)
+    setVerificationCode('')
+    setQrCode(null)
+  }
+
+  const handleDisable2FA = async () => {
+    const code = prompt('Enter your 6-digit authenticator code to disable 2FA:')
+    if (!code) return
+    const ok = await disable2FA(code.trim())
+    if (!ok) {
+      alert('Could not disable 2FA (invalid code).')
+    }
   }
 
   const copyBackupCodes = () => {
@@ -172,7 +193,7 @@ export function SecuritySettingsPage() {
                   </button>
                   <button 
                     className={styles.dangerBtn}
-                    onClick={disable2FA}
+                    onClick={handleDisable2FA}
                   >
                     Disable 2FA
                   </button>
@@ -283,6 +304,53 @@ export function SecuritySettingsPage() {
                   </button>
                   <button onClick={() => setShowBackupCodes(false)} className={styles.primaryBtn}>
                     Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 2FA Setup / Verify Modal */}
+          {qrCode && (
+            <div className={styles.modal}>
+              <div className={styles.modalContent}>
+                <div className={styles.modalHeader}>
+                  <Smartphone size={24} />
+                  <h2>Set up Authenticator App</h2>
+                </div>
+                <p className={styles.modalDesc}>
+                  Scan this with Google Authenticator / Authy, then enter the 6‑digit code to confirm.
+                </p>
+
+                <div className={styles.backupCodes}>
+                  <code style={{ wordBreak: 'break-all' }}>{qrCode}</code>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>6-digit code</label>
+                  <input
+                    value={verificationCode}
+                    onChange={(e) => setVerificationCode(e.target.value)}
+                    placeholder="123456"
+                    inputMode="numeric"
+                  />
+                </div>
+
+                <div className={styles.modalActions}>
+                  <button
+                    onClick={() => {
+                      setQrCode(null)
+                      setVerificationCode('')
+                    }}
+                    className={styles.secondaryBtn}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmEnable2FA}
+                    className={styles.primaryBtn}
+                  >
+                    Confirm 2FA
                   </button>
                 </div>
               </div>

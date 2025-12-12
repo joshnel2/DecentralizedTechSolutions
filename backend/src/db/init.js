@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import pg from 'pg';
@@ -11,24 +11,33 @@ const __dirname = dirname(__filename);
 
 const { Client } = pg;
 
-// Run migrations to update existing databases
-async function runMigrations(client) {
-  const migrations = [
-    // Add billing_rate column to matter_assignments if it doesn't exist
-    `DO $$ 
-     BEGIN 
-       IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name = 'matter_assignments' AND column_name = 'billing_rate') THEN
-         ALTER TABLE matter_assignments ADD COLUMN billing_rate DECIMAL(10,2);
-       END IF;
-     END $$;`,
-  ];
+async function runSqlFile(client, filePath) {
+  const sql = readFileSync(filePath, 'utf8');
+  if (!sql.trim()) return;
+  await client.query(sql);
+}
 
-  for (const migration of migrations) {
+async function shouldRunSchema(client) {
+  const result = await client.query(
+    `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'firms' LIMIT 1`
+  );
+  return result.rows.length === 0;
+}
+
+// Run .sql migrations (idempotent migrations recommended)
+async function runMigrations(client) {
+  const migrationsDir = join(__dirname, 'migrations');
+  const migrationFiles = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+
+  for (const file of migrationFiles) {
+    const fullPath = join(migrationsDir, file);
     try {
-      await client.query(migration);
+      console.log(`Running migration: ${file}`);
+      await runSqlFile(client, fullPath);
     } catch (error) {
-      console.log('Migration note:', error.message);
+      console.log(`Migration note (${file}):`, error.message);
     }
   }
 }
@@ -71,13 +80,15 @@ async function initDatabase() {
     await client.connect();
     console.log('Connected to database');
 
-    // Read and execute schema
-    const schemaPath = join(__dirname, 'schema.sql');
-    const schema = readFileSync(schemaPath, 'utf8');
-    
-    console.log('Executing schema...');
-    await client.query(schema);
-    console.log('Schema executed successfully!');
+    // Only run schema on empty DBs (schema.sql is not idempotent)
+    if (await shouldRunSchema(client)) {
+      const schemaPath = join(__dirname, 'schema.sql');
+      console.log('Executing schema...');
+      await runSqlFile(client, schemaPath);
+      console.log('Schema executed successfully!');
+    } else {
+      console.log('Schema already present; skipping schema.sql');
+    }
 
     // Run migrations for existing databases
     console.log('Running migrations...');

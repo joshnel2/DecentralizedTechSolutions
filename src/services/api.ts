@@ -138,6 +138,35 @@ export const authApi = {
     return result;
   },
 
+  async verify2FA(payload: { userId: string; tempToken: string; code: string }) {
+    const result = await fetchWithAuth('/auth/2fa/verify', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    if (result.accessToken) {
+      setAccessToken(result.accessToken);
+    }
+    return result;
+  },
+
+  async start2FASetup() {
+    return fetchWithAuth('/auth/2fa/setup', { method: 'POST' });
+  },
+
+  async enable2FA(code: string) {
+    return fetchWithAuth('/auth/2fa/enable', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+  },
+
+  async disable2FA(code: string) {
+    return fetchWithAuth('/auth/2fa/disable', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+  },
+
   async logout() {
     try {
       await fetchWithAuth('/auth/logout', { method: 'POST' });
