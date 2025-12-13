@@ -521,7 +521,7 @@ export function ClientDetailPage() {
 
       {/* Tabs */}
       <div className={styles.tabs}>
-        {['overview', 'matters', 'time', 'billing', 'documents'].map(tab => (
+        {['overview', 'notes', 'matters', 'time', 'billing', 'documents'].map(tab => (
           <button
             key={tab}
             className={clsx(styles.tab, activeTab === tab && styles.active)}
@@ -560,36 +560,6 @@ export function ClientDetailPage() {
                     <span className={styles.detailLabel}>Billing Contact</span>
                     <span className={styles.detailValue}>{client.clientInfo.billingContact}</span>
                   </div>
-                )}
-              </div>
-            </div>
-
-            {/* Notes Card - Always visible */}
-            <div className={styles.card}>
-              <div className={styles.cardHeader}>
-                <h3><FileText size={18} /> Notes</h3>
-                <button 
-                  className={styles.addBtn}
-                  onClick={() => setShowEditModal(true)}
-                >
-                  <Edit2 size={14} />
-                  Edit
-                </button>
-              </div>
-              <div className={styles.notesContent}>
-                {client.notes ? (
-                  <p style={{ 
-                    whiteSpace: 'pre-wrap', 
-                    color: 'var(--apex-white)',
-                    lineHeight: '1.6',
-                    margin: 0
-                  }}>
-                    {client.notes}
-                  </p>
-                ) : (
-                  <p className={styles.noData} style={{ margin: 0 }}>
-                    No notes yet. Click Edit to add notes about this client.
-                  </p>
                 )}
               </div>
             </div>
@@ -643,6 +613,16 @@ export function ClientDetailPage() {
               </div>
             </div>
           </div>
+        )}
+
+        {activeTab === 'notes' && (
+          <ClientNotesSection 
+            notes={client.notes || ''}
+            onSave={async (notes: string) => {
+              await updateClient(id!, { notes })
+              await fetchClients()
+            }}
+          />
         )}
 
         {activeTab === 'matters' && (
@@ -1956,6 +1936,123 @@ function NewInvoiceModal({ clientId, clientName, clientMatters, onClose, onSave 
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+// Client Notes Section Component
+function ClientNotesSection({ 
+  notes, 
+  onSave 
+}: { 
+  notes: string
+  onSave: (notes: string) => Promise<void>
+}) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [editedNotes, setEditedNotes] = useState(notes)
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+
+  // Update local state when notes prop changes
+  useEffect(() => {
+    if (!isEditing) {
+      setEditedNotes(notes)
+    }
+  }, [notes, isEditing])
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    setSaveSuccess(false)
+    try {
+      await onSave(editedNotes)
+      setIsEditing(false)
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 3000)
+    } catch (error) {
+      console.error('Failed to save notes:', error)
+      alert('Failed to save notes. Please try again.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleCancel = () => {
+    setEditedNotes(notes)
+    setIsEditing(false)
+  }
+
+  return (
+    <div className={styles.notesTab}>
+      <div className={styles.tabHeader}>
+        <h2>Notes</h2>
+        <div className={styles.tabActions}>
+          {!isEditing ? (
+            <button 
+              className={styles.primaryBtn}
+              onClick={() => setIsEditing(true)}
+            >
+              <Edit2 size={18} />
+              Edit Notes
+            </button>
+          ) : (
+            <>
+              <button 
+                className={styles.cancelBtn}
+                onClick={handleCancel}
+                disabled={isSaving}
+              >
+                Cancel
+              </button>
+              <button 
+                className={styles.primaryBtn}
+                onClick={handleSave}
+                disabled={isSaving}
+              >
+                {isSaving ? 'Saving...' : 'Save Notes'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {saveSuccess && (
+        <div className={styles.successMessage}>
+          <CheckCircle2 size={18} />
+          Notes saved successfully!
+        </div>
+      )}
+
+      <div className={styles.notesCard}>
+        {isEditing ? (
+          <textarea
+            className={styles.notesTextarea}
+            value={editedNotes}
+            onChange={(e) => setEditedNotes(e.target.value)}
+            placeholder="Add internal notes about this client..."
+            autoFocus
+          />
+        ) : (
+          <div className={styles.notesDisplay}>
+            {notes ? (
+              <p style={{ 
+                whiteSpace: 'pre-wrap', 
+                color: 'var(--apex-white)',
+                lineHeight: '1.8',
+                margin: 0,
+                fontSize: '0.95rem'
+              }}>
+                {notes}
+              </p>
+            ) : (
+              <div className={styles.emptyNotes}>
+                <FileText size={48} />
+                <p>No notes yet</p>
+                <span>Click "Edit Notes" to add internal notes about this client.</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

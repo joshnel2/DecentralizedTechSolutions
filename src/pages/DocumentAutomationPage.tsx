@@ -4,10 +4,11 @@ import {
   FileText, Search, Play, Download, X, Sparkles, Plus, 
   Edit3, Copy, Trash2, Save, Eye, ChevronDown, ChevronRight,
   FileSignature, Scale, Gavel, Building, Users, DollarSign,
-  Clock, Shield, Briefcase, FileCheck, MessageSquare
+  Clock, Shield, Briefcase, FileCheck, MessageSquare, CheckCircle2, FolderPlus
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './DocumentAutomationPage.module.css'
+import { documentsApi } from '../services/api'
 
 interface TemplateVariable {
   key: string
@@ -643,6 +644,10 @@ export function DocumentAutomationPage() {
     icon: FileText
   })
   const [newVariables, setNewVariables] = useState<TemplateVariable[]>([])
+  
+  // Save to documents state
+  const [isSavingToDocuments, setIsSavingToDocuments] = useState(false)
+  const [savedToDocuments, setSavedToDocuments] = useState(false)
 
   const filteredTemplates = templates.filter(t => {
     const matchesSearch = t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -764,6 +769,32 @@ export function DocumentAutomationPage() {
     setGeneratedContent('')
     setGeneratedTemplateName('')
     setFormValues({})
+  }
+
+  const handleSaveToDocuments = async () => {
+    if (!generatedContent || !generatedTemplateName) return
+    
+    setIsSavingToDocuments(true)
+    setSavedToDocuments(false)
+    
+    try {
+      // Create a file from the generated content
+      const fileName = `${generatedTemplateName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.txt`
+      const blob = new Blob([generatedContent], { type: 'text/plain' })
+      const file = new File([blob], fileName, { type: 'text/plain' })
+      
+      // Upload the document
+      await documentsApi.upload(file, {
+        tags: ['generated', 'template', selectedTemplate?.category || 'document']
+      })
+      
+      setSavedToDocuments(true)
+    } catch (error) {
+      console.error('Failed to save document:', error)
+      alert('Failed to save document. Please try again.')
+    } finally {
+      setIsSavingToDocuments(false)
+    }
   }
 
   const handleCreateTemplate = () => {
@@ -1290,6 +1321,7 @@ export function DocumentAutomationPage() {
           setGeneratedContent('')
           setGeneratedTemplateName('')
           setFormValues({})
+          setSavedToDocuments(false)
         }}>
           <div className={clsx(styles.modal, styles.resultModal)} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
@@ -1302,6 +1334,7 @@ export function DocumentAutomationPage() {
                 setGeneratedContent('')
                 setGeneratedTemplateName('')
                 setFormValues({})
+                setSavedToDocuments(false)
               }} className={styles.closeBtn}>
                 <X size={20} />
               </button>
@@ -1312,16 +1345,47 @@ export function DocumentAutomationPage() {
                   <FileCheck size={48} />
                 </div>
                 <h3>{generatedTemplateName}</h3>
-                <p>Your document has been generated successfully. Download it or have AI review it for issues and improvements.</p>
+                <p>Your document has been generated successfully. Save it to your documents, download it, or have AI review it.</p>
               </div>
+              
+              {/* Success notification when saved to documents */}
+              {savedToDocuments && (
+                <div className={styles.savedNotification}>
+                  <CheckCircle2 size={20} />
+                  <span>Document saved to your Documents section!</span>
+                </div>
+              )}
+              
               <div className={styles.resultPreview}>
                 <pre>{generatedContent.substring(0, 500)}{generatedContent.length > 500 ? '...' : ''}</pre>
               </div>
             </div>
             <div className={styles.resultActions}>
+              <button 
+                onClick={handleSaveToDocuments} 
+                className={clsx(styles.saveToDocsBtn, savedToDocuments && styles.saved)}
+                disabled={isSavingToDocuments || savedToDocuments}
+              >
+                {savedToDocuments ? (
+                  <>
+                    <CheckCircle2 size={18} />
+                    Saved to Documents
+                  </>
+                ) : isSavingToDocuments ? (
+                  <>
+                    <FolderPlus size={18} />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <FolderPlus size={18} />
+                    Save to Documents
+                  </>
+                )}
+              </button>
               <button onClick={handleDownloadDocument} className={styles.secondaryBtn}>
                 <Download size={18} />
-                Download Document
+                Download
               </button>
               <button onClick={handleOpenInDocumentAI} className={styles.primaryBtn}>
                 <Sparkles size={18} />

@@ -903,7 +903,7 @@ Only analyze documents actually associated with this matter.`
 
       {/* Tabs */}
       <div className={styles.tabs}>
-        {['overview', 'updates', 'tasks', 'time', 'billing', 'documents', 'calendar', 'contacts'].map(tab => (
+        {['overview', 'notes', 'updates', 'tasks', 'time', 'billing', 'documents', 'calendar', 'contacts'].map(tab => (
           <button
             key={tab}
             className={clsx(styles.tab, activeTab === tab && styles.active)}
@@ -1142,39 +1142,19 @@ Only analyze documents actually associated with this matter.`
               </div>
             </div>
 
-            {/* Notes Card */}
-            <div className={styles.card} style={{ gridColumn: '1 / -1' }}>
-              <div className={styles.cardHeader}>
-                <h3>
-                  <FileText size={18} />
-                  Notes
-                </h3>
-                <button 
-                  className={styles.addBtn}
-                  onClick={() => setShowEditMatterModal(true)}
-                >
-                  <Edit2 size={14} />
-                  Edit
-                </button>
-              </div>
-              <div className={styles.notesContent}>
-                {matter.notes ? (
-                  <p style={{ 
-                    whiteSpace: 'pre-wrap', 
-                    color: 'var(--apex-white)',
-                    lineHeight: '1.6',
-                    margin: 0
-                  }}>
-                    {matter.notes}
-                  </p>
-                ) : (
-                  <p className={styles.noData} style={{ margin: 0 }}>
-                    No notes yet. Click Edit to add internal notes about this matter.
-                  </p>
-                )}
-              </div>
-            </div>
           </div>
+        )}
+
+        {/* Notes Tab */}
+        {activeTab === 'notes' && (
+          <NotesSection 
+            notes={matter.notes || ''}
+            onSave={async (notes: string) => {
+              await updateMatter(id!, { notes })
+              await fetchMatters()
+            }}
+            entityType="matter"
+          />
         )}
 
         {/* Updates Tab */}
@@ -3414,5 +3394,124 @@ function EditMatterForm({ matter, attorneys, typeOptions, onClose, onSave, onMan
         </button>
       </div>
     </form>
+  )
+}
+
+// Notes Section Component - allows editing and saving notes
+function NotesSection({ 
+  notes, 
+  onSave, 
+  entityType 
+}: { 
+  notes: string
+  onSave: (notes: string) => Promise<void>
+  entityType: 'matter' | 'client'
+}) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [editedNotes, setEditedNotes] = useState(notes)
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+
+  // Update local state when notes prop changes
+  useEffect(() => {
+    if (!isEditing) {
+      setEditedNotes(notes)
+    }
+  }, [notes, isEditing])
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    setSaveSuccess(false)
+    try {
+      await onSave(editedNotes)
+      setIsEditing(false)
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 3000)
+    } catch (error) {
+      console.error('Failed to save notes:', error)
+      alert('Failed to save notes. Please try again.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleCancel = () => {
+    setEditedNotes(notes)
+    setIsEditing(false)
+  }
+
+  return (
+    <div className={styles.notesTab}>
+      <div className={styles.tabHeader}>
+        <h2>Notes</h2>
+        <div className={styles.tabActions}>
+          {!isEditing ? (
+            <button 
+              className={styles.primaryBtn}
+              onClick={() => setIsEditing(true)}
+            >
+              <Edit2 size={18} />
+              Edit Notes
+            </button>
+          ) : (
+            <>
+              <button 
+                className={styles.cancelBtn}
+                onClick={handleCancel}
+                disabled={isSaving}
+              >
+                Cancel
+              </button>
+              <button 
+                className={styles.primaryBtn}
+                onClick={handleSave}
+                disabled={isSaving}
+              >
+                {isSaving ? 'Saving...' : 'Save Notes'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {saveSuccess && (
+        <div className={styles.successMessage}>
+          <CheckCircle2 size={18} />
+          Notes saved successfully!
+        </div>
+      )}
+
+      <div className={styles.notesCard}>
+        {isEditing ? (
+          <textarea
+            className={styles.notesTextarea}
+            value={editedNotes}
+            onChange={(e) => setEditedNotes(e.target.value)}
+            placeholder={`Add internal notes about this ${entityType}...`}
+            autoFocus
+          />
+        ) : (
+          <div className={styles.notesDisplay}>
+            {notes ? (
+              <p style={{ 
+                whiteSpace: 'pre-wrap', 
+                color: 'var(--apex-white)',
+                lineHeight: '1.8',
+                margin: 0,
+                fontSize: '0.95rem'
+              }}>
+                {notes}
+              </p>
+            ) : (
+              <div className={styles.emptyNotes}>
+                <FileText size={48} />
+                <p>No notes yet</p>
+                <span>Click "Edit Notes" to add internal notes about this {entityType}.</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
