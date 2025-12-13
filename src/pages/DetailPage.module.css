@@ -3603,3 +3603,89 @@ a.contactName:hover {
     padding: var(--space-md);
   }
 }
+
+/* ============================================
+   NOTES TAB
+   ============================================ */
+
+.notesTab {
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+.notesContainer {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  min-height: 400px;
+}
+
+.notesTextarea {
+  width: 100%;
+  min-height: 400px;
+  padding: var(--space-lg);
+  background: transparent;
+  border: none;
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  font-family: inherit;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.notesTextarea:focus {
+  outline: none;
+}
+
+.notesTextarea::placeholder {
+  color: var(--apex-muted);
+}
+
+.notesDisplay {
+  padding: var(--space-lg);
+}
+
+.notesText {
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  font-family: inherit;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  margin: 0;
+}
+
+.emptyNotes {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-3xl);
+  color: var(--apex-subtle);
+}
+
+.emptyNotes svg {
+  opacity: 0.3;
+  margin-bottom: var(--space-md);
+}
+
+.emptyNotes h3 {
+  color: var(--apex-white);
+  font-size: 1.125rem;
+  margin-bottom: var(--space-sm);
+}
+
+.emptyNotes p {
+  color: var(--apex-text);
+  margin-bottom: var(--space-lg);
+  max-width: 400px;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
