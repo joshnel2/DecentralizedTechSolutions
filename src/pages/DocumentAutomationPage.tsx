@@ -4,10 +4,11 @@ import {
   FileText, Search, Play, Download, X, Sparkles, Plus, 
   Edit3, Copy, Trash2, Save, Eye, ChevronDown, ChevronRight,
   FileSignature, Scale, Gavel, Building, Users, DollarSign,
-  Clock, Shield, Briefcase, FileCheck, MessageSquare
+  Clock, Shield, Briefcase, FileCheck, MessageSquare, FolderOpen, Check
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './DocumentAutomationPage.module.css'
+import { documentsApi } from '../services/api'
 
 interface TemplateVariable {
   key: string
@@ -631,6 +632,8 @@ export function DocumentAutomationPage() {
   const [formValues, setFormValues] = useState<Record<string, string>>({})
   const [editingTemplate, setEditingTemplate] = useState<DocumentTemplate | null>(null)
   const [previewContent, setPreviewContent] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const [savedSuccessfully, setSavedSuccessfully] = useState(false)
   
   // New template state
   const [newTemplate, setNewTemplate] = useState<Partial<DocumentTemplate>>({
@@ -764,6 +767,28 @@ export function DocumentAutomationPage() {
     setGeneratedContent('')
     setGeneratedTemplateName('')
     setFormValues({})
+  }
+
+  const handleSaveToDocuments = async () => {
+    if (!generatedContent || !generatedTemplateName) return
+    
+    setIsSaving(true)
+    try {
+      await documentsApi.saveGenerated({
+        name: generatedTemplateName,
+        content: generatedContent,
+        templateName: generatedTemplateName,
+        tags: ['document-automation']
+      })
+      setSavedSuccessfully(true)
+      // Reset after 2 seconds
+      setTimeout(() => setSavedSuccessfully(false), 2000)
+    } catch (error) {
+      console.error('Failed to save document:', error)
+      alert('Failed to save document. Please try again.')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleCreateTemplate = () => {
@@ -1319,9 +1344,31 @@ export function DocumentAutomationPage() {
               </div>
             </div>
             <div className={styles.resultActions}>
+              <button 
+                onClick={handleSaveToDocuments} 
+                className={clsx(styles.secondaryBtn, savedSuccessfully && styles.successBtn)}
+                disabled={isSaving || savedSuccessfully}
+              >
+                {savedSuccessfully ? (
+                  <>
+                    <Check size={18} />
+                    Saved!
+                  </>
+                ) : isSaving ? (
+                  <>
+                    <FolderOpen size={18} />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <FolderOpen size={18} />
+                    Save to Documents
+                  </>
+                )}
+              </button>
               <button onClick={handleDownloadDocument} className={styles.secondaryBtn}>
                 <Download size={18} />
-                Download Document
+                Download
               </button>
               <button onClick={handleOpenInDocumentAI} className={styles.primaryBtn}>
                 <Sparkles size={18} />

@@ -563,6 +563,21 @@ export const documentsApi = {
     return `${API_URL}/documents/${id}/download`;
   },
 
+  // Save a generated document (from Document Automation)
+  async saveGenerated(data: { 
+    name: string; 
+    content: string; 
+    matterId?: string; 
+    clientId?: string; 
+    templateName?: string;
+    tags?: string[];
+  }) {
+    return fetchWithAuth('/documents/save-generated', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
   // Extract text from a file without saving it (for AI analysis)
   async extractText(file: File): Promise<{ name: string; type: string; size: number; content: string }> {
     const formData = new FormData();

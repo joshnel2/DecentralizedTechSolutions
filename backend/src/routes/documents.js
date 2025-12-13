@@ -334,6 +334,91 @@ router.get('/:id/content', authenticate, requirePermission('documents:view'), as
   }
 });
 
+// Save generated document (from Document Automation - saves text content as a file)
+router.post('/save-generated', authenticate, requirePermission('documents:upload'), async (req, res) => {
+  try {
+    const { name, content, matterId, clientId, templateName, tags = [] } = req.body;
+
+    if (!name || !content) {
+      return res.status(400).json({ error: 'Name and content are required' });
+    }
+
+    // Create the file
+    const uploadDir = process.env.UPLOAD_DIR || './uploads';
+    const firmDir = path.join(uploadDir, req.user.firmId);
+    
+    // Ensure directory exists
+    await fs.mkdir(firmDir, { recursive: true });
+    
+    // Generate unique filename
+    const timestamp = new Date().toISOString().split('T')[0];
+    const sanitizedName = name.replace(/[^a-zA-Z0-9-_]/g, '_');
+    const filename = `${uuidv4()}-${sanitizedName}_${timestamp}.txt`;
+    const filePath = path.join(firmDir, filename);
+    
+    // Write content to file
+    await fs.writeFile(filePath, content, 'utf-8');
+    
+    // Get file stats
+    const stats = await fs.stat(filePath);
+    
+    // Add template name to tags if provided
+    const docTags = [...tags];
+    if (templateName) {
+      docTags.push(`template:${templateName}`);
+    }
+    docTags.push('generated');
+
+    // Save to database
+    const result = await query(
+      `INSERT INTO documents (
+        firm_id, matter_id, client_id, name, original_name, type, size, path,
+        tags, is_confidential, status, uploaded_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING *`,
+      [
+        req.user.firmId, 
+        matterId || null, 
+        clientId || null,
+        filename, 
+        `${sanitizedName}_${timestamp}.txt`, 
+        'text/plain',
+        stats.size, 
+        filePath,
+        docTags,
+        false,
+        'draft', 
+        req.user.id
+      ]
+    );
+
+    const d = result.rows[0];
+
+    // Log action
+    await query(
+      `INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
+       VALUES ($1, $2, 'document.generated', 'document', $3, $4)`,
+      [req.user.firmId, req.user.id, d.id, JSON.stringify({ name: d.name, templateName })]
+    );
+
+    res.status(201).json({
+      id: d.id,
+      name: d.name,
+      originalName: d.original_name,
+      type: d.type,
+      size: d.size,
+      matterId: d.matter_id,
+      clientId: d.client_id,
+      tags: d.tags,
+      status: d.status,
+      uploadedAt: d.uploaded_at,
+    });
+  } catch (error) {
+    console.error('Save generated document error:', error);
+    res.status(500).json({ error: 'Failed to save generated document' });
+  }
+});
+
 // Download document
 router.get('/:id/download', authenticate, requirePermission('documents:view'), async (req, res) => {
   try {
