@@ -47,6 +47,107 @@ interface MatterUpdate {
 
 // Related contacts - loaded from localStorage per matter (no mock data)
 
+// Notes Tab Component
+function NotesTab({ notes, onSave }: { notes: string; onSave: (notes: string) => Promise<void> }) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [editedNotes, setEditedNotes] = useState(notes)
+  const [isSaving, setIsSaving] = useState(false)
+
+  useEffect(() => {
+    setEditedNotes(notes)
+  }, [notes])
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    try {
+      await onSave(editedNotes)
+      setIsEditing(false)
+    } catch (error) {
+      console.error('Failed to save notes:', error)
+      alert('Failed to save notes. Please try again.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleCancel = () => {
+    setEditedNotes(notes)
+    setIsEditing(false)
+  }
+
+  return (
+    <div className={styles.notesTab}>
+      <div className={styles.tabHeader}>
+        <h2>
+          <FileText size={20} />
+          Internal Notes
+        </h2>
+        <div className={styles.tabActions}>
+          {isEditing ? (
+            <>
+              <button 
+                className={styles.secondaryBtn} 
+                onClick={handleCancel}
+                disabled={isSaving}
+              >
+                <X size={18} />
+                Cancel
+              </button>
+              <button 
+                className={styles.primaryBtn} 
+                onClick={handleSave}
+                disabled={isSaving}
+              >
+                {isSaving ? <Loader2 size={18} className={styles.spinning} /> : <CheckCircle2 size={18} />}
+                {isSaving ? 'Saving...' : 'Save Notes'}
+              </button>
+            </>
+          ) : (
+            <button 
+              className={styles.primaryBtn} 
+              onClick={() => setIsEditing(true)}
+            >
+              <Edit2 size={18} />
+              Edit Notes
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className={styles.notesContainer}>
+        {isEditing ? (
+          <textarea
+            className={styles.notesTextarea}
+            value={editedNotes}
+            onChange={(e) => setEditedNotes(e.target.value)}
+            placeholder="Add internal notes about this matter. These notes are only visible to your team and will not appear on invoices or client-facing documents..."
+            autoFocus
+          />
+        ) : (
+          <div className={styles.notesDisplay}>
+            {notes ? (
+              <pre className={styles.notesText}>{notes}</pre>
+            ) : (
+              <div className={styles.emptyNotes}>
+                <FileText size={48} />
+                <h3>No notes yet</h3>
+                <p>Click "Edit Notes" to add internal notes about this matter.</p>
+                <button 
+                  className={styles.primaryBtn} 
+                  onClick={() => setIsEditing(true)}
+                >
+                  <Edit2 size={18} />
+                  Add Notes
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function MatterDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -903,7 +1004,7 @@ Only analyze documents actually associated with this matter.`
 
       {/* Tabs */}
       <div className={styles.tabs}>
-        {['overview', 'updates', 'tasks', 'time', 'billing', 'documents', 'calendar', 'contacts'].map(tab => (
+        {['overview', 'notes', 'updates', 'tasks', 'time', 'billing', 'documents', 'calendar', 'contacts'].map(tab => (
           <button
             key={tab}
             className={clsx(styles.tab, activeTab === tab && styles.active)}
@@ -1142,39 +1243,17 @@ Only analyze documents actually associated with this matter.`
               </div>
             </div>
 
-            {/* Notes Card */}
-            <div className={styles.card} style={{ gridColumn: '1 / -1' }}>
-              <div className={styles.cardHeader}>
-                <h3>
-                  <FileText size={18} />
-                  Notes
-                </h3>
-                <button 
-                  className={styles.addBtn}
-                  onClick={() => setShowEditMatterModal(true)}
-                >
-                  <Edit2 size={14} />
-                  Edit
-                </button>
-              </div>
-              <div className={styles.notesContent}>
-                {matter.notes ? (
-                  <p style={{ 
-                    whiteSpace: 'pre-wrap', 
-                    color: 'var(--apex-white)',
-                    lineHeight: '1.6',
-                    margin: 0
-                  }}>
-                    {matter.notes}
-                  </p>
-                ) : (
-                  <p className={styles.noData} style={{ margin: 0 }}>
-                    No notes yet. Click Edit to add internal notes about this matter.
-                  </p>
-                )}
-              </div>
-            </div>
           </div>
+        )}
+
+        {/* Notes Tab */}
+        {activeTab === 'notes' && (
+          <NotesTab 
+            notes={matter.notes || ''} 
+            onSave={async (notes: string) => {
+              await updateMatter(matter.id, { notes })
+            }}
+          />
         )}
 
         {/* Updates Tab */}
