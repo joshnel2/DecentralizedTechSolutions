@@ -73,10 +73,10 @@ export function LandingPage() {
           </div>
           <div className={styles.navActions}>
             <Link to="/login" className={styles.loginLink}>Sign In</Link>
-            <button onClick={() => setShowContactModal(true)} className={styles.ctaBtn}>
+            <a href="mailto:admin@strappedai.com?subject=Book%20Demo%20Request" className={styles.ctaBtn}>
               Book Demo
               <ArrowRight size={16} />
-            </button>
+            </a>
           </div>
         </div>
       </nav>
@@ -96,10 +96,10 @@ export function LandingPage() {
             modern law firms work smarter, bill more, and serve clients better.
           </p>
           <div className={styles.heroActions}>
-            <button onClick={() => setShowContactModal(true)} className={styles.primaryBtn}>
+            <a href="mailto:admin@strappedai.com?subject=Book%20Demo%20Request" className={styles.primaryBtn}>
               Book Demo
               <ArrowRight size={18} />
-            </button>
+            </a>
             <Link to="/login" className={styles.secondaryBtn}>
               Sign In
               <ArrowRight size={18} />
@@ -234,10 +234,10 @@ export function LandingPage() {
           <h2>Ready to transform your practice?</h2>
           <p>See how Apex can help your firm work smarter.</p>
           <div className={styles.ctaActions}>
-            <button onClick={() => setShowContactModal(true)} className={styles.primaryBtn}>
+            <a href="mailto:admin@strappedai.com?subject=Book%20Demo%20Request" className={styles.primaryBtn}>
               Book Demo
               <ArrowRight size={18} />
-            </button>
+            </a>
             <Link to="/login" className={styles.secondaryBtn}>
               Sign In
               <ArrowRight size={18} />
