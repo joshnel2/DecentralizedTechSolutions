@@ -1009,11 +1009,32 @@
   cursor: pointer;
   outline: none;
   margin-top: var(--space-md);
+  transition: all var(--transition-fast);
+}
+
+.submitBtn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-glow);
 }
 
 .submitBtn:focus {
   outline: none;
   border: none;
+}
+
+.submitBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.errorMessage {
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  color: #F87171;
+  font-size: 0.875rem;
 }
 
 .successMessage {

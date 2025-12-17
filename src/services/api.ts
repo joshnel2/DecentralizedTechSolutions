@@ -1144,6 +1144,37 @@ export const adminApi = {
   },
 };
 
+// ============================================
+// DEMO REQUESTS API (Public - No Auth Required)
+// ============================================
+
+export const demoRequestsApi = {
+  async submit(data: {
+    name: string;
+    email: string;
+    company: string;
+    phone?: string;
+    firmSize: string;
+    message?: string;
+  }) {
+    // Public endpoint - no auth required
+    const response = await fetch(`${API_URL}/demo-requests`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Request failed' }));
+      throw new ApiError(response.status, error.error || 'Failed to submit demo request', error);
+    }
+
+    return response.json();
+  },
+};
+
 // Export all APIs
 export default {
   auth: authApi,
@@ -1163,4 +1194,5 @@ export default {
   billingData: billingDataApi,
   documentTemplates: documentTemplatesApi,
   timer: timerApi,
+  demoRequests: demoRequestsApi,
 };
