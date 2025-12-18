@@ -1,0 +1,5 @@
+# Strapped AI - robots.txt
+User-agent: *
+Allow: /
+
+Sitemap: https://strappedai.com/sitemap.xml

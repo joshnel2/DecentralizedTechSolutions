@@ -263,7 +263,7 @@ export function LandingPage() {
               </svg>
               <span>Apex</span>
             </div>
-            <p>AI-native legal practice management for modern law firms.</p>
+            <p>Strapped AI — AI-native legal practice management for modern law firms.</p>
           </div>
           <div className={styles.footerLinks}>
             <div>
@@ -297,7 +297,7 @@ export function LandingPage() {
           </div>
         </div>
         <div className={styles.footerBottom}>
-          <p>© 2025 Apex Legal Technologies. All rights reserved.</p>
+          <p>© 2025 Strapped AI. All rights reserved.</p>
         </div>
       </footer>
 
