@@ -198,10 +198,6 @@ export function LoginPage() {
             Try Demo Account
           </button>
 
-          <p className={styles.signupPrompt}>
-            Don't have an account?{' '}
-            <Link to="/register">Create one now</Link>
-          </p>
         </div>
       </div>
     </div>
