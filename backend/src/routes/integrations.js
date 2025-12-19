@@ -5,6 +5,46 @@ import crypto from 'crypto';
 
 const router = Router();
 
+// Secret for signing OAuth state parameters
+const STATE_SECRET = process.env.OAUTH_STATE_SECRET || process.env.JWT_SECRET;
+
+// Helper to create signed state for OAuth flows
+function createSignedState(data) {
+  const payload = JSON.stringify(data);
+  const signature = crypto
+    .createHmac('sha256', STATE_SECRET)
+    .update(payload)
+    .digest('hex');
+  return Buffer.from(JSON.stringify({ payload, signature })).toString('base64');
+}
+
+// Helper to verify and extract signed state
+function verifySignedState(state) {
+  try {
+    const { payload, signature } = JSON.parse(Buffer.from(state, 'base64').toString());
+    const expectedSignature = crypto
+      .createHmac('sha256', STATE_SECRET)
+      .update(payload)
+      .digest('hex');
+    
+    // Constant-time comparison to prevent timing attacks
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+      return null;
+    }
+    
+    const data = JSON.parse(payload);
+    
+    // Check expiration (10 minute validity)
+    if (data.exp && Date.now() > data.exp) {
+      return null;
+    }
+    
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
 // ============================================
 // INTEGRATION SETTINGS
 // ============================================
@@ -58,15 +98,13 @@ router.get('/google/connect', authenticate, (req, res) => {
     return res.status(500).json({ error: 'Google integration not configured' });
   }
 
-  const state = crypto.randomBytes(32).toString('hex');
-  
-  // Store state in session or database for verification
-  // For simplicity, we'll encode user info in state (in production, use a proper session)
-  const stateData = Buffer.from(JSON.stringify({
-    nonce: state,
+  // Create signed state with expiration
+  const stateData = createSignedState({
+    nonce: crypto.randomBytes(16).toString('hex'),
     firmId: req.user.firmId,
     userId: req.user.id,
-  })).toString('base64');
+    exp: Date.now() + 10 * 60 * 1000, // 10 minute expiration
+  });
 
   const scopes = [
     'https://www.googleapis.com/auth/calendar',
@@ -82,7 +120,7 @@ router.get('/google/connect', authenticate, (req, res) => {
     `&scope=${encodeURIComponent(scopes)}` +
     `&access_type=offline` +
     `&prompt=consent` +
-    `&state=${stateData}`;
+    `&state=${encodeURIComponent(stateData)}`;
 
   res.json({ authUrl });
 });
@@ -96,8 +134,12 @@ router.get('/google/callback', async (req, res) => {
       return res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?error=missing_params`);
     }
 
-    // Decode state
-    const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
+    // Verify signed state
+    const stateData = verifySignedState(state);
+    if (!stateData) {
+      console.error('Google OAuth: Invalid or expired state parameter');
+      return res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?error=invalid_state`);
+    }
     const { firmId, userId } = stateData;
 
     // Exchange code for tokens
@@ -270,23 +312,23 @@ router.get('/quickbooks/connect', authenticate, (req, res) => {
     return res.status(500).json({ error: 'QuickBooks integration not configured' });
   }
 
-  const state = Buffer.from(JSON.stringify({
-    nonce: crypto.randomBytes(32).toString('hex'),
+  // Create signed state with expiration
+  const state = createSignedState({
+    nonce: crypto.randomBytes(16).toString('hex'),
     firmId: req.user.firmId,
     userId: req.user.id,
-  })).toString('base64');
+    exp: Date.now() + 10 * 60 * 1000, // 10 minute expiration
+  });
 
   const scopes = 'com.intuit.quickbooks.accounting';
-  const baseUrl = QB_ENVIRONMENT === 'production' 
-    ? 'https://appcenter.intuit.com/connect/oauth2'
-    : 'https://appcenter.intuit.com/connect/oauth2';
+  const baseUrl = 'https://appcenter.intuit.com/connect/oauth2';
 
   const authUrl = `${baseUrl}?` +
     `client_id=${QB_CLIENT_ID}` +
     `&redirect_uri=${encodeURIComponent(QB_REDIRECT_URI)}` +
     `&response_type=code` +
     `&scope=${encodeURIComponent(scopes)}` +
-    `&state=${state}`;
+    `&state=${encodeURIComponent(state)}`;
 
   res.json({ authUrl });
 });
@@ -300,7 +342,12 @@ router.get('/quickbooks/callback', async (req, res) => {
       return res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?error=missing_params`);
     }
 
-    const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
+    // Verify signed state
+    const stateData = verifySignedState(state);
+    if (!stateData) {
+      console.error('QuickBooks OAuth: Invalid or expired state parameter');
+      return res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?error=invalid_state`);
+    }
     const { firmId, userId } = stateData;
 
     // Exchange code for tokens
@@ -487,11 +534,13 @@ router.get('/outlook/connect', authenticate, (req, res) => {
     return res.status(500).json({ error: 'Microsoft integration not configured' });
   }
 
-  const state = Buffer.from(JSON.stringify({
-    nonce: crypto.randomBytes(32).toString('hex'),
+  // Create signed state with expiration
+  const state = createSignedState({
+    nonce: crypto.randomBytes(16).toString('hex'),
     firmId: req.user.firmId,
     userId: req.user.id,
-  })).toString('base64');
+    exp: Date.now() + 10 * 60 * 1000, // 10 minute expiration
+  });
 
   const scopes = [
     'openid',
@@ -509,7 +558,7 @@ router.get('/outlook/connect', authenticate, (req, res) => {
     `&response_type=code` +
     `&scope=${encodeURIComponent(scopes)}` +
     `&response_mode=query` +
-    `&state=${state}`;
+    `&state=${encodeURIComponent(state)}`;
 
   res.json({ authUrl });
 });
@@ -523,7 +572,12 @@ router.get('/outlook/callback', async (req, res) => {
       return res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?error=missing_params`);
     }
 
-    const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
+    // Verify signed state
+    const stateData = verifySignedState(state);
+    if (!stateData) {
+      console.error('Microsoft OAuth: Invalid or expired state parameter');
+      return res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?error=invalid_state`);
+    }
     const { firmId, userId } = stateData;
 
     // Exchange code for tokens

@@ -1,20 +1,36 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import { query } from '../db/connection.js';
 
 const router = Router();
 
-// Secure admin credentials (hashed for security)
-// Username: strappedadmin7969
-// Password: dawg79697969
-const ADMIN_USERNAME_HASH = crypto.createHash('sha256').update('strappedadmin7969').digest('hex');
-const ADMIN_PASSWORD_HASH = crypto.createHash('sha256').update('dawg79697969').digest('hex');
+// Admin credentials from environment variables (set these in production!)
+// To generate a password hash: node -e "require('bcryptjs').hash('yourpassword', 12).then(console.log)"
+const ADMIN_USERNAME = process.env.SECURE_ADMIN_USERNAME;
+const ADMIN_PASSWORD_HASH = process.env.SECURE_ADMIN_PASSWORD_HASH;
+const ADMIN_JWT_SECRET = process.env.SECURE_ADMIN_JWT_SECRET || process.env.JWT_SECRET;
+
+// Validate admin configuration on startup
+if (!ADMIN_USERNAME || !ADMIN_PASSWORD_HASH) {
+  console.warn('[SECURITY WARNING] Secure admin credentials not configured. Set SECURE_ADMIN_USERNAME and SECURE_ADMIN_PASSWORD_HASH environment variables.');
+}
 
 // Rate limiting for security
 const loginAttempts = new Map();
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_TIME = 15 * 60 * 1000; // 15 minutes
+
+// Cleanup old rate limit entries periodically (every 5 minutes)
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, attempts] of loginAttempts.entries()) {
+    if (now - attempts.lastAttempt > LOCKOUT_TIME) {
+      loginAttempts.delete(ip);
+    }
+  }
+}, 5 * 60 * 1000);
 
 // Audit logging - persistent in memory (would be DB in production)
 const auditLog = [];
@@ -36,7 +52,7 @@ const logAudit = (action, details, ip, targetUser = null) => {
   return entry;
 };
 
-// Secure admin authentication middleware
+// Secure admin authentication middleware - now uses JWT
 const requireSecureAdmin = (req, res, next) => {
   const authHeader = req.headers['x-admin-auth'];
   
@@ -45,15 +61,20 @@ const requireSecureAdmin = (req, res, next) => {
   }
 
   try {
-    const session = JSON.parse(Buffer.from(authHeader, 'base64').toString());
+    // Verify JWT token
+    const decoded = jwt.verify(authHeader, ADMIN_JWT_SECRET);
     
-    if (!session.auth || session.exp < Date.now()) {
-      return res.status(401).json({ error: 'Session expired' });
+    if (decoded.type !== 'secure_admin') {
+      return res.status(401).json({ error: 'Invalid admin token' });
     }
 
     req.adminAuth = true;
+    req.adminUser = decoded.username;
     next();
   } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Session expired' });
+    }
     return res.status(401).json({ error: 'Invalid admin session' });
   }
 };
@@ -63,9 +84,15 @@ const requireSecureAdmin = (req, res, next) => {
 // ============================================
 
 // Secure admin login verification
-router.post('/verify', (req, res) => {
+router.post('/verify', async (req, res) => {
   const { username, password } = req.body;
   const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+
+  // Check if admin is configured
+  if (!ADMIN_USERNAME || !ADMIN_PASSWORD_HASH) {
+    logAudit('LOGIN_FAILED', 'Admin credentials not configured', ip);
+    return res.status(503).json({ error: 'Admin access not configured' });
+  }
 
   // Rate limiting check
   const attempts = loginAttempts.get(ip) || { count: 0, lastAttempt: 0 };
@@ -85,27 +112,41 @@ router.post('/verify', (req, res) => {
     attempts.count = 0;
   }
 
-  // Verify credentials using constant-time comparison
-  const usernameHash = crypto.createHash('sha256').update(username || '').digest('hex');
-  const passwordHash = crypto.createHash('sha256').update(password || '').digest('hex');
+  // Verify username using constant-time comparison
+  const usernameValid = username && username.length === ADMIN_USERNAME.length &&
+    crypto.timingSafeEqual(Buffer.from(username), Buffer.from(ADMIN_USERNAME));
 
-  const usernameValid = crypto.timingSafeEqual(
-    Buffer.from(usernameHash),
-    Buffer.from(ADMIN_USERNAME_HASH)
-  );
-  const passwordValid = crypto.timingSafeEqual(
-    Buffer.from(passwordHash),
-    Buffer.from(ADMIN_PASSWORD_HASH)
-  );
+  // Verify password using bcrypt (secure password hashing)
+  let passwordValid = false;
+  if (password && usernameValid) {
+    try {
+      passwordValid = await bcrypt.compare(password, ADMIN_PASSWORD_HASH);
+    } catch (e) {
+      // Invalid hash format
+      passwordValid = false;
+    }
+  }
 
   if (usernameValid && passwordValid) {
     // Reset attempts on success
     loginAttempts.delete(ip);
     logAudit('LOGIN_SUCCESS', 'Secure admin authenticated', ip);
     
+    // Generate signed JWT token
+    const token = jwt.sign(
+      { 
+        type: 'secure_admin',
+        username: username,
+        iat: Math.floor(Date.now() / 1000)
+      },
+      ADMIN_JWT_SECRET,
+      { expiresIn: '2h' } // Token expires in 2 hours
+    );
+    
     res.json({ 
       success: true,
-      message: 'Authentication successful'
+      message: 'Authentication successful',
+      token: token
     });
   } else {
     // Increment failed attempts
