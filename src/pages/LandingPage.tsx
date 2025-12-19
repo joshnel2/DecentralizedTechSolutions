@@ -73,7 +73,7 @@ export function LandingPage() {
           </div>
           <div className={styles.navActions}>
             <Link to="/login" className={styles.loginLink}>Sign In</Link>
-            <a href="mailto:admin@strappedai.com?subject=Book%20Demo%20Request" className={styles.ctaBtn}>
+            <a href="https://calendar.app.google/YwNTdJTaif59SvTF7" target="_blank" rel="noopener noreferrer" className={styles.ctaBtn}>
               Book Demo
               <ArrowRight size={16} />
             </a>
@@ -96,7 +96,7 @@ export function LandingPage() {
             modern law firms work smarter, bill more, and serve clients better.
           </p>
           <div className={styles.heroActions}>
-            <a href="mailto:admin@strappedai.com?subject=Book%20Demo%20Request" className={styles.primaryBtn}>
+            <a href="https://calendar.app.google/YwNTdJTaif59SvTF7" target="_blank" rel="noopener noreferrer" className={styles.primaryBtn}>
               Book Demo
               <ArrowRight size={18} />
             </a>
@@ -234,7 +234,7 @@ export function LandingPage() {
           <h2>Ready to transform your practice?</h2>
           <p>See how Apex can help your firm work smarter.</p>
           <div className={styles.ctaActions}>
-            <a href="mailto:admin@strappedai.com?subject=Book%20Demo%20Request" className={styles.primaryBtn}>
+            <a href="https://calendar.app.google/YwNTdJTaif59SvTF7" target="_blank" rel="noopener noreferrer" className={styles.primaryBtn}>
               Book Demo
               <ArrowRight size={18} />
             </a>
