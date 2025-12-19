@@ -5,10 +5,14 @@ dotenv.config();
 
 const { Pool } = pg;
 
-// Configure SSL for Azure PostgreSQL in production
+// Configure SSL for Azure PostgreSQL
+// In production, enable SSL with certificate verification
+// Set DB_SSL_REJECT_UNAUTHORIZED=false only if you have certificate issues and understand the risks
 const sslConfig = process.env.NODE_ENV === 'production' 
-  ? { rejectUnauthorized: false }
-  : false;
+  ? { 
+      rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false'
+    }
+  : (process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false);
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,

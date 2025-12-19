@@ -15,6 +15,32 @@ import { authLimiter } from '../middleware/rateLimit.js';
 
 const router = Router();
 
+// Password validation with strength requirements
+function validatePassword(password) {
+  const errors = [];
+  
+  if (!password || password.length < 8) {
+    errors.push('Password must be at least 8 characters');
+  }
+  if (password && password.length > 128) {
+    errors.push('Password must be less than 128 characters');
+  }
+  if (password && !/[A-Z]/.test(password)) {
+    errors.push('Password must contain at least one uppercase letter');
+  }
+  if (password && !/[a-z]/.test(password)) {
+    errors.push('Password must contain at least one lowercase letter');
+  }
+  if (password && !/[0-9]/.test(password)) {
+    errors.push('Password must contain at least one number');
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
 // Register new user (creates firm too)
 router.post('/register', authLimiter, async (req, res) => {
   try {
@@ -25,8 +51,13 @@ router.post('/register', authLimiter, async (req, res) => {
       return res.status(400).json({ error: 'All fields are required' });
     }
 
-    if (password.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    // Validate password strength
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.valid) {
+      return res.status(400).json({ 
+        error: 'Password does not meet requirements',
+        details: passwordValidation.errors
+      });
     }
 
     // Check if email exists
@@ -67,18 +98,20 @@ router.post('/register', authLimiter, async (req, res) => {
       [result.user.id, hashToken(refreshToken), req.headers['user-agent'], req.ip]
     );
 
-    // Set cookies
-    res.cookie('accessToken', accessToken, {
+    // Set cookies with strict SameSite policy for CSRF protection
+    const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: 'strict',
+    };
+
+    res.cookie('accessToken', accessToken, {
+      ...cookieOptions,
       maxAge: 15 * 60 * 1000, // 15 minutes
     });
 
     res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      ...cookieOptions,
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
@@ -170,18 +203,20 @@ router.post('/login', authLimiter, async (req, res) => {
     const firmResult = await query('SELECT * FROM firms WHERE id = $1', [user.firm_id]);
     const firm = firmResult.rows[0];
 
-    // Set cookies
-    res.cookie('accessToken', accessToken, {
+    // Set cookies with strict SameSite policy for CSRF protection
+    const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: 'strict',
+    };
+
+    res.cookie('accessToken', accessToken, {
+      ...cookieOptions,
       maxAge: 15 * 60 * 1000,
     });
 
     res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      ...cookieOptions,
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -273,7 +308,7 @@ router.post('/refresh', async (req, res) => {
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: 'strict',
       maxAge: 15 * 60 * 1000,
     });
 
@@ -389,8 +424,13 @@ router.put('/password', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Current and new password required' });
     }
 
-    if (newPassword.length < 8) {
-      return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    // Validate new password strength
+    const passwordValidation = validatePassword(newPassword);
+    if (!passwordValidation.valid) {
+      return res.status(400).json({ 
+        error: 'New password does not meet requirements',
+        details: passwordValidation.errors
+      });
     }
 
     // Get current password hash
