@@ -725,10 +725,10 @@ export const aiApi = {
   },
 
   // New AI Agent endpoint (with function calling - can take actions!)
-  async agentChat(message: string, conversationHistory?: { role: string; content: string }[], fileContext?: Record<string, any>) {
+  async agentChat(message: string, conversationHistory?: { role: string; content: string }[], fileContext?: Record<string, any>, forceBackground?: boolean) {
     return fetchWithAuth('/v1/agent/chat', {
       method: 'POST',
-      body: JSON.stringify({ message, conversationHistory, fileContext }),
+      body: JSON.stringify({ message, conversationHistory, fileContext, forceBackground }),
     });
   },
   

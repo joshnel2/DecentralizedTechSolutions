@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File } from 'lucide-react'
+import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Bot } from 'lucide-react'
 import { aiApi, documentsApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import styles from './AIChat.module.css'
@@ -80,6 +80,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [showSuggestions, setShowSuggestions] = useState(true)
   const [useAgentMode, setUseAgentMode] = useState(true) // Use AI Agent with actions by default
+  const [useBackgroundAgent, setUseBackgroundAgent] = useState(false) // Force background agent mode
   const [pendingNavigation, setPendingNavigation] = useState<NavigationInfo | null>(null)
   const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -221,7 +222,12 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
       
       if (useAgentMode) {
         // Use the new AI Agent with function calling (can take actions!)
-        response = await aiApi.agentChat(text || `Analyze and summarize this document: ${currentFile?.name}`, conversationHistory, fileContext)
+        response = await aiApi.agentChat(
+          text || `Analyze and summarize this document: ${currentFile?.name}`, 
+          conversationHistory, 
+          fileContext,
+          useBackgroundAgent // Force background agent mode
+        )
       } else {
         // Use the original context-based chat (read-only) with image support
         const contextWithFile: Record<string, any> = { ...mergedContext, ...fileContext }
@@ -326,14 +332,26 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           <span className={styles.contextPage}>
             {chatContext?.label || currentPage.replace('-', ' ')}
           </span>
-          <button 
-            className={`${styles.modeToggle} ${useAgentMode ? styles.agentMode : ''}`}
-            onClick={() => setUseAgentMode(!useAgentMode)}
-            title={useAgentMode ? "Agent Mode: Can take actions" : "Chat Mode: Read-only"}
-          >
-            <Zap size={14} />
-            {useAgentMode ? 'Agent' : 'Chat'}
-          </button>
+          <div className={styles.toggleGroup}>
+            <button 
+              className={`${styles.modeToggle} ${useAgentMode ? styles.agentMode : ''}`}
+              onClick={() => setUseAgentMode(!useAgentMode)}
+              title={useAgentMode ? "Agent Mode: Can take actions" : "Chat Mode: Read-only"}
+            >
+              <Zap size={14} />
+              {useAgentMode ? 'Agent' : 'Chat'}
+            </button>
+            {useAgentMode && (
+              <button 
+                className={`${styles.modeToggle} ${useBackgroundAgent ? styles.backgroundMode : ''}`}
+                onClick={() => setUseBackgroundAgent(!useBackgroundAgent)}
+                title={useBackgroundAgent ? "Background Agent: ON - Tasks run in background with progress bar" : "Background Agent: OFF - Quick responses"}
+              >
+                <Bot size={14} />
+                {useBackgroundAgent ? 'Background' : 'Quick'}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Messages */}

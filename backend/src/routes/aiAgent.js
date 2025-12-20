@@ -7585,7 +7585,7 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
 // =============================================================================
 router.post('/chat', authenticate, async (req, res) => {
   try {
-    const { message, conversationHistory = [], fileContext } = req.body;
+    const { message, conversationHistory = [], fileContext, forceBackground } = req.body;
 
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
@@ -7598,6 +7598,21 @@ router.post('/chat', authenticate, async (req, res) => {
     let systemPrompt = getSystemPrompt()
       .replace('{{USER_ROLE}}', req.user.role)
       .replace('{{USER_NAME}}', `${req.user.firstName} ${req.user.lastName}`);
+    
+    // If forceBackground is enabled, add instruction to use background task
+    if (forceBackground) {
+      systemPrompt += `
+
+## IMPORTANT: BACKGROUND AGENT MODE IS ENABLED
+The user has enabled Background Agent mode. You MUST use the \`start_background_task\` tool for this request.
+Do NOT respond directly - instead, call start_background_task with:
+- goal: A clear description of what you'll accomplish
+- plan: An array of steps you'll take
+- estimated_steps: Number of actions needed
+
+This will show a progress bar to the user while you work in the background.
+ALWAYS use start_background_task when this mode is enabled, even for simple tasks.`;
+    }
 
     // If there's an uploaded document, add it to the context
     let userMessage = message;
