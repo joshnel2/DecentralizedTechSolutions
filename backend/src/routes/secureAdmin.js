@@ -957,4 +957,143 @@ router.get('/firms/:id/details', requireSecureAdmin, async (req, res) => {
   }
 });
 
+// ============================================
+// PLATFORM SETTINGS (Integration Credentials)
+// ============================================
+
+// Get all platform settings
+router.get('/platform-settings', requireSecureAdmin, async (req, res) => {
+  try {
+    logAudit('VIEW_PLATFORM_SETTINGS', 'Accessed platform settings', req.ip);
+    
+    const result = await query(`
+      SELECT key, value, is_secret, description, updated_at
+      FROM platform_settings
+      ORDER BY key
+    `);
+
+    // Mask secret values
+    const settings = {};
+    result.rows.forEach(row => {
+      settings[row.key] = {
+        value: row.is_secret && row.value ? '••••••••' : (row.value || ''),
+        isSecret: row.is_secret,
+        description: row.description,
+        updatedAt: row.updated_at,
+        isConfigured: row.is_secret ? !!row.value : !!row.value
+      };
+    });
+
+    res.json(settings);
+  } catch (error) {
+    // Table might not exist yet
+    if (error.code === '42P01') {
+      return res.json({});
+    }
+    console.error('Get platform settings error:', error);
+    res.status(500).json({ error: 'Failed to retrieve platform settings' });
+  }
+});
+
+// Update platform settings
+router.put('/platform-settings', requireSecureAdmin, async (req, res) => {
+  try {
+    const settings = req.body;
+
+    if (!settings || typeof settings !== 'object') {
+      return res.status(400).json({ error: 'Settings object required' });
+    }
+
+    const updated = [];
+    
+    for (const [key, value] of Object.entries(settings)) {
+      // Skip masked values (don't overwrite with dots)
+      if (value === '••••••••') continue;
+      
+      await query(`
+        INSERT INTO platform_settings (key, value)
+        VALUES ($1, $2)
+        ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()
+      `, [key, value || '']);
+      
+      updated.push(key);
+    }
+
+    logAudit('UPDATE_PLATFORM_SETTINGS', `Updated settings: ${updated.join(', ')}`, req.ip);
+
+    res.json({ 
+      success: true, 
+      message: `Updated ${updated.length} settings`,
+      updated 
+    });
+  } catch (error) {
+    console.error('Update platform settings error:', error);
+    res.status(500).json({ error: 'Failed to update platform settings' });
+  }
+});
+
+// Test integration connection
+router.post('/platform-settings/test/:provider', requireSecureAdmin, async (req, res) => {
+  try {
+    const { provider } = req.params;
+    
+    // Get settings for the provider
+    const settingsResult = await query(`
+      SELECT key, value FROM platform_settings 
+      WHERE key LIKE $1
+    `, [`${provider}_%`]);
+    
+    const settings = {};
+    settingsResult.rows.forEach(row => {
+      const shortKey = row.key.replace(`${provider}_`, '');
+      settings[shortKey] = row.value;
+    });
+
+    if (provider === 'microsoft') {
+      if (!settings.client_id || !settings.client_secret) {
+        return res.json({ 
+          success: false, 
+          message: 'Microsoft credentials not configured. Please enter Client ID and Client Secret.' 
+        });
+      }
+      // Just check if credentials are present - actual OAuth flow will validate them
+      return res.json({ 
+        success: true, 
+        message: 'Microsoft credentials configured. Users can now connect their Outlook accounts.' 
+      });
+    }
+    
+    if (provider === 'quickbooks') {
+      if (!settings.client_id || !settings.client_secret) {
+        return res.json({ 
+          success: false, 
+          message: 'QuickBooks credentials not configured. Please enter Client ID and Client Secret.' 
+        });
+      }
+      return res.json({ 
+        success: true, 
+        message: `QuickBooks credentials configured (${settings.environment || 'sandbox'} mode). Users can now connect their QuickBooks accounts.` 
+      });
+    }
+    
+    if (provider === 'google') {
+      if (!settings.client_id || !settings.client_secret) {
+        return res.json({ 
+          success: false, 
+          message: 'Google credentials not configured. Please enter Client ID and Client Secret.' 
+        });
+      }
+      return res.json({ 
+        success: true, 
+        message: 'Google credentials configured. Users can now connect their Google Calendar.' 
+      });
+    }
+
+    res.status(400).json({ error: 'Unknown provider' });
+  } catch (error) {
+    console.error('Test integration error:', error);
+    res.status(500).json({ error: 'Failed to test integration' });
+  }
+});
+
 export default router;
