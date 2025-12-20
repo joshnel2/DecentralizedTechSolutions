@@ -452,6 +452,109 @@
 .sendBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* File Upload Styles */
+.attachBtn {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: #94A3B8;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.attachBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  color: #F59E0B;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.attachBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.filePreview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  margin: 0 20px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 10px;
+  animation: slideUp 0.2s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fileInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #F59E0B;
+  font-size: 13px;
+}
+
+.fileName {
+  color: #F1F5F9;
+  font-weight: 500;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileSize {
+  color: #64748B;
+  font-size: 12px;
+}
+
+.removeFileBtn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 6px;
+  color: #94A3B8;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.removeFileBtn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #EF4444;
+}
+
+.attachedFile {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(245, 158, 11, 0.15);
+  border-radius: 6px;
+  color: #F59E0B;
+  font-size: 12px;
+  margin-bottom: 8px;
   transform: none;
 }
 

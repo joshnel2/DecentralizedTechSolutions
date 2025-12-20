@@ -690,6 +690,23 @@ const TOOLS = [
       }
     }
   },
+  {
+    type: "function",
+    function: {
+      name: "save_uploaded_document",
+      description: "Save an uploaded document to the Documents page. Use this when user uploads a file in chat and wants to save it to a matter or client.",
+      parameters: {
+        type: "object",
+        properties: {
+          matter_id: { type: "string", description: "Matter to attach the document to" },
+          client_id: { type: "string", description: "Client to attach the document to" },
+          document_name: { type: "string", description: "Optional: rename the document" },
+          tags: { type: "array", items: { type: "string" }, description: "Optional: tags for the document" }
+        },
+        required: []
+      }
+    }
+  },
 
   // ===================== TEAM =====================
   {
@@ -1606,7 +1623,7 @@ const TOOLS = [
 // =============================================================================
 // TOOL EXECUTION
 // =============================================================================
-async function executeTool(toolName, args, user) {
+async function executeTool(toolName, args, user, req = null) {
   console.log(`Executing tool: ${toolName}`, args);
   
   try {
@@ -1663,6 +1680,7 @@ async function executeTool(toolName, args, user) {
       case 'read_document_content': return await readDocumentContent(args, user);
       case 'get_matter_documents_content': return await getMatterDocumentsContent(args, user);
       case 'search_document_content': return await searchDocumentContent(args, user);
+      case 'save_uploaded_document': return await saveUploadedDocument(args, user, req);
       
       // Team
       case 'list_team_members': return await listTeamMembers(args, user);
@@ -3876,6 +3894,76 @@ async function searchDocumentContent(args, user) {
     matches: matches,
     count: matches.length
   };
+}
+
+async function saveUploadedDocument(args, user, req) {
+  const { matter_id, client_id, document_name, tags } = args;
+  
+  // Check if there's an uploaded document in the request
+  if (!req?.uploadedDocument) {
+    return { error: 'No document has been uploaded in this conversation. Please upload a file first using the paperclip button.' };
+  }
+  
+  const doc = req.uploadedDocument;
+  
+  // Generate a unique filename
+  const timestamp = Date.now();
+  const safeName = (document_name || doc.name).replace(/[^a-zA-Z0-9.-]/g, '_');
+  const filename = `${timestamp}-${safeName}`;
+  
+  try {
+    // Insert document record (content is stored in content_text, no physical file needed for chat uploads)
+    const result = await query(
+      `INSERT INTO documents (
+        firm_id, matter_id, client_id, name, original_name, type, size, path,
+        content_text, content_extracted_at, tags, status, uploaded_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10, 'final', $11)
+      RETURNING id, name`,
+      [
+        user.firmId,
+        matter_id || null,
+        client_id || null,
+        document_name || doc.name,
+        doc.name,
+        doc.type,
+        doc.size,
+        `chat-upload/${filename}`, // Virtual path for chat uploads
+        doc.content,
+        tags || [],
+        user.id
+      ]
+    );
+    
+    const savedDoc = result.rows[0];
+    
+    // Get matter/client names for confirmation
+    let locationInfo = '';
+    if (matter_id) {
+      const matterRes = await query('SELECT name, number FROM matters WHERE id = $1', [matter_id]);
+      if (matterRes.rows.length > 0) {
+        locationInfo = ` to matter "${matterRes.rows[0].name}" (${matterRes.rows[0].number})`;
+      }
+    } else if (client_id) {
+      const clientRes = await query('SELECT display_name FROM clients WHERE id = $1', [client_id]);
+      if (clientRes.rows.length > 0) {
+        locationInfo = ` to client "${clientRes.rows[0].display_name}"`;
+      }
+    }
+    
+    return {
+      success: true,
+      message: `Saved document "${savedDoc.name}"${locationInfo}`,
+      data: {
+        id: savedDoc.id,
+        name: savedDoc.name,
+        matter_id,
+        client_id
+      }
+    };
+  } catch (error) {
+    console.error('Error saving uploaded document:', error);
+    return { error: 'Failed to save document: ' + error.message };
+  }
 }
 
 // =============================================================================
@@ -6900,7 +6988,7 @@ Always act professionally, confirm important actions, and provide clear summarie
 // =============================================================================
 router.post('/chat', authenticate, async (req, res) => {
   try {
-    const { message, conversationHistory = [] } = req.body;
+    const { message, conversationHistory = [], fileContext } = req.body;
 
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
@@ -6910,14 +6998,30 @@ router.post('/chat', authenticate, async (req, res) => {
       return res.status(500).json({ error: 'AI service not configured' });
     }
 
-    const systemPrompt = getSystemPrompt()
+    let systemPrompt = getSystemPrompt()
       .replace('{{USER_ROLE}}', req.user.role)
       .replace('{{USER_NAME}}', `${req.user.firstName} ${req.user.lastName}`);
+
+    // If there's an uploaded document, add it to the context
+    let userMessage = message;
+    if (fileContext?.uploadedDocument) {
+      const doc = fileContext.uploadedDocument;
+      const docInfo = `\n\n[UPLOADED DOCUMENT]\nFile: ${doc.name}\nType: ${doc.type}\nSize: ${doc.size} bytes\n\nContent:\n${doc.content || '[No text content extracted]'}\n\n[END OF DOCUMENT]\n\nUser's request: ${message}`;
+      userMessage = docInfo;
+      
+      // Store the uploaded doc info in the request for potential saving
+      req.uploadedDocument = {
+        name: doc.name,
+        type: doc.type,
+        size: doc.size,
+        content: doc.content
+      };
+    }
 
     const messages = [
       { role: 'system', content: systemPrompt },
       ...conversationHistory.slice(-10).map(msg => ({ role: msg.role, content: msg.content })),
-      { role: 'user', content: message }
+      { role: 'user', content: userMessage }
     ];
 
     let response = await callAzureOpenAIWithTools(messages, TOOLS);
@@ -6947,7 +7051,7 @@ router.post('/chat', authenticate, async (req, res) => {
         }
         
         console.log(`Calling tool: ${functionName} with args:`, JSON.stringify(functionArgs));
-        const result = await executeTool(functionName, functionArgs, req.user);
+        const result = await executeTool(functionName, functionArgs, req.user, req);
         console.log(`Tool ${functionName} result:`, JSON.stringify(result));
         
         // Capture navigation results

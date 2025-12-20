@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink } from 'lucide-react'
-import { aiApi } from '../services/api'
+import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File } from 'lucide-react'
+import { aiApi, documentsApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import styles from './AIChat.module.css'
 
@@ -14,6 +14,16 @@ interface NavigationInfo {
   prefill?: Record<string, any>
 }
 
+interface UploadedFile {
+  file: File
+  name: string
+  type: string
+  size: number
+  content?: string  // Extracted text content
+  base64?: string   // For images
+  extracting?: boolean
+}
+
 interface Message {
   id: string
   role: 'user' | 'assistant'
@@ -21,6 +31,7 @@ interface Message {
   timestamp: Date
   toolsUsed?: boolean  // Indicates if AI took an action
   navigation?: NavigationInfo  // Navigation command from AI
+  attachedFile?: { name: string; type: string }  // File that was attached
 }
 
 interface AIChatProps {
@@ -68,10 +79,12 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const [showSuggestions, setShowSuggestions] = useState(true)
   const [useAgentMode, setUseAgentMode] = useState(true) // Use AI Agent with actions by default
   const [pendingNavigation, setPendingNavigation] = useState<NavigationInfo | null>(null)
+  const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const lastUserMessageRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const currentPage = getPageFromPath(location.pathname)
   const pathContext = getContextFromPath(location.pathname)
@@ -110,19 +123,78 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
     }
   }, [currentPage, isOpen, refreshSuggestions, chatContext])
 
+  // Handle file selection
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const uploadFile: UploadedFile = {
+      file,
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      extracting: true
+    }
+    setUploadedFile(uploadFile)
+
+    // Extract text content from the file
+    try {
+      const response = await documentsApi.extractText(file)
+      
+      // For images, also get base64 for vision
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(',')[1]
+          setUploadedFile(prev => prev ? { ...prev, content: response.content, base64, extracting: false } : null)
+        }
+        reader.readAsDataURL(file)
+      } else {
+        setUploadedFile(prev => prev ? { ...prev, content: response.content, extracting: false } : null)
+      }
+    } catch (error) {
+      console.error('Error extracting file content:', error)
+      setUploadedFile(prev => prev ? { ...prev, extracting: false, content: '[Could not extract text from this file]' } : null)
+    }
+
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const removeUploadedFile = () => {
+    setUploadedFile(null)
+  }
+
+  const getFileIcon = (type: string) => {
+    if (type.startsWith('image/')) return <Image size={16} />
+    if (type.includes('pdf') || type.includes('word') || type.includes('document')) return <FileText size={16} />
+    return <File size={16} />
+  }
+
   const sendMessage = async (messageText?: string) => {
     const text = messageText || input.trim()
-    if (!text || isLoading) return
+    if ((!text && !uploadedFile) || isLoading) return
+
+    // Build message content including file info
+    let messageContent = text
+    if (uploadedFile) {
+      messageContent = text || `Analyze this file: ${uploadedFile.name}`
+    }
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
-      content: text,
+      content: messageContent,
       timestamp: new Date(),
+      attachedFile: uploadedFile ? { name: uploadedFile.name, type: uploadedFile.type } : undefined
     }
 
     setMessages(prev => [...prev, userMessage])
     setInput('')
+    const currentFile = uploadedFile
+    setUploadedFile(null)
     setIsLoading(true)
 
     try {
@@ -134,15 +206,33 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
 
       let response;
       
+      // If there's a file, include its content in the context
+      const fileContext = currentFile ? {
+        uploadedDocument: {
+          name: currentFile.name,
+          type: currentFile.type,
+          size: currentFile.size,
+          content: currentFile.content,
+          base64: currentFile.base64
+        }
+      } : {}
+      
       if (useAgentMode) {
         // Use the new AI Agent with function calling (can take actions!)
-        response = await aiApi.agentChat(text, conversationHistory)
+        response = await aiApi.agentChat(text || `Analyze and summarize this document: ${currentFile?.name}`, conversationHistory, fileContext)
       } else {
-        // Use the original context-based chat (read-only)
+        // Use the original context-based chat (read-only) with image support
+        const contextWithFile: Record<string, any> = { ...mergedContext, ...fileContext }
+        if (currentFile?.base64 && currentFile.type.startsWith('image/')) {
+          contextWithFile.imageData = {
+            base64: currentFile.base64,
+            mimeType: currentFile.type
+          }
+        }
         response = await aiApi.chat(
-          text,
+          text || `Analyze this file: ${currentFile?.name}`,
           chatContext?.contextType || currentPage,
-          mergedContext,
+          contextWithFile,
           conversationHistory
         )
       }
@@ -286,6 +376,12 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
                     )}
                     <div className={styles.messageContent}>
                       <div className={styles.messageText}>
+                        {message.attachedFile && (
+                          <div className={styles.attachedFile}>
+                            <FileText size={14} />
+                            <span>{message.attachedFile.name}</span>
+                          </div>
+                        )}
                         {message.toolsUsed && (
                           <div className={styles.actionTaken}>
                             <Zap size={12} /> Action taken
@@ -355,21 +451,51 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           )}
         </div>
 
+        {/* Uploaded File Preview */}
+        {uploadedFile && (
+          <div className={styles.filePreview}>
+            <div className={styles.fileInfo}>
+              {getFileIcon(uploadedFile.type)}
+              <span className={styles.fileName}>{uploadedFile.name}</span>
+              <span className={styles.fileSize}>({(uploadedFile.size / 1024).toFixed(1)} KB)</span>
+              {uploadedFile.extracting && <Loader2 size={14} className={styles.spinner} />}
+            </div>
+            <button onClick={removeUploadedFile} className={styles.removeFileBtn}>
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
         {/* Input */}
         <div className={styles.inputArea}>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileSelect}
+            accept=".pdf,.doc,.docx,.txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.webp"
+            style={{ display: 'none' }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className={styles.attachBtn}
+            disabled={isLoading}
+            title="Attach file"
+          >
+            <Paperclip size={18} />
+          </button>
           <input
             ref={inputRef}
             type="text"
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask anything..."
+            placeholder={uploadedFile ? "Add a message or press send..." : "Ask anything..."}
             disabled={isLoading}
             className={styles.input}
           />
           <button
             onClick={() => sendMessage()}
-            disabled={!input.trim() || isLoading}
+            disabled={(!input.trim() && !uploadedFile) || isLoading}
             className={styles.sendBtn}
           >
             {isLoading ? <Loader2 size={18} className={styles.spinner} /> : <Send size={18} />}
