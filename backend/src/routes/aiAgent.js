@@ -1413,14 +1413,6 @@ async function executeTool(toolName, args, user) {
       case 'remove_matter_permission': return await removeMatterPermission(args, user);
       case 'update_matter_visibility': return await updateMatterVisibility(args, user);
       
-      // Email Integration
-      case 'get_emails': return await getEmails(args, user);
-      case 'get_email': return await getEmail(args, user);
-      case 'send_email': return await sendEmail(args, user);
-      case 'reply_to_email': return await replyToEmail(args, user);
-      case 'link_email_to_matter': return await linkEmailToMatter(args, user);
-      case 'check_email_integration': return await checkEmailIntegration(args, user);
-      
       // QuickBooks Integration
       case 'get_quickbooks_status': return await getQuickBooksStatus(args, user);
       case 'get_quickbooks_invoices': return await getQuickBooksInvoices(args, user);
