@@ -211,6 +211,37 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
   }
 });
 
+// Helper function to extract text from a file
+async function extractTextFromFile(filePath, originalName) {
+  const ext = path.extname(originalName).toLowerCase();
+  let textContent = null;
+  
+  try {
+    if (ext === '.pdf') {
+      const dataBuffer = await fs.readFile(filePath);
+      const pdfData = await pdfParse(dataBuffer);
+      textContent = pdfData.text;
+    } else if (ext === '.docx') {
+      const result = await mammoth.extractRawText({ path: filePath });
+      textContent = result.value;
+    } else if (['.txt', '.md', '.json', '.csv', '.xml', '.html'].includes(ext)) {
+      textContent = await fs.readFile(filePath, 'utf-8');
+    }
+  } catch (error) {
+    console.error('Text extraction error:', error);
+  }
+  
+  // Clean up and limit size (max 100KB of text)
+  if (textContent) {
+    textContent = textContent.trim();
+    if (textContent.length > 100000) {
+      textContent = textContent.substring(0, 100000);
+    }
+  }
+  
+  return textContent || null;
+}
+
 // Upload document
 router.post('/', authenticate, requirePermission('documents:upload'), upload.single('file'), async (req, res) => {
   try {
@@ -220,11 +251,20 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
 
     const { matterId, clientId, tags, isConfidential = false, status = 'draft' } = req.body;
 
+    // Extract text content for AI access
+    let contentText = null;
+    try {
+      contentText = await extractTextFromFile(req.file.path, req.file.originalname);
+    } catch (extractError) {
+      console.error('Text extraction failed:', extractError);
+      // Continue without text - not critical
+    }
+
     const result = await query(
       `INSERT INTO documents (
         firm_id, matter_id, client_id, name, original_name, type, size, path,
-        tags, is_confidential, status, uploaded_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        tags, is_confidential, status, uploaded_by, content_text, content_extracted_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       RETURNING *`,
       [
         req.user.firmId, matterId || null, clientId || null,
@@ -232,7 +272,8 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
         req.file.size, req.file.path,
         tags ? (Array.isArray(tags) ? tags : JSON.parse(tags)) : [],
         isConfidential === 'true' || isConfidential === true,
-        status, req.user.id
+        status, req.user.id,
+        contentText, contentText ? new Date() : null
       ]
     );
 
@@ -242,7 +283,7 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
     await query(
       `INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
        VALUES ($1, $2, 'document.uploaded', 'document', $3, $4)`,
-      [req.user.firmId, req.user.id, d.id, JSON.stringify({ name: d.name, size: d.size })]
+      [req.user.firmId, req.user.id, d.id, JSON.stringify({ name: d.name, size: d.size, textExtracted: !!contentText })]
     );
 
     res.status(201).json({
@@ -255,6 +296,7 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
       version: d.version,
       status: d.status,
       uploadedAt: d.uploaded_at,
+      contentExtracted: !!contentText
     });
   } catch (error) {
     console.error('Upload document error:', error);
@@ -330,6 +372,91 @@ router.get('/:id/content', authenticate, requirePermission('documents:view'), as
     });
   } catch (error) {
     console.error('Extract content error:', error);
+    res.status(500).json({ error: 'Failed to extract document content' });
+  }
+});
+
+// Extract and store text content for a document (backfill existing docs)
+router.post('/:id/extract', authenticate, requirePermission('documents:edit'), async (req, res) => {
+  try {
+    const result = await query(
+      'SELECT * FROM documents WHERE id = $1 AND firm_id = $2',
+      [req.params.id, req.user.firmId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const doc = result.rows[0];
+
+    // Check if file exists
+    try {
+      await fs.access(doc.path);
+    } catch {
+      return res.status(404).json({ error: 'File not found on server' });
+    }
+
+    // Extract text
+    const contentText = await extractTextFromFile(doc.path, doc.original_name);
+
+    if (contentText) {
+      await query(
+        'UPDATE documents SET content_text = $1, content_extracted_at = NOW() WHERE id = $2',
+        [contentText, doc.id]
+      );
+    }
+
+    res.json({
+      id: doc.id,
+      name: doc.original_name,
+      contentExtracted: !!contentText,
+      contentLength: contentText ? contentText.length : 0
+    });
+  } catch (error) {
+    console.error('Extract content error:', error);
+    res.status(500).json({ error: 'Failed to extract document content' });
+  }
+});
+
+// Batch extract content for all documents without extracted text
+router.post('/extract-all', authenticate, requirePermission('documents:edit'), async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT id, path, original_name FROM documents 
+       WHERE firm_id = $1 AND content_text IS NULL AND external_id IS NULL
+       LIMIT 50`,
+      [req.user.firmId]
+    );
+
+    let extracted = 0;
+    let failed = 0;
+
+    for (const doc of result.rows) {
+      try {
+        await fs.access(doc.path);
+        const contentText = await extractTextFromFile(doc.path, doc.original_name);
+        if (contentText) {
+          await query(
+            'UPDATE documents SET content_text = $1, content_extracted_at = NOW() WHERE id = $2',
+            [contentText, doc.id]
+          );
+          extracted++;
+        }
+      } catch (error) {
+        console.error(`Failed to extract ${doc.original_name}:`, error.message);
+        failed++;
+      }
+    }
+
+    res.json({
+      processed: result.rows.length,
+      extracted,
+      failed,
+      message: result.rows.length === 50 ? 'Run again to process more documents' : 'All documents processed'
+    });
+  } catch (error) {
+    console.error('Batch extract error:', error);
     res.status(500).json({ error: 'Failed to extract document content' });
   }
 });

@@ -644,6 +644,52 @@ const TOOLS = [
       }
     }
   },
+  {
+    type: "function",
+    function: {
+      name: "read_document_content",
+      description: "Read the text content of a document. Use this to see what's actually inside a document (contracts, pleadings, letters, etc.). Works best with PDFs, Word docs, and text files.",
+      parameters: {
+        type: "object",
+        properties: {
+          document_id: { type: "string", description: "UUID of the document" },
+          max_length: { type: "number", description: "Max characters to return (default 10000, max 50000)" }
+        },
+        required: ["document_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_matter_documents_content",
+      description: "Get a summary of all documents attached to a matter, including their content previews. Useful for understanding the full picture of a case.",
+      parameters: {
+        type: "object",
+        properties: {
+          matter_id: { type: "string", description: "UUID of the matter" },
+          include_content: { type: "boolean", description: "Include document content previews (default true)" }
+        },
+        required: ["matter_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_document_content",
+      description: "Search within document contents across all documents in the firm. Find specific clauses, terms, or information.",
+      parameters: {
+        type: "object",
+        properties: {
+          search_term: { type: "string", description: "Text to search for within documents" },
+          matter_id: { type: "string", description: "Optional: limit search to specific matter" },
+          client_id: { type: "string", description: "Optional: limit search to specific client" }
+        },
+        required: ["search_term"]
+      }
+    }
+  },
 
   // ===================== TEAM =====================
   {
@@ -1614,6 +1660,9 @@ async function executeTool(toolName, args, user) {
       // Documents
       case 'list_documents': return await listDocuments(args, user);
       case 'get_document': return await getDocument(args, user);
+      case 'read_document_content': return await readDocumentContent(args, user);
+      case 'get_matter_documents_content': return await getMatterDocumentsContent(args, user);
+      case 'search_document_content': return await searchDocumentContent(args, user);
       
       // Team
       case 'list_team_members': return await listTeamMembers(args, user);
@@ -2056,6 +2105,27 @@ async function getMatter(args, user) {
     [matter_id]
   );
   
+  // Get documents with content summaries
+  const docsResult = await query(
+    `SELECT id, name, type, ai_summary, 
+            CASE WHEN content_text IS NOT NULL THEN LEFT(content_text, 500) ELSE NULL END as content_preview,
+            CASE WHEN content_text IS NOT NULL THEN true ELSE false END as has_content
+     FROM documents 
+     WHERE matter_id = $1 
+     ORDER BY uploaded_at DESC 
+     LIMIT 10`,
+    [matter_id]
+  );
+  
+  const documents = docsResult.rows.map(d => ({
+    id: d.id,
+    name: d.name,
+    type: d.type,
+    summary: d.ai_summary,
+    content_preview: d.content_preview,
+    has_full_content: d.has_content
+  }));
+  
   return {
     id: m.id,
     name: m.name,
@@ -2076,6 +2146,11 @@ async function getMatter(args, user) {
       total_hours: parseFloat(stats.rows[0].total_hours),
       total_billed: parseFloat(stats.rows[0].total_billed),
       unbilled: parseFloat(stats.rows[0].unbilled)
+    },
+    documents: {
+      count: documents.length,
+      items: documents,
+      note: documents.length > 0 ? 'Use read_document_content(document_id) for full document text' : null
     }
   };
 }
@@ -3472,6 +3547,199 @@ async function getDocument(args, user) {
     uploaded_at: d.uploaded_at,
     tags: d.tags,
     ai_summary: d.ai_summary
+  };
+}
+
+async function readDocumentContent(args, user) {
+  const { document_id, max_length = 10000 } = args;
+  
+  if (!document_id) {
+    return { error: 'document_id is required' };
+  }
+  
+  const result = await query(
+    `SELECT d.id, d.name, d.type, d.content_text, d.ai_summary, d.path, m.name as matter_name
+     FROM documents d
+     LEFT JOIN matters m ON d.matter_id = m.id
+     WHERE d.id = $1 AND d.firm_id = $2`,
+    [document_id, user.firmId]
+  );
+  
+  if (result.rows.length === 0) {
+    return { error: 'Document not found' };
+  }
+  
+  const doc = result.rows[0];
+  
+  // If we have extracted content, return it
+  if (doc.content_text) {
+    const content = doc.content_text.substring(0, Math.min(parseInt(max_length), 50000));
+    return {
+      id: doc.id,
+      name: doc.name,
+      type: doc.type,
+      matter: doc.matter_name,
+      content: content,
+      truncated: doc.content_text.length > content.length,
+      total_length: doc.content_text.length
+    };
+  }
+  
+  // If we have an AI summary but no content, return that
+  if (doc.ai_summary) {
+    return {
+      id: doc.id,
+      name: doc.name,
+      type: doc.type,
+      matter: doc.matter_name,
+      content: null,
+      summary: doc.ai_summary,
+      note: 'Full text content not yet extracted. Summary available.'
+    };
+  }
+  
+  // No content available
+  return {
+    id: doc.id,
+    name: doc.name,
+    type: doc.type,
+    matter: doc.matter_name,
+    content: null,
+    note: 'Document content has not been extracted yet. The document exists but its text content is not available for reading.'
+  };
+}
+
+async function getMatterDocumentsContent(args, user) {
+  const { matter_id, include_content = true } = args;
+  
+  if (!matter_id) {
+    return { error: 'matter_id is required' };
+  }
+  
+  // Get matter info
+  const matterResult = await query(
+    'SELECT name, number FROM matters WHERE id = $1 AND firm_id = $2',
+    [matter_id, user.firmId]
+  );
+  
+  if (matterResult.rows.length === 0) {
+    return { error: 'Matter not found' };
+  }
+  
+  const matter = matterResult.rows[0];
+  
+  // Get all documents for this matter
+  const docsResult = await query(
+    `SELECT id, name, type, size, status, content_text, ai_summary, uploaded_at
+     FROM documents 
+     WHERE matter_id = $1 AND firm_id = $2
+     ORDER BY uploaded_at DESC`,
+    [matter_id, user.firmId]
+  );
+  
+  const documents = docsResult.rows.map(d => {
+    const doc = {
+      id: d.id,
+      name: d.name,
+      type: d.type,
+      size: d.size,
+      status: d.status,
+      uploaded_at: d.uploaded_at
+    };
+    
+    if (include_content) {
+      if (d.content_text) {
+        // Include first 2000 chars as preview
+        doc.content_preview = d.content_text.substring(0, 2000);
+        doc.has_full_content = true;
+        doc.content_length = d.content_text.length;
+      } else if (d.ai_summary) {
+        doc.summary = d.ai_summary;
+        doc.has_full_content = false;
+      } else {
+        doc.has_full_content = false;
+        doc.note = 'Content not extracted';
+      }
+    }
+    
+    return doc;
+  });
+  
+  return {
+    matter: {
+      id: matter_id,
+      name: matter.name,
+      number: matter.number
+    },
+    document_count: documents.length,
+    documents: documents
+  };
+}
+
+async function searchDocumentContent(args, user) {
+  const { search_term, matter_id, client_id } = args;
+  
+  if (!search_term || search_term.length < 2) {
+    return { error: 'search_term must be at least 2 characters' };
+  }
+  
+  let sql = `
+    SELECT d.id, d.name, d.type, d.content_text, d.ai_summary, 
+           m.name as matter_name, m.number as matter_number, c.display_name as client_name
+    FROM documents d
+    LEFT JOIN matters m ON d.matter_id = m.id
+    LEFT JOIN clients c ON d.client_id = c.id
+    WHERE d.firm_id = $1 
+      AND (d.content_text ILIKE $2 OR d.ai_summary ILIKE $2 OR d.name ILIKE $2)
+  `;
+  const params = [user.firmId, `%${search_term}%`];
+  let idx = 3;
+  
+  if (matter_id) {
+    sql += ` AND d.matter_id = $${idx++}`;
+    params.push(matter_id);
+  }
+  
+  if (client_id) {
+    sql += ` AND d.client_id = $${idx++}`;
+    params.push(client_id);
+  }
+  
+  sql += ' ORDER BY d.uploaded_at DESC LIMIT 20';
+  
+  const result = await query(sql, params);
+  
+  // Extract relevant snippets
+  const matches = result.rows.map(d => {
+    const match = {
+      id: d.id,
+      name: d.name,
+      type: d.type,
+      matter: d.matter_name ? `${d.matter_number} - ${d.matter_name}` : null,
+      client: d.client_name
+    };
+    
+    // Find snippet with the search term
+    if (d.content_text) {
+      const lowerContent = d.content_text.toLowerCase();
+      const searchPos = lowerContent.indexOf(search_term.toLowerCase());
+      if (searchPos >= 0) {
+        const start = Math.max(0, searchPos - 100);
+        const end = Math.min(d.content_text.length, searchPos + search_term.length + 100);
+        match.snippet = '...' + d.content_text.substring(start, end) + '...';
+      }
+    } else if (d.ai_summary) {
+      match.snippet = d.ai_summary.substring(0, 200);
+      match.from_summary = true;
+    }
+    
+    return match;
+  });
+  
+  return {
+    search_term: search_term,
+    matches: matches,
+    count: matches.length
   };
 }
 
@@ -6245,7 +6513,7 @@ You have access to tools for:
 - **Invoices**: Create, view, send invoices, record payments
 - **Tasks**: Create, view, update, complete tasks assigned to matters/clients/users
 - **Calendar**: Create, view, update, delete events and meetings
-- **Documents**: View document information
+- **Documents**: View document info, read document content, search within documents
 - **Expenses**: Create and view expenses
 - **Team**: View team members
 - **Reports**: Generate billing, productivity, time, and client reports
@@ -6293,6 +6561,12 @@ Integrations sync data directly into the site's pages:
 - **DocuSign → Documents**: Signed documents appear in the Documents page.
 
 When a user asks about their "invoices", "documents", or "calendar", this INCLUDES synced data from their integrations. You can filter by source if they only want data from a specific integration.
+
+### Document Reading & Search
+- **read_document_content**: Read the full text content of any document. Use this to review contracts, pleadings, letters, etc.
+- **get_matter_documents_content**: Get all documents for a matter with content previews. Great for case overviews.
+- **search_document_content**: Search for specific text across all documents. Find clauses, terms, parties, etc.
+- When you get matter details, document summaries and previews are included automatically.
 
 ### Cloud Storage (OneDrive, Google Drive, Dropbox)
 - **list_cloud_files**: List files from connected cloud storage

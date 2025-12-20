@@ -223,5 +223,17 @@ CREATE TABLE IF NOT EXISTS matter_notes (
 
 CREATE INDEX IF NOT EXISTS idx_matter_notes_matter_id ON matter_notes(matter_id);
 
+-- 9. Add content_text column to documents for AI reading
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'content_text') THEN
+        ALTER TABLE documents ADD COLUMN content_text TEXT;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'content_extracted_at') THEN
+        ALTER TABLE documents ADD COLUMN content_extracted_at TIMESTAMP WITH TIME ZONE;
+    END IF;
+END $$;
+
 -- Done!
 SELECT 'Integration support migration completed!' as status;
