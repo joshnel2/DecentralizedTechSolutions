@@ -184,6 +184,51 @@ const TOOLS = [
       }
     }
   },
+  {
+    type: "function",
+    function: {
+      name: "close_matter",
+      description: "Close a matter. Optionally set a resolution/outcome.",
+      parameters: {
+        type: "object",
+        properties: {
+          matter_id: { type: "string", description: "UUID of the matter" },
+          resolution: { type: "string", description: "Resolution/outcome (e.g., 'Settled', 'Won', 'Lost', 'Dismissed')" },
+          closing_notes: { type: "string", description: "Notes about why the matter was closed" }
+        },
+        required: ["matter_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "archive_matter",
+      description: "Archive a closed matter to remove it from active lists.",
+      parameters: {
+        type: "object",
+        properties: {
+          matter_id: { type: "string", description: "UUID of the matter" }
+        },
+        required: ["matter_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "reopen_matter",
+      description: "Reopen a closed or archived matter.",
+      parameters: {
+        type: "object",
+        properties: {
+          matter_id: { type: "string", description: "UUID of the matter" },
+          reason: { type: "string", description: "Reason for reopening" }
+        },
+        required: ["matter_id"]
+      }
+    }
+  },
 
   // ===================== CLIENTS =====================
   {
