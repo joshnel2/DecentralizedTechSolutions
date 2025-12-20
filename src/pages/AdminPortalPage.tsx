@@ -75,7 +75,7 @@ interface Stats {
 
 export function AdminPortalPage() {
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<'overview' | 'firms' | 'users'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'firms' | 'users' | 'integrations'>('overview')
   const [firms, setFirms] = useState<Firm[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
@@ -89,6 +89,11 @@ export function AdminPortalPage() {
   const [showUserModal, setShowUserModal] = useState(false)
   const [editingFirm, setEditingFirm] = useState<Firm | null>(null)
   const [editingUser, setEditingUser] = useState<User | null>(null)
+  
+  // Integration settings state
+  const [integrationSettings, setIntegrationSettings] = useState<Record<string, any>>({})
+  const [savingIntegrations, setSavingIntegrations] = useState(false)
+  const [integrationMessage, setIntegrationMessage] = useState<{type: 'success' | 'error', text: string} | null>(null)
 
   useEffect(() => {
     loadData()
@@ -111,6 +116,49 @@ export function AdminPortalPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const loadIntegrationSettings = async () => {
+    try {
+      const settings = await fetchSecureAdmin('/platform-settings')
+      setIntegrationSettings(settings)
+    } catch (err: any) {
+      console.error('Failed to load integration settings:', err)
+    }
+  }
+
+  const saveIntegrationSettings = async () => {
+    setSavingIntegrations(true)
+    setIntegrationMessage(null)
+    try {
+      // Extract just the values to save
+      const toSave: Record<string, string> = {}
+      Object.entries(integrationSettings).forEach(([key, val]: [string, any]) => {
+        if (typeof val === 'object' && val.value !== undefined) {
+          toSave[key] = val.value
+        } else if (typeof val === 'string') {
+          toSave[key] = val
+        }
+      })
+      
+      await fetchSecureAdmin('/platform-settings', {
+        method: 'PUT',
+        body: JSON.stringify(toSave),
+      })
+      setIntegrationMessage({ type: 'success', text: 'Integration settings saved successfully!' })
+      loadIntegrationSettings()
+    } catch (err: any) {
+      setIntegrationMessage({ type: 'error', text: err.message || 'Failed to save settings' })
+    } finally {
+      setSavingIntegrations(false)
+    }
+  }
+
+  const updateIntegrationSetting = (key: string, value: string) => {
+    setIntegrationSettings(prev => ({
+      ...prev,
+      [key]: { ...prev[key], value }
+    }))
   }
 
   const filteredFirms = firms.filter(f => 
@@ -182,6 +230,13 @@ export function AdminPortalPage() {
         >
           <Users size={18} />
           Users ({users.length})
+        </button>
+        <button 
+          className={clsx(styles.tab, activeTab === 'integrations' && styles.active)}
+          onClick={() => { setActiveTab('integrations'); loadIntegrationSettings(); }}
+        >
+          <Link2 size={18} />
+          Integrations
         </button>
       </div>
 
@@ -395,6 +450,172 @@ export function AdminPortalPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'integrations' && (
+        <div className={styles.section}>
+          <div className={styles.integrationsHeader}>
+            <h2>Integration Credentials</h2>
+            <p>Configure OAuth credentials for Outlook, QuickBooks, and Google integrations. Users will be able to connect their accounts once these are set up.</p>
+          </div>
+
+          {integrationMessage && (
+            <div className={`${styles.integrationMessage} ${styles[integrationMessage.type]}`}>
+              {integrationMessage.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+              {integrationMessage.text}
+            </div>
+          )}
+
+          {/* Microsoft/Outlook */}
+          <div className={styles.integrationCard}>
+            <div className={styles.integrationCardHeader}>
+              <span className={styles.integrationIcon}>📧</span>
+              <div>
+                <h3>Microsoft Outlook</h3>
+                <p>Email and Calendar integration. <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener noreferrer">Register app in Azure Portal →</a></p>
+              </div>
+            </div>
+            <div className={styles.integrationFields}>
+              <div className={styles.formGroup}>
+                <label>Client ID</label>
+                <input
+                  type="text"
+                  value={integrationSettings.microsoft_client_id?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('microsoft_client_id', e.target.value)}
+                  placeholder="Enter Microsoft Client ID"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Client Secret</label>
+                <input
+                  type="password"
+                  value={integrationSettings.microsoft_client_secret?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('microsoft_client_secret', e.target.value)}
+                  placeholder={integrationSettings.microsoft_client_secret?.isConfigured ? '••••••••' : 'Enter Client Secret'}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Redirect URI</label>
+                <input
+                  type="text"
+                  value={integrationSettings.microsoft_redirect_uri?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('microsoft_redirect_uri', e.target.value)}
+                  placeholder="https://your-api.com/api/integrations/outlook/callback"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Tenant</label>
+                <input
+                  type="text"
+                  value={integrationSettings.microsoft_tenant?.value || 'common'}
+                  onChange={(e) => updateIntegrationSetting('microsoft_tenant', e.target.value)}
+                  placeholder="common"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* QuickBooks */}
+          <div className={styles.integrationCard}>
+            <div className={styles.integrationCardHeader}>
+              <span className={styles.integrationIcon}>📊</span>
+              <div>
+                <h3>QuickBooks Online</h3>
+                <p>Accounting and invoicing. <a href="https://developer.intuit.com/app/developer/dashboard" target="_blank" rel="noopener noreferrer">Register app in Intuit Developer →</a></p>
+              </div>
+            </div>
+            <div className={styles.integrationFields}>
+              <div className={styles.formGroup}>
+                <label>Client ID</label>
+                <input
+                  type="text"
+                  value={integrationSettings.quickbooks_client_id?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('quickbooks_client_id', e.target.value)}
+                  placeholder="Enter QuickBooks Client ID"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Client Secret</label>
+                <input
+                  type="password"
+                  value={integrationSettings.quickbooks_client_secret?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('quickbooks_client_secret', e.target.value)}
+                  placeholder={integrationSettings.quickbooks_client_secret?.isConfigured ? '••••••••' : 'Enter Client Secret'}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Redirect URI</label>
+                <input
+                  type="text"
+                  value={integrationSettings.quickbooks_redirect_uri?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('quickbooks_redirect_uri', e.target.value)}
+                  placeholder="https://your-api.com/api/integrations/quickbooks/callback"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Environment</label>
+                <select
+                  value={integrationSettings.quickbooks_environment?.value || 'sandbox'}
+                  onChange={(e) => updateIntegrationSetting('quickbooks_environment', e.target.value)}
+                >
+                  <option value="sandbox">Sandbox (Testing)</option>
+                  <option value="production">Production</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Google */}
+          <div className={styles.integrationCard}>
+            <div className={styles.integrationCardHeader}>
+              <span className={styles.integrationIcon}>📅</span>
+              <div>
+                <h3>Google Calendar</h3>
+                <p>Calendar sync. <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Create credentials in Google Cloud →</a></p>
+              </div>
+            </div>
+            <div className={styles.integrationFields}>
+              <div className={styles.formGroup}>
+                <label>Client ID</label>
+                <input
+                  type="text"
+                  value={integrationSettings.google_client_id?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('google_client_id', e.target.value)}
+                  placeholder="Enter Google Client ID"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Client Secret</label>
+                <input
+                  type="password"
+                  value={integrationSettings.google_client_secret?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('google_client_secret', e.target.value)}
+                  placeholder={integrationSettings.google_client_secret?.isConfigured ? '••••••••' : 'Enter Client Secret'}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Redirect URI</label>
+                <input
+                  type="text"
+                  value={integrationSettings.google_redirect_uri?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('google_redirect_uri', e.target.value)}
+                  placeholder="https://your-api.com/api/integrations/google/callback"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className={styles.integrationActions}>
+            <button 
+              className={styles.saveBtn} 
+              onClick={saveIntegrationSettings}
+              disabled={savingIntegrations}
+            >
+              <Save size={18} />
+              {savingIntegrations ? 'Saving...' : 'Save All Settings'}
+            </button>
           </div>
         </div>
       )}
