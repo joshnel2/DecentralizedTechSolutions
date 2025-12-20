@@ -886,6 +886,63 @@ router.post('/outlook/sync-calendar', authenticate, async (req, res) => {
   }
 });
 
+// Link email to matter/client
+router.post('/outlook/link-email', authenticate, async (req, res) => {
+  try {
+    const { emailId, matterId, clientId } = req.body;
+    
+    if (!emailId) {
+      return res.status(400).json({ error: 'emailId is required' });
+    }
+    
+    if (!matterId && !clientId) {
+      return res.status(400).json({ error: 'matterId or clientId is required' });
+    }
+
+    // Get email details from Outlook
+    const integration = await query(
+      `SELECT * FROM integrations WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+      [req.user.firmId]
+    );
+
+    if (integration.rows.length === 0) {
+      return res.status(400).json({ error: 'Outlook not connected' });
+    }
+
+    const accessToken = integration.rows[0].access_token;
+
+    // Fetch email details
+    const emailResponse = await fetch(
+      `https://graph.microsoft.com/v1.0/me/messages/${emailId}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    const email = await emailResponse.json();
+
+    // Store the link
+    await query(
+      `INSERT INTO email_links (firm_id, matter_id, client_id, email_id, email_provider, subject, from_address, to_addresses, received_at, linked_by)
+       VALUES ($1, $2, $3, $4, 'outlook', $5, $6, $7, $8, $9)`,
+      [
+        req.user.firmId,
+        matterId || null,
+        clientId || null,
+        emailId,
+        email.subject,
+        email.from?.emailAddress?.address,
+        email.toRecipients?.map(r => r.emailAddress?.address) || [],
+        email.receivedDateTime,
+        req.user.id
+      ]
+    );
+
+    res.json({ success: true, message: 'Email linked successfully' });
+  } catch (error) {
+    console.error('Link email error:', error);
+    res.status(500).json({ error: 'Failed to link email' });
+  }
+});
+
 // ============================================
 // ONEDRIVE INTEGRATION (Microsoft Graph API)
 // ============================================

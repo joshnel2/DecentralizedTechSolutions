@@ -1183,6 +1183,58 @@ export const integrationsApi = {
       body: JSON.stringify({ settings }),
     });
   },
+
+  // Link email to matter/client
+  async linkEmailToMatter(emailId: string, data: { matterId?: string; clientId?: string }) {
+    return fetchWithAuth('/integrations/outlook/link-email', {
+      method: 'POST',
+      body: JSON.stringify({ emailId, ...data }),
+    });
+  },
+
+  // Get QuickBooks data
+  async getQuickBooksInvoices() {
+    return fetchWithAuth('/integrations/quickbooks/invoices');
+  },
+
+  async getQuickBooksCustomers() {
+    return fetchWithAuth('/integrations/quickbooks/customers');
+  },
+
+  // Get cloud storage files
+  async getOneDriveFiles() {
+    return fetchWithAuth('/integrations/onedrive/files');
+  },
+
+  async getGoogleDriveFiles() {
+    return fetchWithAuth('/integrations/googledrive/files');
+  },
+
+  async getDropboxFiles() {
+    return fetchWithAuth('/integrations/dropbox/files');
+  },
+
+  // Get DocuSign envelopes
+  async getDocuSignEnvelopes() {
+    return fetchWithAuth('/integrations/docusign/envelopes');
+  },
+
+  // Get Slack channels
+  async getSlackChannels() {
+    return fetchWithAuth('/integrations/slack/channels');
+  },
+
+  async sendSlackMessage(channel: string, message: string) {
+    return fetchWithAuth('/integrations/slack/send', {
+      method: 'POST',
+      body: JSON.stringify({ channel, message }),
+    });
+  },
+
+  // Get Zoom meetings
+  async getZoomMeetings() {
+    return fetchWithAuth('/integrations/zoom/meetings');
+  },
 };
 
 // ============================================

@@ -26,6 +26,10 @@ import { FirmAdminPage } from './pages/FirmAdminPage'
 import { TeamPage } from './pages/TeamPage'
 import { APIKeysPage } from './pages/APIKeysPage'
 import { IntegrationsPage } from './pages/IntegrationsPage'
+import { OutlookIntegrationPage } from './pages/OutlookIntegrationPage'
+import { QuickBooksIntegrationPage } from './pages/QuickBooksIntegrationPage'
+import { CloudStorageIntegrationPage } from './pages/CloudStorageIntegrationPage'
+import { SlackIntegrationPage } from './pages/SlackIntegrationPage'
 import { SecuritySettingsPage } from './pages/SecuritySettingsPage'
 import { FirmAnalyticsPage } from './pages/FirmAnalyticsPage'
 import { TrustAccountingPage } from './pages/TrustAccountingPage'
@@ -212,6 +216,19 @@ function AppContent() {
         <Route path="settings/firm" element={<FirmSettingsPage />} />
         <Route path="settings/team" element={<TeamPage />} />
         <Route path="settings/integrations" element={<IntegrationsPage />} />
+        
+        {/* Integration Data Pages */}
+        <Route path="integrations/outlook" element={<OutlookIntegrationPage />} />
+        <Route path="integrations/quickbooks" element={<QuickBooksIntegrationPage />} />
+        <Route path="integrations/onedrive" element={<CloudStorageIntegrationPage />} />
+        <Route path="integrations/google-drive" element={<CloudStorageIntegrationPage />} />
+        <Route path="integrations/dropbox" element={<CloudStorageIntegrationPage />} />
+        <Route path="integrations/google-calendar" element={<CalendarPage />} />
+        <Route path="integrations/docusign" element={<DocumentsPage />} />
+        <Route path="integrations/slack" element={<SlackIntegrationPage />} />
+        <Route path="integrations/zoom" element={<CalendarPage />} />
+        <Route path="integrations/quicken" element={<QuickBooksIntegrationPage />} />
+        
         <Route path="settings/api-keys" element={<APIKeysPage />} />
         <Route path="settings/custom-fields" element={<CustomFieldsPage />} />
         <Route path="settings/recovery-bin" element={<RecoveryBinPage />} />

@@ -1440,6 +1440,8 @@ async function executeTool(toolName, args, user) {
       case 'draft_email': return await draftEmail(args, user);
       case 'send_email': return await sendEmail(args, user);
       case 'reply_to_email': return await replyToEmail(args, user);
+      case 'link_email_to_matter': return await linkEmailToMatter(args, user);
+      case 'get_matter_emails': return await getMatterEmails(args, user);
       
       // Cloud Storage
       case 'list_cloud_files': return await listCloudFiles(args, user);
