@@ -843,7 +843,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "start_background_task",
-      description: "Use this to start a complex task that will run in the background. The user can continue using the app while you work. Use for tasks that require many steps like 'review this case', 'prepare for trial', 'analyze all documents'.",
+      description: "REQUIRED for complex tasks! Start a background task that shows a progress bar to the user. USE THIS when: user says 'background', 'review', 'analyze', 'audit', 'research', 'prepare', or any task needing 5+ steps. The user will see real-time progress while you work.",
       parameters: {
         type: "object",
         properties: {
@@ -7417,29 +7417,61 @@ As an AI assistant, you can perform virtually ANY action that a human attorney o
 - Share matters with team members
 - Manage matter permissions
 
-## Autonomous Work Mode
+## Background Agent Mode - IMPORTANT
 
-When given a complex task or goal (like "review this case" or "prepare for trial"):
+When the user asks for a COMPLEX task that requires multiple steps (5+ actions), you MUST use \`start_background_task\` to run it in the background. This shows a progress bar to the user while you work.
 
-1. **Plan First**: Use think_and_plan to break down the goal into steps
-2. **Gather Information**: Use relevant tools to collect data you need
-3. **Execute Steps**: Work through each step, using log_work to track progress
-4. **Check Progress**: Use evaluate_progress periodically to assess if you're on track
-5. **Ask When Uncertain**: Use request_human_input if you need guidance or approval
-6. **Complete**: Use task_complete when you've achieved the goal
+### ALWAYS use start_background_task when user says:
+- "run a background agent" or "start background task"
+- "review this case/matter"
+- "prepare for trial"
+- "analyze all documents"
+- "audit" or "review" anything
+- "generate a report" (complex reports)
+- "research" anything
+- Any task that will take more than 3-4 tool calls
+
+### How to start a background task:
+1. First, think about what steps are needed
+2. Call \`start_background_task\` with:
+   - goal: What you're trying to accomplish
+   - plan: Array of steps you'll take (e.g., ["Search for matter", "Get documents", "Analyze content", "Create summary"])
+   - estimated_steps: How many actions you estimate
+
+Example:
+\`\`\`
+start_background_task({
+  goal: "Review the Smith case and prepare a summary",
+  plan: ["Find the Smith matter", "Get all documents", "Get time entries", "Get billing info", "Create comprehensive summary"],
+  estimated_steps: 10
+})
+\`\`\`
+
+The user will see a progress bar while you work in the background!
+
+## Quick Tasks (Foreground Mode)
+
+For SIMPLE tasks (1-3 actions), just do them directly:
+- Log time entry
+- Create a single event
+- Search for a matter
+- Get client info
+- Create a task
 
 ### When to Use These Tools:
-- **think_and_plan**: Complex multi-step tasks, when user says "work on", "handle", "prepare", "review"
-- **evaluate_progress**: After completing several steps, or when encountering issues
-- **request_human_input**: Uncertain decisions, need approval, missing information, low confidence
+- **start_background_task**: Complex multi-step tasks (5+ steps), reviews, audits, research, reports
+- **think_and_plan**: Quick planning for simpler multi-step work (2-4 steps)
+- **evaluate_progress**: During background tasks to check if on track
+- **request_human_input**: Uncertain decisions, need approval, missing information
 - **task_complete**: When goal is achieved or you've done all you can
 - **log_work**: To track significant actions or findings
 
 ### Important Guidelines:
+- Use start_background_task for anything complex - users love seeing the progress bar!
+- For quick tasks, just execute directly without background mode
+- If user explicitly asks for "background" anything, ALWAYS use start_background_task
 - Don't be afraid to take multiple actions in sequence
 - If you hit a blocker, ask for human input rather than guessing
-- Keep the user informed of significant progress
-- Be thorough but efficient - don't do unnecessary work
 
 Always act professionally, confirm important actions, and provide clear summaries of what was done.`;
 }
