@@ -133,7 +133,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "get_matter",
-      description: "Get detailed information about a specific matter.",
+      description: "Get comprehensive information about a matter including: details, documents (with content previews), linked emails, tasks, events, invoices, and billing stats. Use this to understand everything about a case.",
       parameters: {
         type: "object",
         properties: {
@@ -251,7 +251,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "get_client",
-      description: "Get detailed information about a specific client.",
+      description: "Get comprehensive information about a client including: contact details, all matters, documents (with previews), communications/emails, invoices, and billing stats. Use this to understand everything about a client relationship.",
       parameters: {
         type: "object",
         properties: {
@@ -2107,14 +2107,14 @@ async function getMatter(args, user) {
   
   // Get documents with content summaries
   const docsResult = await query(
-    `SELECT id, name, type, ai_summary, 
+    `SELECT id, name, type, ai_summary, uploaded_at,
             CASE WHEN content_text IS NOT NULL THEN LEFT(content_text, 500) ELSE NULL END as content_preview,
-            CASE WHEN content_text IS NOT NULL THEN true ELSE false END as has_content
+            CASE WHEN content_text IS NOT NULL THEN LENGTH(content_text) ELSE 0 END as content_length
      FROM documents 
-     WHERE matter_id = $1 
+     WHERE matter_id = $1 AND firm_id = $2
      ORDER BY uploaded_at DESC 
-     LIMIT 10`,
-    [matter_id]
+     LIMIT 15`,
+    [matter_id, user.firmId]
   );
   
   const documents = docsResult.rows.map(d => ({
@@ -2123,8 +2123,40 @@ async function getMatter(args, user) {
     type: d.type,
     summary: d.ai_summary,
     content_preview: d.content_preview,
-    has_full_content: d.has_content
+    has_full_content: d.content_length > 0,
+    content_length: d.content_length,
+    uploaded_at: d.uploaded_at
   }));
+  
+  // Get linked emails
+  const emailsResult = await query(
+    `SELECT id, subject, from_address, received_at, notes
+     FROM email_links 
+     WHERE matter_id = $1 AND firm_id = $2
+     ORDER BY received_at DESC 
+     LIMIT 10`,
+    [matter_id, user.firmId]
+  );
+  
+  // Get upcoming events/tasks for this matter
+  const eventsResult = await query(
+    `SELECT id, title, type, start_time, status, priority
+     FROM calendar_events 
+     WHERE matter_id = $1 AND firm_id = $2 AND (start_time >= NOW() OR type = 'task')
+     ORDER BY start_time ASC 
+     LIMIT 10`,
+    [matter_id, user.firmId]
+  );
+  
+  // Get invoices for this matter
+  const invoicesResult = await query(
+    `SELECT id, invoice_number, status, amount, due_date
+     FROM invoices 
+     WHERE matter_id = $1 AND firm_id = $2
+     ORDER BY created_at DESC 
+     LIMIT 5`,
+    [matter_id, user.firmId]
+  );
   
   return {
     id: m.id,
@@ -2135,6 +2167,7 @@ async function getMatter(args, user) {
     priority: m.priority,
     type: m.type,
     client: m.client_name,
+    client_id: m.client_id,
     client_email: m.client_email,
     responsible_attorney: m.responsible_attorney_name,
     billing_type: m.billing_type,
@@ -2151,7 +2184,32 @@ async function getMatter(args, user) {
       count: documents.length,
       items: documents,
       note: documents.length > 0 ? 'Use read_document_content(document_id) for full document text' : null
-    }
+    },
+    emails: {
+      count: emailsResult.rows.length,
+      items: emailsResult.rows.map(e => ({
+        id: e.id,
+        subject: e.subject,
+        from: e.from_address,
+        date: e.received_at,
+        notes: e.notes
+      }))
+    },
+    events_and_tasks: eventsResult.rows.map(e => ({
+      id: e.id,
+      title: e.title,
+      type: e.type,
+      date: e.start_time,
+      status: e.status,
+      priority: e.priority
+    })),
+    invoices: invoicesResult.rows.map(i => ({
+      id: i.id,
+      number: i.invoice_number,
+      status: i.status,
+      amount: parseFloat(i.amount),
+      due_date: i.due_date
+    }))
   };
 }
 
@@ -2394,6 +2452,48 @@ async function getClient(args, user) {
   
   const c = result.rows[0];
   
+  // Get client's matters
+  const mattersResult = await query(
+    `SELECT id, name, number, status, type, priority
+     FROM matters 
+     WHERE client_id = $1 AND firm_id = $2
+     ORDER BY created_at DESC 
+     LIMIT 10`,
+    [client_id, user.firmId]
+  );
+  
+  // Get client's documents
+  const docsResult = await query(
+    `SELECT id, name, type, ai_summary, uploaded_at,
+            CASE WHEN content_text IS NOT NULL THEN LEFT(content_text, 300) ELSE NULL END as content_preview,
+            CASE WHEN content_text IS NOT NULL THEN true ELSE false END as has_content
+     FROM documents 
+     WHERE client_id = $1 AND firm_id = $2
+     ORDER BY uploaded_at DESC 
+     LIMIT 10`,
+    [client_id, user.firmId]
+  );
+  
+  // Get linked emails/communications
+  const emailsResult = await query(
+    `SELECT id, subject, from_address, received_at, notes, matter_id
+     FROM email_links 
+     WHERE client_id = $1 AND firm_id = $2
+     ORDER BY received_at DESC 
+     LIMIT 10`,
+    [client_id, user.firmId]
+  );
+  
+  // Get recent invoices
+  const invoicesResult = await query(
+    `SELECT id, invoice_number, status, amount, due_date
+     FROM invoices 
+     WHERE client_id = $1 AND firm_id = $2
+     ORDER BY created_at DESC 
+     LIMIT 5`,
+    [client_id, user.firmId]
+  );
+  
   return {
     id: c.id,
     name: c.display_name,
@@ -2412,7 +2512,42 @@ async function getClient(args, user) {
       matter_count: parseInt(c.matter_count),
       total_billed: parseFloat(c.total_billed),
       outstanding: parseFloat(c.outstanding)
-    }
+    },
+    matters: mattersResult.rows.map(m => ({
+      id: m.id,
+      name: m.name,
+      number: m.number,
+      status: m.status,
+      type: m.type,
+      priority: m.priority
+    })),
+    documents: {
+      count: docsResult.rows.length,
+      items: docsResult.rows.map(d => ({
+        id: d.id,
+        name: d.name,
+        type: d.type,
+        summary: d.ai_summary,
+        content_preview: d.content_preview,
+        has_full_content: d.has_content,
+        uploaded_at: d.uploaded_at
+      })),
+      note: docsResult.rows.length > 0 ? 'Use read_document_content(document_id) for full text' : null
+    },
+    communications: emailsResult.rows.map(e => ({
+      id: e.id,
+      subject: e.subject,
+      from: e.from_address,
+      date: e.received_at,
+      notes: e.notes
+    })),
+    invoices: invoicesResult.rows.map(i => ({
+      id: i.id,
+      number: i.invoice_number,
+      status: i.status,
+      amount: parseFloat(i.amount),
+      due_date: i.due_date
+    }))
   };
 }
 

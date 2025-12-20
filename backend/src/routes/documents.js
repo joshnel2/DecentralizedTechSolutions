@@ -10,6 +10,70 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
 
+// Azure OpenAI configuration for Vision OCR
+const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
+const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
+const AZURE_VISION_DEPLOYMENT = process.env.AZURE_OPENAI_VISION_DEPLOYMENT || process.env.AZURE_OPENAI_DEPLOYMENT;
+const API_VERSION = '2024-02-15-preview';
+
+// Use Azure OpenAI Vision to extract text from images/scanned documents
+async function extractTextWithVision(imageBuffer, mimeType, fileName) {
+  if (!AZURE_ENDPOINT || !AZURE_API_KEY || !AZURE_VISION_DEPLOYMENT) {
+    console.log('Azure OpenAI Vision not configured, skipping OCR');
+    return null;
+  }
+
+  try {
+    const base64Image = imageBuffer.toString('base64');
+    const url = `${AZURE_ENDPOINT}openai/deployments/${AZURE_VISION_DEPLOYMENT}/chat/completions?api-version=${API_VERSION}`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': AZURE_API_KEY,
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a document OCR assistant. Extract ALL text from the image exactly as it appears. Preserve formatting, paragraphs, and structure. If there are tables, represent them clearly. Do not summarize - extract the complete text.'
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `Extract all text from this document image (${fileName}). Return only the extracted text, nothing else.`
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:${mimeType};base64,${base64Image}`,
+                  detail: 'high'
+                }
+              }
+            ]
+          }
+        ],
+        temperature: 0.1,
+        max_tokens: 4000,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Azure Vision OCR error:', await response.text());
+      return null;
+    }
+
+    const data = await response.json();
+    return data.choices[0]?.message?.content || null;
+  } catch (error) {
+    console.error('Vision OCR error:', error);
+    return null;
+  }
+}
+
 const router = Router();
 
 // Configure multer for file uploads
@@ -212,7 +276,7 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
 });
 
 // Helper function to extract text from a file
-async function extractTextFromFile(filePath, originalName) {
+async function extractTextFromFile(filePath, originalName, mimeType = null) {
   const ext = path.extname(originalName).toLowerCase();
   let textContent = null;
   
@@ -221,11 +285,29 @@ async function extractTextFromFile(filePath, originalName) {
       const dataBuffer = await fs.readFile(filePath);
       const pdfData = await pdfParse(dataBuffer);
       textContent = pdfData.text;
+      
+      // If PDF has no text (scanned), try OCR with Vision
+      if (!textContent || textContent.trim().length < 50) {
+        console.log(`PDF "${originalName}" appears to be scanned, attempting OCR...`);
+        // For scanned PDFs, we'd need to convert to image first
+        // For now, mark as needing OCR - full implementation would use pdf2pic
+        textContent = `[Scanned PDF: ${originalName} - OCR extraction available for image files]`;
+      }
     } else if (ext === '.docx') {
       const result = await mammoth.extractRawText({ path: filePath });
       textContent = result.value;
     } else if (['.txt', '.md', '.json', '.csv', '.xml', '.html'].includes(ext)) {
       textContent = await fs.readFile(filePath, 'utf-8');
+    } else if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.tiff', '.bmp'].includes(ext)) {
+      // Use Azure Vision OCR for images
+      console.log(`Extracting text from image "${originalName}" using Azure Vision OCR...`);
+      const imageBuffer = await fs.readFile(filePath);
+      const imageMimeType = mimeType || `image/${ext.replace('.', '')}`;
+      textContent = await extractTextWithVision(imageBuffer, imageMimeType, originalName);
+      
+      if (textContent) {
+        console.log(`Successfully extracted ${textContent.length} characters from image`);
+      }
     }
   } catch (error) {
     console.error('Text extraction error:', error);
@@ -251,10 +333,10 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
 
     const { matterId, clientId, tags, isConfidential = false, status = 'draft' } = req.body;
 
-    // Extract text content for AI access
+    // Extract text content for AI access (including OCR for images)
     let contentText = null;
     try {
-      contentText = await extractTextFromFile(req.file.path, req.file.originalname);
+      contentText = await extractTextFromFile(req.file.path, req.file.originalname, req.file.mimetype);
     } catch (extractError) {
       console.error('Text extraction failed:', extractError);
       // Continue without text - not critical
