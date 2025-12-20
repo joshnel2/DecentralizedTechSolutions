@@ -4,11 +4,34 @@ import { adminApi } from '../services/api'
 import { 
   Building2, Users, Plus, Edit, Trash2, Search, 
   ChevronRight, BarChart3, FileText, Clock, X,
-  Shield, Eye, EyeOff, ArrowLeft
+  Shield, Eye, EyeOff, ArrowLeft, Link2, Save, CheckCircle2, AlertCircle
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './AdminPortalPage.module.css'
+
+// API helper for secure admin with auth header
+const getAdminAuth = () => {
+  const stored = localStorage.getItem('secureAdminSession')
+  return stored || ''
+}
+
+const fetchSecureAdmin = async (endpoint: string, options: RequestInit = {}) => {
+  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+  const response = await fetch(`${baseUrl}/secure-admin${endpoint}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Admin-Auth': getAdminAuth(),
+      ...options.headers,
+    },
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.error || 'Request failed')
+  }
+  return response.json()
+}
 
 interface Firm {
   id: string
