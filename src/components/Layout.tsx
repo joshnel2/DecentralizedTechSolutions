@@ -7,15 +7,31 @@ import { useTemplateStore } from '../stores/templateStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
 import { AIChat } from './AIChat'
+import { integrationsApi } from '../services/api'
 import { 
   LayoutDashboard, Briefcase, Users, Calendar, DollarSign, 
   Clock, BarChart3, Settings, LogOut, ChevronDown,
   Bell, Sparkles, Menu, X, FolderOpen, Shield, Key, UserCircle,
   Building2, UsersRound, Link2, TrendingUp, Lock, FileStack,
-  Play, Pause, Square
+  Play, Pause, Square, Mail, Cloud, FileText, Video, MessageSquare, 
+  Calculator, HardDrive
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './Layout.module.css'
+
+// Integration icons and labels for sidebar
+const integrationConfig: Record<string, { label: string; icon: any; path: string }> = {
+  outlook: { label: 'Outlook', icon: Mail, path: '/app/integrations/outlook' },
+  google: { label: 'Google Calendar', icon: Calendar, path: '/app/integrations/google-calendar' },
+  quickbooks: { label: 'QuickBooks', icon: Calculator, path: '/app/integrations/quickbooks' },
+  onedrive: { label: 'OneDrive', icon: Cloud, path: '/app/integrations/onedrive' },
+  googledrive: { label: 'Google Drive', icon: HardDrive, path: '/app/integrations/google-drive' },
+  dropbox: { label: 'Dropbox', icon: FolderOpen, path: '/app/integrations/dropbox' },
+  docusign: { label: 'DocuSign', icon: FileText, path: '/app/integrations/docusign' },
+  slack: { label: 'Slack', icon: MessageSquare, path: '/app/integrations/slack' },
+  zoom: { label: 'Zoom', icon: Video, path: '/app/integrations/zoom' },
+  quicken: { label: 'Quicken', icon: DollarSign, path: '/app/integrations/quicken' },
+}
 
 const navItems = [
   { path: '/app/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -54,9 +70,26 @@ export function Layout() {
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+  const [connectedIntegrations, setConnectedIntegrations] = useState<string[]>([])
   const { isOpen: aiChatOpen, openChat, closeChat } = useAIChat()
 
   const unreadCount = notifications.filter(n => !n.read).length
+
+  // Fetch connected integrations
+  useEffect(() => {
+    const fetchIntegrations = async () => {
+      try {
+        const data = await integrationsApi.getAll()
+        const connected = Object.entries(data.integrations || {})
+          .filter(([_, status]: [string, any]) => status?.isConnected)
+          .map(([provider]) => provider)
+        setConnectedIntegrations(connected)
+      } catch (error) {
+        // Silently fail - integrations might not be configured
+      }
+    }
+    fetchIntegrations()
+  }, [location.pathname]) // Refresh when navigating
 
   // Initialize stores with data from database
   useEffect(() => {
@@ -214,6 +247,33 @@ export function Layout() {
               </div>
             )}
           </div>
+
+          {/* Connected Integrations - Always visible below Settings */}
+          {connectedIntegrations.length > 0 && (
+            <>
+              <div className={styles.navDivider} />
+              <div className={styles.integrationsSection}>
+                {(sidebarOpen || isMobile) && (
+                  <span className={styles.sectionLabel}>Integrations</span>
+                )}
+                {connectedIntegrations.map(provider => {
+                  const config = integrationConfig[provider]
+                  if (!config) return null
+                  const Icon = config.icon
+                  return (
+                    <NavLink
+                      key={provider}
+                      to={config.path}
+                      className={({ isActive }) => clsx(styles.navItem, styles.integrationNav, isActive && styles.active)}
+                    >
+                      <Icon size={20} />
+                      {(sidebarOpen || isMobile) && <span>{config.label}</span>}
+                    </NavLink>
+                  )
+                })}
+              </div>
+            </>
+          )}
         </nav>
 
         {(sidebarOpen || isMobile) && (
