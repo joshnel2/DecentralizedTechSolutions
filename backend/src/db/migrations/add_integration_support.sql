@@ -235,5 +235,30 @@ BEGIN
     END IF;
 END $$;
 
+-- 10. AI Tasks table for autonomous agent work
+CREATE TABLE IF NOT EXISTS ai_tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    firm_id UUID REFERENCES firms(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    goal TEXT NOT NULL,
+    status VARCHAR(50) DEFAULT 'pending',
+    priority VARCHAR(20) DEFAULT 'medium',
+    context JSONB DEFAULT '{}',
+    plan JSONB DEFAULT '[]',
+    progress JSONB DEFAULT '[]',
+    result TEXT,
+    error TEXT,
+    started_at TIMESTAMP WITH TIME ZONE,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    iterations INTEGER DEFAULT 0,
+    max_iterations INTEGER DEFAULT 50,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_tasks_firm_id ON ai_tasks(firm_id);
+CREATE INDEX IF NOT EXISTS idx_ai_tasks_user_id ON ai_tasks(user_id);
+CREATE INDEX IF NOT EXISTS idx_ai_tasks_status ON ai_tasks(status);
+
 -- Done!
 SELECT 'Integration support migration completed!' as status;

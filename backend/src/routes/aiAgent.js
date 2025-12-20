@@ -838,6 +838,104 @@ const TOOLS = [
     }
   },
 
+  // ===================== AUTONOMOUS AGENT TOOLS =====================
+  {
+    type: "function",
+    function: {
+      name: "think_and_plan",
+      description: "Use this to think through a complex task and create a plan. Call this FIRST when given a complex goal. Break down the goal into steps you'll take.",
+      parameters: {
+        type: "object",
+        properties: {
+          goal: { type: "string", description: "The overall goal you're trying to achieve" },
+          analysis: { type: "string", description: "Your analysis of what needs to be done" },
+          steps: { 
+            type: "array", 
+            items: { type: "string" },
+            description: "List of steps you plan to take to achieve the goal"
+          },
+          information_needed: {
+            type: "array",
+            items: { type: "string" },
+            description: "What information you need to gather first"
+          }
+        },
+        required: ["goal", "analysis", "steps"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "evaluate_progress",
+      description: "Use this to evaluate your progress toward a goal. Call this periodically during complex tasks to check if you're on track.",
+      parameters: {
+        type: "object",
+        properties: {
+          original_goal: { type: "string", description: "The original goal" },
+          completed_steps: { type: "array", items: { type: "string" }, description: "Steps you've completed" },
+          remaining_steps: { type: "array", items: { type: "string" }, description: "Steps still to do" },
+          blockers: { type: "array", items: { type: "string" }, description: "Any blockers or issues" },
+          confidence: { type: "number", description: "Your confidence level 0-100 that you can complete this" },
+          should_continue: { type: "boolean", description: "Whether you should continue or stop" }
+        },
+        required: ["original_goal", "completed_steps", "should_continue"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "task_complete",
+      description: "Call this when you have finished a complex task or achieved a goal. Summarize what you accomplished.",
+      parameters: {
+        type: "object",
+        properties: {
+          goal: { type: "string", description: "The original goal" },
+          summary: { type: "string", description: "Summary of what you accomplished" },
+          actions_taken: { type: "array", items: { type: "string" }, description: "List of actions you took" },
+          results: { type: "string", description: "The results/outcome" },
+          recommendations: { type: "array", items: { type: "string" }, description: "Any recommendations for follow-up" }
+        },
+        required: ["goal", "summary", "actions_taken"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "request_human_input",
+      description: "Call this when you need human guidance, approval, or clarification before proceeding. Use when uncertain or for important decisions.",
+      parameters: {
+        type: "object",
+        properties: {
+          question: { type: "string", description: "What you need to ask the human" },
+          context: { type: "string", description: "Context for why you're asking" },
+          options: { type: "array", items: { type: "string" }, description: "Options for the human to choose from, if applicable" },
+          urgency: { type: "string", enum: ["low", "medium", "high"], description: "How urgent is this decision" },
+          what_you_would_do: { type: "string", description: "What you would do if you had to decide yourself" }
+        },
+        required: ["question", "context"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "log_work",
+      description: "Log a note about work you've done or observations you've made. Use this to keep track of your progress on complex tasks.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", description: "What action you took or what you observed" },
+          result: { type: "string", description: "The result or outcome" },
+          next_step: { type: "string", description: "What you plan to do next" }
+        },
+        required: ["action"]
+      }
+    }
+  },
+
   // ===================== NAVIGATION =====================
   {
     type: "function",
@@ -1697,6 +1795,13 @@ async function executeTool(toolName, args, user, req = null) {
       
       // Notes
       case 'add_matter_note': return await addMatterNote(args, user);
+      
+      // Autonomous Agent Tools
+      case 'think_and_plan': return await thinkAndPlan(args, user);
+      case 'evaluate_progress': return await evaluateProgress(args, user);
+      case 'task_complete': return await taskComplete(args, user);
+      case 'request_human_input': return await requestHumanInput(args, user);
+      case 'log_work': return await logWork(args, user);
       
       // Navigation
       case 'navigate_to_page': return await navigateToPage(args, user);
@@ -4275,6 +4380,125 @@ async function addMatterNote(args, user) {
   return {
     success: true,
     message: `Added note to matter "${matterCheck.rows[0].name}"`
+  };
+}
+
+// =============================================================================
+// =============================================================================
+// AUTONOMOUS AGENT FUNCTIONS
+// =============================================================================
+
+// These tools help the AI work on complex, multi-step tasks autonomously
+
+async function thinkAndPlan(args, user) {
+  const { goal, analysis, steps, information_needed } = args;
+  
+  // Log the plan for tracking
+  console.log(`[AI PLANNING] Goal: ${goal}`);
+  console.log(`[AI PLANNING] Steps: ${steps?.join(', ')}`);
+  
+  return {
+    status: 'plan_created',
+    message: 'Plan created successfully. Now execute the steps.',
+    plan: {
+      goal,
+      analysis,
+      steps: steps || [],
+      information_needed: information_needed || [],
+      created_at: new Date().toISOString()
+    },
+    instruction: 'Now proceed to gather the information needed and execute each step. Use evaluate_progress periodically to check your progress.'
+  };
+}
+
+async function evaluateProgress(args, user) {
+  const { original_goal, completed_steps, remaining_steps, blockers, confidence, should_continue } = args;
+  
+  console.log(`[AI PROGRESS] Goal: ${original_goal}`);
+  console.log(`[AI PROGRESS] Completed: ${completed_steps?.length || 0} steps`);
+  console.log(`[AI PROGRESS] Remaining: ${remaining_steps?.length || 0} steps`);
+  console.log(`[AI PROGRESS] Confidence: ${confidence}%`);
+  console.log(`[AI PROGRESS] Continue: ${should_continue}`);
+  
+  if (!should_continue) {
+    return {
+      status: 'stopping',
+      message: 'Evaluation indicates stopping. Use task_complete or request_human_input.',
+      recommendation: blockers?.length > 0 
+        ? 'You have blockers - consider using request_human_input to get guidance.'
+        : 'Use task_complete to summarize what you accomplished.'
+    };
+  }
+  
+  if (confidence && confidence < 50) {
+    return {
+      status: 'low_confidence',
+      message: 'Your confidence is low. Consider using request_human_input for guidance.',
+      recommendation: 'Ask the human for clarification or approval before proceeding with uncertain actions.'
+    };
+  }
+  
+  return {
+    status: 'continue',
+    message: 'Progress evaluation complete. Continue with remaining steps.',
+    completed: completed_steps?.length || 0,
+    remaining: remaining_steps?.length || 0,
+    next_action: remaining_steps?.[0] || 'Complete the task'
+  };
+}
+
+async function taskComplete(args, user) {
+  const { goal, summary, actions_taken, results, recommendations } = args;
+  
+  console.log(`[AI COMPLETE] Goal: ${goal}`);
+  console.log(`[AI COMPLETE] Summary: ${summary}`);
+  console.log(`[AI COMPLETE] Actions: ${actions_taken?.length || 0}`);
+  
+  // Mark that the task is complete - this signals the agent loop to stop
+  return {
+    status: 'completed',
+    goal,
+    summary,
+    actions_taken: actions_taken || [],
+    results: results || 'Task completed successfully',
+    recommendations: recommendations || [],
+    completed_at: new Date().toISOString(),
+    _task_complete: true  // Signal to stop the agent loop
+  };
+}
+
+async function requestHumanInput(args, user) {
+  const { question, context, options, urgency, what_you_would_do } = args;
+  
+  console.log(`[AI NEEDS INPUT] Question: ${question}`);
+  console.log(`[AI NEEDS INPUT] Urgency: ${urgency || 'medium'}`);
+  
+  // This signals that the AI needs human input before continuing
+  return {
+    status: 'awaiting_human_input',
+    question,
+    context,
+    options: options || [],
+    urgency: urgency || 'medium',
+    ai_recommendation: what_you_would_do,
+    message: 'I need your input before proceeding.',
+    _needs_human_input: true  // Signal to pause and ask user
+  };
+}
+
+async function logWork(args, user) {
+  const { action, result, next_step } = args;
+  
+  console.log(`[AI WORK LOG] Action: ${action}`);
+  if (result) console.log(`[AI WORK LOG] Result: ${result}`);
+  if (next_step) console.log(`[AI WORK LOG] Next: ${next_step}`);
+  
+  return {
+    status: 'logged',
+    action,
+    result: result || 'Completed',
+    next_step: next_step || 'Continue with plan',
+    timestamp: new Date().toISOString()
   };
 }
 
@@ -6980,6 +7204,30 @@ As an AI assistant, you can perform virtually ANY action that a human attorney o
 - Share matters with team members
 - Manage matter permissions
 
+## Autonomous Work Mode
+
+When given a complex task or goal (like "review this case" or "prepare for trial"):
+
+1. **Plan First**: Use think_and_plan to break down the goal into steps
+2. **Gather Information**: Use relevant tools to collect data you need
+3. **Execute Steps**: Work through each step, using log_work to track progress
+4. **Check Progress**: Use evaluate_progress periodically to assess if you're on track
+5. **Ask When Uncertain**: Use request_human_input if you need guidance or approval
+6. **Complete**: Use task_complete when you've achieved the goal
+
+### When to Use These Tools:
+- **think_and_plan**: Complex multi-step tasks, when user says "work on", "handle", "prepare", "review"
+- **evaluate_progress**: After completing several steps, or when encountering issues
+- **request_human_input**: Uncertain decisions, need approval, missing information, low confidence
+- **task_complete**: When goal is achieved or you've done all you can
+- **log_work**: To track significant actions or findings
+
+### Important Guidelines:
+- Don't be afraid to take multiple actions in sequence
+- If you hit a blocker, ask for human input rather than guessing
+- Keep the user informed of significant progress
+- Be thorough but efficient - don't do unnecessary work
+
 Always act professionally, confirm important actions, and provide clear summaries of what was done.`;
 }
 
@@ -7027,10 +7275,12 @@ router.post('/chat', authenticate, async (req, res) => {
     let response = await callAzureOpenAIWithTools(messages, TOOLS);
     
     let iterations = 0;
-    const maxIterations = 10;
+    const maxIterations = 25;  // Increased for complex autonomous tasks
     let navigationResult = null; // Track navigation commands
+    let taskCompleted = false;  // Track if AI declared task complete
+    let needsHumanInput = null; // Track if AI needs human input
     
-    while (response.tool_calls && iterations < maxIterations) {
+    while (response.tool_calls && iterations < maxIterations && !taskCompleted) {
       iterations++;
       console.log(`Processing ${response.tool_calls.length} tool calls (iteration ${iterations})`);
       
@@ -7060,6 +7310,17 @@ router.post('/chat', authenticate, async (req, res) => {
           console.log('Navigation result captured:', navigationResult);
         }
         
+        // Check for autonomous agent signals
+        if (result._task_complete) {
+          taskCompleted = true;
+          console.log('Task marked as complete by AI');
+        }
+        
+        if (result._needs_human_input) {
+          needsHumanInput = result;
+          console.log('AI requesting human input:', result.question);
+        }
+        
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
@@ -7076,11 +7337,24 @@ router.post('/chat', authenticate, async (req, res) => {
       [req.user.firmId, req.user.id, JSON.stringify({ messageLength: message.length, toolCalls: iterations, hasNavigation: !!navigationResult })]
     ).catch(() => {});
 
-    // Build response with optional navigation
+    // Build response with optional navigation and autonomous work info
     const responsePayload = {
       response: response.content,
-      toolsUsed: iterations > 0
+      toolsUsed: iterations > 0,
+      iterations: iterations,
+      taskCompleted: taskCompleted
     };
+    
+    // Include human input request if AI needs guidance
+    if (needsHumanInput) {
+      responsePayload.needsHumanInput = {
+        question: needsHumanInput.question,
+        context: needsHumanInput.context,
+        options: needsHumanInput.options,
+        urgency: needsHumanInput.urgency,
+        aiRecommendation: needsHumanInput.ai_recommendation
+      };
+    }
     
     // Include navigation if any navigation tool was called
     if (navigationResult) {
