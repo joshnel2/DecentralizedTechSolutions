@@ -572,8 +572,8 @@ export function AdminPortalPage() {
             <div className={styles.integrationCardHeader}>
               <span className={styles.integrationIcon}>📅</span>
               <div>
-                <h3>Google Calendar</h3>
-                <p>Calendar sync. <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Create credentials in Google Cloud →</a></p>
+                <h3>Google Calendar & Drive</h3>
+                <p>Calendar sync and file storage. <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Create credentials in Google Cloud →</a></p>
               </div>
             </div>
             <div className={styles.integrationFields}>
@@ -602,6 +602,216 @@ export function AdminPortalPage() {
                   value={integrationSettings.google_redirect_uri?.value || ''}
                   onChange={(e) => updateIntegrationSetting('google_redirect_uri', e.target.value)}
                   placeholder="https://your-api.com/api/integrations/google/callback"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Dropbox */}
+          <div className={styles.integrationCard}>
+            <div className={styles.integrationCardHeader}>
+              <span className={styles.integrationIcon}>📦</span>
+              <div>
+                <h3>Dropbox</h3>
+                <p>Cloud file storage. <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noopener noreferrer">Create app in Dropbox App Console →</a></p>
+              </div>
+            </div>
+            <div className={styles.integrationFields}>
+              <div className={styles.formGroup}>
+                <label>Client ID (App Key)</label>
+                <input
+                  type="text"
+                  value={integrationSettings.dropbox_client_id?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('dropbox_client_id', e.target.value)}
+                  placeholder="Enter Dropbox App Key"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Client Secret (App Secret)</label>
+                <input
+                  type="password"
+                  value={integrationSettings.dropbox_client_secret?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('dropbox_client_secret', e.target.value)}
+                  placeholder={integrationSettings.dropbox_client_secret?.isConfigured ? '••••••••' : 'Enter App Secret'}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Redirect URI</label>
+                <input
+                  type="text"
+                  value={integrationSettings.dropbox_redirect_uri?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('dropbox_redirect_uri', e.target.value)}
+                  placeholder="https://your-api.com/api/integrations/dropbox/callback"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* DocuSign */}
+          <div className={styles.integrationCard}>
+            <div className={styles.integrationCardHeader}>
+              <span className={styles.integrationIcon}>✍️</span>
+              <div>
+                <h3>DocuSign</h3>
+                <p>E-signatures and document signing. <a href="https://admindemo.docusign.com/apps-and-keys" target="_blank" rel="noopener noreferrer">Get keys from DocuSign Admin →</a></p>
+              </div>
+            </div>
+            <div className={styles.integrationFields}>
+              <div className={styles.formGroup}>
+                <label>Integration Key (Client ID)</label>
+                <input
+                  type="text"
+                  value={integrationSettings.docusign_client_id?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('docusign_client_id', e.target.value)}
+                  placeholder="Enter DocuSign Integration Key"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Secret Key</label>
+                <input
+                  type="password"
+                  value={integrationSettings.docusign_client_secret?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('docusign_client_secret', e.target.value)}
+                  placeholder={integrationSettings.docusign_client_secret?.isConfigured ? '••••••••' : 'Enter Secret Key'}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Redirect URI</label>
+                <input
+                  type="text"
+                  value={integrationSettings.docusign_redirect_uri?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('docusign_redirect_uri', e.target.value)}
+                  placeholder="https://your-api.com/api/integrations/docusign/callback"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Environment</label>
+                <select
+                  value={integrationSettings.docusign_environment?.value || 'demo'}
+                  onChange={(e) => updateIntegrationSetting('docusign_environment', e.target.value)}
+                >
+                  <option value="demo">Demo (Testing)</option>
+                  <option value="production">Production</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Slack */}
+          <div className={styles.integrationCard}>
+            <div className={styles.integrationCardHeader}>
+              <span className={styles.integrationIcon}>💬</span>
+              <div>
+                <h3>Slack</h3>
+                <p>Team notifications and messaging. <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer">Create app in Slack API →</a></p>
+              </div>
+            </div>
+            <div className={styles.integrationFields}>
+              <div className={styles.formGroup}>
+                <label>Client ID</label>
+                <input
+                  type="text"
+                  value={integrationSettings.slack_client_id?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('slack_client_id', e.target.value)}
+                  placeholder="Enter Slack Client ID"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Client Secret</label>
+                <input
+                  type="password"
+                  value={integrationSettings.slack_client_secret?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('slack_client_secret', e.target.value)}
+                  placeholder={integrationSettings.slack_client_secret?.isConfigured ? '••••••••' : 'Enter Client Secret'}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Redirect URI</label>
+                <input
+                  type="text"
+                  value={integrationSettings.slack_redirect_uri?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('slack_redirect_uri', e.target.value)}
+                  placeholder="https://your-api.com/api/integrations/slack/callback"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Zoom */}
+          <div className={styles.integrationCard}>
+            <div className={styles.integrationCardHeader}>
+              <span className={styles.integrationIcon}>📹</span>
+              <div>
+                <h3>Zoom</h3>
+                <p>Video meetings. <a href="https://marketplace.zoom.us/develop/create" target="_blank" rel="noopener noreferrer">Create app in Zoom Marketplace →</a></p>
+              </div>
+            </div>
+            <div className={styles.integrationFields}>
+              <div className={styles.formGroup}>
+                <label>Client ID</label>
+                <input
+                  type="text"
+                  value={integrationSettings.zoom_client_id?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('zoom_client_id', e.target.value)}
+                  placeholder="Enter Zoom Client ID"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Client Secret</label>
+                <input
+                  type="password"
+                  value={integrationSettings.zoom_client_secret?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('zoom_client_secret', e.target.value)}
+                  placeholder={integrationSettings.zoom_client_secret?.isConfigured ? '••••••••' : 'Enter Client Secret'}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Redirect URI</label>
+                <input
+                  type="text"
+                  value={integrationSettings.zoom_redirect_uri?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('zoom_redirect_uri', e.target.value)}
+                  placeholder="https://your-api.com/api/integrations/zoom/callback"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Quicken */}
+          <div className={styles.integrationCard}>
+            <div className={styles.integrationCardHeader}>
+              <span className={styles.integrationIcon}>💰</span>
+              <div>
+                <h3>Quicken</h3>
+                <p>Personal finance and accounting. <a href="https://developer.intuit.com/" target="_blank" rel="noopener noreferrer">Register via Intuit Developer →</a></p>
+              </div>
+            </div>
+            <div className={styles.integrationFields}>
+              <div className={styles.formGroup}>
+                <label>Client ID</label>
+                <input
+                  type="text"
+                  value={integrationSettings.quicken_client_id?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('quicken_client_id', e.target.value)}
+                  placeholder="Enter Quicken Client ID"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Client Secret</label>
+                <input
+                  type="password"
+                  value={integrationSettings.quicken_client_secret?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('quicken_client_secret', e.target.value)}
+                  placeholder={integrationSettings.quicken_client_secret?.isConfigured ? '••••••••' : 'Enter Client Secret'}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Redirect URI</label>
+                <input
+                  type="text"
+                  value={integrationSettings.quicken_redirect_uri?.value || ''}
+                  onChange={(e) => updateIntegrationSetting('quicken_redirect_uri', e.target.value)}
+                  placeholder="https://your-api.com/api/integrations/quicken/callback"
                 />
               </div>
             </div>

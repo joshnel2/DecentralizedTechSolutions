@@ -63,13 +63,14 @@ const integrationConfigs: IntegrationConfig[] = [
     features: ['Invoice sync', 'Payment tracking', 'Financial reports']
   },
   
-  // Cloud Storage - Coming Soon
+  // Cloud Storage
   { 
     id: 'onedrive', 
     name: 'OneDrive', 
     description: 'Store and sync documents with Microsoft OneDrive.', 
     category: 'storage', 
     icon: '☁️',
+    provider: 'onedrive',
     features: ['Document storage', 'File sharing', 'Version control']
   },
   { 
@@ -78,6 +79,7 @@ const integrationConfigs: IntegrationConfig[] = [
     description: 'Connect Google Drive for document storage and collaboration.', 
     category: 'storage', 
     icon: '📁',
+    provider: 'googledrive',
     features: ['Cloud storage', 'Collaboration', 'File sharing']
   },
   { 
@@ -86,26 +88,29 @@ const integrationConfigs: IntegrationConfig[] = [
     description: 'Sync documents with Dropbox for secure file storage.', 
     category: 'storage', 
     icon: '📦',
+    provider: 'dropbox',
     features: ['Secure storage', 'File sync', 'Team folders']
   },
   
-  // E-Signature - Coming Soon
+  // E-Signature
   { 
     id: 'docusign', 
     name: 'DocuSign', 
     description: 'Send documents for electronic signature with audit trails.', 
     category: 'esign', 
     icon: '✍️',
+    provider: 'docusign',
     features: ['E-signatures', 'Templates', 'Audit trail']
   },
   
-  // Communication - Coming Soon
+  // Communication
   { 
     id: 'slack', 
     name: 'Slack', 
     description: 'Get notifications and updates directly in your Slack workspace.', 
     category: 'communication', 
     icon: '💬',
+    provider: 'slack',
     features: ['Notifications', 'Matter updates', 'Team alerts']
   },
   { 
@@ -114,7 +119,19 @@ const integrationConfigs: IntegrationConfig[] = [
     description: 'Schedule and join Zoom meetings from calendar events.', 
     category: 'communication', 
     icon: '📹',
+    provider: 'zoom',
     features: ['Meeting scheduling', 'Calendar sync', 'One-click join']
+  },
+
+  // Accounting
+  { 
+    id: 'quicken', 
+    name: 'Quicken', 
+    description: 'Connect Quicken for personal finance and accounting data.', 
+    category: 'accounting', 
+    icon: '💰',
+    provider: 'quicken',
+    features: ['Financial tracking', 'Transaction sync', 'Reports']
   }
 ]
 
@@ -134,6 +151,13 @@ export function IntegrationsPage() {
     google: null,
     quickbooks: null,
     outlook: null,
+    onedrive: null,
+    googledrive: null,
+    dropbox: null,
+    docusign: null,
+    slack: null,
+    zoom: null,
+    quicken: null,
   })
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [connecting, setConnecting] = useState<string | null>(null)
@@ -197,6 +221,27 @@ export function IntegrationsPage() {
         case 'outlook':
           response = await integrationsApi.connectOutlook()
           break
+        case 'onedrive':
+          response = await integrationsApi.connectOneDrive()
+          break
+        case 'googledrive':
+          response = await integrationsApi.connectGoogleDrive()
+          break
+        case 'dropbox':
+          response = await integrationsApi.connectDropbox()
+          break
+        case 'docusign':
+          response = await integrationsApi.connectDocuSign()
+          break
+        case 'slack':
+          response = await integrationsApi.connectSlack()
+          break
+        case 'zoom':
+          response = await integrationsApi.connectZoom()
+          break
+        case 'quicken':
+          response = await integrationsApi.connectQuicken()
+          break
         default:
           throw new Error('Unknown provider')
       }
@@ -226,6 +271,27 @@ export function IntegrationsPage() {
         case 'outlook':
           await integrationsApi.disconnectOutlook()
           break
+        case 'onedrive':
+          await integrationsApi.disconnectOneDrive()
+          break
+        case 'googledrive':
+          await integrationsApi.disconnectGoogleDrive()
+          break
+        case 'dropbox':
+          await integrationsApi.disconnectDropbox()
+          break
+        case 'docusign':
+          await integrationsApi.disconnectDocuSign()
+          break
+        case 'slack':
+          await integrationsApi.disconnectSlack()
+          break
+        case 'zoom':
+          await integrationsApi.disconnectZoom()
+          break
+        case 'quicken':
+          await integrationsApi.disconnectQuicken()
+          break
       }
       setNotification({ type: 'success', message: `Disconnected ${provider}` })
       loadIntegrations()
@@ -248,9 +314,30 @@ export function IntegrationsPage() {
         case 'outlook':
           result = await integrationsApi.syncOutlookCalendar()
           break
+        case 'onedrive':
+          result = await integrationsApi.syncOneDrive()
+          break
+        case 'googledrive':
+          result = await integrationsApi.syncGoogleDrive()
+          break
+        case 'dropbox':
+          result = await integrationsApi.syncDropbox()
+          break
+        case 'docusign':
+          result = await integrationsApi.syncDocuSign()
+          break
+        case 'slack':
+          result = await integrationsApi.syncSlack()
+          break
+        case 'zoom':
+          result = await integrationsApi.syncZoom()
+          break
+        case 'quicken':
+          result = await integrationsApi.syncQuicken()
+          break
       }
       
-      if (result.syncedCount !== undefined) {
+      if (result?.syncedCount !== undefined) {
         setNotification({ type: 'success', message: `Synced ${result.syncedCount} items from ${provider}` })
       } else {
         setNotification({ type: 'success', message: `${provider} sync completed` })

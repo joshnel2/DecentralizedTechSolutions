@@ -53,10 +53,18 @@ router.get('/', authenticate, async (req, res) => {
       [req.user.firmId]
     );
 
+    // Initialize all supported providers
     const integrations = {
       google: null,
       quickbooks: null,
       outlook: null,
+      onedrive: null,
+      googledrive: null,
+      dropbox: null,
+      docusign: null,
+      slack: null,
+      zoom: null,
+      quicken: null,
     };
 
     result.rows.forEach(row => {

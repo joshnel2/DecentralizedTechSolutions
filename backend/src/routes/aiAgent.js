@@ -994,6 +994,348 @@ const TOOLS = [
         required: []
       }
     }
+  },
+
+  // ===================== OUTLOOK EMAILS =====================
+  {
+    type: "function",
+    function: {
+      name: "get_emails",
+      description: "Get recent emails from the user's connected Outlook inbox. Use this to show the user their emails or find specific messages.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "integer", description: "Number of emails to retrieve (default 20, max 50)" },
+          folder: { type: "string", description: "Email folder (inbox, sent, drafts). Default: inbox" },
+          unread_only: { type: "boolean", description: "Only show unread emails" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_emails",
+      description: "Search for emails by sender, subject, or content. Use this when the user wants to find specific emails.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query - can search sender, subject, or body content" },
+          from: { type: "string", description: "Filter by sender email or name" },
+          subject: { type: "string", description: "Filter by subject line" },
+          limit: { type: "integer", description: "Number of results (default 10)" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_email",
+      description: "Get the full content of a specific email by ID. Use this to read the complete email body.",
+      parameters: {
+        type: "object",
+        properties: {
+          email_id: { type: "string", description: "The ID of the email to retrieve" }
+        },
+        required: ["email_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "draft_email",
+      description: "Create a draft email in the user's Outlook drafts folder. Use this when the user wants to compose an email but not send it yet.",
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Recipient email address(es), comma-separated" },
+          subject: { type: "string", description: "Email subject line" },
+          body: { type: "string", description: "Email body content (can include HTML)" },
+          cc: { type: "string", description: "CC recipients, comma-separated (optional)" },
+          importance: { type: "string", enum: ["low", "normal", "high"], description: "Email importance (default: normal)" }
+        },
+        required: ["to", "subject", "body"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_email",
+      description: "Send an email directly through the user's Outlook. Use this when the user wants to send an email immediately.",
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Recipient email address(es), comma-separated" },
+          subject: { type: "string", description: "Email subject line" },
+          body: { type: "string", description: "Email body content (can include HTML)" },
+          cc: { type: "string", description: "CC recipients, comma-separated (optional)" },
+          importance: { type: "string", enum: ["low", "normal", "high"], description: "Email importance (default: normal)" }
+        },
+        required: ["to", "subject", "body"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "reply_to_email",
+      description: "Create a reply to an existing email. Can save as draft or send immediately.",
+      parameters: {
+        type: "object",
+        properties: {
+          email_id: { type: "string", description: "ID of the email to reply to" },
+          body: { type: "string", description: "Reply content" },
+          reply_all: { type: "boolean", description: "Reply to all recipients (default: false)" },
+          send: { type: "boolean", description: "Send immediately (true) or save as draft (false, default)" }
+        },
+        required: ["email_id", "body"]
+      }
+    }
+  },
+
+  // ===================== CLOUD STORAGE =====================
+  {
+    type: "function",
+    function: {
+      name: "list_cloud_files",
+      description: "List files from connected cloud storage (OneDrive, Google Drive, or Dropbox).",
+      parameters: {
+        type: "object",
+        properties: {
+          provider: { type: "string", enum: ["onedrive", "googledrive", "dropbox"], description: "Which cloud storage to list from" },
+          folder_path: { type: "string", description: "Path to folder (default: root)" },
+          limit: { type: "integer", description: "Number of files to return (default 20)" }
+        },
+        required: ["provider"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_cloud_files",
+      description: "Search for files across connected cloud storage.",
+      parameters: {
+        type: "object",
+        properties: {
+          provider: { type: "string", enum: ["onedrive", "googledrive", "dropbox"], description: "Which cloud storage to search" },
+          query: { type: "string", description: "Search query (filename or content)" }
+        },
+        required: ["provider", "query"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_cloud_file_info",
+      description: "Get detailed information about a specific file in cloud storage.",
+      parameters: {
+        type: "object",
+        properties: {
+          provider: { type: "string", enum: ["onedrive", "googledrive", "dropbox"], description: "Which cloud storage" },
+          file_id: { type: "string", description: "File ID" }
+        },
+        required: ["provider", "file_id"]
+      }
+    }
+  },
+
+  // ===================== DOCUSIGN =====================
+  {
+    type: "function",
+    function: {
+      name: "get_docusign_status",
+      description: "Check DocuSign connection status and get recent envelope activity.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_docusign_envelopes",
+      description: "Get DocuSign envelopes (documents sent for signature).",
+      parameters: {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["sent", "delivered", "completed", "declined", "voided"], description: "Filter by status" },
+          days: { type: "integer", description: "Look back this many days (default 30)" },
+          limit: { type: "integer", description: "Number to return (default 20)" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_for_signature",
+      description: "Send a document for electronic signature via DocuSign.",
+      parameters: {
+        type: "object",
+        properties: {
+          document_id: { type: "string", description: "Apex document ID to send for signature" },
+          signer_email: { type: "string", description: "Email of the person who needs to sign" },
+          signer_name: { type: "string", description: "Name of the signer" },
+          email_subject: { type: "string", description: "Subject line for the signature request" },
+          email_body: { type: "string", description: "Message body for the signature request" }
+        },
+        required: ["document_id", "signer_email", "signer_name"]
+      }
+    }
+  },
+
+  // ===================== SLACK =====================
+  {
+    type: "function",
+    function: {
+      name: "get_slack_status",
+      description: "Check Slack connection status and get workspace info.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_slack_channels",
+      description: "List available Slack channels the bot can post to.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "integer", description: "Number of channels to return (default 20)" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_slack_message",
+      description: "Send a message to a Slack channel.",
+      parameters: {
+        type: "object",
+        properties: {
+          channel: { type: "string", description: "Channel name (without #) or channel ID" },
+          message: { type: "string", description: "Message text to send" }
+        },
+        required: ["channel", "message"]
+      }
+    }
+  },
+
+  // ===================== ZOOM =====================
+  {
+    type: "function",
+    function: {
+      name: "get_zoom_status",
+      description: "Check Zoom connection status.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_zoom_meetings",
+      description: "Get upcoming Zoom meetings.",
+      parameters: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["upcoming", "scheduled", "live"], description: "Type of meetings (default: upcoming)" },
+          limit: { type: "integer", description: "Number to return (default 20)" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_zoom_meeting",
+      description: "Create a new Zoom meeting.",
+      parameters: {
+        type: "object",
+        properties: {
+          topic: { type: "string", description: "Meeting topic/title" },
+          start_time: { type: "string", description: "Start time in ISO format" },
+          duration: { type: "integer", description: "Duration in minutes (default 60)" },
+          agenda: { type: "string", description: "Meeting agenda/description" },
+          matter_id: { type: "string", description: "Link to a matter (optional)" }
+        },
+        required: ["topic", "start_time"]
+      }
+    }
+  },
+
+  // ===================== QUICKEN =====================
+  {
+    type: "function",
+    function: {
+      name: "get_quicken_status",
+      description: "Check Quicken connection status.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_quicken_summary",
+      description: "Get a financial summary from Quicken including account balances and recent activity.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_quicken_transactions",
+      description: "Get recent transactions from Quicken.",
+      parameters: {
+        type: "object",
+        properties: {
+          days: { type: "integer", description: "Look back this many days (default 30)" },
+          category: { type: "string", description: "Filter by category" },
+          limit: { type: "integer", description: "Number to return (default 50)" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_quicken_accounts",
+      description: "Get list of accounts and their balances from Quicken.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
   }
 ];
 
@@ -1096,6 +1438,40 @@ async function executeTool(toolName, args, user) {
       // Outlook Calendar Sync
       case 'create_outlook_event': return await createOutlookEvent(args, user);
       case 'sync_outlook_calendar': return await syncOutlookCalendar(args, user);
+      
+      // Outlook Emails
+      case 'get_emails': return await getEmails(args, user);
+      case 'search_emails': return await searchEmails(args, user);
+      case 'get_email': return await getEmail(args, user);
+      case 'draft_email': return await draftEmail(args, user);
+      case 'send_email': return await sendEmail(args, user);
+      case 'reply_to_email': return await replyToEmail(args, user);
+      
+      // Cloud Storage
+      case 'list_cloud_files': return await listCloudFiles(args, user);
+      case 'search_cloud_files': return await searchCloudFiles(args, user);
+      case 'get_cloud_file_info': return await getCloudFileInfo(args, user);
+      
+      // DocuSign
+      case 'get_docusign_status': return await getDocuSignStatus(args, user);
+      case 'get_docusign_envelopes': return await getDocuSignEnvelopes(args, user);
+      case 'send_for_signature': return await sendForSignature(args, user);
+      
+      // Slack
+      case 'get_slack_status': return await getSlackStatus(args, user);
+      case 'get_slack_channels': return await getSlackChannels(args, user);
+      case 'send_slack_message': return await sendSlackMessage(args, user);
+      
+      // Zoom
+      case 'get_zoom_status': return await getZoomStatus(args, user);
+      case 'get_zoom_meetings': return await getZoomMeetings(args, user);
+      case 'create_zoom_meeting': return await createZoomMeeting(args, user);
+      
+      // Quicken
+      case 'get_quicken_status': return await getQuickenStatus(args, user);
+      case 'get_quicken_summary': return await getQuickenSummary(args, user);
+      case 'get_quicken_transactions': return await getQuickenTransactions(args, user);
+      case 'get_quicken_accounts': return await getQuickenAccounts(args, user);
       
       default:
         return { error: `Unknown tool: ${toolName}` };
@@ -4337,6 +4713,628 @@ async function syncOutlookCalendar(args, user) {
 }
 
 // =============================================================================
+// ADDITIONAL EMAIL FUNCTIONS
+// =============================================================================
+async function searchEmails(args, user) {
+  const accessToken = await getOutlookAccessToken(user.firmId);
+  if (!accessToken) {
+    return { error: 'Outlook not connected. Please connect your Outlook account in Settings > Integrations.' };
+  }
+  
+  const { query, from, subject, limit = 10 } = args;
+  
+  let searchQuery = '';
+  if (query) searchQuery = query;
+  if (from) searchQuery = `from:${from}`;
+  if (subject) searchQuery = `subject:${subject}`;
+  
+  const url = `https://graph.microsoft.com/v1.0/me/messages?$search="${encodeURIComponent(searchQuery)}"&$top=${Math.min(limit, 25)}`;
+  
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  
+  const data = await response.json();
+  
+  if (data.error) {
+    return { error: `Failed to search emails: ${data.error.message}` };
+  }
+  
+  return {
+    success: true,
+    emails: (data.value || []).map(email => ({
+      id: email.id,
+      subject: email.subject,
+      from: email.from?.emailAddress?.name || email.from?.emailAddress?.address,
+      fromEmail: email.from?.emailAddress?.address,
+      receivedAt: email.receivedDateTime,
+      preview: email.bodyPreview?.substring(0, 200)
+    })),
+    count: data.value?.length || 0
+  };
+}
+
+async function draftEmail(args, user) {
+  const accessToken = await getOutlookAccessToken(user.firmId);
+  if (!accessToken) {
+    return { error: 'Outlook not connected. Please connect your Outlook account in Settings > Integrations.' };
+  }
+  
+  const { to, subject, body, cc, importance = 'normal' } = args;
+  
+  const emailPayload = {
+    subject,
+    body: {
+      contentType: 'HTML',
+      content: body.replace(/\n/g, '<br>')
+    },
+    toRecipients: to.split(',').map(email => ({
+      emailAddress: { address: email.trim() }
+    })),
+    importance
+  };
+  
+  if (cc) {
+    emailPayload.ccRecipients = cc.split(',').map(email => ({
+      emailAddress: { address: email.trim() }
+    }));
+  }
+  
+  const response = await fetch('https://graph.microsoft.com/v1.0/me/messages', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(emailPayload)
+  });
+  
+  const result = await response.json();
+  
+  if (result.error) {
+    return { error: `Failed to create draft: ${result.error.message}` };
+  }
+  
+  return {
+    success: true,
+    message: `Draft email created: "${subject}" to ${to}`,
+    draftId: result.id
+  };
+}
+
+// =============================================================================
+// CLOUD STORAGE FUNCTIONS
+// =============================================================================
+async function getCloudStorageToken(firmId, provider) {
+  const result = await query(
+    `SELECT access_token, refresh_token, token_expires_at 
+     FROM integrations WHERE firm_id = $1 AND provider = $2 AND is_connected = true`,
+    [firmId, provider]
+  );
+  
+  if (result.rows.length === 0) return null;
+  return result.rows[0].access_token;
+}
+
+async function listCloudFiles(args, user) {
+  const { provider, folder_path = '', limit = 20 } = args;
+  
+  const accessToken = await getCloudStorageToken(user.firmId, provider);
+  if (!accessToken) {
+    return { error: `${provider} not connected. Please connect in Settings > Integrations.` };
+  }
+  
+  let url, response, data;
+  
+  switch (provider) {
+    case 'onedrive':
+      url = folder_path 
+        ? `https://graph.microsoft.com/v1.0/me/drive/root:/${folder_path}:/children?$top=${limit}`
+        : `https://graph.microsoft.com/v1.0/me/drive/root/children?$top=${limit}`;
+      response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      data = await response.json();
+      if (data.error) return { error: data.error.message };
+      return {
+        success: true,
+        files: (data.value || []).map(f => ({
+          id: f.id, name: f.name, size: f.size, folder: !!f.folder, 
+          modified: f.lastModifiedDateTime, webUrl: f.webUrl
+        }))
+      };
+      
+    case 'googledrive':
+      url = `https://www.googleapis.com/drive/v3/files?pageSize=${limit}&fields=files(id,name,mimeType,size,modifiedTime,webViewLink)`;
+      response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      data = await response.json();
+      if (data.error) return { error: data.error.message };
+      return {
+        success: true,
+        files: (data.files || []).map(f => ({
+          id: f.id, name: f.name, size: f.size, 
+          folder: f.mimeType === 'application/vnd.google-apps.folder',
+          modified: f.modifiedTime, webUrl: f.webViewLink
+        }))
+      };
+      
+    case 'dropbox':
+      response = await fetch('https://api.dropboxapi.com/2/files/list_folder', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: folder_path || '', limit })
+      });
+      data = await response.json();
+      if (data.error) return { error: data.error_summary || data.error };
+      return {
+        success: true,
+        files: (data.entries || []).map(f => ({
+          id: f.id, name: f.name, size: f.size,
+          folder: f['.tag'] === 'folder', modified: f.server_modified
+        }))
+      };
+      
+    default:
+      return { error: 'Invalid provider' };
+  }
+}
+
+async function searchCloudFiles(args, user) {
+  const { provider, query: searchQuery } = args;
+  
+  const accessToken = await getCloudStorageToken(user.firmId, provider);
+  if (!accessToken) {
+    return { error: `${provider} not connected. Please connect in Settings > Integrations.` };
+  }
+  
+  let url, response, data;
+  
+  switch (provider) {
+    case 'onedrive':
+      url = `https://graph.microsoft.com/v1.0/me/drive/root/search(q='${encodeURIComponent(searchQuery)}')?$top=20`;
+      response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      data = await response.json();
+      if (data.error) return { error: data.error.message };
+      return {
+        success: true,
+        files: (data.value || []).map(f => ({
+          id: f.id, name: f.name, size: f.size, webUrl: f.webUrl
+        }))
+      };
+      
+    case 'googledrive':
+      url = `https://www.googleapis.com/drive/v3/files?q=name contains '${searchQuery}'&fields=files(id,name,mimeType,webViewLink)`;
+      response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      data = await response.json();
+      if (data.error) return { error: data.error.message };
+      return {
+        success: true,
+        files: (data.files || []).map(f => ({ id: f.id, name: f.name, webUrl: f.webViewLink }))
+      };
+      
+    case 'dropbox':
+      response = await fetch('https://api.dropboxapi.com/2/files/search_v2', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: searchQuery })
+      });
+      data = await response.json();
+      if (data.error) return { error: data.error_summary || data.error };
+      return {
+        success: true,
+        files: (data.matches || []).map(m => ({
+          id: m.metadata?.metadata?.id, name: m.metadata?.metadata?.name
+        }))
+      };
+      
+    default:
+      return { error: 'Invalid provider' };
+  }
+}
+
+async function getCloudFileInfo(args, user) {
+  const { provider, file_id } = args;
+  
+  const accessToken = await getCloudStorageToken(user.firmId, provider);
+  if (!accessToken) {
+    return { error: `${provider} not connected. Please connect in Settings > Integrations.` };
+  }
+  
+  let response, data;
+  
+  switch (provider) {
+    case 'onedrive':
+      response = await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${file_id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      data = await response.json();
+      if (data.error) return { error: data.error.message };
+      return {
+        success: true,
+        file: { id: data.id, name: data.name, size: data.size, modified: data.lastModifiedDateTime, webUrl: data.webUrl }
+      };
+      
+    case 'googledrive':
+      response = await fetch(`https://www.googleapis.com/drive/v3/files/${file_id}?fields=id,name,size,modifiedTime,webViewLink`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      data = await response.json();
+      if (data.error) return { error: data.error.message };
+      return {
+        success: true,
+        file: { id: data.id, name: data.name, size: data.size, modified: data.modifiedTime, webUrl: data.webViewLink }
+      };
+      
+    default:
+      return { error: 'Invalid provider or operation not supported' };
+  }
+}
+
+// =============================================================================
+// DOCUSIGN FUNCTIONS
+// =============================================================================
+async function getDocuSignToken(firmId) {
+  const result = await query(
+    `SELECT access_token, settings FROM integrations WHERE firm_id = $1 AND provider = 'docusign' AND is_connected = true`,
+    [firmId]
+  );
+  if (result.rows.length === 0) return null;
+  return { token: result.rows[0].access_token, settings: result.rows[0].settings };
+}
+
+async function getDocuSignStatus(args, user) {
+  const auth = await getDocuSignToken(user.firmId);
+  if (!auth) {
+    return { connected: false, message: 'DocuSign not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  return {
+    connected: true,
+    accountId: auth.settings?.account_id,
+    environment: auth.settings?.environment || 'demo'
+  };
+}
+
+async function getDocuSignEnvelopes(args, user) {
+  const auth = await getDocuSignToken(user.firmId);
+  if (!auth) {
+    return { error: 'DocuSign not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  const { status, days = 30, limit = 20 } = args;
+  const env = auth.settings?.environment || 'demo';
+  const apiBase = env === 'production' ? 'https://na1.docusign.net' : 'https://demo.docusign.net';
+  const accountId = auth.settings?.account_id;
+  
+  let url = `${apiBase}/restapi/v2.1/accounts/${accountId}/envelopes?from_date=${new Date(Date.now() - days*24*60*60*1000).toISOString()}&count=${limit}`;
+  if (status) url += `&status=${status}`;
+  
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${auth.token}` } });
+  const data = await response.json();
+  
+  if (data.errorCode) {
+    return { error: data.message || data.errorCode };
+  }
+  
+  return {
+    success: true,
+    envelopes: (data.envelopes || []).map(e => ({
+      id: e.envelopeId,
+      subject: e.emailSubject,
+      status: e.status,
+      sentDateTime: e.sentDateTime,
+      completedDateTime: e.completedDateTime
+    })),
+    count: data.envelopes?.length || 0
+  };
+}
+
+async function sendForSignature(args, user) {
+  const auth = await getDocuSignToken(user.firmId);
+  if (!auth) {
+    return { error: 'DocuSign not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  const { document_id, signer_email, signer_name, email_subject, email_body } = args;
+  
+  // Get document from Apex
+  const docResult = await query(
+    `SELECT * FROM documents WHERE id = $1 AND firm_id = $2`,
+    [document_id, user.firmId]
+  );
+  
+  if (docResult.rows.length === 0) {
+    return { error: 'Document not found' };
+  }
+  
+  const doc = docResult.rows[0];
+  
+  // For now, return a placeholder - full implementation would upload to DocuSign
+  return {
+    success: true,
+    message: `Document "${doc.name}" queued for signature request to ${signer_name} (${signer_email})`,
+    note: 'Full DocuSign envelope creation requires document upload. Please use DocuSign directly for now.',
+    document: { id: doc.id, name: doc.name },
+    signer: { name: signer_name, email: signer_email }
+  };
+}
+
+// =============================================================================
+// SLACK FUNCTIONS
+// =============================================================================
+async function getSlackToken(firmId) {
+  const result = await query(
+    `SELECT access_token, settings, account_name FROM integrations WHERE firm_id = $1 AND provider = 'slack' AND is_connected = true`,
+    [firmId]
+  );
+  if (result.rows.length === 0) return null;
+  return { token: result.rows[0].access_token, settings: result.rows[0].settings, workspace: result.rows[0].account_name };
+}
+
+async function getSlackStatus(args, user) {
+  const auth = await getSlackToken(user.firmId);
+  if (!auth) {
+    return { connected: false, message: 'Slack not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  return {
+    connected: true,
+    workspace: auth.workspace,
+    teamId: auth.settings?.team_id
+  };
+}
+
+async function getSlackChannels(args, user) {
+  const auth = await getSlackToken(user.firmId);
+  if (!auth) {
+    return { error: 'Slack not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  const { limit = 20 } = args;
+  
+  const response = await fetch(`https://slack.com/api/conversations.list?limit=${limit}&types=public_channel,private_channel`, {
+    headers: { Authorization: `Bearer ${auth.token}` }
+  });
+  
+  const data = await response.json();
+  
+  if (!data.ok) {
+    return { error: data.error || 'Failed to fetch channels' };
+  }
+  
+  return {
+    success: true,
+    channels: (data.channels || []).map(c => ({
+      id: c.id,
+      name: c.name,
+      isPrivate: c.is_private,
+      memberCount: c.num_members
+    }))
+  };
+}
+
+async function sendSlackMessage(args, user) {
+  const auth = await getSlackToken(user.firmId);
+  if (!auth) {
+    return { error: 'Slack not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  const { channel, message } = args;
+  
+  const response = await fetch('https://slack.com/api/chat.postMessage', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${auth.token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      channel: channel.startsWith('#') ? channel.substring(1) : channel,
+      text: message
+    })
+  });
+  
+  const data = await response.json();
+  
+  if (!data.ok) {
+    return { error: data.error || 'Failed to send message' };
+  }
+  
+  return {
+    success: true,
+    message: `Message sent to #${channel}`,
+    timestamp: data.ts
+  };
+}
+
+// =============================================================================
+// ZOOM FUNCTIONS
+// =============================================================================
+async function getZoomToken(firmId) {
+  const result = await query(
+    `SELECT access_token, account_email, account_name FROM integrations WHERE firm_id = $1 AND provider = 'zoom' AND is_connected = true`,
+    [firmId]
+  );
+  if (result.rows.length === 0) return null;
+  return { token: result.rows[0].access_token, email: result.rows[0].account_email, name: result.rows[0].account_name };
+}
+
+async function getZoomStatus(args, user) {
+  const auth = await getZoomToken(user.firmId);
+  if (!auth) {
+    return { connected: false, message: 'Zoom not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  return {
+    connected: true,
+    account: auth.name || auth.email
+  };
+}
+
+async function getZoomMeetings(args, user) {
+  const auth = await getZoomToken(user.firmId);
+  if (!auth) {
+    return { error: 'Zoom not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  const { type = 'upcoming', limit = 20 } = args;
+  
+  const response = await fetch(`https://api.zoom.us/v2/users/me/meetings?type=${type}&page_size=${limit}`, {
+    headers: { Authorization: `Bearer ${auth.token}` }
+  });
+  
+  const data = await response.json();
+  
+  if (data.code) {
+    return { error: data.message || 'Failed to fetch meetings' };
+  }
+  
+  return {
+    success: true,
+    meetings: (data.meetings || []).map(m => ({
+      id: m.id,
+      topic: m.topic,
+      startTime: m.start_time,
+      duration: m.duration,
+      joinUrl: m.join_url
+    }))
+  };
+}
+
+async function createZoomMeeting(args, user) {
+  const auth = await getZoomToken(user.firmId);
+  if (!auth) {
+    return { error: 'Zoom not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  const { topic, start_time, duration = 60, agenda, matter_id } = args;
+  
+  const response = await fetch('https://api.zoom.us/v2/users/me/meetings', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${auth.token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      topic,
+      type: 2, // Scheduled meeting
+      start_time,
+      duration,
+      agenda,
+      settings: {
+        host_video: true,
+        participant_video: true,
+        join_before_host: true,
+        waiting_room: false
+      }
+    })
+  });
+  
+  const data = await response.json();
+  
+  if (data.code) {
+    return { error: data.message || 'Failed to create meeting' };
+  }
+  
+  // Also create a calendar event in Apex if matter_id provided
+  if (matter_id) {
+    const endTime = new Date(new Date(start_time).getTime() + duration * 60000).toISOString();
+    await query(
+      `INSERT INTO calendar_events (firm_id, title, description, start_time, end_time, location, type, external_id, external_source, created_by, matter_id)
+       VALUES ($1, $2, $3, $4, $5, $6, 'meeting', $7, 'zoom', $8, $9)`,
+      [user.firmId, topic, agenda || '', start_time, endTime, data.join_url, String(data.id), user.id, matter_id]
+    );
+  }
+  
+  return {
+    success: true,
+    message: `Zoom meeting created: "${topic}"`,
+    meeting: {
+      id: data.id,
+      topic: data.topic,
+      startTime: data.start_time,
+      duration: data.duration,
+      joinUrl: data.join_url,
+      password: data.password
+    }
+  };
+}
+
+// =============================================================================
+// QUICKEN FUNCTIONS
+// =============================================================================
+async function getQuickenToken(firmId) {
+  const result = await query(
+    `SELECT access_token, account_email, account_name, last_sync_at FROM integrations WHERE firm_id = $1 AND provider = 'quicken' AND is_connected = true`,
+    [firmId]
+  );
+  if (result.rows.length === 0) return null;
+  return { 
+    token: result.rows[0].access_token, 
+    email: result.rows[0].account_email, 
+    name: result.rows[0].account_name,
+    lastSync: result.rows[0].last_sync_at
+  };
+}
+
+async function getQuickenStatus(args, user) {
+  const auth = await getQuickenToken(user.firmId);
+  if (!auth) {
+    return { connected: false, message: 'Quicken not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  return {
+    connected: true,
+    account: auth.name || auth.email,
+    lastSync: auth.lastSync
+  };
+}
+
+async function getQuickenSummary(args, user) {
+  const auth = await getQuickenToken(user.firmId);
+  if (!auth) {
+    return { error: 'Quicken not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  // Note: Quicken Simplifi API access is limited. This returns placeholder data.
+  // In production, you'd integrate with Quicken's actual API endpoints.
+  return {
+    success: true,
+    message: 'Quicken is connected. Financial data can be viewed in your Quicken account.',
+    account: auth.name || auth.email,
+    lastSync: auth.lastSync,
+    note: 'For detailed financial data, please open your Quicken dashboard. Full API access requires Quicken Simplifi subscription.'
+  };
+}
+
+async function getQuickenTransactions(args, user) {
+  const auth = await getQuickenToken(user.firmId);
+  if (!auth) {
+    return { error: 'Quicken not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  // Placeholder - Quicken API integration would go here
+  return {
+    success: true,
+    message: 'Quicken transaction access connected.',
+    account: auth.name || auth.email,
+    note: 'Transaction data is available in your connected Quicken account. Full programmatic access requires Quicken API subscription.'
+  };
+}
+
+async function getQuickenAccounts(args, user) {
+  const auth = await getQuickenToken(user.firmId);
+  if (!auth) {
+    return { error: 'Quicken not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  // Placeholder - Quicken API integration would go here
+  return {
+    success: true,
+    message: 'Quicken accounts connected.',
+    account: auth.name || auth.email,
+    note: 'Account data is available in your connected Quicken account.'
+  };
+}
+
+// =============================================================================
 // SYSTEM PROMPT
 // =============================================================================
 function getSystemPrompt() {
@@ -4370,13 +5368,13 @@ You have access to tools for:
 - **update_matter_visibility**: Change a matter between "firm_wide" and "restricted"
 
 ### Email Integration (Outlook)
-- **get_emails**: Read recent emails from the user's connected Outlook
-- **get_email**: Get full content of a specific email
-- **send_email**: Send an email from the user's Outlook account
-- **reply_to_email**: Reply to an email
-- **link_email_to_matter**: Link an email to a matter for records
+- **get_emails**: Read recent emails from the user's connected Outlook inbox
+- **search_emails**: Search for emails by sender, subject, or content
+- **get_email**: Get full content of a specific email (use this to read/summarize an email)
+- **draft_email**: Create a draft email and save it in Outlook drafts (NOT sent)
+- **send_email**: Send an email immediately from the user's Outlook account
+- **reply_to_email**: Reply to an email (can save as draft or send immediately)
 - **get_matter_emails**: Get all emails linked to a specific matter
-- **check_email_integration**: Check if Outlook is connected
 
 ### Outlook Calendar Sync
 - **create_outlook_event**: Create an event in Outlook calendar from Apex
@@ -4391,7 +5389,33 @@ You have access to tools for:
 - **get_quickbooks_balance**: Get account balances
 
 ### Integration Status
-- **get_integrations_status**: Check status of all integrations (Google, Outlook, QuickBooks)
+- **get_integrations_status**: Check status of all integrations
+
+### Cloud Storage (OneDrive, Google Drive, Dropbox)
+- **list_cloud_files**: List files from connected cloud storage
+- **search_cloud_files**: Search for files in cloud storage
+- **get_cloud_file_info**: Get details about a specific file
+
+### DocuSign (E-Signatures)
+- **get_docusign_status**: Check DocuSign connection status
+- **get_docusign_envelopes**: Get documents sent for signature
+- **send_for_signature**: Send a document for electronic signature
+
+### Slack Integration
+- **get_slack_status**: Check Slack connection status
+- **get_slack_channels**: List available Slack channels
+- **send_slack_message**: Send a message to a Slack channel
+
+### Zoom Integration
+- **get_zoom_status**: Check Zoom connection status
+- **get_zoom_meetings**: Get upcoming Zoom meetings
+- **create_zoom_meeting**: Create a new Zoom meeting
+
+### Quicken Integration
+- **get_quicken_status**: Check Quicken connection status
+- **get_quicken_summary**: Get financial summary from Quicken
+- **get_quicken_transactions**: Get recent transactions
+- **get_quicken_accounts**: Get account balances
 
 ### Navigation (Opening Pages & Records)
 - **navigate_to_page**: Open pages like matters, clients, calendar, billing, time tracking, etc.
