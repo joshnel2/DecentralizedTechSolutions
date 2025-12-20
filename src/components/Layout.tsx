@@ -216,20 +216,44 @@ export function Layout() {
 
           <div className={styles.navDivider} />
 
-          {/* Settings Button (no dropdown needed for integrations visibility) */}
-          <NavLink
-            to="/app/settings"
-            className={({ isActive }) => clsx(styles.navItem, isActive && styles.active)}
-          >
-            <Settings size={20} />
-            {(sidebarOpen || isMobile) && <span>Settings</span>}
-          </NavLink>
+          {/* Settings with dropdown */}
+          <div className={styles.settingsSection}>
+            <button 
+              className={clsx(styles.navItem, settingsOpen && styles.expanded)}
+              onClick={() => setSettingsOpen(!settingsOpen)}
+            >
+              <Settings size={20} />
+              {(sidebarOpen || isMobile) && (
+                <>
+                  <span>Settings</span>
+                  <ChevronDown 
+                    size={16} 
+                    className={clsx(styles.chevron, settingsOpen && styles.rotated)} 
+                  />
+                </>
+              )}
+            </button>
+            {settingsOpen && (sidebarOpen || isMobile) && (
+              <div className={styles.settingsSubmenu}>
+                {settingsItems.map((item) => (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    className={({ isActive }) => clsx(styles.subNavItem, isActive && styles.active)}
+                  >
+                    <item.icon size={16} />
+                    <span>{item.label}</span>
+                  </NavLink>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Connected Integrations - Always visible below Settings */}
           {connectedIntegrations.length > 0 && (
             <div className={styles.integrationsSection}>
               {(sidebarOpen || isMobile) && (
-                <span className={styles.sectionLabel}>Integrations</span>
+                <span className={styles.sectionLabel}>Connected</span>
               )}
               {connectedIntegrations.map(provider => {
                 const config = integrationConfig[provider]
