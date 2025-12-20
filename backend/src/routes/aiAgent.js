@@ -945,6 +945,55 @@ const TOOLS = [
         required: []
       }
     }
+  },
+
+  // ===================== MATTER EMAILS =====================
+  {
+    type: "function",
+    function: {
+      name: "get_matter_emails",
+      description: "Get emails that have been linked to a specific matter.",
+      parameters: {
+        type: "object",
+        properties: {
+          matter_id: { type: "string", description: "UUID of the matter" }
+        },
+        required: ["matter_id"]
+      }
+    }
+  },
+
+  // ===================== OUTLOOK CALENDAR SYNC =====================
+  {
+    type: "function",
+    function: {
+      name: "create_outlook_event",
+      description: "Create a calendar event in the user's Outlook calendar. This syncs an event FROM Apex TO Outlook.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Event title" },
+          start_time: { type: "string", description: "Start date/time in ISO format" },
+          end_time: { type: "string", description: "End date/time in ISO format (optional)" },
+          location: { type: "string", description: "Event location (optional)" },
+          description: { type: "string", description: "Event description (optional)" },
+          matter_id: { type: "string", description: "Link to a matter (optional)" }
+        },
+        required: ["title", "start_time"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "sync_outlook_calendar",
+      description: "Sync calendar events from Outlook to Apex.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
   }
 ];
 
@@ -1040,6 +1089,13 @@ async function executeTool(toolName, args, user) {
       
       // Integration Status
       case 'get_integrations_status': return await getIntegrationsStatus(args, user);
+      
+      // Matter Emails
+      case 'get_matter_emails': return await getMatterEmails(args, user);
+      
+      // Outlook Calendar Sync
+      case 'create_outlook_event': return await createOutlookEvent(args, user);
+      case 'sync_outlook_calendar': return await syncOutlookCalendar(args, user);
       
       default:
         return { error: `Unknown tool: ${toolName}` };
@@ -3490,16 +3546,69 @@ async function replyToEmail(args, user) {
 }
 
 async function linkEmailToMatter(args, user) {
-  // Store the email-matter link in audit log for now
-  // In a full implementation, you'd have an email_links table
-  await query(`
-    INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
-    VALUES ($1, $2, 'email.linked', 'matter', $3, $4)
-  `, [user.firmId, user.id, args.matter_id, JSON.stringify({ email_id: args.email_id })]);
+  // Verify matter exists
+  const matterResult = await query(
+    `SELECT id, name, client_id FROM matters WHERE id = $1 AND firm_id = $2`,
+    [args.matter_id, user.firmId]
+  );
+  
+  if (matterResult.rows.length === 0) {
+    return { error: 'Matter not found' };
+  }
+  
+  const matter = matterResult.rows[0];
+  
+  // Fetch email details from Outlook
+  const accessToken = await getOutlookAccessToken(user.firmId);
+  let emailDetails = null;
+  
+  if (accessToken) {
+    try {
+      const response = await fetch(
+        `https://graph.microsoft.com/v1.0/me/messages/${args.email_id}?$select=subject,from,toRecipients,receivedDateTime`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      emailDetails = await response.json();
+    } catch (e) {
+      console.error('Failed to fetch email details:', e);
+    }
+  }
+  
+  // Store the email-matter link in email_links table
+  try {
+    await query(`
+      INSERT INTO email_links (firm_id, matter_id, client_id, email_id, email_provider, subject, from_address, to_addresses, received_at, linked_by)
+      VALUES ($1, $2, $3, $4, 'outlook', $5, $6, $7, $8, $9)
+      ON CONFLICT (email_id) WHERE email_id = $4 DO NOTHING
+    `, [
+      user.firmId,
+      args.matter_id,
+      matter.client_id,
+      args.email_id,
+      emailDetails?.subject || 'Unknown Subject',
+      emailDetails?.from?.emailAddress?.address || null,
+      emailDetails?.toRecipients?.map(r => r.emailAddress?.address) || [],
+      emailDetails?.receivedDateTime || null,
+      user.id
+    ]);
+  } catch (e) {
+    // Fallback to audit log if email_links table doesn't exist
+    await query(`
+      INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
+      VALUES ($1, $2, 'email.linked', 'matter', $3, $4)
+    `, [user.firmId, user.id, args.matter_id, JSON.stringify({ 
+      email_id: args.email_id,
+      subject: emailDetails?.subject
+    })]);
+  }
   
   return {
     success: true,
-    message: 'Email linked to matter successfully'
+    message: `Email linked to matter "${matter.name}" successfully`,
+    data: {
+      matter: matter.name,
+      subject: emailDetails?.subject || 'Unknown'
+    }
   };
 }
 
@@ -3688,7 +3797,7 @@ async function createQuickBooksInvoice(args, user) {
     return { error: 'QuickBooks not connected. Please connect in Settings > Integrations.' };
   }
   
-  // Get the Apex invoice
+  // Get the Apex invoice with line items
   const invoiceResult = await query(
     `SELECT i.*, c.display_name as client_name, c.email as client_email
      FROM invoices i
@@ -3703,12 +3812,157 @@ async function createQuickBooksInvoice(args, user) {
   
   const invoice = invoiceResult.rows[0];
   
-  // For now, return info about what would be created
-  // Full implementation would create the invoice in QB
+  // Check if already synced to QuickBooks
+  if (invoice.external_id && invoice.external_source === 'quickbooks') {
+    return { 
+      success: false, 
+      message: `Invoice ${invoice.number} has already been synced to QuickBooks (QB ID: ${invoice.external_id})` 
+    };
+  }
+  
+  // Get invoice line items
+  const lineItemsResult = await query(
+    `SELECT * FROM invoice_items WHERE invoice_id = $1 ORDER BY id`,
+    [args.apex_invoice_id]
+  );
+  
+  // Try to find or create a customer in QuickBooks
+  // First, search for existing customer by name
+  const customerSearchResponse = await fetch(
+    `${getQBBaseUrl()}/v3/company/${tokens.realmId}/query?query=${encodeURIComponent(`SELECT * FROM Customer WHERE DisplayName = '${invoice.client_name.replace(/'/g, "\\'")}'`)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${tokens.accessToken}`,
+        Accept: 'application/json',
+      },
+    }
+  );
+  
+  const customerSearchData = await customerSearchResponse.json();
+  let customerId;
+  
+  if (customerSearchData.QueryResponse?.Customer?.length > 0) {
+    customerId = customerSearchData.QueryResponse.Customer[0].Id;
+  } else {
+    // Create new customer in QuickBooks
+    const createCustomerResponse = await fetch(
+      `${getQBBaseUrl()}/v3/company/${tokens.realmId}/customer`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${tokens.accessToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          DisplayName: invoice.client_name,
+          PrimaryEmailAddr: invoice.client_email ? { Address: invoice.client_email } : undefined,
+        }),
+      }
+    );
+    
+    const createCustomerData = await createCustomerResponse.json();
+    
+    if (createCustomerData.Fault) {
+      return { error: `Failed to create customer in QuickBooks: ${createCustomerData.Fault.Error?.[0]?.Message || 'Unknown error'}` };
+    }
+    
+    customerId = createCustomerData.Customer?.Id;
+  }
+  
+  if (!customerId) {
+    return { error: 'Failed to find or create customer in QuickBooks' };
+  }
+  
+  // Build QuickBooks invoice line items
+  const qbLineItems = lineItemsResult.rows.map((item, index) => ({
+    Id: String(index + 1),
+    LineNum: index + 1,
+    Amount: parseFloat(item.amount),
+    DetailType: 'SalesItemLineDetail',
+    SalesItemLineDetail: {
+      ItemRef: {
+        name: 'Services',
+        value: '1',  // Default item - in a real setup, you'd map to actual QB items
+      },
+      Qty: parseFloat(item.quantity) || 1,
+      UnitPrice: parseFloat(item.rate) || parseFloat(item.amount),
+    },
+    Description: item.description || 'Legal Services',
+  }));
+  
+  // If no line items, create one from the invoice total
+  if (qbLineItems.length === 0) {
+    qbLineItems.push({
+      Id: '1',
+      LineNum: 1,
+      Amount: parseFloat(invoice.total),
+      DetailType: 'SalesItemLineDetail',
+      SalesItemLineDetail: {
+        ItemRef: {
+          name: 'Services',
+          value: '1',
+        },
+        Qty: 1,
+        UnitPrice: parseFloat(invoice.total),
+      },
+      Description: `Legal Services - Invoice ${invoice.number}`,
+    });
+  }
+  
+  // Create invoice in QuickBooks
+  const qbInvoice = {
+    CustomerRef: {
+      value: customerId,
+    },
+    DocNumber: invoice.number,
+    TxnDate: invoice.issue_date || new Date().toISOString().split('T')[0],
+    DueDate: invoice.due_date,
+    Line: qbLineItems,
+    CustomerMemo: {
+      value: invoice.notes || `Invoice from Apex Legal`,
+    },
+  };
+  
+  const createInvoiceResponse = await fetch(
+    `${getQBBaseUrl()}/v3/company/${tokens.realmId}/invoice`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${tokens.accessToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(qbInvoice),
+    }
+  );
+  
+  const createInvoiceData = await createInvoiceResponse.json();
+  
+  if (createInvoiceData.Fault) {
+    return { error: `Failed to create invoice in QuickBooks: ${createInvoiceData.Fault.Error?.[0]?.Message || 'Unknown error'}` };
+  }
+  
+  const qbInvoiceId = createInvoiceData.Invoice?.Id;
+  
+  // Update Apex invoice with QuickBooks ID
+  if (qbInvoiceId) {
+    await query(
+      `UPDATE invoices SET external_id = $1, external_source = 'quickbooks' WHERE id = $2`,
+      [qbInvoiceId, args.apex_invoice_id]
+    );
+  }
+  
   return {
     success: true,
-    message: `Invoice ${invoice.number} would be created in QuickBooks for ${invoice.client_name}. Total: $${parseFloat(invoice.total).toLocaleString()}`,
-    note: 'Full QuickBooks invoice creation requires customer mapping. Please set up customer sync first.'
+    message: `Invoice ${invoice.number} successfully created in QuickBooks for ${invoice.client_name}`,
+    data: {
+      apexInvoiceId: args.apex_invoice_id,
+      quickbooksInvoiceId: qbInvoiceId,
+      customerName: invoice.client_name,
+      total: parseFloat(invoice.total),
+      lineItems: qbLineItems.length
+    }
   };
 }
 
@@ -3716,6 +3970,106 @@ async function syncQuickBooks(args, user) {
   const tokens = await getQuickBooksAccessToken(user.firmId);
   if (!tokens) {
     return { error: 'QuickBooks not connected. Please connect in Settings > Integrations.' };
+  }
+  
+  let syncResults = {
+    invoicesChecked: 0,
+    paymentsUpdated: 0,
+    customersImported: 0,
+    errors: []
+  };
+  
+  try {
+    // 1. Check for payments on synced invoices
+    const syncedInvoices = await query(
+      `SELECT id, external_id, number, amount_due FROM invoices 
+       WHERE firm_id = $1 AND external_source = 'quickbooks' AND external_id IS NOT NULL AND amount_due > 0`,
+      [user.firmId]
+    );
+    
+    for (const invoice of syncedInvoices.rows) {
+      try {
+        // Get invoice from QuickBooks
+        const response = await fetch(
+          `${getQBBaseUrl()}/v3/company/${tokens.realmId}/invoice/${invoice.external_id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${tokens.accessToken}`,
+              Accept: 'application/json',
+            },
+          }
+        );
+        
+        const data = await response.json();
+        
+        if (data.Invoice) {
+          const qbBalance = parseFloat(data.Invoice.Balance || 0);
+          const apexAmountDue = parseFloat(invoice.amount_due || 0);
+          
+          // If QuickBooks shows less balance, record the payment
+          if (qbBalance < apexAmountDue) {
+            const paymentAmount = apexAmountDue - qbBalance;
+            
+            // Update invoice in Apex
+            await query(
+              `UPDATE invoices SET 
+                 amount_due = $1, 
+                 amount_paid = amount_paid + $2,
+                 status = CASE WHEN $1 = 0 THEN 'paid' ELSE status END
+               WHERE id = $3`,
+              [qbBalance, paymentAmount, invoice.id]
+            );
+            
+            syncResults.paymentsUpdated++;
+          }
+        }
+        
+        syncResults.invoicesChecked++;
+      } catch (err) {
+        syncResults.errors.push(`Error syncing invoice ${invoice.number}: ${err.message}`);
+      }
+    }
+    
+    // 2. Import new customers from QuickBooks that don't exist in Apex
+    const customersResponse = await fetch(
+      `${getQBBaseUrl()}/v3/company/${tokens.realmId}/query?query=${encodeURIComponent('SELECT * FROM Customer WHERE Active = true MAXRESULTS 100')}`,
+      {
+        headers: {
+          Authorization: `Bearer ${tokens.accessToken}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+    
+    const customersData = await customersResponse.json();
+    const qbCustomers = customersData.QueryResponse?.Customer || [];
+    
+    for (const qbCustomer of qbCustomers) {
+      // Check if customer exists in Apex
+      const existing = await query(
+        `SELECT id FROM clients WHERE firm_id = $1 AND (display_name = $2 OR email = $3)`,
+        [user.firmId, qbCustomer.DisplayName, qbCustomer.PrimaryEmailAddr?.Address || '']
+      );
+      
+      if (existing.rows.length === 0 && qbCustomer.DisplayName) {
+        // Import customer
+        await query(
+          `INSERT INTO clients (firm_id, display_name, email, phone, type, external_id, external_source, is_active)
+           VALUES ($1, $2, $3, $4, 'company', $5, 'quickbooks', true)`,
+          [
+            user.firmId,
+            qbCustomer.DisplayName,
+            qbCustomer.PrimaryEmailAddr?.Address || null,
+            qbCustomer.PrimaryPhone?.FreeFormNumber || null,
+            qbCustomer.Id
+          ]
+        );
+        syncResults.customersImported++;
+      }
+    }
+    
+  } catch (err) {
+    syncResults.errors.push(`General sync error: ${err.message}`);
   }
   
   // Update last sync time
@@ -3726,7 +4080,8 @@ async function syncQuickBooks(args, user) {
   
   return {
     success: true,
-    message: 'QuickBooks sync triggered successfully'
+    message: `QuickBooks sync completed`,
+    data: syncResults
   };
 }
 
@@ -3792,6 +4147,196 @@ async function getIntegrationsStatus(args, user) {
 }
 
 // =============================================================================
+// MATTER EMAILS
+// =============================================================================
+
+async function getMatterEmails(args, user) {
+  // Try to get from email_links table first
+  try {
+    const result = await query(
+      `SELECT el.*, m.name as matter_name, u.first_name || ' ' || u.last_name as linked_by_name
+       FROM email_links el
+       LEFT JOIN matters m ON el.matter_id = m.id
+       LEFT JOIN users u ON el.linked_by = u.id
+       WHERE el.matter_id = $1 AND el.firm_id = $2
+       ORDER BY el.received_at DESC NULLS LAST, el.linked_at DESC
+       LIMIT 50`,
+      [args.matter_id, user.firmId]
+    );
+    
+    return {
+      emails: result.rows.map(e => ({
+        id: e.email_id,
+        subject: e.subject,
+        from: e.from_address,
+        receivedAt: e.received_at,
+        linkedAt: e.linked_at,
+        linkedBy: e.linked_by_name
+      })),
+      count: result.rows.length
+    };
+  } catch (e) {
+    // Fallback to audit logs if email_links table doesn't exist
+    const result = await query(
+      `SELECT * FROM audit_logs 
+       WHERE resource_type = 'matter' AND resource_id = $1 AND action = 'email.linked' AND firm_id = $2
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [args.matter_id, user.firmId]
+    );
+    
+    return {
+      emails: result.rows.map(e => {
+        const details = e.details || {};
+        return {
+          id: details.email_id,
+          subject: details.subject || 'Unknown',
+          linkedAt: e.created_at
+        };
+      }),
+      count: result.rows.length
+    };
+  }
+}
+
+// =============================================================================
+// OUTLOOK CALENDAR SYNC
+// =============================================================================
+
+async function createOutlookEvent(args, user) {
+  const accessToken = await getOutlookAccessToken(user.firmId);
+  if (!accessToken) {
+    return { error: 'Outlook not connected. Please connect your Outlook account in Settings > Integrations.' };
+  }
+  
+  // Calculate end time (default 1 hour after start)
+  const startTime = new Date(args.start_time);
+  const endTime = args.end_time ? new Date(args.end_time) : new Date(startTime.getTime() + 60 * 60 * 1000);
+  
+  const event = {
+    subject: args.title,
+    start: {
+      dateTime: startTime.toISOString(),
+      timeZone: 'America/New_York'
+    },
+    end: {
+      dateTime: endTime.toISOString(),
+      timeZone: 'America/New_York'
+    },
+    location: args.location ? { displayName: args.location } : undefined,
+    body: args.description ? {
+      contentType: 'Text',
+      content: args.description
+    } : undefined
+  };
+  
+  const response = await fetch('https://graph.microsoft.com/v1.0/me/events', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(event)
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    return { error: `Failed to create Outlook event: ${error.error?.message || 'Unknown error'}` };
+  }
+  
+  const createdEvent = await response.json();
+  
+  // Also create event in Apex calendar if matter_id provided
+  if (args.matter_id) {
+    await query(
+      `INSERT INTO calendar_events (firm_id, title, start_time, end_time, location, description, type, matter_id, external_id, external_source, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, 'meeting', $7, $8, 'outlook', $9)`,
+      [user.firmId, args.title, startTime, endTime, args.location, args.description, args.matter_id, createdEvent.id, user.id]
+    );
+  }
+  
+  return {
+    success: true,
+    message: `Event "${args.title}" created in Outlook calendar`,
+    data: {
+      outlookEventId: createdEvent.id,
+      start: startTime.toISOString(),
+      end: endTime.toISOString()
+    }
+  };
+}
+
+async function syncOutlookCalendar(args, user) {
+  const accessToken = await getOutlookAccessToken(user.firmId);
+  if (!accessToken) {
+    return { error: 'Outlook not connected. Please connect your Outlook account in Settings > Integrations.' };
+  }
+  
+  // Fetch calendar events from Outlook
+  const now = new Date();
+  const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const oneMonthAhead = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  
+  const eventsResponse = await fetch(
+    `https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${oneMonthAgo.toISOString()}&endDateTime=${oneMonthAhead.toISOString()}&$top=100`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  
+  const eventsData = await eventsResponse.json();
+  
+  if (eventsData.error) {
+    return { error: `Failed to fetch Outlook events: ${eventsData.error.message}` };
+  }
+  
+  let syncedCount = 0;
+  let skippedCount = 0;
+  
+  for (const event of eventsData.value || []) {
+    // Check if event already exists in Apex
+    const existingEvent = await query(
+      `SELECT id FROM calendar_events WHERE firm_id = $1 AND external_id = $2`,
+      [user.firmId, event.id]
+    );
+    
+    if (existingEvent.rows.length === 0) {
+      await query(
+        `INSERT INTO calendar_events (firm_id, title, description, start_time, end_time, location, type, external_id, external_source, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, 'meeting', $7, 'outlook', $8)`,
+        [
+          user.firmId,
+          event.subject || 'Untitled Event',
+          event.bodyPreview || null,
+          event.start?.dateTime,
+          event.end?.dateTime,
+          event.location?.displayName || null,
+          event.id,
+          user.id,
+        ]
+      );
+      syncedCount++;
+    } else {
+      skippedCount++;
+    }
+  }
+  
+  // Update last sync time
+  await query(
+    `UPDATE integrations SET last_sync_at = NOW() WHERE firm_id = $1 AND provider = 'outlook'`,
+    [user.firmId]
+  );
+  
+  return {
+    success: true,
+    message: `Outlook calendar sync completed`,
+    data: {
+      eventsImported: syncedCount,
+      eventsSkipped: skippedCount,
+      totalEventsChecked: eventsData.value?.length || 0
+    }
+  };
+}
+
+// =============================================================================
 // SYSTEM PROMPT
 // =============================================================================
 function getSystemPrompt() {
@@ -3830,7 +4375,12 @@ You have access to tools for:
 - **send_email**: Send an email from the user's Outlook account
 - **reply_to_email**: Reply to an email
 - **link_email_to_matter**: Link an email to a matter for records
+- **get_matter_emails**: Get all emails linked to a specific matter
 - **check_email_integration**: Check if Outlook is connected
+
+### Outlook Calendar Sync
+- **create_outlook_event**: Create an event in Outlook calendar from Apex
+- **sync_outlook_calendar**: Sync calendar events from Outlook to Apex
 
 ### QuickBooks Integration
 - **get_quickbooks_status**: Check if QuickBooks is connected
