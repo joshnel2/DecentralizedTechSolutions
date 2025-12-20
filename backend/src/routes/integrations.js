@@ -6,6 +6,42 @@ import crypto from 'crypto';
 const router = Router();
 
 // ============================================
+// PLATFORM SETTINGS HELPER
+// ============================================
+// Reads OAuth credentials from database first, falls back to ENV variables
+
+let settingsCache = null;
+let settingsCacheTime = 0;
+const CACHE_TTL = 60000; // 1 minute cache
+
+async function getPlatformSettings() {
+  const now = Date.now();
+  if (settingsCache && (now - settingsCacheTime) < CACHE_TTL) {
+    return settingsCache;
+  }
+  
+  try {
+    const result = await query('SELECT key, value FROM platform_settings');
+    const settings = {};
+    result.rows.forEach(row => {
+      settings[row.key] = row.value;
+    });
+    settingsCache = settings;
+    settingsCacheTime = now;
+    return settings;
+  } catch (error) {
+    // Table might not exist, return empty
+    console.log('Platform settings table not found, using ENV variables');
+    return {};
+  }
+}
+
+async function getCredential(dbKey, envKey, defaultValue = '') {
+  const settings = await getPlatformSettings();
+  return settings[dbKey] || process.env[envKey] || defaultValue;
+}
+
+// ============================================
 // INTEGRATION SETTINGS
 // ============================================
 
@@ -48,20 +84,17 @@ router.get('/', authenticate, async (req, res) => {
 // GOOGLE CALENDAR INTEGRATION
 // ============================================
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/api/integrations/google/callback';
-
 // Initiate Google OAuth
-router.get('/google/connect', authenticate, (req, res) => {
+router.get('/google/connect', authenticate, async (req, res) => {
+  const GOOGLE_CLIENT_ID = await getCredential('google_client_id', 'GOOGLE_CLIENT_ID');
+  const GOOGLE_REDIRECT_URI = await getCredential('google_redirect_uri', 'GOOGLE_REDIRECT_URI', 'http://localhost:3001/api/integrations/google/callback');
+  
   if (!GOOGLE_CLIENT_ID) {
-    return res.status(500).json({ error: 'Google integration not configured' });
+    return res.status(500).json({ error: 'Google integration not configured. Please configure in Admin Portal.' });
   }
 
   const state = crypto.randomBytes(32).toString('hex');
   
-  // Store state in session or database for verification
-  // For simplicity, we'll encode user info in state (in production, use a proper session)
   const stateData = Buffer.from(JSON.stringify({
     nonce: state,
     firmId: req.user.firmId,
@@ -95,6 +128,11 @@ router.get('/google/callback', async (req, res) => {
     if (!code || !state) {
       return res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?error=missing_params`);
     }
+
+    // Get credentials
+    const GOOGLE_CLIENT_ID = await getCredential('google_client_id', 'GOOGLE_CLIENT_ID');
+    const GOOGLE_CLIENT_SECRET = await getCredential('google_client_secret', 'GOOGLE_CLIENT_SECRET');
+    const GOOGLE_REDIRECT_URI = await getCredential('google_redirect_uri', 'GOOGLE_REDIRECT_URI', 'http://localhost:3001/api/integrations/google/callback');
 
     // Decode state
     const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
