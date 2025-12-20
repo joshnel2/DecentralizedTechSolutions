@@ -1084,6 +1084,97 @@ export const integrationsApi = {
   async syncOutlookCalendar() {
     return fetchWithAuth('/integrations/outlook/sync-calendar', { method: 'POST' });
   },
+
+  // OneDrive
+  async connectOneDrive() {
+    return fetchWithAuth('/integrations/onedrive/connect');
+  },
+
+  async disconnectOneDrive() {
+    return fetchWithAuth('/integrations/onedrive/disconnect', { method: 'POST' });
+  },
+
+  async syncOneDrive() {
+    return fetchWithAuth('/integrations/onedrive/sync', { method: 'POST' });
+  },
+
+  // Google Drive
+  async connectGoogleDrive() {
+    return fetchWithAuth('/integrations/googledrive/connect');
+  },
+
+  async disconnectGoogleDrive() {
+    return fetchWithAuth('/integrations/googledrive/disconnect', { method: 'POST' });
+  },
+
+  async syncGoogleDrive() {
+    return fetchWithAuth('/integrations/googledrive/sync', { method: 'POST' });
+  },
+
+  // Dropbox
+  async connectDropbox() {
+    return fetchWithAuth('/integrations/dropbox/connect');
+  },
+
+  async disconnectDropbox() {
+    return fetchWithAuth('/integrations/dropbox/disconnect', { method: 'POST' });
+  },
+
+  async syncDropbox() {
+    return fetchWithAuth('/integrations/dropbox/sync', { method: 'POST' });
+  },
+
+  // DocuSign
+  async connectDocuSign() {
+    return fetchWithAuth('/integrations/docusign/connect');
+  },
+
+  async disconnectDocuSign() {
+    return fetchWithAuth('/integrations/docusign/disconnect', { method: 'POST' });
+  },
+
+  async syncDocuSign() {
+    return fetchWithAuth('/integrations/docusign/sync', { method: 'POST' });
+  },
+
+  // Slack
+  async connectSlack() {
+    return fetchWithAuth('/integrations/slack/connect');
+  },
+
+  async disconnectSlack() {
+    return fetchWithAuth('/integrations/slack/disconnect', { method: 'POST' });
+  },
+
+  async syncSlack() {
+    return fetchWithAuth('/integrations/slack/sync', { method: 'POST' });
+  },
+
+  // Zoom
+  async connectZoom() {
+    return fetchWithAuth('/integrations/zoom/connect');
+  },
+
+  async disconnectZoom() {
+    return fetchWithAuth('/integrations/zoom/disconnect', { method: 'POST' });
+  },
+
+  async syncZoom() {
+    return fetchWithAuth('/integrations/zoom/sync', { method: 'POST' });
+  },
+
+  // Quicken
+  async connectQuicken() {
+    return fetchWithAuth('/integrations/quicken/connect');
+  },
+
+  async disconnectQuicken() {
+    return fetchWithAuth('/integrations/quicken/disconnect', { method: 'POST' });
+  },
+
+  async syncQuicken() {
+    return fetchWithAuth('/integrations/quicken/sync', { method: 'POST' });
+  },
 };
 
 // ============================================
