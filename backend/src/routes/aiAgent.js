@@ -269,13 +269,14 @@ const TOOLS = [
     type: "function",
     function: {
       name: "list_invoices",
-      description: "Get a list of invoices.",
+      description: "Get a list of invoices including invoices synced from QuickBooks.",
       parameters: {
         type: "object",
         properties: {
-          status: { type: "string", enum: ["draft", "sent", "paid", "overdue", "partial", "void"] },
+          status: { type: "string", enum: ["draft", "sent", "paid", "pending", "overdue", "partial", "void"] },
           client_id: { type: "string", description: "Filter by client" },
           matter_id: { type: "string", description: "Filter by matter" },
+          source: { type: "string", description: "Filter by source: 'local' or 'quickbooks'" },
           limit: { type: "integer" }
         },
         required: []
@@ -442,13 +443,14 @@ const TOOLS = [
     type: "function",
     function: {
       name: "list_documents",
-      description: "Get a list of documents.",
+      description: "Get a list of documents including files synced from integrations (OneDrive, Google Drive, Dropbox).",
       parameters: {
         type: "object",
         properties: {
           matter_id: { type: "string", description: "Filter by matter" },
           client_id: { type: "string", description: "Filter by client" },
           search: { type: "string", description: "Search by name" },
+          source: { type: "string", description: "Filter by source: 'local', 'onedrive', 'googledrive', 'dropbox'" },
           limit: { type: "integer" }
         },
         required: []
@@ -2089,10 +2091,10 @@ async function updateClient(args, user) {
 // INVOICE FUNCTIONS
 // =============================================================================
 async function listInvoices(args, user) {
-  const { status, client_id, matter_id, limit = 20 } = args;
+  const { status, client_id, matter_id, source, limit = 20 } = args;
   
   let sql = `
-    SELECT i.id, i.number, i.status, i.total, i.amount_due, i.due_date, c.display_name as client_name, m.name as matter_name
+    SELECT i.id, i.invoice_number, i.status, i.amount, i.due_date, i.external_id, i.external_source, c.display_name as client_name, m.name as matter_name, i.description
     FROM invoices i
     LEFT JOIN clients c ON i.client_id = c.id
     LEFT JOIN matters m ON i.matter_id = m.id
@@ -2113,6 +2115,14 @@ async function listInvoices(args, user) {
     sql += ` AND i.matter_id = $${idx++}`;
     params.push(matter_id);
   }
+  if (source) {
+    if (source === 'local') {
+      sql += ` AND i.external_source IS NULL`;
+    } else {
+      sql += ` AND i.external_source = $${idx++}`;
+      params.push(source);
+    }
+  }
   
   sql += ` ORDER BY i.created_at DESC LIMIT ${Math.min(parseInt(limit), 50)}`;
   
@@ -2121,13 +2131,15 @@ async function listInvoices(args, user) {
   return {
     invoices: result.rows.map(i => ({
       id: i.id,
-      number: i.number,
+      number: i.invoice_number,
       client: i.client_name,
       matter: i.matter_name,
       status: i.status,
-      total: parseFloat(i.total),
-      amount_due: parseFloat(i.amount_due),
-      due_date: i.due_date
+      total: parseFloat(i.amount || 0),
+      due_date: i.due_date,
+      description: i.description,
+      source: i.external_source || 'local',
+      quickbooks_id: i.external_source === 'quickbooks' ? i.external_id : null
     })),
     count: result.rows.length
   };
@@ -2662,10 +2674,10 @@ async function deleteCalendarEvent(args, user) {
 // DOCUMENT FUNCTIONS
 // =============================================================================
 async function listDocuments(args, user) {
-  const { matter_id, client_id, search, limit = 20 } = args;
+  const { matter_id, client_id, search, source, limit = 20 } = args;
   
   let sql = `
-    SELECT d.id, d.name, d.type, d.size, d.status, d.uploaded_at, m.name as matter_name, c.display_name as client_name
+    SELECT d.id, d.name, d.file_type, d.file_size, d.status, d.created_at, d.external_source, d.external_url, m.name as matter_name, c.display_name as client_name
     FROM documents d
     LEFT JOIN matters m ON d.matter_id = m.id
     LEFT JOIN clients c ON d.client_id = c.id
@@ -2686,8 +2698,17 @@ async function listDocuments(args, user) {
     sql += ` AND d.name ILIKE $${idx++}`;
     params.push(`%${search}%`);
   }
+  if (source) {
+    // Filter by source: 'local', 'onedrive', 'googledrive', 'dropbox'
+    if (source === 'local') {
+      sql += ` AND d.external_source IS NULL`;
+    } else {
+      sql += ` AND d.external_source = $${idx++}`;
+      params.push(source);
+    }
+  }
   
-  sql += ` ORDER BY d.uploaded_at DESC LIMIT ${Math.min(parseInt(limit), 50)}`;
+  sql += ` ORDER BY d.created_at DESC LIMIT ${Math.min(parseInt(limit), 50)}`;
   
   const result = await query(sql, params);
   
@@ -2695,12 +2716,14 @@ async function listDocuments(args, user) {
     documents: result.rows.map(d => ({
       id: d.id,
       name: d.name,
-      type: d.type,
-      size: d.size,
+      type: d.file_type,
+      size: d.file_size,
       status: d.status,
       matter: d.matter_name,
       client: d.client_name,
-      uploaded_at: d.uploaded_at
+      source: d.external_source || 'local',
+      external_url: d.external_url,
+      uploaded_at: d.created_at
     })),
     count: result.rows.length
   };
@@ -4493,22 +4516,22 @@ async function getQuickBooksBalance(args, user) {
 
 async function getIntegrationsStatus(args, user) {
   const result = await query(
-    `SELECT provider, is_connected, account_email, account_name, last_sync_at FROM integrations WHERE firm_id = $1`,
+    `SELECT provider, is_connected, account_email, account_name, last_sync_at, settings FROM integrations WHERE firm_id = $1`,
     [user.firmId]
   );
   
-  // All supported integrations
+  // All supported integrations with their sync capabilities
   const integrations = {
-    outlook: { connected: false, name: 'Microsoft Outlook', description: 'Email and Calendar' },
-    onedrive: { connected: false, name: 'OneDrive', description: 'Cloud file storage' },
-    google: { connected: false, name: 'Google Calendar', description: 'Calendar sync' },
-    googledrive: { connected: false, name: 'Google Drive', description: 'Cloud file storage' },
-    quickbooks: { connected: false, name: 'QuickBooks', description: 'Accounting and invoicing' },
-    dropbox: { connected: false, name: 'Dropbox', description: 'Cloud file storage' },
-    docusign: { connected: false, name: 'DocuSign', description: 'E-signatures' },
-    slack: { connected: false, name: 'Slack', description: 'Team messaging' },
-    zoom: { connected: false, name: 'Zoom', description: 'Video meetings' },
-    quicken: { connected: false, name: 'Quicken', description: 'Personal finance' }
+    outlook: { connected: false, name: 'Microsoft Outlook', description: 'Email and Calendar', syncWith: ['calendar'] },
+    onedrive: { connected: false, name: 'OneDrive', description: 'Cloud file storage (Word, Excel, PowerPoint)', syncWith: ['documents'] },
+    google: { connected: false, name: 'Google Calendar', description: 'Calendar sync', syncWith: ['calendar'] },
+    googledrive: { connected: false, name: 'Google Drive', description: 'Cloud file storage (Google Docs, Sheets)', syncWith: ['documents'] },
+    quickbooks: { connected: false, name: 'QuickBooks', description: 'Accounting and invoicing', syncWith: ['billing'] },
+    dropbox: { connected: false, name: 'Dropbox', description: 'Cloud file storage', syncWith: ['documents'] },
+    docusign: { connected: false, name: 'DocuSign', description: 'E-signatures', syncWith: ['documents'] },
+    slack: { connected: false, name: 'Slack', description: 'Team messaging', syncWith: [] },
+    zoom: { connected: false, name: 'Zoom', description: 'Video meetings', syncWith: ['calendar'] },
+    quicken: { connected: false, name: 'Quicken', description: 'Personal finance', syncWith: ['billing'] }
   };
   
   result.rows.forEach(row => {
@@ -4516,6 +4539,13 @@ async function getIntegrationsStatus(args, user) {
       integrations[row.provider].connected = row.is_connected;
       integrations[row.provider].account = row.account_email || row.account_name;
       integrations[row.provider].lastSync = row.last_sync_at;
+      // Include sync settings
+      const settings = row.settings || {};
+      integrations[row.provider].syncSettings = {
+        syncCalendar: settings.syncCalendar !== false,
+        syncDocuments: settings.syncDocuments !== false,
+        syncBilling: settings.syncBilling !== false
+      };
     }
   });
   
@@ -4527,13 +4557,21 @@ async function getIntegrationsStatus(args, user) {
   const notConnectedList = Object.entries(integrations)
     .filter(([_, v]) => !v.connected)
     .map(([k, v]) => v.name);
+
+  // What's synced where
+  const syncedData = {
+    calendar: result.rows.filter(r => r.is_connected && ['outlook', 'google', 'zoom'].includes(r.provider) && (r.settings?.syncCalendar !== false)).map(r => integrations[r.provider]?.name).filter(Boolean),
+    documents: result.rows.filter(r => r.is_connected && ['onedrive', 'googledrive', 'dropbox', 'docusign'].includes(r.provider) && (r.settings?.syncDocuments !== false)).map(r => integrations[r.provider]?.name).filter(Boolean),
+    billing: result.rows.filter(r => r.is_connected && ['quickbooks', 'quicken'].includes(r.provider) && (r.settings?.syncBilling !== false)).map(r => integrations[r.provider]?.name).filter(Boolean)
+  };
   
   return {
     integrations,
     summary: {
       connectedCount: connectedList.length,
       connected: connectedList,
-      notConnected: notConnectedList
+      notConnected: notConnectedList,
+      syncedData
     }
   };
 }
@@ -5405,7 +5443,16 @@ You have access to tools for:
 - **get_quickbooks_balance**: Get account balances
 
 ### Integration Status
-- **get_integrations_status**: Check status of all integrations
+- **get_integrations_status**: Check status of all integrations and what data is synced
+
+## DATA SYNCHRONIZATION - IMPORTANT
+Integrations sync data directly into the site's pages:
+- **QuickBooks/Quicken → Billing**: When connected, invoices sync to the Billing page. Use list_invoices with source='quickbooks' to see synced invoices.
+- **Google/Outlook Calendar → Calendar**: Events sync to the Calendar page. Check calendar_events for synced events.
+- **OneDrive/Google Drive/Dropbox → Documents**: Files sync to the Documents page. Use list_documents with source='onedrive', 'googledrive', or 'dropbox' to see synced files.
+- **DocuSign → Documents**: Signed documents appear in the Documents page.
+
+When a user asks about their "invoices", "documents", or "calendar", this INCLUDES synced data from their integrations. You can filter by source if they only want data from a specific integration.
 
 ### Cloud Storage (OneDrive, Google Drive, Dropbox)
 - **list_cloud_files**: List files from connected cloud storage

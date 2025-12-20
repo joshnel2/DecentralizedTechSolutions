@@ -88,6 +88,33 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
+// Update integration sync settings
+router.put('/:provider/settings', authenticate, async (req, res) => {
+  try {
+    const { provider } = req.params;
+    const { settings } = req.body;
+    
+    // Merge new settings with existing
+    const existing = await query(
+      `SELECT settings FROM integrations WHERE firm_id = $1 AND provider = $2`,
+      [req.user.firmId, provider]
+    );
+    
+    const currentSettings = existing.rows[0]?.settings || {};
+    const mergedSettings = { ...currentSettings, ...settings };
+    
+    await query(
+      `UPDATE integrations SET settings = $1, updated_at = NOW() WHERE firm_id = $2 AND provider = $3`,
+      [JSON.stringify(mergedSettings), req.user.firmId, provider]
+    );
+    
+    res.json({ success: true, settings: mergedSettings });
+  } catch (error) {
+    console.error('Update integration settings error:', error);
+    res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
 // ============================================
 // GOOGLE CALENDAR INTEGRATION
 // ============================================
@@ -265,30 +292,35 @@ router.post('/google/sync', authenticate, async (req, res) => {
     const eventsData = await eventsResponse.json();
     let syncedCount = 0;
 
-    // Import events
-    for (const event of eventsData.items || []) {
-      if (event.status === 'cancelled') continue;
+    // Check if calendar sync is enabled
+    const syncSettings = integration.rows[0].settings || {};
+    
+    if (syncSettings.syncCalendar !== false) {
+      // Import events to calendar
+      for (const event of eventsData.items || []) {
+        if (event.status === 'cancelled') continue;
 
-      const existingEvent = await query(
-        `SELECT id FROM calendar_events WHERE firm_id = $1 AND external_id = $2`,
-        [req.user.firmId, event.id]
-      );
-
-      if (existingEvent.rows.length === 0) {
-        await query(
-          `INSERT INTO calendar_events (firm_id, title, description, start_time, end_time, type, external_id, external_source, created_by)
-           VALUES ($1, $2, $3, $4, $5, 'meeting', $6, 'google', $7)`,
-          [
-            req.user.firmId,
-            event.summary || 'Untitled Event',
-            event.description || null,
-            event.start?.dateTime || event.start?.date,
-            event.end?.dateTime || event.end?.date,
-            event.id,
-            req.user.id,
-          ]
+        const existingEvent = await query(
+          `SELECT id FROM calendar_events WHERE firm_id = $1 AND external_id = $2`,
+          [req.user.firmId, event.id]
         );
-        syncedCount++;
+
+        if (existingEvent.rows.length === 0) {
+          await query(
+            `INSERT INTO calendar_events (firm_id, title, description, start_time, end_time, type, external_id, external_source, created_by)
+             VALUES ($1, $2, $3, $4, $5, 'meeting', $6, 'google', $7)`,
+            [
+              req.user.firmId,
+              event.summary || 'Untitled Event',
+              event.description || null,
+              event.start?.dateTime || event.start?.date,
+              event.end?.dateTime || event.end?.date,
+              event.id,
+              req.user.id,
+            ]
+          );
+          syncedCount++;
+        }
       }
     }
 
@@ -298,7 +330,13 @@ router.post('/google/sync', authenticate, async (req, res) => {
       [req.user.firmId]
     );
 
-    res.json({ success: true, syncedCount });
+    res.json({ 
+      success: true, 
+      syncedCount,
+      message: syncSettings.syncCalendar !== false 
+        ? `Synced ${syncedCount} events from Google Calendar` 
+        : 'Calendar sync disabled - use integration settings to enable'
+    });
   } catch (error) {
     console.error('Google sync error:', error);
     res.status(500).json({ error: 'Failed to sync calendar' });
@@ -512,6 +550,57 @@ router.post('/quickbooks/sync', authenticate, async (req, res) => {
     );
 
     const invoicesData = await invoicesResponse.json();
+    const qbInvoices = invoicesData.QueryResponse?.Invoice || [];
+
+    // Check if billing sync is enabled
+    const syncSettings = integration.rows[0].settings || {};
+    let syncedCount = 0;
+
+    if (syncSettings.syncBilling !== false) {
+      // Sync QuickBooks invoices to local invoices table
+      for (const qbInv of qbInvoices) {
+        // Check if already synced (by external_id)
+        const existing = await query(
+          `SELECT id FROM invoices WHERE firm_id = $1 AND external_id = $2 AND external_source = 'quickbooks'`,
+          [req.user.firmId, qbInv.Id]
+        );
+
+        if (existing.rows.length === 0) {
+          // Try to find matching client by name
+          const clientName = qbInv.CustomerRef?.name;
+          let clientId = null;
+          
+          if (clientName) {
+            const clientResult = await query(
+              `SELECT id FROM clients WHERE firm_id = $1 AND name ILIKE $2 LIMIT 1`,
+              [req.user.firmId, `%${clientName}%`]
+            );
+            clientId = clientResult.rows[0]?.id;
+          }
+
+          // Create invoice
+          await query(
+            `INSERT INTO invoices (firm_id, client_id, invoice_number, amount, status, due_date, external_id, external_source, description, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'quickbooks', $8, NOW())
+             ON CONFLICT (firm_id, external_id, external_source) DO UPDATE SET
+               amount = EXCLUDED.amount,
+               status = EXCLUDED.status,
+               due_date = EXCLUDED.due_date`,
+            [
+              req.user.firmId,
+              clientId,
+              qbInv.DocNumber || `QB-${qbInv.Id}`,
+              parseFloat(qbInv.TotalAmt || 0),
+              qbInv.Balance > 0 ? 'pending' : 'paid',
+              qbInv.DueDate,
+              qbInv.Id,
+              `QuickBooks Invoice: ${qbInv.CustomerRef?.name || 'Unknown'}`
+            ]
+          );
+          syncedCount++;
+        }
+      }
+    }
 
     // Update last sync time
     await query(
@@ -521,8 +610,10 @@ router.post('/quickbooks/sync', authenticate, async (req, res) => {
 
     res.json({
       success: true,
+      syncedCount,
       accounts: accountsData.QueryResponse?.Account || [],
-      invoices: invoicesData.QueryResponse?.Invoice || [],
+      invoices: qbInvoices,
+      message: `Synced ${syncedCount} new invoices from QuickBooks to Billing`
     });
   } catch (error) {
     console.error('QuickBooks sync error:', error);
@@ -747,28 +838,33 @@ router.post('/outlook/sync-calendar', authenticate, async (req, res) => {
     const eventsData = await eventsResponse.json();
     let syncedCount = 0;
 
-    for (const event of eventsData.value || []) {
-      const existingEvent = await query(
-        `SELECT id FROM calendar_events WHERE firm_id = $1 AND external_id = $2`,
-        [req.user.firmId, event.id]
-      );
-
-      if (existingEvent.rows.length === 0) {
-        await query(
-          `INSERT INTO calendar_events (firm_id, title, description, start_time, end_time, location, type, external_id, external_source, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, 'meeting', $7, 'outlook', $8)`,
-          [
-            req.user.firmId,
-            event.subject || 'Untitled Event',
-            event.bodyPreview || null,
-            event.start?.dateTime,
-            event.end?.dateTime,
-            event.location?.displayName || null,
-            event.id,
-            req.user.id,
-          ]
+    // Check if calendar sync is enabled
+    const syncSettings = integration.rows[0].settings || {};
+    
+    if (syncSettings.syncCalendar !== false) {
+      for (const event of eventsData.value || []) {
+        const existingEvent = await query(
+          `SELECT id FROM calendar_events WHERE firm_id = $1 AND external_id = $2`,
+          [req.user.firmId, event.id]
         );
-        syncedCount++;
+
+        if (existingEvent.rows.length === 0) {
+          await query(
+            `INSERT INTO calendar_events (firm_id, title, description, start_time, end_time, location, type, external_id, external_source, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, 'meeting', $7, 'outlook', $8)`,
+            [
+              req.user.firmId,
+              event.subject || 'Untitled Event',
+              event.bodyPreview || null,
+              event.start?.dateTime,
+              event.end?.dateTime,
+              event.location?.displayName || null,
+              event.id,
+              req.user.id,
+            ]
+          );
+          syncedCount++;
+        }
       }
     }
 
@@ -777,7 +873,13 @@ router.post('/outlook/sync-calendar', authenticate, async (req, res) => {
       [req.user.firmId]
     );
 
-    res.json({ success: true, syncedCount });
+    res.json({ 
+      success: true, 
+      syncedCount,
+      message: syncSettings.syncCalendar !== false 
+        ? `Synced ${syncedCount} events from Outlook Calendar` 
+        : 'Calendar sync disabled - use integration settings to enable'
+    });
   } catch (error) {
     console.error('Outlook sync error:', error);
     res.status(500).json({ error: 'Failed to sync calendar' });
@@ -912,13 +1014,59 @@ router.post('/onedrive/sync', authenticate, async (req, res) => {
     }
 
     const accessToken = integration.rows[0].access_token;
+    const syncSettings = integration.rows[0].settings || {};
 
-    // Get files from OneDrive
-    const filesResponse = await fetch('https://graph.microsoft.com/v1.0/me/drive/root/children', {
+    // Get files from OneDrive (including nested folders)
+    const filesResponse = await fetch('https://graph.microsoft.com/v1.0/me/drive/root/children?$top=100', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     const filesData = await filesResponse.json();
+    const files = filesData.value || [];
+    let syncedCount = 0;
+
+    // Sync files to documents table if enabled
+    if (syncSettings.syncDocuments !== false) {
+      for (const file of files) {
+        // Skip folders, only sync files
+        if (file.folder) continue;
+
+        // Check if already synced
+        const existing = await query(
+          `SELECT id FROM documents WHERE firm_id = $1 AND external_id = $2 AND external_source = 'onedrive'`,
+          [req.user.firmId, file.id]
+        );
+
+        if (existing.rows.length === 0) {
+          // Determine file type
+          const ext = file.name.split('.').pop()?.toLowerCase() || '';
+          const fileType = ext === 'pdf' ? 'pdf' : 
+                          ['doc', 'docx'].includes(ext) ? 'word' :
+                          ['xls', 'xlsx'].includes(ext) ? 'excel' :
+                          ['ppt', 'pptx'].includes(ext) ? 'powerpoint' : 'other';
+
+          await query(
+            `INSERT INTO documents (firm_id, name, file_name, file_type, file_size, external_id, external_source, external_url, uploaded_by, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, 'onedrive', $7, $8, NOW())
+             ON CONFLICT (firm_id, external_id, external_source) DO UPDATE SET
+               name = EXCLUDED.name,
+               file_size = EXCLUDED.file_size,
+               external_url = EXCLUDED.external_url`,
+            [
+              req.user.firmId,
+              file.name,
+              file.name,
+              fileType,
+              file.size || 0,
+              file.id,
+              file.webUrl,
+              req.user.id
+            ]
+          );
+          syncedCount++;
+        }
+      }
+    }
 
     await query(
       `UPDATE integrations SET last_sync_at = NOW() WHERE firm_id = $1 AND provider = 'onedrive'`,
@@ -927,14 +1075,17 @@ router.post('/onedrive/sync', authenticate, async (req, res) => {
 
     res.json({ 
       success: true, 
-      syncedCount: filesData.value?.length || 0,
-      files: (filesData.value || []).slice(0, 20).map(f => ({
+      syncedCount,
+      files: files.slice(0, 20).map(f => ({
         id: f.id,
         name: f.name,
         size: f.size,
         folder: !!f.folder,
         webUrl: f.webUrl
-      }))
+      })),
+      message: syncSettings.syncDocuments !== false 
+        ? `Synced ${syncedCount} files from OneDrive to Documents` 
+        : 'Document sync disabled - use integration settings to enable'
     });
   } catch (error) {
     console.error('OneDrive sync error:', error);
@@ -1067,12 +1218,58 @@ router.post('/googledrive/sync', authenticate, async (req, res) => {
     }
 
     const accessToken = integration.rows[0].access_token;
+    const syncSettings = integration.rows[0].settings || {};
 
-    const filesResponse = await fetch('https://www.googleapis.com/drive/v3/files?pageSize=20&fields=files(id,name,mimeType,size,webViewLink)', {
+    const filesResponse = await fetch('https://www.googleapis.com/drive/v3/files?pageSize=100&fields=files(id,name,mimeType,size,webViewLink)', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     const filesData = await filesResponse.json();
+    const files = filesData.files || [];
+    let syncedCount = 0;
+
+    // Sync files to documents table if enabled
+    if (syncSettings.syncDocuments !== false) {
+      for (const file of files) {
+        // Skip folders
+        if (file.mimeType === 'application/vnd.google-apps.folder') continue;
+
+        // Check if already synced
+        const existing = await query(
+          `SELECT id FROM documents WHERE firm_id = $1 AND external_id = $2 AND external_source = 'googledrive'`,
+          [req.user.firmId, file.id]
+        );
+
+        if (existing.rows.length === 0) {
+          // Determine file type from MIME type
+          const mimeType = file.mimeType || '';
+          const fileType = mimeType.includes('pdf') ? 'pdf' :
+                          mimeType.includes('document') || mimeType.includes('word') ? 'word' :
+                          mimeType.includes('spreadsheet') || mimeType.includes('excel') ? 'excel' :
+                          mimeType.includes('presentation') || mimeType.includes('powerpoint') ? 'powerpoint' : 'other';
+
+          await query(
+            `INSERT INTO documents (firm_id, name, file_name, file_type, file_size, external_id, external_source, external_url, uploaded_by, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, 'googledrive', $7, $8, NOW())
+             ON CONFLICT (firm_id, external_id, external_source) DO UPDATE SET
+               name = EXCLUDED.name,
+               file_size = EXCLUDED.file_size,
+               external_url = EXCLUDED.external_url`,
+            [
+              req.user.firmId,
+              file.name,
+              file.name,
+              fileType,
+              parseInt(file.size) || 0,
+              file.id,
+              file.webViewLink,
+              req.user.id
+            ]
+          );
+          syncedCount++;
+        }
+      }
+    }
 
     await query(
       `UPDATE integrations SET last_sync_at = NOW() WHERE firm_id = $1 AND provider = 'googledrive'`,
@@ -1081,14 +1278,17 @@ router.post('/googledrive/sync', authenticate, async (req, res) => {
 
     res.json({ 
       success: true, 
-      syncedCount: filesData.files?.length || 0,
-      files: (filesData.files || []).map(f => ({
+      syncedCount,
+      files: files.slice(0, 20).map(f => ({
         id: f.id,
         name: f.name,
         mimeType: f.mimeType,
         size: f.size,
         webUrl: f.webViewLink
-      }))
+      })),
+      message: syncSettings.syncDocuments !== false 
+        ? `Synced ${syncedCount} files from Google Drive to Documents` 
+        : 'Document sync disabled - use integration settings to enable'
     });
   } catch (error) {
     console.error('Google Drive sync error:', error);
@@ -1221,6 +1421,7 @@ router.post('/dropbox/sync', authenticate, async (req, res) => {
     }
 
     const accessToken = integration.rows[0].access_token;
+    const syncSettings = integration.rows[0].settings || {};
 
     const filesResponse = await fetch('https://api.dropboxapi.com/2/files/list_folder', {
       method: 'POST',
@@ -1228,10 +1429,54 @@ router.post('/dropbox/sync', authenticate, async (req, res) => {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ path: '', limit: 20 }),
+      body: JSON.stringify({ path: '', limit: 100 }),
     });
 
     const filesData = await filesResponse.json();
+    const files = filesData.entries || [];
+    let syncedCount = 0;
+
+    // Sync files to documents table if enabled
+    if (syncSettings.syncDocuments !== false) {
+      for (const file of files) {
+        // Skip folders
+        if (file['.tag'] === 'folder') continue;
+
+        // Check if already synced
+        const existing = await query(
+          `SELECT id FROM documents WHERE firm_id = $1 AND external_id = $2 AND external_source = 'dropbox'`,
+          [req.user.firmId, file.id]
+        );
+
+        if (existing.rows.length === 0) {
+          // Determine file type
+          const ext = file.name.split('.').pop()?.toLowerCase() || '';
+          const fileType = ext === 'pdf' ? 'pdf' :
+                          ['doc', 'docx'].includes(ext) ? 'word' :
+                          ['xls', 'xlsx'].includes(ext) ? 'excel' :
+                          ['ppt', 'pptx'].includes(ext) ? 'powerpoint' : 'other';
+
+          await query(
+            `INSERT INTO documents (firm_id, name, file_name, file_type, file_size, external_id, external_source, file_path, uploaded_by, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, 'dropbox', $7, $8, NOW())
+             ON CONFLICT (firm_id, external_id, external_source) DO UPDATE SET
+               name = EXCLUDED.name,
+               file_size = EXCLUDED.file_size`,
+            [
+              req.user.firmId,
+              file.name,
+              file.name,
+              fileType,
+              file.size || 0,
+              file.id,
+              file.path_display,
+              req.user.id
+            ]
+          );
+          syncedCount++;
+        }
+      }
+    }
 
     await query(
       `UPDATE integrations SET last_sync_at = NOW() WHERE firm_id = $1 AND provider = 'dropbox'`,
@@ -1240,14 +1485,17 @@ router.post('/dropbox/sync', authenticate, async (req, res) => {
 
     res.json({ 
       success: true, 
-      syncedCount: filesData.entries?.length || 0,
-      files: (filesData.entries || []).map(f => ({
+      syncedCount,
+      files: files.slice(0, 20).map(f => ({
         id: f.id,
         name: f.name,
         path: f.path_display,
         folder: f['.tag'] === 'folder',
         size: f.size
-      }))
+      })),
+      message: syncSettings.syncDocuments !== false 
+        ? `Synced ${syncedCount} files from Dropbox to Documents` 
+        : 'Document sync disabled - use integration settings to enable'
     });
   } catch (error) {
     console.error('Dropbox sync error:', error);

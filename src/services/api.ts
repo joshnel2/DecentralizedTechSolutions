@@ -1175,6 +1175,14 @@ export const integrationsApi = {
   async syncQuicken() {
     return fetchWithAuth('/integrations/quicken/sync', { method: 'POST' });
   },
+
+  // Sync Settings
+  async updateSyncSettings(provider: string, settings: Record<string, boolean>) {
+    return fetchWithAuth(`/integrations/${provider}/settings`, {
+      method: 'PUT',
+      body: JSON.stringify({ settings }),
+    });
+  },
 };
 
 // ============================================

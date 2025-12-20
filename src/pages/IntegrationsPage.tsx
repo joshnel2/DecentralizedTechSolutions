@@ -19,6 +19,12 @@ interface IntegrationStatus {
   lastSyncAt?: string
   syncEnabled?: boolean
   connectedAt?: string
+  settings?: {
+    syncCalendar?: boolean
+    syncDocuments?: boolean
+    syncBilling?: boolean
+    autoSync?: boolean
+  }
 }
 
 interface IntegrationConfig {
@@ -29,6 +35,11 @@ interface IntegrationConfig {
   icon: string
   provider?: string // Backend provider key
   features: string[]
+  syncOptions?: {
+    calendar?: boolean // Can sync with Calendar page
+    documents?: boolean // Can sync with Documents page
+    billing?: boolean // Can sync with Billing page
+  }
 }
 
 const integrationConfigs: IntegrationConfig[] = [
@@ -40,7 +51,8 @@ const integrationConfigs: IntegrationConfig[] = [
     category: 'calendar', 
     icon: '📅', 
     provider: 'google',
-    features: ['Import events', 'Two-way sync', 'Automatic updates']
+    features: ['Import events', 'Two-way sync', 'Automatic updates'],
+    syncOptions: { calendar: true }
   },
   { 
     id: 'outlook-calendar', 
@@ -49,7 +61,8 @@ const integrationConfigs: IntegrationConfig[] = [
     category: 'calendar', 
     icon: '📆', 
     provider: 'outlook',
-    features: ['Calendar sync', 'Email access', 'Microsoft 365']
+    features: ['Calendar sync', 'Email access', 'Microsoft 365'],
+    syncOptions: { calendar: true }
   },
   
   // Accounting - Real integrations
@@ -60,27 +73,30 @@ const integrationConfigs: IntegrationConfig[] = [
     category: 'accounting', 
     icon: '📊', 
     provider: 'quickbooks',
-    features: ['Invoice sync', 'Payment tracking', 'Financial reports']
+    features: ['Invoice sync', 'Payment tracking', 'Financial reports'],
+    syncOptions: { billing: true }
   },
   
   // Cloud Storage
   { 
     id: 'onedrive', 
     name: 'OneDrive', 
-    description: 'Store and sync documents with Microsoft OneDrive.', 
+    description: 'Store and sync documents with Microsoft OneDrive. Includes Word, Excel, PowerPoint.', 
     category: 'storage', 
     icon: '☁️',
     provider: 'onedrive',
-    features: ['Document storage', 'File sharing', 'Version control']
+    features: ['Document storage', 'Word/Excel/PPT', 'Version control'],
+    syncOptions: { documents: true }
   },
   { 
     id: 'google-drive', 
     name: 'Google Drive', 
-    description: 'Connect Google Drive for document storage and collaboration.', 
+    description: 'Connect Google Drive for document storage and collaboration. Includes Docs, Sheets.', 
     category: 'storage', 
     icon: '📁',
     provider: 'googledrive',
-    features: ['Cloud storage', 'Collaboration', 'File sharing']
+    features: ['Cloud storage', 'Google Docs', 'File sharing'],
+    syncOptions: { documents: true }
   },
   { 
     id: 'dropbox', 
@@ -89,7 +105,8 @@ const integrationConfigs: IntegrationConfig[] = [
     category: 'storage', 
     icon: '📦',
     provider: 'dropbox',
-    features: ['Secure storage', 'File sync', 'Team folders']
+    features: ['Secure storage', 'File sync', 'Team folders'],
+    syncOptions: { documents: true }
   },
   
   // E-Signature
@@ -100,7 +117,8 @@ const integrationConfigs: IntegrationConfig[] = [
     category: 'esign', 
     icon: '✍️',
     provider: 'docusign',
-    features: ['E-signatures', 'Templates', 'Audit trail']
+    features: ['E-signatures', 'Templates', 'Audit trail'],
+    syncOptions: { documents: true }
   },
   
   // Communication
@@ -120,7 +138,8 @@ const integrationConfigs: IntegrationConfig[] = [
     category: 'communication', 
     icon: '📹',
     provider: 'zoom',
-    features: ['Meeting scheduling', 'Calendar sync', 'One-click join']
+    features: ['Meeting scheduling', 'Calendar sync', 'One-click join'],
+    syncOptions: { calendar: true }
   },
 
   // Accounting
@@ -131,7 +150,8 @@ const integrationConfigs: IntegrationConfig[] = [
     category: 'accounting', 
     icon: '💰',
     provider: 'quicken',
-    features: ['Financial tracking', 'Transaction sync', 'Reports']
+    features: ['Financial tracking', 'Transaction sync', 'Reports'],
+    syncOptions: { billing: true }
   }
 ]
 
@@ -350,6 +370,23 @@ export function IntegrationsPage() {
     }
   }
 
+  const handleSyncSettingChange = async (provider: string, setting: string, value: boolean) => {
+    try {
+      await integrationsApi.updateSyncSettings(provider, { [setting]: value })
+      // Update local state
+      setIntegrations(prev => ({
+        ...prev,
+        [provider]: prev[provider] ? {
+          ...prev[provider]!,
+          settings: { ...prev[provider]!.settings, [setting]: value }
+        } : null
+      }))
+      setNotification({ type: 'success', message: `Sync setting updated` })
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Failed to update setting' })
+    }
+  }
+
   const getIntegrationStatus = (config: IntegrationConfig) => {
     if (!config.provider) return null
     return integrations[config.provider]
@@ -504,6 +541,46 @@ export function IntegrationsPage() {
                         <span className={styles.lastSync}>
                           <RefreshCw size={12} /> Last synced: {new Date(status.lastSyncAt).toLocaleString()}
                         </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Sync Settings - shown when connected */}
+                  {connected && config.syncOptions && (
+                    <div className={styles.syncSettings}>
+                      <span className={styles.syncSettingsLabel}>Sync with:</span>
+                      {config.syncOptions.calendar && (
+                        <label className={styles.syncOption}>
+                          <input 
+                            type="checkbox" 
+                            checked={status?.settings?.syncCalendar !== false}
+                            onChange={(e) => handleSyncSettingChange(config.provider!, 'syncCalendar', e.target.checked)}
+                          />
+                          <Calendar size={14} />
+                          Calendar
+                        </label>
+                      )}
+                      {config.syncOptions.documents && (
+                        <label className={styles.syncOption}>
+                          <input 
+                            type="checkbox" 
+                            checked={status?.settings?.syncDocuments !== false}
+                            onChange={(e) => handleSyncSettingChange(config.provider!, 'syncDocuments', e.target.checked)}
+                          />
+                          <Cloud size={14} />
+                          Documents
+                        </label>
+                      )}
+                      {config.syncOptions.billing && (
+                        <label className={styles.syncOption}>
+                          <input 
+                            type="checkbox" 
+                            checked={status?.settings?.syncBilling !== false}
+                            onChange={(e) => handleSyncSettingChange(config.provider!, 'syncBilling', e.target.checked)}
+                          />
+                          <Calculator size={14} />
+                          Billing
+                        </label>
                       )}
                     </div>
                   )}

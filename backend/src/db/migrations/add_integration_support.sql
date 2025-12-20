@@ -116,9 +116,10 @@ CREATE TABLE IF NOT EXISTS integrations (
 CREATE INDEX IF NOT EXISTS idx_integrations_firm_id ON integrations(firm_id);
 CREATE INDEX IF NOT EXISTS idx_integrations_provider ON integrations(provider);
 
--- 5. Add external sync columns to calendar_events and invoices
+-- 5. Add external sync columns to calendar_events, invoices, and documents
 DO $$ 
 BEGIN
+    -- Calendar events
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'calendar_events' AND column_name = 'external_id') THEN
         ALTER TABLE calendar_events ADD COLUMN external_id VARCHAR(255);
     END IF;
@@ -127,6 +128,7 @@ BEGIN
         ALTER TABLE calendar_events ADD COLUMN external_source VARCHAR(50);
     END IF;
     
+    -- Invoices
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'external_id') THEN
         ALTER TABLE invoices ADD COLUMN external_id VARCHAR(255);
     END IF;
@@ -134,10 +136,47 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'external_source') THEN
         ALTER TABLE invoices ADD COLUMN external_source VARCHAR(50);
     END IF;
+    
+    -- Documents (for OneDrive, Google Drive, Dropbox sync)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'external_id') THEN
+        ALTER TABLE documents ADD COLUMN external_id VARCHAR(255);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'external_source') THEN
+        ALTER TABLE documents ADD COLUMN external_source VARCHAR(50);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'external_url') THEN
+        ALTER TABLE documents ADD COLUMN external_url TEXT;
+    END IF;
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_calendar_events_external_id ON calendar_events(external_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_external_id ON invoices(external_id);
+CREATE INDEX IF NOT EXISTS idx_documents_external_id ON documents(external_id);
+
+-- Create unique constraint for external documents (prevent duplicates)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'documents_firm_external_unique') THEN
+        ALTER TABLE documents ADD CONSTRAINT documents_firm_external_unique 
+        UNIQUE (firm_id, external_id, external_source);
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    -- Constraint might already exist or there might be duplicates
+    NULL;
+END $$;
+
+-- Create unique constraint for invoices (prevent duplicates)  
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'invoices_firm_external_unique') THEN
+        ALTER TABLE invoices ADD CONSTRAINT invoices_firm_external_unique 
+        UNIQUE (firm_id, external_id, external_source);
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    NULL;
+END $$;
 
 -- Done!
 SELECT 'Integration support migration completed!' as status;

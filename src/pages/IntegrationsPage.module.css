@@ -391,6 +391,47 @@
   color: var(--text-tertiary);
 }
 
+.syncSettings {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--spacing-md);
+  border: 1px solid var(--border-primary);
+}
+
+.syncSettingsLabel {
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.syncOption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+}
+
+.syncOption:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.syncOption input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--gold-primary);
+  cursor: pointer;
+}
+
 .integrationActions {
   display: flex;
   gap: var(--spacing-sm);
