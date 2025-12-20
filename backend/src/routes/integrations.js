@@ -656,6 +656,11 @@ router.get('/outlook/emails', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Outlook not connected' });
     }
 
+    // Get credentials
+    const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
+    const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
+    const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
+
     let accessToken = integration.rows[0].access_token;
     const refreshToken = integration.rows[0].refresh_token;
 
