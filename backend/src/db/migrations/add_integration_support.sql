@@ -5,36 +5,60 @@
 
 -- 1. Platform Settings Table (for OAuth credentials)
 CREATE TABLE IF NOT EXISTS platform_settings (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     key VARCHAR(100) UNIQUE NOT NULL,
     value TEXT,
     is_secret BOOLEAN DEFAULT false,
     description TEXT,
-    updated_by UUID REFERENCES users(id),
+    updated_by UUID,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_platform_settings_key ON platform_settings(key);
 
--- Insert default settings (empty - to be configured via admin UI)
+-- Insert all integration settings (empty - to be configured via Admin Portal)
 INSERT INTO platform_settings (key, value, is_secret, description) VALUES
-    ('microsoft_client_id', '', false, 'Microsoft Azure App Client ID for Outlook integration'),
+    -- Microsoft (Outlook + OneDrive)
+    ('microsoft_client_id', '', false, 'Microsoft Azure App Client ID'),
     ('microsoft_client_secret', '', true, 'Microsoft Azure App Client Secret'),
     ('microsoft_redirect_uri', '', false, 'Microsoft OAuth Redirect URI'),
-    ('microsoft_tenant', 'common', false, 'Microsoft Tenant ID (common for multi-tenant)'),
-    ('quickbooks_client_id', '', false, 'QuickBooks/Intuit App Client ID'),
+    ('microsoft_tenant', 'common', false, 'Microsoft Tenant ID'),
+    -- QuickBooks
+    ('quickbooks_client_id', '', false, 'QuickBooks App Client ID'),
     ('quickbooks_client_secret', '', true, 'QuickBooks App Client Secret'),
     ('quickbooks_redirect_uri', '', false, 'QuickBooks OAuth Redirect URI'),
     ('quickbooks_environment', 'sandbox', false, 'QuickBooks environment (sandbox or production)'),
-    ('google_client_id', '', false, 'Google Cloud App Client ID for Calendar integration'),
+    -- Google (Calendar + Drive)
+    ('google_client_id', '', false, 'Google Cloud App Client ID'),
     ('google_client_secret', '', true, 'Google Cloud App Client Secret'),
-    ('google_redirect_uri', '', false, 'Google OAuth Redirect URI')
+    ('google_redirect_uri', '', false, 'Google OAuth Redirect URI'),
+    -- Dropbox
+    ('dropbox_client_id', '', false, 'Dropbox App Key'),
+    ('dropbox_client_secret', '', true, 'Dropbox App Secret'),
+    ('dropbox_redirect_uri', '', false, 'Dropbox OAuth Redirect URI'),
+    -- DocuSign
+    ('docusign_client_id', '', false, 'DocuSign Integration Key'),
+    ('docusign_client_secret', '', true, 'DocuSign Secret Key'),
+    ('docusign_redirect_uri', '', false, 'DocuSign OAuth Redirect URI'),
+    ('docusign_environment', 'demo', false, 'DocuSign environment (demo or production)'),
+    -- Slack
+    ('slack_client_id', '', false, 'Slack App Client ID'),
+    ('slack_client_secret', '', true, 'Slack App Client Secret'),
+    ('slack_redirect_uri', '', false, 'Slack OAuth Redirect URI'),
+    -- Zoom
+    ('zoom_client_id', '', false, 'Zoom App Client ID'),
+    ('zoom_client_secret', '', true, 'Zoom App Client Secret'),
+    ('zoom_redirect_uri', '', false, 'Zoom OAuth Redirect URI'),
+    -- Quicken
+    ('quicken_client_id', '', false, 'Quicken/Intuit Client ID'),
+    ('quicken_client_secret', '', true, 'Quicken Client Secret'),
+    ('quicken_redirect_uri', '', false, 'Quicken OAuth Redirect URI')
 ON CONFLICT (key) DO NOTHING;
 
 -- 2. Email Links Table (for linking emails to matters)
 CREATE TABLE IF NOT EXISTS email_links (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     firm_id UUID REFERENCES firms(id) ON DELETE CASCADE,
     matter_id UUID REFERENCES matters(id) ON DELETE CASCADE,
     client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
@@ -68,9 +92,9 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS idx_clients_external_id ON clients(external_id);
 
--- 4. Ensure integrations table exists (if not already)
+-- 4. Integrations table (stores user connections)
 CREATE TABLE IF NOT EXISTS integrations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     firm_id UUID REFERENCES firms(id) ON DELETE CASCADE,
     provider VARCHAR(50) NOT NULL,
     is_connected BOOLEAN DEFAULT false,
@@ -92,7 +116,7 @@ CREATE TABLE IF NOT EXISTS integrations (
 CREATE INDEX IF NOT EXISTS idx_integrations_firm_id ON integrations(firm_id);
 CREATE INDEX IF NOT EXISTS idx_integrations_provider ON integrations(provider);
 
--- 5. Add external sync columns to calendar_events and invoices (if not exist)
+-- 5. Add external sync columns to calendar_events and invoices
 DO $$ 
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'calendar_events' AND column_name = 'external_id') THEN
@@ -116,4 +140,4 @@ CREATE INDEX IF NOT EXISTS idx_calendar_events_external_id ON calendar_events(ex
 CREATE INDEX IF NOT EXISTS idx_invoices_external_id ON invoices(external_id);
 
 -- Done!
-SELECT 'Integration support migration completed successfully!' as status;
+SELECT 'Integration support migration completed!' as status;
