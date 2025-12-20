@@ -938,7 +938,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "get_integrations_status",
-      description: "Get the status of all integrations (Google, Outlook, QuickBooks).",
+      description: "Check which integrations are connected for this user. Returns status of Outlook, OneDrive, Google, Google Drive, QuickBooks, Dropbox, DocuSign, Slack, Zoom, and Quicken. Use this FIRST when a user asks about any integration to see if it's connected.",
       parameters: {
         type: "object",
         properties: {},
@@ -4505,21 +4505,45 @@ async function getIntegrationsStatus(args, user) {
     [user.firmId]
   );
   
+  // All supported integrations
   const integrations = {
-    google: { connected: false },
-    outlook: { connected: false },
-    quickbooks: { connected: false }
+    outlook: { connected: false, name: 'Microsoft Outlook', description: 'Email and Calendar' },
+    onedrive: { connected: false, name: 'OneDrive', description: 'Cloud file storage' },
+    google: { connected: false, name: 'Google Calendar', description: 'Calendar sync' },
+    googledrive: { connected: false, name: 'Google Drive', description: 'Cloud file storage' },
+    quickbooks: { connected: false, name: 'QuickBooks', description: 'Accounting and invoicing' },
+    dropbox: { connected: false, name: 'Dropbox', description: 'Cloud file storage' },
+    docusign: { connected: false, name: 'DocuSign', description: 'E-signatures' },
+    slack: { connected: false, name: 'Slack', description: 'Team messaging' },
+    zoom: { connected: false, name: 'Zoom', description: 'Video meetings' },
+    quicken: { connected: false, name: 'Quicken', description: 'Personal finance' }
   };
   
   result.rows.forEach(row => {
-    integrations[row.provider] = {
-      connected: row.is_connected,
-      account: row.account_email || row.account_name,
-      lastSync: row.last_sync_at
-    };
+    if (integrations[row.provider]) {
+      integrations[row.provider].connected = row.is_connected;
+      integrations[row.provider].account = row.account_email || row.account_name;
+      integrations[row.provider].lastSync = row.last_sync_at;
+    }
   });
   
-  return integrations;
+  // Create a summary
+  const connectedList = Object.entries(integrations)
+    .filter(([_, v]) => v.connected)
+    .map(([k, v]) => v.name);
+  
+  const notConnectedList = Object.entries(integrations)
+    .filter(([_, v]) => !v.connected)
+    .map(([k, v]) => v.name);
+  
+  return {
+    integrations,
+    summary: {
+      connectedCount: connectedList.length,
+      connected: connectedList,
+      notConnected: notConnectedList
+    }
+  };
 }
 
 // =============================================================================
