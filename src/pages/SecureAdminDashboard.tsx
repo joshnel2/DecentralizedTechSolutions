@@ -129,8 +129,10 @@ interface AccountLookupResult {
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
+const getAuthToken = () => sessionStorage.getItem('_sap_auth') || ''
+
 export default function SecureAdminDashboard() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'quick-onboard' | 'firms' | 'users' | 'account-tools' | 'migration' | 'audit'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'quick-onboard' | 'firms' | 'users' | 'account-tools' | 'migration' | 'audit' | 'integrations'>('overview')
   const [firms, setFirms] = useState<Firm[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
@@ -180,6 +182,11 @@ export default function SecureAdminDashboard() {
   const [bulkUsers, setBulkUsers] = useState('')
   const [bulkFirmId, setBulkFirmId] = useState('')
   const [bulkDefaultPassword, setBulkDefaultPassword] = useState('')
+
+  // Integration Settings state
+  const [integrationSettings, setIntegrationSettings] = useState<Record<string, any>>({})
+  const [savingIntegrations, setSavingIntegrations] = useState(false)
+  const [loadingIntegrations, setLoadingIntegrations] = useState(false)
 
   // Session validation
   const validateSession = useCallback(() => {
@@ -352,6 +359,65 @@ export default function SecureAdminDashboard() {
     }
 
     setIsOnboarding(false)
+  }
+
+  // Integration Settings
+  const loadIntegrationSettings = async () => {
+    setLoadingIntegrations(true)
+    try {
+      const response = await fetch(`${API_URL}/secure-admin/platform-settings`, {
+        headers: { 'X-Admin-Auth': getAuthToken() }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        const settings: Record<string, any> = {}
+        data.settings?.forEach((s: any) => {
+          settings[s.key] = { value: s.value || '', isConfigured: !!s.value, isSecret: s.is_secret }
+        })
+        setIntegrationSettings(settings)
+      }
+    } catch (err) {
+      console.error('Failed to load integration settings:', err)
+    }
+    setLoadingIntegrations(false)
+  }
+
+  const updateIntegrationSetting = (key: string, value: string) => {
+    setIntegrationSettings(prev => ({
+      ...prev,
+      [key]: { ...prev[key], value, isConfigured: !!value }
+    }))
+  }
+
+  const saveIntegrationSettings = async () => {
+    setSavingIntegrations(true)
+    try {
+      const updates: { key: string; value: string }[] = []
+      Object.entries(integrationSettings).forEach(([key, val]: [string, any]) => {
+        if (val.value !== undefined) {
+          updates.push({ key, value: val.value })
+        }
+      })
+
+      const response = await fetch(`${API_URL}/secure-admin/platform-settings`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Admin-Auth': getAuthToken() 
+        },
+        body: JSON.stringify({ settings: updates })
+      })
+
+      if (response.ok) {
+        setNotification({ type: 'success', message: 'Integration settings saved successfully!' })
+        loadIntegrationSettings()
+      } else {
+        throw new Error('Failed to save')
+      }
+    } catch (err) {
+      setNotification({ type: 'error', message: 'Failed to save integration settings' })
+    }
+    setSavingIntegrations(false)
   }
 
   // Account Lookup
@@ -858,6 +924,13 @@ export default function SecureAdminDashboard() {
             >
               <Activity size={18} />
               <span>Audit Log</span>
+            </button>
+            <button 
+              className={`${styles.navItem} ${activeTab === 'integrations' ? styles.active : ''}`}
+              onClick={() => { setActiveTab('integrations'); loadIntegrationSettings(); }}
+            >
+              <Key size={18} />
+              <span>Integrations</span>
             </button>
           </nav>
         </aside>
@@ -1896,6 +1969,245 @@ export default function SecureAdminDashboard() {
                       <div className={styles.emptyState}>No audit logs found</div>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* Integrations Tab */}
+              {activeTab === 'integrations' && (
+                <div className={styles.listTab}>
+                  <div className={styles.listHeader}>
+                    <h2 className={styles.pageTitle}>
+                      <Key size={24} />
+                      Integration OAuth Credentials
+                    </h2>
+                  </div>
+                  <p style={{ color: '#94a3b8', marginBottom: '1.5rem' }}>
+                    Configure OAuth Client IDs and Secrets for all integrations. Users will be able to connect their accounts once these are configured.
+                  </p>
+
+                  {loadingIntegrations ? (
+                    <div className={styles.emptyState}>Loading settings...</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      {/* Microsoft/Outlook */}
+                      <div className={styles.card}>
+                        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                          <span style={{ fontSize: '1.5rem' }}>📧</span> Microsoft (Outlook + OneDrive)
+                        </h3>
+                        <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: '1rem' }}>
+                          <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener noreferrer" style={{ color: '#d4af37' }}>Register app in Azure Portal →</a>
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div className={styles.formGroup}>
+                            <label>Client ID</label>
+                            <input type="text" value={integrationSettings.microsoft_client_id?.value || ''} onChange={(e) => updateIntegrationSetting('microsoft_client_id', e.target.value)} placeholder="Enter Client ID" />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Client Secret</label>
+                            <input type="password" value={integrationSettings.microsoft_client_secret?.value || ''} onChange={(e) => updateIntegrationSetting('microsoft_client_secret', e.target.value)} placeholder={integrationSettings.microsoft_client_secret?.isConfigured ? '••••••••' : 'Enter Secret'} />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Redirect URI</label>
+                            <input type="text" value={integrationSettings.microsoft_redirect_uri?.value || ''} onChange={(e) => updateIntegrationSetting('microsoft_redirect_uri', e.target.value)} placeholder="https://your-api/api/integrations/outlook/callback" />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Tenant</label>
+                            <input type="text" value={integrationSettings.microsoft_tenant?.value || 'common'} onChange={(e) => updateIntegrationSetting('microsoft_tenant', e.target.value)} placeholder="common" />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Google */}
+                      <div className={styles.card}>
+                        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                          <span style={{ fontSize: '1.5rem' }}>📅</span> Google (Calendar + Drive)
+                        </h3>
+                        <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: '1rem' }}>
+                          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" style={{ color: '#d4af37' }}>Create credentials in Google Cloud →</a>
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div className={styles.formGroup}>
+                            <label>Client ID</label>
+                            <input type="text" value={integrationSettings.google_client_id?.value || ''} onChange={(e) => updateIntegrationSetting('google_client_id', e.target.value)} placeholder="Enter Client ID" />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Client Secret</label>
+                            <input type="password" value={integrationSettings.google_client_secret?.value || ''} onChange={(e) => updateIntegrationSetting('google_client_secret', e.target.value)} placeholder={integrationSettings.google_client_secret?.isConfigured ? '••••••••' : 'Enter Secret'} />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Redirect URI</label>
+                            <input type="text" value={integrationSettings.google_redirect_uri?.value || ''} onChange={(e) => updateIntegrationSetting('google_redirect_uri', e.target.value)} placeholder="https://your-api/api/integrations/google/callback" />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* QuickBooks */}
+                      <div className={styles.card}>
+                        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                          <span style={{ fontSize: '1.5rem' }}>📊</span> QuickBooks
+                        </h3>
+                        <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: '1rem' }}>
+                          <a href="https://developer.intuit.com/app/developer/dashboard" target="_blank" rel="noopener noreferrer" style={{ color: '#d4af37' }}>Register in Intuit Developer →</a>
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div className={styles.formGroup}>
+                            <label>Client ID</label>
+                            <input type="text" value={integrationSettings.quickbooks_client_id?.value || ''} onChange={(e) => updateIntegrationSetting('quickbooks_client_id', e.target.value)} placeholder="Enter Client ID" />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Client Secret</label>
+                            <input type="password" value={integrationSettings.quickbooks_client_secret?.value || ''} onChange={(e) => updateIntegrationSetting('quickbooks_client_secret', e.target.value)} placeholder={integrationSettings.quickbooks_client_secret?.isConfigured ? '••••••••' : 'Enter Secret'} />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Redirect URI</label>
+                            <input type="text" value={integrationSettings.quickbooks_redirect_uri?.value || ''} onChange={(e) => updateIntegrationSetting('quickbooks_redirect_uri', e.target.value)} placeholder="https://your-api/api/integrations/quickbooks/callback" />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Environment</label>
+                            <select value={integrationSettings.quickbooks_environment?.value || 'sandbox'} onChange={(e) => updateIntegrationSetting('quickbooks_environment', e.target.value)}>
+                              <option value="sandbox">Sandbox</option>
+                              <option value="production">Production</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Dropbox */}
+                      <div className={styles.card}>
+                        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                          <span style={{ fontSize: '1.5rem' }}>📦</span> Dropbox
+                        </h3>
+                        <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: '1rem' }}>
+                          <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noopener noreferrer" style={{ color: '#d4af37' }}>Create app in Dropbox →</a>
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div className={styles.formGroup}>
+                            <label>App Key (Client ID)</label>
+                            <input type="text" value={integrationSettings.dropbox_client_id?.value || ''} onChange={(e) => updateIntegrationSetting('dropbox_client_id', e.target.value)} placeholder="Enter App Key" />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>App Secret</label>
+                            <input type="password" value={integrationSettings.dropbox_client_secret?.value || ''} onChange={(e) => updateIntegrationSetting('dropbox_client_secret', e.target.value)} placeholder={integrationSettings.dropbox_client_secret?.isConfigured ? '••••••••' : 'Enter Secret'} />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Redirect URI</label>
+                            <input type="text" value={integrationSettings.dropbox_redirect_uri?.value || ''} onChange={(e) => updateIntegrationSetting('dropbox_redirect_uri', e.target.value)} placeholder="https://your-api/api/integrations/dropbox/callback" />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* DocuSign */}
+                      <div className={styles.card}>
+                        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                          <span style={{ fontSize: '1.5rem' }}>✍️</span> DocuSign
+                        </h3>
+                        <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: '1rem' }}>
+                          <a href="https://admindemo.docusign.com/apps-and-keys" target="_blank" rel="noopener noreferrer" style={{ color: '#d4af37' }}>Get keys from DocuSign →</a>
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div className={styles.formGroup}>
+                            <label>Integration Key</label>
+                            <input type="text" value={integrationSettings.docusign_client_id?.value || ''} onChange={(e) => updateIntegrationSetting('docusign_client_id', e.target.value)} placeholder="Enter Integration Key" />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Secret Key</label>
+                            <input type="password" value={integrationSettings.docusign_client_secret?.value || ''} onChange={(e) => updateIntegrationSetting('docusign_client_secret', e.target.value)} placeholder={integrationSettings.docusign_client_secret?.isConfigured ? '••••••••' : 'Enter Secret'} />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Redirect URI</label>
+                            <input type="text" value={integrationSettings.docusign_redirect_uri?.value || ''} onChange={(e) => updateIntegrationSetting('docusign_redirect_uri', e.target.value)} placeholder="https://your-api/api/integrations/docusign/callback" />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Environment</label>
+                            <select value={integrationSettings.docusign_environment?.value || 'demo'} onChange={(e) => updateIntegrationSetting('docusign_environment', e.target.value)}>
+                              <option value="demo">Demo</option>
+                              <option value="production">Production</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Slack */}
+                      <div className={styles.card}>
+                        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                          <span style={{ fontSize: '1.5rem' }}>💬</span> Slack
+                        </h3>
+                        <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: '1rem' }}>
+                          <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" style={{ color: '#d4af37' }}>Create app in Slack →</a>
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div className={styles.formGroup}>
+                            <label>Client ID</label>
+                            <input type="text" value={integrationSettings.slack_client_id?.value || ''} onChange={(e) => updateIntegrationSetting('slack_client_id', e.target.value)} placeholder="Enter Client ID" />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Client Secret</label>
+                            <input type="password" value={integrationSettings.slack_client_secret?.value || ''} onChange={(e) => updateIntegrationSetting('slack_client_secret', e.target.value)} placeholder={integrationSettings.slack_client_secret?.isConfigured ? '••••••••' : 'Enter Secret'} />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Redirect URI</label>
+                            <input type="text" value={integrationSettings.slack_redirect_uri?.value || ''} onChange={(e) => updateIntegrationSetting('slack_redirect_uri', e.target.value)} placeholder="https://your-api/api/integrations/slack/callback" />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Zoom */}
+                      <div className={styles.card}>
+                        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                          <span style={{ fontSize: '1.5rem' }}>📹</span> Zoom
+                        </h3>
+                        <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: '1rem' }}>
+                          <a href="https://marketplace.zoom.us/develop/create" target="_blank" rel="noopener noreferrer" style={{ color: '#d4af37' }}>Create app in Zoom Marketplace →</a>
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div className={styles.formGroup}>
+                            <label>Client ID</label>
+                            <input type="text" value={integrationSettings.zoom_client_id?.value || ''} onChange={(e) => updateIntegrationSetting('zoom_client_id', e.target.value)} placeholder="Enter Client ID" />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Client Secret</label>
+                            <input type="password" value={integrationSettings.zoom_client_secret?.value || ''} onChange={(e) => updateIntegrationSetting('zoom_client_secret', e.target.value)} placeholder={integrationSettings.zoom_client_secret?.isConfigured ? '••••••••' : 'Enter Secret'} />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Redirect URI</label>
+                            <input type="text" value={integrationSettings.zoom_redirect_uri?.value || ''} onChange={(e) => updateIntegrationSetting('zoom_redirect_uri', e.target.value)} placeholder="https://your-api/api/integrations/zoom/callback" />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Quicken */}
+                      <div className={styles.card}>
+                        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                          <span style={{ fontSize: '1.5rem' }}>💰</span> Quicken
+                        </h3>
+                        <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: '1rem' }}>
+                          <a href="https://developer.intuit.com/" target="_blank" rel="noopener noreferrer" style={{ color: '#d4af37' }}>Register via Intuit Developer →</a>
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div className={styles.formGroup}>
+                            <label>Client ID</label>
+                            <input type="text" value={integrationSettings.quicken_client_id?.value || ''} onChange={(e) => updateIntegrationSetting('quicken_client_id', e.target.value)} placeholder="Enter Client ID" />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Client Secret</label>
+                            <input type="password" value={integrationSettings.quicken_client_secret?.value || ''} onChange={(e) => updateIntegrationSetting('quicken_client_secret', e.target.value)} placeholder={integrationSettings.quicken_client_secret?.isConfigured ? '••••••••' : 'Enter Secret'} />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Redirect URI</label>
+                            <input type="text" value={integrationSettings.quicken_redirect_uri?.value || ''} onChange={(e) => updateIntegrationSetting('quicken_redirect_uri', e.target.value)} placeholder="https://your-api/api/integrations/quicken/callback" />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Save Button */}
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                        <button onClick={saveIntegrationSettings} disabled={savingIntegrations} className={styles.saveBtn} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          {savingIntegrations ? <RefreshCw size={18} className={styles.spinning} /> : <CheckCircle size={18} />}
+                          {savingIntegrations ? 'Saving...' : 'Save All Settings'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </>
