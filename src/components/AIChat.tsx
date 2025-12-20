@@ -332,26 +332,14 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           <span className={styles.contextPage}>
             {chatContext?.label || currentPage.replace('-', ' ')}
           </span>
-          <div className={styles.toggleGroup}>
-            <button 
-              className={`${styles.modeToggle} ${useAgentMode ? styles.agentMode : ''}`}
-              onClick={() => setUseAgentMode(!useAgentMode)}
-              title={useAgentMode ? "Agent Mode: Can take actions" : "Chat Mode: Read-only"}
-            >
-              <Zap size={14} />
-              {useAgentMode ? 'Agent' : 'Chat'}
-            </button>
-            {useAgentMode && (
-              <button 
-                className={`${styles.modeToggle} ${useBackgroundAgent ? styles.backgroundMode : ''}`}
-                onClick={() => setUseBackgroundAgent(!useBackgroundAgent)}
-                title={useBackgroundAgent ? "Background Agent: ON - Tasks run in background with progress bar" : "Background Agent: OFF - Quick responses"}
-              >
-                <Bot size={14} />
-                {useBackgroundAgent ? 'Background' : 'Quick'}
-              </button>
-            )}
-          </div>
+          <button 
+            className={`${styles.backgroundToggle} ${useBackgroundAgent ? styles.backgroundOn : ''}`}
+            onClick={() => setUseBackgroundAgent(!useBackgroundAgent)}
+            title={useBackgroundAgent ? "Background Agent: ON - Shows progress bar" : "Background Agent: OFF"}
+          >
+            <Bot size={14} />
+            Background Agent
+          </button>
         </div>
 
         {/* Messages */}
