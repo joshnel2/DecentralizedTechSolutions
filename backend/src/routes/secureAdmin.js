@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { query } from '../db/connection.js';
+import { clearPlatformSettingsCache } from './integrations.js';
 
 const router = Router();
 
@@ -998,17 +999,33 @@ router.get('/platform-settings', requireSecureAdmin, async (req, res) => {
 // Update platform settings
 router.put('/platform-settings', requireSecureAdmin, async (req, res) => {
   try {
-    const settings = req.body;
+    let settingsToUpdate = req.body;
 
-    if (!settings || typeof settings !== 'object') {
+    // Handle both formats:
+    // 1. { settings: [{ key, value }, ...] } from frontend
+    // 2. { key1: value1, key2: value2 } direct format
+    if (settingsToUpdate.settings && Array.isArray(settingsToUpdate.settings)) {
+      // Convert array format to object format
+      const converted = {};
+      settingsToUpdate.settings.forEach(item => {
+        if (item.key) {
+          converted[item.key] = item.value;
+        }
+      });
+      settingsToUpdate = converted;
+    }
+
+    if (!settingsToUpdate || typeof settingsToUpdate !== 'object') {
       return res.status(400).json({ error: 'Settings object required' });
     }
 
     const updated = [];
     
-    for (const [key, value] of Object.entries(settings)) {
+    for (const [key, value] of Object.entries(settingsToUpdate)) {
       // Skip masked values (don't overwrite with dots)
       if (value === '••••••••') continue;
+      // Skip 'settings' key if it somehow got through
+      if (key === 'settings') continue;
       
       await query(`
         INSERT INTO platform_settings (key, value)
@@ -1017,6 +1034,13 @@ router.put('/platform-settings', requireSecureAdmin, async (req, res) => {
       `, [key, value || '']);
       
       updated.push(key);
+    }
+
+    // Clear the cache so integrations pick up new values immediately
+    try {
+      clearPlatformSettingsCache();
+    } catch (e) {
+      // Cache clear is optional, continue
     }
 
     logAudit('UPDATE_PLATFORM_SETTINGS', `Updated settings: ${updated.join(', ')}`, req.ip);

@@ -12,7 +12,7 @@ const router = Router();
 
 let settingsCache = null;
 let settingsCacheTime = 0;
-const CACHE_TTL = 60000; // 1 minute cache
+const CACHE_TTL = 5000; // 5 second cache (short for quick updates)
 
 async function getPlatformSettings() {
   const now = Date.now();
@@ -34,6 +34,12 @@ async function getPlatformSettings() {
     console.log('Platform settings table not found, using ENV variables');
     return {};
   }
+}
+
+// Export function to clear cache (called after settings update)
+export function clearPlatformSettingsCache() {
+  settingsCache = null;
+  settingsCacheTime = 0;
 }
 
 async function getCredential(dbKey, envKey, defaultValue = '') {
