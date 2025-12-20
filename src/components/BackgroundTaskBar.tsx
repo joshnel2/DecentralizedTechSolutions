@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Bot, X, CheckCircle, AlertCircle } from 'lucide-react'
 import { aiApi } from '../services/api'
 import styles from './BackgroundTaskBar.module.css'
@@ -14,36 +14,36 @@ interface ActiveTask {
 
 export function BackgroundTaskBar() {
   const [activeTask, setActiveTask] = useState<ActiveTask | null>(null)
-  const [isVisible, setIsVisible] = useState(false)
   const [isComplete, setIsComplete] = useState(false)
   const [hasError, setHasError] = useState(false)
+  const [polling, setPolling] = useState(false)
 
-  // Poll for active task status
-  useEffect(() => {
-    let intervalId: NodeJS.Timeout | null = null
-
-    const checkActiveTask = async () => {
-      try {
-        const response = await aiApi.getActiveTask()
-        if (response.active && response.task) {
-          setActiveTask(response.task)
-          setIsVisible(true)
-          setIsComplete(false)
-          setHasError(false)
-        } else if (activeTask && !response.active) {
-          // Task just completed
-          setIsComplete(true)
-          setTimeout(() => {
-            setIsVisible(false)
-            setActiveTask(null)
-          }, 5000)
-        }
-      } catch (error) {
-        console.error('Error checking active task:', error)
+  // Check task status
+  const checkActiveTask = useCallback(async () => {
+    try {
+      const response = await aiApi.getActiveTask()
+      if (response.active && response.task) {
+        setActiveTask(response.task)
+        setIsComplete(false)
+        setHasError(false)
+      } else if (activeTask && !response.active) {
+        // Task just completed
+        setIsComplete(true)
+        setPolling(false)
+        setTimeout(() => {
+          setActiveTask(null)
+        }, 5000)
+      } else {
+        // No active task
+        setPolling(false)
       }
+    } catch (error) {
+      console.error('Error checking active task:', error)
     }
+  }, [activeTask])
 
-    // Listen for background task started event
+  // Listen for background task started event
+  useEffect(() => {
     const handleTaskStarted = (event: CustomEvent) => {
       setActiveTask({
         id: event.detail.taskId,
@@ -53,33 +53,32 @@ export function BackgroundTaskBar() {
         iterations: 0,
         currentStep: 'Starting...'
       })
-      setIsVisible(true)
       setIsComplete(false)
       setHasError(false)
+      setPolling(true)
     }
 
     window.addEventListener('backgroundTaskStarted', handleTaskStarted as EventListener)
-
-    // Start polling when visible
-    if (isVisible && !isComplete) {
-      intervalId = setInterval(checkActiveTask, 2000)
-    }
-
-    // Initial check
-    checkActiveTask()
-
     return () => {
-      if (intervalId) clearInterval(intervalId)
       window.removeEventListener('backgroundTaskStarted', handleTaskStarted as EventListener)
     }
-  }, [isVisible, isComplete, activeTask])
+  }, [])
+
+  // Poll only when we have an active task
+  useEffect(() => {
+    if (!polling || isComplete) return
+
+    const intervalId = setInterval(checkActiveTask, 2000)
+    return () => clearInterval(intervalId)
+  }, [polling, isComplete, checkActiveTask])
 
   const handleDismiss = () => {
-    setIsVisible(false)
     setActiveTask(null)
+    setPolling(false)
   }
 
-  if (!isVisible || !activeTask) return null
+  // Only render when there's an active task
+  if (!activeTask) return null
 
   return (
     <div className={`${styles.taskBar} ${isComplete ? styles.complete : ''} ${hasError ? styles.error : ''}`}>
