@@ -14,7 +14,7 @@ import matterPermissionsRoutes from './routes/matterPermissions.js';
 import timeEntryRoutes from './routes/timeEntries.js';
 import invoiceRoutes from './routes/invoices.js';
 import calendarRoutes from './routes/calendar.js';
-import documentRoutes from './routes/documents.js';
+import documentRoutes, { extractTextForExistingDocuments } from './routes/documents.js';
 import teamRoutes from './routes/team.js';
 import firmRoutes from './routes/firm.js';
 import aiRoutes from './routes/ai.js';
@@ -157,6 +157,13 @@ app.listen(PORT, () => {
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
   `);
+  
+  // Background task: Extract text from existing documents for AI access
+  setTimeout(() => {
+    extractTextForExistingDocuments().catch(err => {
+      console.error('Background document extraction error:', err);
+    });
+  }, 5000); // Wait 5 seconds after startup
 });
 
 export default app;

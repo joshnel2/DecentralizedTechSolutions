@@ -570,4 +570,57 @@ router.delete('/:id', authenticate, requirePermission('documents:delete'), async
   }
 });
 
+// Background function to extract text from existing documents
+export async function extractTextForExistingDocuments() {
+  try {
+    // Find documents without extracted text (limit to 20 at a time to not overwhelm server)
+    const result = await query(
+      `SELECT id, path, original_name, firm_id FROM documents 
+       WHERE content_text IS NULL 
+         AND external_id IS NULL 
+         AND path IS NOT NULL
+       ORDER BY uploaded_at DESC
+       LIMIT 20`
+    );
+
+    if (result.rows.length === 0) {
+      console.log('📄 Document extraction: All documents already processed');
+      return;
+    }
+
+    console.log(`📄 Document extraction: Processing ${result.rows.length} documents...`);
+    
+    let extracted = 0;
+    let failed = 0;
+
+    for (const doc of result.rows) {
+      try {
+        await fs.access(doc.path);
+        const contentText = await extractTextFromFile(doc.path, doc.original_name);
+        if (contentText) {
+          await query(
+            'UPDATE documents SET content_text = $1, content_extracted_at = NOW() WHERE id = $2',
+            [contentText, doc.id]
+          );
+          extracted++;
+        }
+      } catch (error) {
+        // File might not exist or extraction failed - that's ok
+        failed++;
+      }
+    }
+
+    console.log(`📄 Document extraction complete: ${extracted} extracted, ${failed} skipped`);
+    
+    // If there were documents to process, schedule another batch
+    if (result.rows.length === 20) {
+      setTimeout(() => {
+        extractTextForExistingDocuments().catch(console.error);
+      }, 10000); // Wait 10 seconds before next batch
+    }
+  } catch (error) {
+    console.error('Document extraction error:', error);
+  }
+}
+
 export default router;
