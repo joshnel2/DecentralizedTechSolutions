@@ -438,16 +438,14 @@ export function IntegrationsPage() {
           <h1>Integrations</h1>
           <p>Connect your favorite tools and services</p>
         </div>
-        <div className={styles.headerStats}>
-          <div className={styles.stat}>
-            <span className={styles.statValue}>{connectedCount}</span>
-            <span className={styles.statLabel}>Connected</span>
+{connectedCount > 0 && (
+          <div className={styles.headerStats}>
+            <div className={styles.stat}>
+              <span className={styles.statValue}>{connectedCount}</span>
+              <span className={styles.statLabel}>Connected</span>
+            </div>
           </div>
-          <div className={styles.stat}>
-            <span className={styles.statValue}>{activeIntegrations.length - connectedCount}</span>
-            <span className={styles.statLabel}>Available</span>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Infrastructure Banner */}
