@@ -843,6 +843,49 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "link_email_to_client",
+      description: "Link an email to a client for record keeping.",
+      parameters: {
+        type: "object",
+        properties: {
+          email_id: { type: "string", description: "The ID of the email" },
+          client_id: { type: "string", description: "The client to link the email to" }
+        },
+        required: ["email_id", "client_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_client_communications",
+      description: "Get all emails and communications linked to a specific client.",
+      parameters: {
+        type: "object",
+        properties: {
+          client_id: { type: "string", description: "The client ID" }
+        },
+        required: ["client_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "configure_auto_email_linking",
+      description: "Enable or disable automatic email linking to clients based on email address. When enabled, incoming emails from a client's email address are automatically linked to that client.",
+      parameters: {
+        type: "object",
+        properties: {
+          enabled: { type: "boolean", description: "Whether to enable auto-linking" }
+        },
+        required: ["enabled"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "check_email_integration",
       description: "Check if email (Outlook) integration is connected and working.",
       parameters: {
@@ -1441,7 +1484,10 @@ async function executeTool(toolName, args, user) {
       case 'send_email': return await sendEmail(args, user);
       case 'reply_to_email': return await replyToEmail(args, user);
       case 'link_email_to_matter': return await linkEmailToMatter(args, user);
+      case 'link_email_to_client': return await linkEmailToClient(args, user);
       case 'get_matter_emails': return await getMatterEmails(args, user);
+      case 'get_client_communications': return await getClientCommunications(args, user);
+      case 'configure_auto_email_linking': return await configureAutoEmailLinking(args, user);
       
       // Cloud Storage
       case 'list_cloud_files': return await listCloudFiles(args, user);
@@ -4005,6 +4051,134 @@ async function linkEmailToMatter(args, user) {
   };
 }
 
+async function linkEmailToClient(args, user) {
+  // Verify client exists
+  const clientResult = await query(
+    `SELECT id, display_name FROM clients WHERE id = $1 AND firm_id = $2`,
+    [args.client_id, user.firmId]
+  );
+  
+  if (clientResult.rows.length === 0) {
+    return { error: 'Client not found' };
+  }
+  
+  const client = clientResult.rows[0];
+  
+  // Fetch email details from Outlook
+  const accessToken = await getOutlookAccessToken(user.firmId);
+  let emailDetails = null;
+  
+  if (accessToken) {
+    try {
+      const response = await fetch(
+        `https://graph.microsoft.com/v1.0/me/messages/${args.email_id}?$select=subject,from,toRecipients,receivedDateTime`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      emailDetails = await response.json();
+    } catch (e) {
+      console.error('Failed to fetch email details:', e);
+    }
+  }
+  
+  // Store the email-client link
+  try {
+    await query(`
+      INSERT INTO email_links (firm_id, client_id, email_id, email_provider, subject, from_address, to_addresses, received_at, linked_by)
+      VALUES ($1, $2, $3, 'outlook', $4, $5, $6, $7, $8)
+      ON CONFLICT DO NOTHING
+    `, [
+      user.firmId,
+      args.client_id,
+      args.email_id,
+      emailDetails?.subject || 'Unknown Subject',
+      emailDetails?.from?.emailAddress?.address || null,
+      emailDetails?.toRecipients?.map(r => r.emailAddress?.address) || [],
+      emailDetails?.receivedDateTime || null,
+      user.id
+    ]);
+  } catch (e) {
+    console.error('Error linking email to client:', e);
+  }
+  
+  return {
+    success: true,
+    message: `Email linked to client "${client.display_name}" successfully`,
+    data: {
+      client: client.display_name,
+      subject: emailDetails?.subject || 'Unknown'
+    }
+  };
+}
+
+async function getClientCommunications(args, user) {
+  const { client_id } = args;
+  
+  if (!client_id) {
+    return { error: 'client_id is required' };
+  }
+  
+  // Get client name
+  const clientResult = await query(
+    `SELECT display_name FROM clients WHERE id = $1 AND firm_id = $2`,
+    [client_id, user.firmId]
+  );
+  
+  if (clientResult.rows.length === 0) {
+    return { error: 'Client not found' };
+  }
+  
+  // Get linked emails
+  const result = await query(
+    `SELECT el.*, u.first_name || ' ' || u.last_name as linked_by_name
+     FROM email_links el
+     LEFT JOIN users u ON el.linked_by = u.id
+     WHERE el.firm_id = $1 AND el.client_id = $2
+     ORDER BY el.received_at DESC NULLS LAST
+     LIMIT 50`,
+    [user.firmId, client_id]
+  );
+  
+  return {
+    client: clientResult.rows[0].display_name,
+    communications: result.rows.map(e => ({
+      emailId: e.email_id,
+      subject: e.subject,
+      from: e.from_address,
+      receivedAt: e.received_at,
+      linkedBy: e.linked_by_name,
+      notes: e.notes
+    })),
+    count: result.rows.length
+  };
+}
+
+async function configureAutoEmailLinking(args, user) {
+  const { enabled } = args;
+  
+  // Update the Outlook integration settings
+  const result = await query(
+    `UPDATE integrations 
+     SET settings = jsonb_set(COALESCE(settings, '{}'), '{autoLinkEmails}', $1)
+     WHERE firm_id = $2 AND provider = 'outlook'
+     RETURNING is_connected`,
+    [JSON.stringify(enabled), user.firmId]
+  );
+  
+  if (result.rows.length === 0) {
+    return { 
+      error: 'Outlook integration not found. Please connect Outlook first in Settings > Integrations.' 
+    };
+  }
+  
+  return {
+    success: true,
+    message: enabled 
+      ? 'Auto-email linking is now ENABLED. Emails from your clients will be automatically linked to their profiles.'
+      : 'Auto-email linking is now DISABLED. You can still manually link emails to clients.',
+    autoLinkEmails: enabled
+  };
+}
+
 async function checkEmailIntegration(args, user) {
   const integration = await query(
     `SELECT is_connected, account_email, account_name, last_sync_at FROM integrations WHERE firm_id = $1 AND provider = 'outlook'`,
@@ -5430,7 +5604,11 @@ You have access to tools for:
 - **draft_email**: Create a draft email and save it in Outlook drafts (NOT sent)
 - **send_email**: Send an email immediately from the user's Outlook account
 - **reply_to_email**: Reply to an email (can save as draft or send immediately)
+- **link_email_to_matter**: Link an email to a matter for record keeping
+- **link_email_to_client**: Link an email to a client for record keeping
 - **get_matter_emails**: Get all emails linked to a specific matter
+- **get_client_communications**: Get all emails linked to a specific client
+- **configure_auto_email_linking**: Enable/disable automatic email linking to clients based on email address
 
 ### Outlook Calendar Sync
 - **create_outlook_event**: Create an event in Outlook calendar from Apex

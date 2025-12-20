@@ -800,8 +800,53 @@ router.get('/outlook/emails', authenticate, async (req, res) => {
 
     const emailsData = await emailsResponse.json();
 
+    const emails = emailsData.value || [];
+    
+    // Check for auto-linking setting
+    const settings = integration.rows[0].settings || {};
+    
+    // Auto-link emails to clients based on email address
+    if (settings.autoLinkEmails !== false) {
+      for (const email of emails) {
+        const fromEmail = email.from?.emailAddress?.address?.toLowerCase();
+        if (!fromEmail) continue;
+        
+        // Check if email is already linked
+        const existingLink = await query(
+          `SELECT id FROM email_links WHERE firm_id = $1 AND email_id = $2`,
+          [req.user.firmId, email.id]
+        );
+        
+        if (existingLink.rows.length === 0) {
+          // Find client by email
+          const clientMatch = await query(
+            `SELECT id FROM clients WHERE firm_id = $1 AND LOWER(email) = $2`,
+            [req.user.firmId, fromEmail]
+          );
+          
+          if (clientMatch.rows.length > 0) {
+            // Auto-link this email to the client
+            await query(
+              `INSERT INTO email_links (firm_id, client_id, email_id, email_provider, subject, from_address, received_at, linked_by, notes)
+               VALUES ($1, $2, $3, 'outlook', $4, $5, $6, $7, 'Auto-linked by email address')
+               ON CONFLICT DO NOTHING`,
+              [
+                req.user.firmId,
+                clientMatch.rows[0].id,
+                email.id,
+                email.subject,
+                fromEmail,
+                email.receivedDateTime,
+                req.user.id
+              ]
+            );
+          }
+        }
+      }
+    }
+
     res.json({
-      emails: (emailsData.value || []).map(email => ({
+      emails: emails.map(email => ({
         id: email.id,
         subject: email.subject,
         from: email.from?.emailAddress?.address,
@@ -814,6 +859,42 @@ router.get('/outlook/emails', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Outlook emails error:', error);
     res.status(500).json({ error: 'Failed to fetch emails' });
+  }
+});
+
+// Get client communications (emails linked to client)
+router.get('/client/:clientId/communications', authenticate, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    
+    // Get emails linked to this client
+    const result = await query(
+      `SELECT el.*, u.first_name || ' ' || u.last_name as linked_by_name
+       FROM email_links el
+       LEFT JOIN users u ON el.linked_by = u.id
+       WHERE el.firm_id = $1 AND el.client_id = $2
+       ORDER BY el.received_at DESC NULLS LAST, el.linked_at DESC
+       LIMIT 100`,
+      [req.user.firmId, clientId]
+    );
+    
+    res.json({
+      communications: result.rows.map(e => ({
+        id: e.id,
+        emailId: e.email_id,
+        subject: e.subject,
+        from: e.from_address,
+        receivedAt: e.received_at,
+        linkedAt: e.linked_at,
+        linkedBy: e.linked_by_name,
+        notes: e.notes,
+        provider: e.email_provider
+      })),
+      count: result.rows.length
+    });
+  } catch (error) {
+    console.error('Get client communications error:', error);
+    res.status(500).json({ error: 'Failed to get communications' });
   }
 });
 

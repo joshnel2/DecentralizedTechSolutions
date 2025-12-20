@@ -1235,6 +1235,11 @@ export const integrationsApi = {
   async getZoomMeetings() {
     return fetchWithAuth('/integrations/zoom/meetings');
   },
+
+  // Get client communications
+  async getClientCommunications(clientId: string) {
+    return fetchWithAuth(`/integrations/client/${clientId}/communications`);
+  },
 };
 
 // ============================================

@@ -7,7 +7,7 @@ import {
   Sparkles, Archive, Trash2, X, CheckCircle2, Clock, AlertCircle, ChevronDown,
   TrendingUp, Search, Filter
 } from 'lucide-react'
-import { teamApi } from '../services/api'
+import { teamApi, integrationsApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import { format, parseISO, addDays } from 'date-fns'
 import { parseAsLocalDate, localDateToISO } from '../utils/dateUtils'
@@ -57,6 +57,10 @@ export function ClientDetailPage() {
   const [timeEntriesSearch, setTimeEntriesSearch] = useState('')
   const [timeEntriesFilterStatus, setTimeEntriesFilterStatus] = useState<'all' | 'billed' | 'unbilled'>('all')
   
+  // Communications state
+  const [communications, setCommunications] = useState<any[]>([])
+  const [loadingCommunications, setLoadingCommunications] = useState(false)
+  
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean
@@ -73,6 +77,17 @@ export function ClientDetailPage() {
     type: 'danger',
     onConfirm: () => {}
   })
+
+  // Load communications when tab is active
+  useEffect(() => {
+    if (activeTab === 'communications' && id) {
+      setLoadingCommunications(true)
+      integrationsApi.getClientCommunications(id)
+        .then(data => setCommunications(data.communications || []))
+        .catch(() => setCommunications([]))
+        .finally(() => setLoadingCommunications(false))
+    }
+  }, [activeTab, id])
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -521,7 +536,7 @@ export function ClientDetailPage() {
 
       {/* Tabs */}
       <div className={styles.tabs}>
-        {['overview', 'notes', 'matters', 'time', 'billing', 'documents'].map(tab => (
+        {['overview', 'notes', 'matters', 'time', 'billing', 'documents', 'communications'].map(tab => (
           <button
             key={tab}
             className={clsx(styles.tab, activeTab === tab && styles.active)}
@@ -1007,6 +1022,55 @@ export function ClientDetailPage() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {activeTab === 'communications' && (
+          <div className={styles.documentsTab}>
+            <div className={styles.tabHeader}>
+              <h2>Communications</h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '0.5rem 0 0' }}>
+                Emails from {client.email} are automatically linked here. You can also ask the AI to link specific emails.
+              </p>
+            </div>
+            {loadingCommunications ? (
+              <div className={styles.emptyDocs}>
+                <Mail size={48} />
+                <p>Loading communications...</p>
+              </div>
+            ) : communications.length > 0 ? (
+              <div className={styles.docGrid}>
+                {communications.map((comm: any) => (
+                  <div key={comm.id || comm.emailId} className={styles.docCard}>
+                    <div className={styles.docIcon}>
+                      <Mail size={24} />
+                    </div>
+                    <div className={styles.docInfo}>
+                      <span className={styles.docName}>{comm.subject || '(No Subject)'}</span>
+                      <span className={styles.docMeta}>
+                        From: {comm.from}
+                      </span>
+                      <span className={styles.docMeta}>
+                        {comm.receivedAt ? format(parseISO(comm.receivedAt), 'MMM d, yyyy h:mm a') : 'Date unknown'}
+                      </span>
+                      {comm.notes && (
+                        <span className={styles.docMeta} style={{ fontStyle: 'italic' }}>
+                          {comm.notes}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.emptyDocs}>
+                <Mail size={48} />
+                <p>No communications linked yet</p>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-tertiary)' }}>
+                  Connect Outlook in Settings → Integrations to auto-link emails from this client
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>
