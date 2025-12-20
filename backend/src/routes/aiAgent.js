@@ -308,6 +308,35 @@ const TOOLS = [
       }
     }
   },
+  {
+    type: "function",
+    function: {
+      name: "archive_client",
+      description: "Archive a client to remove them from active lists. Their matters and history are preserved.",
+      parameters: {
+        type: "object",
+        properties: {
+          client_id: { type: "string", description: "UUID of the client" },
+          reason: { type: "string", description: "Reason for archiving" }
+        },
+        required: ["client_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "reactivate_client",
+      description: "Reactivate an archived client.",
+      parameters: {
+        type: "object",
+        properties: {
+          client_id: { type: "string", description: "UUID of the client" }
+        },
+        required: ["client_id"]
+      }
+    }
+  },
 
   // ===================== INVOICES =====================
   {
@@ -404,6 +433,105 @@ const TOOLS = [
           notes: { type: "string", description: "Payment notes" }
         },
         required: ["invoice_id", "amount"]
+      }
+    }
+  },
+
+  // ===================== TASKS =====================
+  {
+    type: "function",
+    function: {
+      name: "create_task",
+      description: "Create a task or to-do item. Can be assigned to a matter, client, or user.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Task title/description" },
+          due_date: { type: "string", description: "Due date (YYYY-MM-DD)" },
+          priority: { type: "string", enum: ["low", "medium", "high", "urgent"], description: "Priority level" },
+          matter_id: { type: "string", description: "Optional: Link to a matter" },
+          client_id: { type: "string", description: "Optional: Link to a client" },
+          assigned_to: { type: "string", description: "Optional: User ID to assign to" },
+          notes: { type: "string", description: "Additional notes" }
+        },
+        required: ["title"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_tasks",
+      description: "Get a list of tasks. Can filter by status, matter, or assignee.",
+      parameters: {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["pending", "in_progress", "completed", "cancelled"] },
+          matter_id: { type: "string", description: "Filter by matter" },
+          assigned_to: { type: "string", description: "Filter by assignee (user ID or 'me')" },
+          due_before: { type: "string", description: "Filter tasks due before this date" },
+          include_completed: { type: "boolean", description: "Include completed tasks (default false)" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "complete_task",
+      description: "Mark a task as completed.",
+      parameters: {
+        type: "object",
+        properties: {
+          task_id: { type: "string", description: "UUID of the task" }
+        },
+        required: ["task_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_task",
+      description: "Update a task.",
+      parameters: {
+        type: "object",
+        properties: {
+          task_id: { type: "string", description: "UUID of the task" },
+          title: { type: "string" },
+          due_date: { type: "string" },
+          priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
+          status: { type: "string", enum: ["pending", "in_progress", "completed", "cancelled"] },
+          assigned_to: { type: "string" },
+          notes: { type: "string" }
+        },
+        required: ["task_id"]
+      }
+    }
+  },
+
+  // ===================== REPORTS =====================
+  {
+    type: "function",
+    function: {
+      name: "generate_report",
+      description: "Generate various reports about firm performance, billing, productivity, etc.",
+      parameters: {
+        type: "object",
+        properties: {
+          report_type: { 
+            type: "string", 
+            enum: ["billing_summary", "time_by_matter", "time_by_user", "revenue", "outstanding_invoices", "matter_status", "productivity", "client_summary"],
+            description: "Type of report to generate"
+          },
+          start_date: { type: "string", description: "Start date (YYYY-MM-DD)" },
+          end_date: { type: "string", description: "End date (YYYY-MM-DD)" },
+          matter_id: { type: "string", description: "Optional: Filter by matter" },
+          client_id: { type: "string", description: "Optional: Filter by client" },
+          user_id: { type: "string", description: "Optional: Filter by user" }
+        },
+        required: ["report_type"]
       }
     }
   },
@@ -1449,11 +1577,16 @@ async function executeTool(toolName, args, user) {
       case 'get_matter': return await getMatter(args, user);
       case 'create_matter': return await createMatter(args, user);
       case 'update_matter': return await updateMatter(args, user);
+      case 'close_matter': return await closeMatter(args, user);
+      case 'archive_matter': return await archiveMatter(args, user);
+      case 'reopen_matter': return await reopenMatter(args, user);
       
       // Clients
       case 'list_clients': return await listClients(args, user);
       case 'get_client': return await getClient(args, user);
       case 'create_client': return await createClient(args, user);
+      case 'archive_client': return await archiveClient(args, user);
+      case 'reactivate_client': return await reactivateClient(args, user);
       case 'update_client': return await updateClient(args, user);
       
       // Invoices
@@ -1462,6 +1595,15 @@ async function executeTool(toolName, args, user) {
       case 'create_invoice': return await createInvoice(args, user);
       case 'send_invoice': return await sendInvoice(args, user);
       case 'record_payment': return await recordPayment(args, user);
+      
+      // Tasks
+      case 'create_task': return await createTask(args, user);
+      case 'list_tasks': return await listTasks(args, user);
+      case 'complete_task': return await completeTask(args, user);
+      case 'update_task': return await updateTask(args, user);
+      
+      // Reports
+      case 'generate_report': return await generateReport(args, user);
       
       // Calendar
       case 'get_calendar_events': return await getCalendarEvents(args, user);
@@ -2031,6 +2173,94 @@ async function updateMatter(args, user) {
   };
 }
 
+async function closeMatter(args, user) {
+  const { matter_id, resolution, closing_notes } = args;
+  
+  const result = await query(
+    `UPDATE matters SET 
+       status = 'closed', 
+       closed_at = NOW(),
+       resolution = COALESCE($2, resolution),
+       closing_notes = COALESCE($3, closing_notes),
+       updated_at = NOW()
+     WHERE id = $1 AND firm_id = $4 
+     RETURNING id, name, number`,
+    [matter_id, resolution, closing_notes, user.firmId]
+  );
+  
+  if (result.rows.length === 0) {
+    return { error: 'Matter not found' };
+  }
+  
+  const matter = result.rows[0];
+  return {
+    success: true,
+    message: `Closed matter "${matter.name}" (${matter.number})${resolution ? ` - ${resolution}` : ''}`,
+    data: { id: matter.id, name: matter.name, status: 'closed', resolution }
+  };
+}
+
+async function archiveMatter(args, user) {
+  const { matter_id } = args;
+  
+  const result = await query(
+    `UPDATE matters SET 
+       status = 'archived', 
+       archived_at = NOW(),
+       updated_at = NOW()
+     WHERE id = $1 AND firm_id = $2 
+     RETURNING id, name, number`,
+    [matter_id, user.firmId]
+  );
+  
+  if (result.rows.length === 0) {
+    return { error: 'Matter not found' };
+  }
+  
+  const matter = result.rows[0];
+  return {
+    success: true,
+    message: `Archived matter "${matter.name}" (${matter.number})`,
+    data: { id: matter.id, name: matter.name, status: 'archived' }
+  };
+}
+
+async function reopenMatter(args, user) {
+  const { matter_id, reason } = args;
+  
+  const result = await query(
+    `UPDATE matters SET 
+       status = 'active', 
+       closed_at = NULL,
+       archived_at = NULL,
+       updated_at = NOW()
+     WHERE id = $1 AND firm_id = $2 
+     RETURNING id, name, number`,
+    [matter_id, user.firmId]
+  );
+  
+  if (result.rows.length === 0) {
+    return { error: 'Matter not found' };
+  }
+  
+  const matter = result.rows[0];
+  
+  // Log the reopening with reason
+  if (reason) {
+    await query(
+      `INSERT INTO matter_notes (matter_id, firm_id, content, created_by, created_at)
+       VALUES ($1, $2, $3, $4, NOW())`,
+      [matter_id, user.firmId, `Matter reopened: ${reason}`, user.id]
+    );
+  }
+  
+  return {
+    success: true,
+    message: `Reopened matter "${matter.name}" (${matter.number})`,
+    data: { id: matter.id, name: matter.name, status: 'active' }
+  };
+}
+
 // =============================================================================
 // CLIENT FUNCTIONS
 // =============================================================================
@@ -2177,6 +2407,54 @@ async function updateClient(args, user) {
     success: true,
     message: `Updated client "${result.rows[0].display_name}"`,
     data: { id: result.rows[0].id, name: result.rows[0].display_name }
+  };
+}
+
+async function archiveClient(args, user) {
+  const { client_id, reason } = args;
+  
+  const result = await query(
+    `UPDATE clients SET 
+       is_active = false,
+       updated_at = NOW()
+     WHERE id = $1 AND firm_id = $2 
+     RETURNING id, display_name`,
+    [client_id, user.firmId]
+  );
+  
+  if (result.rows.length === 0) {
+    return { error: 'Client not found' };
+  }
+  
+  const client = result.rows[0];
+  return {
+    success: true,
+    message: `Archived client "${client.display_name}"${reason ? ` - ${reason}` : ''}`,
+    data: { id: client.id, name: client.display_name, is_active: false }
+  };
+}
+
+async function reactivateClient(args, user) {
+  const { client_id } = args;
+  
+  const result = await query(
+    `UPDATE clients SET 
+       is_active = true,
+       updated_at = NOW()
+     WHERE id = $1 AND firm_id = $2 
+     RETURNING id, display_name`,
+    [client_id, user.firmId]
+  );
+  
+  if (result.rows.length === 0) {
+    return { error: 'Client not found' };
+  }
+  
+  const client = result.rows[0];
+  return {
+    success: true,
+    message: `Reactivated client "${client.display_name}"`,
+    data: { id: client.id, name: client.display_name, is_active: true }
   };
 }
 
@@ -2761,6 +3039,341 @@ async function deleteCalendarEvent(args, user) {
     success: true,
     message: `Deleted event "${existing.rows[0].title}"`
   };
+}
+
+// =============================================================================
+// TASK FUNCTIONS
+// =============================================================================
+async function createTask(args, user) {
+  const { title, due_date, priority = 'medium', matter_id, client_id, assigned_to, notes } = args;
+  
+  if (!title) {
+    return { error: 'Task title is required' };
+  }
+  
+  // Create task in database (uses calendar_events table with type='task' for simplicity)
+  const result = await query(
+    `INSERT INTO calendar_events (firm_id, title, description, start_time, type, matter_id, client_id, priority, status, created_by, assigned_to)
+     VALUES ($1, $2, $3, $4, 'task', $5, $6, $7, 'pending', $8, $9)
+     RETURNING id, title`,
+    [
+      user.firmId,
+      title,
+      notes || null,
+      due_date ? new Date(due_date) : null,
+      matter_id || null,
+      client_id || null,
+      priority,
+      user.id,
+      assigned_to || user.id
+    ]
+  );
+  
+  const task = result.rows[0];
+  return {
+    success: true,
+    message: `Created task "${title}"${due_date ? ` due ${due_date}` : ''}`,
+    data: { id: task.id, title: task.title, due_date, priority }
+  };
+}
+
+async function listTasks(args, user) {
+  const { status, matter_id, assigned_to, due_before, include_completed = false } = args;
+  
+  let sql = `
+    SELECT ce.id, ce.title, ce.description, ce.start_time as due_date, ce.priority, ce.status, 
+           ce.matter_id, m.name as matter_name, ce.client_id, c.display_name as client_name,
+           u.first_name || ' ' || u.last_name as assigned_to_name
+    FROM calendar_events ce
+    LEFT JOIN matters m ON ce.matter_id = m.id
+    LEFT JOIN clients c ON ce.client_id = c.id
+    LEFT JOIN users u ON ce.assigned_to = u.id
+    WHERE ce.firm_id = $1 AND ce.type = 'task'
+  `;
+  const params = [user.firmId];
+  let idx = 2;
+  
+  if (status) {
+    sql += ` AND ce.status = $${idx++}`;
+    params.push(status);
+  } else if (!include_completed) {
+    sql += ` AND ce.status != 'completed'`;
+  }
+  
+  if (matter_id) {
+    sql += ` AND ce.matter_id = $${idx++}`;
+    params.push(matter_id);
+  }
+  
+  if (assigned_to === 'me') {
+    sql += ` AND ce.assigned_to = $${idx++}`;
+    params.push(user.id);
+  } else if (assigned_to) {
+    sql += ` AND ce.assigned_to = $${idx++}`;
+    params.push(assigned_to);
+  }
+  
+  if (due_before) {
+    sql += ` AND ce.start_time <= $${idx++}`;
+    params.push(due_before);
+  }
+  
+  sql += ` ORDER BY ce.start_time ASC NULLS LAST, ce.priority DESC LIMIT 50`;
+  
+  const result = await query(sql, params);
+  
+  return {
+    tasks: result.rows.map(t => ({
+      id: t.id,
+      title: t.title,
+      description: t.description,
+      due_date: t.due_date,
+      priority: t.priority,
+      status: t.status,
+      matter: t.matter_name,
+      client: t.client_name,
+      assigned_to: t.assigned_to_name
+    })),
+    count: result.rows.length
+  };
+}
+
+async function completeTask(args, user) {
+  const { task_id } = args;
+  
+  const result = await query(
+    `UPDATE calendar_events SET status = 'completed', updated_at = NOW()
+     WHERE id = $1 AND firm_id = $2 AND type = 'task'
+     RETURNING id, title`,
+    [task_id, user.firmId]
+  );
+  
+  if (result.rows.length === 0) {
+    return { error: 'Task not found' };
+  }
+  
+  return {
+    success: true,
+    message: `Completed task "${result.rows[0].title}"`,
+    data: { id: result.rows[0].id, status: 'completed' }
+  };
+}
+
+async function updateTask(args, user) {
+  const { task_id, title, due_date, priority, status, assigned_to, notes } = args;
+  
+  const result = await query(
+    `UPDATE calendar_events SET
+       title = COALESCE($1, title),
+       start_time = COALESCE($2, start_time),
+       priority = COALESCE($3, priority),
+       status = COALESCE($4, status),
+       assigned_to = COALESCE($5, assigned_to),
+       description = COALESCE($6, description),
+       updated_at = NOW()
+     WHERE id = $7 AND firm_id = $8 AND type = 'task'
+     RETURNING id, title, status`,
+    [title, due_date ? new Date(due_date) : null, priority, status, assigned_to, notes, task_id, user.firmId]
+  );
+  
+  if (result.rows.length === 0) {
+    return { error: 'Task not found' };
+  }
+  
+  return {
+    success: true,
+    message: `Updated task "${result.rows[0].title}"`,
+    data: result.rows[0]
+  };
+}
+
+// =============================================================================
+// REPORT FUNCTIONS
+// =============================================================================
+async function generateReport(args, user) {
+  const { report_type, start_date, end_date, matter_id, client_id, user_id } = args;
+  
+  const startDt = start_date ? new Date(start_date) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const endDt = end_date ? new Date(end_date) : new Date();
+  
+  switch (report_type) {
+    case 'billing_summary': {
+      const result = await query(`
+        SELECT 
+          COUNT(DISTINCT i.id) as total_invoices,
+          SUM(i.amount) as total_billed,
+          SUM(CASE WHEN i.status = 'paid' THEN i.amount ELSE 0 END) as total_collected,
+          SUM(CASE WHEN i.status IN ('sent', 'overdue') THEN i.amount ELSE 0 END) as outstanding
+        FROM invoices i
+        WHERE i.firm_id = $1 AND i.created_at BETWEEN $2 AND $3
+      `, [user.firmId, startDt, endDt]);
+      
+      return {
+        report: 'Billing Summary',
+        period: { start: startDt.toISOString().split('T')[0], end: endDt.toISOString().split('T')[0] },
+        data: {
+          total_invoices: parseInt(result.rows[0].total_invoices) || 0,
+          total_billed: parseFloat(result.rows[0].total_billed) || 0,
+          total_collected: parseFloat(result.rows[0].total_collected) || 0,
+          outstanding: parseFloat(result.rows[0].outstanding) || 0
+        }
+      };
+    }
+    
+    case 'time_by_matter': {
+      const result = await query(`
+        SELECT m.name as matter_name, m.number as matter_number,
+               SUM(te.duration_minutes) as total_minutes,
+               SUM(te.duration_minutes * te.rate / 60) as total_value,
+               COUNT(te.id) as entry_count
+        FROM time_entries te
+        JOIN matters m ON te.matter_id = m.id
+        WHERE te.firm_id = $1 AND te.date BETWEEN $2 AND $3
+        GROUP BY m.id, m.name, m.number
+        ORDER BY total_minutes DESC
+        LIMIT 20
+      `, [user.firmId, startDt, endDt]);
+      
+      return {
+        report: 'Time by Matter',
+        period: { start: startDt.toISOString().split('T')[0], end: endDt.toISOString().split('T')[0] },
+        data: result.rows.map(r => ({
+          matter: `${r.matter_number} - ${r.matter_name}`,
+          hours: (parseInt(r.total_minutes) / 60).toFixed(1),
+          value: parseFloat(r.total_value) || 0,
+          entries: parseInt(r.entry_count)
+        }))
+      };
+    }
+    
+    case 'time_by_user': {
+      const result = await query(`
+        SELECT u.first_name || ' ' || u.last_name as user_name,
+               SUM(te.duration_minutes) as total_minutes,
+               SUM(te.duration_minutes * te.rate / 60) as total_value,
+               COUNT(te.id) as entry_count
+        FROM time_entries te
+        JOIN users u ON te.user_id = u.id
+        WHERE te.firm_id = $1 AND te.date BETWEEN $2 AND $3
+        GROUP BY u.id, u.first_name, u.last_name
+        ORDER BY total_minutes DESC
+      `, [user.firmId, startDt, endDt]);
+      
+      return {
+        report: 'Time by User',
+        period: { start: startDt.toISOString().split('T')[0], end: endDt.toISOString().split('T')[0] },
+        data: result.rows.map(r => ({
+          user: r.user_name,
+          hours: (parseInt(r.total_minutes) / 60).toFixed(1),
+          value: parseFloat(r.total_value) || 0,
+          entries: parseInt(r.entry_count)
+        }))
+      };
+    }
+    
+    case 'outstanding_invoices': {
+      const result = await query(`
+        SELECT i.invoice_number, c.display_name as client, i.amount, i.due_date, i.status,
+               CURRENT_DATE - i.due_date as days_overdue
+        FROM invoices i
+        LEFT JOIN clients c ON i.client_id = c.id
+        WHERE i.firm_id = $1 AND i.status IN ('sent', 'overdue', 'partial')
+        ORDER BY i.due_date ASC
+        LIMIT 50
+      `, [user.firmId]);
+      
+      return {
+        report: 'Outstanding Invoices',
+        data: result.rows.map(r => ({
+          invoice: r.invoice_number,
+          client: r.client,
+          amount: parseFloat(r.amount),
+          due_date: r.due_date,
+          status: r.status,
+          days_overdue: parseInt(r.days_overdue) > 0 ? parseInt(r.days_overdue) : 0
+        })),
+        total_outstanding: result.rows.reduce((sum, r) => sum + parseFloat(r.amount), 0)
+      };
+    }
+    
+    case 'matter_status': {
+      const result = await query(`
+        SELECT status, COUNT(*) as count
+        FROM matters
+        WHERE firm_id = $1
+        GROUP BY status
+        ORDER BY count DESC
+      `, [user.firmId]);
+      
+      return {
+        report: 'Matter Status Overview',
+        data: result.rows.map(r => ({
+          status: r.status,
+          count: parseInt(r.count)
+        })),
+        total: result.rows.reduce((sum, r) => sum + parseInt(r.count), 0)
+      };
+    }
+    
+    case 'productivity': {
+      const timeResult = await query(`
+        SELECT 
+          SUM(duration_minutes) as total_minutes,
+          SUM(CASE WHEN is_billable THEN duration_minutes ELSE 0 END) as billable_minutes,
+          COUNT(DISTINCT date) as active_days
+        FROM time_entries
+        WHERE firm_id = $1 AND date BETWEEN $2 AND $3
+      `, [user.firmId, startDt, endDt]);
+      
+      const matterResult = await query(`
+        SELECT COUNT(*) as new_matters
+        FROM matters
+        WHERE firm_id = $1 AND created_at BETWEEN $2 AND $3
+      `, [user.firmId, startDt, endDt]);
+      
+      const t = timeResult.rows[0];
+      return {
+        report: 'Productivity Report',
+        period: { start: startDt.toISOString().split('T')[0], end: endDt.toISOString().split('T')[0] },
+        data: {
+          total_hours: ((parseInt(t.total_minutes) || 0) / 60).toFixed(1),
+          billable_hours: ((parseInt(t.billable_minutes) || 0) / 60).toFixed(1),
+          billable_percentage: t.total_minutes > 0 ? ((t.billable_minutes / t.total_minutes) * 100).toFixed(1) + '%' : '0%',
+          active_days: parseInt(t.active_days) || 0,
+          new_matters: parseInt(matterResult.rows[0].new_matters) || 0
+        }
+      };
+    }
+    
+    case 'client_summary': {
+      const result = await query(`
+        SELECT c.display_name as client,
+               COUNT(DISTINCT m.id) as matter_count,
+               SUM(i.amount) as total_billed,
+               SUM(CASE WHEN i.status = 'paid' THEN i.amount ELSE 0 END) as total_paid
+        FROM clients c
+        LEFT JOIN matters m ON c.id = m.client_id
+        LEFT JOIN invoices i ON c.id = i.client_id
+        WHERE c.firm_id = $1 AND c.is_active = true
+        GROUP BY c.id, c.display_name
+        ORDER BY total_billed DESC NULLS LAST
+        LIMIT 20
+      `, [user.firmId]);
+      
+      return {
+        report: 'Client Summary',
+        data: result.rows.map(r => ({
+          client: r.client,
+          matters: parseInt(r.matter_count) || 0,
+          total_billed: parseFloat(r.total_billed) || 0,
+          total_paid: parseFloat(r.total_paid) || 0
+        }))
+      };
+    }
+    
+    default:
+      return { error: `Unknown report type: ${report_type}` };
+  }
 }
 
 // =============================================================================
@@ -5627,13 +6240,15 @@ You have access to tools for:
 
 ### Data Management
 - **Time Entries**: Log time, view/edit/delete entries
-- **Matters**: Create, view, update, search matters
-- **Clients**: Create, view, update, search clients
+- **Matters**: Create, view, update, search, close, archive, reopen matters
+- **Clients**: Create, view, update, search, archive, reactivate clients
 - **Invoices**: Create, view, send invoices, record payments
+- **Tasks**: Create, view, update, complete tasks assigned to matters/clients/users
 - **Calendar**: Create, view, update, delete events and meetings
 - **Documents**: View document information
 - **Expenses**: Create and view expenses
 - **Team**: View team members
+- **Reports**: Generate billing, productivity, time, and client reports
 - **Analytics**: View firm stats (admin only) and personal stats
 
 ### Matter Permissions & Sharing
@@ -5704,6 +6319,31 @@ When a user asks about their "invoices", "documents", or "calendar", this INCLUD
 - **get_quicken_summary**: Get financial summary from Quicken
 - **get_quicken_transactions**: Get recent transactions
 - **get_quicken_accounts**: Get account balances
+
+### Matter Lifecycle Management
+- **close_matter**: Close a matter (optionally with resolution like 'Settled', 'Won', 'Lost', 'Dismissed')
+- **archive_matter**: Archive a closed matter to remove from active lists
+- **reopen_matter**: Reopen a closed or archived matter
+
+### Client Management
+- **archive_client**: Archive a client to remove from active lists (history preserved)
+- **reactivate_client**: Reactivate an archived client
+
+### Task Management
+- **create_task**: Create tasks/to-dos linked to matters, clients, or users
+- **list_tasks**: Get tasks with filters (status, matter, assignee, due date)
+- **complete_task**: Mark a task as complete
+- **update_task**: Update task details, priority, assignee, etc.
+
+### Reports & Analytics
+- **generate_report**: Generate various reports:
+  - billing_summary: Total billed, collected, and outstanding amounts
+  - time_by_matter: Hours logged per matter
+  - time_by_user: Hours logged per team member
+  - outstanding_invoices: All unpaid invoices with aging
+  - matter_status: Overview of matters by status
+  - productivity: Overall firm productivity metrics
+  - client_summary: Client billing and matter overview
 
 ### Navigation (Opening Pages & Records)
 - **navigate_to_page**: Open pages like matters, clients, calendar, billing, time tracking, etc.
@@ -5778,7 +6418,72 @@ Only the following can change visibility or share a matter:
 ## Current User
 - Role: {{USER_ROLE}}
 - Firm data is isolated - you can only access this firm's data
-- Non-admins can only access matters they're assigned to`;
+- Non-admins can only access matters they're assigned to
+
+## AI Attorney Vision
+As an AI assistant, you can perform virtually ANY action that a human attorney or paralegal could do in this system:
+
+### Case/Matter Lifecycle
+- Open new matters for clients
+- Close matters with resolution (Settled, Won, Lost, Dismissed)
+- Archive completed matters
+- Reopen matters if needed
+- Update matter details, status, priority
+
+### Client Management
+- Create and update client records
+- Archive inactive clients
+- Reactivate clients when needed
+- Link communications to clients
+
+### Billing & Financial
+- Create and send invoices
+- Record payments received
+- Generate billing reports
+- View outstanding balances
+- Access QuickBooks data when integrated
+
+### Time Management
+- Log time entries to matters
+- Edit time entries
+- View time by matter, user, or date range
+- Generate time reports
+
+### Task Management
+- Create tasks linked to matters/clients
+- Assign tasks to team members
+- Set priorities and due dates
+- Mark tasks complete
+
+### Calendar & Scheduling
+- Create meetings and events
+- Sync with Outlook/Google Calendar
+- View upcoming appointments
+
+### Documents
+- View documents from local storage and cloud integrations
+- Access synced files from OneDrive, Google Drive, Dropbox
+
+### Communications
+- Read and search emails (when Outlook connected)
+- Draft and send emails
+- Link emails to matters and clients
+- Auto-link incoming emails to clients
+
+### Reporting & Analytics
+- Generate billing summaries
+- Time tracking reports by matter/user
+- Outstanding invoice aging
+- Matter status overviews
+- Productivity metrics
+- Client revenue summaries
+
+### Team Collaboration
+- View team members
+- Share matters with team members
+- Manage matter permissions
+
+Always act professionally, confirm important actions, and provide clear summaries of what was done.`;
 }
 
 // =============================================================================

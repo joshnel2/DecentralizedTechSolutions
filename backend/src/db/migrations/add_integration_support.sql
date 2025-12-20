@@ -178,5 +178,50 @@ EXCEPTION WHEN OTHERS THEN
     NULL;
 END $$;
 
+-- 6. Add task/assignment columns to calendar_events for task management
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'calendar_events' AND column_name = 'priority') THEN
+        ALTER TABLE calendar_events ADD COLUMN priority VARCHAR(20) DEFAULT 'medium';
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'calendar_events' AND column_name = 'assigned_to') THEN
+        ALTER TABLE calendar_events ADD COLUMN assigned_to UUID REFERENCES users(id);
+    END IF;
+END $$;
+
+-- 7. Add matter lifecycle columns (closed_at, archived_at, resolution, closing_notes)
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'matters' AND column_name = 'closed_at') THEN
+        ALTER TABLE matters ADD COLUMN closed_at TIMESTAMP WITH TIME ZONE;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'matters' AND column_name = 'archived_at') THEN
+        ALTER TABLE matters ADD COLUMN archived_at TIMESTAMP WITH TIME ZONE;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'matters' AND column_name = 'resolution') THEN
+        ALTER TABLE matters ADD COLUMN resolution VARCHAR(100);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'matters' AND column_name = 'closing_notes') THEN
+        ALTER TABLE matters ADD COLUMN closing_notes TEXT;
+    END IF;
+END $$;
+
+-- 8. Create matter_notes table if not exists (for logging reopening, etc.)
+CREATE TABLE IF NOT EXISTS matter_notes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    matter_id UUID REFERENCES matters(id) ON DELETE CASCADE,
+    firm_id UUID REFERENCES firms(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    note_type VARCHAR(50) DEFAULT 'general',
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_matter_notes_matter_id ON matter_notes(matter_id);
+
 -- Done!
 SELECT 'Integration support migration completed!' as status;
