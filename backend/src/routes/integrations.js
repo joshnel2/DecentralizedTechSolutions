@@ -213,6 +213,10 @@ router.post('/google/sync', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Google not connected' });
     }
 
+    // Get credentials
+    const GOOGLE_CLIENT_ID = await getCredential('google_client_id', 'GOOGLE_CLIENT_ID');
+    const GOOGLE_CLIENT_SECRET = await getCredential('google_client_secret', 'GOOGLE_CLIENT_SECRET');
+
     let accessToken = integration.rows[0].access_token;
     const refreshToken = integration.rows[0].refresh_token;
 
@@ -297,15 +301,14 @@ router.post('/google/sync', authenticate, async (req, res) => {
 // QUICKBOOKS INTEGRATION
 // ============================================
 
-const QB_CLIENT_ID = process.env.QUICKBOOKS_CLIENT_ID;
-const QB_CLIENT_SECRET = process.env.QUICKBOOKS_CLIENT_SECRET;
-const QB_REDIRECT_URI = process.env.QUICKBOOKS_REDIRECT_URI || 'http://localhost:3001/api/integrations/quickbooks/callback';
-const QB_ENVIRONMENT = process.env.QUICKBOOKS_ENVIRONMENT || 'sandbox'; // 'sandbox' or 'production'
-
 // Initiate QuickBooks OAuth
-router.get('/quickbooks/connect', authenticate, (req, res) => {
+router.get('/quickbooks/connect', authenticate, async (req, res) => {
+  const QB_CLIENT_ID = await getCredential('quickbooks_client_id', 'QUICKBOOKS_CLIENT_ID');
+  const QB_REDIRECT_URI = await getCredential('quickbooks_redirect_uri', 'QUICKBOOKS_REDIRECT_URI', 'http://localhost:3001/api/integrations/quickbooks/callback');
+  const QB_ENVIRONMENT = await getCredential('quickbooks_environment', 'QUICKBOOKS_ENVIRONMENT', 'sandbox');
+
   if (!QB_CLIENT_ID) {
-    return res.status(500).json({ error: 'QuickBooks integration not configured' });
+    return res.status(500).json({ error: 'QuickBooks integration not configured. Please configure in Admin Portal.' });
   }
 
   const state = Buffer.from(JSON.stringify({
@@ -315,9 +318,7 @@ router.get('/quickbooks/connect', authenticate, (req, res) => {
   })).toString('base64');
 
   const scopes = 'com.intuit.quickbooks.accounting';
-  const baseUrl = QB_ENVIRONMENT === 'production' 
-    ? 'https://appcenter.intuit.com/connect/oauth2'
-    : 'https://appcenter.intuit.com/connect/oauth2';
+  const baseUrl = 'https://appcenter.intuit.com/connect/oauth2';
 
   const authUrl = `${baseUrl}?` +
     `client_id=${QB_CLIENT_ID}` +
@@ -337,6 +338,12 @@ router.get('/quickbooks/callback', async (req, res) => {
     if (!code || !state) {
       return res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?error=missing_params`);
     }
+
+    // Get credentials
+    const QB_CLIENT_ID = await getCredential('quickbooks_client_id', 'QUICKBOOKS_CLIENT_ID');
+    const QB_CLIENT_SECRET = await getCredential('quickbooks_client_secret', 'QUICKBOOKS_CLIENT_SECRET');
+    const QB_REDIRECT_URI = await getCredential('quickbooks_redirect_uri', 'QUICKBOOKS_REDIRECT_URI', 'http://localhost:3001/api/integrations/quickbooks/callback');
+    const QB_ENVIRONMENT = await getCredential('quickbooks_environment', 'QUICKBOOKS_ENVIRONMENT', 'sandbox');
 
     const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
     const { firmId, userId } = stateData;
@@ -430,6 +437,11 @@ router.post('/quickbooks/sync', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'QuickBooks not connected' });
     }
 
+    // Get credentials
+    const QB_CLIENT_ID = await getCredential('quickbooks_client_id', 'QUICKBOOKS_CLIENT_ID');
+    const QB_CLIENT_SECRET = await getCredential('quickbooks_client_secret', 'QUICKBOOKS_CLIENT_SECRET');
+    const QB_ENVIRONMENT = await getCredential('quickbooks_environment', 'QUICKBOOKS_ENVIRONMENT', 'sandbox');
+
     const { access_token, refresh_token, settings } = integration.rows[0];
     const { realmId } = settings || {};
 
@@ -514,15 +526,14 @@ router.post('/quickbooks/sync', authenticate, async (req, res) => {
 // OUTLOOK/MICROSOFT INTEGRATION
 // ============================================
 
-const MS_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
-const MS_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
-const MS_REDIRECT_URI = process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:3001/api/integrations/outlook/callback';
-const MS_TENANT = process.env.MICROSOFT_TENANT || 'common';
-
 // Initiate Microsoft OAuth
-router.get('/outlook/connect', authenticate, (req, res) => {
+router.get('/outlook/connect', authenticate, async (req, res) => {
+  const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
+  const MS_REDIRECT_URI = await getCredential('microsoft_redirect_uri', 'MICROSOFT_REDIRECT_URI', 'http://localhost:3001/api/integrations/outlook/callback');
+  const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
+
   if (!MS_CLIENT_ID) {
-    return res.status(500).json({ error: 'Microsoft integration not configured' });
+    return res.status(500).json({ error: 'Microsoft integration not configured. Please configure in Admin Portal.' });
   }
 
   const state = Buffer.from(JSON.stringify({
@@ -560,6 +571,12 @@ router.get('/outlook/callback', async (req, res) => {
     if (!code || !state) {
       return res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?error=missing_params`);
     }
+
+    // Get credentials
+    const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
+    const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
+    const MS_REDIRECT_URI = await getCredential('microsoft_redirect_uri', 'MICROSOFT_REDIRECT_URI', 'http://localhost:3001/api/integrations/outlook/callback');
+    const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
 
     const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
     const { firmId, userId } = stateData;
