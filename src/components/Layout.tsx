@@ -7,6 +7,7 @@ import { useTemplateStore } from '../stores/templateStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
 import { AIChat } from './AIChat'
+import { BackgroundTaskBar } from './BackgroundTaskBar'
 import { integrationsApi } from '../services/api'
 import { 
   LayoutDashboard, Briefcase, Users, Calendar, DollarSign, 
@@ -464,6 +465,9 @@ export function Layout() {
         isOpen={aiChatOpen} 
         onClose={closeChat} 
       />
+      
+      {/* Global background task progress bar */}
+      <BackgroundTaskBar />
     </div>
   )
 }

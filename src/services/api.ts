@@ -731,6 +731,18 @@ export const aiApi = {
       body: JSON.stringify({ message, conversationHistory, fileContext }),
     });
   },
+  
+  async getActiveTask() {
+    return fetchWithAuth('/v1/agent/tasks/active/current');
+  },
+  
+  async getTask(taskId: string) {
+    return fetchWithAuth(`/v1/agent/tasks/${taskId}`);
+  },
+  
+  async getTasks() {
+    return fetchWithAuth('/v1/agent/tasks');
+  },
 
   async getSuggestions(page: string) {
     return fetchWithAuth(`/ai/suggestions?page=${page}`);

@@ -30,6 +30,8 @@ interface Message {
   content: string
   timestamp: Date
   toolsUsed?: boolean  // Indicates if AI took an action
+  backgroundTaskStarted?: boolean  // Indicates if background task was started
+  backgroundTask?: { taskId: string; goal: string }
   navigation?: NavigationInfo  // Navigation command from AI
   attachedFile?: { name: string; type: string }  // File that was attached
 }
@@ -243,10 +245,19 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         content: response.response,
         timestamp: new Date(),
         toolsUsed: response.toolsUsed,
+        backgroundTaskStarted: response.backgroundTaskStarted,
+        backgroundTask: response.backgroundTask,
         navigation: response.navigation,
       }
 
       setMessages(prev => [...prev, assistantMessage])
+      
+      // If background task started, trigger global progress bar
+      if (response.backgroundTaskStarted) {
+        window.dispatchEvent(new CustomEvent('backgroundTaskStarted', { 
+          detail: response.backgroundTask 
+        }));
+      }
       
       // If there's a navigation command, set it as pending so user can click to navigate
       if (response.navigation) {
@@ -382,7 +393,12 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
                             <span>{message.attachedFile.name}</span>
                           </div>
                         )}
-                        {message.toolsUsed && (
+                        {message.backgroundTaskStarted && (
+                          <div className={styles.backgroundAgentDeployed}>
+                            <Zap size={12} /> Background Agent Deployed
+                          </div>
+                        )}
+                        {message.toolsUsed && !message.backgroundTaskStarted && (
                           <div className={styles.actionTaken}>
                             <Zap size={12} /> Action taken
                           </div>

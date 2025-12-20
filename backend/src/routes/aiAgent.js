@@ -842,6 +842,24 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "start_background_task",
+      description: "Use this to start a complex task that will run in the background. The user can continue using the app while you work. Use for tasks that require many steps like 'review this case', 'prepare for trial', 'analyze all documents'.",
+      parameters: {
+        type: "object",
+        properties: {
+          goal: { type: "string", description: "The goal/task to accomplish" },
+          plan: { type: "array", items: { type: "string" }, description: "List of steps you'll take" },
+          estimated_steps: { type: "number", description: "Estimated number of actions needed" },
+          matter_id: { type: "string", description: "Optional: Related matter ID" },
+          client_id: { type: "string", description: "Optional: Related client ID" }
+        },
+        required: ["goal", "plan"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "think_and_plan",
       description: "Use this to think through a complex task and create a plan. Call this FIRST when given a complex goal. Break down the goal into steps you'll take.",
       parameters: {
@@ -1797,6 +1815,7 @@ async function executeTool(toolName, args, user, req = null) {
       case 'add_matter_note': return await addMatterNote(args, user);
       
       // Autonomous Agent Tools
+      case 'start_background_task': return await startBackgroundTask(args, user);
       case 'think_and_plan': return await thinkAndPlan(args, user);
       case 'evaluate_progress': return await evaluateProgress(args, user);
       case 'task_complete': return await taskComplete(args, user);
@@ -4389,6 +4408,200 @@ async function addMatterNote(args, user) {
 // =============================================================================
 
 // These tools help the AI work on complex, multi-step tasks autonomously
+
+// In-memory task queue for background processing
+const activeTasks = new Map();
+
+async function startBackgroundTask(args, user) {
+  const { goal, plan, estimated_steps, matter_id, client_id } = args;
+  
+  try {
+    // Create task in database
+    const result = await query(
+      `INSERT INTO ai_tasks (firm_id, user_id, goal, status, plan, max_iterations, context)
+       VALUES ($1, $2, $3, 'running', $4, $5, $6)
+       RETURNING id`,
+      [
+        user.firmId, 
+        user.id, 
+        goal, 
+        JSON.stringify(plan || []),
+        Math.min((estimated_steps || 50) * 2, 100),
+        JSON.stringify({ matter_id, client_id })
+      ]
+    );
+    
+    const taskId = result.rows[0].id;
+    
+    // Start background processing
+    processBackgroundTask(taskId, user, goal, plan);
+    
+    return {
+      status: 'started',
+      task_id: taskId,
+      message: `Background task started. I'll work on: ${goal}`,
+      goal,
+      plan,
+      estimated_steps: estimated_steps || plan?.length || 10,
+      _background_task_started: true
+    };
+  } catch (error) {
+    console.error('Error starting background task:', error);
+    return { error: 'Failed to start background task: ' + error.message };
+  }
+}
+
+// Background task processor
+async function processBackgroundTask(taskId, user, goal, plan) {
+  console.log(`[BACKGROUND] Starting task ${taskId}: ${goal}`);
+  
+  const startTime = Date.now();
+  const maxRuntime = 10 * 60 * 1000; // 10 minutes max
+  let iterations = 0;
+  const maxIterations = 100;
+  let progress = [];
+  
+  try {
+    // Update status to running
+    await query(
+      `UPDATE ai_tasks SET status = 'running', started_at = NOW() WHERE id = $1`,
+      [taskId]
+    );
+    
+    // Build the initial prompt
+    const systemPrompt = getSystemPrompt()
+      .replace('{{USER_ROLE}}', user.role || 'staff')
+      .replace('{{USER_NAME}}', `${user.firstName || ''} ${user.lastName || ''}`);
+    
+    let messages = [
+      { role: 'system', content: systemPrompt },
+      { 
+        role: 'user', 
+        content: `You are working on a BACKGROUND TASK. Complete it fully before calling task_complete.
+
+GOAL: ${goal}
+
+PLAN:
+${(plan || []).map((step, i) => `${i + 1}. ${step}`).join('\n')}
+
+Work through each step. Use tools to gather information and take actions. After each significant action, use log_work to track progress. When you've completed ALL steps, use task_complete to finish.
+
+Start now. Do the first step.`
+      }
+    ];
+    
+    let response = await callAzureOpenAIWithTools(messages, TOOLS);
+    let taskCompleted = false;
+    let lastProgress = '';
+    let stuckCount = 0;
+    
+    while (!taskCompleted && iterations < maxIterations && (Date.now() - startTime) < maxRuntime) {
+      iterations++;
+      
+      if (!response.tool_calls) {
+        // AI responded without tools - might be done or stuck
+        if (response.content?.toLowerCase().includes('complete') || 
+            response.content?.toLowerCase().includes('finished')) {
+          taskCompleted = true;
+          break;
+        }
+        
+        // Prompt it to continue
+        messages.push({ role: 'assistant', content: response.content });
+        messages.push({ role: 'user', content: 'Continue with the next step. Use tools to take action.' });
+        response = await callAzureOpenAIWithTools(messages, TOOLS);
+        continue;
+      }
+      
+      // Process tool calls
+      messages.push({
+        role: 'assistant',
+        content: response.content || null,
+        tool_calls: response.tool_calls
+      });
+      
+      for (const toolCall of response.tool_calls) {
+        const functionName = toolCall.function.name;
+        let functionArgs;
+        try {
+          functionArgs = JSON.parse(toolCall.function.arguments);
+        } catch (e) {
+          functionArgs = {};
+        }
+        
+        console.log(`[BACKGROUND ${taskId}] Tool: ${functionName}`);
+        const result = await executeTool(functionName, functionArgs, user, null);
+        
+        // Track progress
+        const progressEntry = {
+          iteration: iterations,
+          tool: functionName,
+          timestamp: new Date().toISOString()
+        };
+        progress.push(progressEntry);
+        
+        // Check for completion
+        if (result._task_complete) {
+          taskCompleted = true;
+          progress.push({ 
+            iteration: iterations, 
+            status: 'completed', 
+            summary: result.summary,
+            timestamp: new Date().toISOString()
+          });
+        }
+        
+        // Stuck detection
+        const currentProgress = JSON.stringify({ tool: functionName, args: functionArgs });
+        if (currentProgress === lastProgress) {
+          stuckCount++;
+          if (stuckCount >= 3) {
+            console.log(`[BACKGROUND ${taskId}] Stuck detected, finishing`);
+            taskCompleted = true;
+            progress.push({ iteration: iterations, status: 'stuck', timestamp: new Date().toISOString() });
+            break;
+          }
+        } else {
+          stuckCount = 0;
+          lastProgress = currentProgress;
+        }
+        
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(result)
+        });
+        
+        // Update progress in database
+        await query(
+          `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
+          [iterations, JSON.stringify(progress), taskId]
+        );
+      }
+      
+      if (!taskCompleted) {
+        response = await callAzureOpenAIWithTools(messages, TOOLS);
+      }
+    }
+    
+    // Mark task complete
+    const finalStatus = taskCompleted ? 'completed' : (iterations >= maxIterations ? 'max_iterations' : 'timeout');
+    await query(
+      `UPDATE ai_tasks SET status = $1, completed_at = NOW(), iterations = $2, progress = $3, 
+       result = $4 WHERE id = $5`,
+      [finalStatus, iterations, JSON.stringify(progress), response.content || 'Task completed', taskId]
+    );
+    
+    console.log(`[BACKGROUND] Task ${taskId} finished with status: ${finalStatus}`);
+    
+  } catch (error) {
+    console.error(`[BACKGROUND] Task ${taskId} error:`, error);
+    await query(
+      `UPDATE ai_tasks SET status = 'error', error = $1, completed_at = NOW() WHERE id = $2`,
+      [error.message, taskId]
+    );
+  }
+}
 
 async function thinkAndPlan(args, user) {
   const { goal, analysis, steps, information_needed } = args;
@@ -7234,6 +7447,110 @@ Always act professionally, confirm important actions, and provide clear summarie
 // =============================================================================
 // MAIN CHAT ENDPOINT
 // =============================================================================
+// =============================================================================
+// BACKGROUND TASK STATUS ENDPOINTS
+// =============================================================================
+
+// Get all active/recent tasks for the user
+router.get('/tasks', authenticate, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT id, goal, status, plan, progress, iterations, max_iterations, 
+              created_at, started_at, completed_at, result, error
+       FROM ai_tasks 
+       WHERE user_id = $1 
+       ORDER BY created_at DESC 
+       LIMIT 20`,
+      [req.user.id]
+    );
+    
+    res.json({ tasks: result.rows });
+  } catch (error) {
+    console.error('Error fetching tasks:', error);
+    res.status(500).json({ error: 'Failed to fetch tasks' });
+  }
+});
+
+// Get specific task status
+router.get('/tasks/:taskId', authenticate, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT id, goal, status, plan, progress, iterations, max_iterations,
+              created_at, started_at, completed_at, result, error
+       FROM ai_tasks 
+       WHERE id = $1 AND user_id = $2`,
+      [req.params.taskId, req.user.id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    const task = result.rows[0];
+    
+    // Calculate progress percentage
+    let progressPercent = 0;
+    if (task.status === 'completed') {
+      progressPercent = 100;
+    } else if (task.status === 'running') {
+      const planSteps = task.plan?.length || 10;
+      const completedSteps = task.progress?.length || 0;
+      progressPercent = Math.min(Math.round((completedSteps / planSteps) * 100), 95);
+    }
+    
+    res.json({ 
+      task: {
+        ...task,
+        progressPercent
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching task:', error);
+    res.status(500).json({ error: 'Failed to fetch task' });
+  }
+});
+
+// Get active tasks (for the progress bar)
+router.get('/tasks/active/current', authenticate, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT id, goal, status, plan, progress, iterations, max_iterations, created_at
+       FROM ai_tasks 
+       WHERE user_id = $1 AND status = 'running'
+       ORDER BY created_at DESC 
+       LIMIT 1`,
+      [req.user.id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.json({ active: false });
+    }
+    
+    const task = result.rows[0];
+    const planSteps = task.plan?.length || 10;
+    const completedSteps = task.progress?.length || 0;
+    const progressPercent = Math.min(Math.round((completedSteps / planSteps) * 100), 95);
+    
+    res.json({ 
+      active: true,
+      task: {
+        id: task.id,
+        goal: task.goal,
+        status: task.status,
+        progressPercent,
+        iterations: task.iterations,
+        currentStep: task.progress?.[task.progress.length - 1]?.tool || 'Working...'
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching active task:', error);
+    res.status(500).json({ error: 'Failed to fetch active task' });
+  }
+});
+
+// =============================================================================
+// MAIN CHAT ENDPOINT
+// =============================================================================
 router.post('/chat', authenticate, async (req, res) => {
   try {
     const { message, conversationHistory = [], fileContext } = req.body;
@@ -7279,6 +7596,7 @@ router.post('/chat', authenticate, async (req, res) => {
     let navigationResult = null; // Track navigation commands
     let taskCompleted = false;  // Track if AI declared task complete
     let needsHumanInput = null; // Track if AI needs human input
+    let backgroundTaskStarted = null; // Track if background task was started
     
     while (response.tool_calls && iterations < maxIterations && !taskCompleted) {
       iterations++;
@@ -7316,6 +7634,15 @@ router.post('/chat', authenticate, async (req, res) => {
           console.log('Task marked as complete by AI');
         }
         
+        if (result._background_task_started) {
+          backgroundTaskStarted = {
+            taskId: result.task_id,
+            goal: result.goal,
+            plan: result.plan
+          };
+          console.log('Background task started:', result.task_id);
+        }
+        
         if (result._needs_human_input) {
           needsHumanInput = result;
           console.log('AI requesting human input:', result.question);
@@ -7340,10 +7667,20 @@ router.post('/chat', authenticate, async (req, res) => {
     // Build response with optional navigation and autonomous work info
     const responsePayload = {
       response: response.content,
-      toolsUsed: iterations > 0,
+      toolsUsed: iterations > 0 && !backgroundTaskStarted,
       iterations: iterations,
-      taskCompleted: taskCompleted
+      taskCompleted: taskCompleted,
+      backgroundTaskStarted: !!backgroundTaskStarted
     };
+    
+    // Include background task info
+    if (backgroundTaskStarted) {
+      responsePayload.backgroundTask = {
+        taskId: backgroundTaskStarted.taskId,
+        goal: backgroundTaskStarted.goal,
+        plan: backgroundTaskStarted.plan
+      };
+    }
     
     // Include human input request if AI needs guidance
     if (needsHumanInput) {
