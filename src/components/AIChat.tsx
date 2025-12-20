@@ -79,8 +79,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const [isLoading, setIsLoading] = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [showSuggestions, setShowSuggestions] = useState(true)
-  const [useAgentMode, setUseAgentMode] = useState(true) // Use AI Agent with actions by default
-  const [useBackgroundAgent, setUseBackgroundAgent] = useState(false) // Force background agent mode
+  const [useBackgroundAgent, setUseBackgroundAgent] = useState(false) // Background agent toggle - OFF by default
   const [pendingNavigation, setPendingNavigation] = useState<NavigationInfo | null>(null)
   const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -220,30 +219,13 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         }
       } : {}
       
-      if (useAgentMode) {
-        // Use the new AI Agent with function calling (can take actions!)
-        response = await aiApi.agentChat(
-          text || `Analyze and summarize this document: ${currentFile?.name}`, 
-          conversationHistory, 
-          fileContext,
-          useBackgroundAgent // Force background agent mode
-        )
-      } else {
-        // Use the original context-based chat (read-only) with image support
-        const contextWithFile: Record<string, any> = { ...mergedContext, ...fileContext }
-        if (currentFile?.base64 && currentFile.type.startsWith('image/')) {
-          contextWithFile.imageData = {
-            base64: currentFile.base64,
-            mimeType: currentFile.type
-          }
-        }
-        response = await aiApi.chat(
-          text || `Analyze this file: ${currentFile?.name}`,
-          chatContext?.contextType || currentPage,
-          contextWithFile,
-          conversationHistory
-        )
-      }
+      // Use AI Agent with function calling
+      response = await aiApi.agentChat(
+        text || `Analyze and summarize this document: ${currentFile?.name}`, 
+        conversationHistory, 
+        fileContext,
+        useBackgroundAgent // When ON, forces background agent with progress bar
+      )
 
       const assistantMessage: Message = {
         id: crypto.randomUUID(),
@@ -351,9 +333,8 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
               </div>
               <h3>How can I help you?</h3>
               <p>
-                {useAgentMode 
-                  ? "I can answer questions AND take actions like logging time, creating events, and more."
-                  : "I have access to your firm data and can help with questions about matters, clients, billing, and more."}
+                I can answer questions and take actions like logging time, creating events, and more.
+                {useBackgroundAgent && " Background Agent is ON - I'll run tasks with a progress bar."}
               </p>
               
               {suggestions.length > 0 && (
