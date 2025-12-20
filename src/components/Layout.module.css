@@ -239,6 +239,38 @@
   background: rgba(245, 158, 11, 0.1);
 }
 
+/* Integrations Section */
+.integrationsSection {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.sectionLabel {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6B7A8F;
+  padding: var(--space-xs) var(--space-lg);
+  margin-bottom: var(--space-xs);
+}
+
+.integrationNav {
+  font-size: 0.9rem;
+}
+
+.integrationNav svg {
+  color: #8B9AB0;
+}
+
+.integrationNav.active svg,
+.integrationNav:hover svg {
+  color: #FBBF24;
+}
+
 .sidebarFooter {
   padding: var(--space-md) var(--space-lg);
   border-top: 1px solid rgba(255, 255, 255, 0.05);
