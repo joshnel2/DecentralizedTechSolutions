@@ -616,13 +616,13 @@ const TOOLS = [
     type: "function",
     function: {
       name: "list_documents",
-      description: "List and search documents. Use 'search' parameter to find documents by name.",
+      description: "Get a list of documents including files synced from integrations (OneDrive, Google Drive, Dropbox).",
       parameters: {
         type: "object",
         properties: {
           matter_id: { type: "string", description: "Filter by matter" },
           client_id: { type: "string", description: "Filter by client" },
-          search: { type: "string", description: "Search by document name" },
+          search: { type: "string", description: "Search by name" },
           source: { type: "string", description: "Filter by source: 'local', 'onedrive', 'googledrive', 'dropbox'" },
           limit: { type: "integer" }
         },
@@ -648,12 +648,12 @@ const TOOLS = [
     type: "function",
     function: {
       name: "read_document_content",
-      description: "Read the text content of a document. Use this to see what's inside a document.",
+      description: "Read the text content of a document. Use this to see what's actually inside a document (contracts, pleadings, letters, etc.). Works best with PDFs, Word docs, and text files.",
       parameters: {
         type: "object",
         properties: {
-          document_id: { type: "string", description: "Document ID" },
-          max_length: { type: "number", description: "Max characters to return (default 10000)" }
+          document_id: { type: "string", description: "UUID of the document" },
+          max_length: { type: "number", description: "Max characters to return (default 10000, max 50000)" }
         },
         required: ["document_id"]
       }
@@ -3882,7 +3882,7 @@ async function readDocumentContent(args, user) {
     type: doc.type,
     matter: doc.matter_name,
     content: null,
-    note: 'Document text has not been extracted yet.'
+    note: 'Document content has not been extracted yet. The document exists but its text content is not available for reading.'
   };
 }
 
@@ -7299,17 +7299,11 @@ Integrations sync data directly into the site's pages:
 
 When a user asks about their "invoices", "documents", or "calendar", this INCLUDES synced data from their integrations. You can filter by source if they only want data from a specific integration.
 
-### Document Reading & Search - IMPORTANT
-When a user asks about a document by name (e.g. "what's in the buddha boy document?"):
-1. FIRST use **list_documents** with the search parameter to find the document and get its ID
-2. THEN use **read_document_content** with that document_id to read the full text
-3. Answer the user's question based on the document content
-
-Tools:
-- **list_documents**: Search for documents by name. Returns document IDs needed for reading.
-- **read_document_content**: Read the full text content of a document using its ID.
-- **search_document_content**: Search for specific text/keywords across all documents.
-- **get_matter_documents_content**: Get all documents for a matter with content previews.
+### Document Reading & Search
+- **read_document_content**: Read the full text content of any document. Use this to review contracts, pleadings, letters, etc.
+- **get_matter_documents_content**: Get all documents for a matter with content previews. Great for case overviews.
+- **search_document_content**: Search for specific text across all documents. Find clauses, terms, parties, etc.
+- When you get matter details, document summaries and previews are included automatically.
 
 ### Cloud Storage (OneDrive, Google Drive, Dropbox)
 - **list_cloud_files**: List files from connected cloud storage
