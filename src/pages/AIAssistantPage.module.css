@@ -324,6 +324,353 @@
   color: #EF4444;
 }
 
+/* Agent History Button (in left panel) */
+.agentHistoryBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 1rem;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-lg);
+  color: var(--apex-light);
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-bottom: 1rem;
+}
+
+.agentHistoryBtn:hover {
+  background: rgba(147, 51, 234, 0.1);
+  border-color: rgba(147, 51, 234, 0.3);
+}
+
+.agentHistoryBtn.active {
+  background: rgba(147, 51, 234, 0.2);
+  border-color: rgba(147, 51, 234, 0.5);
+  color: #A855F7;
+}
+
+.agentHistoryBtn svg {
+  color: #A855F7;
+}
+
+/* Agent History View (Main Area) */
+.agentHistoryView {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 2rem;
+  overflow: hidden;
+}
+
+.agentHistoryHeader {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.agentHistoryHeader svg {
+  color: #A855F7;
+}
+
+.agentHistoryHeader h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  flex: 1;
+}
+
+.closeHistoryBtn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  color: var(--apex-subtle);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.closeHistoryBtn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #EF4444;
+}
+
+.agentHistoryLoading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  color: var(--apex-subtle);
+}
+
+.agentHistoryEmpty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--apex-subtle);
+}
+
+.agentHistoryEmpty svg {
+  color: #A855F7;
+  opacity: 0.5;
+  margin-bottom: 1rem;
+}
+
+.agentHistoryEmpty h3 {
+  font-size: 1.25rem;
+  color: var(--apex-light);
+  margin-bottom: 0.5rem;
+}
+
+.agentHistoryEmpty p {
+  max-width: 400px;
+  line-height: 1.5;
+}
+
+/* Agent Tasks Grid */
+.agentTasksGrid {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 1.5rem;
+  align-content: start;
+}
+
+.agentTaskCard {
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.agentTaskCard:hover {
+  border-color: rgba(147, 51, 234, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.agentTaskCard.expanded {
+  border-color: rgba(147, 51, 234, 0.5);
+  background: rgba(147, 51, 234, 0.05);
+}
+
+.agentTaskCard.completed {
+  border-left: 3px solid #22C55E;
+}
+
+.agentTaskCard.failed {
+  border-left: 3px solid #EF4444;
+}
+
+.taskCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.taskStatus {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.statusComplete {
+  color: #22C55E;
+}
+
+.statusFailed {
+  color: #EF4444;
+}
+
+.statusRunning {
+  color: #A855F7;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.statusText {
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--apex-subtle);
+}
+
+.taskDate {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.taskGoal {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--apex-white);
+  line-height: 1.4;
+  margin-bottom: 0.75rem;
+}
+
+.taskMeta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.taskDuration {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8rem;
+  color: #A855F7;
+  background: rgba(147, 51, 234, 0.15);
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+}
+
+.taskIterations {
+  font-size: 0.8rem;
+  color: var(--apex-subtle);
+}
+
+.taskRating {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ratingLabel {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.starsContainer {
+  display: flex;
+  gap: 4px;
+}
+
+.starButton {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: #64748B;
+  transition: all 0.15s;
+  border-radius: 4px;
+}
+
+.starButton:hover {
+  color: #F59E0B;
+  transform: scale(1.2);
+}
+
+.starButton.filled {
+  color: #F59E0B;
+}
+
+.taskExpandedContent {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.taskSummarySection {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+}
+
+.taskSummarySection h4 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #22C55E;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.75rem;
+}
+
+.taskSummaryText {
+  font-size: 0.875rem;
+  color: var(--apex-light);
+  line-height: 1.6;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.taskSummaryText p {
+  margin: 0 0 0.375rem 0;
+}
+
+.taskErrorSection {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  margin-top: 0.75rem;
+}
+
+.taskErrorSection h4 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #EF4444;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
+}
+
+.taskErrorSection p {
+  font-size: 0.875rem;
+  color: #FCA5A5;
+}
+
+.taskCardFooter {
+  text-align: center;
+  margin-top: 0.75rem;
+}
+
+.expandHint {
+  font-size: 0.7rem;
+  color: var(--apex-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 .poweredBy {
   display: flex;
   align-items: center;

@@ -4477,16 +4477,25 @@ async function processBackgroundTask(taskId, user, goal, plan) {
       { role: 'system', content: systemPrompt },
       { 
         role: 'user', 
-        content: `You are working on a BACKGROUND TASK. Complete it fully before calling task_complete.
+        content: `You are working on a BACKGROUND TASK. This is a thorough, multi-step task that requires careful execution.
 
 GOAL: ${goal}
 
-PLAN:
+PLAN (${(plan || []).length} steps):
 ${(plan || []).map((step, i) => `${i + 1}. ${step}`).join('\n')}
 
-Work through each step. Use tools to gather information and take actions. After each significant action, use log_work to track progress. When you've completed ALL steps, use task_complete to finish.
+IMPORTANT INSTRUCTIONS:
+1. Work through EACH step systematically - do not skip steps
+2. For each step, use the appropriate tools to gather information or take actions
+3. After each significant action, use log_work to track your progress  
+4. Take your time - this is a background task, there's no rush
+5. If you need to retrieve data, actually retrieve it using the tools
+6. If you need to analyze something, do a thorough analysis
+7. Only call task_complete when you have genuinely completed ALL steps
 
-Start now. Do the first step.`
+DO NOT call task_complete prematurely. The user expects a thorough job.
+
+Begin now with Step 1: ${(plan || [])[0] || 'Start the task'}`
       }
     ];
     
@@ -4499,16 +4508,35 @@ Start now. Do the first step.`
       iterations++;
       
       if (!response.tool_calls) {
-        // AI responded without tools - might be done or stuck
-        if (response.content?.toLowerCase().includes('complete') || 
-            response.content?.toLowerCase().includes('finished')) {
+        // AI responded without tools - should keep working
+        // Only mark complete if we've done significant work (5+ iterations) and AI explicitly says done
+        const hasExplicitComplete = response.content?.toLowerCase().includes('all steps completed') ||
+                                    response.content?.toLowerCase().includes('task complete') ||
+                                    response.content?.toLowerCase().includes('i have finished');
+        
+        if (iterations >= 5 && hasExplicitComplete) {
           taskCompleted = true;
           break;
         }
         
-        // Prompt it to continue
+        // Get the current step based on iterations
+        const currentStep = plan && plan[Math.min(iterations, plan.length - 1)] || 'continue the task';
+        
+        // Prompt it to continue with tools
         messages.push({ role: 'assistant', content: response.content });
-        messages.push({ role: 'user', content: 'Continue with the next step. Use tools to take action.' });
+        messages.push({ 
+          role: 'user', 
+          content: `You must continue working. You have only completed ${iterations} iterations out of the expected ${(plan || []).length} steps.
+
+Next step: ${currentStep}
+
+Use the appropriate tools to:
+- Retrieve data if needed (get_clients, get_matters, get_time_entries, etc.)
+- Create or update records if needed
+- Log your progress with log_work
+
+Do NOT just describe what you would do - actually use the tools to do it.`
+        });
         response = await callAzureOpenAIWithTools(messages, TOOLS);
         continue;
       }
@@ -7674,8 +7702,26 @@ ALWAYS use start_background_task when this mode is enabled, even for simple task
     let userMessage = message;
     if (fileContext?.uploadedDocument) {
       const doc = fileContext.uploadedDocument;
-      const docInfo = `\n\n[UPLOADED DOCUMENT]\nFile: ${doc.name}\nType: ${doc.type}\nSize: ${doc.size} bytes\n\nContent:\n${doc.content || '[No text content extracted]'}\n\n[END OF DOCUMENT]\n\nUser's request: ${message}`;
+      const docContent = doc.content && doc.content.trim().length > 0 
+        ? doc.content 
+        : '[No text content was extracted from this file. It may be an image or scanned PDF.]';
+      
+      const docInfo = `
+=== UPLOADED DOCUMENT ===
+Filename: ${doc.name}
+Type: ${doc.type}
+Size: ${doc.size} bytes
+
+--- DOCUMENT CONTENT START ---
+${docContent}
+--- DOCUMENT CONTENT END ---
+
+User's Question/Request: ${message}
+=========================
+
+Please analyze the document above and respond to the user's question.`;
       userMessage = docInfo;
+      console.log(`[AI Agent] Document uploaded: ${doc.name}, content length: ${(doc.content || '').length} chars`);
       
       // Store the uploaded doc info in the request for potential saving
       req.uploadedDocument = {

@@ -314,14 +314,18 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           <span className={styles.contextPage}>
             {chatContext?.label || currentPage.replace('-', ' ')}
           </span>
-          <button 
-            className={`${styles.backgroundToggle} ${useBackgroundAgent ? styles.backgroundOn : ''}`}
-            onClick={() => setUseBackgroundAgent(!useBackgroundAgent)}
-            title={useBackgroundAgent ? "Background Agent: ON - Shows progress bar" : "Background Agent: OFF"}
-          >
-            <Bot size={14} />
-            Background Agent
-          </button>
+          <div className={styles.toggleWrapper}>
+            <span className={styles.toggleLabel}>Background Agent</span>
+            <button 
+              className={`${styles.toggleSwitch} ${useBackgroundAgent ? styles.toggleOn : ''}`}
+              onClick={() => setUseBackgroundAgent(!useBackgroundAgent)}
+              title={useBackgroundAgent ? "Background Agent: ON" : "Background Agent: OFF"}
+              role="switch"
+              aria-checked={useBackgroundAgent}
+            >
+              <span className={styles.toggleKnob} />
+            </button>
+          </div>
         </div>
 
         {/* Messages */}

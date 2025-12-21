@@ -93,6 +93,15 @@ export function AIAssistantPage() {
   const currentMode = AI_MODES[selectedMode]
   const [isExtracting, setIsExtracting] = useState(false)
 
+  // Handle showAgentHistory URL param (from View Summary button)
+  useEffect(() => {
+    const showHistory = searchParams.get('showAgentHistory')
+    if (showHistory === 'true') {
+      setShowAgentHistory(true)
+      loadAgentHistory()
+    }
+  }, [searchParams])
+
   // Handle document passed via URL params (from Documents page)
   useEffect(() => {
     const docId = searchParams.get('docId')
@@ -339,85 +348,19 @@ export function AIAssistantPage() {
           )}
         </div>
 
-        {/* Agent History Section */}
-        <div className={styles.historySection}>
-          <button 
-            className={styles.historyToggle}
-            onClick={() => setShowAgentHistory(!showAgentHistory)}
-          >
-            <Bot size={18} />
-            <span>Agent History</span>
-            <ChevronRight size={16} className={clsx(styles.chevron, showAgentHistory && styles.open)} />
-          </button>
-          
-          {showAgentHistory && (
-            <div className={styles.historyList}>
-              {loadingAgentHistory ? (
-                <div className={styles.noHistory}>
-                  <Loader2 size={16} className={styles.spinner} /> Loading...
-                </div>
-              ) : agentTasks.length === 0 ? (
-                <div className={styles.noHistory}>No background tasks yet</div>
-              ) : (
-                agentTasks.slice(0, 15).map(task => (
-                  <div 
-                    key={task.id}
-                    className={clsx(styles.agentHistoryItem, selectedTask?.id === task.id && styles.active)}
-                    onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
-                  >
-                    <div className={styles.agentItemHeader}>
-                      <span className={styles.agentGoal}>{task.goal}</span>
-                    </div>
-                    <div className={styles.agentItemMeta}>
-                      <span className={styles.agentDate}>
-                        {format(parseISO(task.created_at), 'MMM d, h:mm a')}
-                      </span>
-                      {task.duration && (
-                        <span className={styles.agentDuration}>
-                          <Clock size={10} /> {task.duration}
-                        </span>
-                      )}
-                    </div>
-                    
-                    {/* Star Rating */}
-                    {task.status === 'completed' && (
-                      <div className={styles.agentRating}>
-                        {[1, 2, 3, 4, 5].map(star => (
-                          <button
-                            key={star}
-                            className={clsx(styles.starBtn, task.rating && star <= task.rating && styles.filled)}
-                            onClick={(e) => handleRateTask(task.id, star, e)}
-                            title={`Rate ${star} star${star > 1 ? 's' : ''}`}
-                          >
-                            <Star size={14} fill={task.rating && star <= task.rating ? '#F59E0B' : 'none'} />
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    
-                    {/* Expanded summary */}
-                    {selectedTask?.id === task.id && task.result && (
-                      <div className={styles.agentSummary}>
-                        <div className={styles.agentSummaryTitle}>Summary</div>
-                        <div className={styles.agentSummaryContent}>
-                          {task.result.split('\n').map((line, i) => (
-                            <p key={i}>{line || <br />}</p>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    
-                    {selectedTask?.id === task.id && task.error && (
-                      <div className={styles.agentError}>
-                        <strong>Error:</strong> {task.error}
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </div>
+        {/* Agent History Button */}
+        <button 
+          className={clsx(styles.agentHistoryBtn, showAgentHistory && styles.active)}
+          onClick={() => {
+            setShowAgentHistory(!showAgentHistory)
+            if (!showAgentHistory && agentTasks.length === 0) {
+              loadAgentHistory()
+            }
+          }}
+        >
+          <Bot size={18} />
+          <span>Agent History</span>
+        </button>
 
         <div className={styles.poweredBy}>
           <Sparkles size={14} />
@@ -427,7 +370,130 @@ export function AIAssistantPage() {
 
       {/* Main Content Area */}
       <div className={styles.mainArea}>
-        {activeConversation ? (
+        {showAgentHistory ? (
+          // Agent History View
+          <div className={styles.agentHistoryView}>
+            <div className={styles.agentHistoryHeader}>
+              <Bot size={24} />
+              <h2>Background Agent History</h2>
+              <button 
+                className={styles.closeHistoryBtn}
+                onClick={() => {
+                  setShowAgentHistory(false)
+                  navigate('/app/ai', { replace: true })
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            
+            {loadingAgentHistory ? (
+              <div className={styles.agentHistoryLoading}>
+                <Loader2 size={32} className={styles.spinner} />
+                <span>Loading agent history...</span>
+              </div>
+            ) : agentTasks.length === 0 ? (
+              <div className={styles.agentHistoryEmpty}>
+                <Bot size={48} />
+                <h3>No Background Tasks Yet</h3>
+                <p>Enable the Background Agent toggle in the chat to run complex tasks with real-time progress tracking.</p>
+              </div>
+            ) : (
+              <div className={styles.agentTasksGrid}>
+                {agentTasks.map(task => (
+                  <div 
+                    key={task.id}
+                    className={clsx(
+                      styles.agentTaskCard,
+                      task.status === 'completed' && styles.completed,
+                      task.status === 'failed' && styles.failed,
+                      selectedTask?.id === task.id && styles.expanded
+                    )}
+                    onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
+                  >
+                    <div className={styles.taskCardHeader}>
+                      <div className={styles.taskStatus}>
+                        {task.status === 'completed' ? (
+                          <CheckCircle size={16} className={styles.statusComplete} />
+                        ) : task.status === 'failed' ? (
+                          <AlertCircle size={16} className={styles.statusFailed} />
+                        ) : (
+                          <Bot size={16} className={styles.statusRunning} />
+                        )}
+                        <span className={styles.statusText}>
+                          {task.status === 'completed' ? 'Completed' : task.status === 'failed' ? 'Failed' : 'Running'}
+                        </span>
+                      </div>
+                      <span className={styles.taskDate}>
+                        {format(parseISO(task.created_at), 'MMM d, yyyy • h:mm a')}
+                      </span>
+                    </div>
+                    
+                    <h3 className={styles.taskGoal}>{task.goal}</h3>
+                    
+                    <div className={styles.taskMeta}>
+                      {task.duration && (
+                        <span className={styles.taskDuration}>
+                          <Clock size={14} /> {task.duration}
+                        </span>
+                      )}
+                      <span className={styles.taskIterations}>
+                        {task.iterations} {task.iterations === 1 ? 'step' : 'steps'}
+                      </span>
+                    </div>
+                    
+                    {/* Star Rating */}
+                    {task.status === 'completed' && (
+                      <div className={styles.taskRating}>
+                        <span className={styles.ratingLabel}>Rate this task:</span>
+                        <div className={styles.starsContainer}>
+                          {[1, 2, 3, 4, 5].map(star => (
+                            <button
+                              key={star}
+                              className={clsx(styles.starButton, task.rating && star <= task.rating && styles.filled)}
+                              onClick={(e) => handleRateTask(task.id, star, e)}
+                              title={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                            >
+                              <Star size={18} fill={task.rating && star <= task.rating ? '#F59E0B' : 'none'} />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Expanded Content */}
+                    {selectedTask?.id === task.id && (
+                      <div className={styles.taskExpandedContent}>
+                        {task.result && (
+                          <div className={styles.taskSummarySection}>
+                            <h4>Summary</h4>
+                            <div className={styles.taskSummaryText}>
+                              {task.result.split('\n').map((line, i) => (
+                                <p key={i}>{line || <br />}</p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {task.error && (
+                          <div className={styles.taskErrorSection}>
+                            <h4>Error</h4>
+                            <p>{task.error}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    <div className={styles.taskCardFooter}>
+                      <span className={styles.expandHint}>
+                        {selectedTask?.id === task.id ? 'Click to collapse' : 'Click to view details'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : activeConversation ? (
           // Chat View
           <>
             <div className={styles.chatHeader}>
