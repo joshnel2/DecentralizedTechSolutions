@@ -5,12 +5,26 @@ import { useAuthStore } from '../stores/authStore'
 import { 
   Sparkles, Send, Plus, MessageSquare, Trash2, 
   MessageCircle, FileEdit, FileText, Paperclip, X,
-  FileSearch, History, ChevronRight, Loader2, Image
+  FileSearch, History, ChevronRight, Loader2, Image, Bot, Clock, CheckCircle, AlertCircle
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './AIAssistantPage.module.css'
 import { parseDocument, getSupportedFileTypes } from '../utils/documentParser'
+import { aiApi } from '../services/api'
+
+interface AgentTask {
+  id: string
+  goal: string
+  status: string
+  duration: string | null
+  durationSeconds: number | null
+  iterations: number
+  result: string | null
+  error: string | null
+  created_at: string
+  completed_at: string | null
+}
 
 // Mode configurations
 const AI_MODES = {
@@ -64,6 +78,10 @@ export function AIAssistantPage() {
   const { user } = useAuthStore()
   const [input, setInput] = useState('')
   const [showHistory, setShowHistory] = useState(false)
+  const [showAgentHistory, setShowAgentHistory] = useState(false)
+  const [agentTasks, setAgentTasks] = useState<AgentTask[]>([])
+  const [selectedTask, setSelectedTask] = useState<AgentTask | null>(null)
+  const [loadingAgentHistory, setLoadingAgentHistory] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const lastUserMessageRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -127,6 +145,25 @@ export function AIAssistantPage() {
       setInitialMessage(null)
     }
   }, [initialMessage, setInitialMessage])
+
+  // Load agent history when toggled
+  useEffect(() => {
+    if (showAgentHistory && agentTasks.length === 0) {
+      loadAgentHistory()
+    }
+  }, [showAgentHistory])
+
+  const loadAgentHistory = async () => {
+    setLoadingAgentHistory(true)
+    try {
+      const response = await aiApi.getTasks()
+      setAgentTasks(response.tasks || [])
+    } catch (error) {
+      console.error('Error loading agent history:', error)
+    } finally {
+      setLoadingAgentHistory(false)
+    }
+  }
 
   // Scroll to the last user message when messages change
   useEffect(() => {
@@ -281,6 +318,77 @@ export function AIAssistantPage() {
                     >
                       <Trash2 size={12} />
                     </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Agent History Section */}
+        <div className={styles.historySection}>
+          <button 
+            className={styles.historyToggle}
+            onClick={() => setShowAgentHistory(!showAgentHistory)}
+          >
+            <Bot size={18} />
+            <span>Agent History</span>
+            <ChevronRight size={16} className={clsx(styles.chevron, showAgentHistory && styles.open)} />
+          </button>
+          
+          {showAgentHistory && (
+            <div className={styles.historyList}>
+              {loadingAgentHistory ? (
+                <div className={styles.noHistory}>
+                  <Loader2 size={16} className={styles.spinner} /> Loading...
+                </div>
+              ) : agentTasks.length === 0 ? (
+                <div className={styles.noHistory}>No background tasks yet</div>
+              ) : (
+                agentTasks.slice(0, 15).map(task => (
+                  <div 
+                    key={task.id}
+                    className={clsx(styles.agentHistoryItem, selectedTask?.id === task.id && styles.active)}
+                    onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
+                  >
+                    <div className={styles.agentItemHeader}>
+                      {task.status === 'completed' ? (
+                        <CheckCircle size={14} className={styles.statusComplete} />
+                      ) : task.status === 'error' ? (
+                        <AlertCircle size={14} className={styles.statusError} />
+                      ) : (
+                        <Bot size={14} className={styles.statusRunning} />
+                      )}
+                      <span className={styles.agentGoal}>{task.goal}</span>
+                    </div>
+                    <div className={styles.agentItemMeta}>
+                      <span className={styles.agentDate}>
+                        {format(parseISO(task.created_at), 'MMM d, h:mm a')}
+                      </span>
+                      {task.duration && (
+                        <span className={styles.agentDuration}>
+                          <Clock size={10} /> {task.duration}
+                        </span>
+                      )}
+                    </div>
+                    
+                    {/* Expanded summary */}
+                    {selectedTask?.id === task.id && task.result && (
+                      <div className={styles.agentSummary}>
+                        <div className={styles.agentSummaryTitle}>Summary</div>
+                        <div className={styles.agentSummaryContent}>
+                          {task.result.split('\n').map((line, i) => (
+                            <p key={i}>{line || <br />}</p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {selectedTask?.id === task.id && task.error && (
+                      <div className={styles.agentError}>
+                        <strong>Error:</strong> {task.error}
+                      </div>
+                    )}
                   </div>
                 ))
               )}

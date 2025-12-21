@@ -4543,12 +4543,25 @@ Start now. Do the first step.`
         // Check for completion
         if (result._task_complete) {
           taskCompleted = true;
+          
+          // Build a proper summary to store
+          const completionSummary = `## Summary\n${result.summary}\n\n## Actions Taken\n${(result.actions_taken || []).map(a => `• ${a}`).join('\n')}\n\n## Results\n${result.results || 'Task completed successfully'}${result.recommendations?.length ? `\n\n## Recommendations\n${result.recommendations.map(r => `• ${r}`).join('\n')}` : ''}`;
+          
           progress.push({ 
             iteration: iterations, 
             status: 'completed', 
             summary: result.summary,
+            actions_taken: result.actions_taken,
+            results: result.results,
+            recommendations: result.recommendations,
             timestamp: new Date().toISOString()
           });
+          
+          // Update the task with the proper summary immediately
+          await query(
+            `UPDATE ai_tasks SET result = $1 WHERE id = $2`,
+            [completionSummary, taskId]
+          );
         }
         
         // Stuck detection
@@ -7483,25 +7496,40 @@ Always act professionally, confirm important actions, and provide clear summarie
 // BACKGROUND TASK STATUS ENDPOINTS
 // =============================================================================
 
-// Get all active/recent tasks for the user
+// Get all active/recent tasks for the user (agent history)
 router.get('/tasks', authenticate, async (req, res) => {
   try {
     const result = await query(
       `SELECT id, goal, status, plan, progress, iterations, max_iterations, 
-              created_at, started_at, completed_at, result, error
+              created_at, started_at, completed_at, result, error,
+              EXTRACT(EPOCH FROM (COALESCE(completed_at, NOW()) - started_at)) as duration_seconds
        FROM ai_tasks 
        WHERE user_id = $1 
        ORDER BY created_at DESC 
-       LIMIT 20`,
+       LIMIT 50`,
       [req.user.id]
     );
     
-    res.json({ tasks: result.rows });
+    // Format the tasks with duration
+    const tasks = result.rows.map(task => ({
+      ...task,
+      duration: task.duration_seconds ? formatDuration(task.duration_seconds) : null,
+      durationSeconds: task.duration_seconds ? Math.round(task.duration_seconds) : null
+    }));
+    
+    res.json({ tasks });
   } catch (error) {
     console.error('Error fetching tasks:', error);
     res.status(500).json({ error: 'Failed to fetch tasks' });
   }
 });
+
+// Helper to format duration
+function formatDuration(seconds) {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+}
 
 // Get specific task status
 router.get('/tasks/:taskId', authenticate, async (req, res) => {
