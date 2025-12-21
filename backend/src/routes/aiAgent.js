@@ -14,6 +14,7 @@ import {
   formatDateTime,
   getDateInTimezone
 } from '../utils/dateUtils.js';
+import { extractTextFromFile } from './documents.js';
 
 const router = Router();
 

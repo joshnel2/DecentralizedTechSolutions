@@ -705,4 +705,5 @@ export async function extractTextForExistingDocuments() {
   }
 }
 
+export { extractTextFromFile };
 export default router;
