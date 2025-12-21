@@ -4854,37 +4854,22 @@ First, think about: What's the BEST way to approach this step? What would make t
       }
     ];
     
-    let response;
-    let apiRetryCount = 0;
-    const maxApiRetries = 3;
-    
-    // Initial call with retry logic
-    while (apiRetryCount < maxApiRetries) {
-      try {
-        response = await callAzureOpenAIWithTools(messages, TOOLS);
-        break;
-      } catch (apiError) {
-        apiRetryCount++;
-        console.error(`[BACKGROUND ${taskId}] API error on initial call (attempt ${apiRetryCount}/${maxApiRetries}):`, apiError.message);
-        if (apiRetryCount >= maxApiRetries) {
-          throw new Error(`Failed after ${maxApiRetries} API attempts: ${apiError.message}`);
-        }
-        await delay(5000 * apiRetryCount); // Exponential backoff
-      }
-    }
+    let response = await callAzureOpenAIWithTools(messages, TOOLS);
     
     let taskCompleted = false;
     let lastProgress = '';
     let stuckCount = 0;
-    let consecutiveApiErrors = 0;
-    const maxConsecutiveApiErrors = 5;
+    let noToolCallCount = 0; // Track consecutive responses without tool calls
     
     while (!taskCompleted && iterations < maxIterations && (Date.now() - startTime) < maxRuntime) {
       iterations++;
       
       if (!response.tool_calls) {
+        noToolCallCount++;
+        console.log(`[BACKGROUND ${taskId}] No tool calls in response (${noToolCallCount} consecutive). Response: ${response.content?.substring(0, 200)}...`);
+        
         // AI responded without tools - should keep working
-        // Only mark complete if we've done significant work (8+ iterations OR completed most planned steps) and AI explicitly says done
+        // Only mark complete if we've done significant work AND AI explicitly says done
         const hasExplicitComplete = response.content?.toLowerCase().includes('all steps completed') ||
                                     response.content?.toLowerCase().includes('task complete') ||
                                     response.content?.toLowerCase().includes('i have finished') ||
@@ -4900,61 +4885,54 @@ First, think about: What's the BEST way to approach this step? What would make t
           break;
         }
         
-        // Get the current step based on iterations
-        const currentStepIdx = Math.min(iterations - 1, (plan?.length || 1) - 1);
-        const currentStep = plan?.[currentStepIdx] || 'continue the task';
-        const nextStep = plan?.[currentStepIdx + 1];
-        
-        // More aggressive prompt to continue with tools
-        messages.push({ role: 'assistant', content: response.content });
-        messages.push({ 
-          role: 'user', 
-          content: `IMPORTANT: You must continue working. You have only completed ${iterations} iterations out of the expected ${planLength} steps.
+        // If AI keeps responding without tools for too many times, it might be stuck
+        if (noToolCallCount >= 5) {
+          console.log(`[BACKGROUND ${taskId}] AI stuck without tool calls for ${noToolCallCount} times. Forcing task_complete prompt.`);
+          messages.push({ role: 'assistant', content: response.content });
+          messages.push({ 
+            role: 'user', 
+            content: `You have responded ${noToolCallCount} times without using any tools. This is a background task - you MUST either:
 
-CURRENT STEP (${currentStepIdx + 1}/${planLength}): ${currentStep}
+1. Use task_complete NOW to finish the task with a summary of what you've accomplished so far
+2. Use a specific tool to continue working
+
+Call task_complete now with your summary.`
+          });
+        } else {
+          // Get the current step based on iterations
+          const currentStepIdx = Math.min(iterations - 1, (plan?.length || 1) - 1);
+          const currentStep = plan?.[currentStepIdx] || 'continue the task';
+          const nextStep = plan?.[currentStepIdx + 1];
+          
+          // Prompt to continue with tools
+          messages.push({ role: 'assistant', content: response.content });
+          messages.push({ 
+            role: 'user', 
+            content: `Continue working on this background task. You are on step ${currentStepIdx + 1} of ${planLength}.
+
+CURRENT STEP: ${currentStep}
 ${nextStep ? `NEXT STEP: ${nextStep}` : ''}
 
-You MUST use one of these tools NOW:
+Use the appropriate tool to make progress. Available actions:
 - search_matters, get_matter, list_clients, get_client - to find data
 - create_matter, create_client, create_event, log_time - to take actions  
-- log_work - to record your progress on this step
-- task_complete - ONLY when you have genuinely finished ALL ${planLength} steps
+- log_work - to record your progress
+- task_complete - when you have finished all steps
 
-DO NOT just describe what you would do. DO NOT say you will do something. 
-Actually call the tool function right now to make progress.
-
-What tool will you use for step "${currentStep}"?`
-        });
+What tool will you use next?`
+          });
+        }
         
         // Add delay before continuing
-        console.log(`[BACKGROUND ${taskId}] Prompting to continue. Waiting ${STEP_DELAY_MS/1000}s...`);
+        console.log(`[BACKGROUND ${taskId}] Prompting AI to continue. Waiting ${STEP_DELAY_MS/1000}s...`);
         await delay(STEP_DELAY_MS);
         
-        // Call API with retry logic
-        let apiSuccess = false;
-        for (let retry = 0; retry < maxApiRetries && !apiSuccess; retry++) {
-          try {
-            response = await callAzureOpenAIWithTools(messages, TOOLS);
-            apiSuccess = true;
-            consecutiveApiErrors = 0; // Reset on success
-          } catch (apiError) {
-            console.error(`[BACKGROUND ${taskId}] API error in continuation (attempt ${retry + 1}/${maxApiRetries}):`, apiError.message);
-            if (retry < maxApiRetries - 1) {
-              await delay(5000 * (retry + 1));
-            } else {
-              consecutiveApiErrors++;
-              console.error(`[BACKGROUND ${taskId}] Consecutive API errors: ${consecutiveApiErrors}/${maxConsecutiveApiErrors}`);
-              if (consecutiveApiErrors >= maxConsecutiveApiErrors) {
-                throw new Error(`Too many consecutive API errors: ${apiError.message}`);
-              }
-              // Continue loop but skip this iteration
-              break;
-            }
-          }
-        }
-        if (!apiSuccess) continue;
+        response = await callAzureOpenAIWithTools(messages, TOOLS);
         continue;
       }
+      
+      // Reset no-tool-call counter when AI uses tools
+      noToolCallCount = 0;
       
       // Process tool calls
       messages.push({
@@ -5122,28 +5100,7 @@ Remember: Each step should be BETTER than the last. Apply your learnings and str
           });
         }
         
-        // Call API with retry logic
-        let apiSuccess = false;
-        for (let retry = 0; retry < maxApiRetries && !apiSuccess; retry++) {
-          try {
-            response = await callAzureOpenAIWithTools(messages, TOOLS);
-            apiSuccess = true;
-            consecutiveApiErrors = 0; // Reset on success
-          } catch (apiError) {
-            console.error(`[BACKGROUND ${taskId}] API error in main loop (attempt ${retry + 1}/${maxApiRetries}):`, apiError.message);
-            if (retry < maxApiRetries - 1) {
-              await delay(5000 * (retry + 1));
-            } else {
-              consecutiveApiErrors++;
-              console.error(`[BACKGROUND ${taskId}] Consecutive API errors: ${consecutiveApiErrors}/${maxConsecutiveApiErrors}`);
-              if (consecutiveApiErrors >= maxConsecutiveApiErrors) {
-                throw new Error(`Too many consecutive API errors: ${apiError.message}`);
-              }
-              // Create a dummy response to continue the loop
-              response = { content: 'API error occurred, retrying...', tool_calls: null };
-            }
-          }
-        }
+        response = await callAzureOpenAIWithTools(messages, TOOLS);
       }
     }
     
