@@ -743,6 +743,13 @@ export const aiApi = {
   async getTasks() {
     return fetchWithAuth('/v1/agent/tasks');
   },
+  
+  async rateTask(taskId: string, rating: number) {
+    return fetchWithAuth(`/v1/agent/tasks/${taskId}/rate`, {
+      method: 'POST',
+      body: JSON.stringify({ rating }),
+    });
+  },
 
   async getSuggestions(page: string) {
     return fetchWithAuth(`/ai/suggestions?page=${page}`);

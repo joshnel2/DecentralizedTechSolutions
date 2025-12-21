@@ -7501,7 +7501,7 @@ router.get('/tasks', authenticate, async (req, res) => {
   try {
     const result = await query(
       `SELECT id, goal, status, plan, progress, iterations, max_iterations, 
-              created_at, started_at, completed_at, result, error,
+              created_at, started_at, completed_at, result, error, rating,
               EXTRACT(EPOCH FROM (COALESCE(completed_at, NOW()) - started_at)) as duration_seconds
        FROM ai_tasks 
        WHERE user_id = $1 
@@ -7514,7 +7514,8 @@ router.get('/tasks', authenticate, async (req, res) => {
     const tasks = result.rows.map(task => ({
       ...task,
       duration: task.duration_seconds ? formatDuration(task.duration_seconds) : null,
-      durationSeconds: task.duration_seconds ? Math.round(task.duration_seconds) : null
+      durationSeconds: task.duration_seconds ? Math.round(task.duration_seconds) : null,
+      rating: task.rating || null
     }));
     
     res.json({ tasks });
@@ -7530,6 +7531,33 @@ function formatDuration(seconds) {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
+
+// Rate a task (1-5 stars)
+router.post('/tasks/:taskId/rate', authenticate, async (req, res) => {
+  try {
+    const { rating } = req.body;
+    
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'Rating must be between 1 and 5' });
+    }
+    
+    const result = await query(
+      `UPDATE ai_tasks SET rating = $1, updated_at = NOW() 
+       WHERE id = $2 AND user_id = $3 
+       RETURNING id, rating`,
+      [rating, req.params.taskId, req.user.id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    res.json({ success: true, rating: result.rows[0].rating });
+  } catch (error) {
+    console.error('Error rating task:', error);
+    res.status(500).json({ error: 'Failed to rate task' });
+  }
+});
 
 // Get specific task status
 router.get('/tasks/:taskId', authenticate, async (req, res) => {

@@ -5,7 +5,7 @@ import { useAuthStore } from '../stores/authStore'
 import { 
   Sparkles, Send, Plus, MessageSquare, Trash2, 
   MessageCircle, FileEdit, FileText, Paperclip, X,
-  FileSearch, History, ChevronRight, Loader2, Image, Bot, Clock, CheckCircle, AlertCircle
+  FileSearch, History, ChevronRight, Loader2, Image, Bot, Clock, CheckCircle, AlertCircle, Star
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -24,6 +24,7 @@ interface AgentTask {
   error: string | null
   created_at: string
   completed_at: string | null
+  rating: number | null
 }
 
 // Mode configurations
@@ -162,6 +163,19 @@ export function AIAssistantPage() {
       console.error('Error loading agent history:', error)
     } finally {
       setLoadingAgentHistory(false)
+    }
+  }
+
+  const handleRateTask = async (taskId: string, rating: number, e: React.MouseEvent) => {
+    e.stopPropagation() // Prevent expanding/collapsing the task
+    try {
+      await aiApi.rateTask(taskId, rating)
+      // Update local state
+      setAgentTasks(prev => prev.map(task => 
+        task.id === taskId ? { ...task, rating } : task
+      ))
+    } catch (error) {
+      console.error('Error rating task:', error)
     }
   }
 
@@ -371,6 +385,22 @@ export function AIAssistantPage() {
                         </span>
                       )}
                     </div>
+                    
+                    {/* Star Rating */}
+                    {task.status === 'completed' && (
+                      <div className={styles.agentRating}>
+                        {[1, 2, 3, 4, 5].map(star => (
+                          <button
+                            key={star}
+                            className={clsx(styles.starBtn, task.rating && star <= task.rating && styles.filled)}
+                            onClick={(e) => handleRateTask(task.id, star, e)}
+                            title={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                          >
+                            <Star size={14} fill={task.rating && star <= task.rating ? '#F59E0B' : 'none'} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     
                     {/* Expanded summary */}
                     {selectedTask?.id === task.id && task.result && (
