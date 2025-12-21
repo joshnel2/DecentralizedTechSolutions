@@ -4862,11 +4862,13 @@ For EVERY step, do MORE than asked:
 
 ### DOCUMENT CONTENT REQUIREMENTS:
 
-**Agreements:** 800+ words. Include: parties, recitals, definitions, all substantive terms, reps & warranties, indemnification, termination, signatures.
+**Agreements:** Include parties, recitals, definitions, substantive terms, reps & warranties, indemnification, termination, signatures.
 
-**Memos:** 600+ words. Include: executive summary, facts, issues, analysis, conclusion, recommendations.
+**Memos:** Include executive summary, facts, issues, analysis, conclusion, recommendations.
 
-**Letters:** 400+ words. Include: proper salutation, context, substance, next steps, signature.
+**Letters:** Include proper salutation, context, substance, next steps, signature.
+
+Write complete, professional content - not placeholders or summaries.
 
 ### EXECUTION RULES:
 
