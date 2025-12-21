@@ -1100,6 +1100,10 @@ export const integrationsApi = {
     return fetchWithAuth('/integrations/outlook/emails');
   },
 
+  async getOutlookDrafts() {
+    return fetchWithAuth('/integrations/outlook/drafts');
+  },
+
   async syncOutlookCalendar() {
     return fetchWithAuth('/integrations/outlook/sync-calendar', { method: 'POST' });
   },

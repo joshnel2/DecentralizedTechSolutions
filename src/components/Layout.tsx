@@ -208,6 +208,14 @@ export function Layout() {
           ))}
 
           <NavLink
+            to="/app/integrations/outlook"
+            className={({ isActive }) => clsx(styles.navItem, styles.outlookNav, isActive && styles.active)}
+          >
+            <Mail size={20} />
+            {(sidebarOpen || isMobile) && <span>Outlook</span>}
+          </NavLink>
+
+          <NavLink
             to="/app/ai"
             className={({ isActive }) => clsx(styles.navItem, styles.aiNav, isActive && styles.active)}
           >

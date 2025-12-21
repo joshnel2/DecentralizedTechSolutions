@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Mail, RefreshCw, Link2, Search, User, Briefcase, CheckCircle, Clock, ArrowLeft } from 'lucide-react'
+import { Mail, RefreshCw, Link2, Search, User, Briefcase, CheckCircle, Clock, ArrowLeft, FileEdit, Inbox } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { integrationsApi, mattersApi, clientsApi } from '../services/api'
 import styles from './IntegrationDataPage.module.css'
@@ -11,6 +11,16 @@ interface Email {
   fromName: string
   receivedAt: string
   isRead: boolean
+  preview: string
+}
+
+interface Draft {
+  id: string
+  subject: string
+  to: string
+  toNames: string
+  createdAt: string
+  lastModified: string
   preview: string
 }
 
@@ -28,7 +38,9 @@ interface Client {
 
 export function OutlookIntegrationPage() {
   const navigate = useNavigate()
+  const [activeTab, setActiveTab] = useState<'inbox' | 'drafts'>('inbox')
   const [emails, setEmails] = useState<Email[]>([])
+  const [drafts, setDrafts] = useState<Draft[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -43,6 +55,7 @@ export function OutlookIntegrationPage() {
 
   useEffect(() => {
     loadEmails()
+    loadDrafts()
     loadMattersAndClients()
   }, [])
 
@@ -55,6 +68,15 @@ export function OutlookIntegrationPage() {
       setNotification({ type: 'error', message: error.message || 'Failed to load emails' })
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadDrafts = async () => {
+    try {
+      const data = await integrationsApi.getOutlookDrafts()
+      setDrafts(data.drafts || [])
+    } catch (error: any) {
+      console.error('Failed to load drafts:', error)
     }
   }
 
@@ -159,28 +181,54 @@ export function OutlookIntegrationPage() {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className={styles.tabs}>
+        <button 
+          className={`${styles.tab} ${activeTab === 'inbox' ? styles.activeTab : ''}`}
+          onClick={() => setActiveTab('inbox')}
+        >
+          <Inbox size={18} />
+          Inbox
+          <span className={styles.tabCount}>{emails.length}</span>
+        </button>
+        <button 
+          className={`${styles.tab} ${activeTab === 'drafts' ? styles.activeTab : ''}`}
+          onClick={() => setActiveTab('drafts')}
+        >
+          <FileEdit size={18} />
+          Drafts
+          <span className={styles.tabCount}>{drafts.length}</span>
+        </button>
+      </div>
+
       <div className={styles.toolbar}>
         <div className={styles.searchBox}>
           <Search size={18} />
           <input
             type="text"
-            placeholder="Search emails..."
+            placeholder={activeTab === 'inbox' ? "Search emails..." : "Search drafts..."}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
         <div className={styles.stats}>
-          <span>{emails.length} emails</span>
-          <span>{emails.filter(e => !e.isRead).length} unread</span>
+          {activeTab === 'inbox' ? (
+            <>
+              <span>{emails.length} emails</span>
+              <span>{emails.filter(e => !e.isRead).length} unread</span>
+            </>
+          ) : (
+            <span>{drafts.length} drafts</span>
+          )}
         </div>
       </div>
 
       {loading ? (
         <div className={styles.loading}>
           <RefreshCw size={24} className={styles.spinning} />
-          <span>Loading emails...</span>
+          <span>Loading {activeTab === 'inbox' ? 'emails' : 'drafts'}...</span>
         </div>
-      ) : (
+      ) : activeTab === 'inbox' ? (
         <div className={styles.dataList}>
           {filteredEmails.length === 0 ? (
             <div className={styles.empty}>
@@ -221,6 +269,46 @@ export function OutlookIntegrationPage() {
                     <Link2 size={16} />
                     Link
                   </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      ) : (
+        /* Drafts Tab */
+        <div className={styles.dataList}>
+          {drafts.filter(d => 
+            d.subject?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            d.to?.toLowerCase().includes(searchTerm.toLowerCase())
+          ).length === 0 ? (
+            <div className={styles.empty}>
+              <FileEdit size={48} />
+              <h3>No drafts found</h3>
+              <p>Drafts created by the AI assistant will appear here</p>
+            </div>
+          ) : (
+            drafts.filter(d => 
+              d.subject?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              d.to?.toLowerCase().includes(searchTerm.toLowerCase())
+            ).map(draft => (
+              <div 
+                key={draft.id} 
+                className={styles.dataItem}
+              >
+                <div className={styles.itemIcon}>
+                  <FileEdit size={20} />
+                </div>
+                <div className={styles.itemContent}>
+                  <div className={styles.itemHeader}>
+                    <span className={styles.itemTitle}>{draft.subject || '(No Subject)'}</span>
+                    <span className={styles.itemDate}>{formatDate(draft.lastModified || draft.createdAt)}</span>
+                  </div>
+                  <div className={styles.itemMeta}>
+                    <span className={styles.itemFrom}>
+                      To: {draft.toNames || draft.to || '(No recipient)'}
+                    </span>
+                  </div>
+                  <p className={styles.itemPreview}>{draft.preview}</p>
                 </div>
               </div>
             ))
