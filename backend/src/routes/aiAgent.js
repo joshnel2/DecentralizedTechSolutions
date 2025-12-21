@@ -4783,9 +4783,10 @@ async function processBackgroundTask(taskId, user, goal, plan) {
   const maxRuntime = 30 * 60 * 1000; // 30 minutes max
   let progress = [];
   let stepResults = []; // Store results from each step
+  let contextData = {}; // Store data gathered during execution (matter info, client info, etc.)
   
-  // Delay between each step
-  const STEP_DELAY_MS = 3 * 1000; // 3 seconds between steps
+  // Delay between each step - deliberate pacing for thorough work
+  const STEP_DELAY_MS = 12 * 1000; // 12 seconds between steps
   
   try {
     // Update status to running
@@ -4794,10 +4795,47 @@ async function processBackgroundTask(taskId, user, goal, plan) {
       [taskId]
     );
     
-    // Build the system prompt
-    const systemPrompt = getSystemPrompt()
+    // Build the system prompt with attorney mindset
+    const baseSystemPrompt = getSystemPrompt()
       .replace('{{USER_ROLE}}', user.role || 'staff')
       .replace('{{USER_NAME}}', `${user.firstName || ''} ${user.lastName || ''}`);
+    
+    const attorneyInstructions = `
+
+## BACKGROUND AGENT MODE - ACT LIKE AN ATTORNEY
+
+You are operating as a background agent completing a multi-step legal task. You must:
+
+1. **TAKE REAL ACTION** - Don't just describe what you would do. Actually call the tools to DO it.
+2. **BE THOROUGH** - Each step should be fully completed before moving on.
+3. **ACT LIKE AN ATTORNEY** - Think about what a diligent attorney would actually do:
+   - Search for matters/clients to find the right records
+   - Create documents that are actually needed
+   - Draft real content, not placeholders
+   - Add notes and updates to matters
+   - Create calendar events for deadlines
+   - Log time entries for work performed
+
+### COMMON ACTIONS YOU SHOULD TAKE:
+
+- **"Review matter"** → Call get_matter to retrieve full details, documents, emails
+- **"Draft document"** → Call create_document with actual professional legal content
+- **"Prepare agreement"** → Call create_document with a complete draft agreement
+- **"Create memo"** → Call create_document with a detailed case memo
+- **"Schedule/Calendar"** → Call create_event to add to calendar
+- **"Note/Update"** → Call add_matter_note to record important information
+- **"Research"** → Call get_matter, get_client to gather information first
+
+### DOCUMENT DRAFTING:
+When drafting documents, create REAL CONTENT appropriate for the document type:
+- Work for Hire Agreement: Include proper recitals, work product clauses, IP assignment, payment terms
+- Engagement Letter: Include scope of representation, fee structure, client responsibilities  
+- Case Memo: Include facts, legal issues, analysis, recommended actions
+- DO NOT create placeholder text - draft actual usable content
+
+YOU MUST CALL A TOOL FOR EACH STEP. The user is waiting for real work to be done.`;
+
+    const systemPrompt = baseSystemPrompt + attorneyInstructions;
     
     const planSteps = plan || [];
     const totalSteps = planSteps.length;
@@ -4819,37 +4857,84 @@ async function processBackgroundTask(taskId, user, goal, plan) {
       
       console.log(`[BACKGROUND ${taskId}] ===== STEP ${stepNumber}/${totalSteps}: ${currentStep} =====`);
       
+      // Update progress in database BEFORE starting step (shows "in progress")
+      await query(
+        `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
+        [stepNumber, JSON.stringify({ steps: progress, currentStep: currentStep }), taskId]
+      );
+      
       // Build the prompt for THIS specific step
-      let stepPrompt = `You are executing step ${stepNumber} of ${totalSteps} in a background task.
+      let stepPrompt = `## BACKGROUND TASK - STEP ${stepNumber} OF ${totalSteps}
 
-OVERALL GOAL: ${goal}
+**OVERALL GOAL:** ${goal}
 
 `;
       
-      // Show completed steps
-      if (stepIndex > 0) {
-        stepPrompt += `COMPLETED STEPS:\n`;
-        for (let i = 0; i < stepIndex; i++) {
-          const prevResult = stepResults[i];
-          stepPrompt += `  ✓ Step ${i + 1}: ${planSteps[i]}\n`;
-          if (prevResult?.summary) {
-            stepPrompt += `    Result: ${prevResult.summary}\n`;
-          }
+      // Include context data gathered from previous steps
+      if (Object.keys(contextData).length > 0) {
+        stepPrompt += `### CONTEXT FROM PREVIOUS STEPS:\n`;
+        if (contextData.matter) {
+          stepPrompt += `**Matter:** ${contextData.matter.name} (ID: ${contextData.matter.id})\n`;
+          if (contextData.matter.client_name) stepPrompt += `**Client:** ${contextData.matter.client_name}\n`;
+          if (contextData.matter.type) stepPrompt += `**Type:** ${contextData.matter.type}\n`;
+          if (contextData.matter.description) stepPrompt += `**Description:** ${contextData.matter.description}\n`;
+        }
+        if (contextData.client) {
+          stepPrompt += `**Client:** ${contextData.client.display_name} (ID: ${contextData.client.id})\n`;
         }
         stepPrompt += `\n`;
       }
       
-      // Current step instruction
-      stepPrompt += `=== YOUR TASK NOW ===
-Step ${stepNumber}: ${currentStep}
+      // Show completed steps with results
+      if (stepIndex > 0) {
+        stepPrompt += `### COMPLETED STEPS:\n`;
+        for (let i = 0; i < stepIndex; i++) {
+          const prevResult = stepResults[i];
+          stepPrompt += `✓ **Step ${i + 1}:** ${planSteps[i]}\n`;
+          stepPrompt += `   Tool: ${prevResult?.tool || 'None'} | Result: ${prevResult?.summary || 'N/A'}\n`;
+        }
+        stepPrompt += `\n`;
+      }
+      
+      // Current step instruction - be very explicit
+      stepPrompt += `### YOUR CURRENT TASK
+**Step ${stepNumber}:** ${currentStep}
 
-Execute this step by calling the appropriate tool. Call exactly ONE tool to complete this step.`;
+You MUST call a tool now to execute this step. Think about what action is needed:
+`;
+      
+      // Add step-specific guidance
+      const stepLower = currentStep.toLowerCase();
+      if (stepLower.includes('search') || stepLower.includes('find') || stepLower.includes('get') || stepLower.includes('review')) {
+        stepPrompt += `- This step requires RETRIEVING information. Use search_matters, get_matter, list_clients, or get_client.\n`;
+      }
+      if (stepLower.includes('draft') || stepLower.includes('prepare') || stepLower.includes('create') || stepLower.includes('write')) {
+        stepPrompt += `- This step requires CREATING a document. Use create_document with complete, professional content.\n`;
+        stepPrompt += `- Write REAL legal content appropriate for the document type - not placeholders.\n`;
+      }
+      if (stepLower.includes('agreement') || stepLower.includes('contract')) {
+        stepPrompt += `- Draft a complete agreement with proper legal clauses, terms, and professional formatting.\n`;
+      }
+      if (stepLower.includes('memo') || stepLower.includes('summary')) {
+        stepPrompt += `- Create a detailed memo with facts, issues, analysis, and recommendations.\n`;
+      }
+      if (stepLower.includes('save') || stepLower.includes('attach') || stepLower.includes('add')) {
+        stepPrompt += `- Use the appropriate tool to save/add the item to the matter.\n`;
+      }
+      if (stepLower.includes('schedule') || stepLower.includes('calendar') || stepLower.includes('deadline')) {
+        stepPrompt += `- Use create_event to add to the calendar.\n`;
+      }
+      
+      stepPrompt += `\n**CALL THE APPROPRIATE TOOL NOW.**`;
       
       // Show remaining steps
       if (stepIndex < totalSteps - 1) {
-        stepPrompt += `\n\nREMAINING STEPS:\n`;
-        for (let i = stepIndex + 1; i < totalSteps; i++) {
-          stepPrompt += `  ${i + 1}. ${planSteps[i]}\n`;
+        stepPrompt += `\n\n### REMAINING STEPS:\n`;
+        for (let i = stepIndex + 1; i < Math.min(stepIndex + 4, totalSteps); i++) {
+          stepPrompt += `${i + 1}. ${planSteps[i]}\n`;
+        }
+        if (totalSteps > stepIndex + 4) {
+          stepPrompt += `... and ${totalSteps - stepIndex - 4} more\n`;
         }
       }
       
@@ -4864,7 +4949,7 @@ Execute this step by calling the appropriate tool. Call exactly ONE tool to comp
       
       // Handle the response - may need multiple attempts if AI doesn't use tools
       let attempts = 0;
-      const maxAttempts = 3;
+      const maxAttempts = 5; // More attempts to ensure action is taken
       
       while (!response.tool_calls && attempts < maxAttempts) {
         attempts++;
@@ -4873,19 +4958,29 @@ Execute this step by calling the appropriate tool. Call exactly ONE tool to comp
         messages.push({ role: 'assistant', content: response.content });
         messages.push({ 
           role: 'user', 
-          content: `You must call a tool to execute this step. Do not just describe what you would do - actually call the tool now.
+          content: `YOU MUST CALL A TOOL. Do not describe what you would do - ACTUALLY DO IT.
 
 Step ${stepNumber}: ${currentStep}
 
-Call the appropriate tool NOW.`
+The user is waiting for this work to be done. Call the appropriate tool NOW to execute this step.
+
+If you need to:
+- Find/review something → use search_matters, get_matter, get_client
+- Create a document → use create_document with REAL content
+- Add a note → use add_matter_note
+- Create an event → use create_event
+- Log time → use log_time
+
+CALL A TOOL NOW.`
         });
         
+        await delay(2000); // Small delay before retry
         response = await callAzureOpenAIWithTools(messages, TOOLS);
       }
       
       // Process the tool call if we got one
       if (response.tool_calls && response.tool_calls.length > 0) {
-        const toolCall = response.tool_calls[0]; // Only process first tool call
+        const toolCall = response.tool_calls[0];
         const functionName = toolCall.function.name;
         let functionArgs;
         try {
@@ -4897,13 +4992,36 @@ Call the appropriate tool NOW.`
         console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Calling ${functionName}`);
         const result = await executeTool(functionName, functionArgs, user, null);
         
+        // Extract and store context data for future steps
+        if (functionName === 'get_matter' || functionName === 'search_matters') {
+          if (result.matter) {
+            contextData.matter = result.matter;
+          } else if (result.matters && result.matters.length > 0) {
+            contextData.matter = result.matters[0];
+          }
+        }
+        if (functionName === 'get_client' || functionName === 'list_clients') {
+          if (result.client) {
+            contextData.client = result.client;
+          } else if (result.clients && result.clients.length > 0) {
+            contextData.client = result.clients[0];
+          }
+        }
+        
         // Store step result
+        const stepSummary = result.message || result.summary || 
+          (result.document ? `Created document: ${result.document.name}` : null) ||
+          (result.matter ? `Retrieved matter: ${result.matter.name}` : null) ||
+          (result.event ? `Created event: ${result.event.title}` : null) ||
+          `Executed ${functionName}`;
+        
         stepResults.push({
           step: stepNumber,
           stepDescription: currentStep,
           tool: functionName,
+          args: functionArgs,
           result: result,
-          summary: result.message || result.summary || `Executed ${functionName}`,
+          summary: stepSummary,
           timestamp: new Date().toISOString()
         });
         
@@ -4912,6 +5030,7 @@ Call the appropriate tool NOW.`
           iteration: stepNumber,
           tool: functionName,
           status: 'completed',
+          summary: stepSummary,
           timestamp: new Date().toISOString()
         });
         
@@ -4921,7 +5040,7 @@ Call the appropriate tool NOW.`
           [stepNumber, JSON.stringify({ steps: progress }), taskId]
         );
         
-        console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Completed`);
+        console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Completed - ${stepSummary}`);
       } else {
         // AI failed to call a tool after multiple attempts
         console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Failed to get tool call after ${maxAttempts} attempts`);
@@ -4941,9 +5060,15 @@ Call the appropriate tool NOW.`
           status: 'skipped',
           timestamp: new Date().toISOString()
         });
+        
+        // Update progress even for skipped steps
+        await query(
+          `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
+          [stepNumber, JSON.stringify({ steps: progress }), taskId]
+        );
       }
       
-      // Delay before next step
+      // Delay before next step - gives time for user to see progress
       if (stepIndex < totalSteps - 1) {
         console.log(`[BACKGROUND ${taskId}] Waiting ${STEP_DELAY_MS/1000}s before next step...`);
         await delay(STEP_DELAY_MS);
@@ -8002,7 +8127,8 @@ router.get('/tasks/:taskId', authenticate, async (req, res) => {
       progressPercent = 100;
     } else if (task.status === 'running') {
       const planSteps = task.plan?.length || 10;
-      const completedSteps = task.progress?.length || 0;
+      // Progress is stored as { steps: [...] } so we need to access .steps
+      const completedSteps = task.progress?.steps?.length || task.progress?.length || 0;
       progressPercent = Math.min(Math.round((completedSteps / planSteps) * 100), 95);
     }
     
@@ -8052,8 +8178,13 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
     }
     
     const planSteps = task.plan?.length || 10;
-    const completedSteps = task.progress?.length || 0;
+    // Progress is stored as { steps: [...] } so we need to access .steps
+    const progressSteps = task.progress?.steps || task.progress || [];
+    const completedSteps = progressSteps.length || 0;
     const progressPercent = Math.min(Math.round((completedSteps / planSteps) * 100), 95);
+    
+    // Get the current step info
+    const lastStep = progressSteps[progressSteps.length - 1];
     
     res.json({ 
       active: true,
@@ -8063,7 +8194,7 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
         status: task.status,
         progressPercent,
         iterations: task.iterations,
-        currentStep: task.progress?.[task.progress.length - 1]?.tool || 'Working...'
+        currentStep: lastStep?.tool || 'Working...'
       }
     });
   } catch (error) {
