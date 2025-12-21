@@ -3875,14 +3875,45 @@ async function readDocumentContent(args, user) {
     };
   }
   
-  // No content available
+  // No content available - try to extract it now if we have a path
+  if (doc.path) {
+    try {
+      // Dynamic import to avoid circular dependencies
+      const { extractTextFromFile } = await import('./documents.js');
+      const extractedContent = await extractTextFromFile(doc.path, doc.name);
+      
+      if (extractedContent && extractedContent.trim().length > 0) {
+        // Save the extracted content for future use
+        await query(
+          'UPDATE documents SET content_text = $1, content_extracted_at = NOW() WHERE id = $2',
+          [extractedContent, doc.id]
+        );
+        
+        const content = extractedContent.substring(0, Math.min(parseInt(max_length), 50000));
+        return {
+          id: doc.id,
+          name: doc.name,
+          type: doc.type,
+          matter: doc.matter_name,
+          content: content,
+          truncated: extractedContent.length > content.length,
+          total_length: extractedContent.length,
+          note: 'Content was extracted on-demand'
+        };
+      }
+    } catch (extractError) {
+      console.error('On-demand extraction failed:', extractError);
+    }
+  }
+  
+  // No content available and extraction failed
   return {
     id: doc.id,
     name: doc.name,
     type: doc.type,
     matter: doc.matter_name,
     content: null,
-    note: 'Document content has not been extracted yet. The document exists but its text content is not available for reading.'
+    note: 'Document content could not be extracted. The document may be an image, scanned PDF, or unsupported format.'
   };
 }
 
