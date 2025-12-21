@@ -4776,8 +4776,16 @@ function delay(ms) {
 }
 
 async function processBackgroundTask(taskId, user, goal, plan) {
-  console.log(`[BACKGROUND] Starting task ${taskId}: ${goal}`);
+  console.log(`[BACKGROUND] ========================================`);
+  console.log(`[BACKGROUND] Starting task ${taskId}`);
+  console.log(`[BACKGROUND] Goal: ${goal}`);
   console.log(`[BACKGROUND] Plan has ${(plan || []).length} steps`);
+  if (plan && plan.length > 0) {
+    plan.forEach((step, i) => console.log(`[BACKGROUND]   ${i + 1}. ${step}`));
+  } else {
+    console.log(`[BACKGROUND] WARNING: No plan steps provided!`);
+  }
+  console.log(`[BACKGROUND] ========================================`);
   
   const startTime = Date.now();
   const maxRuntime = 30 * 60 * 1000; // 30 minutes max
@@ -5252,7 +5260,27 @@ ${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
       ];
       
       // Call AI for this step
-      let response = await callAzureOpenAIWithTools(messages, TOOLS);
+      console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Calling AI...`);
+      let response;
+      try {
+        response = await callAzureOpenAIWithTools(messages, TOOLS);
+        console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: AI response received. Tool calls: ${response.tool_calls?.length || 0}`);
+      } catch (apiError) {
+        console.error(`[BACKGROUND ${taskId}] Step ${stepNumber}: AI API error:`, apiError.message);
+        // Mark step as failed but continue
+        progress.push({
+          iteration: stepNumber,
+          tool: null,
+          status: 'api_error',
+          error: apiError.message,
+          timestamp: new Date().toISOString()
+        });
+        await query(
+          `UPDATE ai_tasks SET progress = $1, updated_at = NOW() WHERE id = $2`,
+          [JSON.stringify({ steps: progress }), taskId]
+        );
+        continue; // Skip to next step
+      }
       
       // Handle the response - may need multiple attempts if AI doesn't use tools
       let attempts = 0;
