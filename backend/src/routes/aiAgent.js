@@ -4777,21 +4777,15 @@ function delay(ms) {
 
 async function processBackgroundTask(taskId, user, goal, plan) {
   console.log(`[BACKGROUND] Starting task ${taskId}: ${goal}`);
+  console.log(`[BACKGROUND] Plan has ${(plan || []).length} steps`);
   
   const startTime = Date.now();
-  const maxRuntime = 30 * 60 * 1000; // 30 minutes max (increased for delays)
-  let iterations = 0;
-  const maxIterations = 100;
+  const maxRuntime = 30 * 60 * 1000; // 30 minutes max
   let progress = [];
+  let stepResults = []; // Store results from each step
   
-  // Delay between each iteration (deliberate pacing for background work)
-  // Reduced from 45s since we now process one tool call per step (proper step-by-step execution)
-  const STEP_DELAY_MS = 5 * 1000; // 5 seconds between steps for pacing
-  
-  // Self-improvement tracking
-  let learnings = []; // Accumulated insights from each step
-  let improvedApproaches = []; // Better strategies discovered
-  let qualityScore = 0; // Running quality assessment
+  // Delay between each step
+  const STEP_DELAY_MS = 3 * 1000; // 3 seconds between steps
   
   try {
     // Update status to running
@@ -4800,383 +4794,222 @@ async function processBackgroundTask(taskId, user, goal, plan) {
       [taskId]
     );
     
-    // Build the initial prompt with self-improvement instructions
+    // Build the system prompt
     const systemPrompt = getSystemPrompt()
       .replace('{{USER_ROLE}}', user.role || 'staff')
       .replace('{{USER_NAME}}', `${user.firstName || ''} ${user.lastName || ''}`);
     
-    const selfImprovementInstructions = `
-## SELF-IMPROVEMENT PROTOCOL
-As you work, continuously improve your approach:
+    const planSteps = plan || [];
+    const totalSteps = planSteps.length;
+    
+    // =========================================================================
+    // SYSTEM-CONTROLLED STEP-BY-STEP EXECUTION
+    // The system iterates through each step and prompts the AI individually
+    // =========================================================================
+    
+    for (let stepIndex = 0; stepIndex < totalSteps; stepIndex++) {
+      // Check timeout
+      if ((Date.now() - startTime) > maxRuntime) {
+        console.log(`[BACKGROUND ${taskId}] Timeout reached at step ${stepIndex + 1}`);
+        break;
+      }
+      
+      const currentStep = planSteps[stepIndex];
+      const stepNumber = stepIndex + 1;
+      
+      console.log(`[BACKGROUND ${taskId}] ===== STEP ${stepNumber}/${totalSteps}: ${currentStep} =====`);
+      
+      // Build the prompt for THIS specific step
+      let stepPrompt = `You are executing step ${stepNumber} of ${totalSteps} in a background task.
 
-1. **REFLECT** after each step: What worked well? What could be better?
-2. **LEARN**: Identify patterns, shortcuts, or better methods
-3. **ADAPT**: Apply learnings to improve subsequent steps
-4. **QUALITY CHECK**: Rate your output quality (1-10) and aim higher each step
+OVERALL GOAL: ${goal}
 
-When you log_work, include a "reflection" field with:
-- What you learned from this step
-- How you'll improve the next step
-- Any better approaches discovered
+`;
+      
+      // Show completed steps
+      if (stepIndex > 0) {
+        stepPrompt += `COMPLETED STEPS:\n`;
+        for (let i = 0; i < stepIndex; i++) {
+          const prevResult = stepResults[i];
+          stepPrompt += `  ✓ Step ${i + 1}: ${planSteps[i]}\n`;
+          if (prevResult?.summary) {
+            stepPrompt += `    Result: ${prevResult.summary}\n`;
+          }
+        }
+        stepPrompt += `\n`;
+      }
+      
+      // Current step instruction
+      stepPrompt += `=== YOUR TASK NOW ===
+Step ${stepNumber}: ${currentStep}
 
-Your goal is not just completion, but EXCELLENCE. Each step should be better than the last.`;
+Execute this step by calling the appropriate tool. Call exactly ONE tool to complete this step.`;
+      
+      // Show remaining steps
+      if (stepIndex < totalSteps - 1) {
+        stepPrompt += `\n\nREMAINING STEPS:\n`;
+        for (let i = stepIndex + 1; i < totalSteps; i++) {
+          stepPrompt += `  ${i + 1}. ${planSteps[i]}\n`;
+        }
+      }
+      
+      // Fresh messages for each step (keeps context manageable)
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: stepPrompt }
+      ];
+      
+      // Call AI for this step
+      let response = await callAzureOpenAIWithTools(messages, TOOLS);
+      
+      // Handle the response - may need multiple attempts if AI doesn't use tools
+      let attempts = 0;
+      const maxAttempts = 3;
+      
+      while (!response.tool_calls && attempts < maxAttempts) {
+        attempts++;
+        console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: No tool call (attempt ${attempts}). Prompting again...`);
+        
+        messages.push({ role: 'assistant', content: response.content });
+        messages.push({ 
+          role: 'user', 
+          content: `You must call a tool to execute this step. Do not just describe what you would do - actually call the tool now.
 
-    let messages = [
-      { role: 'system', content: systemPrompt + '\n\n' + selfImprovementInstructions },
-      { 
-        role: 'user', 
-        content: `You are working on a BACKGROUND TASK. This is a step-by-step task where EACH STEP is a separate prompt in our conversation.
+Step ${stepNumber}: ${currentStep}
+
+Call the appropriate tool NOW.`
+        });
+        
+        response = await callAzureOpenAIWithTools(messages, TOOLS);
+      }
+      
+      // Process the tool call if we got one
+      if (response.tool_calls && response.tool_calls.length > 0) {
+        const toolCall = response.tool_calls[0]; // Only process first tool call
+        const functionName = toolCall.function.name;
+        let functionArgs;
+        try {
+          functionArgs = JSON.parse(toolCall.function.arguments);
+        } catch (e) {
+          functionArgs = {};
+        }
+        
+        console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Calling ${functionName}`);
+        const result = await executeTool(functionName, functionArgs, user, null);
+        
+        // Store step result
+        stepResults.push({
+          step: stepNumber,
+          stepDescription: currentStep,
+          tool: functionName,
+          result: result,
+          summary: result.message || result.summary || `Executed ${functionName}`,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Track progress
+        progress.push({
+          iteration: stepNumber,
+          tool: functionName,
+          status: 'completed',
+          timestamp: new Date().toISOString()
+        });
+        
+        // Update progress in database
+        await query(
+          `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
+          [stepNumber, JSON.stringify({ steps: progress }), taskId]
+        );
+        
+        console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Completed`);
+      } else {
+        // AI failed to call a tool after multiple attempts
+        console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Failed to get tool call after ${maxAttempts} attempts`);
+        
+        stepResults.push({
+          step: stepNumber,
+          stepDescription: currentStep,
+          tool: null,
+          result: { error: 'AI did not execute a tool' },
+          summary: 'Step skipped - no tool executed',
+          timestamp: new Date().toISOString()
+        });
+        
+        progress.push({
+          iteration: stepNumber,
+          tool: null,
+          status: 'skipped',
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+      // Delay before next step
+      if (stepIndex < totalSteps - 1) {
+        console.log(`[BACKGROUND ${taskId}] Waiting ${STEP_DELAY_MS/1000}s before next step...`);
+        await delay(STEP_DELAY_MS);
+      }
+    }
+    
+    // =========================================================================
+    // FINAL SUMMARY - Ask AI to summarize what was accomplished
+    // =========================================================================
+    
+    console.log(`[BACKGROUND ${taskId}] All steps completed. Generating summary...`);
+    
+    const summaryPrompt = `You have completed a background task. Please provide a summary.
 
 GOAL: ${goal}
 
-PLAN (${(plan || []).length} steps):
-${(plan || []).map((step, i) => `${i + 1}. ${step}`).join('\n')}
+STEPS COMPLETED:
+${stepResults.map((r, i) => `${i + 1}. ${r.stepDescription}
+   Tool: ${r.tool || 'None'}
+   Result: ${r.summary}`).join('\n\n')}
 
-=== CRITICAL: ONE TOOL CALL PER STEP ===
-This is a sequential, step-by-step process. You MUST:
-1. Call exactly ONE tool per response
-2. Wait for the result before proceeding
-3. Each tool call will be followed by a new prompt for the next action
+Please call task_complete with:
+- A comprehensive summary of what was accomplished
+- The key actions taken
+- Any recommendations for next steps`;
 
-DO NOT call multiple tools at once. After each tool call, you will receive the result and a new prompt for the next step.
-
-WORKFLOW:
-1. Read this prompt → Call ONE tool
-2. Get result → Receive new prompt → Call ONE tool  
-3. Repeat until all steps complete
-4. Call task_complete when done
-
-INSTRUCTIONS:
-- Work through EACH step systematically - do not skip steps
-- Call ONE tool at a time - you will get a new prompt after each tool
-- Take your time - this is a background task
-- Only call task_complete when you have genuinely completed ALL steps
-
-=== BEGIN STEP 1 ===
-Execute: "${(plan || [])[0] || 'Start the task'}"
-
-Call ONE appropriate tool now to begin this step.`
-      }
+    const summaryMessages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: summaryPrompt }
     ];
     
-    let response = await callAzureOpenAIWithTools(messages, TOOLS);
+    const summaryResponse = await callAzureOpenAIWithTools(summaryMessages, TOOLS);
     
-    let taskCompleted = false;
-    let lastProgress = '';
-    let stuckCount = 0;
-    let noToolCallCount = 0; // Track consecutive responses without tool calls
+    let finalSummary = '';
     
-    while (!taskCompleted && iterations < maxIterations && (Date.now() - startTime) < maxRuntime) {
-      iterations++;
-      
-      if (!response.tool_calls) {
-        noToolCallCount++;
-        console.log(`[BACKGROUND ${taskId}] No tool calls in response (${noToolCallCount} consecutive). Response: ${response.content?.substring(0, 200)}...`);
-        
-        // AI responded without tools - should keep working
-        // Only mark complete if we've done significant work AND AI explicitly says done
-        const hasExplicitComplete = response.content?.toLowerCase().includes('all steps completed') ||
-                                    response.content?.toLowerCase().includes('task complete') ||
-                                    response.content?.toLowerCase().includes('i have finished') ||
-                                    response.content?.toLowerCase().includes('work is done') ||
-                                    response.content?.toLowerCase().includes('successfully completed');
-        
-        const planLength = (plan || []).length || 5;
-        const minIterationsForComplete = Math.max(planLength - 1, 5);
-        
-        if (iterations >= minIterationsForComplete && hasExplicitComplete) {
-          console.log(`[BACKGROUND ${taskId}] AI declared complete after ${iterations} iterations`);
-          taskCompleted = true;
-          break;
+    if (summaryResponse.tool_calls) {
+      const toolCall = summaryResponse.tool_calls[0];
+      if (toolCall.function.name === 'task_complete') {
+        const args = JSON.parse(toolCall.function.arguments);
+        finalSummary = `## Summary\n${args.summary || 'Task completed'}\n\n`;
+        if (args.actions_taken?.length) {
+          finalSummary += `## Actions Taken\n${args.actions_taken.map(a => `• ${a}`).join('\n')}\n\n`;
         }
-        
-        // If AI keeps responding without tools for too many times, it might be stuck
-        if (noToolCallCount >= 5) {
-          console.log(`[BACKGROUND ${taskId}] AI stuck without tool calls for ${noToolCallCount} times. Forcing task_complete prompt.`);
-          messages.push({ role: 'assistant', content: response.content });
-          messages.push({ 
-            role: 'user', 
-            content: `You have responded ${noToolCallCount} times without using any tools. This is a background task - you MUST either:
-
-1. Use task_complete NOW to finish the task with a summary of what you've accomplished so far
-2. Use a specific tool to continue working
-
-Call task_complete now with your summary.`
-          });
-        } else {
-          // Get the current step based on iterations
-          const currentStepIdx = Math.min(iterations - 1, (plan?.length || 1) - 1);
-          const currentStep = plan?.[currentStepIdx] || 'continue the task';
-          const completedSteps = plan?.slice(0, currentStepIdx) || [];
-          
-          // Build unique step-specific prompt emphasizing single tool call
-          let continuePrompt = `=== STEP ${iterations}: Action Required ===\n\n`;
-          
-          if (completedSteps.length > 0) {
-            continuePrompt += `Completed so far:\n${completedSteps.map((s, i) => `  ✓ ${s}`).join('\n')}\n\n`;
-          }
-          
-          continuePrompt += `CURRENT STEP: "${currentStep}"\n\n`;
-          continuePrompt += `You must call exactly ONE tool now. Choose the most appropriate:\n`;
-          continuePrompt += `• Data retrieval: search_matters, get_matter, list_clients, get_client\n`;
-          continuePrompt += `• Actions: create_matter, create_client, create_event, log_time\n`;
-          continuePrompt += `• Progress: log_work (to record what you've done)\n`;
-          continuePrompt += `• Completion: task_complete (ONLY after ALL ${planLength} steps are done)\n\n`;
-          continuePrompt += `Call ONE tool now to execute "${currentStep}".`;
-          
-          messages.push({ role: 'assistant', content: response.content });
-          messages.push({ role: 'user', content: continuePrompt });
+        if (args.results) {
+          finalSummary += `## Results\n${args.results}\n\n`;
         }
-        
-        // Add delay before continuing
-        console.log(`[BACKGROUND ${taskId}] Prompting AI to continue. Waiting ${STEP_DELAY_MS/1000}s...`);
-        await delay(STEP_DELAY_MS);
-        
-        response = await callAzureOpenAIWithTools(messages, TOOLS);
-        continue;
-      }
-      
-      // Reset no-tool-call counter when AI uses tools
-      noToolCallCount = 0;
-      
-      // IMPORTANT: Process ONLY ONE tool call per iteration to ensure each step is a new prompt
-      // This creates proper step-by-step execution where each action gets its own API call
-      const toolCall = response.tool_calls[0]; // Only process the first tool call
-      const remainingToolCalls = response.tool_calls.slice(1);
-      
-      if (remainingToolCalls.length > 0) {
-        console.log(`[BACKGROUND ${taskId}] AI requested ${response.tool_calls.length} tools, processing only first one (${toolCall.function.name}). Will request next step separately.`);
-      }
-      
-      // Add assistant message with only the single tool call we're processing
-      messages.push({
-        role: 'assistant',
-        content: response.content || null,
-        tool_calls: [toolCall] // Only include the single tool call we're processing
-      });
-      
-      const functionName = toolCall.function.name;
-      let functionArgs;
-      try {
-        functionArgs = JSON.parse(toolCall.function.arguments);
-      } catch (e) {
-        functionArgs = {};
-      }
-      
-      console.log(`[BACKGROUND ${taskId}] Step ${iterations}: Executing tool "${functionName}"`);
-      const result = await executeTool(functionName, functionArgs, user, null);
-      
-      // Track progress
-      const progressEntry = {
-        iteration: iterations,
-        tool: functionName,
-        timestamp: new Date().toISOString()
-      };
-      progress.push(progressEntry);
-      
-      // Check for completion
-      if (result._task_complete) {
-        taskCompleted = true;
-        
-        // Build a comprehensive summary including learnings
-        let completionSummary = `## Summary\n${result.summary}\n\n## Actions Taken\n${(result.actions_taken || []).map(a => `• ${a}`).join('\n')}\n\n## Results\n${result.results || 'Task completed successfully'}`;
-        
-        if (result.recommendations?.length) {
-          completionSummary += `\n\n## Recommendations\n${result.recommendations.map(r => `• ${r}`).join('\n')}`;
+        if (args.recommendations?.length) {
+          finalSummary += `## Recommendations\n${args.recommendations.map(r => `• ${r}`).join('\n')}`;
         }
-        
-        if (result.key_learnings?.length) {
-          completionSummary += `\n\n## Key Learnings\n${result.key_learnings.map(l => `• ${l}`).join('\n')}`;
-        }
-        
-        if (result.quality_assessment) {
-          completionSummary += `\n\n## Quality Assessment\n${result.quality_assessment}`;
-        }
-        
-        if (result.improvements_for_next_time?.length) {
-          completionSummary += `\n\n## Improvements for Next Time\n${result.improvements_for_next_time.map(i => `• ${i}`).join('\n')}`;
-        }
-        
-        // Also include any learnings captured during the process
-        if (learnings.length > 0) {
-          completionSummary += `\n\n## Process Insights\n${learnings.map(l => `• Step ${l.step}: ${l.insight}`).join('\n')}`;
-        }
-        
-        progress.push({ 
-          iteration: iterations, 
-          status: 'completed', 
-          summary: result.summary,
-          actions_taken: result.actions_taken,
-          results: result.results,
-          recommendations: result.recommendations,
-          key_learnings: result.key_learnings,
-          quality_assessment: result.quality_assessment,
-          improvements_for_next_time: result.improvements_for_next_time,
-          timestamp: new Date().toISOString()
-        });
-        
-        // Update the task with the comprehensive summary immediately
-        await query(
-          `UPDATE ai_tasks SET result = $1 WHERE id = $2`,
-          [completionSummary, taskId]
-        );
-      }
-      
-      // Stuck detection
-      const currentProgress = JSON.stringify({ tool: functionName, args: functionArgs });
-      if (currentProgress === lastProgress) {
-        stuckCount++;
-        if (stuckCount >= 3) {
-          console.log(`[BACKGROUND ${taskId}] Stuck detected, finishing`);
-          taskCompleted = true;
-          progress.push({ iteration: iterations, status: 'stuck', timestamp: new Date().toISOString() });
-        }
-      } else {
-        stuckCount = 0;
-        lastProgress = currentProgress;
-      }
-      
-      // Add tool result to messages
-      messages.push({
-        role: 'tool',
-        tool_call_id: toolCall.id,
-        content: JSON.stringify(result)
-      });
-      
-      // Extract any learnings from log_work calls
-      if (functionName === 'log_work' && functionArgs.reflection) {
-        learnings.push({
-          step: iterations,
-          insight: functionArgs.reflection,
-          timestamp: new Date().toISOString()
-        });
-      }
-      
-      // Update progress in database with learnings
-      await query(
-        `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
-        [iterations, JSON.stringify({ steps: progress, learnings, improvedApproaches }), taskId]
-      );
-      
-      if (!taskCompleted) {
-        // Add delay between steps to work more deliberately
-        console.log(`[BACKGROUND ${taskId}] Step ${iterations} complete. Waiting ${STEP_DELAY_MS/1000}s before next step...`);
-        await delay(STEP_DELAY_MS);
-        
-        // Build self-improvement prompt based on accumulated learnings
-        const learningsContext = learnings.length > 0 
-          ? `\n\nLEARNINGS SO FAR:\n${learnings.slice(-5).map(l => `• Step ${l.step}: ${l.insight}`).join('\n')}`
-          : '';
-        
-        const improvementPrompt = iterations > 1 
-          ? `\n\nBefore proceeding, briefly reflect:
-1. What worked well in your last action?
-2. What could you do better this time?
-3. Apply any insights from your learnings to improve this next step.`
-          : '';
-        
-        // If we've done most of the planned steps, prompt to finish
-        const planLength = plan?.length || 5;
-        if (iterations >= planLength - 1 && iterations >= 3) {
-          messages.push({
-            role: 'user',
-            content: `You've completed ${iterations} iterations and should be near the end of your plan.
-${learningsContext}
-
-FINAL REFLECTION: Before completing, consider:
-- What was the overall quality of your work? (Rate 1-10)
-- What would you do differently if you started over?
-- What key insights should be preserved for future similar tasks?
-
-Please wrap up your work and call task_complete with:
-- A comprehensive summary of what you accomplished
-- The actions you took
-- Key learnings and recommendations for future tasks`
-          });
-        } else {
-          // Regular continuation - each prompt is unique based on step number and content
-          const currentStepIndex = Math.min(iterations, (plan?.length || 1) - 1);
-          const currentStep = plan?.[currentStepIndex] || 'continue the task';
-          const nextStep = plan?.[currentStepIndex + 1];
-          const completedSteps = plan?.slice(0, currentStepIndex) || [];
-          
-          // Build a unique, step-specific prompt emphasizing ONE tool call per step
-          let stepPrompt = `=== STEP ${iterations + 1}: Execute Next Action ===\n\n`;
-          
-          stepPrompt += `GOAL: ${goal}\n\n`;
-          
-          if (completedSteps.length > 0) {
-            stepPrompt += `COMPLETED (${completedSteps.length}/${plan?.length || '?'}):\n${completedSteps.map((s, i) => `  ✓ ${i + 1}. ${s}`).join('\n')}\n\n`;
-          }
-          
-          stepPrompt += `CURRENT STEP: "${currentStep}"\n\n`;
-          
-          if (nextStep) {
-            stepPrompt += `AFTER THIS: "${nextStep}"\n\n`;
-          }
-          
-          // Emphasize single tool call per step
-          stepPrompt += `IMPORTANT: Call exactly ONE tool now to make progress on this step. Each tool call is a separate step in the conversation. After this tool completes, you will get another prompt for the next action.\n\n`;
-          stepPrompt += `Choose the most appropriate tool and call it now.`;
-          
-          if (learningsContext) {
-            stepPrompt += `\n${learningsContext}`;
-          }
-          
-          messages.push({
-            role: 'user',
-            content: stepPrompt
-          });
-        }
-        
-        response = await callAzureOpenAIWithTools(messages, TOOLS);
       }
     }
     
-    // Build learnings summary
-    const learningsSummary = learnings.length > 0 
-      ? `\n\n## Learnings & Insights\n${learnings.map(l => `• Step ${l.step}: ${l.insight}`).join('\n')}`
-      : '';
-    
-    // If loop ended but task not marked complete, force complete it with a good summary
-    if (!taskCompleted) {
-      console.log(`[BACKGROUND ${taskId}] Loop ended without task_complete, forcing completion`);
-      
-      // Try to build a meaningful summary from the progress
-      const toolsUsed = [...new Set(progress.map(p => p.tool).filter(Boolean))];
-      const forcedSummary = `## Summary
-Background task completed after ${iterations} iterations.
-
-## Work Performed
-• Used ${toolsUsed.length} different tools: ${toolsUsed.slice(0, 10).join(', ')}${toolsUsed.length > 10 ? '...' : ''}
-• Completed ${iterations} steps toward the goal
-${learningsSummary}
-
-## Status
-The task ran to completion. Results are based on the work performed during execution.`;
-
-      await query(
-        `UPDATE ai_tasks SET result = $1 WHERE id = $2`,
-        [forcedSummary, taskId]
-      );
+    if (!finalSummary) {
+      // Build summary from step results
+      finalSummary = `## Summary\nCompleted ${stepResults.length} of ${totalSteps} steps for: ${goal}\n\n`;
+      finalSummary += `## Steps Completed\n${stepResults.map((r, i) => `${i + 1}. ${r.stepDescription}: ${r.summary}`).join('\n')}\n\n`;
+      finalSummary += `## Status\nBackground task finished successfully.`;
     }
     
-    // Mark task complete - don't overwrite the result if we already set it
-    const finalStatus = taskCompleted ? 'completed' : (iterations >= maxIterations ? 'max_iterations' : 'timeout');
-    
-    // Get current result to avoid overwriting
-    const currentTask = await query('SELECT result FROM ai_tasks WHERE id = $1', [taskId]);
-    const existingResult = currentTask.rows[0]?.result;
-    
+    // Mark task complete
     await query(
-      `UPDATE ai_tasks SET status = $1, completed_at = NOW(), iterations = $2, progress = $3
-       ${!existingResult ? ', result = $4' : ''} WHERE id = ${!existingResult ? '$5' : '$4'}`,
-      !existingResult 
-        ? [finalStatus, iterations, JSON.stringify({ steps: progress, learnings, improvedApproaches }), response.content || 'Task completed', taskId]
-        : [finalStatus, iterations, JSON.stringify({ steps: progress, learnings, improvedApproaches }), taskId]
+      `UPDATE ai_tasks SET status = 'completed', completed_at = NOW(), iterations = $1, progress = $2, result = $3 WHERE id = $4`,
+      [totalSteps, JSON.stringify({ steps: progress }), finalSummary, taskId]
     );
     
-    console.log(`[BACKGROUND] Task ${taskId} finished with status: ${finalStatus}, ${learnings.length} learnings captured`);
+    console.log(`[BACKGROUND] Task ${taskId} completed successfully`);
     
   } catch (error) {
     console.error(`[BACKGROUND] Task ${taskId} error:`, error);
