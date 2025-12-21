@@ -171,23 +171,7 @@
   margin-left: -2px;
 }
 
-.outlookNav {
-  margin-top: var(--space-sm);
-  background: linear-gradient(135deg, rgba(0, 120, 212, 0.1) 0%, rgba(0, 120, 212, 0.05) 100%);
-  border: 1px solid rgba(0, 120, 212, 0.2);
-}
-
-.outlookNav:hover {
-  background: linear-gradient(135deg, rgba(0, 120, 212, 0.2) 0%, rgba(0, 120, 212, 0.1) 100%);
-  border-color: rgba(0, 120, 212, 0.3);
-}
-
-.outlookNav.active {
-  background: linear-gradient(135deg, rgba(0, 120, 212, 0.25) 0%, rgba(0, 120, 212, 0.1) 100%);
-  color: #0078D4;
-  border-color: rgba(0, 120, 212, 0.4);
-  border-left: 2px solid #0078D4;
-}
+/* Outlook styling removed - now uses standard integrationNav styling */
 
 .aiNav {
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(139, 92, 246, 0.05) 100%);

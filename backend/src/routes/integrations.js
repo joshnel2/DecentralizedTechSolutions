@@ -1079,6 +1079,41 @@ router.post('/outlook/send', authenticate, async (req, res) => {
       return res.status(500).json({ error: 'Failed to send email' });
     }
 
+    // Auto-link email to clients based on recipient email addresses
+    const recipientEmails = to.split(',').map(e => e.trim().toLowerCase());
+    
+    try {
+      // Find clients with matching email addresses
+      const clientsResult = await query(
+        `SELECT id, email, display_name FROM clients 
+         WHERE firm_id = $1 AND LOWER(email) = ANY($2)`,
+        [req.user.firmId, recipientEmails]
+      );
+
+      // Link the sent email to each matching client
+      for (const client of clientsResult.rows) {
+        await query(
+          `INSERT INTO email_links (
+            firm_id, email_id, email_provider, subject, from_address, 
+            client_id, linked_by, linked_at, received_at, notes
+          ) VALUES ($1, $2, 'outlook', $3, $4, $5, $6, NOW(), NOW(), $7)
+          ON CONFLICT DO NOTHING`,
+          [
+            req.user.firmId,
+            `sent-${Date.now()}`, // Generate a unique ID for sent emails
+            subject || '(No Subject)',
+            'You',
+            client.id,
+            req.user.id,
+            'Auto-linked: Email sent to client'
+          ]
+        );
+      }
+    } catch (linkError) {
+      console.error('Error auto-linking sent email to clients:', linkError);
+      // Don't fail the request, just log the error
+    }
+
     res.json({ success: true, message: 'Email sent successfully' });
   } catch (error) {
     console.error('Send email error:', error);

@@ -624,6 +624,7 @@
 .composeFields {
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--apex-slate);
+  background: var(--apex-dark);
 }
 
 .composeField {
@@ -642,26 +643,29 @@
   width: 60px;
   font-size: 0.875rem;
   color: var(--apex-text);
+  flex-shrink: 0;
 }
 
 .composeField input {
   flex: 1;
-  background: none;
-  border: none;
+  background: var(--apex-charcoal);
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
   color: var(--apex-white);
   font-size: 0.9rem;
   outline: none;
 }
 
-.composeField input::placeholder {
-  color: var(--apex-text);
+.composeField input:focus {
+  border-color: var(--apex-primary);
 }
 
 .composeBody {
   flex: 1;
   min-height: 250px;
   padding: 1rem;
-  background: none;
+  background: var(--apex-dark);
   border: none;
   color: var(--apex-white);
   font-size: 0.9rem;
@@ -669,10 +673,6 @@
   resize: none;
   outline: none;
   font-family: inherit;
-}
-
-.composeBody::placeholder {
-  color: var(--apex-text);
 }
 
 .composeFooter {
@@ -747,6 +747,7 @@
 .modal,
 .settingsModal {
   background: var(--apex-charcoal);
+  border: 1px solid var(--apex-slate);
   border-radius: var(--radius-lg);
   padding: 1.5rem;
   width: 400px;
@@ -756,6 +757,7 @@
 
 .settingsModal {
   width: 500px;
+  background: var(--apex-dark);
 }
 
 .modal h2,

@@ -1041,7 +1041,13 @@ export function ClientDetailPage() {
             ) : communications.length > 0 ? (
               <div className={styles.docGrid}>
                 {communications.map((comm: any) => (
-                  <div key={comm.id || comm.emailId} className={styles.docCard}>
+                  <div 
+                    key={comm.id || comm.emailId} 
+                    className={styles.docCard}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => navigate(`/app/integrations/outlook?emailId=${comm.emailId}`)}
+                    title="Open in Outlook"
+                  >
                     <div className={styles.docIcon}>
                       <Mail size={24} />
                     </div>
