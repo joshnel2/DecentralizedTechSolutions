@@ -4870,38 +4870,45 @@ When creating documents, produce COMPLETE professional work:
 - Client responsibilities
 - Termination provisions
 
-### IMPRESS THE USER - DELIVER EXCEPTIONAL WORK:
+### DELIVER REAL VALUE - NO BULLSHIT:
 
-**DOCUMENT QUALITY:**
-When creating documents, write like a top-tier law firm associate:
-- Use professional legal language and proper formatting
-- Include all necessary provisions - be thorough
-- Reference the specific matter/client details in the content
-- Add relevant dates, party names, and specifics
-- Format with proper headings, numbered paragraphs, signature blocks
+**MANDATORY: ALWAYS ADD MATTER NOTES**
+After EVERY action, add a note to the matter documenting what you did. No exceptions.
+Use add_matter_note with the matter_id after every substantive step.
 
-**MATTER NOTES - Be Detailed:**
-When adding notes, write substantive entries that show real work:
-- "Reviewed matter file and identified 3 key action items: (1) Draft work for hire agreement to protect IP rights, (2) Prepare engagement letter outlining scope and fees, (3) Schedule client call to discuss timeline."
-- NOT just "Reviewed matter" - that's lazy
+**NO SLOP. NO FLUFF. ONLY VALUE.**
 
-**TIME ENTRIES - Professional Descriptions:**
-Log time with descriptions that show valuable work:
-- "Draft and review Work for Hire Agreement including IP assignment provisions, confidentiality terms, and payment schedule"
-- "Legal research and analysis regarding contractor classification and work product ownership"
-- NOT just "Worked on matter"
+❌ DON'T write generic filler like:
+- "This agreement is entered into..."
+- "The parties hereby agree..."
+- "As discussed, we are pleased to..."
+- Template garbage that says nothing
 
-**BE PROACTIVE - Identify Issues:**
-- If you notice missing information, note it and work around it
-- If a document should reference another, mention that
-- If deadlines are unclear, suggest reasonable ones
-- If there are risks, flag them in your notes
+✅ DO write specific, useful content:
+- Actual terms that matter
+- Real provisions with substance
+- Specific names, dates, amounts
+- Actionable information
 
-**EXCEED EXPECTATIONS:**
-- Create comprehensive documents, not templates
-- Add thoughtful recommendations in notes
-- Suggest follow-up actions the user might not have considered
-- Make the user say "Wow, the AI did all this?"
+**DOCUMENTS:** Write content a lawyer would actually use. No placeholder sections. No "insert here" nonsense. Real terms, real language, ready to use.
+
+**NOTES:** State what you did and what matters. Examples:
+- "Created Work for Hire Agreement with IP assignment to [Client]. Key terms: $X fee, 30-day deliverable, perpetual license. Ready for review."
+- "Reviewed matter - missing signed engagement letter. Created draft. Need client signature before proceeding."
+- "Identified issue: no confidentiality clause in existing contract. Drafted addendum."
+
+**TIME ENTRIES:** Describe actual work, not vague activities:
+- "Drafted IP assignment agreement with work-for-hire provisions"
+- NOT "Worked on contract matters"
+
+**CUT THE BULLSHIT:**
+- Don't pad documents with unnecessary recitals
+- Don't add sections that don't apply
+- Don't use 10 words when 3 will do
+- Don't create things just to look busy
+- DO create what's actually needed
+- DO flag real issues
+- DO add genuine value
 
 ### EXECUTION RULES:
 
@@ -5397,47 +5404,51 @@ RESULT: ${stepSummary}
             followUpPrompt += `MATTER: ${contextData.matter.name} (ID: ${contextData.matter.id})\n`;
           }
           
-          // Determine smart follow-up based on what action was just taken
+          // ALWAYS add a matter note after substantive actions
           let recommendedFollowUp = '';
+          const matterId = contextData.matter?.id;
           
-          if (functionName === 'get_matter' || functionName === 'search_matters') {
-            recommendedFollowUp = `You just retrieved matter information.
-RECOMMENDED: Call add_matter_note to document your review findings.
-Use matter_id: ${contextData.matter?.id || 'from the result'}
-Include: What you found, key observations, any concerns or action items.`;
-          } else if (functionName === 'create_document') {
-            recommendedFollowUp = `You just created a document.
-RECOMMENDED: Call log_time to record the drafting work.
-Use matter_id: ${contextData.matter?.id || 'from the result'}
-Hours: 0.3 (for document drafting)
-Description: "Drafted ${functionArgs.name || 'document'}"`;
-          } else if (functionName === 'get_client' || functionName === 'list_clients') {
-            recommendedFollowUp = `You just retrieved client information.
-RECOMMENDED: Call add_matter_note to document client review.
-Use matter_id: ${contextData.matter?.id || ''}`;
-          } else if (functionName === 'create_event') {
-            recommendedFollowUp = `You just scheduled an event.
-RECOMMENDED: Call add_matter_note to document the scheduled item.
-Use matter_id: ${contextData.matter?.id || ''}
-Note: "Scheduled ${functionArgs.title || 'event'} for ${functionArgs.start_time || 'upcoming'}"`;
-          } else if (functionName === 'create_task') {
-            recommendedFollowUp = `You just created a task.
-RECOMMENDED: Call add_matter_note to document the task.
-Use matter_id: ${contextData.matter?.id || ''}`;
+          if (!matterId) {
+            // No matter context yet, skip follow-up
+            followUpPrompt += `\nNo matter context available yet. Continue to next step.`;
           } else if (functionName === 'add_matter_note') {
-            recommendedFollowUp = `You just added a note.
-RECOMMENDED: Call log_time if this was substantive work.
-Use matter_id: ${contextData.matter?.id || ''}
-Hours: 0.1
-Description: "Matter review and documentation"`;
+            // Just added a note, don't add another - log time instead
+            recommendedFollowUp = `REQUIRED: Log time for this work.
+Call log_time with:
+- matter_id: ${matterId}
+- hours: 0.1
+- description: "Matter review and documentation"
+- billable: true`;
+          } else if (functionName === 'log_time') {
+            // Just logged time, we're done with follow-ups
+            followUpPrompt += `\nTime logged. Continue to next step.`;
           } else {
-            recommendedFollowUp = `RECOMMENDED: Call add_matter_note or log_time to document this work.
-${contextData.matter ? `Use matter_id: ${contextData.matter.id}` : ''}`;
+            // For all other actions, ALWAYS add a matter note
+            let noteContent = '';
+            
+            if (functionName === 'get_matter' || functionName === 'search_matters') {
+              noteContent = `Reviewed matter. ${stepSummary}. Ready for next steps.`;
+            } else if (functionName === 'create_document') {
+              noteContent = `Created ${functionArgs.name || 'document'}. ${stepSummary}. Ready for review.`;
+            } else if (functionName === 'create_event') {
+              noteContent = `Scheduled: ${functionArgs.title || 'event'}. ${stepSummary}.`;
+            } else if (functionName === 'create_task') {
+              noteContent = `Created task: ${functionArgs.title || 'follow-up item'}. ${stepSummary}.`;
+            } else {
+              noteContent = `${stepSummary}`;
+            }
+            
+            recommendedFollowUp = `REQUIRED: Document this work in the matter.
+Call add_matter_note with:
+- matter_id: ${matterId}
+- content: "${noteContent}"`;
           }
           
-          followUpPrompt += `\n${recommendedFollowUp}
+          if (recommendedFollowUp) {
+            followUpPrompt += `\n${recommendedFollowUp}
 
-CALL THE RECOMMENDED TOOL NOW.`;
+CALL THE TOOL NOW.`;
+          }
 
           const followUpMessages = [
             { role: 'system', content: systemPrompt },
