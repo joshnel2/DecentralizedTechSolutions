@@ -401,16 +401,48 @@ router.get('/:id/content', authenticate, requirePermission('documents:view'), as
     }
 
     const doc = result.rows[0];
+    
+    // First check if content is already stored in database (e.g., AI-generated documents)
+    if (doc.content_text && doc.content_text.trim().length > 0) {
+      return res.json({
+        id: doc.id,
+        name: doc.original_name || doc.name,
+        type: doc.type,
+        size: doc.size,
+        content: doc.content_text,
+      });
+    }
 
-    // Check if file exists
+    // If no stored content, try to extract from file
+    // Check if file path exists
+    if (!doc.path) {
+      // No file path - this might be an external or AI-generated document without content
+      return res.json({
+        id: doc.id,
+        name: doc.original_name || doc.name,
+        type: doc.type,
+        size: doc.size,
+        content: doc.ai_summary || '[No content available for this document]',
+      });
+    }
+
+    // Check if file exists on disk
     try {
       await fs.access(doc.path);
     } catch {
-      return res.status(404).json({ error: 'File not found on server' });
+      // File doesn't exist - return any available content
+      return res.json({
+        id: doc.id,
+        name: doc.original_name || doc.name,
+        type: doc.type,
+        size: doc.size,
+        content: doc.ai_summary || '[File not found on server]',
+      });
     }
 
     let textContent = '';
-    const ext = path.extname(doc.original_name).toLowerCase();
+    const fileName = doc.original_name || doc.name || 'document';
+    const ext = path.extname(fileName).toLowerCase();
 
     // Extract text based on file type
     if (ext === '.pdf') {
@@ -420,7 +452,7 @@ router.get('/:id/content', authenticate, requirePermission('documents:view'), as
         textContent = pdfData.text;
       } catch (pdfError) {
         console.error('PDF parse error:', pdfError);
-        textContent = `[Unable to extract PDF text. File: ${doc.original_name}]`;
+        textContent = `[Unable to extract PDF text. File: ${fileName}]`;
       }
     } else if (['.txt', '.md', '.json', '.csv', '.xml', '.html', '.js', '.ts', '.jsx', '.tsx', '.css', '.sql'].includes(ext)) {
       // Text-based files - read directly
@@ -432,24 +464,39 @@ router.get('/:id/content', authenticate, requirePermission('documents:view'), as
         textContent = result.value;
       } catch (docxError) {
         console.error('DOCX parse error:', docxError);
-        textContent = `[Unable to extract Word document text. File: ${doc.original_name}]`;
+        textContent = `[Unable to extract Word document text. File: ${fileName}]`;
       }
     } else if (ext === '.doc') {
       // Old .doc format - mammoth doesn't support it well
-      textContent = `[Old Word format (.doc): ${doc.original_name}. Please convert to .docx for text extraction.]`;
+      textContent = `[Old Word format (.doc): ${fileName}. Please convert to .docx for text extraction.]`;
     } else if (['.xls', '.xlsx'].includes(ext)) {
       // Excel files would need a library like xlsx
-      textContent = `[Excel file: ${doc.original_name}. Spreadsheet content available but not extracted as text.]`;
+      textContent = `[Excel file: ${fileName}. Spreadsheet content available but not extracted as text.]`;
     } else if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) {
       // Image files
-      textContent = `[Image file: ${doc.original_name}. Image analysis would require OCR processing.]`;
+      textContent = `[Image file: ${fileName}. Image analysis would require OCR processing.]`;
+    } else if (!ext) {
+      // No extension - try to read as text (might be AI-generated content)
+      try {
+        textContent = await fs.readFile(doc.path, 'utf-8');
+      } catch {
+        textContent = `[Unable to read file content]`;
+      }
     } else {
-      textContent = `[File: ${doc.original_name}. Cannot extract text from this file type (${ext}).]`;
+      textContent = `[File: ${fileName}. Cannot extract text from this file type (${ext}).]`;
+    }
+
+    // Store the extracted content for future requests
+    if (textContent && !textContent.startsWith('[')) {
+      await query(
+        'UPDATE documents SET content_text = $1, content_extracted_at = NOW() WHERE id = $2',
+        [textContent, doc.id]
+      ).catch(err => console.error('Failed to cache content:', err));
     }
 
     res.json({
       id: doc.id,
-      name: doc.original_name,
+      name: doc.original_name || doc.name,
       type: doc.type,
       size: doc.size,
       content: textContent,
