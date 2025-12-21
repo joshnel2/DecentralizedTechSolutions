@@ -862,6 +862,85 @@ router.get('/outlook/emails', authenticate, async (req, res) => {
   }
 });
 
+// Get Outlook drafts
+router.get('/outlook/drafts', authenticate, async (req, res) => {
+  try {
+    const integration = await query(
+      `SELECT * FROM integrations WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+      [req.user.firmId]
+    );
+
+    if (integration.rows.length === 0) {
+      return res.status(400).json({ error: 'Outlook not connected' });
+    }
+
+    // Get credentials
+    const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
+    const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
+    const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
+
+    let accessToken = integration.rows[0].access_token;
+    const refreshToken = integration.rows[0].refresh_token;
+
+    // Refresh token if needed
+    if (new Date(integration.rows[0].token_expires_at) < new Date()) {
+      const tokenUrl = `https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/token`;
+      const refreshResponse = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: MS_CLIENT_ID,
+          client_secret: MS_CLIENT_SECRET,
+          refresh_token: refreshToken,
+          grant_type: 'refresh_token',
+        }),
+      });
+
+      if (refreshResponse.ok) {
+        const tokens = await refreshResponse.json();
+        accessToken = tokens.access_token;
+        
+        await query(
+          `UPDATE integrations SET access_token = $1, token_expires_at = $2 WHERE id = $3`,
+          [tokens.access_token, new Date(Date.now() + tokens.expires_in * 1000), integration.rows[0].id]
+        );
+      }
+    }
+
+    // Get drafts from Microsoft Graph API
+    const graphResponse = await fetch(
+      'https://graph.microsoft.com/v1.0/me/mailFolders/drafts/messages?$top=50&$orderby=createdDateTime desc',
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+
+    if (!graphResponse.ok) {
+      const errorText = await graphResponse.text();
+      console.error('Graph API error:', errorText);
+      return res.status(500).json({ error: 'Failed to fetch drafts from Outlook' });
+    }
+
+    const data = await graphResponse.json();
+    const drafts = data.value || [];
+
+    res.json({
+      drafts: drafts.map(draft => ({
+        id: draft.id,
+        subject: draft.subject || '(No Subject)',
+        to: draft.toRecipients?.map(r => r.emailAddress?.address).join(', ') || '',
+        toNames: draft.toRecipients?.map(r => r.emailAddress?.name).join(', ') || '',
+        createdAt: draft.createdDateTime,
+        lastModified: draft.lastModifiedDateTime,
+        preview: draft.bodyPreview,
+      })),
+    });
+  } catch (error) {
+    console.error('Outlook drafts error:', error);
+    res.status(500).json({ error: 'Failed to fetch drafts' });
+  }
+});
+
 // Get client communications (emails linked to client)
 router.get('/client/:clientId/communications', authenticate, async (req, res) => {
   try {
