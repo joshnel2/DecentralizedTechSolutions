@@ -6,8 +6,10 @@ import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Search, FolderOpen, FileText, Upload,
   Sparkles, Download, Trash2, Wand2, X, Loader2,
-  FileSearch, Scale, AlertTriangle, List, MessageSquare
+  FileSearch, Scale, AlertTriangle, List, MessageSquare,
+  Eye, Edit3, Save, RotateCcw
 } from 'lucide-react'
+import { documentsApi } from '../services/api'
 import { format, parseISO } from 'date-fns'
 import styles from './DocumentsPage.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
@@ -178,6 +180,70 @@ export function DocumentsPage() {
     docId: string
     docName: string
   }>({ isOpen: false, docId: '', docName: '' })
+
+  // Document viewer/editor state
+  const [editorDoc, setEditorDoc] = useState<typeof documents[0] | null>(null)
+  const [editorContent, setEditorContent] = useState('')
+  const [originalContent, setOriginalContent] = useState('')
+  const [isEditing, setIsEditing] = useState(false)
+  const [isLoadingContent, setIsLoadingContent] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+
+  // Open document viewer/editor
+  const openDocumentViewer = async (doc: typeof documents[0]) => {
+    setEditorDoc(doc)
+    setIsLoadingContent(true)
+    setIsEditing(false)
+    
+    try {
+      const response = await documentsApi.getContent(doc.id)
+      const content = response.content || response.text || ''
+      setEditorContent(content)
+      setOriginalContent(content)
+    } catch (error) {
+      console.error('Failed to load document content:', error)
+      setEditorContent('[Unable to load document content. The document may be in a format that cannot be displayed as text.]')
+      setOriginalContent('')
+    } finally {
+      setIsLoadingContent(false)
+    }
+  }
+
+  // Save document content
+  const saveDocumentContent = async () => {
+    if (!editorDoc) return
+    
+    setIsSaving(true)
+    try {
+      await documentsApi.update(editorDoc.id, { content: editorContent })
+      setOriginalContent(editorContent)
+      setIsEditing(false)
+      fetchDocuments() // Refresh the list
+    } catch (error) {
+      console.error('Failed to save document:', error)
+      alert('Failed to save document. Please try again.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Reset content to original
+  const resetContent = () => {
+    setEditorContent(originalContent)
+  }
+
+  // Close editor
+  const closeEditor = () => {
+    if (isEditing && editorContent !== originalContent) {
+      if (!confirm('You have unsaved changes. Are you sure you want to close?')) {
+        return
+      }
+    }
+    setEditorDoc(null)
+    setEditorContent('')
+    setOriginalContent('')
+    setIsEditing(false)
+  }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
@@ -413,6 +479,16 @@ export function DocumentsPage() {
             <div className={styles.docModalContent}>
               <div className={styles.quickActions}>
                 <button 
+                  className={styles.viewEditBtn}
+                  onClick={() => {
+                    openDocumentViewer(selectedDoc)
+                    setSelectedDoc(null)
+                  }}
+                >
+                  <Eye size={18} />
+                  View & Edit
+                </button>
+                <button 
                   className={styles.downloadBtn}
                   onClick={() => downloadDocument(selectedDoc)}
                 >
@@ -469,6 +545,99 @@ export function DocumentsPage() {
         confirmText="Delete"
         type="danger"
       />
+
+      {/* Document Viewer/Editor Modal */}
+      {editorDoc && (
+        <div className={styles.editorOverlay} onClick={closeEditor}>
+          <div className={styles.editorModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.editorHeader}>
+              <div className={styles.editorTitle}>
+                <FileText size={20} />
+                <h2>{editorDoc.name}</h2>
+              </div>
+              <div className={styles.editorActions}>
+                {!isEditing ? (
+                  <button 
+                    className={styles.editModeBtn}
+                    onClick={() => setIsEditing(true)}
+                    disabled={isLoadingContent || !originalContent}
+                    title={!originalContent ? 'This document cannot be edited' : 'Edit document'}
+                  >
+                    <Edit3 size={16} />
+                    Edit
+                  </button>
+                ) : (
+                  <>
+                    <button 
+                      className={styles.resetBtn}
+                      onClick={resetContent}
+                      disabled={editorContent === originalContent}
+                      title="Reset to original"
+                    >
+                      <RotateCcw size={16} />
+                      Reset
+                    </button>
+                    <button 
+                      className={styles.saveBtn}
+                      onClick={saveDocumentContent}
+                      disabled={isSaving || editorContent === originalContent}
+                    >
+                      {isSaving ? <Loader2 size={16} className={styles.spinner} /> : <Save size={16} />}
+                      {isSaving ? 'Saving...' : 'Save'}
+                    </button>
+                  </>
+                )}
+                <button className={styles.closeEditorBtn} onClick={closeEditor}>
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            
+            <div className={styles.editorBody}>
+              {isLoadingContent ? (
+                <div className={styles.editorLoading}>
+                  <Loader2 size={32} className={styles.spinner} />
+                  <span>Loading document content...</span>
+                </div>
+              ) : isEditing ? (
+                <textarea
+                  className={styles.editorTextarea}
+                  value={editorContent}
+                  onChange={(e) => setEditorContent(e.target.value)}
+                  placeholder="Document content..."
+                  autoFocus
+                />
+              ) : (
+                <div className={styles.editorPreview}>
+                  <pre>{editorContent || 'No content available'}</pre>
+                </div>
+              )}
+            </div>
+
+            <div className={styles.editorFooter}>
+              <span className={styles.editorMeta}>
+                {isEditing && editorContent !== originalContent && (
+                  <span className={styles.unsavedIndicator}>• Unsaved changes</span>
+                )}
+                {editorContent.length.toLocaleString()} characters
+              </span>
+              <div className={styles.editorFooterActions}>
+                <button
+                  className={styles.aiAnalyzeBtn}
+                  onClick={() => {
+                    openAIWithDocument(editorDoc, 'Please analyze this document.')
+                    closeEditor()
+                  }}
+                  title="Analyze with AI"
+                >
+                  <Sparkles size={16} />
+                  Analyze with AI
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

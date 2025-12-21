@@ -897,3 +897,342 @@
     transform: rotate(360deg);
   }
 }
+
+/* View & Edit Button */
+.viewEditBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--apex-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.viewEditBtn:hover {
+  background: var(--apex-primary-hover);
+  transform: translateY(-1px);
+}
+
+/* Document Editor Modal */
+.editorOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 2rem;
+  animation: fadeIn 0.2s ease;
+}
+
+.editorModal {
+  background: var(--apex-charcoal);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 1000px;
+  height: 85vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--apex-slate);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  animation: slideUp 0.25s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.editorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--apex-slate);
+  background: var(--apex-dark);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.editorTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--apex-white);
+}
+
+.editorTitle h2 {
+  font-size: 1.125rem;
+  font-weight: 500;
+  margin: 0;
+  max-width: 400px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editorTitle svg {
+  color: var(--apex-primary);
+  flex-shrink: 0;
+}
+
+.editorActions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.editModeBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--apex-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.editModeBtn:hover:not(:disabled) {
+  background: var(--apex-primary-hover);
+}
+
+.editModeBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.resetBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--apex-slate);
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.resetBtn:hover:not(:disabled) {
+  background: var(--apex-dark);
+  color: var(--apex-white);
+}
+
+.resetBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.saveBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: #22c55e;
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.saveBtn:hover:not(:disabled) {
+  background: #16a34a;
+}
+
+.saveBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.closeEditorBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.closeEditorBtn:hover {
+  background: var(--apex-slate);
+  color: var(--apex-white);
+  border-color: var(--apex-slate);
+}
+
+.editorBody {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.editorLoading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  color: var(--apex-text);
+}
+
+.editorLoading svg {
+  color: var(--apex-primary);
+}
+
+.editorTextarea {
+  flex: 1;
+  width: 100%;
+  padding: 1.5rem;
+  background: var(--apex-dark);
+  border: none;
+  color: var(--apex-white);
+  font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+}
+
+.editorTextarea::placeholder {
+  color: var(--apex-text);
+}
+
+.editorPreview {
+  flex: 1;
+  overflow: auto;
+  padding: 1.5rem;
+  background: var(--apex-dark);
+}
+
+.editorPreview pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--apex-white);
+}
+
+.editorFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  border-top: 1px solid var(--apex-slate);
+  background: var(--apex-charcoal);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+.editorMeta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.8125rem;
+  color: var(--apex-text);
+}
+
+.unsavedIndicator {
+  color: #f59e0b;
+  font-weight: 500;
+}
+
+.editorFooterActions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.aiAnalyzeBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.aiAnalyzeBtn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+/* Responsive for editor modal */
+@media (max-width: 768px) {
+  .editorOverlay {
+    padding: 1rem;
+  }
+
+  .editorModal {
+    height: 90vh;
+  }
+
+  .editorHeader {
+    padding: 0.75rem 1rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .editorTitle h2 {
+    font-size: 1rem;
+    max-width: 200px;
+  }
+
+  .editorActions {
+    gap: 0.5rem;
+  }
+
+  .editModeBtn,
+  .saveBtn,
+  .resetBtn {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.8125rem;
+  }
+
+  .editorTextarea,
+  .editorPreview {
+    padding: 1rem;
+  }
+
+  .editorFooter {
+    padding: 0.5rem 1rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+}

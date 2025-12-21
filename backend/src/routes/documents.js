@@ -583,20 +583,38 @@ router.put('/:id', authenticate, requirePermission('documents:edit'), async (req
       return res.status(404).json({ error: 'Document not found' });
     }
 
-    const { name, matterId, clientId, tags, isConfidential, status, aiSummary } = req.body;
+    const { name, matterId, clientId, tags, isConfidential, status, aiSummary, content } = req.body;
+
+    // Build dynamic update query
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+    
+    if (name !== undefined) { updates.push(`name = $${paramIndex++}`); values.push(name); }
+    if (matterId !== undefined) { updates.push(`matter_id = $${paramIndex++}`); values.push(matterId); }
+    if (clientId !== undefined) { updates.push(`client_id = $${paramIndex++}`); values.push(clientId); }
+    if (tags !== undefined) { updates.push(`tags = $${paramIndex++}`); values.push(tags); }
+    if (isConfidential !== undefined) { updates.push(`is_confidential = $${paramIndex++}`); values.push(isConfidential); }
+    if (status !== undefined) { updates.push(`status = $${paramIndex++}`); values.push(status); }
+    if (aiSummary !== undefined) { updates.push(`ai_summary = $${paramIndex++}`); values.push(aiSummary); }
+    if (content !== undefined) { 
+      updates.push(`content_text = $${paramIndex++}`); 
+      values.push(content);
+      updates.push(`size = $${paramIndex++}`);
+      values.push(content.length);
+      updates.push(`content_extracted_at = NOW()`);
+    }
+    
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+    
+    updates.push('updated_at = NOW()');
+    values.push(req.params.id);
 
     const result = await query(
-      `UPDATE documents SET
-        name = COALESCE($1, name),
-        matter_id = COALESCE($2, matter_id),
-        client_id = COALESCE($3, client_id),
-        tags = COALESCE($4, tags),
-        is_confidential = COALESCE($5, is_confidential),
-        status = COALESCE($6, status),
-        ai_summary = COALESCE($7, ai_summary)
-      WHERE id = $8
-      RETURNING *`,
-      [name, matterId, clientId, tags, isConfidential, status, aiSummary, req.params.id]
+      `UPDATE documents SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+      values
     );
 
     const d = result.rows[0];
@@ -606,6 +624,7 @@ router.put('/:id', authenticate, requirePermission('documents:edit'), async (req
       matterId: d.matter_id,
       tags: d.tags,
       status: d.status,
+      content: d.content_text,
       updatedAt: d.updated_at,
     });
   } catch (error) {

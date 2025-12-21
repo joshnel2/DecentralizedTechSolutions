@@ -563,6 +563,10 @@ export const documentsApi = {
     return `${API_URL}/documents/${id}/download`;
   },
 
+  async getContent(id: string) {
+    return fetchWithAuth(`/documents/${id}/content`);
+  },
+
   // Extract text from a file without saving it (for AI analysis)
   async extractText(file: File): Promise<{ name: string; type: string; size: number; content: string }> {
     const formData = new FormData();

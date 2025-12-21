@@ -744,6 +744,22 @@ const TOOLS = [
       }
     }
   },
+  {
+    type: "function",
+    function: {
+      name: "update_document",
+      description: "Update/edit an existing document's content. Use this to make changes to contracts, letters, notes, or any document.",
+      parameters: {
+        type: "object",
+        properties: {
+          document_id: { type: "string", description: "ID of the document to update" },
+          new_content: { type: "string", description: "The new/updated content for the document" },
+          append: { type: "boolean", description: "If true, append to existing content instead of replacing" }
+        },
+        required: ["document_id", "new_content"]
+      }
+    }
+  },
 
   // ===================== TEAM =====================
   {
@@ -1836,6 +1852,7 @@ async function executeTool(toolName, args, user, req = null) {
       case 'save_uploaded_document': return await saveUploadedDocument(args, user, req);
       case 'create_document': return await createDocument(args, user);
       case 'create_note': return await createNote(args, user);
+      case 'update_document': return await updateDocument(args, user);
       
       // Team
       case 'list_team_members': return await listTeamMembers(args, user);
@@ -4301,6 +4318,63 @@ async function createNote(args, user) {
   } catch (error) {
     console.error('Error creating note:', error);
     return { error: 'Failed to create note: ' + error.message };
+  }
+}
+
+async function updateDocument(args, user) {
+  const { document_id, new_content, append = false } = args;
+  
+  if (!document_id || !new_content) {
+    return { error: 'document_id and new_content are required' };
+  }
+  
+  try {
+    // Get the existing document
+    const existing = await query(
+      'SELECT id, name, content_text, firm_id FROM documents WHERE id = $1',
+      [document_id]
+    );
+    
+    if (existing.rows.length === 0) {
+      return { error: 'Document not found' };
+    }
+    
+    const doc = existing.rows[0];
+    
+    // Check permissions
+    if (doc.firm_id !== user.firmId) {
+      return { error: 'You do not have permission to edit this document' };
+    }
+    
+    // Determine final content
+    const finalContent = append 
+      ? (doc.content_text || '') + '\n\n' + new_content
+      : new_content;
+    
+    // Update the document
+    await query(
+      `UPDATE documents 
+       SET content_text = $1, 
+           size = $2, 
+           updated_at = NOW(),
+           content_extracted_at = NOW()
+       WHERE id = $3`,
+      [finalContent, finalContent.length, document_id]
+    );
+    
+    return {
+      success: true,
+      message: `Updated document "${doc.name}"${append ? ' (content appended)' : ''}`,
+      data: {
+        id: document_id,
+        name: doc.name,
+        new_length: finalContent.length,
+        preview: finalContent.substring(0, 200) + (finalContent.length > 200 ? '...' : '')
+      }
+    };
+  } catch (error) {
+    console.error('Error updating document:', error);
+    return { error: 'Failed to update document: ' + error.message };
   }
 }
 
@@ -7464,7 +7538,7 @@ You have access to tools for:
 - **Invoices**: Create, view, send invoices, record payments
 - **Tasks**: Create, view, update, complete tasks assigned to matters/clients/users
 - **Calendar**: Create, view, update, delete events and meetings
-- **Documents**: View, read, search, AND CREATE documents. You can draft contracts, letters, memos, notes, etc.
+- **Documents**: View, read, search, CREATE, and EDIT documents. You can draft contracts, letters, memos, notes, and make changes to existing documents.
 - **Expenses**: Create and view expenses
 - **Team**: View team members
 - **Reports**: Generate billing, productivity, time, and client reports
