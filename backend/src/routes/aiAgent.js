@@ -5266,24 +5266,43 @@ CALL A TOOL NOW. Be proactive.`;
     }
     
     // =========================================================================
-    // FINAL SUMMARY - Ask AI to summarize what was accomplished
+    // FINAL SUMMARY - Ask AI to create comprehensive summary for the user
     // =========================================================================
     
     console.log(`[BACKGROUND ${taskId}] All steps completed. Generating summary...`);
     
-    const summaryPrompt = `You have completed a background task. Please provide a summary.
+    // Count what was accomplished
+    const documentsCreated = stepResults.filter(r => r.tool === 'create_document').length + 
+                             progress.filter(p => p.tool === 'create_document').length;
+    const notesAdded = progress.filter(p => p.tool === 'add_matter_note').length;
+    const timeLogged = progress.filter(p => p.tool === 'log_time').length;
+    const eventsCreated = progress.filter(p => p.tool === 'create_event').length;
+    const tasksCreated = progress.filter(p => p.tool === 'create_task').length;
+    
+    const summaryPrompt = `CREATE A COMPREHENSIVE SUMMARY for the user.
 
-GOAL: ${goal}
+ORIGINAL GOAL: ${goal}
 
-STEPS COMPLETED:
-${stepResults.map((r, i) => `${i + 1}. ${r.stepDescription}
-   Tool: ${r.tool || 'None'}
-   Result: ${r.summary}`).join('\n\n')}
+WORK COMPLETED:
+${stepResults.map((r, i) => `Step ${i + 1}: ${r.stepDescription}
+  → ${r.tool}: ${r.summary}`).join('\n\n')}
 
-Please call task_complete with:
-- A comprehensive summary of what was accomplished
-- The key actions taken
-- Any recommendations for next steps`;
+STATISTICS:
+- Total steps completed: ${stepResults.length}
+- Documents created: ${documentsCreated}
+- Notes added: ${notesAdded}
+- Time entries logged: ${timeLogged}
+- Calendar events created: ${eventsCreated}
+- Tasks created: ${tasksCreated}
+- Additional follow-up actions: ${progress.length - stepResults.length}
+
+Call task_complete with a detailed summary that includes:
+1. What was accomplished (be specific about documents, notes, etc.)
+2. Key actions taken in order
+3. What the user should review or do next
+4. Any recommendations
+
+This summary will be shown to the user when they click "View Summary".`;
 
     const summaryMessages = [
       { role: 'system', content: systemPrompt },
@@ -5297,26 +5316,40 @@ Please call task_complete with:
     if (summaryResponse.tool_calls) {
       const toolCall = summaryResponse.tool_calls[0];
       if (toolCall.function.name === 'task_complete') {
-        const args = JSON.parse(toolCall.function.arguments);
-        finalSummary = `## Summary\n${args.summary || 'Task completed'}\n\n`;
-        if (args.actions_taken?.length) {
-          finalSummary += `## Actions Taken\n${args.actions_taken.map(a => `• ${a}`).join('\n')}\n\n`;
-        }
-        if (args.results) {
-          finalSummary += `## Results\n${args.results}\n\n`;
-        }
-        if (args.recommendations?.length) {
-          finalSummary += `## Recommendations\n${args.recommendations.map(r => `• ${r}`).join('\n')}`;
+        try {
+          const args = JSON.parse(toolCall.function.arguments);
+          finalSummary = `## Summary\n${args.summary || 'Task completed successfully.'}\n\n`;
+          if (args.actions_taken?.length) {
+            finalSummary += `## Actions Taken\n${args.actions_taken.map(a => `• ${a}`).join('\n')}\n\n`;
+          }
+          if (args.results) {
+            finalSummary += `## Results\n${args.results}\n\n`;
+          }
+          if (args.recommendations?.length) {
+            finalSummary += `## Recommendations\n${args.recommendations.map(r => `• ${r}`).join('\n')}\n\n`;
+          }
+        } catch (e) {
+          console.error(`[BACKGROUND ${taskId}] Error parsing summary:`, e);
         }
       }
     }
     
+    // Always include stats at the end
+    const statsSection = `## Work Statistics
+• Steps completed: ${stepResults.length}/${totalSteps}
+• Documents created: ${documentsCreated}
+• Matter notes added: ${notesAdded}
+• Time entries logged: ${timeLogged}
+• Calendar events: ${eventsCreated}
+• Tasks created: ${tasksCreated}`;
+    
     if (!finalSummary) {
-      // Build summary from step results
-      finalSummary = `## Summary\nCompleted ${stepResults.length} of ${totalSteps} steps for: ${goal}\n\n`;
-      finalSummary += `## Steps Completed\n${stepResults.map((r, i) => `${i + 1}. ${r.stepDescription}: ${r.summary}`).join('\n')}\n\n`;
-      finalSummary += `## Status\nBackground task finished successfully.`;
+      // Build summary from step results if AI didn't provide one
+      finalSummary = `## Summary\nCompleted background task: ${goal}\n\n`;
+      finalSummary += `## Steps Completed\n${stepResults.map((r, i) => `${i + 1}. **${r.stepDescription}**\n   ${r.summary}`).join('\n\n')}\n\n`;
     }
+    
+    finalSummary += statsSection;
     
     // Mark task complete
     await query(
