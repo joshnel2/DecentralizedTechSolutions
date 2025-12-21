@@ -898,8 +898,28 @@
   }
 }
 
-/* View & Edit Button */
-.viewEditBtn {
+/* Open File Button */
+.openFileBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: #22c55e;
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.openFileBtn:hover {
+  background: #16a34a;
+  transform: translateY(-1px);
+}
+
+/* Preview Button */
+.previewBtn {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -913,8 +933,28 @@
   transition: all var(--transition-fast);
 }
 
-.viewEditBtn:hover {
+.previewBtn:hover {
   background: var(--apex-primary-hover);
+  transform: translateY(-1px);
+}
+
+/* Open button in row */
+.openBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: #22c55e;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: white;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.openBtn:hover {
+  background: #16a34a;
   transform: translateY(-1px);
 }
 

@@ -5,9 +5,9 @@ import { useAIStore } from '../stores/aiStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Search, FolderOpen, FileText, Upload,
-  Sparkles, Download, Trash2, Wand2, X, Loader2,
+  Sparkles, Download, Trash2, X, Loader2,
   FileSearch, Scale, AlertTriangle, List, MessageSquare,
-  Eye, Edit3, Save, RotateCcw
+  Eye, ExternalLink, Wand2
 } from 'lucide-react'
 import { documentsApi } from '../services/api'
 import { format, parseISO } from 'date-fns'
@@ -481,14 +481,24 @@ export function DocumentsPage() {
             <div className={styles.docModalContent}>
               <div className={styles.quickActions}>
                 <button 
-                  className={styles.viewEditBtn}
+                  className={styles.openFileBtn}
+                  onClick={() => {
+                    openFileOnComputer(selectedDoc)
+                    setSelectedDoc(null)
+                  }}
+                >
+                  <ExternalLink size={18} />
+                  Open File
+                </button>
+                <button 
+                  className={styles.previewBtn}
                   onClick={() => {
                     openDocumentViewer(selectedDoc)
                     setSelectedDoc(null)
                   }}
                 >
                   <Eye size={18} />
-                  View & Edit
+                  Preview
                 </button>
                 <button 
                   className={styles.downloadBtn}
@@ -548,7 +558,7 @@ export function DocumentsPage() {
         type="danger"
       />
 
-      {/* Document Viewer/Editor Modal */}
+      {/* Document Preview Modal */}
       {editorDoc && (
         <div className={styles.editorOverlay} onClick={closeEditor}>
           <div className={styles.editorModal} onClick={e => e.stopPropagation()}>
@@ -558,37 +568,22 @@ export function DocumentsPage() {
                 <h2>{editorDoc.name}</h2>
               </div>
               <div className={styles.editorActions}>
-                {!isEditing ? (
-                  <button 
-                    className={styles.editModeBtn}
-                    onClick={() => setIsEditing(true)}
-                    disabled={isLoadingContent || !originalContent}
-                    title={!originalContent ? 'This document cannot be edited' : 'Edit document'}
-                  >
-                    <Edit3 size={16} />
-                    Edit
-                  </button>
-                ) : (
-                  <>
-                    <button 
-                      className={styles.resetBtn}
-                      onClick={resetContent}
-                      disabled={editorContent === originalContent}
-                      title="Reset to original"
-                    >
-                      <RotateCcw size={16} />
-                      Reset
-                    </button>
-                    <button 
-                      className={styles.saveBtn}
-                      onClick={saveDocumentContent}
-                      disabled={isSaving || editorContent === originalContent}
-                    >
-                      {isSaving ? <Loader2 size={16} className={styles.spinner} /> : <Save size={16} />}
-                      {isSaving ? 'Saving...' : 'Save'}
-                    </button>
-                  </>
-                )}
+                <button 
+                  className={styles.openFileBtn}
+                  onClick={() => openFileOnComputer(editorDoc)}
+                  title="Open file on your computer"
+                >
+                  <ExternalLink size={16} />
+                  Open File
+                </button>
+                <button 
+                  className={styles.downloadBtn}
+                  onClick={() => downloadDocument(editorDoc)}
+                  title="Download file"
+                >
+                  <Download size={16} />
+                  Download
+                </button>
                 <button className={styles.closeEditorBtn} onClick={closeEditor}>
                   <X size={18} />
                 </button>
@@ -599,28 +594,17 @@ export function DocumentsPage() {
               {isLoadingContent ? (
                 <div className={styles.editorLoading}>
                   <Loader2 size={32} className={styles.spinner} />
-                  <span>Loading document content...</span>
+                  <span>Loading document preview...</span>
                 </div>
-              ) : isEditing ? (
-                <textarea
-                  className={styles.editorTextarea}
-                  value={editorContent}
-                  onChange={(e) => setEditorContent(e.target.value)}
-                  placeholder="Document content..."
-                  autoFocus
-                />
               ) : (
                 <div className={styles.editorPreview}>
-                  <pre>{editorContent || 'No content available'}</pre>
+                  <pre>{editorContent || 'No content available for preview'}</pre>
                 </div>
               )}
             </div>
 
             <div className={styles.editorFooter}>
               <span className={styles.editorMeta}>
-                {isEditing && editorContent !== originalContent && (
-                  <span className={styles.unsavedIndicator}>• Unsaved changes</span>
-                )}
                 {editorContent.length.toLocaleString()} characters
               </span>
               <div className={styles.editorFooterActions}>

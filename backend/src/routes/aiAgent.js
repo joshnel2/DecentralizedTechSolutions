@@ -748,13 +748,13 @@ const TOOLS = [
     type: "function",
     function: {
       name: "update_document",
-      description: "Update/edit an existing document's content. Use this to make changes to contracts, letters, notes, or any document.",
+      description: "Create an edited version of an existing document. This CLONES the original document and applies your changes to the new copy, preserving the original. The new document will be named 'Original Name (AI)' to indicate it was AI-edited.",
       parameters: {
         type: "object",
         properties: {
-          document_id: { type: "string", description: "ID of the document to update" },
-          new_content: { type: "string", description: "The new/updated content for the document" },
-          append: { type: "boolean", description: "If true, append to existing content instead of replacing" }
+          document_id: { type: "string", description: "ID of the document to create an edited version of" },
+          new_content: { type: "string", description: "The new/updated content for the edited version" },
+          new_name: { type: "string", description: "Optional: Custom name for the new document. If not provided, will use 'Original Name (AI)'" }
         },
         required: ["document_id", "new_content"]
       }
@@ -4190,13 +4190,18 @@ async function createDocument(args, user) {
   }
   
   try {
+    // Add (AI) suffix to indicate this was AI-generated
+    // Remove any existing (AI) suffix first to avoid duplication
+    let baseName = name.replace(/\s*\(AI\)\s*$/, '');
+    const docName = `${baseName} (AI)`;
+    
     // Generate a unique filename
     const timestamp = Date.now();
-    const safeName = name.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const safeName = docName.replace(/[^a-zA-Z0-9.-]/g, '_');
     const filename = `${timestamp}-${safeName}`;
     
     // Determine file type from name
-    const ext = name.split('.').pop()?.toLowerCase() || 'txt';
+    const ext = baseName.split('.').pop()?.toLowerCase() || 'txt';
     const mimeType = ext === 'md' ? 'text/markdown' : 
                      ext === 'html' ? 'text/html' :
                      ext === 'json' ? 'application/json' : 'text/plain';
@@ -4212,13 +4217,13 @@ async function createDocument(args, user) {
         user.firmId,
         matter_id || null,
         client_id || null,
-        name,
-        name,
+        docName,
+        docName,
         mimeType,
         content.length,
         `ai-generated/${filename}`,
         content,
-        tags || [],
+        tags || ['ai-generated'],
         user.id
       ]
     );
@@ -4328,7 +4333,7 @@ async function createNote(args, user) {
 }
 
 async function updateDocument(args, user) {
-  const { document_id, new_content, append = false } = args;
+  const { document_id, new_content, new_name } = args;
   
   if (!document_id || !new_content) {
     return { error: 'document_id and new_content are required' };
@@ -4337,7 +4342,7 @@ async function updateDocument(args, user) {
   try {
     // Get the existing document
     const existing = await query(
-      'SELECT id, name, content_text, firm_id FROM documents WHERE id = $1',
+      'SELECT id, name, matter_id, client_id, type, tags, firm_id FROM documents WHERE id = $1',
       [document_id]
     );
     
@@ -4345,42 +4350,61 @@ async function updateDocument(args, user) {
       return { error: 'Document not found' };
     }
     
-    const doc = existing.rows[0];
+    const originalDoc = existing.rows[0];
     
     // Check permissions
-    if (doc.firm_id !== user.firmId) {
-      return { error: 'You do not have permission to edit this document' };
+    if (originalDoc.firm_id !== user.firmId) {
+      return { error: 'You do not have permission to access this document' };
     }
     
-    // Determine final content
-    const finalContent = append 
-      ? (doc.content_text || '') + '\n\n' + new_content
-      : new_content;
+    // Create a new name for the cloned document
+    // Remove any existing (AI) suffix first, then add it
+    let baseName = originalDoc.name.replace(/\s*\(AI\)\s*$/, '').replace(/\s*\(AI edited\)\s*$/, '');
+    const clonedName = new_name || `${baseName} (AI)`;
     
-    // Update the document
-    await query(
-      `UPDATE documents 
-       SET content_text = $1, 
-           size = $2, 
-           updated_at = NOW(),
-           content_extracted_at = NOW()
-       WHERE id = $3`,
-      [finalContent, finalContent.length, document_id]
+    // Create a placeholder file path for the new document
+    const newPath = `ai-documents/${Date.now()}-${clonedName.replace(/[^a-z0-9]/gi, '_')}.txt`;
+    
+    // Insert the cloned document with the new content
+    const result = await query(
+      `INSERT INTO documents (
+        firm_id, matter_id, client_id, name, original_name, type, 
+        size, path, status, tags, content_text, content_extracted_at, uploaded_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12)
+      RETURNING id, name`,
+      [
+        user.firmId,
+        originalDoc.matter_id,
+        originalDoc.client_id,
+        clonedName,
+        clonedName,
+        'text/plain',
+        new_content.length,
+        newPath,
+        'draft',
+        originalDoc.tags || [],
+        new_content,
+        user.id
+      ]
     );
+    
+    const newDoc = result.rows[0];
     
     return {
       success: true,
-      message: `Updated document "${doc.name}"${append ? ' (content appended)' : ''}`,
+      message: `Created edited version: "${clonedName}" (original "${originalDoc.name}" preserved)`,
       data: {
-        id: document_id,
-        name: doc.name,
-        new_length: finalContent.length,
-        preview: finalContent.substring(0, 200) + (finalContent.length > 200 ? '...' : '')
+        original_id: document_id,
+        original_name: originalDoc.name,
+        new_id: newDoc.id,
+        new_name: clonedName,
+        content_length: new_content.length,
+        preview: new_content.substring(0, 200) + (new_content.length > 200 ? '...' : '')
       }
     };
   } catch (error) {
-    console.error('Error updating document:', error);
-    return { error: 'Failed to update document: ' + error.message };
+    console.error('Error creating edited document:', error);
+    return { error: 'Failed to create edited document: ' + error.message };
   }
 }
 
