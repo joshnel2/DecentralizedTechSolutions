@@ -5026,7 +5026,15 @@ Execute this step AND take additional helpful actions. Be proactive!
 `;
       }
       
-      stepPrompt += `\n**IMPORTANT:** Call the tool now. After completing the primary action, I will prompt you for any additional helpful actions.`;
+      stepPrompt += `
+**EXECUTE NOW - NO EXCEPTIONS:**
+- Do NOT ask for clarification
+- Do NOT say you need more information
+- Do NOT describe what you would do
+- CALL A TOOL with your best judgment
+- Make reasonable assumptions if needed
+
+CALL THE TOOL NOW.`;
       
       // Show remaining steps
       if (stepIndex < totalSteps - 1) {
@@ -5059,20 +5067,23 @@ Execute this step AND take additional helpful actions. Be proactive!
         messages.push({ role: 'assistant', content: response.content });
         messages.push({ 
           role: 'user', 
-          content: `YOU MUST CALL A TOOL. Do not describe what you would do - ACTUALLY DO IT.
+          content: `YOU MUST CALL A TOOL NOW. This is not optional.
 
 Step ${stepNumber}: ${currentStep}
 
-The user is waiting for this work to be done. Call the appropriate tool NOW to execute this step.
+DO NOT:
+- Ask for clarification
+- Say you need more information  
+- Describe what you "would" do
+- Explain why you can't do something
 
-If you need to:
-- Find/review something → use search_matters, get_matter, get_client
-- Create a document → use create_document with REAL content
-- Add a note → use add_matter_note
-- Create an event → use create_event
-- Log time → use log_time
+DO:
+- Call a tool immediately
+- Use available information
+- Make reasonable assumptions
+- Take action NOW
 
-CALL A TOOL NOW.`
+CALL A TOOL IN YOUR NEXT RESPONSE OR THIS STEP FAILS.`
         });
         
         await delay(2000); // Small delay before retry
