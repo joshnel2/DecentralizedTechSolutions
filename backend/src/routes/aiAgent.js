@@ -4452,14 +4452,22 @@ async function startBackgroundTask(args, user) {
 }
 
 // Background task processor
+// Helper function to add delay between background task steps
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function processBackgroundTask(taskId, user, goal, plan) {
   console.log(`[BACKGROUND] Starting task ${taskId}: ${goal}`);
   
   const startTime = Date.now();
-  const maxRuntime = 10 * 60 * 1000; // 10 minutes max
+  const maxRuntime = 30 * 60 * 1000; // 30 minutes max (increased for delays)
   let iterations = 0;
   const maxIterations = 100;
   let progress = [];
+  
+  // Delay between each iteration (30-60 seconds to simulate careful work)
+  const STEP_DELAY_MS = 45 * 1000; // 45 seconds between steps
   
   try {
     // Update status to running
@@ -4537,6 +4545,11 @@ Use the appropriate tools to:
 
 Do NOT just describe what you would do - actually use the tools to do it.`
         });
+        
+        // Add delay before continuing
+        console.log(`[BACKGROUND ${taskId}] Prompting to continue. Waiting ${STEP_DELAY_MS/1000}s...`);
+        await delay(STEP_DELAY_MS);
+        
         response = await callAzureOpenAIWithTools(messages, TOOLS);
         continue;
       }
@@ -4621,6 +4634,10 @@ Do NOT just describe what you would do - actually use the tools to do it.`
       }
       
       if (!taskCompleted) {
+        // Add delay between steps to work more deliberately
+        console.log(`[BACKGROUND ${taskId}] Step ${iterations} complete. Waiting ${STEP_DELAY_MS/1000}s before next step...`);
+        await delay(STEP_DELAY_MS);
+        
         response = await callAzureOpenAIWithTools(messages, TOOLS);
       }
     }
