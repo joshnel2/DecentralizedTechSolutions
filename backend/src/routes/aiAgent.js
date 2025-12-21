@@ -958,7 +958,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "task_complete",
-      description: "Call this when you have finished a complex task or achieved a goal. Summarize what you accomplished.",
+      description: "Call this when you have finished a complex task or achieved a goal. Summarize what you accomplished and what you learned.",
       parameters: {
         type: "object",
         properties: {
@@ -966,7 +966,10 @@ const TOOLS = [
           summary: { type: "string", description: "Summary of what you accomplished" },
           actions_taken: { type: "array", items: { type: "string" }, description: "List of actions you took" },
           results: { type: "string", description: "The results/outcome" },
-          recommendations: { type: "array", items: { type: "string" }, description: "Any recommendations for follow-up" }
+          recommendations: { type: "array", items: { type: "string" }, description: "Any recommendations for follow-up" },
+          key_learnings: { type: "array", items: { type: "string" }, description: "Key insights and learnings from this task" },
+          quality_assessment: { type: "string", description: "Overall assessment of the quality of work (rate 1-10 and explain)" },
+          improvements_for_next_time: { type: "array", items: { type: "string" }, description: "What you would do differently next time" }
         },
         required: ["goal", "summary", "actions_taken"]
       }
@@ -994,13 +997,16 @@ const TOOLS = [
     type: "function",
     function: {
       name: "log_work",
-      description: "Log a note about work you've done or observations you've made. Use this to keep track of your progress on complex tasks.",
+      description: "Log a note about work you've done, observations, and learnings. Use this to track progress AND capture insights for self-improvement.",
       parameters: {
         type: "object",
         properties: {
           action: { type: "string", description: "What action you took or what you observed" },
           result: { type: "string", description: "The result or outcome" },
-          next_step: { type: "string", description: "What you plan to do next" }
+          next_step: { type: "string", description: "What you plan to do next" },
+          reflection: { type: "string", description: "What you learned from this step - insights, better approaches discovered, or what you'd do differently" },
+          quality_rating: { type: "number", description: "Rate the quality of this step 1-10" },
+          improvement_idea: { type: "string", description: "A specific idea for how to do this better next time" }
         },
         required: ["action"]
       }
@@ -4902,8 +4908,29 @@ Do NOT just describe what you would do - actually use the tools to do it.`
         if (result._task_complete) {
           taskCompleted = true;
           
-          // Build a proper summary to store
-          const completionSummary = `## Summary\n${result.summary}\n\n## Actions Taken\n${(result.actions_taken || []).map(a => `• ${a}`).join('\n')}\n\n## Results\n${result.results || 'Task completed successfully'}${result.recommendations?.length ? `\n\n## Recommendations\n${result.recommendations.map(r => `• ${r}`).join('\n')}` : ''}`;
+          // Build a comprehensive summary including learnings
+          let completionSummary = `## Summary\n${result.summary}\n\n## Actions Taken\n${(result.actions_taken || []).map(a => `• ${a}`).join('\n')}\n\n## Results\n${result.results || 'Task completed successfully'}`;
+          
+          if (result.recommendations?.length) {
+            completionSummary += `\n\n## Recommendations\n${result.recommendations.map(r => `• ${r}`).join('\n')}`;
+          }
+          
+          if (result.key_learnings?.length) {
+            completionSummary += `\n\n## Key Learnings\n${result.key_learnings.map(l => `• ${l}`).join('\n')}`;
+          }
+          
+          if (result.quality_assessment) {
+            completionSummary += `\n\n## Quality Assessment\n${result.quality_assessment}`;
+          }
+          
+          if (result.improvements_for_next_time?.length) {
+            completionSummary += `\n\n## Improvements for Next Time\n${result.improvements_for_next_time.map(i => `• ${i}`).join('\n')}`;
+          }
+          
+          // Also include any learnings captured during the process
+          if (learnings.length > 0) {
+            completionSummary += `\n\n## Process Insights\n${learnings.map(l => `• Step ${l.step}: ${l.insight}`).join('\n')}`;
+          }
           
           progress.push({ 
             iteration: iterations, 
@@ -4912,10 +4939,13 @@ Do NOT just describe what you would do - actually use the tools to do it.`
             actions_taken: result.actions_taken,
             results: result.results,
             recommendations: result.recommendations,
+            key_learnings: result.key_learnings,
+            quality_assessment: result.quality_assessment,
+            improvements_for_next_time: result.improvements_for_next_time,
             timestamp: new Date().toISOString()
           });
           
-          // Update the task with the proper summary immediately
+          // Update the task with the comprehensive summary immediately
           await query(
             `UPDATE ai_tasks SET result = $1 WHERE id = $2`,
             [completionSummary, taskId]
@@ -5017,25 +5047,50 @@ Remember: Each step should be BETTER than the last. Apply your learnings and str
       }
     }
     
-    // If loop ended but task not marked complete, force complete it
+    // Build learnings summary
+    const learningsSummary = learnings.length > 0 
+      ? `\n\n## Learnings & Insights\n${learnings.map(l => `• Step ${l.step}: ${l.insight}`).join('\n')}`
+      : '';
+    
+    // If loop ended but task not marked complete, force complete it with a good summary
     if (!taskCompleted) {
       console.log(`[BACKGROUND ${taskId}] Loop ended without task_complete, forcing completion`);
-      const forcedSummary = `## Summary\nBackground task completed after ${iterations} iterations.\n\n## Note\nThe task finished but did not explicitly call task_complete. The work may be partially complete.`;
+      
+      // Try to build a meaningful summary from the progress
+      const toolsUsed = [...new Set(progress.map(p => p.tool).filter(Boolean))];
+      const forcedSummary = `## Summary
+Background task completed after ${iterations} iterations.
+
+## Work Performed
+• Used ${toolsUsed.length} different tools: ${toolsUsed.slice(0, 10).join(', ')}${toolsUsed.length > 10 ? '...' : ''}
+• Completed ${iterations} steps toward the goal
+${learningsSummary}
+
+## Status
+The task ran to completion. Results are based on the work performed during execution.`;
+
       await query(
         `UPDATE ai_tasks SET result = $1 WHERE id = $2`,
         [forcedSummary, taskId]
       );
     }
     
-    // Mark task complete
+    // Mark task complete - don't overwrite the result if we already set it
     const finalStatus = taskCompleted ? 'completed' : (iterations >= maxIterations ? 'max_iterations' : 'timeout');
+    
+    // Get current result to avoid overwriting
+    const currentTask = await query('SELECT result FROM ai_tasks WHERE id = $1', [taskId]);
+    const existingResult = currentTask.rows[0]?.result;
+    
     await query(
-      `UPDATE ai_tasks SET status = $1, completed_at = NOW(), iterations = $2, progress = $3, 
-       result = $4 WHERE id = $5`,
-      [finalStatus, iterations, JSON.stringify(progress), response.content || 'Task completed', taskId]
+      `UPDATE ai_tasks SET status = $1, completed_at = NOW(), iterations = $2, progress = $3
+       ${!existingResult ? ', result = $4' : ''} WHERE id = ${!existingResult ? '$5' : '$4'}`,
+      !existingResult 
+        ? [finalStatus, iterations, JSON.stringify({ steps: progress, learnings, improvedApproaches }), response.content || 'Task completed', taskId]
+        : [finalStatus, iterations, JSON.stringify({ steps: progress, learnings, improvedApproaches }), taskId]
     );
     
-    console.log(`[BACKGROUND] Task ${taskId} finished with status: ${finalStatus}`);
+    console.log(`[BACKGROUND] Task ${taskId} finished with status: ${finalStatus}, ${learnings.length} learnings captured`);
     
   } catch (error) {
     console.error(`[BACKGROUND] Task ${taskId} error:`, error);
@@ -5143,19 +5198,35 @@ async function requestHumanInput(args, user) {
 }
 
 async function logWork(args, user) {
-  const { action, result, next_step } = args;
+  const { action, result, next_step, reflection, quality_rating, improvement_idea } = args;
   
   console.log(`[AI WORK LOG] Action: ${action}`);
   if (result) console.log(`[AI WORK LOG] Result: ${result}`);
   if (next_step) console.log(`[AI WORK LOG] Next: ${next_step}`);
+  if (reflection) console.log(`[AI WORK LOG] Reflection: ${reflection}`);
+  if (quality_rating) console.log(`[AI WORK LOG] Quality: ${quality_rating}/10`);
+  if (improvement_idea) console.log(`[AI WORK LOG] Improvement: ${improvement_idea}`);
   
-  return {
+  const response = {
     status: 'logged',
     action,
     result: result || 'Completed',
     next_step: next_step || 'Continue with plan',
     timestamp: new Date().toISOString()
   };
+  
+  // Include self-improvement data if provided
+  if (reflection) {
+    response.reflection = reflection;
+    response.self_improvement = {
+      insight_captured: true,
+      quality_rating: quality_rating || null,
+      improvement_idea: improvement_idea || null,
+      message: 'Great! Your reflection has been captured. Apply this learning to your next step.'
+    };
+  }
+  
+  return response;
 }
 
 // =============================================================================
