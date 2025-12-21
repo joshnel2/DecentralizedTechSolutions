@@ -4923,17 +4923,29 @@ EXECUTE NOW.`;
 
 `;
       
-      // Include context data gathered from previous steps
+      // Include RICH context data gathered from previous steps
       if (Object.keys(contextData).length > 0) {
-        stepPrompt += `### CONTEXT FROM PREVIOUS STEPS:\n`;
+        stepPrompt += `### AVAILABLE CONTEXT (USE THIS DATA):\n`;
         if (contextData.matter) {
-          stepPrompt += `**Matter:** ${contextData.matter.name} (ID: ${contextData.matter.id})\n`;
-          if (contextData.matter.client_name) stepPrompt += `**Client:** ${contextData.matter.client_name}\n`;
-          if (contextData.matter.type) stepPrompt += `**Type:** ${contextData.matter.type}\n`;
-          if (contextData.matter.description) stepPrompt += `**Description:** ${contextData.matter.description}\n`;
+          stepPrompt += `**📁 MATTER:** ${contextData.matter.name}\n`;
+          stepPrompt += `   • matter_id: \`${contextData.matter.id}\` ← USE THIS for all matter-related tools\n`;
+          if (contextData.matter.client_name) stepPrompt += `   • Client: ${contextData.matter.client_name}\n`;
+          if (contextData.matter.type) stepPrompt += `   • Type: ${contextData.matter.type}\n`;
+          if (contextData.matter.status) stepPrompt += `   • Status: ${contextData.matter.status}\n`;
+          if (contextData.matter.description) stepPrompt += `   • Description: ${contextData.matter.description.substring(0, 200)}${contextData.matter.description.length > 200 ? '...' : ''}\n`;
         }
-        if (contextData.client) {
-          stepPrompt += `**Client:** ${contextData.client.display_name} (ID: ${contextData.client.id})\n`;
+        if (contextData.client && (!contextData.matter || contextData.client.id !== contextData.matter.client_id)) {
+          stepPrompt += `**👤 CLIENT:** ${contextData.client.display_name}\n`;
+          stepPrompt += `   • client_id: \`${contextData.client.id}\`\n`;
+        }
+        if (contextData.documents && contextData.documents.length > 0) {
+          stepPrompt += `**📄 DOCUMENTS CREATED:** ${contextData.documents.map(d => d.name).join(', ')}\n`;
+        }
+        if (contextData.events && contextData.events.length > 0) {
+          stepPrompt += `**📅 EVENTS SCHEDULED:** ${contextData.events.map(e => e.title).join(', ')}\n`;
+        }
+        if (contextData.tasks && contextData.tasks.length > 0) {
+          stepPrompt += `**✅ TASKS CREATED:** ${contextData.tasks.map(t => t.title).join(', ')}\n`;
         }
         stepPrompt += `\n`;
       }
@@ -5208,12 +5220,19 @@ EXECUTE.`
         console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Calling ${functionName}`);
         const result = await executeTool(functionName, functionArgs, user, null);
         
-        // Extract and store context data for future steps
+        // Extract and store context data for future steps - BE COMPREHENSIVE
         if (functionName === 'get_matter' || functionName === 'search_matters') {
           if (result.matter) {
             contextData.matter = result.matter;
+            // Also extract client from matter if available
+            if (result.matter.client_id && !contextData.client) {
+              contextData.client = { id: result.matter.client_id, display_name: result.matter.client_name };
+            }
           } else if (result.matters && result.matters.length > 0) {
             contextData.matter = result.matters[0];
+            if (result.matters[0].client_id && !contextData.client) {
+              contextData.client = { id: result.matters[0].client_id, display_name: result.matters[0].client_name };
+            }
           }
         }
         if (functionName === 'get_client' || functionName === 'list_clients') {
@@ -5222,6 +5241,37 @@ EXECUTE.`
           } else if (result.clients && result.clients.length > 0) {
             contextData.client = result.clients[0];
           }
+        }
+        if (functionName === 'create_matter') {
+          if (result.matter) {
+            contextData.matter = result.matter;
+          }
+        }
+        if (functionName === 'create_client') {
+          if (result.client) {
+            contextData.client = result.client;
+          }
+        }
+        if (functionName === 'create_document') {
+          if (!contextData.documents) contextData.documents = [];
+          contextData.documents.push({
+            name: result.document?.name || functionArgs.name,
+            id: result.document?.id,
+            type: functionArgs.document_type || 'document'
+          });
+        }
+        if (functionName === 'create_event') {
+          if (!contextData.events) contextData.events = [];
+          contextData.events.push({
+            title: result.event?.title || functionArgs.title,
+            date: functionArgs.start_time
+          });
+        }
+        if (functionName === 'create_task') {
+          if (!contextData.tasks) contextData.tasks = [];
+          contextData.tasks.push({
+            title: result.task?.title || functionArgs.title
+          });
         }
         
         // Store step result
@@ -5266,7 +5316,7 @@ EXECUTE.`
         if (stepIndex < totalSteps - 1) {
           await delay(3000); // Brief pause
           
-          // Build follow-up prompt based on what was just done
+          // Build INTELLIGENT follow-up prompt based on what was just done
           let followUpPrompt = `STEP COMPLETED: "${currentStep}"
 RESULT: ${stepSummary}
 `;
@@ -5275,19 +5325,47 @@ RESULT: ${stepSummary}
             followUpPrompt += `MATTER: ${contextData.matter.name} (ID: ${contextData.matter.id})\n`;
           }
           
-          followUpPrompt += `
-NOW: Take additional actions to go ABOVE AND BEYOND.
+          // Determine smart follow-up based on what action was just taken
+          let recommendedFollowUp = '';
+          
+          if (functionName === 'get_matter' || functionName === 'search_matters') {
+            recommendedFollowUp = `You just retrieved matter information.
+RECOMMENDED: Call add_matter_note to document your review findings.
+Use matter_id: ${contextData.matter?.id || 'from the result'}
+Include: What you found, key observations, any concerns or action items.`;
+          } else if (functionName === 'create_document') {
+            recommendedFollowUp = `You just created a document.
+RECOMMENDED: Call log_time to record the drafting work.
+Use matter_id: ${contextData.matter?.id || 'from the result'}
+Hours: 0.3 (for document drafting)
+Description: "Drafted ${functionArgs.name || 'document'}"`;
+          } else if (functionName === 'get_client' || functionName === 'list_clients') {
+            recommendedFollowUp = `You just retrieved client information.
+RECOMMENDED: Call add_matter_note to document client review.
+Use matter_id: ${contextData.matter?.id || ''}`;
+          } else if (functionName === 'create_event') {
+            recommendedFollowUp = `You just scheduled an event.
+RECOMMENDED: Call add_matter_note to document the scheduled item.
+Use matter_id: ${contextData.matter?.id || ''}
+Note: "Scheduled ${functionArgs.title || 'event'} for ${functionArgs.start_time || 'upcoming'}"`;
+          } else if (functionName === 'create_task') {
+            recommendedFollowUp = `You just created a task.
+RECOMMENDED: Call add_matter_note to document the task.
+Use matter_id: ${contextData.matter?.id || ''}`;
+          } else if (functionName === 'add_matter_note') {
+            recommendedFollowUp = `You just added a note.
+RECOMMENDED: Call log_time if this was substantive work.
+Use matter_id: ${contextData.matter?.id || ''}
+Hours: 0.1
+Description: "Matter review and documentation"`;
+          } else {
+            recommendedFollowUp = `RECOMMENDED: Call add_matter_note or log_time to document this work.
+${contextData.matter ? `Use matter_id: ${contextData.matter.id}` : ''}`;
+          }
+          
+          followUpPrompt += `\n${recommendedFollowUp}
 
-REQUIRED - Do at least one:
-- add_matter_note → Document what you just accomplished
-- log_time → Log 0.1-0.3 hours for this work
-
-BONUS - Do if relevant:
-- create_task → Any follow-up items identified
-- create_event → Any deadlines or meetings to schedule  
-- create_document → Any additional documents that would help
-
-CALL A TOOL NOW. Be proactive.`;
+CALL THE RECOMMENDED TOOL NOW.`;
 
           const followUpMessages = [
             { role: 'system', content: systemPrompt },
