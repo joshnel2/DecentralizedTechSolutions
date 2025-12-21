@@ -21,10 +21,15 @@ export function BackgroundTaskBar() {
   const [hasError, setHasError] = useState(false)
   const [polling, setPolling] = useState(false)
 
+  // Track consecutive errors
+  const [errorCount, setErrorCount] = useState(0)
+  
   // Check task status
   const checkActiveTask = useCallback(async () => {
     try {
       const response = await aiApi.getActiveTask()
+      setErrorCount(0) // Reset error count on success
+      
       if (response.active && response.task) {
         setActiveTask(response.task)
         setIsComplete(false)
@@ -37,14 +42,21 @@ export function BackgroundTaskBar() {
         })
         setIsComplete(true)
         setPolling(false)
-      } else {
-        // No active task
-        setPolling(false)
       }
+      // Don't stop polling if no active task - keep checking
     } catch (error) {
       console.error('Error checking active task:', error)
+      setErrorCount(prev => prev + 1)
+      
+      // Only stop polling after 10 consecutive errors
+      if (errorCount >= 10) {
+        console.error('Too many errors, stopping poll')
+        setHasError(true)
+        setPolling(false)
+      }
+      // Otherwise keep polling - the task might still be running
     }
-  }, [activeTask])
+  }, [activeTask, errorCount])
 
   // View summary handler - navigate to AI Assistant page with agent history
   const handleViewSummary = () => {
@@ -77,7 +89,11 @@ export function BackgroundTaskBar() {
   useEffect(() => {
     if (!polling || isComplete) return
 
-    const intervalId = setInterval(checkActiveTask, 2000)
+    // Check immediately on start
+    checkActiveTask()
+    
+    // Then poll every 3 seconds
+    const intervalId = setInterval(checkActiveTask, 3000)
     return () => clearInterval(intervalId)
   }, [polling, isComplete, checkActiveTask])
 
