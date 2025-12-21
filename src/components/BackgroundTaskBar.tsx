@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bot, X, CheckCircle, AlertCircle, FileText, Square, Loader2 } from 'lucide-react'
+import { Bot, X, CheckCircle, AlertCircle, FileText, Square, Loader2, ExternalLink } from 'lucide-react'
 import { aiApi } from '../services/api'
 import styles from './BackgroundTaskBar.module.css'
 
@@ -83,9 +83,14 @@ export function BackgroundTaskBar() {
     }
   }, [activeTask, errorCount])
 
-  // View summary handler - navigate to AI Assistant page with agent history
-  const handleViewSummary = () => {
-    navigate('/app/ai?showAgentHistory=true')
+  // View progress/summary handler - navigate to AI Assistant page with agent history
+  // Pass the taskId so we can show detailed progress for this specific task
+  const handleViewProgress = () => {
+    if (activeTask) {
+      navigate(`/app/ai?showAgentHistory=true&taskId=${activeTask.id}`)
+    } else {
+      navigate('/app/ai?showAgentHistory=true')
+    }
   }
 
   // Listen for background task started event
@@ -134,44 +139,55 @@ export function BackgroundTaskBar() {
     <>
       <div className={`${styles.taskBar} ${isComplete ? styles.complete : ''} ${hasError ? styles.error : ''}`}>
         <div className={styles.content}>
-          <div className={styles.icon}>
-            {isComplete ? (
-              <CheckCircle size={20} />
-            ) : hasError ? (
-              <AlertCircle size={20} />
-            ) : (
-              <Bot size={20} className={styles.spinning} />
-            )}
-          </div>
-          
-          <div className={styles.info}>
-            <div className={styles.title}>
-              {isComplete ? '✓ Background Task Complete!' : 'Background Agent Working...'}
+          {/* Clickable area - navigates to agent progress page */}
+          <button 
+            className={styles.clickableArea}
+            onClick={handleViewProgress}
+            title="Click to view agent progress"
+          >
+            <div className={styles.icon}>
+              {isComplete ? (
+                <CheckCircle size={20} />
+              ) : hasError ? (
+                <AlertCircle size={20} />
+              ) : (
+                <Bot size={20} className={styles.spinning} />
+              )}
             </div>
-            <div className={styles.goal}>{activeTask.goal}</div>
-          </div>
+            
+            <div className={styles.info}>
+              <div className={styles.title}>
+                {isComplete ? '✓ Background Task Complete!' : hasError ? '⚠ Task Error' : 'Background Agent Working...'}
+              </div>
+              <div className={styles.goal}>{activeTask.goal}</div>
+              {!isComplete && !hasError && activeTask.currentStep && (
+                <div className={styles.currentStep}>
+                  Step {activeTask.iterations}: {activeTask.currentStep}
+                </div>
+              )}
+            </div>
 
-          <div className={styles.progress}>
-            <div className={styles.progressBar}>
-              <div 
-                className={styles.progressFill} 
-                style={{ width: `${isComplete ? 100 : activeTask.progressPercent}%` }}
-              />
+            <div className={styles.progress}>
+              <div className={styles.progressBar}>
+                <div 
+                  className={styles.progressFill} 
+                  style={{ width: `${isComplete ? 100 : activeTask.progressPercent}%` }}
+                />
+              </div>
+              <div className={styles.progressText}>
+                {isComplete ? '100%' : `${activeTask.progressPercent}%`}
+              </div>
             </div>
-            <div className={styles.progressText}>
-              {isComplete ? '100%' : `${activeTask.progressPercent}%`}
-            </div>
-          </div>
+          </button>
 
-          {isComplete && (
-            <button 
-              onClick={handleViewSummary} 
-              className={styles.viewSummaryBtn}
-            >
-              <FileText size={14} />
-              View Summary
-            </button>
-          )}
+          {/* View Progress button - visible during and after task */}
+          <button 
+            onClick={handleViewProgress} 
+            className={styles.viewProgressBtn}
+          >
+            <ExternalLink size={14} />
+            {isComplete ? 'View Summary' : 'View Progress'}
+          </button>
 
           <button onClick={handleDismiss} className={styles.dismissBtn}>
             <X size={16} />

@@ -5,7 +5,8 @@ import { useAuthStore } from '../stores/authStore'
 import { 
   Sparkles, Send, Plus, MessageSquare, Trash2, 
   MessageCircle, FileEdit, FileText, Paperclip, X,
-  FileSearch, History, ChevronRight, Loader2, Image, Bot, Clock, CheckCircle, AlertCircle, Star
+  FileSearch, History, ChevronRight, Loader2, Image, Bot, Clock, CheckCircle, AlertCircle, Star,
+  Activity, Play, ArrowLeft, Zap
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -25,6 +26,17 @@ interface AgentTask {
   created_at: string
   completed_at: string | null
   rating: number | null
+  progress?: { steps: ProgressStep[] }
+  plan?: string[]
+  progressPercent?: number
+}
+
+interface ProgressStep {
+  iteration: number
+  tool: string
+  timestamp: string
+  status?: string
+  summary?: string
 }
 
 // Mode configurations
@@ -83,6 +95,8 @@ export function AIAssistantPage() {
   const [agentTasks, setAgentTasks] = useState<AgentTask[]>([])
   const [selectedTask, setSelectedTask] = useState<AgentTask | null>(null)
   const [loadingAgentHistory, setLoadingAgentHistory] = useState(false)
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
+  const [liveTaskProgress, setLiveTaskProgress] = useState<AgentTask | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const lastUserMessageRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -93,14 +107,52 @@ export function AIAssistantPage() {
   const currentMode = AI_MODES[selectedMode]
   const [isExtracting, setIsExtracting] = useState(false)
 
-  // Handle showAgentHistory URL param (from View Summary button)
+  // Handle showAgentHistory URL param (from View Summary button or progress bar)
   useEffect(() => {
     const showHistory = searchParams.get('showAgentHistory')
+    const taskId = searchParams.get('taskId')
+    
     if (showHistory === 'true') {
       setShowAgentHistory(true)
       loadAgentHistory()
+      
+      // If a specific task ID is provided, load its detailed progress
+      if (taskId) {
+        setActiveTaskId(taskId)
+        loadTaskProgress(taskId)
+      }
     }
   }, [searchParams])
+
+  // Load detailed progress for a specific task
+  const loadTaskProgress = async (taskId: string) => {
+    try {
+      const response = await aiApi.getTask(taskId)
+      if (response.task) {
+        setLiveTaskProgress(response.task)
+        // Also auto-select this task
+        setSelectedTask(response.task)
+      }
+    } catch (error) {
+      console.error('Error loading task progress:', error)
+    }
+  }
+
+  // Poll for live task progress if we're watching a running task
+  useEffect(() => {
+    if (!activeTaskId || !showAgentHistory) return
+    
+    // Check if task is still running
+    const currentTask = agentTasks.find(t => t.id === activeTaskId) || liveTaskProgress
+    if (!currentTask || currentTask.status !== 'running') return
+    
+    const interval = setInterval(() => {
+      loadTaskProgress(activeTaskId)
+      loadAgentHistory() // Also refresh the list
+    }, 3000) // Poll every 3 seconds for running tasks
+    
+    return () => clearInterval(interval)
+  }, [activeTaskId, showAgentHistory, liveTaskProgress?.status])
 
   // Handle document passed via URL params (from Documents page)
   useEffect(() => {
@@ -348,11 +400,27 @@ export function AIAssistantPage() {
           <div className={styles.agentHistoryView}>
             <div className={styles.agentHistoryHeader}>
               <Bot size={24} />
-              <h2>Background Agent History</h2>
+              <h2>Background Agent {activeTaskId ? 'Progress' : 'History'}</h2>
+              {activeTaskId && (
+                <button 
+                  className={styles.backToHistoryBtn}
+                  onClick={() => {
+                    setActiveTaskId(null)
+                    setLiveTaskProgress(null)
+                    setSelectedTask(null)
+                    navigate('/app/ai?showAgentHistory=true', { replace: true })
+                  }}
+                >
+                  <ArrowLeft size={16} />
+                  All Tasks
+                </button>
+              )}
               <button 
                 className={styles.closeHistoryBtn}
                 onClick={() => {
                   setShowAgentHistory(false)
+                  setActiveTaskId(null)
+                  setLiveTaskProgress(null)
                   navigate('/app/ai', { replace: true })
                 }}
               >
@@ -360,110 +428,280 @@ export function AIAssistantPage() {
               </button>
             </div>
             
-            {loadingAgentHistory ? (
-              <div className={styles.agentHistoryLoading}>
-                <Loader2 size={32} className={styles.spinner} />
-                <span>Loading agent history...</span>
-              </div>
-            ) : agentTasks.length === 0 ? (
-              <div className={styles.agentHistoryEmpty}>
-                <Bot size={48} />
-                <h3>No Background Tasks Yet</h3>
-                <p>Enable the Background Agent toggle in the chat to run complex tasks with real-time progress tracking.</p>
-              </div>
-            ) : (
-              <div className={styles.agentTasksGrid}>
-                {agentTasks.map(task => (
-                  <div 
-                    key={task.id}
-                    className={clsx(
-                      styles.agentTaskCard,
-                      task.status === 'completed' && styles.completed,
-                      task.status === 'failed' && styles.failed,
-                      selectedTask?.id === task.id && styles.expanded
-                    )}
-                    onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
-                  >
-                    <div className={styles.taskCardHeader}>
-                      <div className={styles.taskStatus}>
-                        {task.status === 'completed' ? (
-                          <CheckCircle size={16} className={styles.statusComplete} />
-                        ) : task.status === 'failed' ? (
-                          <AlertCircle size={16} className={styles.statusFailed} />
-                        ) : (
-                          <Bot size={16} className={styles.statusRunning} />
-                        )}
-                        <span className={styles.statusText}>
-                          {task.status === 'completed' ? 'Completed' : task.status === 'failed' ? 'Failed' : 'Running'}
-                        </span>
-                      </div>
-                      <span className={styles.taskDate}>
-                        {format(parseISO(task.created_at), 'MMM d, yyyy • h:mm a')}
-                      </span>
-                    </div>
-                    
-                    <h3 className={styles.taskGoal}>{task.goal}</h3>
-                    
-                    <div className={styles.taskMeta}>
-                      {task.duration && (
-                        <span className={styles.taskDuration}>
-                          <Clock size={14} /> {task.duration}
-                        </span>
+            {/* Live Progress View for a specific running task */}
+            {activeTaskId && liveTaskProgress && (
+              <div className={styles.liveProgressSection}>
+                <div className={clsx(
+                  styles.liveProgressCard,
+                  liveTaskProgress.status === 'running' && styles.running,
+                  liveTaskProgress.status === 'completed' && styles.completed,
+                  liveTaskProgress.status === 'failed' && styles.failed
+                )}>
+                  <div className={styles.liveProgressHeader}>
+                    <div className={styles.liveProgressStatus}>
+                      {liveTaskProgress.status === 'running' ? (
+                        <>
+                          <Activity size={20} className={styles.pulsingIcon} />
+                          <span>Agent Working...</span>
+                        </>
+                      ) : liveTaskProgress.status === 'completed' ? (
+                        <>
+                          <CheckCircle size={20} />
+                          <span>Task Complete</span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertCircle size={20} />
+                          <span>Task Failed</span>
+                        </>
                       )}
-                      <span className={styles.taskIterations}>
-                        {task.iterations} {task.iterations === 1 ? 'step' : 'steps'}
+                    </div>
+                    <div className={styles.liveProgressMeta}>
+                      <span className={styles.liveProgressIterations}>
+                        {liveTaskProgress.iterations || 0} steps completed
                       </span>
                     </div>
-                    
-                    {/* Star Rating */}
-                    {task.status === 'completed' && (
-                      <div className={styles.taskRating}>
-                        <span className={styles.ratingLabel}>Rate this task:</span>
-                        <div className={styles.starsContainer}>
-                          {[1, 2, 3, 4, 5].map(star => (
-                            <button
-                              key={star}
-                              className={clsx(styles.starButton, task.rating && star <= task.rating && styles.filled)}
-                              onClick={(e) => handleRateTask(task.id, star, e)}
-                              title={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                  </div>
+                  
+                  <h3 className={styles.liveProgressGoal}>{liveTaskProgress.goal}</h3>
+                  
+                  {/* Progress bar */}
+                  <div className={styles.liveProgressBarContainer}>
+                    <div className={styles.liveProgressBar}>
+                      <div 
+                        className={styles.liveProgressFill}
+                        style={{ width: `${liveTaskProgress.status === 'completed' ? 100 : (liveTaskProgress.progressPercent || 5)}%` }}
+                      />
+                    </div>
+                    <span className={styles.liveProgressPercent}>
+                      {liveTaskProgress.status === 'completed' ? '100' : (liveTaskProgress.progressPercent || 5)}%
+                    </span>
+                  </div>
+                  
+                  {/* Plan steps */}
+                  {liveTaskProgress.plan && Array.isArray(liveTaskProgress.plan) && liveTaskProgress.plan.length > 0 && (
+                    <div className={styles.liveProgressPlan}>
+                      <h4><Zap size={14} /> Task Plan</h4>
+                      <div className={styles.planSteps}>
+                        {(typeof liveTaskProgress.plan === 'string' 
+                          ? JSON.parse(liveTaskProgress.plan) 
+                          : liveTaskProgress.plan
+                        ).map((step: string, index: number) => {
+                          const completedSteps = liveTaskProgress.progress?.steps?.length || 0
+                          const isCompleted = index < completedSteps
+                          const isCurrent = index === completedSteps && liveTaskProgress.status === 'running'
+                          return (
+                            <div 
+                              key={index}
+                              className={clsx(
+                                styles.planStep,
+                                isCompleted && styles.completed,
+                                isCurrent && styles.current
+                              )}
                             >
-                              <Star size={18} fill={task.rating && star <= task.rating ? '#F59E0B' : 'none'} />
-                            </button>
-                          ))}
-                        </div>
+                              <div className={styles.planStepIcon}>
+                                {isCompleted ? (
+                                  <CheckCircle size={14} />
+                                ) : isCurrent ? (
+                                  <Loader2 size={14} className={styles.spinner} />
+                                ) : (
+                                  <span className={styles.stepNumber}>{index + 1}</span>
+                                )}
+                              </div>
+                              <span className={styles.planStepText}>{step}</span>
+                            </div>
+                          )
+                        })}
                       </div>
-                    )}
-                    
-                    {/* Expanded Content */}
-                    {selectedTask?.id === task.id && (
-                      <div className={styles.taskExpandedContent}>
-                        {task.result && (
-                          <div className={styles.taskSummarySection}>
-                            <h4>Summary</h4>
-                            <div className={styles.taskSummaryText}>
-                              {task.result.split('\n').map((line, i) => (
-                                <p key={i}>{line || <br />}</p>
+                    </div>
+                  )}
+                  
+                  {/* Activity log */}
+                  {liveTaskProgress.progress?.steps && liveTaskProgress.progress.steps.length > 0 && (
+                    <div className={styles.liveProgressActivity}>
+                      <h4><Activity size={14} /> Recent Activity</h4>
+                      <div className={styles.activityLog}>
+                        {[...(liveTaskProgress.progress.steps || [])].reverse().slice(0, 10).map((step, index) => (
+                          <div key={index} className={styles.activityItem}>
+                            <div className={styles.activityIcon}>
+                              {step.status === 'completed' ? (
+                                <CheckCircle size={12} />
+                              ) : step.status === 'stuck' ? (
+                                <AlertCircle size={12} />
+                              ) : (
+                                <Zap size={12} />
+                              )}
+                            </div>
+                            <div className={styles.activityContent}>
+                              <span className={styles.activityTool}>{step.tool || step.status || 'Processing'}</span>
+                              <span className={styles.activityTime}>
+                                {format(parseISO(step.timestamp), 'h:mm:ss a')}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Result section for completed tasks */}
+                  {liveTaskProgress.status === 'completed' && liveTaskProgress.result && (
+                    <div className={styles.liveProgressResult}>
+                      <h4><CheckCircle size={14} /> Result Summary</h4>
+                      <div className={styles.resultText}>
+                        {liveTaskProgress.result.split('\n').map((line, i) => (
+                          <p key={i}>{line || <br />}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Error section for failed tasks */}
+                  {liveTaskProgress.status === 'failed' && liveTaskProgress.error && (
+                    <div className={styles.liveProgressError}>
+                      <h4><AlertCircle size={14} /> Error</h4>
+                      <p>{liveTaskProgress.error}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {/* Task list (hidden when viewing specific task) */}
+            {!activeTaskId && (
+              <>
+                {loadingAgentHistory ? (
+                  <div className={styles.agentHistoryLoading}>
+                    <Loader2 size={32} className={styles.spinner} />
+                    <span>Loading agent history...</span>
+                  </div>
+                ) : agentTasks.length === 0 ? (
+                  <div className={styles.agentHistoryEmpty}>
+                    <Bot size={48} />
+                    <h3>No Background Tasks Yet</h3>
+                    <p>Enable the Background Agent toggle in the chat to run complex tasks with real-time progress tracking.</p>
+                  </div>
+                ) : (
+                  <div className={styles.agentTasksGrid}>
+                    {agentTasks.map(task => (
+                      <div 
+                        key={task.id}
+                        className={clsx(
+                          styles.agentTaskCard,
+                          task.status === 'completed' && styles.completed,
+                          task.status === 'failed' && styles.failed,
+                          task.status === 'running' && styles.running,
+                          selectedTask?.id === task.id && styles.expanded
+                        )}
+                        onClick={() => {
+                          if (task.status === 'running') {
+                            // Navigate to live progress view for running tasks
+                            setActiveTaskId(task.id)
+                            loadTaskProgress(task.id)
+                            navigate(`/app/ai?showAgentHistory=true&taskId=${task.id}`, { replace: true })
+                          } else {
+                            setSelectedTask(selectedTask?.id === task.id ? null : task)
+                          }
+                        }}
+                      >
+                        <div className={styles.taskCardHeader}>
+                          <div className={styles.taskStatus}>
+                            {task.status === 'completed' ? (
+                              <CheckCircle size={16} className={styles.statusComplete} />
+                            ) : task.status === 'failed' ? (
+                              <AlertCircle size={16} className={styles.statusFailed} />
+                            ) : task.status === 'running' ? (
+                              <Activity size={16} className={styles.statusRunning} />
+                            ) : (
+                              <Bot size={16} className={styles.statusRunning} />
+                            )}
+                            <span className={styles.statusText}>
+                              {task.status === 'completed' ? 'Completed' : task.status === 'failed' ? 'Failed' : task.status === 'running' ? 'Running' : task.status}
+                            </span>
+                          </div>
+                          <span className={styles.taskDate}>
+                            {format(parseISO(task.created_at), 'MMM d, yyyy • h:mm a')}
+                          </span>
+                        </div>
+                        
+                        <h3 className={styles.taskGoal}>{task.goal}</h3>
+                        
+                        {/* Progress bar for running tasks */}
+                        {task.status === 'running' && (
+                          <div className={styles.taskProgressBar}>
+                            <div 
+                              className={styles.taskProgressFill}
+                              style={{ width: `${task.progressPercent || 5}%` }}
+                            />
+                          </div>
+                        )}
+                        
+                        <div className={styles.taskMeta}>
+                          {task.duration && (
+                            <span className={styles.taskDuration}>
+                              <Clock size={14} /> {task.duration}
+                            </span>
+                          )}
+                          <span className={styles.taskIterations}>
+                            {task.iterations} {task.iterations === 1 ? 'step' : 'steps'}
+                          </span>
+                        </div>
+                        
+                        {/* Star Rating */}
+                        {task.status === 'completed' && (
+                          <div className={styles.taskRating}>
+                            <span className={styles.ratingLabel}>Rate this task:</span>
+                            <div className={styles.starsContainer}>
+                              {[1, 2, 3, 4, 5].map(star => (
+                                <button
+                                  key={star}
+                                  className={clsx(styles.starButton, task.rating && star <= task.rating && styles.filled)}
+                                  onClick={(e) => handleRateTask(task.id, star, e)}
+                                  title={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                                >
+                                  <Star size={18} fill={task.rating && star <= task.rating ? '#F59E0B' : 'none'} />
+                                </button>
                               ))}
                             </div>
                           </div>
                         )}
-                        {task.error && (
-                          <div className={styles.taskErrorSection}>
-                            <h4>Error</h4>
-                            <p>{task.error}</p>
+                        
+                        {/* Expanded Content */}
+                        {selectedTask?.id === task.id && (
+                          <div className={styles.taskExpandedContent}>
+                            {task.result && (
+                              <div className={styles.taskSummarySection}>
+                                <h4>Summary</h4>
+                                <div className={styles.taskSummaryText}>
+                                  {task.result.split('\n').map((line, i) => (
+                                    <p key={i}>{line || <br />}</p>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {task.error && (
+                              <div className={styles.taskErrorSection}>
+                                <h4>Error</h4>
+                                <p>{task.error}</p>
+                              </div>
+                            )}
                           </div>
                         )}
+                        
+                        <div className={styles.taskCardFooter}>
+                          <span className={styles.expandHint}>
+                            {task.status === 'running' 
+                              ? 'Click to view live progress' 
+                              : selectedTask?.id === task.id 
+                                ? 'Click to collapse' 
+                                : 'Click to view details'}
+                          </span>
+                        </div>
                       </div>
-                    )}
-                    
-                    <div className={styles.taskCardFooter}>
-                      <span className={styles.expandHint}>
-                        {selectedTask?.id === task.id ? 'Click to collapse' : 'Click to view details'}
-                      </span>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </div>
         ) : activeConversation ? (
