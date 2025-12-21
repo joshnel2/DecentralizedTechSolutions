@@ -792,9 +792,9 @@ router.get('/outlook/emails', authenticate, async (req, res) => {
       );
     }
 
-    // Fetch recent emails
+    // Fetch recent emails from INBOX folder only (not sent items)
     const emailsResponse = await fetch(
-      'https://graph.microsoft.com/v1.0/me/messages?$top=20&$orderby=receivedDateTime desc',
+      'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=50&$orderby=receivedDateTime desc&$select=id,subject,from,toRecipients,receivedDateTime,isRead,bodyPreview,hasAttachments,importance',
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
 
