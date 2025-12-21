@@ -156,12 +156,26 @@ export function AIAssistantPage() {
     }
   }, [initialMessage, setInitialMessage])
 
-  // Load agent history when toggled
+  // Load agent history when toggled - always refresh
   useEffect(() => {
-    if (showAgentHistory && agentTasks.length === 0) {
+    if (showAgentHistory) {
       loadAgentHistory()
     }
   }, [showAgentHistory])
+
+  // Auto-refresh if there are running tasks
+  useEffect(() => {
+    if (!showAgentHistory) return
+    
+    const hasRunningTasks = agentTasks.some(t => t.status === 'running')
+    if (!hasRunningTasks) return
+    
+    const interval = setInterval(() => {
+      loadAgentHistory()
+    }, 5000) // Refresh every 5 seconds when tasks are running
+    
+    return () => clearInterval(interval)
+  }, [showAgentHistory, agentTasks])
 
   const loadAgentHistory = async () => {
     setLoadingAgentHistory(true)

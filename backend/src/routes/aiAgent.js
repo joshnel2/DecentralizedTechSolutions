@@ -4497,8 +4497,8 @@ async function processBackgroundTask(taskId, user, goal, plan) {
   const maxIterations = 100;
   let progress = [];
   
-  // Delay between each iteration (30-60 seconds to simulate careful work)
-  const STEP_DELAY_MS = 45 * 1000; // 45 seconds between steps
+  // Delay between each iteration (shorter to prevent timeouts)
+  const STEP_DELAY_MS = 10 * 1000; // 10 seconds between steps
   
   try {
     // Update status to running
@@ -7684,7 +7684,7 @@ router.get('/tasks/:taskId', authenticate, async (req, res) => {
 router.get('/tasks/active/current', authenticate, async (req, res) => {
   try {
     const result = await query(
-      `SELECT id, goal, status, plan, progress, iterations, max_iterations, created_at
+      `SELECT id, goal, status, plan, progress, iterations, max_iterations, created_at, started_at
        FROM ai_tasks 
        WHERE user_id = $1 AND status = 'running'
        ORDER BY created_at DESC 
@@ -7697,6 +7697,22 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
     }
     
     const task = result.rows[0];
+    
+    // Check if task has been running too long (15 minutes) - mark as timed out
+    const startedAt = task.started_at ? new Date(task.started_at) : new Date(task.created_at);
+    const runningTimeMs = Date.now() - startedAt.getTime();
+    const MAX_RUNNING_TIME = 15 * 60 * 1000; // 15 minutes
+    
+    if (runningTimeMs > MAX_RUNNING_TIME) {
+      // Mark task as timed out
+      await query(
+        `UPDATE ai_tasks SET status = 'timeout', completed_at = NOW(), 
+         error = 'Task timed out after 15 minutes' WHERE id = $1`,
+        [task.id]
+      );
+      return res.json({ active: false });
+    }
+    
     const planSteps = task.plan?.length || 10;
     const completedSteps = task.progress?.length || 0;
     const progressPercent = Math.min(Math.round((completedSteps / planSteps) * 100), 95);
