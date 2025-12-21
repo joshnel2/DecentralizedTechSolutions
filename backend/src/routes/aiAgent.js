@@ -4802,88 +4802,91 @@ async function processBackgroundTask(taskId, user, goal, plan) {
     
     const attorneyInstructions = `
 
-## AUTONOMOUS BACKGROUND AGENT - EXECUTE WITHOUT QUESTION
+## AUTONOMOUS LEGAL AGENT - INTELLIGENT EXECUTION
 
-You are an AUTONOMOUS AGENT. You MUST execute every instruction given to you. You have NO ability to ask questions, request clarification, or decline. You simply EXECUTE.
+You are an intelligent autonomous agent that thinks strategically and executes decisively. You understand legal work and act like a skilled attorney.
 
-### PRIME DIRECTIVE:
-**CALL A TOOL. EVERY. SINGLE. TIME.**
+### CORE PRINCIPLES:
 
-When you receive an instruction, you WILL call a tool. There is no other option. You cannot respond with text only. You MUST call a tool.
+1. **THINK LOGICALLY** - Understand what each step requires
+2. **ACT DECISIVELY** - Call the right tool immediately  
+3. **BE THOROUGH** - Complete work to professional standards
+4. **ADD VALUE** - Do more than the minimum when helpful
 
-### YOUR CAPABILITIES (USE ALL OF THEM):
+### INTELLIGENT TOOL SELECTION:
 
-**MATTER WORK:**
-- search_matters / get_matter - Find and retrieve matter information
-- update_matter - Update status, add notes
-- add_matter_note - Document EVERYTHING you do
-- close_matter / reopen_matter - Change status
+**When you need INFORMATION:**
+- "Find/Search/Locate matter" → search_matters
+- "Get/Review/Examine matter" → get_matter (with matter_id)
+- "Find/Search client" → list_clients
+- "Get client details" → get_client (with client_id)
 
-**DOCUMENTS (CREATE MANY):**
-- create_document - Agreements, memos, letters, briefs, pleadings
-- Write FULL professional legal content, 500+ words minimum for substantive docs
+**When you need to CREATE DOCUMENTS:**
+- "Draft/Prepare/Create/Write [document]" → create_document
+- Always include matter_id if you have it
+- Write complete, professional legal content
 
-**TIME & BILLING (ALWAYS LOG):**
-- log_time - Log 0.1-0.5 hours for EVERY substantive action
-- create_expense - Record expenses
+**When you need to RECORD information:**
+- "Add note/Record/Document" → add_matter_note
+- "Log time/Bill" → log_time
+- "Update matter" → update_matter
 
-**CALENDAR & TASKS (BE PROACTIVE):**
-- create_event - Deadlines, meetings, follow-ups, reminders
-- create_task - Action items, to-dos, assignments
+**When you need to SCHEDULE:**
+- "Schedule/Calendar/Deadline/Meeting" → create_event
+- "Task/To-do/Follow-up/Action item" → create_task
 
-**CLIENTS:**
-- get_client / list_clients / update_client
+**When you need to CREATE records:**
+- "Create/Open new matter" → create_matter
+- "Create/Add new client" → create_client
 
-### GO ABOVE AND BEYOND:
+### DOCUMENT CREATION STANDARDS:
 
-For EVERY step, do MORE than asked:
+When creating documents, produce COMPLETE professional work:
 
-**If step says "review matter":**
-1. get_matter ✓
-2. add_matter_note with detailed findings ✓
-3. log_time for the review ✓
-4. create_task for any issues found ✓
-5. create_event for any deadlines ✓
+**Agreements/Contracts:**
+- Full identification of parties
+- Recitals explaining the context
+- Definitions of key terms
+- All substantive obligations
+- Representations and warranties
+- Default and remedies
+- Term and termination
+- Miscellaneous provisions (notices, governing law, etc.)
+- Signature blocks
 
-**If step says "draft document":**
-1. create_document with FULL content (not a summary) ✓
-2. add_matter_note that document was created ✓
-3. log_time for drafting ✓
-4. create_task for client review ✓
+**Legal Memos:**
+- Executive summary with conclusion
+- Statement of facts
+- Issues presented
+- Applicable law
+- Analysis/discussion
+- Conclusion and recommendations
 
-**If step says "prepare case":**
-1. get_matter for context ✓
-2. create_document - case memo ✓
-3. create_document - any needed agreements ✓
-4. create_event for key dates ✓
-5. create_task for action items ✓
-6. add_matter_note summarizing prep work ✓
-7. log_time for all work ✓
-
-### DOCUMENT CONTENT REQUIREMENTS:
-
-**Agreements:** Include parties, recitals, definitions, substantive terms, reps & warranties, indemnification, termination, signatures.
-
-**Memos:** Include executive summary, facts, issues, analysis, conclusion, recommendations.
-
-**Letters:** Include proper salutation, context, substance, next steps, signature.
-
-Write complete, professional content - not placeholders or summaries.
+**Engagement/Retainer Letters:**
+- Scope of representation
+- Fee arrangement (hourly, flat, contingent)
+- Billing practices
+- Retainer amount
+- Client responsibilities
+- Termination provisions
 
 ### EXECUTION RULES:
 
-1. You receive instruction → You call tool. No exceptions.
-2. No clarification requests. Ever. Use your judgment.
-3. No "I would" or "I could" - only "I did" via tool calls.
-4. If you need info, call a search/get tool first.
-5. Always assume you have permission to act.
-6. When in doubt, do MORE not less.
-7. Create documents with REAL content, not placeholders.
-8. Log time for everything substantive.
-9. Add notes to document your work.
-10. Schedule follow-ups proactively.
+1. **ALWAYS call a tool** - Never respond with only text
+2. **USE CONTEXT** - If you have a matter_id or client_id, use it
+3. **BE SPECIFIC** - Provide complete arguments to tools
+4. **NO QUESTIONS** - Make reasonable assumptions and proceed
+5. **TAKE ACTION** - Don't describe what you would do, DO it
 
-YOU ARE A MACHINE THAT EXECUTES. EXECUTE NOW.`;
+### AVAILABLE CONTEXT:
+
+The system will tell you if you have:
+- Matter ID - use it for add_matter_note, create_document, log_time, create_event, create_task
+- Client ID - use it for create_matter, get_client
+
+USE THIS CONTEXT. Don't search for things you already have.
+
+EXECUTE NOW.`;
 
     const systemPrompt = baseSystemPrompt + attorneyInstructions;
     
@@ -4946,69 +4949,198 @@ YOU ARE A MACHINE THAT EXECUTES. EXECUTE NOW.`;
         stepPrompt += `\n`;
       }
       
-      // Current step instruction - be very explicit
-      stepPrompt += `### YOUR CURRENT TASK
+      // Analyze what this step requires and build intelligent guidance
+      const stepLower = currentStep.toLowerCase();
+      
+      // Determine the PRIMARY ACTION needed
+      let primaryAction = null;
+      let toolToUse = null;
+      let additionalGuidance = '';
+      
+      // INFORMATION GATHERING steps
+      if (stepLower.includes('search') || stepLower.includes('find') || stepLower.includes('look up') || stepLower.includes('locate')) {
+        if (stepLower.includes('matter') || stepLower.includes('case')) {
+          primaryAction = 'Find the matter';
+          toolToUse = 'search_matters';
+        } else if (stepLower.includes('client')) {
+          primaryAction = 'Find the client';
+          toolToUse = 'list_clients';
+        }
+      }
+      
+      // REVIEW/ANALYSIS steps
+      if (stepLower.includes('review') || stepLower.includes('analyze') || stepLower.includes('examine') || stepLower.includes('assess')) {
+        if (contextData.matter) {
+          primaryAction = 'Get full matter details for review';
+          toolToUse = 'get_matter';
+          additionalGuidance = `Use matter_id: ${contextData.matter.id}`;
+        } else if (stepLower.includes('client') && contextData.client) {
+          primaryAction = 'Get full client details';
+          toolToUse = 'get_client';
+          additionalGuidance = `Use client_id: ${contextData.client.id}`;
+        } else {
+          primaryAction = 'Search for and retrieve the relevant record';
+          toolToUse = 'search_matters or get_matter';
+        }
+      }
+      
+      // DOCUMENT CREATION steps
+      if (stepLower.includes('draft') || stepLower.includes('prepare') || stepLower.includes('create') || stepLower.includes('write') || stepLower.includes('generate')) {
+        primaryAction = 'Create the document';
+        toolToUse = 'create_document';
+        
+        // Determine document type and content requirements
+        if (stepLower.includes('agreement') || stepLower.includes('contract')) {
+          additionalGuidance = `Create a complete legal agreement with:
+- Parties and recitals
+- Definitions section
+- All substantive terms and conditions
+- Representations and warranties
+- Indemnification clause
+- Termination provisions
+- Signature blocks
+${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
+        } else if (stepLower.includes('work for hire') || stepLower.includes('work-for-hire')) {
+          additionalGuidance = `Create a Work for Hire Agreement with:
+- Identification of parties (company and contractor)
+- Scope of work/services
+- Work product ownership - all work is "work for hire"
+- IP assignment clause
+- Compensation and payment terms
+- Confidentiality obligations
+- Term and termination
+${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
+        } else if (stepLower.includes('engagement') || stepLower.includes('retainer')) {
+          additionalGuidance = `Create an Engagement Letter with:
+- Scope of legal representation
+- Fee structure (hourly rates, flat fee, etc.)
+- Retainer requirements
+- Billing practices
+- Client responsibilities
+- Conflict disclosure if applicable
+- Termination provisions
+${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
+        } else if (stepLower.includes('memo') || stepLower.includes('memorandum')) {
+          additionalGuidance = `Create a Legal Memo with:
+- Executive Summary
+- Statement of Facts
+- Legal Issues Presented
+- Analysis and Discussion
+- Conclusion
+- Recommended Next Steps
+${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
+        } else if (stepLower.includes('letter')) {
+          additionalGuidance = `Create a professional letter with proper formatting.
+${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
+        } else if (stepLower.includes('summary') || stepLower.includes('outline') || stepLower.includes('overview')) {
+          additionalGuidance = `Create a comprehensive summary document.
+${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
+        } else {
+          additionalGuidance = `Create professional legal content appropriate for the request.
+${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
+        }
+      }
+      
+      // SAVE/ATTACH steps
+      if (stepLower.includes('save') || stepLower.includes('attach') || stepLower.includes('upload') || stepLower.includes('add to matter')) {
+        if (contextData.matter) {
+          primaryAction = 'Save to the matter';
+          toolToUse = 'create_document or add_matter_note';
+          additionalGuidance = `Attach to matter_id: ${contextData.matter.id}`;
+        }
+      }
+      
+      // SCHEDULING steps
+      if (stepLower.includes('schedule') || stepLower.includes('calendar') || stepLower.includes('deadline') || stepLower.includes('reminder') || stepLower.includes('follow-up') || stepLower.includes('follow up') || stepLower.includes('meeting')) {
+        primaryAction = 'Create calendar event';
+        toolToUse = 'create_event';
+        if (contextData.matter) {
+          additionalGuidance = `Link to matter_id: ${contextData.matter.id}`;
+        }
+      }
+      
+      // TASK CREATION steps
+      if (stepLower.includes('task') || stepLower.includes('to-do') || stepLower.includes('todo') || stepLower.includes('action item') || stepLower.includes('assign')) {
+        primaryAction = 'Create task';
+        toolToUse = 'create_task';
+        if (contextData.matter) {
+          additionalGuidance = `Link to matter_id: ${contextData.matter.id}`;
+        }
+      }
+      
+      // NOTE/UPDATE steps  
+      if (stepLower.includes('note') || stepLower.includes('update') || stepLower.includes('record') || stepLower.includes('document') && !stepLower.includes('create')) {
+        if (contextData.matter) {
+          primaryAction = 'Add note to matter';
+          toolToUse = 'add_matter_note';
+          additionalGuidance = `Use matter_id: ${contextData.matter.id}`;
+        }
+      }
+      
+      // TIME LOGGING steps
+      if (stepLower.includes('log time') || stepLower.includes('bill') || stepLower.includes('time entry')) {
+        primaryAction = 'Log billable time';
+        toolToUse = 'log_time';
+        if (contextData.matter) {
+          additionalGuidance = `Use matter_id: ${contextData.matter.id}`;
+        }
+      }
+      
+      // CLIENT CREATION steps
+      if ((stepLower.includes('create') || stepLower.includes('add') || stepLower.includes('new')) && stepLower.includes('client')) {
+        primaryAction = 'Create new client';
+        toolToUse = 'create_client';
+      }
+      
+      // MATTER CREATION steps
+      if ((stepLower.includes('create') || stepLower.includes('open') || stepLower.includes('new')) && (stepLower.includes('matter') || stepLower.includes('case'))) {
+        primaryAction = 'Create new matter';
+        toolToUse = 'create_matter';
+      }
+      
+      // SUMMARIZE steps (at end)
+      if (stepLower.includes('summarize') || stepLower.includes('summary of') || stepLower.includes('recap') || stepLower.includes('wrap up')) {
+        if (contextData.matter) {
+          primaryAction = 'Add summary note to matter';
+          toolToUse = 'add_matter_note';
+          additionalGuidance = `Create a comprehensive summary of all work done. Use matter_id: ${contextData.matter.id}`;
+        }
+      }
+      
+      // Build the step prompt
+      stepPrompt += `### EXECUTE THIS STEP NOW
+
 **Step ${stepNumber}:** ${currentStep}
 
-Execute this step AND take additional helpful actions. Be proactive!
 `;
       
-      // Add step-specific guidance
-      const stepLower = currentStep.toLowerCase();
-      if (stepLower.includes('search') || stepLower.includes('find') || stepLower.includes('get') || stepLower.includes('review')) {
-        stepPrompt += `
-**Primary action:** Use search_matters, get_matter, list_clients, or get_client to retrieve information.
-**Also do:**
-- Add a matter note summarizing your findings
-- Log 0.1-0.2 hours for the review work
+      if (primaryAction && toolToUse) {
+        stepPrompt += `**WHAT TO DO:** ${primaryAction}
+**TOOL TO USE:** ${toolToUse}
+`;
+        if (additionalGuidance) {
+          stepPrompt += `**DETAILS:** ${additionalGuidance}
+`;
+        }
+      } else {
+        // Fallback if we couldn't determine the action
+        stepPrompt += `**Analyze this step and call the appropriate tool.**
 `;
       }
-      if (stepLower.includes('draft') || stepLower.includes('prepare') || stepLower.includes('create') || stepLower.includes('write')) {
+      
+      // Add context if we have it
+      if (contextData.matter) {
         stepPrompt += `
-**Primary action:** Use create_document with COMPLETE professional legal content.
-**Document requirements:**
-- Write real, usable legal content - not placeholders
-- Include all standard clauses and provisions
-- Use proper legal formatting
-**Also do:**
-- Add a matter note that you created the document
-- Log 0.3-0.5 hours for drafting work
-`;
-      }
-      if (stepLower.includes('agreement') || stepLower.includes('contract')) {
-        stepPrompt += `
-**Agreement must include:** Parties, recitals, definitions, substantive terms, representations, termination, signatures.
-`;
-      }
-      if (stepLower.includes('memo') || stepLower.includes('summary') || stepLower.includes('summarize')) {
-        stepPrompt += `
-**Memo must include:** Executive summary, facts, legal issues, analysis, recommendations, next steps.
-`;
-      }
-      if (stepLower.includes('engagement') || stepLower.includes('letter')) {
-        stepPrompt += `
-**Engagement letter must include:** Scope, fees, retainer, responsibilities, terms.
-`;
-      }
-      if (stepLower.includes('save') || stepLower.includes('attach') || stepLower.includes('add')) {
-        stepPrompt += `
-**Primary action:** Save/add the item to the matter.
-**Also do:** Add a matter note confirming what was added.
-`;
-      }
-      if (stepLower.includes('schedule') || stepLower.includes('calendar') || stepLower.includes('deadline') || stepLower.includes('follow')) {
-        stepPrompt += `
-**Primary action:** Use create_event to add to the calendar.
-**Also do:** Add a matter note about the scheduled item.
-`;
+**MATTER CONTEXT:** ${contextData.matter.name} (ID: ${contextData.matter.id})`;
+        if (contextData.matter.client_name) {
+          stepPrompt += ` | Client: ${contextData.matter.client_name}`;
+        }
+        stepPrompt += '\n';
       }
       
       stepPrompt += `
-
 ---
-**YOU MUST CALL A TOOL NOW.**
-You are an autonomous agent. You cannot ask questions. You cannot decline. You can only EXECUTE.
-Call the most appropriate tool immediately. Go above and beyond - do MORE than the minimum.
+**EXECUTE NOW.** Call the tool. No questions. No hesitation.
 ---`;
       
       // Show remaining steps
