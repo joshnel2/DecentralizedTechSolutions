@@ -1193,6 +1193,87 @@
   transform: translateY(-1px);
 }
 
+/* Edit button in row */
+.editBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--apex-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: white;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.editBtn:hover {
+  background: var(--apex-primary-hover);
+  transform: translateY(-1px);
+}
+
+/* Save success indicator */
+.saveSuccess {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #22c55e;
+  font-size: 0.875rem;
+  font-weight: 500;
+  animation: fadeIn 0.3s ease;
+}
+
+/* External path section */
+.externalPathSection {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--apex-slate);
+  background: var(--apex-charcoal);
+}
+
+.externalPathToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--apex-slate);
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.externalPathToggle:hover {
+  background: var(--apex-dark);
+  color: var(--apex-white);
+}
+
+.externalPathInputs {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.externalPathInputs select,
+.externalPathInputs input {
+  padding: 0.5rem 0.75rem;
+  background: var(--apex-dark);
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.875rem;
+}
+
+.externalPathInputs select {
+  width: 150px;
+}
+
+.externalPathInputs input {
+  flex: 1;
+}
+
 /* Responsive for editor modal */
 @media (max-width: 768px) {
   .editorOverlay {

@@ -222,11 +222,20 @@ export function DocumentsPage() {
     if (!editorDoc) return
     
     setIsSaving(true)
+    setSaveSuccess(false)
     try {
-      await documentsApi.update(editorDoc.id, { content: editorContent })
+      const updateData: any = { content: editorContent }
+      if (externalPath) {
+        updateData.externalPath = externalPath
+        updateData.externalType = externalType || 'url'
+      }
+      await documentsApi.update(editorDoc.id, updateData)
       setOriginalContent(editorContent)
       setIsEditing(false)
+      setSaveSuccess(true)
       fetchDocuments() // Refresh the list
+      // Clear success message after 3 seconds
+      setTimeout(() => setSaveSuccess(false), 3000)
     } catch (error) {
       console.error('Failed to save document:', error)
       alert('Failed to save document. Please try again.')
