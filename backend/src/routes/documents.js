@@ -263,6 +263,8 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
         isConfidential: d.is_confidential,
         aiSummary: d.ai_summary,
         tags: d.tags,
+        externalPath: d.external_path,
+        externalType: d.external_type,
         uploadedBy: d.uploaded_by,
         uploadedByName: d.uploaded_by_name,
         uploadedAt: d.uploaded_at,
@@ -583,7 +585,7 @@ router.put('/:id', authenticate, requirePermission('documents:edit'), async (req
       return res.status(404).json({ error: 'Document not found' });
     }
 
-    const { name, matterId, clientId, tags, isConfidential, status, aiSummary, content } = req.body;
+    const { name, matterId, clientId, tags, isConfidential, status, aiSummary, content, externalPath, externalType } = req.body;
 
     // Build dynamic update query
     const updates = [];
@@ -604,6 +606,8 @@ router.put('/:id', authenticate, requirePermission('documents:edit'), async (req
       values.push(content.length);
       updates.push(`content_extracted_at = NOW()`);
     }
+    if (externalPath !== undefined) { updates.push(`external_path = $${paramIndex++}`); values.push(externalPath); }
+    if (externalType !== undefined) { updates.push(`external_type = $${paramIndex++}`); values.push(externalType); }
     
     if (updates.length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
@@ -618,6 +622,7 @@ router.put('/:id', authenticate, requirePermission('documents:edit'), async (req
     );
 
     const d = result.rows[0];
+    console.log(`[DOCUMENTS] Updated document ${d.id}: ${d.name}`);
     res.json({
       id: d.id,
       name: d.name,
@@ -625,6 +630,8 @@ router.put('/:id', authenticate, requirePermission('documents:edit'), async (req
       tags: d.tags,
       status: d.status,
       content: d.content_text,
+      externalPath: d.external_path,
+      externalType: d.external_type,
       updatedAt: d.updated_at,
     });
   } catch (error) {

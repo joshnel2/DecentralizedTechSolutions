@@ -188,12 +188,20 @@ export function DocumentsPage() {
   const [isEditing, setIsEditing] = useState(false)
   const [isLoadingContent, setIsLoadingContent] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [externalPath, setExternalPath] = useState('')
+  const [externalType, setExternalType] = useState('')
+  const [showExternalPathInput, setShowExternalPathInput] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
 
   // Open document viewer/editor
   const openDocumentViewer = async (doc: typeof documents[0]) => {
     setEditorDoc(doc)
     setIsLoadingContent(true)
     setIsEditing(false)
+    setSaveSuccess(false)
+    setExternalPath((doc as any).externalPath || '')
+    setExternalType((doc as any).externalType || '')
+    setShowExternalPathInput(false)
     
     try {
       const response = await documentsApi.getContent(doc.id)
@@ -426,6 +434,16 @@ export function DocumentsPage() {
                 <td>{format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}</td>
                 <td>
                   <div className={styles.rowActions}>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openDocumentViewer(doc)
+                      }}
+                      title="View & Edit"
+                      className={styles.editBtn}
+                    >
+                      <Edit3 size={16} />
+                    </button>
                     <button 
                       onClick={(e) => downloadDocument(doc, e)}
                       title="Download"
