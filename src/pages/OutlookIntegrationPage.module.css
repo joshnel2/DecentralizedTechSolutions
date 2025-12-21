@@ -624,7 +624,7 @@
 .composeFields {
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--apex-slate);
-  background: var(--apex-dark);
+  background: var(--apex-charcoal);
 }
 
 .composeField {
@@ -665,7 +665,7 @@
   flex: 1;
   min-height: 250px;
   padding: 1rem;
-  background: var(--apex-dark);
+  background: var(--apex-slate);
   border: none;
   color: var(--apex-white);
   font-size: 0.9rem;
@@ -681,6 +681,8 @@
   justify-content: space-between;
   padding: 0.75rem 1rem;
   border-top: 1px solid var(--apex-slate);
+  background: var(--apex-charcoal);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 
 .composeTools {
@@ -757,7 +759,7 @@
 
 .settingsModal {
   width: 500px;
-  background: var(--apex-dark);
+  background: var(--apex-charcoal);
 }
 
 .modal h2,
@@ -836,7 +838,7 @@
   width: 100%;
   min-height: 150px;
   padding: 0.75rem;
-  background: var(--apex-dark);
+  background: var(--apex-slate);
   border: 1px solid var(--apex-border);
   border-radius: var(--radius-md);
   color: var(--apex-white);
