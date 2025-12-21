@@ -708,6 +708,42 @@ const TOOLS = [
       }
     }
   },
+  {
+    type: "function",
+    function: {
+      name: "create_document",
+      description: "Create a new text document and save it to a matter or client. Use this to draft contracts, letters, memos, notes, or any text document.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Document name (e.g. 'Client Engagement Letter.txt')" },
+          content: { type: "string", description: "The text content of the document" },
+          matter_id: { type: "string", description: "Matter to attach the document to" },
+          client_id: { type: "string", description: "Client to attach the document to" },
+          tags: { type: "array", items: { type: "string" }, description: "Optional: tags for the document" }
+        },
+        required: ["name", "content"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_note",
+      description: "Create a note/memo attached to a matter or client. Use for meeting notes, case notes, research notes, etc.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Note title" },
+          content: { type: "string", description: "Note content (can be markdown)" },
+          matter_id: { type: "string", description: "Matter to attach the note to" },
+          client_id: { type: "string", description: "Client to attach the note to" },
+          note_type: { type: "string", enum: ["general", "meeting", "research", "case_note", "memo"], description: "Type of note" }
+        },
+        required: ["title", "content"]
+      }
+    }
+  },
 
   // ===================== TEAM =====================
   {
@@ -1798,6 +1834,8 @@ async function executeTool(toolName, args, user, req = null) {
       case 'get_matter_documents_content': return await getMatterDocumentsContent(args, user);
       case 'search_document_content': return await searchDocumentContent(args, user);
       case 'save_uploaded_document': return await saveUploadedDocument(args, user, req);
+      case 'create_document': return await createDocument(args, user);
+      case 'create_note': return await createNote(args, user);
       
       // Team
       case 'list_team_members': return await listTeamMembers(args, user);
@@ -4118,6 +4156,151 @@ async function saveUploadedDocument(args, user, req) {
   } catch (error) {
     console.error('Error saving uploaded document:', error);
     return { error: 'Failed to save document: ' + error.message };
+  }
+}
+
+async function createDocument(args, user) {
+  const { name, content, matter_id, client_id, tags } = args;
+  
+  if (!name || !content) {
+    return { error: 'Document name and content are required' };
+  }
+  
+  try {
+    // Generate a unique filename
+    const timestamp = Date.now();
+    const safeName = name.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const filename = `${timestamp}-${safeName}`;
+    
+    // Determine file type from name
+    const ext = name.split('.').pop()?.toLowerCase() || 'txt';
+    const mimeType = ext === 'md' ? 'text/markdown' : 
+                     ext === 'html' ? 'text/html' :
+                     ext === 'json' ? 'application/json' : 'text/plain';
+    
+    // Insert document record
+    const result = await query(
+      `INSERT INTO documents (
+        firm_id, matter_id, client_id, name, original_name, type, size, path,
+        content_text, content_extracted_at, tags, status, uploaded_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10, 'final', $11)
+      RETURNING id, name`,
+      [
+        user.firmId,
+        matter_id || null,
+        client_id || null,
+        name,
+        name,
+        mimeType,
+        content.length,
+        `ai-generated/${filename}`,
+        content,
+        tags || [],
+        user.id
+      ]
+    );
+    
+    const savedDoc = result.rows[0];
+    
+    // Get matter/client names for confirmation
+    let locationInfo = '';
+    if (matter_id) {
+      const matterRes = await query('SELECT name, number FROM matters WHERE id = $1', [matter_id]);
+      if (matterRes.rows.length > 0) {
+        locationInfo = ` and attached to matter "${matterRes.rows[0].name}" (${matterRes.rows[0].number})`;
+      }
+    } else if (client_id) {
+      const clientRes = await query('SELECT display_name FROM clients WHERE id = $1', [client_id]);
+      if (clientRes.rows.length > 0) {
+        locationInfo = ` and attached to client "${clientRes.rows[0].display_name}"`;
+      }
+    }
+    
+    return {
+      success: true,
+      message: `Created document "${savedDoc.name}"${locationInfo}`,
+      data: {
+        id: savedDoc.id,
+        name: savedDoc.name,
+        matter_id,
+        client_id,
+        content_preview: content.substring(0, 200) + (content.length > 200 ? '...' : '')
+      }
+    };
+  } catch (error) {
+    console.error('Error creating document:', error);
+    return { error: 'Failed to create document: ' + error.message };
+  }
+}
+
+async function createNote(args, user) {
+  const { title, content, matter_id, client_id, note_type = 'general' } = args;
+  
+  if (!title || !content) {
+    return { error: 'Note title and content are required' };
+  }
+  
+  try {
+    // Create a document with a .md extension for notes
+    const timestamp = Date.now();
+    const safeName = title.replace(/[^a-zA-Z0-9 .-]/g, '_');
+    const filename = `${timestamp}-${safeName}.md`;
+    
+    // Format the note content with metadata
+    const formattedContent = `# ${title}\n\n**Type:** ${note_type}\n**Created:** ${new Date().toLocaleString()}\n**Author:** ${user.firstName} ${user.lastName}\n\n---\n\n${content}`;
+    
+    // Insert as a document
+    const result = await query(
+      `INSERT INTO documents (
+        firm_id, matter_id, client_id, name, original_name, type, size, path,
+        content_text, content_extracted_at, tags, status, uploaded_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10, 'final', $11)
+      RETURNING id, name`,
+      [
+        user.firmId,
+        matter_id || null,
+        client_id || null,
+        `${title}.md`,
+        `${title}.md`,
+        'text/markdown',
+        formattedContent.length,
+        `notes/${filename}`,
+        formattedContent,
+        [note_type, 'note'],
+        user.id
+      ]
+    );
+    
+    const savedNote = result.rows[0];
+    
+    // Get matter/client names for confirmation
+    let locationInfo = '';
+    if (matter_id) {
+      const matterRes = await query('SELECT name, number FROM matters WHERE id = $1', [matter_id]);
+      if (matterRes.rows.length > 0) {
+        locationInfo = ` for matter "${matterRes.rows[0].name}" (${matterRes.rows[0].number})`;
+      }
+    } else if (client_id) {
+      const clientRes = await query('SELECT display_name FROM clients WHERE id = $1', [client_id]);
+      if (clientRes.rows.length > 0) {
+        locationInfo = ` for client "${clientRes.rows[0].display_name}"`;
+      }
+    }
+    
+    return {
+      success: true,
+      message: `Created ${note_type} note "${title}"${locationInfo}`,
+      data: {
+        id: savedNote.id,
+        name: savedNote.name,
+        note_type,
+        matter_id,
+        client_id
+      }
+    };
+  } catch (error) {
+    console.error('Error creating note:', error);
+    return { error: 'Failed to create note: ' + error.message };
   }
 }
 
@@ -7281,7 +7464,7 @@ You have access to tools for:
 - **Invoices**: Create, view, send invoices, record payments
 - **Tasks**: Create, view, update, complete tasks assigned to matters/clients/users
 - **Calendar**: Create, view, update, delete events and meetings
-- **Documents**: View document info, read document content, search within documents
+- **Documents**: View, read, search, AND CREATE documents. You can draft contracts, letters, memos, notes, etc.
 - **Expenses**: Create and view expenses
 - **Team**: View team members
 - **Reports**: Generate billing, productivity, time, and client reports
