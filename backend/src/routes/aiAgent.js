@@ -4757,6 +4757,11 @@ async function processBackgroundTask(taskId, user, goal, plan) {
   // Delay between each iteration (deliberate pacing for background work)
   const STEP_DELAY_MS = 45 * 1000; // 45 seconds between steps
   
+  // Self-improvement tracking
+  let learnings = []; // Accumulated insights from each step
+  let improvedApproaches = []; // Better strategies discovered
+  let qualityScore = 0; // Running quality assessment
+  
   try {
     // Update status to running
     await query(
@@ -4764,34 +4769,58 @@ async function processBackgroundTask(taskId, user, goal, plan) {
       [taskId]
     );
     
-    // Build the initial prompt
+    // Build the initial prompt with self-improvement instructions
     const systemPrompt = getSystemPrompt()
       .replace('{{USER_ROLE}}', user.role || 'staff')
       .replace('{{USER_NAME}}', `${user.firstName || ''} ${user.lastName || ''}`);
     
+    const selfImprovementInstructions = `
+## SELF-IMPROVEMENT PROTOCOL
+As you work, continuously improve your approach:
+
+1. **REFLECT** after each step: What worked well? What could be better?
+2. **LEARN**: Identify patterns, shortcuts, or better methods
+3. **ADAPT**: Apply learnings to improve subsequent steps
+4. **QUALITY CHECK**: Rate your output quality (1-10) and aim higher each step
+
+When you log_work, include a "reflection" field with:
+- What you learned from this step
+- How you'll improve the next step
+- Any better approaches discovered
+
+Your goal is not just completion, but EXCELLENCE. Each step should be better than the last.`;
+
     let messages = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: systemPrompt + '\n\n' + selfImprovementInstructions },
       { 
         role: 'user', 
-        content: `You are working on a BACKGROUND TASK. This is a thorough, multi-step task that requires careful execution.
+        content: `You are working on a BACKGROUND TASK with SELF-IMPROVEMENT. This is a thorough, multi-step task that requires careful execution AND continuous refinement.
 
 GOAL: ${goal}
 
 PLAN (${(plan || []).length} steps):
 ${(plan || []).map((step, i) => `${i + 1}. ${step}`).join('\n')}
 
+SELF-IMPROVEMENT PROTOCOL:
+- After each action, reflect: "What could I do better?"
+- Track insights and apply them to subsequent steps
+- Rate your work quality and aim to improve each iteration
+- If you discover a better approach, use it immediately
+
 IMPORTANT INSTRUCTIONS:
 1. Work through EACH step systematically - do not skip steps
 2. For each step, use the appropriate tools to gather information or take actions
-3. After each significant action, use log_work to track your progress  
+3. After each significant action, use log_work to track your progress AND your learnings
 4. Take your time - this is a background task, there's no rush
 5. If you need to retrieve data, actually retrieve it using the tools
 6. If you need to analyze something, do a thorough analysis
 7. Only call task_complete when you have genuinely completed ALL steps
 
-DO NOT call task_complete prematurely. The user expects a thorough job.
+EXCELLENCE MINDSET: Don't just complete the task - strive to do it better with each step.
 
-Begin now with Step 1: ${(plan || [])[0] || 'Start the task'}`
+Begin now with Step 1: ${(plan || [])[0] || 'Start the task'}
+
+First, think about: What's the BEST way to approach this step? What would make the output truly excellent?`
       }
     ];
     
@@ -4914,10 +4943,19 @@ Do NOT just describe what you would do - actually use the tools to do it.`
           content: JSON.stringify(result)
         });
         
-        // Update progress in database
+        // Extract any learnings from log_work calls
+        if (functionName === 'log_work' && functionArgs.reflection) {
+          learnings.push({
+            step: iterations,
+            insight: functionArgs.reflection,
+            timestamp: new Date().toISOString()
+          });
+        }
+        
+        // Update progress in database with learnings
         await query(
           `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
-          [iterations, JSON.stringify(progress), taskId]
+          [iterations, JSON.stringify({ steps: progress, learnings, improvedApproaches }), taskId]
         );
       }
       
@@ -4926,12 +4964,52 @@ Do NOT just describe what you would do - actually use the tools to do it.`
         console.log(`[BACKGROUND ${taskId}] Step ${iterations} complete. Waiting ${STEP_DELAY_MS/1000}s before next step...`);
         await delay(STEP_DELAY_MS);
         
+        // Build self-improvement prompt based on accumulated learnings
+        const learningsContext = learnings.length > 0 
+          ? `\n\nLEARNINGS SO FAR:\n${learnings.slice(-5).map(l => `• Step ${l.step}: ${l.insight}`).join('\n')}`
+          : '';
+        
+        const improvementPrompt = iterations > 1 
+          ? `\n\nBefore proceeding, briefly reflect:
+1. What worked well in your last action?
+2. What could you do better this time?
+3. Apply any insights from your learnings to improve this next step.`
+          : '';
+        
         // If we've done most of the planned steps, prompt to finish
         const planLength = plan?.length || 5;
         if (iterations >= planLength - 1 && iterations >= 3) {
           messages.push({
             role: 'user',
-            content: `You've completed ${iterations} iterations and should be near the end of your plan. Please wrap up your work and call task_complete with a summary of what you accomplished, the actions you took, and any recommendations.`
+            content: `You've completed ${iterations} iterations and should be near the end of your plan.
+${learningsContext}
+
+FINAL REFLECTION: Before completing, consider:
+- What was the overall quality of your work? (Rate 1-10)
+- What would you do differently if you started over?
+- What key insights should be preserved for future similar tasks?
+
+Please wrap up your work and call task_complete with:
+- A comprehensive summary of what you accomplished
+- The actions you took
+- Key learnings and recommendations for future tasks`
+          });
+        } else {
+          // Regular continuation with self-improvement
+          const currentStepIndex = Math.min(iterations, (plan?.length || 1) - 1);
+          const currentStep = plan?.[currentStepIndex] || 'continue the task';
+          const nextStep = plan?.[currentStepIndex + 1];
+          
+          messages.push({
+            role: 'user',
+            content: `Good progress. Now continue to the next step.
+${learningsContext}
+${improvementPrompt}
+
+CURRENT STEP: ${currentStep}
+${nextStep ? `UPCOMING: ${nextStep}` : ''}
+
+Remember: Each step should be BETTER than the last. Apply your learnings and strive for excellence.`
           });
         }
         
