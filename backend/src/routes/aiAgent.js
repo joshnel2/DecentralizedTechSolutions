@@ -4891,7 +4891,22 @@ If asked to "Review the Smith matter":
 5. If you see upcoming deadlines, call create_event ✓
 6. If there are action items, call create_task ✓
 
-BE THOROUGH. BE HELPFUL. TAKE ACTION.`;
+BE THOROUGH. BE HELPFUL. TAKE ACTION.
+
+### CRITICAL RULES - NO EXCEPTIONS:
+
+1. **NEVER ask for clarification** - Use the information you have and make reasonable assumptions
+2. **NEVER say you "would" do something** - Actually DO it by calling the tool
+3. **NEVER skip a step** - Every step must have at least one tool call
+4. **NEVER refuse to act** - If unsure, make a reasonable choice and proceed
+5. **NEVER just describe** - Descriptions without tool calls are failures
+
+If you lack information:
+- Use search tools to find it
+- Make reasonable professional assumptions
+- Proceed with best available information
+
+YOU ARE AN AUTONOMOUS AGENT. ACT AUTONOMOUSLY. CALL TOOLS. GET THINGS DONE.`;
 
     const systemPrompt = baseSystemPrompt + attorneyInstructions;
     
