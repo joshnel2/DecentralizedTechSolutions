@@ -4870,23 +4870,48 @@ When creating documents, produce COMPLETE professional work:
 - Client responsibilities
 - Termination provisions
 
+### IMPRESS THE USER - DELIVER EXCEPTIONAL WORK:
+
+**DOCUMENT QUALITY:**
+When creating documents, write like a top-tier law firm associate:
+- Use professional legal language and proper formatting
+- Include all necessary provisions - be thorough
+- Reference the specific matter/client details in the content
+- Add relevant dates, party names, and specifics
+- Format with proper headings, numbered paragraphs, signature blocks
+
+**MATTER NOTES - Be Detailed:**
+When adding notes, write substantive entries that show real work:
+- "Reviewed matter file and identified 3 key action items: (1) Draft work for hire agreement to protect IP rights, (2) Prepare engagement letter outlining scope and fees, (3) Schedule client call to discuss timeline."
+- NOT just "Reviewed matter" - that's lazy
+
+**TIME ENTRIES - Professional Descriptions:**
+Log time with descriptions that show valuable work:
+- "Draft and review Work for Hire Agreement including IP assignment provisions, confidentiality terms, and payment schedule"
+- "Legal research and analysis regarding contractor classification and work product ownership"
+- NOT just "Worked on matter"
+
+**BE PROACTIVE - Identify Issues:**
+- If you notice missing information, note it and work around it
+- If a document should reference another, mention that
+- If deadlines are unclear, suggest reasonable ones
+- If there are risks, flag them in your notes
+
+**EXCEED EXPECTATIONS:**
+- Create comprehensive documents, not templates
+- Add thoughtful recommendations in notes
+- Suggest follow-up actions the user might not have considered
+- Make the user say "Wow, the AI did all this?"
+
 ### EXECUTION RULES:
 
 1. **ALWAYS call a tool** - Never respond with only text
 2. **USE CONTEXT** - If you have a matter_id or client_id, use it
-3. **BE SPECIFIC** - Provide complete arguments to tools
+3. **BE SPECIFIC** - Provide complete, detailed arguments to tools
 4. **NO QUESTIONS** - Make reasonable assumptions and proceed
-5. **TAKE ACTION** - Don't describe what you would do, DO it
+5. **QUALITY OVER SPEED** - Take your time to produce impressive work
 
-### AVAILABLE CONTEXT:
-
-The system will tell you if you have:
-- Matter ID - use it for add_matter_note, create_document, log_time, create_event, create_task
-- Client ID - use it for create_matter, get_client
-
-USE THIS CONTEXT. Don't search for things you already have.
-
-EXECUTE NOW.`;
+DELIVER WORK THAT IMPRESSES. EXECUTE NOW.`;
 
     const systemPrompt = baseSystemPrompt + attorneyInstructions;
     
@@ -5001,46 +5026,93 @@ EXECUTE NOW.`;
         primaryAction = 'Create the document';
         toolToUse = 'create_document';
         
-        // Determine document type and content requirements
+        // Get context for personalization
+        const clientName = contextData.client?.display_name || contextData.matter?.client_name || '[Client Name]';
+        const matterName = contextData.matter?.name || '[Matter Name]';
+        const matterId = contextData.matter?.id || '';
+        
+        // Determine document type and create IMPRESSIVE content guidance
         if (stepLower.includes('agreement') || stepLower.includes('contract')) {
-          additionalGuidance = `Create a complete legal agreement with:
-- Parties and recitals
-- Definitions section
-- All substantive terms and conditions
-- Representations and warranties
-- Indemnification clause
-- Termination provisions
-- Signature blocks
-${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
+          additionalGuidance = `Create a COMPLETE, PROFESSIONAL legal agreement.
+
+REQUIRED SECTIONS:
+1. PARTIES - Full legal names and addresses
+2. RECITALS - "WHEREAS" clauses explaining background
+3. DEFINITIONS - Key terms defined
+4. AGREEMENT TERMS - All substantive provisions with numbered paragraphs
+5. REPRESENTATIONS & WARRANTIES - Both parties' assurances
+6. INDEMNIFICATION - Who covers what losses
+7. TERM & TERMINATION - Duration, renewal, exit clauses
+8. DISPUTE RESOLUTION - Governing law, venue
+9. MISCELLANEOUS - Notices, amendments, entire agreement
+10. SIGNATURE BLOCKS - For both parties with date lines
+
+Use client name: ${clientName}
+Reference matter: ${matterName}
+${matterId ? `Attach to matter_id: ${matterId}` : ''}`;
         } else if (stepLower.includes('work for hire') || stepLower.includes('work-for-hire')) {
-          additionalGuidance = `Create a Work for Hire Agreement with:
-- Identification of parties (company and contractor)
-- Scope of work/services
-- Work product ownership - all work is "work for hire"
-- IP assignment clause
-- Compensation and payment terms
-- Confidentiality obligations
-- Term and termination
-${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
+          additionalGuidance = `Create a COMPREHENSIVE Work for Hire Agreement.
+
+REQUIRED SECTIONS:
+1. PARTIES - Company (Client) and Contractor with full details
+2. RECITALS - Purpose of the engagement
+3. SERVICES - Detailed scope of work to be performed
+4. WORK PRODUCT - Explicit "work made for hire" per Copyright Act
+5. IP ASSIGNMENT - Backup assignment if work-for-hire doesn't apply
+6. COMPENSATION - Payment amounts, schedule, invoicing
+7. EXPENSES - Reimbursable items and approval process
+8. INDEPENDENT CONTRACTOR - Tax status, no employment relationship
+9. CONFIDENTIALITY - Protection of proprietary information
+10. TERM & TERMINATION - Duration and early exit provisions
+11. DELIVERABLES - Specific outputs with deadlines
+12. REPRESENTATIONS - Contractor's authority and no conflicts
+13. SIGNATURE BLOCKS - Both parties
+
+Use client/company: ${clientName}
+Matter: ${matterName}
+${matterId ? `Attach to matter_id: ${matterId}` : ''}`;
         } else if (stepLower.includes('engagement') || stepLower.includes('retainer')) {
-          additionalGuidance = `Create an Engagement Letter with:
-- Scope of legal representation
-- Fee structure (hourly rates, flat fee, etc.)
-- Retainer requirements
-- Billing practices
-- Client responsibilities
-- Conflict disclosure if applicable
-- Termination provisions
-${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
+          additionalGuidance = `Create a PROFESSIONAL Engagement Letter.
+
+REQUIRED SECTIONS:
+1. GREETING - Dear ${clientName}
+2. INTRODUCTION - Thank you for selecting our firm
+3. SCOPE - Specific legal services to be provided
+4. EXCLUDED MATTERS - What is NOT covered
+5. ATTORNEYS - Who will handle the matter
+6. FEES - Hourly rates or flat fee arrangement
+7. BILLING - When invoices sent, payment terms
+8. RETAINER - Amount required upfront
+9. EXPENSES - Costs passed through to client
+10. CLIENT DUTIES - Providing documents, timely responses
+11. COMMUNICATION - Update frequency
+12. TERMINATION - Either party's right to end
+13. FILE RETENTION - Document handling after close
+14. ACCEPTANCE - Signature line for client
+
+Address to: ${clientName}
+Re: ${matterName}
+${matterId ? `Attach to matter_id: ${matterId}` : ''}`;
         } else if (stepLower.includes('memo') || stepLower.includes('memorandum')) {
-          additionalGuidance = `Create a Legal Memo with:
-- Executive Summary
-- Statement of Facts
-- Legal Issues Presented
-- Analysis and Discussion
-- Conclusion
-- Recommended Next Steps
-${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
+          additionalGuidance = `Create a THOROUGH Legal Memorandum.
+
+REQUIRED SECTIONS:
+1. HEADER - To/From/Date/Re: ${matterName}
+2. EXECUTIVE SUMMARY - Key conclusion in 2-3 sentences
+3. QUESTION PRESENTED - The legal issue being analyzed
+4. BRIEF ANSWER - Direct response to the question
+5. FACTS - Relevant background and parties involved
+6. ANALYSIS - 
+   - Applicable legal standards
+   - Application to these facts
+   - Counter-arguments addressed
+   - Risk assessment
+7. CONCLUSION - Summary of analysis
+8. RECOMMENDATIONS - Specific next steps with timeline
+9. ACTION ITEMS - Bullet list of what needs to happen
+
+Client: ${clientName}
+${matterId ? `Attach to matter_id: ${matterId}` : ''}`;
         } else if (stepLower.includes('letter')) {
           additionalGuidance = `Create a professional letter with proper formatting.
 ${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
