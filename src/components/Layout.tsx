@@ -84,6 +84,8 @@ export function Layout() {
         const connected = Object.entries(data.integrations || {})
           .filter(([_, status]: [string, any]) => status?.isConnected)
           .map(([provider]) => provider)
+          // Exclude Outlook since it has its own menu item above AI Assistant
+          .filter(provider => provider !== 'outlook')
         // Remove duplicates just in case
         const uniqueConnected = [...new Set(connected)]
         setConnectedIntegrations(uniqueConnected)
@@ -208,6 +210,14 @@ export function Layout() {
               {(sidebarOpen || isMobile) && <span>{item.label}</span>}
             </NavLink>
           ))}
+
+          <NavLink
+            to="/app/integrations/outlook"
+            className={({ isActive }) => clsx(styles.navItem, isActive && styles.active)}
+          >
+            <Mail size={20} />
+            {(sidebarOpen || isMobile) && <span>Outlook</span>}
+          </NavLink>
 
           <NavLink
             to="/app/ai"
