@@ -181,85 +181,60 @@ export function DocumentsPage() {
     docName: string
   }>({ isOpen: false, docId: '', docName: '' })
 
-  // Document viewer/editor state
+  // Document viewer state (preview only - no editing)
   const [editorDoc, setEditorDoc] = useState<typeof documents[0] | null>(null)
   const [editorContent, setEditorContent] = useState('')
-  const [originalContent, setOriginalContent] = useState('')
-  const [isEditing, setIsEditing] = useState(false)
   const [isLoadingContent, setIsLoadingContent] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [externalPath, setExternalPath] = useState('')
-  const [externalType, setExternalType] = useState('')
-  const [showExternalPathInput, setShowExternalPathInput] = useState(false)
-  const [saveSuccess, setSaveSuccess] = useState(false)
 
-  // Open document viewer/editor
+  // Open document preview
   const openDocumentViewer = async (doc: typeof documents[0]) => {
     setEditorDoc(doc)
     setIsLoadingContent(true)
-    setIsEditing(false)
-    setSaveSuccess(false)
-    setExternalPath((doc as any).externalPath || '')
-    setExternalType((doc as any).externalType || '')
-    setShowExternalPathInput(false)
     
     try {
       const response = await documentsApi.getContent(doc.id)
       const content = response.content || response.text || ''
       setEditorContent(content)
-      setOriginalContent(content)
     } catch (error) {
       console.error('Failed to load document content:', error)
       setEditorContent('[Unable to load document content. The document may be in a format that cannot be displayed as text.]')
-      setOriginalContent('')
     } finally {
       setIsLoadingContent(false)
     }
   }
 
-  // Save document content
-  const saveDocumentContent = async () => {
-    if (!editorDoc) return
-    
-    setIsSaving(true)
-    setSaveSuccess(false)
-    try {
-      const updateData: any = { content: editorContent }
-      if (externalPath) {
-        updateData.externalPath = externalPath
-        updateData.externalType = externalType || 'url'
-      }
-      await documentsApi.update(editorDoc.id, updateData)
-      setOriginalContent(editorContent)
-      setIsEditing(false)
-      setSaveSuccess(true)
-      fetchDocuments() // Refresh the list
-      // Clear success message after 3 seconds
-      setTimeout(() => setSaveSuccess(false), 3000)
-    } catch (error) {
-      console.error('Failed to save document:', error)
-      alert('Failed to save document. Please try again.')
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  // Reset content to original
-  const resetContent = () => {
-    setEditorContent(originalContent)
-  }
-
-  // Close editor
+  // Close preview
   const closeEditor = () => {
-    if (isEditing && editorContent !== originalContent) {
-      if (!confirm('You have unsaved changes. Are you sure you want to close?')) {
-        return
-      }
-    }
     setEditorDoc(null)
     setEditorContent('')
-    setOriginalContent('')
-    setIsEditing(false)
+  }
+  
+  // Open file on computer (download and open)
+  const openFileOnComputer = async (doc: typeof documents[0]) => {
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+    const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
+    
+    try {
+      const response = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        
+        // Open in new tab (browser will either display or download based on file type)
+        window.open(url, '_blank')
+        
+        // Clean up after a delay
+        setTimeout(() => window.URL.revokeObjectURL(url), 10000)
+      } else {
+        alert('Failed to open file. Please try downloading instead.')
+      }
+    } catch (error) {
+      console.error('Open file error:', error)
+      alert('Failed to open file.')
+    }
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -446,12 +421,12 @@ export function DocumentsPage() {
                     <button 
                       onClick={(e) => {
                         e.stopPropagation()
-                        openDocumentViewer(doc)
+                        openFileOnComputer(doc)
                       }}
-                      title="View & Edit"
-                      className={styles.editBtn}
+                      title="Open File"
+                      className={styles.openBtn}
                     >
-                      <Edit3 size={16} />
+                      <ExternalLink size={16} />
                     </button>
                     <button 
                       onClick={(e) => downloadDocument(doc, e)}
