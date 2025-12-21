@@ -84,7 +84,9 @@ export function Layout() {
         const connected = Object.entries(data.integrations || {})
           .filter(([_, status]: [string, any]) => status?.isConnected)
           .map(([provider]) => provider)
-        setConnectedIntegrations(connected)
+        // Remove duplicates just in case
+        const uniqueConnected = [...new Set(connected)]
+        setConnectedIntegrations(uniqueConnected)
       } catch (error) {
         // Silently fail - integrations might not be configured
       }
