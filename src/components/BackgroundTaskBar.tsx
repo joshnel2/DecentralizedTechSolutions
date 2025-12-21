@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bot, X, CheckCircle, AlertCircle, FileText } from 'lucide-react'
+import { Bot, X, CheckCircle, AlertCircle, FileText, Square, Loader2 } from 'lucide-react'
 import { aiApi } from '../services/api'
 import styles from './BackgroundTaskBar.module.css'
 
@@ -20,9 +20,17 @@ export function BackgroundTaskBar() {
   const [isComplete, setIsComplete] = useState(false)
   const [hasError, setHasError] = useState(false)
   const [polling, setPolling] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
 
   // Track consecutive errors
   const [errorCount, setErrorCount] = useState(0)
+  
+  // Request notification permission on mount
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+  }, [])
   
   // Check task status
   const checkActiveTask = useCallback(async () => {
@@ -51,6 +59,14 @@ export function BackgroundTaskBar() {
         }
         setIsComplete(true)
         setPolling(false)
+        
+        // Send browser notification
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification('Background Task Complete', {
+            body: activeTask.goal,
+            icon: '/favicon.svg'
+          })
+        }
       }
       // Don't stop polling if no active task - keep checking
     } catch (error) {
