@@ -616,15 +616,15 @@ const TOOLS = [
     type: "function",
     function: {
       name: "list_documents",
-      description: "Get a list of documents including files synced from integrations (OneDrive, Google Drive, Dropbox).",
+      description: "Search and list documents in the system. Use this FIRST when a user asks about a document by name - it will return document IDs you can then use with read_document_content to get the full text.",
       parameters: {
         type: "object",
         properties: {
-          matter_id: { type: "string", description: "Filter by matter" },
-          client_id: { type: "string", description: "Filter by client" },
-          search: { type: "string", description: "Search by name" },
+          matter_id: { type: "string", description: "Filter by matter ID" },
+          client_id: { type: "string", description: "Filter by client ID" },
+          search: { type: "string", description: "Search documents by name (e.g. 'contract', 'NDA', 'buddha boy')" },
           source: { type: "string", description: "Filter by source: 'local', 'onedrive', 'googledrive', 'dropbox'" },
-          limit: { type: "integer" }
+          limit: { type: "integer", description: "Max results to return (default 20)" }
         },
         required: []
       }
@@ -648,11 +648,11 @@ const TOOLS = [
     type: "function",
     function: {
       name: "read_document_content",
-      description: "Read the text content of a document. Use this to see what's actually inside a document (contracts, pleadings, letters, etc.). Works best with PDFs, Word docs, and text files.",
+      description: "Read the FULL TEXT content of a document. Use this after finding a document with list_documents to read what's inside it. Works with PDFs, Word docs, text files. Returns the actual document text so you can answer questions about it.",
       parameters: {
         type: "object",
         properties: {
-          document_id: { type: "string", description: "UUID of the document" },
+          document_id: { type: "string", description: "UUID of the document (get this from list_documents first)" },
           max_length: { type: "number", description: "Max characters to return (default 10000, max 50000)" }
         },
         required: ["document_id"]
@@ -7280,11 +7280,17 @@ Integrations sync data directly into the site's pages:
 
 When a user asks about their "invoices", "documents", or "calendar", this INCLUDES synced data from their integrations. You can filter by source if they only want data from a specific integration.
 
-### Document Reading & Search
-- **read_document_content**: Read the full text content of any document. Use this to review contracts, pleadings, letters, etc.
-- **get_matter_documents_content**: Get all documents for a matter with content previews. Great for case overviews.
-- **search_document_content**: Search for specific text across all documents. Find clauses, terms, parties, etc.
-- When you get matter details, document summaries and previews are included automatically.
+### Document Reading & Search - IMPORTANT
+When a user asks about a document by name (e.g. "what's in the buddha boy document?"):
+1. FIRST use **list_documents** with the search parameter to find the document and get its ID
+2. THEN use **read_document_content** with that document_id to read the full text
+3. Answer the user's question based on the document content
+
+Tools:
+- **list_documents**: Search for documents by name. Returns document IDs needed for reading.
+- **read_document_content**: Read the full text content of a document using its ID.
+- **search_document_content**: Search for specific text/keywords across all documents.
+- **get_matter_documents_content**: Get all documents for a matter with content previews.
 
 ### Cloud Storage (OneDrive, Google Drive, Dropbox)
 - **list_cloud_files**: List files from connected cloud storage
