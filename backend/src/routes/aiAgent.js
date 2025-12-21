@@ -616,15 +616,15 @@ const TOOLS = [
     type: "function",
     function: {
       name: "list_documents",
-      description: "Search and list documents in the system. Use this FIRST when a user asks about a document by name - it will return document IDs you can then use with read_document_content to get the full text.",
+      description: "List and search documents. Use 'search' parameter to find documents by name.",
       parameters: {
         type: "object",
         properties: {
-          matter_id: { type: "string", description: "Filter by matter ID" },
-          client_id: { type: "string", description: "Filter by client ID" },
-          search: { type: "string", description: "Search documents by name (e.g. 'contract', 'NDA', 'buddha boy')" },
+          matter_id: { type: "string", description: "Filter by matter" },
+          client_id: { type: "string", description: "Filter by client" },
+          search: { type: "string", description: "Search by document name" },
           source: { type: "string", description: "Filter by source: 'local', 'onedrive', 'googledrive', 'dropbox'" },
-          limit: { type: "integer", description: "Max results to return (default 20)" }
+          limit: { type: "integer" }
         },
         required: []
       }
@@ -648,12 +648,12 @@ const TOOLS = [
     type: "function",
     function: {
       name: "read_document_content",
-      description: "Read the FULL TEXT content of a document. Use this after finding a document with list_documents to read what's inside it. Works with PDFs, Word docs, text files. Returns the actual document text so you can answer questions about it.",
+      description: "Read the text content of a document. Use this to see what's inside a document.",
       parameters: {
         type: "object",
         properties: {
-          document_id: { type: "string", description: "UUID of the document (get this from list_documents first)" },
-          max_length: { type: "number", description: "Max characters to return (default 10000, max 50000)" }
+          document_id: { type: "string", description: "Document ID" },
+          max_length: { type: "number", description: "Max characters to return (default 10000)" }
         },
         required: ["document_id"]
       }
@@ -3875,45 +3875,14 @@ async function readDocumentContent(args, user) {
     };
   }
   
-  // No content available - try to extract it now if we have a path
-  if (doc.path) {
-    try {
-      // Dynamic import to avoid circular dependencies
-      const { extractTextFromFile } = await import('./documents.js');
-      const extractedContent = await extractTextFromFile(doc.path, doc.name);
-      
-      if (extractedContent && extractedContent.trim().length > 0) {
-        // Save the extracted content for future use
-        await query(
-          'UPDATE documents SET content_text = $1, content_extracted_at = NOW() WHERE id = $2',
-          [extractedContent, doc.id]
-        );
-        
-        const content = extractedContent.substring(0, Math.min(parseInt(max_length), 50000));
-        return {
-          id: doc.id,
-          name: doc.name,
-          type: doc.type,
-          matter: doc.matter_name,
-          content: content,
-          truncated: extractedContent.length > content.length,
-          total_length: extractedContent.length,
-          note: 'Content was extracted on-demand'
-        };
-      }
-    } catch (extractError) {
-      console.error('On-demand extraction failed:', extractError);
-    }
-  }
-  
-  // No content available and extraction failed
+  // No content available
   return {
     id: doc.id,
     name: doc.name,
     type: doc.type,
     matter: doc.matter_name,
     content: null,
-    note: 'Document content could not be extracted. The document may be an image, scanned PDF, or unsupported format.'
+    note: 'Document text has not been extracted yet.'
   };
 }
 
