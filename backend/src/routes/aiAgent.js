@@ -4903,24 +4903,26 @@ Call task_complete now with your summary.`
           const currentStepIdx = Math.min(iterations - 1, (plan?.length || 1) - 1);
           const currentStep = plan?.[currentStepIdx] || 'continue the task';
           const nextStep = plan?.[currentStepIdx + 1];
+          const completedSteps = plan?.slice(0, currentStepIdx) || [];
           
-          // Prompt to continue with tools
+          // Build unique step-specific prompt
+          let continuePrompt = `--- ITERATION ${iterations}: EXECUTE STEP ${currentStepIdx + 1} ---\n\n`;
+          
+          if (completedSteps.length > 0) {
+            continuePrompt += `Already completed:\n${completedSteps.map((s, i) => `✓ ${i + 1}. ${s}`).join('\n')}\n\n`;
+          }
+          
+          continuePrompt += `NOW: Execute "${currentStep}"\n\n`;
+          
+          continuePrompt += `Call one of these tools:\n`;
+          continuePrompt += `• search_matters / get_matter / list_clients / get_client - find data\n`;
+          continuePrompt += `• create_matter / create_client / create_event / log_time - take action\n`;
+          continuePrompt += `• log_work - record your progress on "${currentStep}"\n`;
+          continuePrompt += `• task_complete - ONLY after ALL ${planLength} steps are done\n\n`;
+          continuePrompt += `Execute the tool for "${currentStep}" now.`;
+          
           messages.push({ role: 'assistant', content: response.content });
-          messages.push({ 
-            role: 'user', 
-            content: `Continue working on this background task. You are on step ${currentStepIdx + 1} of ${planLength}.
-
-CURRENT STEP: ${currentStep}
-${nextStep ? `NEXT STEP: ${nextStep}` : ''}
-
-Use the appropriate tool to make progress. Available actions:
-- search_matters, get_matter, list_clients, get_client - to find data
-- create_matter, create_client, create_event, log_time - to take actions  
-- log_work - to record your progress
-- task_complete - when you have finished all steps
-
-What tool will you use next?`
-          });
+          messages.push({ role: 'user', content: continuePrompt });
         }
         
         // Add delay before continuing
@@ -5082,21 +5084,34 @@ Please wrap up your work and call task_complete with:
 - Key learnings and recommendations for future tasks`
           });
         } else {
-          // Regular continuation with self-improvement
+          // Regular continuation - each prompt is unique based on step number and content
           const currentStepIndex = Math.min(iterations, (plan?.length || 1) - 1);
           const currentStep = plan?.[currentStepIndex] || 'continue the task';
           const nextStep = plan?.[currentStepIndex + 1];
+          const completedSteps = plan?.slice(0, currentStepIndex) || [];
+          
+          // Build a unique, step-specific prompt
+          let stepPrompt = `--- STEP ${currentStepIndex + 1} OF ${(plan?.length || 5)} ---\n\n`;
+          
+          if (completedSteps.length > 0) {
+            stepPrompt += `✓ COMPLETED STEPS:\n${completedSteps.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}\n\n`;
+          }
+          
+          stepPrompt += `→ NOW EXECUTE: "${currentStep}"\n\n`;
+          
+          if (nextStep) {
+            stepPrompt += `○ NEXT UP: "${nextStep}"\n\n`;
+          }
+          
+          stepPrompt += `Use the appropriate tool to complete this step. Do not describe what you will do - actually call the tool function now.`;
+          
+          if (learningsContext) {
+            stepPrompt += `\n${learningsContext}`;
+          }
           
           messages.push({
             role: 'user',
-            content: `Good progress. Now continue to the next step.
-${learningsContext}
-${improvementPrompt}
-
-CURRENT STEP: ${currentStep}
-${nextStep ? `UPCOMING: ${nextStep}` : ''}
-
-Remember: Each step should be BETTER than the last. Apply your learnings and strive for excellence.`
+            content: stepPrompt
           });
         }
         
