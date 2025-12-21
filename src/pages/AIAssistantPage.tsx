@@ -366,13 +366,6 @@ export function AIAssistantPage() {
                     onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
                   >
                     <div className={styles.agentItemHeader}>
-                      {task.status === 'completed' ? (
-                        <CheckCircle size={14} className={styles.statusComplete} />
-                      ) : task.status === 'error' ? (
-                        <AlertCircle size={14} className={styles.statusError} />
-                      ) : (
-                        <Bot size={14} className={styles.statusRunning} />
-                      )}
                       <span className={styles.agentGoal}>{task.goal}</span>
                     </div>
                     <div className={styles.agentItemMeta}>
