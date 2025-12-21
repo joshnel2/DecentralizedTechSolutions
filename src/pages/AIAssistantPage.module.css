@@ -78,6 +78,33 @@
   color: white;
 }
 
+/* Agent History Button - always purple */
+.agentHistoryModeBtn {
+  background: linear-gradient(135deg, #A855F7 0%, #7C3AED 100%);
+  border-color: #A855F7;
+  margin-top: 1rem;
+}
+
+.agentHistoryModeBtn .modeBtnIcon {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.agentHistoryModeBtn .modeBtnName,
+.agentHistoryModeBtn .modeBtnDesc {
+  color: white;
+}
+
+.agentHistoryModeBtn:hover {
+  background: linear-gradient(135deg, #9333EA 0%, #6D28D9 100%);
+  border-color: #9333EA;
+}
+
+.agentHistoryModeBtn.active {
+  background: linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%);
+  box-shadow: 0 0 20px rgba(168, 85, 247, 0.4);
+}
+
 .modeBtnText {
   flex: 1;
   min-width: 0;

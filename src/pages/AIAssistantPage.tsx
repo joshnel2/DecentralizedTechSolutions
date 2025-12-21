@@ -320,60 +320,19 @@ export function AIAssistantPage() {
           </div>
         </div>
 
-        <div className={styles.historySection}>
-          <button 
-            className={styles.historyToggle}
-            onClick={() => setShowHistory(!showHistory)}
-          >
-            <History size={18} />
-            <span>Chat History</span>
-            <ChevronRight size={16} className={clsx(styles.chevron, showHistory && styles.open)} />
-          </button>
-          
-          {showHistory && (
-            <div className={styles.historyList}>
-              {conversations.length === 0 ? (
-                <div className={styles.noHistory}>No conversations yet</div>
-              ) : (
-                conversations.slice(0, 10).map(conv => (
-                  <div 
-                    key={conv.id}
-                    className={clsx(styles.historyItem, conv.id === activeConversationId && styles.active)}
-                    onClick={() => setActiveConversation(conv.id)}
-                  >
-                    <MessageSquare size={14} />
-                    <span className={styles.historyTitle}>{conv.title}</span>
-                    <span className={styles.historyDate}>
-                      {format(parseISO(conv.updatedAt), 'MMM d')}
-                    </span>
-                    <button 
-                      className={styles.historyDelete}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        deleteConversation(conv.id)
-                      }}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Agent History Button */}
+        {/* Agent History Button - styled like mode buttons */}
         <button 
-          className={clsx(styles.agentHistoryBtn, showAgentHistory && styles.active)}
+          className={clsx(styles.modeBtn, styles.agentHistoryModeBtn, showAgentHistory && styles.active)}
           onClick={() => {
             setShowAgentHistory(!showAgentHistory)
-            if (!showAgentHistory && agentTasks.length === 0) {
-              loadAgentHistory()
-            }
           }}
+          style={{ '--mode-color': '#A855F7' } as React.CSSProperties}
         >
-          <Bot size={18} />
-          <span>Agent History</span>
+          <div className={styles.modeBtnIcon}><Bot size={24} /></div>
+          <div className={styles.modeBtnText}>
+            <span className={styles.modeBtnName}>Agent History</span>
+            <span className={styles.modeBtnDesc}>View background task history</span>
+          </div>
         </button>
 
         <div className={styles.poweredBy}>
