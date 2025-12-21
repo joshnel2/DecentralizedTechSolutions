@@ -941,6 +941,332 @@ router.get('/outlook/drafts', authenticate, async (req, res) => {
   }
 });
 
+// Get sent emails from Outlook
+router.get('/outlook/sent', authenticate, async (req, res) => {
+  try {
+    const integration = await query(
+      `SELECT * FROM integrations WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+      [req.user.firmId]
+    );
+
+    if (integration.rows.length === 0) {
+      return res.json({ emails: [] });
+    }
+
+    const accessToken = await getValidOutlookToken(integration.rows[0]);
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Token expired' });
+    }
+
+    const graphResponse = await fetch(
+      'https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?$top=50&$orderby=sentDateTime desc&$select=id,subject,toRecipients,sentDateTime,bodyPreview,hasAttachments',
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    if (!graphResponse.ok) {
+      return res.status(500).json({ error: 'Failed to fetch sent emails' });
+    }
+
+    const data = await graphResponse.json();
+    res.json({
+      emails: (data.value || []).map(email => ({
+        id: email.id,
+        subject: email.subject || '(No Subject)',
+        to: email.toRecipients?.map(r => r.emailAddress?.address).join(', ') || '',
+        toName: email.toRecipients?.map(r => r.emailAddress?.name).join(', ') || '',
+        receivedAt: email.sentDateTime,
+        preview: email.bodyPreview,
+        hasAttachments: email.hasAttachments,
+      })),
+    });
+  } catch (error) {
+    console.error('Outlook sent error:', error);
+    res.status(500).json({ error: 'Failed to fetch sent emails' });
+  }
+});
+
+// Get email body
+router.get('/outlook/email/:emailId/body', authenticate, async (req, res) => {
+  try {
+    const { emailId } = req.params;
+    const integration = await query(
+      `SELECT * FROM integrations WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+      [req.user.firmId]
+    );
+
+    if (integration.rows.length === 0) {
+      return res.status(400).json({ error: 'Outlook not connected' });
+    }
+
+    const accessToken = await getValidOutlookToken(integration.rows[0]);
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Token expired' });
+    }
+
+    const graphResponse = await fetch(
+      `https://graph.microsoft.com/v1.0/me/messages/${emailId}?$select=body`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    if (!graphResponse.ok) {
+      return res.status(500).json({ error: 'Failed to fetch email body' });
+    }
+
+    const data = await graphResponse.json();
+    res.json({ body: data.body?.content || '' });
+  } catch (error) {
+    console.error('Get email body error:', error);
+    res.status(500).json({ error: 'Failed to fetch email body' });
+  }
+});
+
+// Send email via Outlook
+router.post('/outlook/send', authenticate, async (req, res) => {
+  try {
+    const { to, cc, subject, body } = req.body;
+
+    if (!to) {
+      return res.status(400).json({ error: 'Recipient is required' });
+    }
+
+    const integration = await query(
+      `SELECT * FROM integrations WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+      [req.user.firmId]
+    );
+
+    if (integration.rows.length === 0) {
+      return res.status(400).json({ error: 'Outlook not connected' });
+    }
+
+    const accessToken = await getValidOutlookToken(integration.rows[0]);
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Token expired' });
+    }
+
+    // Build email message
+    const message = {
+      subject: subject || '',
+      body: {
+        contentType: 'Text',
+        content: body || ''
+      },
+      toRecipients: to.split(',').map(email => ({
+        emailAddress: { address: email.trim() }
+      }))
+    };
+
+    if (cc) {
+      message.ccRecipients = cc.split(',').map(email => ({
+        emailAddress: { address: email.trim() }
+      }));
+    }
+
+    const graphResponse = await fetch(
+      'https://graph.microsoft.com/v1.0/me/sendMail',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ message, saveToSentItems: true })
+      }
+    );
+
+    if (!graphResponse.ok) {
+      const errorText = await graphResponse.text();
+      console.error('Send email error:', errorText);
+      return res.status(500).json({ error: 'Failed to send email' });
+    }
+
+    res.json({ success: true, message: 'Email sent successfully' });
+  } catch (error) {
+    console.error('Send email error:', error);
+    res.status(500).json({ error: 'Failed to send email' });
+  }
+});
+
+// Save draft
+router.post('/outlook/drafts', authenticate, async (req, res) => {
+  try {
+    const { to, cc, subject, body } = req.body;
+
+    const integration = await query(
+      `SELECT * FROM integrations WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+      [req.user.firmId]
+    );
+
+    if (integration.rows.length === 0) {
+      return res.status(400).json({ error: 'Outlook not connected' });
+    }
+
+    const accessToken = await getValidOutlookToken(integration.rows[0]);
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Token expired' });
+    }
+
+    const message = {
+      subject: subject || '',
+      body: {
+        contentType: 'Text',
+        content: body || ''
+      },
+      toRecipients: to ? to.split(',').map(email => ({
+        emailAddress: { address: email.trim() }
+      })) : []
+    };
+
+    if (cc) {
+      message.ccRecipients = cc.split(',').map(email => ({
+        emailAddress: { address: email.trim() }
+      }));
+    }
+
+    const graphResponse = await fetch(
+      'https://graph.microsoft.com/v1.0/me/messages',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(message)
+      }
+    );
+
+    if (!graphResponse.ok) {
+      return res.status(500).json({ error: 'Failed to save draft' });
+    }
+
+    const data = await graphResponse.json();
+    res.json({ success: true, draftId: data.id });
+  } catch (error) {
+    console.error('Save draft error:', error);
+    res.status(500).json({ error: 'Failed to save draft' });
+  }
+});
+
+// Delete email
+router.delete('/outlook/email/:emailId', authenticate, async (req, res) => {
+  try {
+    const { emailId } = req.params;
+    const integration = await query(
+      `SELECT * FROM integrations WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+      [req.user.firmId]
+    );
+
+    if (integration.rows.length === 0) {
+      return res.status(400).json({ error: 'Outlook not connected' });
+    }
+
+    const accessToken = await getValidOutlookToken(integration.rows[0]);
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Token expired' });
+    }
+
+    // Move to deleted items
+    const graphResponse = await fetch(
+      `https://graph.microsoft.com/v1.0/me/messages/${emailId}/move`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ destinationId: 'deleteditems' })
+      }
+    );
+
+    if (!graphResponse.ok) {
+      return res.status(500).json({ error: 'Failed to delete email' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete email error:', error);
+    res.status(500).json({ error: 'Failed to delete email' });
+  }
+});
+
+// Archive email
+router.post('/outlook/email/:emailId/archive', authenticate, async (req, res) => {
+  try {
+    const { emailId } = req.params;
+    const integration = await query(
+      `SELECT * FROM integrations WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+      [req.user.firmId]
+    );
+
+    if (integration.rows.length === 0) {
+      return res.status(400).json({ error: 'Outlook not connected' });
+    }
+
+    const accessToken = await getValidOutlookToken(integration.rows[0]);
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Token expired' });
+    }
+
+    // Move to archive folder
+    const graphResponse = await fetch(
+      `https://graph.microsoft.com/v1.0/me/messages/${emailId}/move`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ destinationId: 'archive' })
+      }
+    );
+
+    if (!graphResponse.ok) {
+      return res.status(500).json({ error: 'Failed to archive email' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Archive email error:', error);
+    res.status(500).json({ error: 'Failed to archive email' });
+  }
+});
+
+// Helper function to get valid Outlook access token
+async function getValidOutlookToken(integration) {
+  const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
+  const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
+  const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
+
+  let accessToken = integration.access_token;
+
+  if (new Date(integration.token_expires_at) < new Date()) {
+    const tokenUrl = `https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/token`;
+    const refreshResponse = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: MS_CLIENT_ID,
+        client_secret: MS_CLIENT_SECRET,
+        refresh_token: integration.refresh_token,
+        grant_type: 'refresh_token',
+      }),
+    });
+
+    if (refreshResponse.ok) {
+      const tokens = await refreshResponse.json();
+      accessToken = tokens.access_token;
+      
+      await query(
+        `UPDATE integrations SET access_token = $1, token_expires_at = $2 WHERE id = $3`,
+        [tokens.access_token, new Date(Date.now() + tokens.expires_in * 1000), integration.id]
+      );
+    } else {
+      return null;
+    }
+  }
+
+  return accessToken;
+}
+
 // Get client communications (emails linked to client)
 router.get('/client/:clientId/communications', authenticate, async (req, res) => {
   try {

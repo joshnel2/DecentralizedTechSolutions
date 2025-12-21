@@ -1,0 +1,581 @@
+.container {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Notification */
+.notification {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  z-index: 1000;
+  animation: slideIn 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.notification.success {
+  background: #22c55e;
+  color: white;
+}
+
+.notification.error {
+  background: #ef4444;
+  color: white;
+}
+
+.notification button {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.25rem;
+  cursor: pointer;
+  margin-left: 0.5rem;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.backBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: var(--apex-slate);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.backBtn:hover {
+  background: var(--apex-charcoal);
+  color: var(--apex-white);
+}
+
+.headerIcon {
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: var(--apex-white);
+}
+
+.header p {
+  margin: 0.25rem 0 0;
+  color: var(--apex-text);
+  font-size: 0.9rem;
+}
+
+.headerActions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.refreshBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: var(--apex-slate);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.refreshBtn:hover {
+  background: var(--apex-charcoal);
+  color: var(--apex-white);
+}
+
+.addBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--apex-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.addBtn:hover {
+  background: var(--apex-primary-hover);
+}
+
+/* Toolbar */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+  padding: 1rem;
+  background: var(--apex-charcoal);
+  border-radius: var(--radius-md);
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--apex-dark);
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-md);
+  min-width: 300px;
+}
+
+.searchBox svg {
+  color: var(--apex-text);
+}
+
+.searchBox input {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--apex-white);
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.searchBox input::placeholder {
+  color: var(--apex-text);
+}
+
+.stats {
+  color: var(--apex-text);
+  font-size: 0.9rem;
+}
+
+/* Content */
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+/* Storage Types */
+.storageTypes {
+  background: var(--apex-charcoal);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+}
+
+.storageTypes h3 {
+  margin: 0 0 1rem;
+  color: var(--apex-white);
+  font-size: 1rem;
+}
+
+.storageGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+
+.storageCard {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--apex-dark);
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+}
+
+.storageCard svg {
+  color: var(--apex-primary);
+}
+
+/* Files Section */
+.filesSection {
+  background: var(--apex-charcoal);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+}
+
+.filesSection h3 {
+  margin: 0 0 1rem;
+  color: var(--apex-white);
+  font-size: 1rem;
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  color: var(--apex-text);
+  gap: 0.75rem;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  text-align: center;
+  color: var(--apex-text);
+}
+
+.empty svg {
+  opacity: 0.3;
+  margin-bottom: 1rem;
+}
+
+.empty h4 {
+  color: var(--apex-white);
+  margin: 0 0 0.5rem;
+}
+
+.empty p {
+  margin: 0 0 1.5rem;
+}
+
+.empty button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--apex-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.empty button:hover {
+  background: var(--apex-primary-hover);
+}
+
+/* Files List */
+.filesList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.fileItem {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--apex-dark);
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.fileItem:hover {
+  border-color: var(--apex-primary);
+}
+
+.fileIcon {
+  width: 40px;
+  height: 40px;
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apex-primary);
+  flex-shrink: 0;
+}
+
+.fileInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.fileName {
+  color: var(--apex-white);
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.filePath {
+  color: var(--apex-text);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 0.5rem;
+  font-family: monospace;
+}
+
+.fileMeta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.8rem;
+}
+
+.fileType {
+  padding: 0.125rem 0.5rem;
+  background: var(--apex-primary);
+  color: white;
+  border-radius: var(--radius-sm);
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.fileMatter {
+  color: var(--apex-text);
+}
+
+.fileDate {
+  color: var(--apex-text);
+}
+
+.fileActions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.fileActions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--apex-slate);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.fileActions button:hover {
+  background: var(--apex-charcoal);
+  color: var(--apex-white);
+}
+
+.fileActions .deleteBtn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+/* Modal */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 2rem;
+}
+
+.modal {
+  background: var(--apex-charcoal);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal h2 {
+  margin: 0 0 0.5rem;
+  color: var(--apex-white);
+}
+
+.modalDesc {
+  color: var(--apex-text);
+  margin: 0 0 1.5rem;
+  font-size: 0.9rem;
+}
+
+.formGroup {
+  margin-bottom: 1.25rem;
+}
+
+.formGroup label {
+  display: block;
+  color: var(--apex-text);
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
+}
+
+.formGroup input,
+.formGroup select {
+  width: 100%;
+  padding: 0.75rem;
+  background: var(--apex-dark);
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.9rem;
+}
+
+.formGroup input::placeholder {
+  color: var(--apex-text);
+}
+
+/* Storage Type Select */
+.storageTypeSelect {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+
+.storageOption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: var(--apex-dark);
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-size: 0.75rem;
+}
+
+.storageOption:hover {
+  border-color: var(--apex-primary);
+  color: var(--apex-white);
+}
+
+.storageOption.active {
+  background: var(--apex-primary);
+  border-color: var(--apex-primary);
+  color: white;
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.cancelBtn,
+.confirmBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.cancelBtn {
+  background: var(--apex-slate);
+  border: 1px solid var(--apex-border);
+  color: var(--apex-text);
+}
+
+.cancelBtn:hover {
+  background: var(--apex-dark);
+  color: var(--apex-white);
+}
+
+.confirmBtn {
+  background: var(--apex-primary);
+  border: none;
+  color: white;
+}
+
+.confirmBtn:hover:not(:disabled) {
+  background: var(--apex-primary-hover);
+}
+
+.confirmBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Spinning */
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .container {
+    padding: 1rem;
+  }
+
+  .header {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .searchBox {
+    width: 100%;
+    min-width: auto;
+  }
+
+  .storageGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .storageTypeSelect {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

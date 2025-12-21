@@ -703,6 +703,17 @@ export const firmApi = {
 // ============================================
 
 export const userSettingsApi = {
+  async get() {
+    return fetchWithAuth('/user-settings');
+  },
+
+  async update(data: any) {
+    return fetchWithAuth('/user-settings', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
   async getAISettings() {
     return fetchWithAuth('/user-settings/ai');
   },
@@ -1106,6 +1117,36 @@ export const integrationsApi = {
 
   async getOutlookDrafts() {
     return fetchWithAuth('/integrations/outlook/drafts');
+  },
+
+  async getOutlookSent() {
+    return fetchWithAuth('/integrations/outlook/sent');
+  },
+
+  async getOutlookEmailBody(emailId: string) {
+    return fetchWithAuth(`/integrations/outlook/email/${emailId}/body`);
+  },
+
+  async sendOutlookEmail(data: { to: string; cc?: string; subject: string; body: string }) {
+    return fetchWithAuth('/integrations/outlook/send', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async saveOutlookDraft(data: { to?: string; cc?: string; subject?: string; body?: string }) {
+    return fetchWithAuth('/integrations/outlook/drafts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteOutlookEmail(emailId: string) {
+    return fetchWithAuth(`/integrations/outlook/email/${emailId}`, { method: 'DELETE' });
+  },
+
+  async archiveOutlookEmail(emailId: string) {
+    return fetchWithAuth(`/integrations/outlook/email/${emailId}/archive`, { method: 'POST' });
   },
 
   async syncOutlookCalendar() {

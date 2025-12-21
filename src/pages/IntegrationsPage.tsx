@@ -6,7 +6,7 @@ import {
   Link2, Calendar, Cloud, FileSignature,
   Calculator, MessageSquare, Shield, CheckCircle2,
   RefreshCw, AlertTriangle,
-  Lock, Globe, Zap, AlertCircle, ArrowLeft
+  Lock, Globe, Zap, AlertCircle, ArrowLeft, HardDrive
 } from 'lucide-react'
 import styles from './IntegrationsPage.module.css'
 
@@ -106,6 +106,16 @@ const integrationConfigs: IntegrationConfig[] = [
     icon: '📦',
     provider: 'dropbox',
     features: ['Secure storage', 'File sync', 'Team folders'],
+    syncOptions: { documents: true }
+  },
+  { 
+    id: 'file-storage', 
+    name: 'Local & Network Files', 
+    description: 'Link documents from your computer, network drives, or any cloud storage location.', 
+    category: 'storage', 
+    icon: '💾',
+    provider: 'file-storage',
+    features: ['Local files', 'Network paths', 'Any cloud URL'],
     syncOptions: { documents: true }
   },
   
@@ -262,6 +272,11 @@ export function IntegrationsPage() {
         case 'quicken':
           response = await integrationsApi.connectQuicken()
           break
+        case 'file-storage':
+          // File storage doesn't need OAuth - just navigate to the page
+          navigate('/app/integrations/file-storage')
+          setConnecting(null)
+          return
         default:
           throw new Error('Unknown provider')
       }

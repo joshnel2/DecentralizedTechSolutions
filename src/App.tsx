@@ -27,6 +27,7 @@ import { TeamPage } from './pages/TeamPage'
 import { APIKeysPage } from './pages/APIKeysPage'
 import { IntegrationsPage } from './pages/IntegrationsPage'
 import { OutlookIntegrationPage } from './pages/OutlookIntegrationPage'
+import { FileStorageIntegrationPage } from './pages/FileStorageIntegrationPage'
 import { QuickBooksIntegrationPage } from './pages/QuickBooksIntegrationPage'
 import { CloudStorageIntegrationPage } from './pages/CloudStorageIntegrationPage'
 import { SlackIntegrationPage } from './pages/SlackIntegrationPage'
@@ -219,6 +220,7 @@ function AppContent() {
         
         {/* Integration Data Pages */}
         <Route path="integrations/outlook" element={<OutlookIntegrationPage />} />
+        <Route path="integrations/file-storage" element={<FileStorageIntegrationPage />} />
         <Route path="integrations/quickbooks" element={<QuickBooksIntegrationPage />} />
         <Route path="integrations/onedrive" element={<CloudStorageIntegrationPage />} />
         <Route path="integrations/google-drive" element={<CloudStorageIntegrationPage />} />
