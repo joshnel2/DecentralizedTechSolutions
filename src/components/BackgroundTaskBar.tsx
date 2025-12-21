@@ -35,11 +35,20 @@ export function BackgroundTaskBar() {
         setIsComplete(false)
         setHasError(false)
       } else if (activeTask && !response.active) {
-        // Task just completed
-        setActiveTask({
-          ...activeTask,
-          progressPercent: 100
-        })
+        // Task just completed - fetch the final result with summary
+        try {
+          const taskResult = await aiApi.getTask(activeTask.id)
+          setActiveTask({
+            ...activeTask,
+            progressPercent: 100,
+            result: taskResult?.task?.result || 'Task completed'
+          })
+        } catch (e) {
+          setActiveTask({
+            ...activeTask,
+            progressPercent: 100
+          })
+        }
         setIsComplete(true)
         setPolling(false)
       }
