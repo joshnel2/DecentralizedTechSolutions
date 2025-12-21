@@ -8571,13 +8571,40 @@ router.get('/tasks', authenticate, async (req, res) => {
       [req.user.id]
     );
     
-    // Format the tasks with duration
-    const tasks = result.rows.map(task => ({
-      ...task,
-      duration: task.duration_seconds ? formatDuration(task.duration_seconds) : null,
-      durationSeconds: task.duration_seconds ? Math.round(task.duration_seconds) : null,
-      rating: task.rating || null
-    }));
+    // Format the tasks with duration and progress percent
+    const tasks = result.rows.map(task => {
+      // Parse JSON fields if they're strings
+      let plan = task.plan;
+      let progress = task.progress;
+      
+      if (typeof plan === 'string') {
+        try { plan = JSON.parse(plan); } catch (e) { plan = []; }
+      }
+      if (typeof progress === 'string') {
+        try { progress = JSON.parse(progress); } catch (e) { progress = { steps: [] }; }
+      }
+      
+      // Calculate progress percentage
+      let progressPercent = 0;
+      if (task.status === 'completed') {
+        progressPercent = 100;
+      } else if (task.status === 'running') {
+        const planSteps = Array.isArray(plan) ? plan.length : 10;
+        const progressSteps = progress?.steps || progress || [];
+        const completedSteps = Array.isArray(progressSteps) ? progressSteps.length : 0;
+        progressPercent = Math.min(Math.round((completedSteps / planSteps) * 100), 95);
+      }
+      
+      return {
+        ...task,
+        plan,
+        progress,
+        duration: task.duration_seconds ? formatDuration(task.duration_seconds) : null,
+        durationSeconds: task.duration_seconds ? Math.round(task.duration_seconds) : null,
+        rating: task.rating || null,
+        progressPercent
+      };
+    });
     
     res.json({ tasks });
   } catch (error) {
@@ -8637,20 +8664,33 @@ router.get('/tasks/:taskId', authenticate, async (req, res) => {
     
     const task = result.rows[0];
     
+    // Parse JSON fields if they're strings
+    let plan = task.plan;
+    let progress = task.progress;
+    
+    if (typeof plan === 'string') {
+      try { plan = JSON.parse(plan); } catch (e) { plan = []; }
+    }
+    if (typeof progress === 'string') {
+      try { progress = JSON.parse(progress); } catch (e) { progress = { steps: [] }; }
+    }
+    
     // Calculate progress percentage
     let progressPercent = 0;
     if (task.status === 'completed') {
       progressPercent = 100;
     } else if (task.status === 'running') {
-      const planSteps = task.plan?.length || 10;
-      // Progress is stored as { steps: [...] } so we need to access .steps
-      const completedSteps = task.progress?.steps?.length || task.progress?.length || 0;
+      const planSteps = Array.isArray(plan) ? plan.length : 10;
+      const progressSteps = progress?.steps || progress || [];
+      const completedSteps = Array.isArray(progressSteps) ? progressSteps.length : 0;
       progressPercent = Math.min(Math.round((completedSteps / planSteps) * 100), 95);
     }
     
     res.json({ 
       task: {
         ...task,
+        plan,
+        progress,
         progressPercent
       }
     });
@@ -8693,14 +8733,24 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
       return res.json({ active: false });
     }
     
-    const planSteps = task.plan?.length || 10;
-    // Progress is stored as { steps: [...] } so we need to access .steps
-    const progressSteps = task.progress?.steps || task.progress || [];
-    const completedSteps = progressSteps.length || 0;
+    // Parse JSON fields if they're strings
+    let plan = task.plan;
+    let progress = task.progress;
+    
+    if (typeof plan === 'string') {
+      try { plan = JSON.parse(plan); } catch (e) { plan = []; }
+    }
+    if (typeof progress === 'string') {
+      try { progress = JSON.parse(progress); } catch (e) { progress = { steps: [] }; }
+    }
+    
+    const planSteps = Array.isArray(plan) ? plan.length : 10;
+    const progressSteps = progress?.steps || progress || [];
+    const completedSteps = Array.isArray(progressSteps) ? progressSteps.length : 0;
     const progressPercent = Math.min(Math.round((completedSteps / planSteps) * 100), 95);
     
     // Get the current step info
-    const lastStep = progressSteps[progressSteps.length - 1];
+    const lastStep = Array.isArray(progressSteps) ? progressSteps[progressSteps.length - 1] : null;
     
     res.json({ 
       active: true,
