@@ -558,15 +558,36 @@ router.get('/:id/download', authenticate, requirePermission('documents:view'), a
     }
 
     const doc = result.rows[0];
+    
+    // Determine the filename to use - prioritize original_name, then name
+    const downloadFilename = doc.original_name || doc.name || 'document';
+    
+    // Handle external files (stored in cloud storage)
+    if (doc.external_path && doc.external_type) {
+      // For external files, redirect to the external URL or return an error
+      // The frontend should handle external files differently
+      return res.status(400).json({ 
+        error: 'External file', 
+        externalPath: doc.external_path,
+        externalType: doc.external_type,
+        filename: downloadFilename
+      });
+    }
 
-    // Check if file exists
+    // Check if local file exists
+    if (!doc.path) {
+      return res.status(404).json({ error: 'File path not found' });
+    }
+    
     try {
       await fs.access(doc.path);
     } catch {
       return res.status(404).json({ error: 'File not found on server' });
     }
 
-    res.download(doc.path, doc.original_name);
+    // Set content-disposition header with proper filename
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(downloadFilename)}"`);
+    res.download(doc.path, downloadFilename);
   } catch (error) {
     console.error('Download document error:', error);
     res.status(500).json({ error: 'Failed to download document' });
