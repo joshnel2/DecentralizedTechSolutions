@@ -4958,32 +4958,60 @@ BE THOROUGH. BE HELPFUL. TAKE ACTION.`;
       stepPrompt += `### YOUR CURRENT TASK
 **Step ${stepNumber}:** ${currentStep}
 
-You MUST call a tool now to execute this step. Think about what action is needed:
+Execute this step AND take additional helpful actions. Be proactive!
 `;
       
       // Add step-specific guidance
       const stepLower = currentStep.toLowerCase();
       if (stepLower.includes('search') || stepLower.includes('find') || stepLower.includes('get') || stepLower.includes('review')) {
-        stepPrompt += `- This step requires RETRIEVING information. Use search_matters, get_matter, list_clients, or get_client.\n`;
+        stepPrompt += `
+**Primary action:** Use search_matters, get_matter, list_clients, or get_client to retrieve information.
+**Also do:**
+- Add a matter note summarizing your findings
+- Log 0.1-0.2 hours for the review work
+`;
       }
       if (stepLower.includes('draft') || stepLower.includes('prepare') || stepLower.includes('create') || stepLower.includes('write')) {
-        stepPrompt += `- This step requires CREATING a document. Use create_document with complete, professional content.\n`;
-        stepPrompt += `- Write REAL legal content appropriate for the document type - not placeholders.\n`;
+        stepPrompt += `
+**Primary action:** Use create_document with COMPLETE professional legal content.
+**Document requirements:**
+- Write real, usable legal content - not placeholders
+- Include all standard clauses and provisions
+- Use proper legal formatting
+**Also do:**
+- Add a matter note that you created the document
+- Log 0.3-0.5 hours for drafting work
+`;
       }
       if (stepLower.includes('agreement') || stepLower.includes('contract')) {
-        stepPrompt += `- Draft a complete agreement with proper legal clauses, terms, and professional formatting.\n`;
+        stepPrompt += `
+**Agreement must include:** Parties, recitals, definitions, substantive terms, representations, termination, signatures.
+`;
       }
-      if (stepLower.includes('memo') || stepLower.includes('summary')) {
-        stepPrompt += `- Create a detailed memo with facts, issues, analysis, and recommendations.\n`;
+      if (stepLower.includes('memo') || stepLower.includes('summary') || stepLower.includes('summarize')) {
+        stepPrompt += `
+**Memo must include:** Executive summary, facts, legal issues, analysis, recommendations, next steps.
+`;
+      }
+      if (stepLower.includes('engagement') || stepLower.includes('letter')) {
+        stepPrompt += `
+**Engagement letter must include:** Scope, fees, retainer, responsibilities, terms.
+`;
       }
       if (stepLower.includes('save') || stepLower.includes('attach') || stepLower.includes('add')) {
-        stepPrompt += `- Use the appropriate tool to save/add the item to the matter.\n`;
+        stepPrompt += `
+**Primary action:** Save/add the item to the matter.
+**Also do:** Add a matter note confirming what was added.
+`;
       }
-      if (stepLower.includes('schedule') || stepLower.includes('calendar') || stepLower.includes('deadline')) {
-        stepPrompt += `- Use create_event to add to the calendar.\n`;
+      if (stepLower.includes('schedule') || stepLower.includes('calendar') || stepLower.includes('deadline') || stepLower.includes('follow')) {
+        stepPrompt += `
+**Primary action:** Use create_event to add to the calendar.
+**Also do:** Add a matter note about the scheduled item.
+`;
       }
       
-      stepPrompt += `\n**CALL THE APPROPRIATE TOOL NOW.**`;
+      stepPrompt += `\n**IMPORTANT:** Call the tool now. After completing the primary action, I will prompt you for any additional helpful actions.`;
       
       // Show remaining steps
       if (stepIndex < totalSteps - 1) {
@@ -5099,6 +5127,110 @@ CALL A TOOL NOW.`
         );
         
         console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Completed - ${stepSummary}`);
+        
+        // =====================================================================
+        // FOLLOW-UP ACTIONS - Prompt AI for additional helpful actions
+        // =====================================================================
+        
+        // Only do follow-ups for substantive steps (not the final summary step)
+        if (stepIndex < totalSteps - 1) {
+          await delay(3000); // Brief pause
+          
+          // Build follow-up prompt based on what was just done
+          let followUpPrompt = `You just completed: "${currentStep}"
+Result: ${stepSummary}
+
+`;
+          
+          // Add context-specific follow-up suggestions
+          if (contextData.matter) {
+            followUpPrompt += `Matter: ${contextData.matter.name} (ID: ${contextData.matter.id})\n\n`;
+          }
+          
+          followUpPrompt += `**Take 1-2 additional helpful actions now.** Choose from:
+
+1. **add_matter_note** - Document what you just did (RECOMMENDED)
+2. **log_time** - Log billable time for this work (e.g., 0.1-0.3 hours)
+3. **create_task** - Create follow-up tasks if you identified action items
+4. **create_event** - Schedule any deadlines or follow-ups
+5. **create_document** - Create additional related documents if helpful
+
+What additional action would be most helpful right now? Call a tool.`;
+
+          const followUpMessages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: followUpPrompt }
+          ];
+          
+          const followUpResponse = await callAzureOpenAIWithTools(followUpMessages, TOOLS);
+          
+          // Process follow-up actions (up to 2)
+          let followUpCount = 0;
+          let currentFollowUp = followUpResponse;
+          
+          while (currentFollowUp.tool_calls && followUpCount < 2) {
+            const fuToolCall = currentFollowUp.tool_calls[0];
+            const fuFunctionName = fuToolCall.function.name;
+            
+            // Skip if it's trying to do the main step again
+            if (fuFunctionName === functionName) break;
+            
+            let fuFunctionArgs;
+            try {
+              fuFunctionArgs = JSON.parse(fuToolCall.function.arguments);
+            } catch (e) {
+              fuFunctionArgs = {};
+            }
+            
+            console.log(`[BACKGROUND ${taskId}] Step ${stepNumber} follow-up: Calling ${fuFunctionName}`);
+            const fuResult = await executeTool(fuFunctionName, fuFunctionArgs, user, null);
+            
+            const fuSummary = fuResult.message || fuResult.summary || `Executed ${fuFunctionName}`;
+            
+            // Track the follow-up action
+            progress.push({
+              iteration: stepNumber,
+              tool: fuFunctionName,
+              status: 'follow-up',
+              summary: fuSummary,
+              timestamp: new Date().toISOString()
+            });
+            
+            // Update progress
+            await query(
+              `UPDATE ai_tasks SET progress = $1, updated_at = NOW() WHERE id = $2`,
+              [JSON.stringify({ steps: progress }), taskId]
+            );
+            
+            console.log(`[BACKGROUND ${taskId}] Step ${stepNumber} follow-up: ${fuSummary}`);
+            
+            followUpCount++;
+            
+            // Ask for one more follow-up if we haven't hit the limit
+            if (followUpCount < 2) {
+              followUpMessages.push({
+                role: 'assistant',
+                content: null,
+                tool_calls: [fuToolCall]
+              });
+              followUpMessages.push({
+                role: 'tool',
+                tool_call_id: fuToolCall.id,
+                content: JSON.stringify(fuResult)
+              });
+              followUpMessages.push({
+                role: 'user',
+                content: 'Good. One more helpful action? Call another tool, or say "done" if no more actions needed.'
+              });
+              
+              currentFollowUp = await callAzureOpenAIWithTools(followUpMessages, TOOLS);
+            }
+          }
+          
+          if (followUpCount > 0) {
+            console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Completed ${followUpCount} follow-up action(s)`);
+          }
+        }
       } else {
         // AI failed to call a tool after multiple attempts
         console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Failed to get tool call after ${maxAttempts} attempts`);
