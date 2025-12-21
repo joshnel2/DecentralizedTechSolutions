@@ -4466,8 +4466,8 @@ async function processBackgroundTask(taskId, user, goal, plan) {
   const maxIterations = 100;
   let progress = [];
   
-  // Delay between each iteration (shorter to prevent timeouts)
-  const STEP_DELAY_MS = 10 * 1000; // 10 seconds between steps
+  // Delay between each iteration (deliberate pacing for background work)
+  const STEP_DELAY_MS = 45 * 1000; // 45 seconds between steps
   
   try {
     // Update status to running
@@ -4638,8 +4638,27 @@ Do NOT just describe what you would do - actually use the tools to do it.`
         console.log(`[BACKGROUND ${taskId}] Step ${iterations} complete. Waiting ${STEP_DELAY_MS/1000}s before next step...`);
         await delay(STEP_DELAY_MS);
         
+        // If we've done most of the planned steps, prompt to finish
+        const planLength = plan?.length || 5;
+        if (iterations >= planLength - 1 && iterations >= 3) {
+          messages.push({
+            role: 'user',
+            content: `You've completed ${iterations} iterations and should be near the end of your plan. Please wrap up your work and call task_complete with a summary of what you accomplished, the actions you took, and any recommendations.`
+          });
+        }
+        
         response = await callAzureOpenAIWithTools(messages, TOOLS);
       }
+    }
+    
+    // If loop ended but task not marked complete, force complete it
+    if (!taskCompleted) {
+      console.log(`[BACKGROUND ${taskId}] Loop ended without task_complete, forcing completion`);
+      const forcedSummary = `## Summary\nBackground task completed after ${iterations} iterations.\n\n## Note\nThe task finished but did not explicitly call task_complete. The work may be partially complete.`;
+      await query(
+        `UPDATE ai_tasks SET result = $1 WHERE id = $2`,
+        [forcedSummary, taskId]
+      );
     }
     
     // Mark task complete
