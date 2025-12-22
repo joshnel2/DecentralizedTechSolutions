@@ -4963,6 +4963,45 @@ async function processBackgroundTask(taskId, user, goal, plan, resumeCheckpoint 
   // Azure OpenAI has rate limits, so we need some spacing between calls
   const STEP_DELAY_MS = 5 * 1000; // 5 seconds - avoids rate limiting while keeping progress visible
   
+  // Helper to trim messages to avoid context overflow
+  // Keeps system prompt, initial context, and recent messages
+  function trimMessages(msgs, maxMessages = 30) {
+    if (msgs.length <= maxMessages) return msgs;
+    
+    // Always keep: system prompt (first), initial user message (second), initial assistant (third)
+    const essential = msgs.slice(0, 3);
+    // Keep the most recent messages
+    const recent = msgs.slice(-(maxMessages - 3));
+    
+    console.log(`[BACKGROUND ${taskId}] Trimmed messages from ${msgs.length} to ${essential.length + recent.length}`);
+    return [...essential, ...recent];
+  }
+  
+  // Helper to truncate tool results to avoid huge context
+  function truncateResult(result, maxLength = 2000) {
+    const str = JSON.stringify(result);
+    if (str.length <= maxLength) return str;
+    
+    // For large results, keep just the key info
+    if (result.matter) {
+      return JSON.stringify({ 
+        matter: { id: result.matter.id, name: result.matter.name, number: result.matter.number },
+        message: result.message 
+      });
+    }
+    if (result.document) {
+      return JSON.stringify({ 
+        document: { id: result.document.id, name: result.document.name },
+        message: result.message 
+      });
+    }
+    if (result.success !== undefined) {
+      return JSON.stringify({ success: result.success, message: result.message });
+    }
+    
+    return str.substring(0, maxLength) + '...[truncated]';
+  }
+  
   try {
     // Update status to running
     await query(
@@ -5302,12 +5341,15 @@ Call the appropriate tool to complete this step. You have full context from prev
           tool_calls: [toolCall]
         });
         
-        // Add the tool result to conversation - THIS IS KEY FOR CONTEXT
+        // Add the tool result to conversation - truncate to avoid context overflow
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
-          content: JSON.stringify(result)
+          content: truncateResult(result)
         });
+        
+        // Trim messages if getting too long
+        messages = trimMessages(messages);
         
         // Also update contextData for backwards compatibility
         if (functionName === 'get_matter' || functionName === 'search_matters') {
@@ -5699,7 +5741,7 @@ Use one of these tools:
         console.log(`[BACKGROUND ${taskId}] Phase 2 Step ${step2Index + 1}: Calling ${functionName}`);
         const result = await executeTool(functionName, functionArgs, user, null);
         
-        // Add to messages
+        // Add to messages - truncate results to avoid context overflow
         messages.push({
           role: 'assistant',
           content: response.content || null,
@@ -5708,8 +5750,11 @@ Use one of these tools:
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
-          content: JSON.stringify(result)
+          content: truncateResult(result)
         });
+        
+        // Trim messages if getting too long
+        messages = trimMessages(messages);
         
         // Store result
         const stepSummary = result.message || result.summary || 
