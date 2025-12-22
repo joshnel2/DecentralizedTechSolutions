@@ -15,6 +15,9 @@ import {
   getDateInTimezone
 } from '../utils/dateUtils.js';
 import { extractTextFromFile } from './documents.js';
+import PDFDocument from 'pdfkit';
+import fs from 'fs';
+import path from 'path';
 
 const router = Router();
 
@@ -712,17 +715,42 @@ const TOOLS = [
     type: "function",
     function: {
       name: "create_document",
-      description: "Create a new text document and save it to a matter or client. Use this to draft contracts, letters, memos, notes, or any text document.",
+      description: "Create a new professional PDF document and save it to a matter or client. Use this to draft contracts, letters, memos, engagement letters, pleadings, or any legal document. The document will be automatically formatted as a PDF and will appear in the matter's Documents section.",
       parameters: {
         type: "object",
         properties: {
-          name: { type: "string", description: "Document name (e.g. 'Client Engagement Letter.txt')" },
-          content: { type: "string", description: "The text content of the document" },
-          matter_id: { type: "string", description: "Matter to attach the document to" },
-          client_id: { type: "string", description: "Client to attach the document to" },
+          name: { type: "string", description: "Document name without extension (e.g. 'Client Engagement Letter', 'Settlement Agreement')" },
+          content: { type: "string", description: "The full text content of the document. Use markdown-style formatting: # for headers, ## for subheaders, - for bullets, **bold** for emphasis." },
+          matter_id: { type: "string", description: "Matter UUID to attach the document to (REQUIRED for matter documents). The document will appear in the matter's Documents tab." },
+          client_id: { type: "string", description: "Client UUID to attach the document to (if no matter specified)" },
           tags: { type: "array", items: { type: "string" }, description: "Optional: tags for the document" }
         },
         required: ["name", "content"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "draft_email_for_matter",
+      description: "Draft a professional email related to a matter and optionally save it to Outlook drafts. Use this when asked to draft an email to a client, opposing counsel, or other party about a case. Can also link the email to the matter for record keeping.",
+      parameters: {
+        type: "object",
+        properties: {
+          matter_id: { type: "string", description: "UUID of the matter this email relates to" },
+          to: { type: "string", description: "Recipient email address(es), comma-separated. Leave empty to just generate draft content." },
+          subject: { type: "string", description: "Email subject line" },
+          body: { type: "string", description: "Email body content - write a complete professional email" },
+          email_type: { 
+            type: "string", 
+            enum: ["client_update", "demand_letter", "settlement_proposal", "scheduling", "follow_up", "case_status", "document_request", "general"],
+            description: "Type of email to help with formatting"
+          },
+          cc: { type: "string", description: "CC recipients, comma-separated (optional)" },
+          save_to_outlook: { type: "boolean", description: "Whether to save as a draft in Outlook (default: true if email connected)" },
+          link_to_matter: { type: "boolean", description: "Whether to link this email to the matter for record keeping (default: true)" }
+        },
+        required: ["matter_id", "subject", "body"]
       }
     }
   },
@@ -896,15 +924,19 @@ const TOOLS = [
     type: "function",
     function: {
       name: "start_background_task",
-      description: "REQUIRED for complex tasks! Start a background task that shows a progress bar to the user. USE THIS when: user says 'background', 'review', 'analyze', 'audit', 'research', 'prepare', or any task needing 5+ steps. The user will see real-time progress while you work.",
+      description: "REQUIRED for complex tasks! Start a background task that shows a progress bar to the user. USE THIS when: user says 'background', 'review', 'analyze', 'audit', 'research', 'prepare', 'draft', or any task needing multiple steps. The user will see real-time progress while you work. IMPORTANT: Each step in the plan should be a SINGLE, SPECIFIC action (e.g., 'Search for the Smith matter' not 'Review the case'). Include time tracking steps!",
       parameters: {
         type: "object",
         properties: {
-          goal: { type: "string", description: "The goal/task to accomplish" },
-          plan: { type: "array", items: { type: "string" }, description: "List of steps you'll take" },
-          estimated_steps: { type: "number", description: "Estimated number of actions needed" },
-          matter_id: { type: "string", description: "Optional: Related matter ID" },
-          client_id: { type: "string", description: "Optional: Related client ID" }
+          goal: { type: "string", description: "The goal/task to accomplish - be specific!" },
+          plan: { 
+            type: "array", 
+            items: { type: "string" }, 
+            description: "List of SINGULAR, SPECIFIC steps. Each step = one tool call. Example good steps: 'Search for the matter by name', 'Get full matter details', 'Read the engagement letter document', 'Draft settlement agreement', 'Add note summarizing review', 'Log 0.3 hours for case review'. Example BAD steps: 'Review case' (too vague), 'Create documents' (too broad)."
+          },
+          estimated_steps: { type: "number", description: "Estimated number of actions needed (should match plan length)" },
+          matter_id: { type: "string", description: "Optional: Related matter ID if known" },
+          client_id: { type: "string", description: "Optional: Related client ID if known" }
         },
         required: ["goal", "plan"]
       }
@@ -1921,6 +1953,7 @@ async function executeTool(toolName, args, user, req = null) {
       case 'search_emails': return await searchEmails(args, user);
       case 'get_email': return await getEmail(args, user);
       case 'draft_email': return await draftEmail(args, user);
+      case 'draft_email_for_matter': return await draftEmailForMatter(args, user);
       case 'send_email': return await sendEmail(args, user);
       case 'reply_to_email': return await replyToEmail(args, user);
       case 'link_email_to_matter': return await linkEmailToMatter(args, user);
@@ -4192,26 +4225,100 @@ async function createDocument(args, user) {
   try {
     // Add (AI) suffix to indicate this was AI-generated
     // Remove any existing (AI) suffix first to avoid duplication
-    let baseName = name.replace(/\s*\(AI\)\s*$/, '');
-    const docName = `${baseName} (AI)`;
+    let baseName = name.replace(/\s*\(AI\)\s*$/, '').replace(/\.(txt|pdf|doc|docx)$/i, '');
+    const docName = `${baseName} (AI).pdf`;
     
     // Generate a unique filename
     const timestamp = Date.now();
-    const safeName = docName.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const filename = `${timestamp}-${safeName}`;
+    const safeName = baseName.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const filename = `${timestamp}-${safeName}_AI.pdf`;
     
-    // Determine file type from name
-    const ext = baseName.split('.').pop()?.toLowerCase() || 'txt';
-    const mimeType = ext === 'md' ? 'text/markdown' : 
-                     ext === 'html' ? 'text/html' :
-                     ext === 'json' ? 'application/json' : 'text/plain';
+    // Create the uploads directory if it doesn't exist
+    const uploadsDir = path.join(process.cwd(), 'uploads', 'ai-generated');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    
+    const filePath = path.join(uploadsDir, filename);
+    const relativePath = `uploads/ai-generated/${filename}`;
+    
+    // Generate PDF using pdfkit
+    const doc = new PDFDocument({
+      size: 'LETTER',
+      margins: { top: 72, bottom: 72, left: 72, right: 72 }
+    });
+    
+    const writeStream = fs.createWriteStream(filePath);
+    doc.pipe(writeStream);
+    
+    // Add document title
+    doc.fontSize(18).font('Helvetica-Bold').text(baseName, { align: 'center' });
+    doc.moveDown(0.5);
+    
+    // Add metadata line
+    doc.fontSize(10).font('Helvetica').fillColor('#666666')
+       .text(`Generated by AI Assistant • ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, { align: 'center' });
+    doc.moveDown(1.5);
+    
+    // Add horizontal line
+    doc.strokeColor('#cccccc').lineWidth(1)
+       .moveTo(72, doc.y).lineTo(540, doc.y).stroke();
+    doc.moveDown(1);
+    
+    // Add content - handle markdown-like formatting
+    doc.fillColor('#000000').fontSize(12).font('Helvetica');
+    
+    const lines = content.split('\n');
+    for (const line of lines) {
+      // Handle headers
+      if (line.startsWith('### ')) {
+        doc.moveDown(0.5);
+        doc.font('Helvetica-Bold').fontSize(12).text(line.replace('### ', ''));
+        doc.font('Helvetica').fontSize(12);
+      } else if (line.startsWith('## ')) {
+        doc.moveDown(0.5);
+        doc.font('Helvetica-Bold').fontSize(14).text(line.replace('## ', ''));
+        doc.font('Helvetica').fontSize(12);
+      } else if (line.startsWith('# ')) {
+        doc.moveDown(0.5);
+        doc.font('Helvetica-Bold').fontSize(16).text(line.replace('# ', ''));
+        doc.font('Helvetica').fontSize(12);
+      } else if (line.startsWith('**') && line.endsWith('**')) {
+        // Bold line
+        doc.font('Helvetica-Bold').text(line.replace(/\*\*/g, ''));
+        doc.font('Helvetica');
+      } else if (line.startsWith('- ') || line.startsWith('• ')) {
+        // Bullet point
+        doc.text(`  • ${line.substring(2)}`, { indent: 20 });
+      } else if (line.match(/^\d+\.\s/)) {
+        // Numbered list
+        doc.text(`  ${line}`, { indent: 20 });
+      } else if (line.trim() === '') {
+        doc.moveDown(0.5);
+      } else {
+        doc.text(line);
+      }
+    }
+    
+    // Finalize PDF
+    doc.end();
+    
+    // Wait for the write stream to finish
+    await new Promise((resolve, reject) => {
+      writeStream.on('finish', resolve);
+      writeStream.on('error', reject);
+    });
+    
+    // Get file size
+    const stats = fs.statSync(filePath);
+    const fileSize = stats.size;
     
     // Insert document record
     const result = await query(
       `INSERT INTO documents (
-        firm_id, matter_id, client_id, name, original_name, type, size, path,
+        firm_id, matter_id, client_id, name, original_name, type, file_type, size, file_size, path,
         content_text, content_extracted_at, tags, status, uploaded_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10, 'final', $11)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12, 'final', $13)
       RETURNING id, name`,
       [
         user.firmId,
@@ -4219,9 +4326,11 @@ async function createDocument(args, user) {
         client_id || null,
         docName,
         docName,
-        mimeType,
-        content.length,
-        `ai-generated/${filename}`,
+        'application/pdf',
+        'pdf',
+        fileSize,
+        fileSize,
+        relativePath,
         content,
         tags || ['ai-generated'],
         user.id
@@ -4246,10 +4355,11 @@ async function createDocument(args, user) {
     
     return {
       success: true,
-      message: `Created document "${savedDoc.name}"${locationInfo}`,
+      message: `Created PDF document "${savedDoc.name}"${locationInfo}. The document is now available in the Documents section.`,
       data: {
         id: savedDoc.id,
         name: savedDoc.name,
+        type: 'pdf',
         matter_id,
         client_id,
         content_preview: content.substring(0, 200) + (content.length > 200 ? '...' : '')
@@ -4902,14 +5012,15 @@ async function processBackgroundTask(taskId, user, goal, plan, resumeCheckpoint 
 
 ## AUTONOMOUS LEGAL AGENT - INTELLIGENT EXECUTION
 
-You are an intelligent autonomous agent that thinks strategically and executes decisively. You understand legal work and act like a skilled attorney.
+You are an intelligent autonomous agent that thinks strategically and executes decisively. You understand legal work and act like a skilled senior attorney.
 
 ### CORE PRINCIPLES:
 
-1. **THINK LOGICALLY** - Understand what each step requires
+1. **THINK STRATEGICALLY** - Understand the full picture before acting
 2. **ACT DECISIVELY** - Call the right tool immediately  
 3. **BE THOROUGH** - Complete work to professional standards
 4. **ADD VALUE** - Do more than the minimum when helpful
+5. **TRACK YOUR TIME** - Always log billable time for substantive work
 
 ### INTELLIGENT TOOL SELECTION:
 
@@ -4918,15 +5029,17 @@ You are an intelligent autonomous agent that thinks strategically and executes d
 - "Get/Review/Examine matter" → get_matter (with matter_id)
 - "Find/Search client" → list_clients
 - "Get client details" → get_client (with client_id)
+- "Read documents" → read_document_content, get_matter_documents_content
 
 **When you need to CREATE DOCUMENTS:**
-- "Draft/Prepare/Create/Write [document]" → create_document
+- "Draft/Prepare/Create/Write [document]" → create_document (creates PDFs!)
+- "Draft email" → draft_email_for_matter
 - Always include matter_id if you have it
 - Write complete, professional legal content
 
 **When you need to RECORD information:**
-- "Add note/Record/Document" → create_note (for standalone notes) or add_matter_note (for matter-attached notes)
-- "Log time/Bill" → log_time
+- "Add note/Record/Document" → add_matter_note (ALWAYS use this after each step!)
+- "Log time/Bill" → log_time (MANDATORY - track all work!)
 - "Update matter" → update_matter
 
 **When you need to SCHEDULE:**
@@ -4937,12 +5050,33 @@ You are an intelligent autonomous agent that thinks strategically and executes d
 - "Create/Open new matter" → create_matter
 - "Create/Add new client" → create_client
 
+### 🕐 MANDATORY TIME TRACKING
+
+**CRITICAL: You MUST log time entries for all substantive work performed.**
+
+After completing major steps, use log_time with:
+- matter_id: The matter you're working on
+- hours: Reasonable estimate (0.1 to 0.5 per task typically)
+- description: Specific description of work done
+- billable: true (unless pro bono)
+
+**Time estimates for common tasks:**
+- Reviewing matter/case files: 0.2 - 0.3 hours
+- Drafting standard document: 0.3 - 0.5 hours
+- Drafting complex document: 0.5 - 1.0 hours
+- Research and analysis: 0.2 - 0.4 hours
+- Preparing correspondence/email: 0.1 - 0.2 hours
+- Creating case summary: 0.2 - 0.3 hours
+
+Example: After drafting a contract, call:
+log_time({ matter_id: "...", hours: 0.4, description: "Draft initial engagement letter with scope of services and fee arrangement", billable: true })
+
 ### DOCUMENT CREATION STANDARDS:
 
-When creating documents, produce COMPLETE professional work:
+When creating documents (which are now PDFs!), produce COMPLETE professional work:
 
 **Agreements/Contracts:**
-- Full identification of parties
+- Full identification of parties with addresses
 - Recitals explaining the context
 - Definitions of key terms
 - All substantive obligations
@@ -4968,6 +5102,41 @@ When creating documents, produce COMPLETE professional work:
 - Client responsibilities
 - Termination provisions
 
+**Client Communications/Emails:**
+- Use draft_email_for_matter for case-related emails
+- Professional tone, clear action items
+- Reference matter/case number
+
+### CREATIVE TASK GENERATION
+
+When planning complex tasks, think creatively about what would ACTUALLY help:
+
+**Case Review might include:**
+1. Review all case documents and summarize key facts
+2. Identify missing documents or information gaps
+3. Create timeline of key events
+4. Draft case status memo for file
+5. Identify upcoming deadlines and create calendar events
+6. Create follow-up tasks for next steps
+7. Log time for all review work
+
+**Document Preparation might include:**
+1. Research applicable requirements
+2. Draft the main document
+3. Create supporting schedules/exhibits
+4. Draft cover letter
+5. Create task for client review/signature
+6. Log time for drafting work
+
+**Client Onboarding might include:**
+1. Create client record with all details
+2. Create the matter/case
+3. Draft engagement letter
+4. Create welcome email draft
+5. Set up initial consultation calendar event
+6. Create onboarding checklist tasks
+7. Log time for setup work
+
 ### DELIVER REAL VALUE - NO BULLSHIT:
 
 **MANDATORY: ALWAYS ADD MATTER NOTES**
@@ -4979,7 +5148,6 @@ Use add_matter_note with the matter_id after every substantive step.
 ❌ DON'T write generic filler like:
 - "This agreement is entered into..."
 - "The parties hereby agree..."
-- "As discussed, we are pleased to..."
 - Template garbage that says nothing
 
 ✅ DO write specific, useful content:
@@ -4988,33 +5156,23 @@ Use add_matter_note with the matter_id after every substantive step.
 - Specific names, dates, amounts
 - Actionable information
 
-**DOCUMENTS:** Write content a lawyer would actually use. No placeholder sections. No "insert here" nonsense. Real terms, real language, ready to use.
+**DOCUMENTS:** Write content a lawyer would actually use. No placeholder sections. Real terms, real language, ready to use.
 
-**NOTES:** State what you did and what matters. Examples:
-- "Created Work for Hire Agreement with IP assignment to [Client]. Key terms: $X fee, 30-day deliverable, perpetual license. Ready for review."
-- "Reviewed matter - missing signed engagement letter. Created draft. Need client signature before proceeding."
-- "Identified issue: no confidentiality clause in existing contract. Drafted addendum."
+**NOTES:** State what you did and what matters.
 
-**TIME ENTRIES:** Describe actual work, not vague activities:
-- "Drafted IP assignment agreement with work-for-hire provisions"
-- NOT "Worked on contract matters"
-
-**CUT THE BULLSHIT:**
-- Don't pad documents with unnecessary recitals
-- Don't add sections that don't apply
-- Don't use 10 words when 3 will do
-- Don't create things just to look busy
-- DO create what's actually needed
-- DO flag real issues
-- DO add genuine value
+**TIME ENTRIES:** Describe actual work specifically:
+- ✅ "Drafted settlement agreement outlining payment terms of $50,000 over 12 months"
+- ❌ "Worked on contract matters"
 
 ### EXECUTION RULES:
 
 1. **ALWAYS call a tool** - Never respond with only text
-2. **USE CONTEXT** - If you have a matter_id or client_id, use it
+2. **USE CONTEXT** - If you have a matter_id or client_id, use it in EVERY tool call
 3. **BE SPECIFIC** - Provide complete, detailed arguments to tools
 4. **NO QUESTIONS** - Make reasonable assumptions and proceed
 5. **QUALITY OVER SPEED** - Take your time to produce impressive work
+6. **LOG YOUR TIME** - After completing substantive work, always log time!
+7. **DOCUMENT EVERYTHING** - Add notes to the matter after each step
 
 DELIVER WORK THAT IMPRESSES. EXECUTE NOW.`;
 
@@ -5336,10 +5494,16 @@ Call the appropriate tool to complete this step. You have full context from prev
     // Count what was accomplished
     const documentsCreated = stepResults.filter(r => r.tool === 'create_document').length + 
                              progress.filter(p => p.tool === 'create_document').length;
-    const notesAdded = progress.filter(p => p.tool === 'add_matter_note').length;
-    const timeLogged = progress.filter(p => p.tool === 'log_time').length;
-    const eventsCreated = progress.filter(p => p.tool === 'create_event').length;
-    const tasksCreated = progress.filter(p => p.tool === 'create_task').length;
+    const notesAdded = progress.filter(p => p.tool === 'add_matter_note').length +
+                       stepResults.filter(r => r.tool === 'add_matter_note').length;
+    const timeLogged = progress.filter(p => p.tool === 'log_time').length +
+                       stepResults.filter(r => r.tool === 'log_time').length;
+    const eventsCreated = progress.filter(p => p.tool === 'create_calendar_event').length +
+                          stepResults.filter(r => r.tool === 'create_calendar_event').length;
+    const tasksCreated = progress.filter(p => p.tool === 'create_task').length +
+                         stepResults.filter(r => r.tool === 'create_task').length;
+    const emailsDrafted = progress.filter(p => p.tool === 'draft_email' || p.tool === 'draft_email_for_matter').length +
+                          stepResults.filter(r => r.tool === 'draft_email' || r.tool === 'draft_email_for_matter').length;
     
     const summaryPrompt = `CREATE A COMPREHENSIVE SUMMARY for the user.
 
@@ -5351,7 +5515,8 @@ ${stepResults.map((r, i) => `Step ${i + 1}: ${r.stepDescription}
 
 STATISTICS:
 - Total steps completed: ${stepResults.length}
-- Documents created: ${documentsCreated}
+- Documents created (PDFs): ${documentsCreated}
+- Emails drafted: ${emailsDrafted}
 - Notes added: ${notesAdded}
 - Time entries logged: ${timeLogged}
 - Calendar events created: ${eventsCreated}
@@ -5399,7 +5564,8 @@ This summary will be shown to the user when they click "View Summary".`;
     // Always include stats at the end
     const statsSection = `## Work Statistics
 • Steps completed: ${stepResults.length}/${totalSteps}
-• Documents created: ${documentsCreated}
+• Documents created (PDFs): ${documentsCreated}
+• Emails drafted: ${emailsDrafted}
 • Matter notes added: ${notesAdded}
 • Time entries logged: ${timeLogged}
 • Calendar events: ${eventsCreated}
@@ -7466,6 +7632,157 @@ async function draftEmail(args, user) {
   };
 }
 
+async function draftEmailForMatter(args, user) {
+  const { matter_id, to, subject, body, email_type = 'general', cc, save_to_outlook = true, link_to_matter = true } = args;
+  
+  if (!matter_id) {
+    return { error: 'matter_id is required. Use search_matters to find the matter first.' };
+  }
+  
+  // Get matter details for context
+  const matterResult = await query(
+    `SELECT m.*, c.display_name as client_name, c.email as client_email
+     FROM matters m
+     LEFT JOIN clients c ON m.client_id = c.id
+     WHERE m.id = $1 AND m.firm_id = $2`,
+    [matter_id, user.firmId]
+  );
+  
+  if (matterResult.rows.length === 0) {
+    return { error: 'Matter not found' };
+  }
+  
+  const matter = matterResult.rows[0];
+  
+  // Get user's email signature if available
+  let signature = '';
+  try {
+    const sigResult = await query(
+      'SELECT email_signature FROM users WHERE id = $1',
+      [user.id]
+    );
+    if (sigResult.rows.length > 0 && sigResult.rows[0].email_signature) {
+      signature = '\n\n' + sigResult.rows[0].email_signature;
+    }
+  } catch (e) {
+    // No signature available
+  }
+  
+  // Format the body with signature
+  const fullBody = body + signature;
+  
+  // Prepare response data
+  const response = {
+    success: true,
+    email_draft: {
+      to: to || matter.client_email || '[recipient email needed]',
+      subject: subject,
+      body: fullBody,
+      cc: cc || null,
+      matter: {
+        id: matter_id,
+        name: matter.name,
+        number: matter.number
+      },
+      client: matter.client_name,
+      email_type: email_type
+    },
+    message: `Email draft prepared for matter "${matter.name}" (${matter.number})`
+  };
+  
+  // Try to save to Outlook if connected and requested
+  if (save_to_outlook && to) {
+    try {
+      const accessToken = await getOutlookAccessToken(user.firmId);
+      if (accessToken) {
+        const emailPayload = {
+          subject,
+          body: {
+            contentType: 'HTML',
+            content: fullBody.replace(/\n/g, '<br>')
+          },
+          toRecipients: to.split(',').map(email => ({
+            emailAddress: { address: email.trim() }
+          })),
+          importance: 'normal'
+        };
+        
+        if (cc) {
+          emailPayload.ccRecipients = cc.split(',').map(email => ({
+            emailAddress: { address: email.trim() }
+          }));
+        }
+        
+        const outlookResponse = await fetch('https://graph.microsoft.com/v1.0/me/messages', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(emailPayload)
+        });
+        
+        const outlookResult = await outlookResponse.json();
+        
+        if (!outlookResult.error) {
+          response.saved_to_outlook = true;
+          response.draft_id = outlookResult.id;
+          response.message += '. Draft saved to Outlook.';
+          
+          // Link email to matter if requested
+          if (link_to_matter) {
+            try {
+              await query(
+                `INSERT INTO email_links (firm_id, matter_id, email_id, email_provider, subject, from_address, to_addresses, linked_by, created_at)
+                 VALUES ($1, $2, $3, 'outlook', $4, $5, $6, $7, NOW())
+                 ON CONFLICT DO NOTHING`,
+                [user.firmId, matter_id, outlookResult.id, subject, user.email, to.split(','), user.id]
+              );
+              response.linked_to_matter = true;
+              response.message += ' Email linked to matter.';
+            } catch (linkError) {
+              console.error('Error linking email to matter:', linkError);
+            }
+          }
+        }
+      }
+    } catch (outlookError) {
+      console.error('Error saving to Outlook:', outlookError);
+      response.outlook_error = 'Could not save to Outlook (not connected or error occurred)';
+    }
+  }
+  
+  // Also save as a document in the matter for record keeping
+  try {
+    const timestamp = Date.now();
+    const docName = `Email Draft - ${subject.substring(0, 50)}`;
+    const docContent = `To: ${to || '[recipient]'}\nCC: ${cc || '[none]'}\nSubject: ${subject}\nDate: ${new Date().toLocaleDateString()}\nMatter: ${matter.name} (${matter.number})\n\n---\n\n${fullBody}`;
+    
+    await query(
+      `INSERT INTO documents (
+        firm_id, matter_id, name, original_name, type, file_type, size, path,
+        content_text, content_extracted_at, tags, status, uploaded_by
+      ) VALUES ($1, $2, $3, $4, 'text/plain', 'txt', $5, $6, $7, NOW(), $8, 'final', $9)`,
+      [
+        user.firmId,
+        matter_id,
+        `${docName}.txt`,
+        `${docName}.txt`,
+        docContent.length,
+        `email-drafts/${timestamp}-email-draft.txt`,
+        docContent,
+        ['email-draft', 'ai-generated'],
+        user.id
+      ]
+    );
+    response.saved_to_documents = true;
+  } catch (docError) {
+    console.error('Error saving email draft as document:', docError);
+  }
+  
+  return response;
+}
+
 // =============================================================================
 // CLOUD STORAGE FUNCTIONS
 // =============================================================================
@@ -8267,7 +8584,7 @@ As an AI assistant, you can perform virtually ANY action that a human attorney o
 
 ## Background Agent Mode - IMPORTANT
 
-When the user asks for a COMPLEX task that requires multiple steps (5+ actions), you MUST use \`start_background_task\` to run it in the background. This shows a progress bar to the user while you work.
+When the user asks for a COMPLEX task that requires multiple steps, you MUST use \`start_background_task\` to run it in the background. This shows a progress bar to the user while you work.
 
 ### ALWAYS use start_background_task when user says:
 - "run a background agent" or "start background task"
@@ -8277,25 +8594,75 @@ When the user asks for a COMPLEX task that requires multiple steps (5+ actions),
 - "audit" or "review" anything
 - "generate a report" (complex reports)
 - "research" anything
+- "draft" anything complex
 - Any task that will take more than 3-4 tool calls
 
 ### How to start a background task:
-1. First, think about what steps are needed
-2. Call \`start_background_task\` with:
-   - goal: What you're trying to accomplish
-   - plan: Array of steps you'll take (e.g., ["Search for matter", "Get documents", "Analyze content", "Create summary"])
-   - estimated_steps: How many actions you estimate
+1. Think about what SPECIFIC steps are needed
+2. Break each step into a SINGLE, ATOMIC action
+3. Include time tracking for billable work
+4. Call \`start_background_task\` with detailed plan
 
-Example:
+### CRITICAL: Plan Steps Must Be Singular & Specific
+
+Each step in your plan should map to exactly ONE tool call. Be specific!
+
+❌ BAD PLAN (too vague):
+- "Review the case" 
+- "Create documents"
+- "Update records"
+
+✅ GOOD PLAN (specific, singular):
+- "Search for the Smith matter"
+- "Get full matter details including documents and billing"
+- "Read the engagement letter document content"
+- "Read the complaint document content"
+- "Draft case status memo summarizing key facts"
+- "Add note to matter with review findings"
+- "Create follow-up task for client call"
+- "Log 0.3 hours for case file review"
+
+### Example - Comprehensive Case Review:
 \`\`\`
 start_background_task({
-  goal: "Review the Smith case and prepare a summary",
-  plan: ["Find the Smith matter", "Get all documents", "Get time entries", "Get billing info", "Create comprehensive summary"],
-  estimated_steps: 10
+  goal: "Complete case review for the Smith v. Jones matter",
+  plan: [
+    "Search for the Smith matter to get the ID",
+    "Get full matter details including all documents and timeline",
+    "Read the complaint document to understand claims",
+    "Read the answer document to understand defenses",
+    "Get all time entries to review work done",
+    "Get billing information and outstanding invoices",
+    "Draft comprehensive case status memo",
+    "Add detailed note to matter summarizing review",
+    "Create calendar event for next case milestone",
+    "Create task for attorney to review AI summary",
+    "Log 0.4 hours for comprehensive case review"
+  ],
+  estimated_steps: 11
 })
 \`\`\`
 
-The user will see a progress bar while you work in the background!
+### Example - Document Drafting:
+\`\`\`
+start_background_task({
+  goal: "Draft engagement letter for new client Johnson",
+  plan: [
+    "Search for the Johnson client",
+    "Get client details including contact info",
+    "Search for the related matter",
+    "Get matter details including billing rate",
+    "Draft professional engagement letter with scope and fees",
+    "Draft welcome email to client",
+    "Add note to matter documenting documents created",
+    "Create task for client to sign engagement letter",
+    "Log 0.5 hours for drafting engagement materials"
+  ],
+  estimated_steps: 9
+})
+\`\`\`
+
+The user will see a progress bar with each step completing in real-time!
 
 ## Quick Tasks (Foreground Mode)
 

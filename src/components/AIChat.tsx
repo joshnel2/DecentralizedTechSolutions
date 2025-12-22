@@ -88,6 +88,13 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Reset background agent toggle to OFF when chat is closed
+  useEffect(() => {
+    if (!isOpen) {
+      setUseBackgroundAgent(false)
+    }
+  }, [isOpen])
+
   const currentPage = getPageFromPath(location.pathname)
   const pathContext = getContextFromPath(location.pathname)
   
