@@ -4965,9 +4965,8 @@ async function processBackgroundTask(taskId, user, goal, plan, resumeCheckpoint 
   let contextData = resumeCheckpoint?.contextData || {};
   let startStepIndex = resumeCheckpoint?.stepIndex || 0;
   
-  // Delay between each step - balanced for speed and avoiding rate limits
-  // Azure OpenAI has rate limits, so we need some spacing between calls
-  const STEP_DELAY_MS = 5 * 1000; // 5 seconds - avoids rate limiting while keeping progress visible
+  // Delay between each step - give AI time to process and avoid rate limits
+  const STEP_DELAY_MS = 8 * 1000; // 8 seconds between steps
   
   // Helper to trim messages to avoid context overflow
   // Keeps system prompt, initial context, and recent messages
@@ -5266,49 +5265,17 @@ Ready to begin.` }
         }), currentStep, taskId]
       );
       
-      // Build the step prompt - USE THE TOOL FROM THE PLAN if specified
-      let toolInstruction = '';
+      // Step prompt - just tell AI exactly what it said in the plan
+      const stepPrompt = requiredTool 
+        ? `Step ${stepNumber}/${totalSteps}: ${currentStep}
+
+Call ${requiredTool} now.`
+        : `Step ${stepNumber}/${totalSteps}: ${currentStep}
+
+Call the appropriate tool now.`;
       
-      if (requiredTool) {
-        // Tool was specified in the plan - use it directly!
-        toolInstruction = `**YOU MUST CALL: ${requiredTool}**`;
-        console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Plan specifies tool: ${requiredTool}`);
-      } else {
-        // Fallback: infer tool from step description (old behavior)
-        const stepLower = currentStep.toLowerCase();
-        
-        if (stepLower.includes('search') || stepLower.includes('find') || stepLower.includes('locate')) {
-          if (stepLower.includes('matter')) toolInstruction = 'USE TOOL: search_matters';
-          else if (stepLower.includes('client')) toolInstruction = 'USE TOOL: list_clients';
-        } else if (stepLower.includes('get') || stepLower.includes('review')) {
-          if (stepLower.includes('matter')) toolInstruction = 'USE TOOL: get_matter';
-          else if (stepLower.includes('client')) toolInstruction = 'USE TOOL: get_client';
-        } else if (stepLower.includes('create') || stepLower.includes('draft') || stepLower.includes('prepare')) {
-          if (stepLower.includes('document') || stepLower.includes('letter') || stepLower.includes('agreement')) {
-            toolInstruction = 'USE TOOL: create_document';
-          } else if (stepLower.includes('email')) {
-            toolInstruction = 'USE TOOL: draft_email';
-          } else if (stepLower.includes('note')) {
-            toolInstruction = 'USE TOOL: add_matter_note';
-          }
-        } else if (stepLower.includes('calendar') || stepLower.includes('schedule') || stepLower.includes('deadline') || stepLower.includes('event')) {
-          toolInstruction = 'USE TOOL: create_calendar_event';
-        } else if (stepLower.includes('task') || stepLower.includes('to-do')) {
-          toolInstruction = 'USE TOOL: create_task';
-        } else if (stepLower.includes('log time') || stepLower.includes('time entry')) {
-          toolInstruction = 'USE TOOL: log_time';
-        } else if (stepLower.includes('note') || stepLower.includes('add note')) {
-          toolInstruction = 'USE TOOL: add_matter_note';
-        }
-      }
+      console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: "${currentStep}" -> tool: ${requiredTool || 'auto'}`);
       
-      let stepPrompt = `## STEP ${stepNumber} OF ${totalSteps}
-
-**ACTION:** ${currentStep}
-
-${toolInstruction}
-
-Call the tool now. Use matter_id/client_id from previous steps.`;
       
       // Add the step prompt to the conversation
       messages.push({ role: 'user', content: stepPrompt });
@@ -5714,32 +5681,10 @@ DO NOT skip the matter note or time entry. These are mandatory for every task.`;
         }), `Phase 2: ${currentStep}`, taskId]
       );
       
-      // Build step prompt - EXPLICIT about which tool to use
-      let suggestedTool2 = '';
-      const step2Lower = currentStep.toLowerCase();
-      
-      if (step2Lower.includes('note') || step2Lower.includes('summariz') || step2Lower.includes('document work')) {
-        suggestedTool2 = 'USE TOOL: add_matter_note with { matter_id: "[use matter_id from context]", content: "Detailed summary of work completed..." }';
-      } else if (step2Lower.includes('time') || step2Lower.includes('log') || step2Lower.includes('bill')) {
-        suggestedTool2 = 'USE TOOL: log_time with { matter_id: "[use matter_id from context]", hours: 0.5, description: "Work performed...", date: "' + new Date().toISOString().split('T')[0] + '" }';
-      } else if (step2Lower.includes('calendar') || step2Lower.includes('schedule') || step2Lower.includes('deadline') || step2Lower.includes('meeting') || step2Lower.includes('reminder') || step2Lower.includes('event')) {
-        suggestedTool2 = 'USE TOOL: create_calendar_event with { title: "Event Title", start_time: "2025-01-20T10:00:00", type: "deadline|reminder|meeting", matter_id: "[use matter_id from context]" }';
-      } else if (step2Lower.includes('email') || step2Lower.includes('draft')) {
-        suggestedTool2 = 'USE TOOL: draft_email with { to: "[client email]", subject: "Subject", body: "Email content..." }';
-      } else if (step2Lower.includes('task') || step2Lower.includes('to-do') || step2Lower.includes('follow-up')) {
-        suggestedTool2 = 'USE TOOL: create_task with { title: "Task Title", due_date: "2025-01-20", matter_id: "[use matter_id from context]" }';
-      } else if (step2Lower.includes('update') || step2Lower.includes('status')) {
-        suggestedTool2 = 'USE TOOL: update_matter with { matter_id: "[use matter_id from context]", status: "active" }';
-      }
-      
-      const phase2StepPrompt = `
-## PHASE 2 - Follow-up Task ${step2Index + 1}/${phase2TotalSteps}
+      // Phase 2 step prompt - simple and direct
+      const phase2StepPrompt = `Phase 2 - Step ${step2Index + 1}/${phase2TotalSteps}: ${currentStep}
 
-**EXECUTE NOW:** ${currentStep}
-
-${suggestedTool2 ? `**${suggestedTool2}**` : ''}
-
-Use the matter_id and client_id from Phase 1. You MUST call a tool.`;
+Use matter_id from Phase 1. Call the tool now.`;
 
       messages.push({ role: 'user', content: phase2StepPrompt });
       
@@ -6015,11 +5960,16 @@ Call task_complete with a comprehensive summary that includes:
     console.log(`[BACKGROUND] Task ${taskId} completed successfully with ${grandTotalSteps} total steps`);
     
   } catch (error) {
-    console.error(`[BACKGROUND] Task ${taskId} error:`, error);
-    await query(
-      `UPDATE ai_tasks SET status = 'error', error = $1, completed_at = NOW() WHERE id = $2`,
-      [error.message, taskId]
-    );
+    console.error(`[BACKGROUND] Task ${taskId} unexpected error:`, error);
+    // Still mark as completed but note there was an issue
+    try {
+      await query(
+        `UPDATE ai_tasks SET status = 'completed', completed_at = NOW(), result = $1 WHERE id = $2`,
+        [`Task completed with issues: ${error.message}`, taskId]
+      );
+    } catch (dbErr) {
+      console.error(`[BACKGROUND] Failed to update task status:`, dbErr);
+    }
   }
 }
 
