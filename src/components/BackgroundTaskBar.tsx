@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bot, X, CheckCircle, AlertCircle, FileText, Square, Loader2, ExternalLink } from 'lucide-react'
+import { Bot, X, CheckCircle, ExternalLink } from 'lucide-react'
 import { aiApi } from '../services/api'
 import styles from './BackgroundTaskBar.module.css'
 
@@ -23,12 +23,7 @@ export function BackgroundTaskBar() {
   const navigate = useNavigate()
   const [activeTask, setActiveTask] = useState<ActiveTask | null>(null)
   const [isComplete, setIsComplete] = useState(false)
-  const [hasError, setHasError] = useState(false)
   const [polling, setPolling] = useState(false)
-  const [cancelling, setCancelling] = useState(false)
-
-  // Track consecutive errors
-  const [errorCount, setErrorCount] = useState(0)
   
   // Request notification permission on mount
   useEffect(() => {
@@ -41,17 +36,14 @@ export function BackgroundTaskBar() {
   const checkActiveTask = useCallback(async () => {
     try {
       const response = await aiApi.getActiveTask()
-      setErrorCount(0) // Reset error count on success
       
       if (response.active && response.task) {
         setActiveTask(response.task)
         setIsComplete(false)
-        setHasError(false)
       } else if (activeTask && !response.active) {
         // Task just completed - fetch the final result with summary
-        let taskResult = null
         try {
-          taskResult = await aiApi.getTask(activeTask.id)
+          const taskResult = await aiApi.getTask(activeTask.id)
           setActiveTask({
             ...activeTask,
             progressPercent: 100,
@@ -79,20 +71,12 @@ export function BackgroundTaskBar() {
           navigate(`/app/ai?showAgentHistory=true&taskId=${activeTask.id}`)
         }, 1500)
       }
-      // Don't stop polling if no active task - keep checking
+      // Keep polling even if no response - task might still be running
     } catch (error) {
-      console.error('Error checking active task:', error)
-      setErrorCount(prev => prev + 1)
-      
-      // Only stop polling after 10 consecutive errors
-      if (errorCount >= 10) {
-        console.error('Too many errors, stopping poll')
-        setHasError(true)
-        setPolling(false)
-      }
-      // Otherwise keep polling - the task might still be running
+      // Silently continue polling - don't show error to user
+      console.log('Polling check failed, will retry...')
     }
-  }, [activeTask, errorCount])
+  }, [activeTask, navigate])
 
   // View progress/summary handler - navigate to AI Assistant page with agent history
   // Pass the taskId so we can show detailed progress for this specific task
@@ -116,7 +100,6 @@ export function BackgroundTaskBar() {
         currentStep: 'Starting...'
       })
       setIsComplete(false)
-      setHasError(false)
       setPolling(true)
     }
 
@@ -148,7 +131,7 @@ export function BackgroundTaskBar() {
 
   return (
     <>
-      <div className={`${styles.taskBar} ${isComplete ? styles.complete : ''} ${hasError ? styles.error : ''}`}>
+      <div className={`${styles.taskBar} ${isComplete ? styles.complete : ''}`}>
         <div className={styles.content}>
           {/* Clickable area - navigates to agent progress page */}
           <button 
@@ -159,8 +142,6 @@ export function BackgroundTaskBar() {
             <div className={styles.icon}>
               {isComplete ? (
                 <CheckCircle size={20} />
-              ) : hasError ? (
-                <AlertCircle size={20} />
               ) : (
                 <Bot size={20} className={styles.spinning} />
               )}
@@ -168,13 +149,13 @@ export function BackgroundTaskBar() {
             
             <div className={styles.info}>
               <div className={styles.title}>
-                {isComplete ? '✓ Background Task Complete!' : hasError ? '⚠ Task Error' : 
+                {isComplete ? '✓ Background Task Complete!' : 
                   activeTask.phase === 2 ? '🔄 Phase 2: Follow-up Actions...' :
                   activeTask.phase === 'summary' ? '📝 Generating Summary...' :
                   'Background Agent Working...'}
               </div>
               <div className={styles.goal}>{activeTask.goal}</div>
-              {!isComplete && !hasError && activeTask.currentStep && (
+              {!isComplete && activeTask.currentStep && (
                 <div className={styles.currentStep}>
                   {activeTask.phase === 2 
                     ? `${activeTask.currentStep}`
