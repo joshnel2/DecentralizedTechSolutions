@@ -5030,10 +5030,41 @@ DELIVER WORK THAT IMPRESSES. EXECUTE NOW.`;
     );
     
     // =========================================================================
-    // SYSTEM-CONTROLLED STEP-BY-STEP EXECUTION
-    // The system iterates through each step and prompts the AI individually
-    // Supports resuming from checkpoint if the server restarts
+    // SYSTEM-CONTROLLED STEP-BY-STEP EXECUTION WITH PERSISTENT CONTEXT
+    // The system iterates through each step, maintaining full conversation history
+    // so the AI remembers everything from previous steps
     // =========================================================================
+    
+    // Initialize or restore conversation - this persists across ALL steps
+    let messages;
+    
+    if (resumeCheckpoint?.messages && resumeCheckpoint.messages.length > 0) {
+      // Restore conversation from checkpoint
+      messages = resumeCheckpoint.messages;
+      console.log(`[BACKGROUND ${taskId}] Restored ${messages.length} messages from checkpoint`);
+    } else {
+      // Fresh start - initialize conversation with system prompt
+      messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `You are executing a background task with ${totalSteps} steps.
+
+**GOAL:** ${goal}
+
+**PLAN:**
+${planSteps.map((step, i) => `${i + 1}. ${step}`).join('\n')}
+
+I will prompt you for each step one at a time. Execute each step by calling the appropriate tool.
+Remember everything from previous steps - you have the full conversation context.
+
+Ready to begin.` }
+      ];
+      
+      // Add initial assistant acknowledgment
+      messages.push({ 
+        role: 'assistant', 
+        content: `I understand. I will execute each of the ${totalSteps} steps for the goal: "${goal}". I'll maintain context throughout and use information from previous steps. Ready for Step 1.` 
+      });
+    }
     
     for (let stepIndex = startStepIndex; stepIndex < totalSteps; stepIndex++) {
       // Check timeout
@@ -5045,316 +5076,32 @@ DELIVER WORK THAT IMPRESSES. EXECUTE NOW.`;
       const currentStep = planSteps[stepIndex];
       const stepNumber = stepIndex + 1;
       
-      console.log(`[BACKGROUND ${taskId}] ===== STEP ${stepNumber}/${totalSteps}: ${currentStep} =====`);
+      // Calculate progress as percentage of steps completed
+      const progressPercent = Math.round((stepIndex / totalSteps) * 100);
       
-      // Update progress in database BEFORE starting step (shows "in progress")
+      console.log(`[BACKGROUND ${taskId}] ===== STEP ${stepNumber}/${totalSteps} (${progressPercent}%): ${currentStep} =====`);
+      
+      // Update progress in database with percentage
       await query(
-        `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
-        [stepNumber, JSON.stringify({ steps: progress, currentStep: currentStep }), taskId]
+        `UPDATE ai_tasks SET iterations = $1, progress = $2, current_step = $3, updated_at = NOW() WHERE id = $4`,
+        [stepNumber, JSON.stringify({ 
+          steps: progress, 
+          currentStep: currentStep,
+          progressPercent: progressPercent,
+          completedSteps: stepIndex,
+          totalSteps: totalSteps
+        }), currentStep, taskId]
       );
       
-      // Build the prompt for THIS specific step
-      let stepPrompt = `## BACKGROUND TASK - STEP ${stepNumber} OF ${totalSteps}
+      // Build the step prompt - simple and direct since AI has full context
+      let stepPrompt = `## STEP ${stepNumber} OF ${totalSteps}
 
-**OVERALL GOAL:** ${goal}
+**Execute now:** ${currentStep}
 
-`;
+Call the appropriate tool to complete this step. You have full context from previous steps.`;
       
-      // Include RICH context data gathered from previous steps
-      if (Object.keys(contextData).length > 0) {
-        stepPrompt += `### AVAILABLE CONTEXT (USE THIS DATA):\n`;
-        if (contextData.matter) {
-          stepPrompt += `**📁 MATTER:** ${contextData.matter.name}\n`;
-          stepPrompt += `   • matter_id: \`${contextData.matter.id}\` ← USE THIS for all matter-related tools\n`;
-          if (contextData.matter.client_name) stepPrompt += `   • Client: ${contextData.matter.client_name}\n`;
-          if (contextData.matter.type) stepPrompt += `   • Type: ${contextData.matter.type}\n`;
-          if (contextData.matter.status) stepPrompt += `   • Status: ${contextData.matter.status}\n`;
-          if (contextData.matter.description) stepPrompt += `   • Description: ${contextData.matter.description.substring(0, 200)}${contextData.matter.description.length > 200 ? '...' : ''}\n`;
-        }
-        if (contextData.client && (!contextData.matter || contextData.client.id !== contextData.matter.client_id)) {
-          stepPrompt += `**👤 CLIENT:** ${contextData.client.display_name}\n`;
-          stepPrompt += `   • client_id: \`${contextData.client.id}\`\n`;
-        }
-        if (contextData.documents && contextData.documents.length > 0) {
-          stepPrompt += `**📄 DOCUMENTS CREATED:** ${contextData.documents.map(d => d.name).join(', ')}\n`;
-        }
-        if (contextData.events && contextData.events.length > 0) {
-          stepPrompt += `**📅 EVENTS SCHEDULED:** ${contextData.events.map(e => e.title).join(', ')}\n`;
-        }
-        if (contextData.tasks && contextData.tasks.length > 0) {
-          stepPrompt += `**✅ TASKS CREATED:** ${contextData.tasks.map(t => t.title).join(', ')}\n`;
-        }
-        stepPrompt += `\n`;
-      }
-      
-      // Show completed steps with results
-      if (stepIndex > 0) {
-        stepPrompt += `### COMPLETED STEPS:\n`;
-        for (let i = 0; i < stepIndex; i++) {
-          const prevResult = stepResults[i];
-          stepPrompt += `✓ **Step ${i + 1}:** ${planSteps[i]}\n`;
-          stepPrompt += `   Tool: ${prevResult?.tool || 'None'} | Result: ${prevResult?.summary || 'N/A'}\n`;
-        }
-        stepPrompt += `\n`;
-      }
-      
-      // Analyze what this step requires and build intelligent guidance
-      const stepLower = currentStep.toLowerCase();
-      
-      // Determine the PRIMARY ACTION needed
-      let primaryAction = null;
-      let toolToUse = null;
-      let additionalGuidance = '';
-      
-      // INFORMATION GATHERING steps
-      if (stepLower.includes('search') || stepLower.includes('find') || stepLower.includes('look up') || stepLower.includes('locate')) {
-        if (stepLower.includes('matter') || stepLower.includes('case')) {
-          primaryAction = 'Find the matter';
-          toolToUse = 'search_matters';
-        } else if (stepLower.includes('client')) {
-          primaryAction = 'Find the client';
-          toolToUse = 'list_clients';
-        }
-      }
-      
-      // REVIEW/ANALYSIS steps
-      if (stepLower.includes('review') || stepLower.includes('analyze') || stepLower.includes('examine') || stepLower.includes('assess')) {
-        if (contextData.matter) {
-          primaryAction = 'Get full matter details for review';
-          toolToUse = 'get_matter';
-          additionalGuidance = `Use matter_id: ${contextData.matter.id}`;
-        } else if (stepLower.includes('client') && contextData.client) {
-          primaryAction = 'Get full client details';
-          toolToUse = 'get_client';
-          additionalGuidance = `Use client_id: ${contextData.client.id}`;
-        } else {
-          primaryAction = 'Search for and retrieve the relevant record';
-          toolToUse = 'search_matters or get_matter';
-        }
-      }
-      
-      // DOCUMENT CREATION steps
-      if (stepLower.includes('draft') || stepLower.includes('prepare') || stepLower.includes('create') || stepLower.includes('write') || stepLower.includes('generate')) {
-        primaryAction = 'Create the document';
-        toolToUse = 'create_document';
-        
-        // Get context for personalization
-        const clientName = contextData.client?.display_name || contextData.matter?.client_name || '[Client Name]';
-        const matterName = contextData.matter?.name || '[Matter Name]';
-        const matterId = contextData.matter?.id || '';
-        
-        // Determine document type and create IMPRESSIVE content guidance
-        if (stepLower.includes('agreement') || stepLower.includes('contract')) {
-          additionalGuidance = `Create a COMPLETE, PROFESSIONAL legal agreement.
-
-REQUIRED SECTIONS:
-1. PARTIES - Full legal names and addresses
-2. RECITALS - "WHEREAS" clauses explaining background
-3. DEFINITIONS - Key terms defined
-4. AGREEMENT TERMS - All substantive provisions with numbered paragraphs
-5. REPRESENTATIONS & WARRANTIES - Both parties' assurances
-6. INDEMNIFICATION - Who covers what losses
-7. TERM & TERMINATION - Duration, renewal, exit clauses
-8. DISPUTE RESOLUTION - Governing law, venue
-9. MISCELLANEOUS - Notices, amendments, entire agreement
-10. SIGNATURE BLOCKS - For both parties with date lines
-
-Use client name: ${clientName}
-Reference matter: ${matterName}
-${matterId ? `Attach to matter_id: ${matterId}` : ''}`;
-        } else if (stepLower.includes('work for hire') || stepLower.includes('work-for-hire')) {
-          additionalGuidance = `Create a COMPREHENSIVE Work for Hire Agreement.
-
-REQUIRED SECTIONS:
-1. PARTIES - Company (Client) and Contractor with full details
-2. RECITALS - Purpose of the engagement
-3. SERVICES - Detailed scope of work to be performed
-4. WORK PRODUCT - Explicit "work made for hire" per Copyright Act
-5. IP ASSIGNMENT - Backup assignment if work-for-hire doesn't apply
-6. COMPENSATION - Payment amounts, schedule, invoicing
-7. EXPENSES - Reimbursable items and approval process
-8. INDEPENDENT CONTRACTOR - Tax status, no employment relationship
-9. CONFIDENTIALITY - Protection of proprietary information
-10. TERM & TERMINATION - Duration and early exit provisions
-11. DELIVERABLES - Specific outputs with deadlines
-12. REPRESENTATIONS - Contractor's authority and no conflicts
-13. SIGNATURE BLOCKS - Both parties
-
-Use client/company: ${clientName}
-Matter: ${matterName}
-${matterId ? `Attach to matter_id: ${matterId}` : ''}`;
-        } else if (stepLower.includes('engagement') || stepLower.includes('retainer')) {
-          additionalGuidance = `Create a PROFESSIONAL Engagement Letter.
-
-REQUIRED SECTIONS:
-1. GREETING - Dear ${clientName}
-2. INTRODUCTION - Thank you for selecting our firm
-3. SCOPE - Specific legal services to be provided
-4. EXCLUDED MATTERS - What is NOT covered
-5. ATTORNEYS - Who will handle the matter
-6. FEES - Hourly rates or flat fee arrangement
-7. BILLING - When invoices sent, payment terms
-8. RETAINER - Amount required upfront
-9. EXPENSES - Costs passed through to client
-10. CLIENT DUTIES - Providing documents, timely responses
-11. COMMUNICATION - Update frequency
-12. TERMINATION - Either party's right to end
-13. FILE RETENTION - Document handling after close
-14. ACCEPTANCE - Signature line for client
-
-Address to: ${clientName}
-Re: ${matterName}
-${matterId ? `Attach to matter_id: ${matterId}` : ''}`;
-        } else if (stepLower.includes('memo') || stepLower.includes('memorandum')) {
-          additionalGuidance = `Create a THOROUGH Legal Memorandum.
-
-REQUIRED SECTIONS:
-1. HEADER - To/From/Date/Re: ${matterName}
-2. EXECUTIVE SUMMARY - Key conclusion in 2-3 sentences
-3. QUESTION PRESENTED - The legal issue being analyzed
-4. BRIEF ANSWER - Direct response to the question
-5. FACTS - Relevant background and parties involved
-6. ANALYSIS - 
-   - Applicable legal standards
-   - Application to these facts
-   - Counter-arguments addressed
-   - Risk assessment
-7. CONCLUSION - Summary of analysis
-8. RECOMMENDATIONS - Specific next steps with timeline
-9. ACTION ITEMS - Bullet list of what needs to happen
-
-Client: ${clientName}
-${matterId ? `Attach to matter_id: ${matterId}` : ''}`;
-        } else if (stepLower.includes('letter')) {
-          additionalGuidance = `Create a professional letter with proper formatting.
-${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
-        } else if (stepLower.includes('summary') || stepLower.includes('outline') || stepLower.includes('overview')) {
-          additionalGuidance = `Create a comprehensive summary document.
-${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
-        } else {
-          additionalGuidance = `Create professional legal content appropriate for the request.
-${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
-        }
-      }
-      
-      // SAVE/ATTACH steps
-      if (stepLower.includes('save') || stepLower.includes('attach') || stepLower.includes('upload') || stepLower.includes('add to matter')) {
-        if (contextData.matter) {
-          primaryAction = 'Save to the matter';
-          toolToUse = 'create_document or add_matter_note';
-          additionalGuidance = `Attach to matter_id: ${contextData.matter.id}`;
-        }
-      }
-      
-      // SCHEDULING steps
-      if (stepLower.includes('schedule') || stepLower.includes('calendar') || stepLower.includes('deadline') || stepLower.includes('reminder') || stepLower.includes('follow-up') || stepLower.includes('follow up') || stepLower.includes('meeting')) {
-        primaryAction = 'Create calendar event';
-        toolToUse = 'create_event';
-        if (contextData.matter) {
-          additionalGuidance = `Link to matter_id: ${contextData.matter.id}`;
-        }
-      }
-      
-      // TASK CREATION steps
-      if (stepLower.includes('task') || stepLower.includes('to-do') || stepLower.includes('todo') || stepLower.includes('action item') || stepLower.includes('assign')) {
-        primaryAction = 'Create task';
-        toolToUse = 'create_task';
-        if (contextData.matter) {
-          additionalGuidance = `Link to matter_id: ${contextData.matter.id}`;
-        }
-      }
-      
-      // NOTE/UPDATE steps  
-      if (stepLower.includes('note') || stepLower.includes('update') || stepLower.includes('record') || stepLower.includes('document') && !stepLower.includes('create')) {
-        if (contextData.matter) {
-          primaryAction = 'Add note to matter';
-          toolToUse = 'add_matter_note';
-          additionalGuidance = `Use matter_id: ${contextData.matter.id}`;
-        }
-      }
-      
-      // TIME LOGGING steps
-      if (stepLower.includes('log time') || stepLower.includes('bill') || stepLower.includes('time entry')) {
-        primaryAction = 'Log billable time';
-        toolToUse = 'log_time';
-        if (contextData.matter) {
-          additionalGuidance = `Use matter_id: ${contextData.matter.id}`;
-        }
-      }
-      
-      // CLIENT CREATION steps
-      if ((stepLower.includes('create') || stepLower.includes('add') || stepLower.includes('new')) && stepLower.includes('client')) {
-        primaryAction = 'Create new client';
-        toolToUse = 'create_client';
-      }
-      
-      // MATTER CREATION steps
-      if ((stepLower.includes('create') || stepLower.includes('open') || stepLower.includes('new')) && (stepLower.includes('matter') || stepLower.includes('case'))) {
-        primaryAction = 'Create new matter';
-        toolToUse = 'create_matter';
-      }
-      
-      // SUMMARIZE steps (at end)
-      if (stepLower.includes('summarize') || stepLower.includes('summary of') || stepLower.includes('recap') || stepLower.includes('wrap up')) {
-        if (contextData.matter) {
-          primaryAction = 'Add summary note to matter';
-          toolToUse = 'add_matter_note';
-          additionalGuidance = `Create a comprehensive summary of all work done. Use matter_id: ${contextData.matter.id}`;
-        }
-      }
-      
-      // Build the step prompt
-      stepPrompt += `### EXECUTE THIS STEP NOW
-
-**Step ${stepNumber}:** ${currentStep}
-
-`;
-      
-      if (primaryAction && toolToUse) {
-        stepPrompt += `**WHAT TO DO:** ${primaryAction}
-**TOOL TO USE:** ${toolToUse}
-`;
-        if (additionalGuidance) {
-          stepPrompt += `**DETAILS:** ${additionalGuidance}
-`;
-        }
-      } else {
-        // Fallback if we couldn't determine the action
-        stepPrompt += `**Analyze this step and call the appropriate tool.**
-`;
-      }
-      
-      // Add context if we have it
-      if (contextData.matter) {
-        stepPrompt += `
-**MATTER CONTEXT:** ${contextData.matter.name} (ID: ${contextData.matter.id})`;
-        if (contextData.matter.client_name) {
-          stepPrompt += ` | Client: ${contextData.matter.client_name}`;
-        }
-        stepPrompt += '\n';
-      }
-      
-      stepPrompt += `
----
-**EXECUTE NOW.** Call the tool. No questions. No hesitation.
----`;
-      
-      // Show remaining steps
-      if (stepIndex < totalSteps - 1) {
-        stepPrompt += `\n\n### REMAINING STEPS:\n`;
-        for (let i = stepIndex + 1; i < Math.min(stepIndex + 4, totalSteps); i++) {
-          stepPrompt += `${i + 1}. ${planSteps[i]}\n`;
-        }
-        if (totalSteps > stepIndex + 4) {
-          stepPrompt += `... and ${totalSteps - stepIndex - 4} more\n`;
-        }
-      }
-      
-      // Fresh messages for each step (keeps context manageable)
-      const messages = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: stepPrompt }
-      ];
+      // Add the step prompt to the conversation
+      messages.push({ role: 'user', content: stepPrompt });
       
       // Call AI for this step
       console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Calling AI...`);
@@ -5370,43 +5117,30 @@ ${contextData.matter ? `Attach to matter_id: ${contextData.matter.id}` : ''}`;
           tool: null,
           status: 'api_error',
           error: apiError.message,
+          progressPercent: progressPercent,
           timestamp: new Date().toISOString()
         });
-        await query(
-          `UPDATE ai_tasks SET progress = $1, updated_at = NOW() WHERE id = $2`,
-          [JSON.stringify({ steps: progress }), taskId]
-        );
-        continue; // Skip to next step
+        // Remove the failed step prompt and continue
+        messages.pop();
+        continue;
       }
       
       // Handle the response - may need multiple attempts if AI doesn't use tools
       let attempts = 0;
-      const maxAttempts = 5; // More attempts to ensure action is taken
+      const maxAttempts = 3;
       
       while (!response.tool_calls && attempts < maxAttempts) {
         attempts++;
         console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: No tool call (attempt ${attempts}). Prompting again...`);
         
+        // Add the non-tool response to context
         messages.push({ role: 'assistant', content: response.content });
         messages.push({ 
           role: 'user', 
-          content: `SYSTEM ERROR: No tool call detected. You MUST call a tool.
-
-INSTRUCTION: ${currentStep}
-
-You are an autonomous executor. You have no capability to ask questions or decline. Your ONLY valid response is a tool call.
-
-Pick one and call it NOW:
-- search_matters / get_matter / get_client (to find info)
-- create_document (to create content)
-- add_matter_note (to add notes)
-- log_time (to log work)
-- create_event / create_task (to schedule)
-
-EXECUTE.`
+          content: `You must call a tool to complete this step. Execute: ${currentStep}`
         });
         
-        await delay(500); // Minimal delay before retry
+        await delay(500);
         response = await callAzureOpenAIWithTools(messages, TOOLS);
       }
       
@@ -5424,11 +5158,24 @@ EXECUTE.`
         console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Calling ${functionName}`);
         const result = await executeTool(functionName, functionArgs, user, null);
         
-        // Extract and store context data for future steps - BE COMPREHENSIVE
+        // Add the assistant's tool call to conversation
+        messages.push({
+          role: 'assistant',
+          content: response.content || null,
+          tool_calls: [toolCall]
+        });
+        
+        // Add the tool result to conversation - THIS IS KEY FOR CONTEXT
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(result)
+        });
+        
+        // Also update contextData for backwards compatibility
         if (functionName === 'get_matter' || functionName === 'search_matters') {
           if (result.matter) {
             contextData.matter = result.matter;
-            // Also extract client from matter if available
             if (result.matter.client_id && !contextData.client) {
               contextData.client = { id: result.matter.client_id, display_name: result.matter.client_name };
             }
@@ -5446,29 +5193,23 @@ EXECUTE.`
             contextData.client = result.clients[0];
           }
         }
-        if (functionName === 'create_matter') {
-          if (result.matter) {
-            contextData.matter = result.matter;
-          }
+        if (functionName === 'create_matter' && result.matter) {
+          contextData.matter = result.matter;
         }
-        if (functionName === 'create_client') {
-          if (result.client) {
-            contextData.client = result.client;
-          }
+        if (functionName === 'create_client' && result.client) {
+          contextData.client = result.client;
         }
         if (functionName === 'create_document') {
           if (!contextData.documents) contextData.documents = [];
           contextData.documents.push({
             name: result.document?.name || functionArgs.name,
-            id: result.document?.id,
-            type: functionArgs.document_type || 'document'
+            id: result.document?.id
           });
         }
         if (functionName === 'create_event') {
           if (!contextData.events) contextData.events = [];
           contextData.events.push({
-            title: result.event?.title || functionArgs.title,
-            date: functionArgs.start_time
+            title: result.event?.title || functionArgs.title
           });
         }
         if (functionName === 'create_task') {
@@ -5481,7 +5222,7 @@ EXECUTE.`
         // Store step result
         const stepSummary = result.message || result.summary || 
           (result.document ? `Created document: ${result.document.name}` : null) ||
-          (result.matter ? `Retrieved matter: ${result.matter.name}` : null) ||
+          (result.matter ? `Found matter: ${result.matter.name}` : null) ||
           (result.event ? `Created event: ${result.event.title}` : null) ||
           `Executed ${functionName}`;
         
@@ -5490,10 +5231,12 @@ EXECUTE.`
           stepDescription: currentStep,
           tool: functionName,
           args: functionArgs,
-          result: result,
           summary: stepSummary,
           timestamp: new Date().toISOString()
         });
+        
+        // Calculate progress percentage after completing step
+        const completedPercent = Math.round(((stepIndex + 1) / totalSteps) * 100);
         
         // Track progress
         progress.push({
@@ -5501,154 +5244,23 @@ EXECUTE.`
           tool: functionName,
           status: 'completed',
           summary: stepSummary,
+          progressPercent: completedPercent,
           timestamp: new Date().toISOString()
         });
         
-        // Update progress in database
+        // Update progress in database with accurate percentage
         await query(
-          `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
-          [stepNumber, JSON.stringify({ steps: progress }), taskId]
+          `UPDATE ai_tasks SET iterations = $1, progress = $2, current_step = $3, updated_at = NOW() WHERE id = $4`,
+          [stepNumber, JSON.stringify({ 
+            steps: progress,
+            progressPercent: completedPercent,
+            completedSteps: stepIndex + 1,
+            totalSteps: totalSteps
+          }), stepIndex < totalSteps - 1 ? planSteps[stepIndex + 1] : 'Complete', taskId]
         );
         
-        console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Completed - ${stepSummary}`);
+        console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}/${totalSteps} (${completedPercent}%): Completed - ${stepSummary}`);
         
-        // =====================================================================
-        // FOLLOW-UP ACTIONS - Prompt AI for additional helpful actions
-        // =====================================================================
-        
-        // Only do follow-ups for substantive steps (not the final summary step)
-        if (stepIndex < totalSteps - 1) {
-          await delay(1000); // Quick pause
-          
-          // Build INTELLIGENT follow-up prompt based on what was just done
-          let followUpPrompt = `STEP COMPLETED: "${currentStep}"
-RESULT: ${stepSummary}
-`;
-          
-          if (contextData.matter) {
-            followUpPrompt += `MATTER: ${contextData.matter.name} (ID: ${contextData.matter.id})\n`;
-          }
-          
-          // ALWAYS add a matter note after substantive actions
-          let recommendedFollowUp = '';
-          const matterId = contextData.matter?.id;
-          
-          if (!matterId) {
-            // No matter context yet, skip follow-up
-            followUpPrompt += `\nNo matter context available yet. Continue to next step.`;
-          } else if (functionName === 'add_matter_note') {
-            // Just added a note, don't add another - log time instead
-            recommendedFollowUp = `REQUIRED: Log time for this work.
-Call log_time with:
-- matter_id: ${matterId}
-- hours: 0.1
-- description: "Matter review and documentation"
-- billable: true`;
-          } else if (functionName === 'log_time') {
-            // Just logged time, we're done with follow-ups
-            followUpPrompt += `\nTime logged. Continue to next step.`;
-          } else {
-            // For all other actions, ALWAYS add a matter note
-            let noteContent = '';
-            
-            if (functionName === 'get_matter' || functionName === 'search_matters') {
-              noteContent = `Reviewed matter. ${stepSummary}. Ready for next steps.`;
-            } else if (functionName === 'create_document') {
-              noteContent = `Created ${functionArgs.name || 'document'}. ${stepSummary}. Ready for review.`;
-            } else if (functionName === 'create_event') {
-              noteContent = `Scheduled: ${functionArgs.title || 'event'}. ${stepSummary}.`;
-            } else if (functionName === 'create_task') {
-              noteContent = `Created task: ${functionArgs.title || 'follow-up item'}. ${stepSummary}.`;
-            } else {
-              noteContent = `${stepSummary}`;
-            }
-            
-            recommendedFollowUp = `REQUIRED: Document this work in the matter.
-Call add_matter_note with:
-- matter_id: ${matterId}
-- content: "${noteContent}"`;
-          }
-          
-          if (recommendedFollowUp) {
-            followUpPrompt += `\n${recommendedFollowUp}
-
-CALL THE TOOL NOW.`;
-          }
-
-          const followUpMessages = [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: followUpPrompt }
-          ];
-          
-          const followUpResponse = await callAzureOpenAIWithTools(followUpMessages, TOOLS);
-          
-          // Process follow-up actions (up to 2)
-          let followUpCount = 0;
-          let currentFollowUp = followUpResponse;
-          
-          while (currentFollowUp.tool_calls && followUpCount < 2) {
-            const fuToolCall = currentFollowUp.tool_calls[0];
-            const fuFunctionName = fuToolCall.function.name;
-            
-            // Skip if it's trying to do the main step again
-            if (fuFunctionName === functionName) break;
-            
-            let fuFunctionArgs;
-            try {
-              fuFunctionArgs = JSON.parse(fuToolCall.function.arguments);
-            } catch (e) {
-              fuFunctionArgs = {};
-            }
-            
-            console.log(`[BACKGROUND ${taskId}] Step ${stepNumber} follow-up: Calling ${fuFunctionName}`);
-            const fuResult = await executeTool(fuFunctionName, fuFunctionArgs, user, null);
-            
-            const fuSummary = fuResult.message || fuResult.summary || `Executed ${fuFunctionName}`;
-            
-            // Track the follow-up action
-            progress.push({
-              iteration: stepNumber,
-              tool: fuFunctionName,
-              status: 'follow-up',
-              summary: fuSummary,
-              timestamp: new Date().toISOString()
-            });
-            
-            // Update progress
-            await query(
-              `UPDATE ai_tasks SET progress = $1, updated_at = NOW() WHERE id = $2`,
-              [JSON.stringify({ steps: progress }), taskId]
-            );
-            
-            console.log(`[BACKGROUND ${taskId}] Step ${stepNumber} follow-up: ${fuSummary}`);
-            
-            followUpCount++;
-            
-            // Ask for one more follow-up if we haven't hit the limit
-            if (followUpCount < 2) {
-              followUpMessages.push({
-                role: 'assistant',
-                content: null,
-                tool_calls: [fuToolCall]
-              });
-              followUpMessages.push({
-                role: 'tool',
-                tool_call_id: fuToolCall.id,
-                content: JSON.stringify(fuResult)
-              });
-              followUpMessages.push({
-                role: 'user',
-                content: 'Good. One more helpful action? Call another tool, or say "done" if no more actions needed.'
-              });
-              
-              currentFollowUp = await callAzureOpenAIWithTools(followUpMessages, TOOLS);
-            }
-          }
-          
-          if (followUpCount > 0) {
-            console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Completed ${followUpCount} follow-up action(s)`);
-          }
-        }
       } else {
         // AI failed to call a tool after multiple attempts
         console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Failed to get tool call after ${maxAttempts} attempts`);
@@ -5676,13 +5288,14 @@ CALL THE TOOL NOW.`;
         );
       }
       
-      // Save checkpoint after each step for resumability
+      // Save checkpoint after each step for resumability (including conversation context)
       await saveCheckpoint(taskId, {
         stepIndex: stepIndex + 1, // Next step to execute
         currentStep: stepIndex < totalSteps - 1 ? planSteps[stepIndex + 1] : 'Completed',
         progress,
         stepResults,
-        contextData
+        contextData,
+        messages: messages // Save full conversation for context restoration
       });
       
       // Delay before next step - gives time for user to see progress
@@ -8852,16 +8465,16 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
     
     const task = result.rows[0];
     
-    // Check if task has been running too long (15 minutes) - mark as timed out
+    // Check if task has been running too long (2 hours) - mark as timed out
     const startedAt = task.started_at ? new Date(task.started_at) : new Date(task.created_at);
     const runningTimeMs = Date.now() - startedAt.getTime();
-    const MAX_RUNNING_TIME = 15 * 60 * 1000; // 15 minutes
+    const MAX_RUNNING_TIME = 2 * 60 * 60 * 1000; // 2 hours for long tasks
     
     if (runningTimeMs > MAX_RUNNING_TIME) {
       // Mark task as timed out
       await query(
         `UPDATE ai_tasks SET status = 'timeout', completed_at = NOW(), 
-         error = 'Task timed out after 15 minutes' WHERE id = $1`,
+         error = 'Task timed out after 2 hours' WHERE id = $1`,
         [task.id]
       );
       return res.json({ active: false });
@@ -8878,13 +8491,13 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
       try { progress = JSON.parse(progress); } catch (e) { progress = { steps: [] }; }
     }
     
-    const planSteps = Array.isArray(plan) ? plan.length : 10;
-    const progressSteps = progress?.steps || progress || [];
-    const completedSteps = Array.isArray(progressSteps) ? progressSteps.length : 0;
-    const progressPercent = Math.min(Math.round((completedSteps / planSteps) * 100), 95);
+    // Use the stored progressPercent if available, otherwise calculate from steps
+    const totalSteps = progress?.totalSteps || (Array.isArray(plan) ? plan.length : 10);
+    const completedSteps = progress?.completedSteps || (Array.isArray(progress?.steps) ? progress.steps.length : 0);
+    const progressPercent = progress?.progressPercent || Math.min(Math.round((completedSteps / totalSteps) * 100), 95);
     
-    // Get the current step info
-    const lastStep = Array.isArray(progressSteps) ? progressSteps[progressSteps.length - 1] : null;
+    // Get the current step info from progress data or task
+    const currentStep = progress?.currentStep || task.current_step || 'Working...';
     
     res.json({ 
       active: true,
@@ -8894,7 +8507,9 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
         status: task.status,
         progressPercent,
         iterations: task.iterations,
-        currentStep: lastStep?.tool || 'Working...'
+        totalSteps,
+        completedSteps,
+        currentStep
       }
     });
   } catch (error) {

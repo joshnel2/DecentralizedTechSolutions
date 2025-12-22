@@ -10,6 +10,8 @@ interface ActiveTask {
   status: string
   progressPercent: number
   iterations: number
+  totalSteps?: number
+  completedSteps?: number
   currentStep: string
   result?: string
 }
@@ -162,7 +164,10 @@ export function BackgroundTaskBar() {
               <div className={styles.goal}>{activeTask.goal}</div>
               {!isComplete && !hasError && activeTask.currentStep && (
                 <div className={styles.currentStep}>
-                  Step {activeTask.iterations}: {activeTask.currentStep}
+                  {activeTask.totalSteps 
+                    ? `Step ${activeTask.completedSteps || 0}/${activeTask.totalSteps}: ${activeTask.currentStep}`
+                    : `${activeTask.currentStep}`
+                  }
                 </div>
               )}
             </div>
