@@ -924,7 +924,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "start_background_task",
-      description: "REQUIRED for complex tasks! Start a background task that shows a progress bar to the user. USE THIS when: user says 'background', 'review', 'analyze', 'audit', 'research', 'prepare', 'draft', or any task needing multiple steps. The user will see real-time progress while you work. IMPORTANT: Each step in the plan should be a SINGLE, SPECIFIC action (e.g., 'Search for the Smith matter' not 'Review the case'). Include time tracking steps!",
+      description: "REQUIRED for complex tasks! Start a background task that shows a progress bar to the user. USE THIS when: user says 'background', 'review', 'analyze', 'audit', 'research', 'prepare', 'draft', or any task needing multiple steps. The user will see real-time progress while you work. IMPORTANT: Each step in the plan should be a SINGLE, SPECIFIC action (e.g., 'Search for the Smith matter' not 'Review the case').",
       parameters: {
         type: "object",
         properties: {
@@ -932,7 +932,7 @@ const TOOLS = [
           plan: { 
             type: "array", 
             items: { type: "string" }, 
-            description: "List of SINGULAR, SPECIFIC steps. Each step = one tool call. Example good steps: 'Search for the matter by name', 'Get full matter details', 'Read the engagement letter document', 'Draft settlement agreement', 'Add note summarizing review', 'Log 0.3 hours for case review'. Example BAD steps: 'Review case' (too vague), 'Create documents' (too broad)."
+            description: "List of SINGULAR, SPECIFIC steps. Each step = one tool call. Example good steps: 'Search for the matter by name', 'Get full matter details', 'Read the engagement letter document', 'Draft settlement agreement PDF', 'Add note summarizing review'. Example BAD steps: 'Review case' (too vague), 'Create documents' (too broad)."
           },
           estimated_steps: { type: "number", description: "Estimated number of actions needed (should match plan length)" },
           matter_id: { type: "string", description: "Optional: Related matter ID if known" },
@@ -5050,26 +5050,24 @@ You are an intelligent autonomous agent that thinks strategically and executes d
 - "Create/Open new matter" → create_matter
 - "Create/Add new client" → create_client
 
-### 🕐 MANDATORY TIME TRACKING
+### 🕐 TIME TRACKING - USER CONTROLLED
 
-**CRITICAL: You MUST log time entries for all substantive work performed.**
+**IMPORTANT: Do NOT automatically log time. Only log time when the user explicitly tells you how much time to log.**
 
-After completing major steps, use log_time with:
+If the user says something like:
+- "Log 0.5 hours for this work" → log_time with hours: 0.5
+- "Bill 30 minutes" → log_time with hours: 0.5
+- "Track 1 hour" → log_time with hours: 1.0
+
+If the user asks you to track time but doesn't specify the amount:
+- Ask them: "How much time should I log for this work?"
+- Do NOT guess or estimate the time yourself
+
+When logging time (only when user specifies):
 - matter_id: The matter you're working on
-- hours: Reasonable estimate (0.1 to 0.5 per task typically)
+- hours: The EXACT amount the user specified
 - description: Specific description of work done
-- billable: true (unless pro bono)
-
-**Time estimates for common tasks:**
-- Reviewing matter/case files: 0.2 - 0.3 hours
-- Drafting standard document: 0.3 - 0.5 hours
-- Drafting complex document: 0.5 - 1.0 hours
-- Research and analysis: 0.2 - 0.4 hours
-- Preparing correspondence/email: 0.1 - 0.2 hours
-- Creating case summary: 0.2 - 0.3 hours
-
-Example: After drafting a contract, call:
-log_time({ matter_id: "...", hours: 0.4, description: "Draft initial engagement letter with scope of services and fee arrangement", billable: true })
+- billable: true (unless user says otherwise)
 
 ### DOCUMENT CREATION STANDARDS:
 
@@ -5118,7 +5116,7 @@ When planning complex tasks, think creatively about what would ACTUALLY help:
 4. Draft case status memo for file
 5. Identify upcoming deadlines and create calendar events
 6. Create follow-up tasks for next steps
-7. Log time for all review work
+7. Add detailed notes to the matter
 
 **Document Preparation might include:**
 1. Research applicable requirements
@@ -5126,7 +5124,7 @@ When planning complex tasks, think creatively about what would ACTUALLY help:
 3. Create supporting schedules/exhibits
 4. Draft cover letter
 5. Create task for client review/signature
-6. Log time for drafting work
+6. Add notes documenting what was prepared
 
 **Client Onboarding might include:**
 1. Create client record with all details
@@ -5135,7 +5133,6 @@ When planning complex tasks, think creatively about what would ACTUALLY help:
 4. Create welcome email draft
 5. Set up initial consultation calendar event
 6. Create onboarding checklist tasks
-7. Log time for setup work
 
 ### DELIVER REAL VALUE - NO BULLSHIT:
 
@@ -5171,8 +5168,8 @@ Use add_matter_note with the matter_id after every substantive step.
 3. **BE SPECIFIC** - Provide complete, detailed arguments to tools
 4. **NO QUESTIONS** - Make reasonable assumptions and proceed
 5. **QUALITY OVER SPEED** - Take your time to produce impressive work
-6. **LOG YOUR TIME** - After completing substantive work, always log time!
-7. **DOCUMENT EVERYTHING** - Add notes to the matter after each step
+6. **DOCUMENT EVERYTHING** - Add notes to the matter after each step
+7. **TIME TRACKING** - Only log time when the user specifies the amount
 
 DELIVER WORK THAT IMPRESSES. EXECUTE NOW.`;
 
@@ -8617,10 +8614,10 @@ Each step in your plan should map to exactly ONE tool call. Be specific!
 - "Get full matter details including documents and billing"
 - "Read the engagement letter document content"
 - "Read the complaint document content"
-- "Draft case status memo summarizing key facts"
+- "Draft case status memo PDF summarizing key facts"
 - "Add note to matter with review findings"
 - "Create follow-up task for client call"
-- "Log 0.3 hours for case file review"
+- "Create calendar event for next deadline"
 
 ### Example - Comprehensive Case Review:
 \`\`\`
@@ -8633,13 +8630,12 @@ start_background_task({
     "Read the answer document to understand defenses",
     "Get all time entries to review work done",
     "Get billing information and outstanding invoices",
-    "Draft comprehensive case status memo",
-    "Add detailed note to matter summarizing review",
+    "Draft comprehensive case status memo as PDF",
+    "Add detailed note to matter summarizing review findings",
     "Create calendar event for next case milestone",
-    "Create task for attorney to review AI summary",
-    "Log 0.4 hours for comprehensive case review"
+    "Create task for attorney to review AI summary"
   ],
-  estimated_steps: 11
+  estimated_steps: 10
 })
 \`\`\`
 
@@ -8652,13 +8648,12 @@ start_background_task({
     "Get client details including contact info",
     "Search for the related matter",
     "Get matter details including billing rate",
-    "Draft professional engagement letter with scope and fees",
+    "Draft professional engagement letter PDF with scope and fees",
     "Draft welcome email to client",
     "Add note to matter documenting documents created",
-    "Create task for client to sign engagement letter",
-    "Log 0.5 hours for drafting engagement materials"
+    "Create task for client to sign engagement letter"
   ],
-  estimated_steps: 9
+  estimated_steps: 8
 })
 \`\`\`
 
