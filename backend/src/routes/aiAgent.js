@@ -5251,12 +5251,49 @@ Ready to begin.` }
         }), currentStep, taskId]
       );
       
-      // Build the step prompt - simple and direct since AI has full context
+      // Build the step prompt - EXPLICIT about which tool to use
+      let suggestedTool = '';
+      const stepLower = currentStep.toLowerCase();
+      
+      if (stepLower.includes('search') || stepLower.includes('find') || stepLower.includes('locate')) {
+        if (stepLower.includes('matter')) suggestedTool = 'USE TOOL: search_matters';
+        else if (stepLower.includes('client')) suggestedTool = 'USE TOOL: list_clients';
+        else if (stepLower.includes('document')) suggestedTool = 'USE TOOL: list_documents';
+      } else if (stepLower.includes('get') || stepLower.includes('review') || stepLower.includes('examine')) {
+        if (stepLower.includes('matter')) suggestedTool = 'USE TOOL: get_matter (with matter_id from previous step)';
+        else if (stepLower.includes('client')) suggestedTool = 'USE TOOL: get_client';
+      } else if (stepLower.includes('create') || stepLower.includes('draft') || stepLower.includes('prepare') || stepLower.includes('write')) {
+        if (stepLower.includes('document') || stepLower.includes('letter') || stepLower.includes('agreement') || stepLower.includes('contract') || stepLower.includes('memo')) {
+          suggestedTool = 'USE TOOL: create_document with { name: "Document Name", content: "Full document content...", matter_id: "uuid" }';
+        } else if (stepLower.includes('email')) {
+          suggestedTool = 'USE TOOL: draft_email with { to: "email@example.com", subject: "Subject", body: "Email body..." }';
+        } else if (stepLower.includes('note')) {
+          suggestedTool = 'USE TOOL: add_matter_note with { matter_id: "uuid", content: "Note content..." }';
+        } else if (stepLower.includes('matter')) {
+          suggestedTool = 'USE TOOL: create_matter';
+        } else if (stepLower.includes('client')) {
+          suggestedTool = 'USE TOOL: create_client';
+        }
+      } else if (stepLower.includes('calendar') || stepLower.includes('schedule') || stepLower.includes('deadline') || stepLower.includes('meeting') || stepLower.includes('event') || stepLower.includes('reminder')) {
+        suggestedTool = 'USE TOOL: create_calendar_event with { title: "Event Title", start_time: "2025-01-20T10:00:00", type: "meeting|deadline|reminder", matter_id: "uuid" }';
+      } else if (stepLower.includes('task') || stepLower.includes('to-do') || stepLower.includes('todo') || stepLower.includes('follow-up') || stepLower.includes('followup')) {
+        suggestedTool = 'USE TOOL: create_task with { title: "Task Title", due_date: "2025-01-20", matter_id: "uuid" }';
+      } else if (stepLower.includes('log time') || stepLower.includes('time entry') || stepLower.includes('bill')) {
+        suggestedTool = 'USE TOOL: log_time with { matter_id: "uuid", hours: 0.5, description: "Work description", date: "2025-01-15" }';
+      } else if (stepLower.includes('note') || stepLower.includes('add note') || stepLower.includes('document') && stepLower.includes('work')) {
+        suggestedTool = 'USE TOOL: add_matter_note with { matter_id: "uuid", content: "Detailed note..." }';
+      } else if (stepLower.includes('update')) {
+        if (stepLower.includes('matter')) suggestedTool = 'USE TOOL: update_matter';
+        else if (stepLower.includes('status')) suggestedTool = 'USE TOOL: update_matter with { matter_id: "uuid", status: "active" }';
+      }
+      
       let stepPrompt = `## STEP ${stepNumber} OF ${totalSteps}
 
-**Execute now:** ${currentStep}
+**EXECUTE NOW:** ${currentStep}
 
-Call the appropriate tool to complete this step. You have full context from previous steps.`;
+${suggestedTool ? `**${suggestedTool}**` : ''}
+
+You MUST call a tool. Do NOT respond with text only.`;
       
       // Add the step prompt to the conversation
       messages.push({ role: 'user', content: stepPrompt });
@@ -5662,14 +5699,32 @@ DO NOT skip the matter note or time entry. These are mandatory for every task.`;
         }), `Phase 2: ${currentStep}`, taskId]
       );
       
-      // Build step prompt
+      // Build step prompt - EXPLICIT about which tool to use
+      let suggestedTool2 = '';
+      const step2Lower = currentStep.toLowerCase();
+      
+      if (step2Lower.includes('note') || step2Lower.includes('summariz') || step2Lower.includes('document work')) {
+        suggestedTool2 = 'USE TOOL: add_matter_note with { matter_id: "[use matter_id from context]", content: "Detailed summary of work completed..." }';
+      } else if (step2Lower.includes('time') || step2Lower.includes('log') || step2Lower.includes('bill')) {
+        suggestedTool2 = 'USE TOOL: log_time with { matter_id: "[use matter_id from context]", hours: 0.5, description: "Work performed...", date: "' + new Date().toISOString().split('T')[0] + '" }';
+      } else if (step2Lower.includes('calendar') || step2Lower.includes('schedule') || step2Lower.includes('deadline') || step2Lower.includes('meeting') || step2Lower.includes('reminder') || step2Lower.includes('event')) {
+        suggestedTool2 = 'USE TOOL: create_calendar_event with { title: "Event Title", start_time: "2025-01-20T10:00:00", type: "deadline|reminder|meeting", matter_id: "[use matter_id from context]" }';
+      } else if (step2Lower.includes('email') || step2Lower.includes('draft')) {
+        suggestedTool2 = 'USE TOOL: draft_email with { to: "[client email]", subject: "Subject", body: "Email content..." }';
+      } else if (step2Lower.includes('task') || step2Lower.includes('to-do') || step2Lower.includes('follow-up')) {
+        suggestedTool2 = 'USE TOOL: create_task with { title: "Task Title", due_date: "2025-01-20", matter_id: "[use matter_id from context]" }';
+      } else if (step2Lower.includes('update') || step2Lower.includes('status')) {
+        suggestedTool2 = 'USE TOOL: update_matter with { matter_id: "[use matter_id from context]", status: "active" }';
+      }
+      
       const phase2StepPrompt = `
-PHASE 2 - Follow-up Task ${step2Index + 1}/${phase2TotalSteps}:
+## PHASE 2 - Follow-up Task ${step2Index + 1}/${phase2TotalSteps}
 
 **EXECUTE NOW:** ${currentStep}
 
-Remember: You have context from Phase 1. Use the matter_id, client_id, and other information from earlier steps.
-Call the appropriate tool to complete this follow-up action.`;
+${suggestedTool2 ? `**${suggestedTool2}**` : ''}
+
+Use the matter_id and client_id from Phase 1. You MUST call a tool.`;
 
       messages.push({ role: 'user', content: phase2StepPrompt });
       
