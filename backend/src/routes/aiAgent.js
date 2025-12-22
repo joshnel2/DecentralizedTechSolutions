@@ -4965,8 +4965,8 @@ async function processBackgroundTask(taskId, user, goal, plan, resumeCheckpoint 
   let contextData = resumeCheckpoint?.contextData || {};
   let startStepIndex = resumeCheckpoint?.stepIndex || 0;
   
-  // Delay between each step - give AI time to process and avoid rate limits
-  const STEP_DELAY_MS = 8 * 1000; // 8 seconds between steps
+  // Delay between each step - give AI time to process
+  const STEP_DELAY_MS = 2 * 60 * 1000; // 2 minutes between steps
   
   // Helper to trim messages to avoid context overflow
   // Keeps system prompt, initial context, and recent messages
