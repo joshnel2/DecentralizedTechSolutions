@@ -5634,11 +5634,58 @@ Call the appropriate tool to complete this follow-up action.`;
       let response;
       try {
         response = await callAzureOpenAIWithTools(messages, TOOLS);
-      } catch (err) {
-        console.error(`[BACKGROUND ${taskId}] Phase 2 step ${step2Index + 1} error:`, err.message);
+        console.log(`[BACKGROUND ${taskId}] Phase 2 Step ${step2Index + 1}: AI response received. Tool calls: ${response.tool_calls?.length || 0}`);
+      } catch (apiError) {
+        console.error(`[BACKGROUND ${taskId}] Phase 2 Step ${step2Index + 1}: API error:`, apiError.message);
+        
+        // Update progress to show error
+        progress.push({
+          iteration: stepNumber,
+          tool: null,
+          status: 'api_error',
+          error: apiError.message,
+          phase: 2,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Wait and then continue
+        await delay(10000);
+        messages.pop(); // Remove the failed prompt
         continue;
       }
       
+      // Handle the response - may need multiple attempts if AI doesn't use tools
+      let attempts = 0;
+      const maxAttempts = 3;
+      
+      while (!response.tool_calls && attempts < maxAttempts) {
+        attempts++;
+        console.log(`[BACKGROUND ${taskId}] Phase 2 Step ${step2Index + 1}: No tool call (attempt ${attempts}). Prompting again...`);
+        
+        // Add the non-tool response to context
+        messages.push({ role: 'assistant', content: response.content });
+        messages.push({ 
+          role: 'user', 
+          content: `You MUST call a tool now. Execute this action: ${currentStep}
+
+Use one of these tools:
+- add_matter_note: To add a note to the matter
+- log_time: To log billable time
+- create_calendar_event: To create a calendar event
+- draft_email: To draft an email
+- create_document: To create a document`
+        });
+        
+        await delay(1000);
+        try {
+          response = await callAzureOpenAIWithTools(messages, TOOLS);
+        } catch (retryError) {
+          console.error(`[BACKGROUND ${taskId}] Phase 2 retry error:`, retryError.message);
+          break;
+        }
+      }
+      
+      // Process the tool call if we got one
       if (response?.tool_calls && response.tool_calls.length > 0) {
         const toolCall = response.tool_calls[0];
         const functionName = toolCall.function.name;
@@ -5695,9 +5742,21 @@ Call the appropriate tool to complete this follow-up action.`;
         });
         
         console.log(`[BACKGROUND ${taskId}] Phase 2 Step ${step2Index + 1}: Completed - ${stepSummary}`);
+      } else {
+        // AI didn't call a tool after multiple attempts
+        console.log(`[BACKGROUND ${taskId}] Phase 2 Step ${step2Index + 1}: No tool call after ${maxAttempts} attempts, skipping`);
+        
+        progress.push({
+          iteration: stepNumber,
+          tool: null,
+          status: 'skipped',
+          summary: `Step skipped - AI did not execute tool for: ${currentStep}`,
+          phase: 2,
+          timestamp: new Date().toISOString()
+        });
       }
       
-      // Brief delay between phase 2 steps
+      // Delay between phase 2 steps
       if (step2Index < phase2TotalSteps - 1) {
         await delay(STEP_DELAY_MS);
       }
