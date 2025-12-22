@@ -4730,6 +4730,89 @@ async function addMatterNote(args, user) {
 // In-memory task queue for background processing
 const activeTasks = new Map();
 
+// =============================================================================
+// CHECKPOINT HELPERS - Enable resumable long-running tasks
+// =============================================================================
+
+async function saveCheckpoint(taskId, state) {
+  try {
+    await query(
+      `UPDATE ai_tasks SET 
+       checkpoint = $1,
+       checkpoint_at = NOW(),
+       current_step = $2,
+       updated_at = NOW()
+       WHERE id = $3`,
+      [
+        JSON.stringify(state),
+        state.currentStep || null,
+        taskId
+      ]
+    );
+    console.log(`[CHECKPOINT] Saved checkpoint for task ${taskId} at step ${state.stepIndex}`);
+  } catch (error) {
+    console.error(`[CHECKPOINT] Failed to save checkpoint for task ${taskId}:`, error.message);
+  }
+}
+
+async function loadCheckpoint(taskId) {
+  try {
+    const result = await query(
+      `SELECT checkpoint, goal, plan, context FROM ai_tasks WHERE id = $1`,
+      [taskId]
+    );
+    if (result.rows.length > 0 && result.rows[0].checkpoint) {
+      return JSON.parse(result.rows[0].checkpoint);
+    }
+  } catch (error) {
+    console.error(`[CHECKPOINT] Failed to load checkpoint for task ${taskId}:`, error.message);
+  }
+  return null;
+}
+
+// Resume incomplete tasks on server startup (called from server.js)
+async function resumeIncompleteTasks() {
+  try {
+    const incomplete = await query(
+      `SELECT id, user_id, firm_id, goal, plan, checkpoint 
+       FROM ai_tasks 
+       WHERE status = 'running' 
+       AND checkpoint IS NOT NULL
+       AND started_at > NOW() - INTERVAL '4 hours'`
+    );
+    
+    console.log(`[RESUME] Found ${incomplete.rows.length} incomplete task(s) to resume`);
+    
+    for (const task of incomplete.rows) {
+      // Get user info for the task
+      const userResult = await query(
+        `SELECT id, firm_id, first_name, last_name, role FROM users WHERE id = $1`,
+        [task.user_id]
+      );
+      
+      if (userResult.rows.length > 0) {
+        const user = {
+          id: userResult.rows[0].id,
+          firmId: userResult.rows[0].firm_id,
+          firstName: userResult.rows[0].first_name,
+          lastName: userResult.rows[0].last_name,
+          role: userResult.rows[0].role
+        };
+        
+        const checkpoint = task.checkpoint ? JSON.parse(task.checkpoint) : null;
+        const plan = task.plan ? JSON.parse(task.plan) : [];
+        
+        console.log(`[RESUME] Resuming task ${task.id}: ${task.goal}`);
+        
+        // Resume from checkpoint
+        processBackgroundTask(task.id, user, task.goal, plan, checkpoint);
+      }
+    }
+  } catch (error) {
+    console.error('[RESUME] Error resuming incomplete tasks:', error.message);
+  }
+}
+
 async function startBackgroundTask(args, user) {
   const { goal, plan, estimated_steps, matter_id, client_id } = args;
   
@@ -4744,7 +4827,7 @@ async function startBackgroundTask(args, user) {
         user.id, 
         goal, 
         JSON.stringify(plan || []),
-        Math.min((estimated_steps || 50) * 2, 100),
+        Math.min((estimated_steps || 100) * 2, 500), // Allow up to 500 iterations for very long tasks
         JSON.stringify({ matter_id, client_id })
       ]
     );
@@ -4775,9 +4858,9 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function processBackgroundTask(taskId, user, goal, plan) {
+async function processBackgroundTask(taskId, user, goal, plan, resumeCheckpoint = null) {
   console.log(`[BACKGROUND] ========================================`);
-  console.log(`[BACKGROUND] Starting task ${taskId}`);
+  console.log(`[BACKGROUND] ${resumeCheckpoint ? 'RESUMING' : 'Starting'} task ${taskId}`);
   console.log(`[BACKGROUND] Goal: ${goal}`);
   console.log(`[BACKGROUND] Plan has ${(plan || []).length} steps`);
   if (plan && plan.length > 0) {
@@ -4785,16 +4868,23 @@ async function processBackgroundTask(taskId, user, goal, plan) {
   } else {
     console.log(`[BACKGROUND] WARNING: No plan steps provided!`);
   }
+  if (resumeCheckpoint) {
+    console.log(`[BACKGROUND] Resuming from step ${resumeCheckpoint.stepIndex + 1}`);
+  }
   console.log(`[BACKGROUND] ========================================`);
   
   const startTime = Date.now();
-  const maxRuntime = 30 * 60 * 1000; // 30 minutes max
-  let progress = [];
-  let stepResults = []; // Store results from each step
-  let contextData = {}; // Store data gathered during execution (matter info, client info, etc.)
+  const maxRuntime = 2 * 60 * 60 * 1000; // 2 hours max for long autonomous tasks
   
-  // Delay between each step - deliberate pacing for thorough work
-  const STEP_DELAY_MS = 12 * 1000; // 12 seconds between steps
+  // Restore from checkpoint or start fresh
+  let progress = resumeCheckpoint?.progress || [];
+  let stepResults = resumeCheckpoint?.stepResults || [];
+  let contextData = resumeCheckpoint?.contextData || {};
+  let startStepIndex = resumeCheckpoint?.stepIndex || 0;
+  
+  // Delay between each step - reduced for faster autonomous execution
+  // For long tasks, faster iteration means more work gets done
+  const STEP_DELAY_MS = 3 * 1000; // 3 seconds - fast but allows progress UI updates
   
   try {
     // Update status to running
@@ -4933,12 +5023,19 @@ DELIVER WORK THAT IMPRESSES. EXECUTE NOW.`;
     const planSteps = plan || [];
     const totalSteps = planSteps.length;
     
+    // Update total step count in database
+    await query(
+      `UPDATE ai_tasks SET step_count = $1 WHERE id = $2`,
+      [totalSteps, taskId]
+    );
+    
     // =========================================================================
     // SYSTEM-CONTROLLED STEP-BY-STEP EXECUTION
     // The system iterates through each step and prompts the AI individually
+    // Supports resuming from checkpoint if the server restarts
     // =========================================================================
     
-    for (let stepIndex = 0; stepIndex < totalSteps; stepIndex++) {
+    for (let stepIndex = startStepIndex; stepIndex < totalSteps; stepIndex++) {
       // Check timeout
       if ((Date.now() - startTime) > maxRuntime) {
         console.log(`[BACKGROUND ${taskId}] Timeout reached at step ${stepIndex + 1}`);
@@ -5309,7 +5406,7 @@ Pick one and call it NOW:
 EXECUTE.`
         });
         
-        await delay(2000); // Small delay before retry
+        await delay(500); // Minimal delay before retry
         response = await callAzureOpenAIWithTools(messages, TOOLS);
       }
       
@@ -5421,7 +5518,7 @@ EXECUTE.`
         
         // Only do follow-ups for substantive steps (not the final summary step)
         if (stepIndex < totalSteps - 1) {
-          await delay(3000); // Brief pause
+          await delay(1000); // Quick pause
           
           // Build INTELLIGENT follow-up prompt based on what was just done
           let followUpPrompt = `STEP COMPLETED: "${currentStep}"
@@ -5578,6 +5675,15 @@ CALL THE TOOL NOW.`;
           [stepNumber, JSON.stringify({ steps: progress }), taskId]
         );
       }
+      
+      // Save checkpoint after each step for resumability
+      await saveCheckpoint(taskId, {
+        stepIndex: stepIndex + 1, // Next step to execute
+        currentStep: stepIndex < totalSteps - 1 ? planSteps[stepIndex + 1] : 'Completed',
+        progress,
+        stepResults,
+        contextData
+      });
       
       // Delay before next step - gives time for user to see progress
       if (stepIndex < totalSteps - 1) {
@@ -8874,7 +8980,7 @@ Please analyze the document above and respond to the user's question.`;
     let response = await callAzureOpenAIWithTools(messages, TOOLS);
     
     let iterations = 0;
-    const maxIterations = 25;  // Increased for complex autonomous tasks
+    const maxIterations = 50;  // Increased significantly for long autonomous tasks
     let navigationResult = null; // Track navigation commands
     let taskCompleted = false;  // Track if AI declared task complete
     let needsHumanInput = null; // Track if AI needs human input
@@ -9020,5 +9126,8 @@ async function callAzureOpenAIWithTools(messages, tools) {
     tool_calls: choice.message.tool_calls
   };
 }
+
+// Named exports for server.js
+export { resumeIncompleteTasks };
 
 export default router;

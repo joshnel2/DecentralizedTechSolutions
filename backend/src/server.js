@@ -30,7 +30,7 @@ import userSettingsRoutes from './routes/userSettings.js';
 // AI Agent Tool Routes (v1 API)
 import billingRoutes from './routes/billing.js';
 import analyticsRoutes from './routes/analytics.js';
-import aiAgentRoutes from './routes/aiAgent.js';
+import aiAgentRoutes, { resumeIncompleteTasks } from './routes/aiAgent.js';
 
 // Import middleware
 import { apiLimiter } from './middleware/rateLimit.js';
@@ -164,6 +164,13 @@ app.listen(PORT, () => {
       console.error('Background document extraction error:', err);
     });
   }, 5000); // Wait 5 seconds after startup
+  
+  // Resume any incomplete AI background tasks from before server restart
+  setTimeout(() => {
+    resumeIncompleteTasks().catch(err => {
+      console.error('Error resuming incomplete AI tasks:', err);
+    });
+  }, 10000); // Wait 10 seconds after startup
 });
 
 export default app;
