@@ -899,19 +899,25 @@ const TOOLS = [
     type: "function",
     function: {
       name: "start_background_task",
-      description: "REQUIRED for complex tasks! Start a background task with a detailed plan. Creates a progress bar for the user. USE THIS when: user says 'background', 'review', 'analyze', 'audit', 'research', 'prepare', or any task needing 5+ steps.",
+      description: "Start a background task. REQUIRED when user says 'background' or task needs 5+ steps.",
       parameters: {
         type: "object",
         properties: {
-          goal: { type: "string", description: "Clear, specific goal statement" },
+          goal: { type: "string", description: "Clear goal statement" },
           plan: { 
             type: "array", 
-            items: { type: "string" }, 
-            description: "DETAILED step-by-step plan. Each step should be a specific action like: 'Search for matter by name/number', 'Get full matter details including documents', 'Create engagement letter document', 'Add calendar event for deadline', 'Log time for work performed', 'Add summary note to matter'. Include 5-15 specific steps. Be thorough - include document creation, notes, calendar events, and time logging where appropriate."
+            items: { 
+              type: "object",
+              properties: {
+                action: { type: "string", description: "What to do" },
+                tool: { type: "string", description: "EXACT tool name: search_matters, get_matter, create_document, create_calendar_event, add_matter_note, log_time, draft_email, create_task, update_matter, list_clients, get_client, create_matter" }
+              },
+              required: ["action", "tool"]
+            }, 
+            description: "Array of steps. EACH step must have 'action' (what to do) and 'tool' (exact tool name to use)"
           },
-          estimated_steps: { type: "number", description: "Number of steps in plan" },
-          matter_id: { type: "string", description: "Optional: Related matter ID if known" },
-          client_id: { type: "string", description: "Optional: Related client ID if known" }
+          matter_id: { type: "string", description: "Matter ID if known" },
+          client_id: { type: "string", description: "Client ID if known" }
         },
         required: ["goal", "plan"]
       }
@@ -5178,7 +5184,14 @@ DELIVER WORK THAT IMPRESSES. EXECUTE NOW.`;
 
     const systemPrompt = baseSystemPrompt + attorneyInstructions;
     
-    const planSteps = plan || [];
+    // Handle both old format (array of strings) and new format (array of {action, tool} objects)
+    const rawPlan = plan || [];
+    const planSteps = rawPlan.map(step => {
+      if (typeof step === 'string') {
+        return { action: step, tool: null }; // Old format - no tool specified
+      }
+      return step; // New format - { action, tool }
+    });
     const totalSteps = planSteps.length;
     
     // Update total step count in database
@@ -5231,7 +5244,9 @@ Ready to begin.` }
         break;
       }
       
-      const currentStep = planSteps[stepIndex];
+      const stepData = planSteps[stepIndex];
+      const currentStep = stepData.action || stepData; // Handle both formats
+      const requiredTool = stepData.tool || null; // Tool specified in plan
       const stepNumber = stepIndex + 1;
       
       // Calculate progress as percentage of steps completed
@@ -5251,49 +5266,49 @@ Ready to begin.` }
         }), currentStep, taskId]
       );
       
-      // Build the step prompt - EXPLICIT about which tool to use
-      let suggestedTool = '';
-      const stepLower = currentStep.toLowerCase();
+      // Build the step prompt - USE THE TOOL FROM THE PLAN if specified
+      let toolInstruction = '';
       
-      if (stepLower.includes('search') || stepLower.includes('find') || stepLower.includes('locate')) {
-        if (stepLower.includes('matter')) suggestedTool = 'USE TOOL: search_matters';
-        else if (stepLower.includes('client')) suggestedTool = 'USE TOOL: list_clients';
-        else if (stepLower.includes('document')) suggestedTool = 'USE TOOL: list_documents';
-      } else if (stepLower.includes('get') || stepLower.includes('review') || stepLower.includes('examine')) {
-        if (stepLower.includes('matter')) suggestedTool = 'USE TOOL: get_matter (with matter_id from previous step)';
-        else if (stepLower.includes('client')) suggestedTool = 'USE TOOL: get_client';
-      } else if (stepLower.includes('create') || stepLower.includes('draft') || stepLower.includes('prepare') || stepLower.includes('write')) {
-        if (stepLower.includes('document') || stepLower.includes('letter') || stepLower.includes('agreement') || stepLower.includes('contract') || stepLower.includes('memo')) {
-          suggestedTool = 'USE TOOL: create_document with { name: "Document Name", content: "Full document content...", matter_id: "uuid" }';
-        } else if (stepLower.includes('email')) {
-          suggestedTool = 'USE TOOL: draft_email with { to: "email@example.com", subject: "Subject", body: "Email body..." }';
-        } else if (stepLower.includes('note')) {
-          suggestedTool = 'USE TOOL: add_matter_note with { matter_id: "uuid", content: "Note content..." }';
-        } else if (stepLower.includes('matter')) {
-          suggestedTool = 'USE TOOL: create_matter';
-        } else if (stepLower.includes('client')) {
-          suggestedTool = 'USE TOOL: create_client';
+      if (requiredTool) {
+        // Tool was specified in the plan - use it directly!
+        toolInstruction = `**YOU MUST CALL: ${requiredTool}**`;
+        console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Plan specifies tool: ${requiredTool}`);
+      } else {
+        // Fallback: infer tool from step description (old behavior)
+        const stepLower = currentStep.toLowerCase();
+        
+        if (stepLower.includes('search') || stepLower.includes('find') || stepLower.includes('locate')) {
+          if (stepLower.includes('matter')) toolInstruction = 'USE TOOL: search_matters';
+          else if (stepLower.includes('client')) toolInstruction = 'USE TOOL: list_clients';
+        } else if (stepLower.includes('get') || stepLower.includes('review')) {
+          if (stepLower.includes('matter')) toolInstruction = 'USE TOOL: get_matter';
+          else if (stepLower.includes('client')) toolInstruction = 'USE TOOL: get_client';
+        } else if (stepLower.includes('create') || stepLower.includes('draft') || stepLower.includes('prepare')) {
+          if (stepLower.includes('document') || stepLower.includes('letter') || stepLower.includes('agreement')) {
+            toolInstruction = 'USE TOOL: create_document';
+          } else if (stepLower.includes('email')) {
+            toolInstruction = 'USE TOOL: draft_email';
+          } else if (stepLower.includes('note')) {
+            toolInstruction = 'USE TOOL: add_matter_note';
+          }
+        } else if (stepLower.includes('calendar') || stepLower.includes('schedule') || stepLower.includes('deadline') || stepLower.includes('event')) {
+          toolInstruction = 'USE TOOL: create_calendar_event';
+        } else if (stepLower.includes('task') || stepLower.includes('to-do')) {
+          toolInstruction = 'USE TOOL: create_task';
+        } else if (stepLower.includes('log time') || stepLower.includes('time entry')) {
+          toolInstruction = 'USE TOOL: log_time';
+        } else if (stepLower.includes('note') || stepLower.includes('add note')) {
+          toolInstruction = 'USE TOOL: add_matter_note';
         }
-      } else if (stepLower.includes('calendar') || stepLower.includes('schedule') || stepLower.includes('deadline') || stepLower.includes('meeting') || stepLower.includes('event') || stepLower.includes('reminder')) {
-        suggestedTool = 'USE TOOL: create_calendar_event with { title: "Event Title", start_time: "2025-01-20T10:00:00", type: "meeting|deadline|reminder", matter_id: "uuid" }';
-      } else if (stepLower.includes('task') || stepLower.includes('to-do') || stepLower.includes('todo') || stepLower.includes('follow-up') || stepLower.includes('followup')) {
-        suggestedTool = 'USE TOOL: create_task with { title: "Task Title", due_date: "2025-01-20", matter_id: "uuid" }';
-      } else if (stepLower.includes('log time') || stepLower.includes('time entry') || stepLower.includes('bill')) {
-        suggestedTool = 'USE TOOL: log_time with { matter_id: "uuid", hours: 0.5, description: "Work description", date: "2025-01-15" }';
-      } else if (stepLower.includes('note') || stepLower.includes('add note') || stepLower.includes('document') && stepLower.includes('work')) {
-        suggestedTool = 'USE TOOL: add_matter_note with { matter_id: "uuid", content: "Detailed note..." }';
-      } else if (stepLower.includes('update')) {
-        if (stepLower.includes('matter')) suggestedTool = 'USE TOOL: update_matter';
-        else if (stepLower.includes('status')) suggestedTool = 'USE TOOL: update_matter with { matter_id: "uuid", status: "active" }';
       }
       
       let stepPrompt = `## STEP ${stepNumber} OF ${totalSteps}
 
-**EXECUTE NOW:** ${currentStep}
+**ACTION:** ${currentStep}
 
-${suggestedTool ? `**${suggestedTool}**` : ''}
+${toolInstruction}
 
-You MUST call a tool. Do NOT respond with text only.`;
+Call the tool now. Use matter_id/client_id from previous steps.`;
       
       // Add the step prompt to the conversation
       messages.push({ role: 'user', content: stepPrompt });
@@ -9153,35 +9168,37 @@ router.post('/chat', authenticate, async (req, res) => {
     if (forceBackground) {
       systemPrompt += `
 
-## IMPORTANT: BACKGROUND AGENT MODE IS ENABLED
+## BACKGROUND AGENT MODE - USE start_background_task NOW
 
-You MUST use the \`start_background_task\` tool. Do NOT respond with text.
+Call start_background_task with a structured plan. Each step MUST specify the tool to use.
 
-**CREATE A COMPREHENSIVE PLAN** with 5-15 specific steps. Include:
+**REQUIRED FORMAT:**
+{
+  "goal": "What you will accomplish",
+  "plan": [
+    { "action": "Search for the Smith matter", "tool": "search_matters" },
+    { "action": "Get full matter details", "tool": "get_matter" },
+    { "action": "Create engagement letter", "tool": "create_document" },
+    { "action": "Schedule follow-up meeting", "tool": "create_calendar_event" },
+    { "action": "Add note summarizing work", "tool": "add_matter_note" },
+    { "action": "Log time for work performed", "tool": "log_time" }
+  ]
+}
 
-1. **Information Gathering** - Search/find matters, clients, or documents needed
-2. **Core Actions** - Create documents, draft content, make updates
-3. **Documentation** - Add notes to matters summarizing work
-4. **Scheduling** - Create calendar events for deadlines, meetings, follow-ups
-5. **Time Tracking** - Log billable time for the work performed
-6. **Finalization** - Any review or status updates
+**AVAILABLE TOOLS:**
+- search_matters, get_matter, create_matter, update_matter
+- list_clients, get_client, create_client
+- create_document, create_note
+- create_calendar_event (for ALL scheduling - meetings, deadlines, reminders)
+- create_task
+- add_matter_note (REQUIRED after every major action)
+- log_time (REQUIRED to track billable work)
+- draft_email, send_email
 
-**EXAMPLE GOOD PLAN:**
-- "Search for the Smith matter by name"
-- "Get full matter details including all documents"
-- "Create a comprehensive engagement letter document"
-- "Add calendar reminder for 30-day follow-up"
-- "Create task to review signed engagement letter"
-- "Log 0.5 hours for engagement letter preparation"
-- "Add matter note documenting new engagement"
-- "Update matter status to 'Active'"
-
-**BAD PLANS (too vague):**
-- "Review the matter" ❌
-- "Do the work" ❌
-- "Complete the task" ❌
-
-Be specific! Each step should name a specific action and what it's for.`;
+**EVERY PLAN MUST INCLUDE:**
+1. At least one add_matter_note step
+2. At least one log_time step
+3. create_calendar_event if there are any deadlines or meetings`;
     }
 
     // If there's an uploaded document, add it to the context
