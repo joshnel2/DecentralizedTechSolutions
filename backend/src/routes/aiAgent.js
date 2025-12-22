@@ -9005,6 +9005,22 @@ When a user asks about their "invoices", "documents", or "calendar", this INCLUD
 7. Never expose UUIDs - use names and numbers instead
 8. If you're unsure which matter/client the user means, ask for clarification
 
+## Destructive Operations - IMPORTANT
+For DELETE operations, be very careful:
+- **delete_matter**: Only works if matter has NO time entries, invoices, or documents. Suggest archive_matter instead.
+- **delete_client**: Only works if client has NO matters, invoices, or documents. Suggest archive_client instead.
+- **delete_document**: Permanently removes the document. Always confirm with the user first.
+- **delete_task**: Permanently removes the task.
+- **delete_invoice**: Only works on DRAFT invoices. For sent invoices, use void_invoice instead.
+- **void_invoice**: Cancels a sent invoice. Cannot void already-paid invoices.
+
+For document management:
+- **move_document**: Moves a document to a different matter or client
+- **rename_document**: Changes the document's name
+- **add_client_note**: Adds notes to a client record (not matter-specific)
+
+ALWAYS ask for confirmation before deleting anything unless the user explicitly says "delete" or "remove permanently".
+
 ## Calendar Events - IMPORTANT
 When creating calendar events, use create_calendar_event. For start_time, you MUST provide an ISO 8601 datetime string.
 - Today is: ${todayStr} (current time: ${currentTimeFormatted} Eastern)
