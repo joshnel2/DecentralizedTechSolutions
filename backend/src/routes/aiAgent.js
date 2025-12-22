@@ -4928,6 +4928,7 @@ async function startBackgroundTask(args, user) {
   
   try {
     // Create task in database
+    // 15 minutes with 2 second delays = ~450 max steps possible
     const result = await query(
       `INSERT INTO ai_tasks (firm_id, user_id, goal, status, plan, max_iterations, context)
        VALUES ($1, $2, $3, 'running', $4, $5, $6)
@@ -4937,7 +4938,7 @@ async function startBackgroundTask(args, user) {
         user.id, 
         goal, 
         JSON.stringify(plan || []),
-        Math.min((estimated_steps || 100) * 2, 500), // Allow up to 500 iterations for very long tasks
+        Math.min((estimated_steps || 100) * 3, 450), // Allow up to 450 iterations (15 min / 2 sec)
         JSON.stringify({ matter_id, client_id })
       ]
     );
@@ -4984,7 +4985,7 @@ async function processBackgroundTask(taskId, user, goal, plan, resumeCheckpoint 
   console.log(`[BACKGROUND] ========================================`);
   
   const startTime = Date.now();
-  const maxRuntime = 2 * 60 * 60 * 1000; // 2 hours max for long autonomous tasks
+  const maxRuntime = 15 * 60 * 1000; // 15 minutes for background agent sessions
   
   // Restore from checkpoint or start fresh
   let progress = resumeCheckpoint?.progress || [];
@@ -4992,9 +4993,9 @@ async function processBackgroundTask(taskId, user, goal, plan, resumeCheckpoint 
   let contextData = resumeCheckpoint?.contextData || {};
   let startStepIndex = resumeCheckpoint?.stepIndex || 0;
   
-  // Delay between each step - reduced for faster autonomous execution
-  // For long tasks, faster iteration means more work gets done
-  const STEP_DELAY_MS = 3 * 1000; // 3 seconds - fast but allows progress UI updates
+  // Delay between each step - fast enough to get work done, slow enough for UI updates
+  // 15 minutes = 900 seconds. With 2 second delays, we can do ~450 steps
+  const STEP_DELAY_MS = 2 * 1000; // 2 seconds between steps
   
   try {
     // Update status to running
@@ -8602,9 +8603,9 @@ As an AI assistant, you can perform virtually ANY action that a human attorney o
 - Share matters with team members
 - Manage matter permissions
 
-## Background Agent Mode - IMPORTANT
+## Background Agent Mode - 15 MINUTE AUTONOMOUS SESSIONS
 
-When the user asks for a COMPLEX task that requires multiple steps, you MUST use \`start_background_task\` to run it in the background. This shows a progress bar to the user while you work.
+When the user asks for a COMPLEX task, you MUST use \`start_background_task\` to run it in the background. The agent can work for up to **15 MINUTES** autonomously, so generate LOTS of tasks!
 
 ### ALWAYS use start_background_task when user says:
 - "run a background agent" or "start background task"
@@ -8615,13 +8616,16 @@ When the user asks for a COMPLEX task that requires multiple steps, you MUST use
 - "generate a report" (complex reports)
 - "research" anything
 - "draft" anything complex
-- Any task that will take more than 3-4 tool calls
+- "onboard" a client
+- "prepare for" anything
+- Any task that would benefit from thorough work
 
 ### How to start a background task:
-1. Think about what SPECIFIC steps are needed
-2. Break each step into a SINGLE, ATOMIC action
-3. Include time tracking for billable work
-4. Call \`start_background_task\` with detailed plan
+1. Think about EVERYTHING that would be helpful
+2. Generate 20, 30, 40+ specific steps if needed
+3. Break each step into a SINGLE, ATOMIC action
+4. Be creative - what would a thorough attorney do?
+5. Call \`start_background_task\` with comprehensive plan
 
 ### CRITICAL: Plan Steps Must Be Singular & Specific
 
@@ -8637,18 +8641,22 @@ Each step in your plan should map to exactly ONE tool call. Be specific!
 - Include MANY steps - be thorough!
 - Think creatively about what would help
 
-### BE CREATIVE AND COMPREHENSIVE!
+### BE CREATIVE AND COMPREHENSIVE - GENERATE MANY TASKS!
 
-**Don't just do the minimum. Generate LOTS of helpful tasks.**
+**The background agent can work for up to 15 MINUTES. Generate as many helpful tasks as possible!**
 
-When a user asks for something, think about:
+Don't just do 10-15 tasks. Think BIG - generate 30, 40, 50+ tasks if they would be helpful. The agent has time to complete them all.
+
+When a user asks for something, brainstorm EVERYTHING:
 - What information do I need to gather first?
-- What documents should I create?
-- What emails should I draft?
-- What calendar events are needed?
-- What tasks/reminders should I set up?
-- What notes should I record?
+- What documents should I create (memos, letters, summaries, timelines)?
+- What emails should I draft (to client, opposing counsel, court, witnesses)?
+- What calendar events are needed (deadlines, meetings, follow-ups)?
+- What tasks/reminders should I set up for the team?
+- What notes should I record at each step?
+- What analysis should I perform?
 - What follow-up actions are needed?
+- What research could be helpful?
 
 ### Example - User asks "review the Smith case":
 \`\`\`
@@ -8657,49 +8665,80 @@ start_background_task({
   plan: [
     "Search for the Smith matter",
     "Get full matter details with all documents",
-    "Read the complaint document",
-    "Read the answer document", 
+    "Read the complaint document thoroughly",
+    "Add note summarizing complaint allegations",
+    "Read the answer document",
+    "Add note summarizing defenses raised",
     "Read any motion documents",
-    "Read discovery responses if available",
+    "Add note about pending motions",
+    "Read discovery requests",
+    "Read discovery responses",
+    "Add note about discovery status",
+    "Read any depositions or transcripts",
+    "Add note about key testimony",
     "Get all time entries and billing history",
-    "Get all linked emails and communications",
-    "Identify any upcoming deadlines",
+    "Add note about billing status",
+    "Get all linked emails",
+    "Add note about key communications",
+    "Identify upcoming deadlines",
+    "Create calendar events for each deadline",
     "Draft comprehensive case status memo PDF",
-    "Draft case timeline document",
+    "Draft case timeline document PDF",
+    "Draft witness list document",
+    "Draft exhibit list document",
+    "Draft case strategy memo",
     "Add detailed review notes to matter",
-    "Create tasks for any identified action items",
+    "Create task for attorney to review findings",
+    "Create task for each follow-up action needed",
+    "Create task to update client on status",
     "Schedule follow-up review on calendar",
-    "Draft status update email to client"
+    "Draft status update email to client",
+    "Draft internal team memo on case status"
   ],
-  estimated_steps: 15
+  estimated_steps: 31
 })
 \`\`\`
 
-### Example - User asks "prepare for client meeting with Acme":
+### Example - User asks "onboard new client Acme Corp":
 \`\`\`
 start_background_task({
-  goal: "Prepare materials for Acme Corp client meeting",
+  goal: "Complete client onboarding for Acme Corp",
   plan: [
-    "Search for Acme Corp client",
-    "Get full client details and history",
-    "Get all matters for this client",
-    "Get billing summary across all matters",
-    "Read recent communications with client",
-    "Get outstanding invoices",
-    "Get recent time entries",
-    "Draft meeting agenda document",
-    "Draft client status summary PDF",
-    "Draft billing summary document",
-    "Create list of discussion points",
-    "Add prep notes to client record",
-    "Create follow-up tasks from meeting",
-    "Draft follow-up email template"
+    "Create client record for Acme Corp",
+    "Add note documenting client creation",
+    "Create the primary matter",
+    "Add note documenting matter creation",
+    "Draft engagement letter PDF",
+    "Add note about engagement letter",
+    "Draft conflict check memo PDF",
+    "Add note about conflict check",
+    "Draft welcome letter to client PDF",
+    "Draft welcome email to client",
+    "Draft fee agreement PDF",
+    "Draft retainer request letter PDF",
+    "Create task for client to sign engagement",
+    "Create task for client to sign fee agreement",
+    "Create task to collect retainer",
+    "Create task to obtain client documents",
+    "Create task to set up billing preferences",
+    "Create task for conflicts check completion",
+    "Create task for file organization",
+    "Schedule kickoff call on calendar",
+    "Schedule 30-day check-in on calendar",
+    "Draft kickoff meeting agenda PDF",
+    "Draft client intake questionnaire PDF",
+    "Draft authorization forms PDF",
+    "Add client preferences note",
+    "Add key contacts note",
+    "Draft internal new client memo PDF",
+    "Create matter checklist as tasks",
+    "Draft initial case assessment memo PDF"
   ],
-  estimated_steps: 14
+  estimated_steps: 29
 })
 \`\`\`
 
-**The more comprehensive your plan, the more value you deliver!**
+**THINK BIG! The agent has 15 minutes - use it all to deliver maximum value!**
 
 The user will see a progress bar with each step completing in real-time!
 
@@ -8913,7 +8952,7 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
       // Mark task as timed out
       await query(
         `UPDATE ai_tasks SET status = 'timeout', completed_at = NOW(), 
-         error = 'Task timed out after 2 hours' WHERE id = $1`,
+         error = 'Task completed after 15 minute session' WHERE id = $1`,
         [task.id]
       );
       return res.json({ active: false });
