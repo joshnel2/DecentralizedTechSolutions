@@ -4959,9 +4959,9 @@ async function processBackgroundTask(taskId, user, goal, plan, resumeCheckpoint 
   let contextData = resumeCheckpoint?.contextData || {};
   let startStepIndex = resumeCheckpoint?.stepIndex || 0;
   
-  // Delay between each step - reduced for faster autonomous execution
-  // For long tasks, faster iteration means more work gets done
-  const STEP_DELAY_MS = 3 * 1000; // 3 seconds - fast but allows progress UI updates
+  // Delay between each step - balanced for speed and avoiding rate limits
+  // Azure OpenAI has rate limits, so we need some spacing between calls
+  const STEP_DELAY_MS = 5 * 1000; // 5 seconds - avoids rate limiting while keeping progress visible
   
   try {
     // Update status to running
@@ -5200,6 +5200,20 @@ Call the appropriate tool to complete this step. You have full context from prev
         console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: AI response received. Tool calls: ${response.tool_calls?.length || 0}`);
       } catch (apiError) {
         console.error(`[BACKGROUND ${taskId}] Step ${stepNumber}: AI API error:`, apiError.message);
+        
+        // Update progress in database to show the error
+        await query(
+          `UPDATE ai_tasks SET progress = $1, current_step = $2, updated_at = NOW() WHERE id = $3`,
+          [JSON.stringify({ 
+            steps: progress,
+            progressPercent: progressPercent,
+            completedSteps: stepIndex,
+            totalSteps: totalSteps,
+            currentStep: `Error on step ${stepNumber}: ${apiError.message.substring(0, 100)}`,
+            error: apiError.message
+          }), `Error: ${apiError.message.substring(0, 50)}...`, taskId]
+        );
+        
         // Mark step as failed but continue
         progress.push({
           iteration: stepNumber,
@@ -5209,6 +5223,10 @@ Call the appropriate tool to complete this step. You have full context from prev
           progressPercent: progressPercent,
           timestamp: new Date().toISOString()
         });
+        
+        // Wait a bit longer after an error before continuing
+        await delay(10000);
+        
         // Remove the failed step prompt and continue
         messages.pop();
         continue;
@@ -5743,8 +5761,12 @@ Call task_complete with a comprehensive summary that includes:
       }
     }
     
+    // Count errors
+    const apiErrors = progress.filter(p => p.status === 'api_error').length;
+    const skippedSteps = progress.filter(p => p.status === 'skipped').length;
+    
     // Always include stats at the end
-    const statsSection = `## Work Statistics
+    let statsSection = `## Work Statistics
 **Phase 1 (Initial):** ${stepResults.length} steps
 **Phase 2 (Follow-up):** ${phase2Results.length} steps
 **Total:** ${allResults.length} actions completed
@@ -5754,6 +5776,12 @@ Call task_complete with a comprehensive summary that includes:
 • Time entries logged: ${timeLogged}
 • Calendar events: ${eventsCreated}
 • Tasks created: ${tasksCreated}`;
+
+    if (apiErrors > 0 || skippedSteps > 0) {
+      statsSection += `\n\n⚠️ **Issues encountered:**`;
+      if (apiErrors > 0) statsSection += `\n• ${apiErrors} API error(s) - some steps may have been retried`;
+      if (skippedSteps > 0) statsSection += `\n• ${skippedSteps} step(s) skipped`;
+    }
     
     if (!finalSummary) {
       // Build summary from step results if AI didn't provide one
@@ -9124,37 +9152,60 @@ Please analyze the document above and respond to the user's question.`;
   }
 });
 
-async function callAzureOpenAIWithTools(messages, tools) {
+async function callAzureOpenAIWithTools(messages, tools, retries = 3) {
   const url = `${AZURE_ENDPOINT}openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${API_VERSION}`;
   
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'api-key': AZURE_API_KEY,
-    },
-    body: JSON.stringify({
-      messages,
-      tools,
-      tool_choice: 'auto',
-      temperature: 0.7,
-      max_tokens: 4000,
-    }),
-  });
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': AZURE_API_KEY,
+        },
+        body: JSON.stringify({
+          messages,
+          tools,
+          tool_choice: 'auto',
+          temperature: 0.7,
+          max_tokens: 4000,
+        }),
+      });
 
-  if (!response.ok) {
-    const error = await response.text();
-    console.error('Azure OpenAI error:', error);
-    throw new Error(`Azure OpenAI API error: ${response.status}`);
+      if (!response.ok) {
+        const error = await response.text();
+        console.error(`Azure OpenAI error (attempt ${attempt}/${retries}):`, error);
+        
+        // Check for rate limiting (429) or server errors (5xx)
+        if (response.status === 429 || response.status >= 500) {
+          if (attempt < retries) {
+            // Exponential backoff: 5s, 10s, 20s
+            const waitTime = 5000 * Math.pow(2, attempt - 1);
+            console.log(`Rate limited or server error. Waiting ${waitTime/1000}s before retry...`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            continue;
+          }
+        }
+        
+        throw new Error(`Azure OpenAI API error: ${response.status} - ${error.substring(0, 200)}`);
+      }
+
+      const data = await response.json();
+      const choice = data.choices[0];
+      
+      return {
+        content: choice.message.content,
+        tool_calls: choice.message.tool_calls
+      };
+    } catch (error) {
+      if (attempt === retries) {
+        throw error;
+      }
+      console.error(`API call failed (attempt ${attempt}/${retries}):`, error.message);
+      // Wait before retry
+      await new Promise(resolve => setTimeout(resolve, 3000 * attempt));
+    }
   }
-
-  const data = await response.json();
-  const choice = data.choices[0];
-  
-  return {
-    content: choice.message.content,
-    tool_calls: choice.message.tool_calls
-  };
 }
 
 // Named exports for server.js
