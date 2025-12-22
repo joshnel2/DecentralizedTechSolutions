@@ -26,9 +26,12 @@ interface AgentTask {
   created_at: string
   completed_at: string | null
   rating: number | null
-  progress?: { steps: ProgressStep[] }
+  progress?: { steps: ProgressStep[]; progressPercent?: number; totalSteps?: number; completedSteps?: number; currentStep?: string }
   plan?: string[]
   progressPercent?: number
+  totalSteps?: number
+  completedSteps?: number
+  currentStep?: string
 }
 
 interface ProgressStep {
@@ -458,7 +461,10 @@ export function AIAssistantPage() {
                     </div>
                     <div className={styles.liveProgressMeta}>
                       <span className={styles.liveProgressIterations}>
-                        {liveTaskProgress.iterations || 0} steps completed
+                        {liveTaskProgress.totalSteps 
+                          ? `Step ${liveTaskProgress.completedSteps || 0} of ${liveTaskProgress.totalSteps}`
+                          : `${liveTaskProgress.iterations || 0} steps completed`
+                        }
                       </span>
                     </div>
                   </div>
@@ -481,13 +487,13 @@ export function AIAssistantPage() {
                   {/* Plan steps */}
                   {liveTaskProgress.plan && Array.isArray(liveTaskProgress.plan) && liveTaskProgress.plan.length > 0 && (
                     <div className={styles.liveProgressPlan}>
-                      <h4><Zap size={14} /> Task Plan</h4>
+                      <h4><Zap size={14} /> Task Plan ({liveTaskProgress.completedSteps || 0}/{liveTaskProgress.totalSteps || liveTaskProgress.plan.length} complete)</h4>
                       <div className={styles.planSteps}>
                         {(typeof liveTaskProgress.plan === 'string' 
                           ? JSON.parse(liveTaskProgress.plan) 
                           : liveTaskProgress.plan
                         ).map((step: string, index: number) => {
-                          const completedSteps = liveTaskProgress.progress?.steps?.length || 0
+                          const completedSteps = liveTaskProgress.completedSteps || liveTaskProgress.progress?.steps?.length || 0
                           const isCompleted = index < completedSteps
                           const isCurrent = index === completedSteps && liveTaskProgress.status === 'running'
                           return (
@@ -643,7 +649,10 @@ export function AIAssistantPage() {
                             </span>
                           )}
                           <span className={styles.taskIterations}>
-                            {task.iterations} {task.iterations === 1 ? 'step' : 'steps'}
+                            {task.totalSteps 
+                              ? `${task.completedSteps || task.iterations}/${task.totalSteps} steps`
+                              : `${task.iterations} ${task.iterations === 1 ? 'step' : 'steps'}`
+                            }
                           </span>
                         </div>
                         

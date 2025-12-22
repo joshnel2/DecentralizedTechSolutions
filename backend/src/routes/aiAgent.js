@@ -5283,8 +5283,14 @@ Call the appropriate tool to complete this step. You have full context from prev
         
         // Update progress even for skipped steps
         await query(
-          `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
-          [stepNumber, JSON.stringify({ steps: progress }), taskId]
+          `UPDATE ai_tasks SET iterations = $1, progress = $2, current_step = $3, updated_at = NOW() WHERE id = $4`,
+          [stepNumber, JSON.stringify({ 
+            steps: progress,
+            progressPercent: Math.round((stepIndex / totalSteps) * 100),
+            completedSteps: stepIndex,
+            totalSteps: totalSteps,
+            currentStep: currentStep
+          }), currentStep, taskId]
         );
       }
       
@@ -5394,7 +5400,12 @@ This summary will be shown to the user when they click "View Summary".`;
     // Mark task complete
     await query(
       `UPDATE ai_tasks SET status = 'completed', completed_at = NOW(), iterations = $1, progress = $2, result = $3 WHERE id = $4`,
-      [totalSteps, JSON.stringify({ steps: progress }), finalSummary, taskId]
+      [totalSteps, JSON.stringify({ 
+        steps: progress,
+        progressPercent: 100,
+        completedSteps: totalSteps,
+        totalSteps: totalSteps
+      }), finalSummary, taskId]
     );
     
     console.log(`[BACKGROUND] Task ${taskId} completed successfully`);
@@ -8331,15 +8342,15 @@ router.get('/tasks', authenticate, async (req, res) => {
         try { progress = JSON.parse(progress); } catch (e) { progress = { steps: [] }; }
       }
       
-      // Calculate progress percentage
+      // Use stored progress values, or calculate from steps
+      const totalSteps = progress?.totalSteps || (Array.isArray(plan) ? plan.length : 10);
+      const completedSteps = progress?.completedSteps || (Array.isArray(progress?.steps) ? progress.steps.length : 0);
+      
       let progressPercent = 0;
       if (task.status === 'completed') {
         progressPercent = 100;
       } else if (task.status === 'running') {
-        const planSteps = Array.isArray(plan) ? plan.length : 10;
-        const progressSteps = progress?.steps || progress || [];
-        const completedSteps = Array.isArray(progressSteps) ? progressSteps.length : 0;
-        progressPercent = Math.min(Math.round((completedSteps / planSteps) * 100), 95);
+        progressPercent = progress?.progressPercent || Math.min(Math.round((completedSteps / totalSteps) * 100), 95);
       }
       
       return {
@@ -8349,7 +8360,9 @@ router.get('/tasks', authenticate, async (req, res) => {
         duration: task.duration_seconds ? formatDuration(task.duration_seconds) : null,
         durationSeconds: task.duration_seconds ? Math.round(task.duration_seconds) : null,
         rating: task.rating || null,
-        progressPercent
+        progressPercent,
+        totalSteps,
+        completedSteps
       };
     });
     
@@ -8422,15 +8435,16 @@ router.get('/tasks/:taskId', authenticate, async (req, res) => {
       try { progress = JSON.parse(progress); } catch (e) { progress = { steps: [] }; }
     }
     
-    // Calculate progress percentage
+    // Use stored progress values, or calculate from steps
+    const totalSteps = progress?.totalSteps || (Array.isArray(plan) ? plan.length : 10);
+    const completedSteps = progress?.completedSteps || (Array.isArray(progress?.steps) ? progress.steps.length : 0);
+    const currentStep = progress?.currentStep || 'Working...';
+    
     let progressPercent = 0;
     if (task.status === 'completed') {
       progressPercent = 100;
     } else if (task.status === 'running') {
-      const planSteps = Array.isArray(plan) ? plan.length : 10;
-      const progressSteps = progress?.steps || progress || [];
-      const completedSteps = Array.isArray(progressSteps) ? progressSteps.length : 0;
-      progressPercent = Math.min(Math.round((completedSteps / planSteps) * 100), 95);
+      progressPercent = progress?.progressPercent || Math.min(Math.round((completedSteps / totalSteps) * 100), 95);
     }
     
     res.json({ 
@@ -8438,7 +8452,10 @@ router.get('/tasks/:taskId', authenticate, async (req, res) => {
         ...task,
         plan,
         progress,
-        progressPercent
+        progressPercent,
+        totalSteps,
+        completedSteps,
+        currentStep
       }
     });
   } catch (error) {
