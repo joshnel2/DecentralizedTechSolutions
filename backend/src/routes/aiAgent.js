@@ -233,6 +233,21 @@ const TOOLS = [
       }
     }
   },
+  {
+    type: "function",
+    function: {
+      name: "delete_matter",
+      description: "Permanently delete a matter. WARNING: This cannot be undone. Only works on matters with no time entries, invoices, or documents. Use close_matter or archive_matter for most cases.",
+      parameters: {
+        type: "object",
+        properties: {
+          matter_id: { type: "string", description: "UUID of the matter to delete" },
+          confirm: { type: "boolean", description: "Must be true to confirm deletion" }
+        },
+        required: ["matter_id", "confirm"]
+      }
+    }
+  },
 
   // ===================== CLIENTS =====================
   {
@@ -341,6 +356,37 @@ const TOOLS = [
       }
     }
   },
+  {
+    type: "function",
+    function: {
+      name: "delete_client",
+      description: "Permanently delete a client. WARNING: This cannot be undone. Only works on clients with no matters, invoices, or documents. Use archive_client for most cases.",
+      parameters: {
+        type: "object",
+        properties: {
+          client_id: { type: "string", description: "UUID of the client to delete" },
+          confirm: { type: "boolean", description: "Must be true to confirm deletion" }
+        },
+        required: ["client_id", "confirm"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_client_note",
+      description: "Add a note to a client record. Use this for general client notes, preferences, or important information not tied to a specific matter.",
+      parameters: {
+        type: "object",
+        properties: {
+          client_id: { type: "string", description: "UUID of the client" },
+          content: { type: "string", description: "The note content" },
+          note_type: { type: "string", enum: ["general", "preference", "important", "contact", "billing"], description: "Type of note (default: general)" }
+        },
+        required: ["client_id", "content"]
+      }
+    }
+  },
 
   // ===================== INVOICES =====================
   {
@@ -440,6 +486,36 @@ const TOOLS = [
       }
     }
   },
+  {
+    type: "function",
+    function: {
+      name: "void_invoice",
+      description: "Void/cancel an invoice. Use this when an invoice was created in error or needs to be cancelled. Cannot void paid invoices.",
+      parameters: {
+        type: "object",
+        properties: {
+          invoice_id: { type: "string", description: "UUID of the invoice to void" },
+          reason: { type: "string", description: "Reason for voiding the invoice" }
+        },
+        required: ["invoice_id", "reason"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_invoice",
+      description: "Permanently delete a draft invoice. Only works on invoices with status 'draft'. Use void_invoice for sent invoices.",
+      parameters: {
+        type: "object",
+        properties: {
+          invoice_id: { type: "string", description: "UUID of the invoice to delete" },
+          confirm: { type: "boolean", description: "Must be true to confirm deletion" }
+        },
+        required: ["invoice_id", "confirm"]
+      }
+    }
+  },
 
   // ===================== TASKS =====================
   {
@@ -509,6 +585,20 @@ const TOOLS = [
           status: { type: "string", enum: ["pending", "in_progress", "completed", "cancelled"] },
           assigned_to: { type: "string" },
           notes: { type: "string" }
+        },
+        required: ["task_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_task",
+      description: "Permanently delete a task.",
+      parameters: {
+        type: "object",
+        properties: {
+          task_id: { type: "string", description: "UUID of the task to delete" }
         },
         required: ["task_id"]
       }
@@ -785,6 +875,52 @@ const TOOLS = [
           new_name: { type: "string", description: "Optional: Custom name for the new document. If not provided, will use 'Original Name (AI)'" }
         },
         required: ["document_id", "new_content"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_document",
+      description: "Permanently delete a document. WARNING: This cannot be undone.",
+      parameters: {
+        type: "object",
+        properties: {
+          document_id: { type: "string", description: "UUID of the document to delete" },
+          confirm: { type: "boolean", description: "Must be true to confirm deletion" }
+        },
+        required: ["document_id", "confirm"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "move_document",
+      description: "Move a document to a different matter or client.",
+      parameters: {
+        type: "object",
+        properties: {
+          document_id: { type: "string", description: "UUID of the document to move" },
+          new_matter_id: { type: "string", description: "UUID of the new matter (use null to remove from matter)" },
+          new_client_id: { type: "string", description: "UUID of the new client (use null to remove from client)" }
+        },
+        required: ["document_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "rename_document",
+      description: "Rename a document.",
+      parameters: {
+        type: "object",
+        properties: {
+          document_id: { type: "string", description: "UUID of the document to rename" },
+          new_name: { type: "string", description: "New name for the document" }
+        },
+        required: ["document_id", "new_name"]
       }
     }
   },
@@ -1850,6 +1986,7 @@ async function executeTool(toolName, args, user, req = null) {
       case 'close_matter': return await closeMatter(args, user);
       case 'archive_matter': return await archiveMatter(args, user);
       case 'reopen_matter': return await reopenMatter(args, user);
+      case 'delete_matter': return await deleteMatter(args, user);
       
       // Clients
       case 'list_clients': return await listClients(args, user);
@@ -1858,6 +1995,8 @@ async function executeTool(toolName, args, user, req = null) {
       case 'archive_client': return await archiveClient(args, user);
       case 'reactivate_client': return await reactivateClient(args, user);
       case 'update_client': return await updateClient(args, user);
+      case 'delete_client': return await deleteClient(args, user);
+      case 'add_client_note': return await addClientNote(args, user);
       
       // Invoices
       case 'list_invoices': return await listInvoices(args, user);
@@ -1865,12 +2004,15 @@ async function executeTool(toolName, args, user, req = null) {
       case 'create_invoice': return await createInvoice(args, user);
       case 'send_invoice': return await sendInvoice(args, user);
       case 'record_payment': return await recordPayment(args, user);
+      case 'void_invoice': return await voidInvoice(args, user);
+      case 'delete_invoice': return await deleteInvoice(args, user);
       
       // Tasks
       case 'create_task': return await createTask(args, user);
       case 'list_tasks': return await listTasks(args, user);
       case 'complete_task': return await completeTask(args, user);
       case 'update_task': return await updateTask(args, user);
+      case 'delete_task': return await deleteTask(args, user);
       
       // Reports
       case 'generate_report': return await generateReport(args, user);
@@ -1891,6 +2033,9 @@ async function executeTool(toolName, args, user, req = null) {
       case 'create_document': return await createDocument(args, user);
       case 'create_note': return await createNote(args, user);
       case 'update_document': return await updateDocument(args, user);
+      case 'delete_document': return await deleteDocument(args, user);
+      case 'move_document': return await moveDocument(args, user);
+      case 'rename_document': return await renameDocument(args, user);
       
       // Team
       case 'list_team_members': return await listTeamMembers(args, user);
@@ -2631,6 +2776,57 @@ async function reopenMatter(args, user) {
   };
 }
 
+async function deleteMatter(args, user) {
+  const { matter_id, confirm } = args;
+  
+  if (!confirm) {
+    return { error: 'You must set confirm: true to delete a matter. This action cannot be undone.' };
+  }
+  
+  // Check if matter exists and belongs to firm
+  const matterCheck = await query(
+    'SELECT id, name, number FROM matters WHERE id = $1 AND firm_id = $2',
+    [matter_id, user.firmId]
+  );
+  
+  if (matterCheck.rows.length === 0) {
+    return { error: 'Matter not found' };
+  }
+  
+  const matter = matterCheck.rows[0];
+  
+  // Check for dependencies
+  const [timeEntries, invoices, documents] = await Promise.all([
+    query('SELECT COUNT(*) as count FROM time_entries WHERE matter_id = $1', [matter_id]),
+    query('SELECT COUNT(*) as count FROM invoices WHERE matter_id = $1', [matter_id]),
+    query('SELECT COUNT(*) as count FROM documents WHERE matter_id = $1', [matter_id])
+  ]);
+  
+  const hasTimeEntries = parseInt(timeEntries.rows[0].count) > 0;
+  const hasInvoices = parseInt(invoices.rows[0].count) > 0;
+  const hasDocuments = parseInt(documents.rows[0].count) > 0;
+  
+  if (hasTimeEntries || hasInvoices || hasDocuments) {
+    return { 
+      error: `Cannot delete matter "${matter.name}" - it has associated records. ` +
+             `Time entries: ${timeEntries.rows[0].count}, Invoices: ${invoices.rows[0].count}, Documents: ${documents.rows[0].count}. ` +
+             `Use archive_matter instead.`
+    };
+  }
+  
+  // Delete associated records first (tasks, notes, etc.)
+  await query('DELETE FROM calendar_events WHERE matter_id = $1', [matter_id]);
+  await query('DELETE FROM email_links WHERE matter_id = $1', [matter_id]);
+  
+  // Delete the matter
+  await query('DELETE FROM matters WHERE id = $1', [matter_id]);
+  
+  return {
+    success: true,
+    message: `Permanently deleted matter "${matter.name}" (${matter.number})`
+  };
+}
+
 // =============================================================================
 // CLIENT FUNCTIONS
 // =============================================================================
@@ -2902,6 +3098,93 @@ async function reactivateClient(args, user) {
     success: true,
     message: `Reactivated client "${client.display_name}"`,
     data: { id: client.id, name: client.display_name, is_active: true }
+  };
+}
+
+async function deleteClient(args, user) {
+  const { client_id, confirm } = args;
+  
+  if (!confirm) {
+    return { error: 'You must set confirm: true to delete a client. This action cannot be undone.' };
+  }
+  
+  // Check if client exists
+  const clientCheck = await query(
+    'SELECT id, display_name FROM clients WHERE id = $1 AND firm_id = $2',
+    [client_id, user.firmId]
+  );
+  
+  if (clientCheck.rows.length === 0) {
+    return { error: 'Client not found' };
+  }
+  
+  const client = clientCheck.rows[0];
+  
+  // Check for dependencies
+  const [matters, invoices, documents] = await Promise.all([
+    query('SELECT COUNT(*) as count FROM matters WHERE client_id = $1', [client_id]),
+    query('SELECT COUNT(*) as count FROM invoices WHERE client_id = $1', [client_id]),
+    query('SELECT COUNT(*) as count FROM documents WHERE client_id = $1', [client_id])
+  ]);
+  
+  const hasMatters = parseInt(matters.rows[0].count) > 0;
+  const hasInvoices = parseInt(invoices.rows[0].count) > 0;
+  const hasDocuments = parseInt(documents.rows[0].count) > 0;
+  
+  if (hasMatters || hasInvoices || hasDocuments) {
+    return { 
+      error: `Cannot delete client "${client.display_name}" - it has associated records. ` +
+             `Matters: ${matters.rows[0].count}, Invoices: ${invoices.rows[0].count}, Documents: ${documents.rows[0].count}. ` +
+             `Use archive_client instead.`
+    };
+  }
+  
+  // Delete associated records
+  await query('DELETE FROM email_links WHERE client_id = $1', [client_id]);
+  
+  // Delete the client
+  await query('DELETE FROM clients WHERE id = $1', [client_id]);
+  
+  return {
+    success: true,
+    message: `Permanently deleted client "${client.display_name}"`
+  };
+}
+
+async function addClientNote(args, user) {
+  const { client_id, content, note_type = 'general' } = args;
+  
+  if (!client_id || !content) {
+    return { error: 'client_id and content are required' };
+  }
+  
+  // Check if client exists
+  const clientCheck = await query(
+    'SELECT id, display_name, notes FROM clients WHERE id = $1 AND firm_id = $2',
+    [client_id, user.firmId]
+  );
+  
+  if (clientCheck.rows.length === 0) {
+    return { error: 'Client not found' };
+  }
+  
+  const client = clientCheck.rows[0];
+  
+  // Append to existing notes
+  const timestamp = new Date().toLocaleString();
+  const existingNotes = client.notes || '';
+  const newNote = `\n\n[${timestamp} - ${note_type.toUpperCase()}]\n${content}`;
+  const updatedNotes = existingNotes + newNote;
+  
+  await query(
+    'UPDATE clients SET notes = $1, updated_at = NOW() WHERE id = $2',
+    [updatedNotes, client_id]
+  );
+  
+  return {
+    success: true,
+    message: `Added ${note_type} note to client "${client.display_name}"`,
+    data: { client_id, note_type }
   };
 }
 
@@ -3209,6 +3492,75 @@ async function recordPayment(args, user) {
       }
     };
   });
+}
+
+async function voidInvoice(args, user) {
+  const { invoice_id, reason } = args;
+  
+  if (!invoice_id || !reason) {
+    return { error: 'invoice_id and reason are required' };
+  }
+  
+  const invoiceResult = await query(
+    'SELECT * FROM invoices WHERE id = $1 AND firm_id = $2',
+    [invoice_id, user.firmId]
+  );
+  
+  if (invoiceResult.rows.length === 0) {
+    return { error: 'Invoice not found' };
+  }
+  
+  const invoice = invoiceResult.rows[0];
+  
+  if (invoice.status === 'paid') {
+    return { error: 'Cannot void a paid invoice. Record a refund instead.' };
+  }
+  
+  if (invoice.status === 'void') {
+    return { error: 'Invoice is already voided' };
+  }
+  
+  await query(
+    `UPDATE invoices SET status = 'void', notes = COALESCE(notes, '') || $1, updated_at = NOW() WHERE id = $2`,
+    [`\n[VOIDED: ${reason}]`, invoice_id]
+  );
+  
+  return {
+    success: true,
+    message: `Voided invoice ${invoice.number}. Reason: ${reason}`,
+    data: { invoice_id, status: 'void' }
+  };
+}
+
+async function deleteInvoice(args, user) {
+  const { invoice_id, confirm } = args;
+  
+  if (!confirm) {
+    return { error: 'You must set confirm: true to delete an invoice. This action cannot be undone.' };
+  }
+  
+  const invoiceResult = await query(
+    'SELECT * FROM invoices WHERE id = $1 AND firm_id = $2',
+    [invoice_id, user.firmId]
+  );
+  
+  if (invoiceResult.rows.length === 0) {
+    return { error: 'Invoice not found' };
+  }
+  
+  const invoice = invoiceResult.rows[0];
+  
+  if (invoice.status !== 'draft') {
+    return { error: `Cannot delete invoice with status "${invoice.status}". Only draft invoices can be deleted. Use void_invoice for sent invoices.` };
+  }
+  
+  // Delete the invoice (line_items are stored in JSONB, no separate table)
+  await query('DELETE FROM invoices WHERE id = $1', [invoice_id]);
+  
+  return {
+    success: true,
+    message: `Permanently deleted draft invoice ${invoice.number}`
+  };
 }
 
 // =============================================================================
@@ -3631,6 +3983,32 @@ async function updateTask(args, user) {
     success: true,
     message: `Updated task "${result.rows[0].title}"`,
     data: result.rows[0]
+  };
+}
+
+async function deleteTask(args, user) {
+  const { task_id } = args;
+  
+  if (!task_id) {
+    return { error: 'task_id is required' };
+  }
+  
+  const taskResult = await query(
+    `SELECT id, title FROM calendar_events WHERE id = $1 AND firm_id = $2 AND type = 'task'`,
+    [task_id, user.firmId]
+  );
+  
+  if (taskResult.rows.length === 0) {
+    return { error: 'Task not found' };
+  }
+  
+  const task = taskResult.rows[0];
+  
+  await query('DELETE FROM calendar_events WHERE id = $1', [task_id]);
+  
+  return {
+    success: true,
+    message: `Deleted task "${task.title}"`
   };
 }
 
@@ -4516,6 +4894,135 @@ async function updateDocument(args, user) {
     console.error('Error creating edited document:', error);
     return { error: 'Failed to create edited document: ' + error.message };
   }
+}
+
+async function deleteDocument(args, user) {
+  const { document_id, confirm } = args;
+  
+  if (!confirm) {
+    return { error: 'You must set confirm: true to delete a document. This action cannot be undone.' };
+  }
+  
+  const docResult = await query(
+    'SELECT id, name, path FROM documents WHERE id = $1 AND firm_id = $2',
+    [document_id, user.firmId]
+  );
+  
+  if (docResult.rows.length === 0) {
+    return { error: 'Document not found' };
+  }
+  
+  const doc = docResult.rows[0];
+  
+  // Delete from database
+  await query('DELETE FROM documents WHERE id = $1', [document_id]);
+  
+  // Try to delete physical file if it exists
+  if (doc.path) {
+    try {
+      const filePath = path.join(process.cwd(), doc.path);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch (e) {
+      console.error('Error deleting physical file:', e);
+      // Continue - database record is already deleted
+    }
+  }
+  
+  return {
+    success: true,
+    message: `Permanently deleted document "${doc.name}"`
+  };
+}
+
+async function moveDocument(args, user) {
+  const { document_id, new_matter_id, new_client_id } = args;
+  
+  if (!document_id) {
+    return { error: 'document_id is required' };
+  }
+  
+  const docResult = await query(
+    'SELECT id, name, matter_id, client_id FROM documents WHERE id = $1 AND firm_id = $2',
+    [document_id, user.firmId]
+  );
+  
+  if (docResult.rows.length === 0) {
+    return { error: 'Document not found' };
+  }
+  
+  const doc = docResult.rows[0];
+  
+  // Validate new_matter_id if provided
+  if (new_matter_id) {
+    const matterCheck = await query('SELECT id, name FROM matters WHERE id = $1 AND firm_id = $2', [new_matter_id, user.firmId]);
+    if (matterCheck.rows.length === 0) {
+      return { error: 'Target matter not found' };
+    }
+  }
+  
+  // Validate new_client_id if provided
+  if (new_client_id) {
+    const clientCheck = await query('SELECT id, display_name FROM clients WHERE id = $1 AND firm_id = $2', [new_client_id, user.firmId]);
+    if (clientCheck.rows.length === 0) {
+      return { error: 'Target client not found' };
+    }
+  }
+  
+  await query(
+    'UPDATE documents SET matter_id = $1, client_id = $2, updated_at = NOW() WHERE id = $3',
+    [new_matter_id || null, new_client_id || null, document_id]
+  );
+  
+  let moveMessage = `Moved document "${doc.name}"`;
+  if (new_matter_id) {
+    const matter = await query('SELECT name FROM matters WHERE id = $1', [new_matter_id]);
+    moveMessage += ` to matter "${matter.rows[0]?.name || new_matter_id}"`;
+  }
+  if (new_client_id) {
+    const client = await query('SELECT display_name FROM clients WHERE id = $1', [new_client_id]);
+    moveMessage += ` to client "${client.rows[0]?.display_name || new_client_id}"`;
+  }
+  if (!new_matter_id && !new_client_id) {
+    moveMessage += ' (removed from matter/client)';
+  }
+  
+  return {
+    success: true,
+    message: moveMessage,
+    data: { document_id, new_matter_id, new_client_id }
+  };
+}
+
+async function renameDocument(args, user) {
+  const { document_id, new_name } = args;
+  
+  if (!document_id || !new_name) {
+    return { error: 'document_id and new_name are required' };
+  }
+  
+  const docResult = await query(
+    'SELECT id, name FROM documents WHERE id = $1 AND firm_id = $2',
+    [document_id, user.firmId]
+  );
+  
+  if (docResult.rows.length === 0) {
+    return { error: 'Document not found' };
+  }
+  
+  const oldName = docResult.rows[0].name;
+  
+  await query(
+    'UPDATE documents SET name = $1, updated_at = NOW() WHERE id = $2',
+    [new_name, document_id]
+  );
+  
+  return {
+    success: true,
+    message: `Renamed document from "${oldName}" to "${new_name}"`,
+    data: { document_id, old_name: oldName, new_name }
+  };
 }
 
 // =============================================================================
@@ -8444,16 +8951,29 @@ When a user asks about their "invoices", "documents", or "calendar", this INCLUD
 - **close_matter**: Close a matter (optionally with resolution like 'Settled', 'Won', 'Lost', 'Dismissed')
 - **archive_matter**: Archive a closed matter to remove from active lists
 - **reopen_matter**: Reopen a closed or archived matter
+- **delete_matter**: Permanently delete a matter (only if no time entries, invoices, or documents)
 
 ### Client Management
 - **archive_client**: Archive a client to remove from active lists (history preserved)
 - **reactivate_client**: Reactivate an archived client
+- **delete_client**: Permanently delete a client (only if no matters, invoices, or documents)
+- **add_client_note**: Add a note to a client record (general, preference, important, contact, billing)
 
 ### Task Management
 - **create_task**: Create tasks/to-dos linked to matters, clients, or users
 - **list_tasks**: Get tasks with filters (status, matter, assignee, due date)
 - **complete_task**: Mark a task as complete
 - **update_task**: Update task details, priority, assignee, etc.
+- **delete_task**: Permanently delete a task
+
+### Invoice Management
+- **void_invoice**: Void/cancel an invoice (cannot void paid invoices)
+- **delete_invoice**: Permanently delete a draft invoice
+
+### Document Management
+- **delete_document**: Permanently delete a document
+- **move_document**: Move a document to a different matter or client
+- **rename_document**: Rename a document
 
 ### Reports & Analytics
 - **generate_report**: Generate various reports:
