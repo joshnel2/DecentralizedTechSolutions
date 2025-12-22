@@ -9114,41 +9114,34 @@ router.post('/chat', authenticate, async (req, res) => {
       .replace('{{USER_ROLE}}', req.user.role)
       .replace('{{USER_NAME}}', `${req.user.firstName} ${req.user.lastName}`);
     
-    // If forceBackground is enabled, add instruction to use background task
+    // If forceBackground is enabled, FORCE the AI to use start_background_task
     if (forceBackground) {
-      systemPrompt += `
+      // Override system prompt to ONLY allow background task
+      systemPrompt = `You are a background task agent. You MUST call start_background_task immediately.
 
-## BACKGROUND AGENT MODE - USE start_background_task NOW
+DO NOT respond with text. DO NOT explain. Just call start_background_task.
 
-Call start_background_task with a structured plan. Each step MUST specify the tool to use.
+start_background_task requires:
+- goal: string describing what to accomplish
+- plan: array of {action: string, tool: string} objects
 
-**REQUIRED FORMAT:**
-{
-  "goal": "What you will accomplish",
+Available tools for plan steps:
+search_matters, get_matter, create_matter, update_matter, list_clients, get_client, create_document, create_note, create_calendar_event, create_task, add_matter_note, log_time, draft_email
+
+Example call:
+start_background_task({
+  "goal": "Review Smith matter and create engagement letter",
   "plan": [
-    { "action": "Search for the Smith matter", "tool": "search_matters" },
-    { "action": "Get full matter details", "tool": "get_matter" },
-    { "action": "Create engagement letter", "tool": "create_document" },
-    { "action": "Schedule follow-up meeting", "tool": "create_calendar_event" },
-    { "action": "Add note summarizing work", "tool": "add_matter_note" },
-    { "action": "Log time for work performed", "tool": "log_time" }
+    {"action": "Search for Smith matter", "tool": "search_matters"},
+    {"action": "Get matter details", "tool": "get_matter"},
+    {"action": "Create engagement letter", "tool": "create_document"},
+    {"action": "Schedule follow-up", "tool": "create_calendar_event"},
+    {"action": "Add summary note", "tool": "add_matter_note"},
+    {"action": "Log time spent", "tool": "log_time"}
   ]
-}
+})
 
-**AVAILABLE TOOLS:**
-- search_matters, get_matter, create_matter, update_matter
-- list_clients, get_client, create_client
-- create_document, create_note
-- create_calendar_event (for ALL scheduling - meetings, deadlines, reminders)
-- create_task
-- add_matter_note (REQUIRED after every major action)
-- log_time (REQUIRED to track billable work)
-- draft_email, send_email
-
-**EVERY PLAN MUST INCLUDE:**
-1. At least one add_matter_note step
-2. At least one log_time step
-3. create_calendar_event if there are any deadlines or meetings`;
+CALL start_background_task NOW with a plan for: "${message}"`;
     }
 
     // If there's an uploaded document, add it to the context
@@ -9193,12 +9186,28 @@ Please analyze the document above and respond to the user's question.`;
 
     let response = await callAzureOpenAIWithTools(messages, TOOLS);
     
+    // If forceBackground but AI didn't call a tool, retry
+    if (forceBackground && !response.tool_calls) {
+      console.log('[AI Agent] forceBackground ON but no tool call, retrying...');
+      messages.push({ role: 'assistant', content: response.content || '' });
+      messages.push({ role: 'user', content: 'You MUST call start_background_task now. Do not respond with text.' });
+      response = await callAzureOpenAIWithTools(messages, TOOLS);
+    }
+    
+    // If still no tool call with forceBackground, try one more time
+    if (forceBackground && !response.tool_calls) {
+      console.log('[AI Agent] forceBackground ON, second retry...');
+      messages.push({ role: 'assistant', content: response.content || '' });
+      messages.push({ role: 'user', content: 'CALL start_background_task RIGHT NOW.' });
+      response = await callAzureOpenAIWithTools(messages, TOOLS);
+    }
+    
     let iterations = 0;
-    const maxIterations = 50;  // Increased significantly for long autonomous tasks
-    let navigationResult = null; // Track navigation commands
-    let taskCompleted = false;  // Track if AI declared task complete
-    let needsHumanInput = null; // Track if AI needs human input
-    let backgroundTaskStarted = null; // Track if background task was started
+    const maxIterations = 50;
+    let navigationResult = null;
+    let taskCompleted = false;
+    let needsHumanInput = null;
+    let backgroundTaskStarted = null;
     
     while (response.tool_calls && iterations < maxIterations && !taskCompleted) {
       iterations++;
