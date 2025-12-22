@@ -4925,12 +4925,12 @@ You are an intelligent autonomous agent that thinks strategically and executes d
 - Write complete, professional legal content
 
 **When you need to RECORD information:**
-- "Add note/Record/Document" → add_matter_note
+- "Add note/Record/Document" → create_note (for standalone notes) or add_matter_note (for matter-attached notes)
 - "Log time/Bill" → log_time
 - "Update matter" → update_matter
 
 **When you need to SCHEDULE:**
-- "Schedule/Calendar/Deadline/Meeting" → create_event
+- "Schedule/Calendar/Deadline/Meeting" → create_calendar_event
 - "Task/To-do/Follow-up/Action item" → create_task
 
 **When you need to CREATE records:**
@@ -5206,10 +5206,22 @@ Call the appropriate tool to complete this step. You have full context from prev
             id: result.document?.id
           });
         }
-        if (functionName === 'create_event') {
+        if (functionName === 'create_calendar_event') {
           if (!contextData.events) contextData.events = [];
           contextData.events.push({
             title: result.event?.title || functionArgs.title
+          });
+        }
+        if (functionName === 'create_note') {
+          if (!contextData.notes) contextData.notes = [];
+          contextData.notes.push({
+            title: result.note?.title || functionArgs.title
+          });
+        }
+        if (functionName === 'add_matter_note') {
+          if (!contextData.notes) contextData.notes = [];
+          contextData.notes.push({
+            content: functionArgs.content?.substring(0, 100)
           });
         }
         if (functionName === 'create_task') {
@@ -5224,6 +5236,10 @@ Call the appropriate tool to complete this step. You have full context from prev
           (result.document ? `Created document: ${result.document.name}` : null) ||
           (result.matter ? `Found matter: ${result.matter.name}` : null) ||
           (result.event ? `Created event: ${result.event.title}` : null) ||
+          (result.note ? `Created note: ${result.note.title}` : null) ||
+          (functionName === 'create_calendar_event' ? `Created calendar event` : null) ||
+          (functionName === 'create_note' ? `Created note` : null) ||
+          (functionName === 'add_matter_note' ? `Added note to matter` : null) ||
           `Executed ${functionName}`;
         
         stepResults.push({

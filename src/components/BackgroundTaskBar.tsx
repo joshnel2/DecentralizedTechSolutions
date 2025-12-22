@@ -46,8 +46,9 @@ export function BackgroundTaskBar() {
         setHasError(false)
       } else if (activeTask && !response.active) {
         // Task just completed - fetch the final result with summary
+        let taskResult = null
         try {
-          const taskResult = await aiApi.getTask(activeTask.id)
+          taskResult = await aiApi.getTask(activeTask.id)
           setActiveTask({
             ...activeTask,
             progressPercent: 100,
@@ -69,6 +70,11 @@ export function BackgroundTaskBar() {
             icon: '/favicon.svg'
           })
         }
+        
+        // Auto-navigate to summary view after a brief delay
+        setTimeout(() => {
+          navigate(`/app/ai?showAgentHistory=true&taskId=${activeTask.id}`)
+        }, 1500)
       }
       // Don't stop polling if no active task - keep checking
     } catch (error) {
