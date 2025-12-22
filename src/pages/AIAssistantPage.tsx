@@ -26,12 +26,24 @@ interface AgentTask {
   created_at: string
   completed_at: string | null
   rating: number | null
-  progress?: { steps: ProgressStep[]; progressPercent?: number; totalSteps?: number; completedSteps?: number; currentStep?: string }
+  progress?: { 
+    steps: ProgressStep[]; 
+    progressPercent?: number; 
+    totalSteps?: number; 
+    completedSteps?: number; 
+    currentStep?: string;
+    phase?: number | string;
+    phase1Steps?: number;
+    phase2Steps?: number;
+  }
   plan?: string[]
   progressPercent?: number
   totalSteps?: number
   completedSteps?: number
   currentStep?: string
+  phase?: number | string
+  phase1Steps?: number
+  phase2Steps?: number
 }
 
 interface ProgressStep {
@@ -445,7 +457,13 @@ export function AIAssistantPage() {
                       {liveTaskProgress.status === 'running' ? (
                         <>
                           <Activity size={20} className={styles.pulsingIcon} />
-                          <span>Agent Working...</span>
+                          <span>
+                            {liveTaskProgress.progress?.phase === 2 
+                              ? 'Phase 2: Follow-up Actions...' 
+                              : liveTaskProgress.progress?.phase === 'summary'
+                                ? 'Generating Summary...'
+                                : 'Phase 1: Executing Plan...'}
+                          </span>
                         </>
                       ) : liveTaskProgress.status === 'completed' ? (
                         <>

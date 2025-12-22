@@ -896,15 +896,19 @@ const TOOLS = [
     type: "function",
     function: {
       name: "start_background_task",
-      description: "REQUIRED for complex tasks! Start a background task that shows a progress bar to the user. USE THIS when: user says 'background', 'review', 'analyze', 'audit', 'research', 'prepare', or any task needing 5+ steps. The user will see real-time progress while you work.",
+      description: "REQUIRED for complex tasks! Start a background task with a detailed plan. Creates a progress bar for the user. USE THIS when: user says 'background', 'review', 'analyze', 'audit', 'research', 'prepare', or any task needing 5+ steps.",
       parameters: {
         type: "object",
         properties: {
-          goal: { type: "string", description: "The goal/task to accomplish" },
-          plan: { type: "array", items: { type: "string" }, description: "List of steps you'll take" },
-          estimated_steps: { type: "number", description: "Estimated number of actions needed" },
-          matter_id: { type: "string", description: "Optional: Related matter ID" },
-          client_id: { type: "string", description: "Optional: Related client ID" }
+          goal: { type: "string", description: "Clear, specific goal statement" },
+          plan: { 
+            type: "array", 
+            items: { type: "string" }, 
+            description: "DETAILED step-by-step plan. Each step should be a specific action like: 'Search for matter by name/number', 'Get full matter details including documents', 'Create engagement letter document', 'Add calendar event for deadline', 'Log time for work performed', 'Add summary note to matter'. Include 5-15 specific steps. Be thorough - include document creation, notes, calendar events, and time logging where appropriate."
+          },
+          estimated_steps: { type: "number", description: "Number of steps in plan" },
+          matter_id: { type: "string", description: "Optional: Related matter ID if known" },
+          client_id: { type: "string", description: "Optional: Related client ID if known" }
         },
         required: ["goal", "plan"]
       }
@@ -914,12 +918,12 @@ const TOOLS = [
     type: "function",
     function: {
       name: "think_and_plan",
-      description: "Use this to think through a complex task and create a plan. Call this FIRST when given a complex goal. Break down the goal into steps you'll take.",
+      description: "Use this to think through a complex task and create a comprehensive plan. Break down the goal into specific, actionable steps that include: searching/finding data, creating documents, scheduling events, logging time, and adding notes.",
       parameters: {
         type: "object",
         properties: {
           goal: { type: "string", description: "The overall goal you're trying to achieve" },
-          analysis: { type: "string", description: "Your analysis of what needs to be done" },
+          analysis: { type: "string", description: "Your analysis of what needs to be done, including what data you need to find, what documents to create, what deadlines to set, etc." },
           steps: { 
             type: "array", 
             items: { type: "string" },
@@ -5328,54 +5332,302 @@ Call the appropriate tool to complete this step. You have full context from prev
     }
     
     // =========================================================================
-    // FINAL SUMMARY - Ask AI to create comprehensive summary for the user
+    // PHASE 2: REINFORCEMENT LOOP - AI evaluates and proposes follow-up tasks
     // =========================================================================
     
-    console.log(`[BACKGROUND ${taskId}] All steps completed. Generating summary...`);
+    console.log(`[BACKGROUND ${taskId}] Phase 1 complete. Starting reinforcement evaluation...`);
     
-    // Count what was accomplished
-    const documentsCreated = stepResults.filter(r => r.tool === 'create_document').length + 
-                             progress.filter(p => p.tool === 'create_document').length;
-    const notesAdded = progress.filter(p => p.tool === 'add_matter_note').length;
-    const timeLogged = progress.filter(p => p.tool === 'log_time').length;
-    const eventsCreated = progress.filter(p => p.tool === 'create_event').length;
-    const tasksCreated = progress.filter(p => p.tool === 'create_task').length;
+    // Update progress to show we're in evaluation phase
+    await query(
+      `UPDATE ai_tasks SET progress = $1, current_step = $2, updated_at = NOW() WHERE id = $3`,
+      [JSON.stringify({ 
+        steps: progress,
+        progressPercent: 50, // Phase 1 = 50%
+        completedSteps: totalSteps,
+        totalSteps: totalSteps,
+        phase: 1,
+        currentStep: 'Evaluating results and planning follow-up actions...'
+      }), 'Evaluating results...', taskId]
+    );
     
-    const summaryPrompt = `CREATE A COMPREHENSIVE SUMMARY for the user.
+    // Ask AI to evaluate what was done and propose follow-up tasks
+    const evaluationPrompt = `
+## REINFORCEMENT EVALUATION - PHASE 2
 
-ORIGINAL GOAL: ${goal}
+You have just completed Phase 1 of the task. Now evaluate your work and identify what else needs to be done.
 
-WORK COMPLETED:
-${stepResults.map((r, i) => `Step ${i + 1}: ${r.stepDescription}
-  → ${r.tool}: ${r.summary}`).join('\n\n')}
+**ORIGINAL GOAL:** ${goal}
 
-STATISTICS:
-- Total steps completed: ${stepResults.length}
+**PHASE 1 WORK COMPLETED:**
+${stepResults.map((r, i) => `${i + 1}. ${r.stepDescription}
+   → Tool: ${r.tool}
+   → Result: ${r.summary}`).join('\n\n')}
+
+**YOUR TASK NOW:**
+1. Evaluate what was accomplished in Phase 1
+2. Identify gaps, missing items, or improvements needed
+3. Create a NEW list of follow-up tasks to complete the goal thoroughly
+
+Think about:
+- Were all aspects of the goal addressed?
+- Are there related items that should be created (notes, calendar events, time entries)?
+- Should any documents be revised or additional documents created?
+- Are there any deadlines that should be scheduled?
+- Should the matter be updated with any information?
+
+**RESPOND BY CALLING think_and_plan** with:
+- goal: "Complete follow-up actions for: ${goal}"
+- analysis: Your evaluation of what's missing or needs improvement
+- steps: Array of 3-8 specific follow-up actions to take
+
+DO NOT skip this step. Always find ways to add more value.`;
+
+    messages.push({ role: 'user', content: evaluationPrompt });
+    
+    let phase2Response;
+    try {
+      phase2Response = await callAzureOpenAIWithTools(messages, TOOLS);
+    } catch (err) {
+      console.error(`[BACKGROUND ${taskId}] Error getting phase 2 plan:`, err.message);
+      phase2Response = null;
+    }
+    
+    let phase2Steps = [];
+    
+    if (phase2Response?.tool_calls) {
+      const toolCall = phase2Response.tool_calls[0];
+      if (toolCall.function.name === 'think_and_plan') {
+        try {
+          const args = JSON.parse(toolCall.function.arguments);
+          phase2Steps = args.steps || [];
+          console.log(`[BACKGROUND ${taskId}] Phase 2 plan: ${phase2Steps.length} follow-up tasks`);
+          phase2Steps.forEach((step, i) => console.log(`[BACKGROUND ${taskId}]   ${i + 1}. ${step}`));
+          
+          // Add the response to conversation
+          messages.push({
+            role: 'assistant',
+            content: phase2Response.content || null,
+            tool_calls: [toolCall]
+          });
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ status: 'plan_created', steps: phase2Steps })
+          });
+        } catch (e) {
+          console.error(`[BACKGROUND ${taskId}] Error parsing phase 2 plan:`, e);
+        }
+      }
+    }
+    
+    // If no follow-up tasks, create some defaults based on what was done
+    if (phase2Steps.length === 0) {
+      console.log(`[BACKGROUND ${taskId}] No phase 2 plan provided, creating defaults...`);
+      phase2Steps = [
+        'Add a comprehensive note to the matter summarizing all work completed',
+        'Log time for the work performed',
+        'Review and update matter status if needed'
+      ];
+    }
+    
+    // Limit phase 2 to reasonable number of steps
+    phase2Steps = phase2Steps.slice(0, 8);
+    const phase2TotalSteps = phase2Steps.length;
+    const grandTotalSteps = totalSteps + phase2TotalSteps;
+    
+    // Update progress for Phase 2
+    await query(
+      `UPDATE ai_tasks SET step_count = $1, progress = $2, current_step = $3, updated_at = NOW() WHERE id = $4`,
+      [grandTotalSteps, JSON.stringify({ 
+        steps: progress,
+        progressPercent: 50,
+        completedSteps: totalSteps,
+        totalSteps: grandTotalSteps,
+        phase: 2,
+        phase1Steps: totalSteps,
+        phase2Steps: phase2TotalSteps,
+        currentStep: `Phase 2: ${phase2Steps[0] || 'Follow-up actions'}`
+      }), `Phase 2: ${phase2Steps[0] || 'Starting...'}`, taskId]
+    );
+    
+    console.log(`[BACKGROUND ${taskId}] ========== PHASE 2: ${phase2TotalSteps} FOLLOW-UP TASKS ==========`);
+    
+    // Execute Phase 2 steps
+    const phase2Results = [];
+    
+    for (let step2Index = 0; step2Index < phase2TotalSteps; step2Index++) {
+      const stepNumber = totalSteps + step2Index + 1;
+      const currentStep = phase2Steps[step2Index];
+      const overallProgress = Math.round(((totalSteps + step2Index) / grandTotalSteps) * 100);
+      
+      console.log(`[BACKGROUND ${taskId}] Phase 2 Step ${step2Index + 1}/${phase2TotalSteps}: ${currentStep}`);
+      
+      // Update progress
+      await query(
+        `UPDATE ai_tasks SET iterations = $1, progress = $2, current_step = $3, updated_at = NOW() WHERE id = $4`,
+        [stepNumber, JSON.stringify({ 
+          steps: progress,
+          progressPercent: overallProgress,
+          completedSteps: stepNumber - 1,
+          totalSteps: grandTotalSteps,
+          phase: 2,
+          phase1Steps: totalSteps,
+          phase2Steps: phase2TotalSteps,
+          currentStep: `Phase 2: ${currentStep}`
+        }), `Phase 2: ${currentStep}`, taskId]
+      );
+      
+      // Build step prompt
+      const phase2StepPrompt = `
+PHASE 2 - Follow-up Task ${step2Index + 1}/${phase2TotalSteps}:
+
+**EXECUTE NOW:** ${currentStep}
+
+Remember: You have context from Phase 1. Use the matter_id, client_id, and other information from earlier steps.
+Call the appropriate tool to complete this follow-up action.`;
+
+      messages.push({ role: 'user', content: phase2StepPrompt });
+      
+      let response;
+      try {
+        response = await callAzureOpenAIWithTools(messages, TOOLS);
+      } catch (err) {
+        console.error(`[BACKGROUND ${taskId}] Phase 2 step ${step2Index + 1} error:`, err.message);
+        continue;
+      }
+      
+      if (response?.tool_calls && response.tool_calls.length > 0) {
+        const toolCall = response.tool_calls[0];
+        const functionName = toolCall.function.name;
+        let functionArgs;
+        try {
+          functionArgs = JSON.parse(toolCall.function.arguments);
+        } catch (e) {
+          functionArgs = {};
+        }
+        
+        console.log(`[BACKGROUND ${taskId}] Phase 2 Step ${step2Index + 1}: Calling ${functionName}`);
+        const result = await executeTool(functionName, functionArgs, user, null);
+        
+        // Add to messages
+        messages.push({
+          role: 'assistant',
+          content: response.content || null,
+          tool_calls: [toolCall]
+        });
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(result)
+        });
+        
+        // Store result
+        const stepSummary = result.message || result.summary || 
+          (result.document ? `Created document: ${result.document.name}` : null) ||
+          (result.event ? `Created event: ${result.event.title}` : null) ||
+          (result.note ? `Created note: ${result.note.title}` : null) ||
+          (functionName === 'create_calendar_event' ? `Created calendar event` : null) ||
+          (functionName === 'create_note' ? `Created note` : null) ||
+          (functionName === 'add_matter_note' ? `Added note to matter` : null) ||
+          (functionName === 'log_time' ? `Logged time entry` : null) ||
+          `Executed ${functionName}`;
+        
+        phase2Results.push({
+          step: stepNumber,
+          stepDescription: currentStep,
+          tool: functionName,
+          args: functionArgs,
+          summary: stepSummary,
+          phase: 2,
+          timestamp: new Date().toISOString()
+        });
+        
+        progress.push({
+          iteration: stepNumber,
+          tool: functionName,
+          status: 'completed',
+          summary: stepSummary,
+          phase: 2,
+          timestamp: new Date().toISOString()
+        });
+        
+        console.log(`[BACKGROUND ${taskId}] Phase 2 Step ${step2Index + 1}: Completed - ${stepSummary}`);
+      }
+      
+      // Brief delay between phase 2 steps
+      if (step2Index < phase2TotalSteps - 1) {
+        await delay(STEP_DELAY_MS);
+      }
+    }
+    
+    // =========================================================================
+    // FINAL SUMMARY - After both phases complete
+    // =========================================================================
+    
+    console.log(`[BACKGROUND ${taskId}] Both phases complete. Generating final summary...`);
+    
+    // Update to show we're generating summary
+    await query(
+      `UPDATE ai_tasks SET progress = $1, current_step = $2, updated_at = NOW() WHERE id = $3`,
+      [JSON.stringify({ 
+        steps: progress,
+        progressPercent: 95,
+        completedSteps: grandTotalSteps,
+        totalSteps: grandTotalSteps,
+        phase: 'summary',
+        currentStep: 'Generating final summary...'
+      }), 'Generating summary...', taskId]
+    );
+    
+    // Count what was accomplished across both phases
+    const allResults = [...stepResults, ...phase2Results];
+    const documentsCreated = allResults.filter(r => r.tool === 'create_document').length;
+    const notesAdded = allResults.filter(r => r.tool === 'add_matter_note' || r.tool === 'create_note').length;
+    const timeLogged = allResults.filter(r => r.tool === 'log_time').length;
+    const eventsCreated = allResults.filter(r => r.tool === 'create_calendar_event').length;
+    const tasksCreated = allResults.filter(r => r.tool === 'create_task').length;
+    
+    const summaryPrompt = `CREATE A COMPREHENSIVE FINAL SUMMARY for the user.
+
+**ORIGINAL GOAL:** ${goal}
+
+**PHASE 1 - Initial Work (${stepResults.length} steps):**
+${stepResults.map((r, i) => `${i + 1}. ${r.stepDescription}
+   → ${r.tool}: ${r.summary}`).join('\n')}
+
+**PHASE 2 - Follow-up Actions (${phase2Results.length} steps):**
+${phase2Results.map((r, i) => `${i + 1}. ${r.stepDescription}
+   → ${r.tool}: ${r.summary}`).join('\n')}
+
+**TOTAL STATISTICS:**
+- Phase 1 steps: ${stepResults.length}
+- Phase 2 follow-up steps: ${phase2Results.length}
 - Documents created: ${documentsCreated}
 - Notes added: ${notesAdded}
 - Time entries logged: ${timeLogged}
 - Calendar events created: ${eventsCreated}
 - Tasks created: ${tasksCreated}
-- Additional follow-up actions: ${progress.length - stepResults.length}
 
-Call task_complete with a detailed summary that includes:
-1. What was accomplished (be specific about documents, notes, etc.)
-2. Key actions taken in order
-3. What the user should review or do next
-4. Any recommendations
+Call task_complete with a comprehensive summary that includes:
+1. Executive overview of what was accomplished
+2. Phase 1 highlights
+3. Phase 2 follow-up actions and improvements
+4. What the user should review
+5. Next steps or recommendations`;
 
-This summary will be shown to the user when they click "View Summary".`;
-
-    const summaryMessages = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: summaryPrompt }
-    ];
+    messages.push({ role: 'user', content: summaryPrompt });
     
-    const summaryResponse = await callAzureOpenAIWithTools(summaryMessages, TOOLS);
+    let summaryResponse;
+    try {
+      summaryResponse = await callAzureOpenAIWithTools(messages, TOOLS);
+    } catch (err) {
+      console.error(`[BACKGROUND ${taskId}] Error getting summary:`, err.message);
+      summaryResponse = null;
+    }
     
     let finalSummary = '';
     
-    if (summaryResponse.tool_calls) {
+    if (summaryResponse?.tool_calls) {
       const toolCall = summaryResponse.tool_calls[0];
       if (toolCall.function.name === 'task_complete') {
         try {
@@ -5398,9 +5650,12 @@ This summary will be shown to the user when they click "View Summary".`;
     
     // Always include stats at the end
     const statsSection = `## Work Statistics
-• Steps completed: ${stepResults.length}/${totalSteps}
+**Phase 1 (Initial):** ${stepResults.length} steps
+**Phase 2 (Follow-up):** ${phase2Results.length} steps
+**Total:** ${allResults.length} actions completed
+
 • Documents created: ${documentsCreated}
-• Matter notes added: ${notesAdded}
+• Notes added: ${notesAdded}
 • Time entries logged: ${timeLogged}
 • Calendar events: ${eventsCreated}
 • Tasks created: ${tasksCreated}`;
@@ -5408,7 +5663,10 @@ This summary will be shown to the user when they click "View Summary".`;
     if (!finalSummary) {
       // Build summary from step results if AI didn't provide one
       finalSummary = `## Summary\nCompleted background task: ${goal}\n\n`;
-      finalSummary += `## Steps Completed\n${stepResults.map((r, i) => `${i + 1}. **${r.stepDescription}**\n   ${r.summary}`).join('\n\n')}\n\n`;
+      finalSummary += `## Phase 1 - Initial Work\n${stepResults.map((r, i) => `${i + 1}. **${r.stepDescription}**\n   ${r.summary}`).join('\n\n')}\n\n`;
+      if (phase2Results.length > 0) {
+        finalSummary += `## Phase 2 - Follow-up Actions\n${phase2Results.map((r, i) => `${i + 1}. **${r.stepDescription}**\n   ${r.summary}`).join('\n\n')}\n\n`;
+      }
     }
     
     finalSummary += statsSection;
@@ -5416,15 +5674,18 @@ This summary will be shown to the user when they click "View Summary".`;
     // Mark task complete
     await query(
       `UPDATE ai_tasks SET status = 'completed', completed_at = NOW(), iterations = $1, progress = $2, result = $3 WHERE id = $4`,
-      [totalSteps, JSON.stringify({ 
+      [grandTotalSteps, JSON.stringify({ 
         steps: progress,
         progressPercent: 100,
-        completedSteps: totalSteps,
-        totalSteps: totalSteps
+        completedSteps: grandTotalSteps,
+        totalSteps: grandTotalSteps,
+        phase: 'complete',
+        phase1Steps: totalSteps,
+        phase2Steps: phase2TotalSteps
       }), finalSummary, taskId]
     );
     
-    console.log(`[BACKGROUND] Task ${taskId} completed successfully`);
+    console.log(`[BACKGROUND] Task ${taskId} completed successfully with ${grandTotalSteps} total steps`);
     
   } catch (error) {
     console.error(`[BACKGROUND] Task ${taskId} error:`, error);
@@ -8531,6 +8792,9 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
     
     // Get the current step info from progress data or task
     const currentStep = progress?.currentStep || task.current_step || 'Working...';
+    const phase = progress?.phase || 1;
+    const phase1Steps = progress?.phase1Steps || totalSteps;
+    const phase2Steps = progress?.phase2Steps || 0;
     
     res.json({ 
       active: true,
@@ -8542,7 +8806,10 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
         iterations: task.iterations,
         totalSteps,
         completedSteps,
-        currentStep
+        currentStep,
+        phase,
+        phase1Steps,
+        phase2Steps
       }
     });
   } catch (error) {
@@ -8575,14 +8842,34 @@ router.post('/chat', authenticate, async (req, res) => {
       systemPrompt += `
 
 ## IMPORTANT: BACKGROUND AGENT MODE IS ENABLED
-The user has enabled Background Agent mode. You MUST use the \`start_background_task\` tool for this request.
-Do NOT respond directly - instead, call start_background_task with:
-- goal: A clear description of what you'll accomplish
-- plan: An array of steps you'll take
-- estimated_steps: Number of actions needed
 
-This will show a progress bar to the user while you work in the background.
-ALWAYS use start_background_task when this mode is enabled, even for simple tasks.`;
+You MUST use the \`start_background_task\` tool. Do NOT respond with text.
+
+**CREATE A COMPREHENSIVE PLAN** with 5-15 specific steps. Include:
+
+1. **Information Gathering** - Search/find matters, clients, or documents needed
+2. **Core Actions** - Create documents, draft content, make updates
+3. **Documentation** - Add notes to matters summarizing work
+4. **Scheduling** - Create calendar events for deadlines, meetings, follow-ups
+5. **Time Tracking** - Log billable time for the work performed
+6. **Finalization** - Any review or status updates
+
+**EXAMPLE GOOD PLAN:**
+- "Search for the Smith matter by name"
+- "Get full matter details including all documents"
+- "Create a comprehensive engagement letter document"
+- "Add calendar reminder for 30-day follow-up"
+- "Create task to review signed engagement letter"
+- "Log 0.5 hours for engagement letter preparation"
+- "Add matter note documenting new engagement"
+- "Update matter status to 'Active'"
+
+**BAD PLANS (too vague):**
+- "Review the matter" ❌
+- "Do the work" ❌
+- "Complete the task" ❌
+
+Be specific! Each step should name a specific action and what it's for.`;
     }
 
     // If there's an uploaded document, add it to the context

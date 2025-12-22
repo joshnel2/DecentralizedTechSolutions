@@ -14,6 +14,9 @@ interface ActiveTask {
   completedSteps?: number
   currentStep: string
   result?: string
+  phase?: number | string
+  phase1Steps?: number
+  phase2Steps?: number
 }
 
 export function BackgroundTaskBar() {
@@ -165,14 +168,19 @@ export function BackgroundTaskBar() {
             
             <div className={styles.info}>
               <div className={styles.title}>
-                {isComplete ? '✓ Background Task Complete!' : hasError ? '⚠ Task Error' : 'Background Agent Working...'}
+                {isComplete ? '✓ Background Task Complete!' : hasError ? '⚠ Task Error' : 
+                  activeTask.phase === 2 ? '🔄 Phase 2: Follow-up Actions...' :
+                  activeTask.phase === 'summary' ? '📝 Generating Summary...' :
+                  'Background Agent Working...'}
               </div>
               <div className={styles.goal}>{activeTask.goal}</div>
               {!isComplete && !hasError && activeTask.currentStep && (
                 <div className={styles.currentStep}>
-                  {activeTask.totalSteps 
-                    ? `Step ${activeTask.completedSteps || 0}/${activeTask.totalSteps}: ${activeTask.currentStep}`
-                    : `${activeTask.currentStep}`
+                  {activeTask.phase === 2 
+                    ? `${activeTask.currentStep}`
+                    : activeTask.totalSteps 
+                      ? `Step ${activeTask.completedSteps || 0}/${activeTask.totalSteps}: ${activeTask.currentStep}`
+                      : `${activeTask.currentStep}`
                   }
                 </div>
               )}
