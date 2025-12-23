@@ -348,7 +348,7 @@ export function PrivacyPage() {
 
           <p>
             <strong>To exercise any of these rights,</strong> please contact us at{' '}
-            <a href="mailto:privacy@strapped.ai">privacy@strapped.ai</a>. We will respond to your 
+            <a href="mailto:admin@strappedai.com">admin@strappedai.com</a>. We will respond to your 
             request within 30 days (or as required by applicable law).
           </p>
         </section>
@@ -425,11 +425,10 @@ export function PrivacyPage() {
             United States
           </p>
           <p style={{ marginTop: '1rem' }}>
-            <strong>Email:</strong> <a href="mailto:privacy@strapped.ai">privacy@strapped.ai</a><br />
-            <strong>Data Protection Inquiries:</strong> <a href="mailto:dpo@strapped.ai">dpo@strapped.ai</a>
+            <strong>Email:</strong> <a href="mailto:admin@strappedai.com">admin@strappedai.com</a><br />
           </p>
           <p style={{ marginTop: '1rem' }}>
-            For urgent security concerns, please email <a href="mailto:security@strapped.ai">security@strapped.ai</a>.
+            For urgent security concerns, please email <a href="mailto:admin@strappedai.com">admin@strappedai.com</a>.
           </p>
         </section>
       </div>

@@ -71,6 +71,7 @@ import { SupportPage } from './pages/SupportPage'
 import { StatusPage } from './pages/StatusPage'
 import { PrivacyPage } from './pages/PrivacyPage'
 import { TermsPage } from './pages/TermsPage'
+import { EULAPage } from './pages/EULAPage'
 import { CompliancePage } from './pages/CompliancePage'
 
 // Scroll to top on route changes
@@ -181,6 +182,7 @@ function AppContent() {
       <Route path="/status" element={<StatusPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/terms" element={<TermsPage />} />
+      <Route path="/eula" element={<EULAPage />} />
       <Route path="/compliance" element={<CompliancePage />} />
       
       {/* Firm Setup */}
