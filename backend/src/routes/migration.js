@@ -1356,6 +1356,90 @@ router.get('/test', (req, res) => {
 // CLIO API INTEGRATION - Direct API Migration
 // ============================================
 
+// OAuth callback for Clio (if using OAuth flow)
+router.get('/clio/callback', async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    
+    if (!code) {
+      return res.status(400).send('Missing authorization code');
+    }
+    
+    // Get stored OAuth config
+    const oauthConfig = clioConnections.get('oauth_config');
+    if (!oauthConfig) {
+      return res.status(400).send('OAuth not configured. Please set up Client ID and Secret first.');
+    }
+    
+    // Exchange code for access token
+    const tokenResponse = await fetch('https://app.clio.com/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: code,
+        client_id: oauthConfig.clientId,
+        client_secret: oauthConfig.clientSecret,
+        redirect_uri: oauthConfig.redirectUri
+      })
+    });
+    
+    const tokenData = await tokenResponse.json();
+    
+    if (tokenData.access_token) {
+      // Store the token
+      const connectionId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+      clioConnections.set(connectionId, {
+        accessToken: tokenData.access_token,
+        refreshToken: tokenData.refresh_token,
+        expiresAt: Date.now() + (tokenData.expires_in * 1000),
+        connectedAt: new Date()
+      });
+      
+      // Redirect back to admin portal with success
+      res.redirect(`/rx760819?clio_connected=${connectionId}`);
+    } else {
+      res.status(400).send('Failed to get access token: ' + JSON.stringify(tokenData));
+    }
+  } catch (error) {
+    console.error('[CLIO] OAuth callback error:', error);
+    res.status(500).send('OAuth error: ' + error.message);
+  }
+});
+
+// Start OAuth flow
+router.post('/clio/oauth-start', requireSecureAdmin, async (req, res) => {
+  try {
+    const { clientId, clientSecret } = req.body;
+    
+    if (!clientId || !clientSecret) {
+      return res.status(400).json({ success: false, error: 'Client ID and Secret are required' });
+    }
+    
+    const redirectUri = `${process.env.BACKEND_URL || 'https://strappedai.azurewebsites.net'}/api/migration/clio/callback`;
+    
+    // Store OAuth config temporarily
+    clioConnections.set('oauth_config', {
+      clientId,
+      clientSecret,
+      redirectUri
+    });
+    
+    // Build authorization URL
+    const authUrl = `https://app.clio.com/oauth/authorize?` + new URLSearchParams({
+      response_type: 'code',
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      scope: 'read'
+    }).toString();
+    
+    res.json({ success: true, authUrl });
+  } catch (error) {
+    console.error('[CLIO] OAuth start error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Store Clio API credentials (entered by admin)
 router.post('/clio/connect', requireSecureAdmin, async (req, res) => {
   try {
