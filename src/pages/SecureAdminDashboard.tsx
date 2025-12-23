@@ -1154,7 +1154,8 @@ export default function SecureAdminDashboard() {
     }
     setClioConnectionId(null)
     setClioUser(null)
-    setClioToken('')
+    setClioClientId('')
+    setClioClientSecret('')
     setClioProgress(null)
   }
 
@@ -2074,21 +2075,34 @@ export default function SecureAdminDashboard() {
                             {!clioConnectionId ? (
                               <div className={styles.clioConnect}>
                                 <p className={styles.sectionDescription}>
-                                  To get your API token: Go to <strong>Clio → Settings → API</strong> → Create a Personal Access Token with read permissions.
+                                  Get your credentials from <strong>Clio → Settings → Developer Applications</strong> → Create an app with read permissions.
+                                  <br />Use these values when creating your app:
+                                  <br />• <strong>Website URL:</strong> https://strappedai.com
+                                  <br />• <strong>Redirect URI:</strong> https://strappedai-gpfra9f8gsg9d9hy.canadacentral-01.azurewebsites.net/api/migration/clio/callback
                                 </p>
                                 <div className={styles.inputField}>
-                                  <label htmlFor="clio-token">Clio API Access Token</label>
+                                  <label htmlFor="clio-client-id">Client ID</label>
                                   <input
-                                    id="clio-token"
+                                    id="clio-client-id"
+                                    type="text"
+                                    value={clioClientId}
+                                    onChange={(e) => setClioClientId(e.target.value)}
+                                    placeholder="Paste your Clio Client ID"
+                                  />
+                                </div>
+                                <div className={styles.inputField}>
+                                  <label htmlFor="clio-client-secret">Client Secret</label>
+                                  <input
+                                    id="clio-client-secret"
                                     type="password"
-                                    value={clioToken}
-                                    onChange={(e) => setClioToken(e.target.value)}
-                                    placeholder="Paste your Clio API access token here"
+                                    value={clioClientSecret}
+                                    onChange={(e) => setClioClientSecret(e.target.value)}
+                                    placeholder="Paste your Clio Client Secret"
                                   />
                                 </div>
                                 <button 
                                   onClick={connectToClio}
-                                  disabled={clioImporting || !clioToken.trim()}
+                                  disabled={clioImporting || !clioClientId.trim() || !clioClientSecret.trim()}
                                   className={styles.primaryBtn}
                                 >
                                   {clioImporting ? (
