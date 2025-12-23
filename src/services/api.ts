@@ -1308,6 +1308,139 @@ export const integrationsApi = {
   async getClientCommunications(clientId: string) {
     return fetchWithAuth(`/integrations/client/${clientId}/communications`);
   },
+
+  // ============================================
+  // QUICKBOOKS BILLING SYNC (Clio-style)
+  // ============================================
+
+  // Sync Status & Dashboard
+  async getQuickBooksBillingSyncStatus() {
+    return fetchWithAuth('/integrations/quickbooks-billing/status');
+  },
+
+  // Sync Settings
+  async getQuickBooksBillingSyncSettings() {
+    return fetchWithAuth('/integrations/quickbooks-billing/settings');
+  },
+
+  async updateQuickBooksBillingSyncSettings(settings: {
+    autoSyncEnabled?: boolean;
+    autoSyncInterval?: number;
+    syncInvoicesToQb?: boolean;
+    syncInvoicesFromQb?: boolean;
+    syncPaymentsFromQb?: boolean;
+    syncCustomersToQb?: boolean;
+    syncCustomersFromQb?: boolean;
+    autoPushSentInvoices?: boolean;
+    autoSyncPaidStatus?: boolean;
+    autoCreateCustomers?: boolean;
+    autoCreateClients?: boolean;
+    conflictResolution?: string;
+  }) {
+    return fetchWithAuth('/integrations/quickbooks-billing/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  },
+
+  // Client ↔ Customer Mapping
+  async getQuickBooksClientMappings() {
+    return fetchWithAuth('/integrations/quickbooks-billing/client-mappings');
+  },
+
+  async getUnmappedClients() {
+    return fetchWithAuth('/integrations/quickbooks-billing/unmapped-clients');
+  },
+
+  async getQuickBooksCustomersList() {
+    return fetchWithAuth('/integrations/quickbooks-billing/qb-customers');
+  },
+
+  async createQuickBooksClientMapping(data: {
+    clientId: string;
+    qbCustomerId: string;
+    qbCustomerName?: string;
+    qbCustomerEmail?: string;
+    syncDirection?: string;
+  }) {
+    return fetchWithAuth('/integrations/quickbooks-billing/client-mappings', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteQuickBooksClientMapping(mappingId: string) {
+    return fetchWithAuth(`/integrations/quickbooks-billing/client-mappings/${mappingId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async autoMapQuickBooksClients() {
+    return fetchWithAuth('/integrations/quickbooks-billing/auto-map-clients', {
+      method: 'POST',
+    });
+  },
+
+  async createQuickBooksCustomer(clientId: string) {
+    return fetchWithAuth('/integrations/quickbooks-billing/create-qb-customer', {
+      method: 'POST',
+      body: JSON.stringify({ clientId }),
+    });
+  },
+
+  // Invoice Sync
+  async getSyncedInvoices() {
+    return fetchWithAuth('/integrations/quickbooks-billing/synced-invoices');
+  },
+
+  async getUnsyncedInvoices() {
+    return fetchWithAuth('/integrations/quickbooks-billing/unsynced-invoices');
+  },
+
+  async pushInvoiceToQuickBooks(invoiceId: string) {
+    return fetchWithAuth('/integrations/quickbooks-billing/push-invoice', {
+      method: 'POST',
+      body: JSON.stringify({ invoiceId }),
+    });
+  },
+
+  async pushInvoicesToQuickBooksBulk(invoiceIds: string[]) {
+    return fetchWithAuth('/integrations/quickbooks-billing/push-invoices-bulk', {
+      method: 'POST',
+      body: JSON.stringify({ invoiceIds }),
+    });
+  },
+
+  // Payment Sync
+  async pullPaymentsFromQuickBooks() {
+    return fetchWithAuth('/integrations/quickbooks-billing/pull-payments', {
+      method: 'POST',
+    });
+  },
+
+  async getPendingQuickBooksPayments() {
+    return fetchWithAuth('/integrations/quickbooks-billing/pending-payments');
+  },
+
+  async applyQuickBooksPayment(paymentId: string, invoiceId: string) {
+    return fetchWithAuth('/integrations/quickbooks-billing/apply-payment', {
+      method: 'POST',
+      body: JSON.stringify({ paymentId, invoiceId }),
+    });
+  },
+
+  // Full Sync
+  async runQuickBooksFullSync() {
+    return fetchWithAuth('/integrations/quickbooks-billing/full-sync', {
+      method: 'POST',
+    });
+  },
+
+  // Sync Logs
+  async getQuickBooksSyncLogs(limit?: number) {
+    const query = limit ? `?limit=${limit}` : '';
+    return fetchWithAuth(`/integrations/quickbooks-billing/sync-logs${query}`);
+  },
 };
 
 // ============================================

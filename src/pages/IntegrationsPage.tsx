@@ -606,6 +606,16 @@ export function IntegrationsPage() {
                       </button>
                     ) : connected ? (
                       <>
+                        {/* QuickBooks Billing Sync Link */}
+                        {config.provider === 'quickbooks' && (
+                          <button 
+                            className={styles.manageSyncBtn}
+                            onClick={() => navigate('/app/integrations/quickbooks-billing-sync')}
+                          >
+                            <Calculator size={16} />
+                            Billing Sync
+                          </button>
+                        )}
                         <button 
                           className={styles.syncBtn}
                           onClick={() => handleSync(config.provider!)}

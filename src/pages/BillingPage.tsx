@@ -3,12 +3,13 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
-import { invoicesApi } from '../services/api'
+import { invoicesApi, integrationsApi } from '../services/api'
 import { 
   Plus, Search, DollarSign, FileText, TrendingUp, AlertCircle,
   CheckCircle2, Clock, Send, MoreVertical, Sparkles, Download,
   CreditCard, XCircle, Eye, ChevronRight, Filter, Calendar,
-  ArrowUpRight, ArrowDownRight, Wallet, Receipt, Trash2, Edit2, User, Users
+  ArrowUpRight, ArrowDownRight, Wallet, Receipt, Trash2, Edit2, User, Users,
+  Calculator, Link2, RefreshCw
 } from 'lucide-react'
 import { format, parseISO, differenceInDays, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import { clsx } from 'clsx'
@@ -59,6 +60,37 @@ export function BillingPage() {
     invoiceId: '',
     invoiceNumber: ''
   })
+
+  // QuickBooks sync status
+  const [qbSyncStatus, setQbSyncStatus] = useState<{
+    isConnected: boolean
+    companyName?: string
+    lastSyncAt?: string
+    unsyncedInvoices?: number
+    paymentsImported?: number
+  } | null>(null)
+
+  // Load QuickBooks sync status
+  useEffect(() => {
+    const loadQbStatus = async () => {
+      try {
+        const status = await integrationsApi.getQuickBooksBillingSyncStatus()
+        setQbSyncStatus({
+          isConnected: status.isConnected,
+          companyName: status.companyName,
+          lastSyncAt: status.lastSyncAt,
+          unsyncedInvoices: status.stats?.unsyncedInvoices || 0,
+          paymentsImported: status.stats?.paymentsImported || 0
+        })
+      } catch {
+        // QuickBooks not connected or error - that's okay
+        setQbSyncStatus({ isConnected: false })
+      }
+    }
+    if (canViewAllBilling) {
+      loadQbStatus()
+    }
+  }, [])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -398,6 +430,46 @@ export function BillingPage() {
           </button>
         </div>
       </div>
+
+      {/* QuickBooks Sync Banner */}
+      {canViewAllBilling && qbSyncStatus && (
+        <div className={styles.qbSyncBanner}>
+          <div className={styles.qbSyncInfo}>
+            <Calculator size={20} />
+            {qbSyncStatus.isConnected ? (
+              <>
+                <span>
+                  <strong>QuickBooks:</strong> Connected to {qbSyncStatus.companyName}
+                  {qbSyncStatus.lastSyncAt && ` • Last sync: ${new Date(qbSyncStatus.lastSyncAt).toLocaleDateString()}`}
+                </span>
+                {(qbSyncStatus.unsyncedInvoices || 0) > 0 && (
+                  <span className={styles.qbSyncBadge}>
+                    {qbSyncStatus.unsyncedInvoices} invoices to sync
+                  </span>
+                )}
+              </>
+            ) : (
+              <span>Connect QuickBooks to sync invoices and payments automatically</span>
+            )}
+          </div>
+          <button 
+            className={styles.qbSyncBtn}
+            onClick={() => navigate(qbSyncStatus.isConnected ? '/app/integrations/quickbooks-billing-sync' : '/app/settings/integrations')}
+          >
+            {qbSyncStatus.isConnected ? (
+              <>
+                <RefreshCw size={14} />
+                Manage Sync
+              </>
+            ) : (
+              <>
+                <Link2 size={14} />
+                Connect
+              </>
+            )}
+          </button>
+        </div>
+      )}
 
       {/* Quick Stats */}
       <div className={styles.metricsRow}>
