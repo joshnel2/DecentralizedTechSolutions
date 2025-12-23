@@ -1858,7 +1858,9 @@
   color: #9ca3af;
 }
 
-.inputField input {
+.inputField input,
+.migrationSection .inputField input,
+.firmInputGrid .inputField input {
   width: 100%;
   padding: 0.625rem 0.875rem;
   background: rgba(0, 0, 0, 0.4);
@@ -1867,9 +1869,14 @@
   color: #e5e7eb;
   font-size: 0.875rem;
   box-sizing: border-box;
+  cursor: text;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
-.inputField input:focus {
+.inputField input:focus,
+.migrationSection .inputField input:focus,
+.firmInputGrid .inputField input:focus {
   outline: none;
   border-color: #dc2626;
   box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
@@ -1877,6 +1884,11 @@
 
 .inputField input::placeholder {
   color: #4b5563;
+}
+
+.inputField input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .migrationSection textarea {

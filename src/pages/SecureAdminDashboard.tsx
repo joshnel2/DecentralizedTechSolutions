@@ -1872,36 +1872,48 @@ ${migrationInputs.calendarEvents || 'No calendar events provided'}
                             </div>
                             <div className={styles.firmInputGrid}>
                               <div className={styles.inputField}>
-                                <label>Firm Name *</label>
+                                <label htmlFor="mig-firm-name">Firm Name *</label>
                                 <input
+                                  id="mig-firm-name"
+                                  name="firmName"
                                   type="text"
+                                  autoComplete="organization"
                                   value={migrationInputs.firmName}
                                   onChange={(e) => setMigrationInputs(prev => ({ ...prev, firmName: e.target.value }))}
                                   placeholder="Smith & Associates LLP"
                                 />
                               </div>
                               <div className={styles.inputField}>
-                                <label>Firm Email</label>
+                                <label htmlFor="mig-firm-email">Firm Email</label>
                                 <input
+                                  id="mig-firm-email"
+                                  name="firmEmail"
                                   type="email"
+                                  autoComplete="email"
                                   value={migrationInputs.firmEmail}
                                   onChange={(e) => setMigrationInputs(prev => ({ ...prev, firmEmail: e.target.value }))}
                                   placeholder="info@smithlaw.com"
                                 />
                               </div>
                               <div className={styles.inputField}>
-                                <label>Firm Phone</label>
+                                <label htmlFor="mig-firm-phone">Firm Phone</label>
                                 <input
-                                  type="text"
+                                  id="mig-firm-phone"
+                                  name="firmPhone"
+                                  type="tel"
+                                  autoComplete="tel"
                                   value={migrationInputs.firmPhone}
                                   onChange={(e) => setMigrationInputs(prev => ({ ...prev, firmPhone: e.target.value }))}
                                   placeholder="555-123-4567"
                                 />
                               </div>
                               <div className={styles.inputField}>
-                                <label>Firm Address</label>
+                                <label htmlFor="mig-firm-address">Firm Address</label>
                                 <input
+                                  id="mig-firm-address"
+                                  name="firmAddress"
                                   type="text"
+                                  autoComplete="street-address"
                                   value={migrationInputs.firmAddress}
                                   onChange={(e) => setMigrationInputs(prev => ({ ...prev, firmAddress: e.target.value }))}
                                   placeholder="123 Legal Way, Boston, MA 02101"
