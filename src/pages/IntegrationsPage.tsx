@@ -195,7 +195,7 @@ export function IntegrationsPage() {
   const [loading, setLoading] = useState(true)
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'owner'
+  // All users can access integrations (not just admins)
 
   // Load integrations on mount
   useEffect(() => {
@@ -422,16 +422,6 @@ export function IntegrationsPage() {
 
   const connectedCount = integrationConfigs.filter(i => isConnected(i)).length
   const activeIntegrations = integrationConfigs.filter(i => i.provider)
-
-  if (!isAdmin) {
-    return (
-      <div className={styles.noAccess}>
-        <AlertTriangle size={48} />
-        <h2>Access Denied</h2>
-        <p>Only administrators can manage integrations.</p>
-      </div>
-    )
-  }
 
   return (
     <div className={styles.integrationsPage}>
