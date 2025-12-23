@@ -13,14 +13,20 @@ const sslConfig = process.env.NODE_ENV === 'production'
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  // Increase idle timeout for long-running operations (10 minutes)
+  idleTimeoutMillis: 600000,
+  // Increase connection timeout (10 seconds)
+  connectionTimeoutMillis: 10000,
   ssl: sslConfig,
+  // Keep connections alive - prevents Azure from closing idle connections
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
 });
 
+// Track connection errors but don't crash the app
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle client', err);
-  process.exit(-1);
+  console.error('[DB POOL] Unexpected error on idle client:', err.message);
+  // Don't exit - let the pool recover by getting a new connection
 });
 
 // Helper for transactions
