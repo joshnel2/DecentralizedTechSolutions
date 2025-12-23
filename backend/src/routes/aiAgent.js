@@ -5928,6 +5928,35 @@ Call the appropriate tool to complete this step. You have full context from prev
           (functionName === 'add_matter_note' ? `Added note to matter` : null) ||
           `Executed ${functionName}`;
         
+        // Add follow-up encouragement message after each completed step
+        // This keeps the AI motivated and reminds it of important actions
+        const encouragementMessages = [
+          "Excellent work! Keep going - you're making great progress.",
+          "Perfect execution. Continue with the next step.",
+          "Well done! The work is coming together nicely.",
+          "Great job on that step. Proceed to the next one.",
+          "Solid work. Keep the momentum going."
+        ];
+        const encouragement = encouragementMessages[stepNumber % encouragementMessages.length];
+        
+        // Check if this was a substantive action that should have a matter note
+        const substantiveActions = ['create_document', 'draft_email_for_matter', 'create_calendar_event', 'create_task', 'log_time', 'update_matter', 'close_matter'];
+        const didSubstantiveAction = substantiveActions.includes(functionName);
+        const matterId = contextData.matter?.id || functionArgs.matter_id;
+        
+        // Add follow-up message reminding AI to document work
+        let followUpContent = `✅ Step ${stepNumber} complete: ${stepSummary}\n\n${encouragement}`;
+        
+        if (didSubstantiveAction && matterId && functionName !== 'add_matter_note') {
+          followUpContent += `\n\n📝 **REMINDER:** You just completed substantive work. Before proceeding, add a note to the matter documenting what you did using add_matter_note.`;
+        }
+        
+        if (stepIndex < totalSteps - 1) {
+          followUpContent += `\n\nProceed immediately to the next step.`;
+        }
+        
+        messages.push({ role: 'user', content: followUpContent });
+        
         stepResults.push({
           step: stepNumber,
           stepDescription: currentStep,
@@ -9183,16 +9212,46 @@ Each step in your plan should map to exactly ONE tool call. Be specific!
 
 Don't just do 10-15 tasks. Think BIG - generate 30, 40, 50+ tasks if they would be helpful. The agent has time to complete them all.
 
-When a user asks for something, brainstorm EVERYTHING:
+### 🧠 THINK LIKE A SENIOR ATTORNEY
+
+Before generating your task list, put yourself in the mindset of a senior attorney who:
+- Has 15+ years of experience and knows ALL the details that matter
+- Is meticulous about documentation and leaves nothing to chance
+- Anticipates problems before they happen
+- Ensures every step is recorded for the file
+- Delegates effectively but verifies everything
+- Thinks about the case from multiple angles (client, opposing counsel, judge)
+
+Ask yourself:
+- "What would a partner at a top law firm want done here?"
+- "What would I need to know if I inherited this file tomorrow?"
+- "What could go wrong and how do I prevent it?"
+- "What would make the client feel well-served?"
+
+### 📝 MANDATORY: ALWAYS ADD MATTER NOTES
+
+**After EVERY substantive action, you MUST add a note to the matter documenting what you did.**
+
+This is non-negotiable. The matter file is the permanent record. Every action should be documented:
+- "Created engagement letter for client review"
+- "Drafted settlement demand - key terms: $50,000 over 12 months"
+- "Scheduled deposition for March 15, 2024 at 10:00 AM"
+- "Reviewed discovery responses - identified 3 issues requiring follow-up"
+
+Include "Add note documenting [action]" after every substantive step in your plan!
+
+### When a user asks for something, brainstorm EVERYTHING:
 - What information do I need to gather first?
 - What documents should I create (memos, letters, summaries, timelines)?
 - What emails should I draft (to client, opposing counsel, court, witnesses)?
 - What calendar events are needed (deadlines, meetings, follow-ups)?
 - What tasks/reminders should I set up for the team?
-- What notes should I record at each step?
+- What notes should I record at EACH step? (REQUIRED!)
 - What analysis should I perform?
 - What follow-up actions are needed?
 - What research could be helpful?
+- What risks or issues should I flag?
+- What would a client expect from excellent legal service?
 
 ### Example - User asks "review the Smith case":
 \`\`\`
@@ -9202,36 +9261,45 @@ start_background_task({
     "Search for the Smith matter",
     "Get full matter details with all documents",
     "Read the complaint document thoroughly",
-    "Add note summarizing complaint allegations",
+    "Add note: Reviewed complaint - summarize key allegations, parties, and relief sought",
     "Read the answer document",
-    "Add note summarizing defenses raised",
+    "Add note: Reviewed answer - summarize defenses, counterclaims, and contested facts",
     "Read any motion documents",
-    "Add note about pending motions",
-    "Read discovery requests",
-    "Read discovery responses",
-    "Add note about discovery status",
+    "Add note: Reviewed motions - status of pending motions and upcoming deadlines",
+    "Read discovery requests sent to opposing party",
+    "Add note: Discovery sent - summarize what we requested and response status",
+    "Read discovery responses received",
+    "Add note: Discovery received - summarize key evidence and any deficiencies",
     "Read any depositions or transcripts",
-    "Add note about key testimony",
+    "Add note: Key testimony - summarize important admissions and disputed facts",
     "Get all time entries and billing history",
-    "Add note about billing status",
-    "Get all linked emails",
-    "Add note about key communications",
-    "Identify upcoming deadlines",
-    "Create calendar events for each deadline",
-    "Draft comprehensive case status memo PDF",
-    "Draft case timeline document PDF",
-    "Draft witness list document",
-    "Draft exhibit list document",
-    "Draft case strategy memo",
-    "Add detailed review notes to matter",
-    "Create task for attorney to review findings",
-    "Create task for each follow-up action needed",
-    "Create task to update client on status",
-    "Schedule follow-up review on calendar",
-    "Draft status update email to client",
-    "Draft internal team memo on case status"
+    "Add note: Billing status - total billed, collected, outstanding, and budget analysis",
+    "Get all linked emails and communications",
+    "Add note: Key communications - summarize important client and counsel correspondence",
+    "Identify all upcoming deadlines and court dates",
+    "Add note: Critical dates - list all deadlines with responsible parties",
+    "Create calendar event for each critical deadline",
+    "Draft comprehensive case status memo PDF with all findings",
+    "Add note: Created case status memo for attorney review",
+    "Draft case timeline document PDF showing key events",
+    "Add note: Created case timeline document",
+    "Draft witness list document with contact info and testimony summary",
+    "Add note: Created witness list for trial preparation",
+    "Draft exhibit list document with descriptions and relevance",
+    "Add note: Created exhibit list for discovery/trial",
+    "Draft case strategy memo with strengths, weaknesses, recommendations",
+    "Add note: Created strategy memo with case assessment",
+    "Create task for attorney to review all findings and documents",
+    "Create task for each follow-up action identified during review",
+    "Create task to update client on case status",
+    "Create task to address any discovery deficiencies",
+    "Schedule follow-up case review on calendar (30 days)",
+    "Draft status update email to client summarizing review",
+    "Add note: Completed comprehensive case review - summarize overall assessment",
+    "Draft internal team memo on case status and next steps",
+    "Add note: Case review complete - ready for attorney review"
   ],
-  estimated_steps: 31
+  estimated_steps: 41
 })
 \`\`\`
 
@@ -9240,39 +9308,75 @@ start_background_task({
 start_background_task({
   goal: "Complete client onboarding for Acme Corp",
   plan: [
-    "Create client record for Acme Corp",
-    "Add note documenting client creation",
-    "Create the primary matter",
-    "Add note documenting matter creation",
-    "Draft engagement letter PDF",
-    "Add note about engagement letter",
-    "Draft conflict check memo PDF",
-    "Add note about conflict check",
-    "Draft welcome letter to client PDF",
-    "Draft welcome email to client",
-    "Draft fee agreement PDF",
+    "Create client record for Acme Corp with all contact details",
+    "Add client note: New client created - source of referral and initial contact info",
+    "Create the primary matter for Acme Corp",
+    "Add note: Matter created - describe scope and billing arrangement",
+    "Draft comprehensive engagement letter PDF with scope, fees, responsibilities",
+    "Add note: Engagement letter drafted - key terms and fee structure",
+    "Draft conflict check memo PDF documenting search results",
+    "Add note: Conflict check performed - results and clearance status",
+    "Draft professional welcome letter to client PDF",
+    "Add note: Welcome letter created for client",
+    "Draft welcome email to client with next steps",
+    "Add note: Welcome email drafted with onboarding instructions",
+    "Draft fee agreement PDF if separate from engagement",
+    "Add note: Fee agreement created with payment terms",
     "Draft retainer request letter PDF",
-    "Create task for client to sign engagement",
-    "Create task for client to sign fee agreement",
-    "Create task to collect retainer",
-    "Create task to obtain client documents",
-    "Create task to set up billing preferences",
-    "Create task for conflicts check completion",
-    "Create task for file organization",
-    "Schedule kickoff call on calendar",
+    "Add note: Retainer request prepared",
+    "Create task: Client to sign engagement letter (due in 5 days)",
+    "Create task: Client to sign fee agreement (due in 5 days)",
+    "Create task: Collect retainer payment (due in 10 days)",
+    "Create task: Obtain relevant client documents (due in 7 days)",
+    "Create task: Set up client billing preferences",
+    "Create task: Complete conflicts database entry",
+    "Create task: Organize client file structure",
+    "Create task: Verify client's authority to retain firm (if corporate)",
+    "Schedule kickoff call on calendar (within 5 business days)",
     "Schedule 30-day check-in on calendar",
-    "Draft kickoff meeting agenda PDF",
-    "Draft client intake questionnaire PDF",
-    "Draft authorization forms PDF",
-    "Add client preferences note",
-    "Add key contacts note",
-    "Draft internal new client memo PDF",
-    "Create matter checklist as tasks",
-    "Draft initial case assessment memo PDF"
+    "Schedule 90-day relationship review on calendar",
+    "Draft kickoff meeting agenda PDF with discussion topics",
+    "Add note: Kickoff meeting scheduled with agenda",
+    "Draft client intake questionnaire PDF for additional info",
+    "Draft authorization/release forms PDF",
+    "Add client note: Key contacts and communication preferences",
+    "Add client note: Important dates and deadlines to track",
+    "Draft internal new client memo PDF for team",
+    "Add note: Internal memo created for team awareness",
+    "Create task: Review engagement letter before sending",
+    "Create task: Confirm conflicts clearance with partner",
+    "Create task: Add client to newsletter/update list",
+    "Draft initial matter assessment memo PDF",
+    "Add note: Onboarding complete - summary of all actions taken and next steps"
   ],
-  estimated_steps: 29
+  estimated_steps: 40
 })
 \`\`\`
+
+### Think Like This For EVERY Request:
+
+**User says "draft a settlement agreement"** - Don't just draft the agreement! Also:
+- Review the matter to understand the dispute
+- Note key terms from prior negotiations
+- Draft the agreement with comprehensive terms
+- Add note documenting the draft and key provisions
+- Create task for attorney review
+- Create task to send to opposing counsel
+- Schedule follow-up for response
+- Draft cover email to opposing counsel
+- Add note summarizing settlement position
+
+**User says "prepare for tomorrow's hearing"** - Think of EVERYTHING:
+- Review all relevant pleadings
+- Compile list of arguments and authorities
+- Draft hearing outline/script
+- Note key points to make and anticipate opposing arguments
+- Create exhibit binder list
+- Check all deadlines and prerequisites
+- Draft proposed order if needed
+- Add notes on preparation status
+- Create morning-of checklist as tasks
+- Schedule post-hearing follow-up
 
 **THINK BIG! The agent has 15 minutes - use it all to deliver maximum value!**
 
