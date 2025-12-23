@@ -6,9 +6,10 @@ import fs from 'fs/promises';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import mammoth from 'mammoth';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+import pdfParseModule from 'pdf-parse';
+
+// pdf-parse returns a function directly
+const pdfParse = pdfParseModule;
 
 // Azure OpenAI configuration for Vision OCR
 const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
