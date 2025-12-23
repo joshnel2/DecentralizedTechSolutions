@@ -1287,11 +1287,22 @@ const mapHeader = (header) => {
 /**
  * Direct CSV parsing endpoint - no AI, just structured parsing
  */
+// Simple test endpoint
+router.get('/test', (req, res) => {
+  res.json({ status: 'ok', message: 'Migration routes working' });
+});
+
 router.post('/parse-csv', requireSecureAdmin, async (req, res) => {
   console.log('[PARSE-CSV] Request received');
+  console.log('[PARSE-CSV] Body type:', typeof req.body);
+  console.log('[PARSE-CSV] Body:', JSON.stringify(req.body).substring(0, 200));
+  
+  if (!req.body) {
+    return res.status(400).json({ success: false, error: 'No request body received' });
+  }
   
   try {
-    const { firmName, firmEmail, firmPhone, firmAddress, users, clients, matters, timeEntries, calendarEvents } = req.body || {};
+    const { firmName, firmEmail, firmPhone, firmAddress, users, clients, matters, timeEntries, calendarEvents } = req.body;
     
     console.log('[PARSE-CSV] Firm:', firmName);
     console.log('[PARSE-CSV] Has users:', !!users);
