@@ -1292,6 +1292,204 @@ router.get('/test', (req, res) => {
   res.json({ status: 'ok', message: 'Migration routes working' });
 });
 
+// ============================================
+// CHUNKED MIGRATION - For unlimited data size
+// ============================================
+
+// In-memory storage for migration sessions (in production, use Redis)
+const migrationSessions = new Map();
+
+// Start a new migration session
+router.post('/start-session', requireSecureAdmin, (req, res) => {
+  try {
+    const sessionId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+    const { firmName, firmEmail, firmPhone, firmAddress } = req.body;
+    
+    migrationSessions.set(sessionId, {
+      created: new Date(),
+      firm: {
+        name: firmName || 'Imported Firm',
+        email: firmEmail || null,
+        phone: firmPhone || null,
+        address: firmAddress || null
+      },
+      users: [],
+      contacts: [],
+      matters: [],
+      activities: [],
+      calendar_entries: [],
+      chunks: { users: 0, clients: 0, matters: 0, timeEntries: 0, calendarEvents: 0 }
+    });
+    
+    console.log('[MIGRATION] Session started:', sessionId);
+    res.json({ success: true, sessionId });
+  } catch (error) {
+    console.error('[MIGRATION] Start session error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Add a chunk of data to a session
+router.post('/add-chunk', requireSecureAdmin, (req, res) => {
+  try {
+    const { sessionId, dataType, data } = req.body;
+    
+    if (!sessionId || !migrationSessions.has(sessionId)) {
+      return res.status(400).json({ success: false, error: 'Invalid session ID' });
+    }
+    
+    const session = migrationSessions.get(sessionId);
+    
+    if (!data || typeof data !== 'string' || !data.trim()) {
+      return res.json({ success: true, added: 0, message: 'No data in chunk' });
+    }
+    
+    const lines = data.trim().split('\n');
+    let added = 0;
+    
+    // Skip header if this is the first chunk for this type
+    const startIdx = session.chunks[dataType] === 0 ? 1 : 0;
+    session.chunks[dataType]++;
+    
+    for (let i = startIdx; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line || !line.trim()) continue;
+      const parts = line.split(',').map(p => (p || '').trim());
+      
+      if (dataType === 'users' && parts.length >= 2) {
+        const name = String(parts[0] || 'User');
+        const nameParts = name.split(' ');
+        const firstName = nameParts[0] || 'User';
+        session.users.push({
+          email: String(parts[1] || `user${session.users.length + 1}@temp.com`),
+          first_name: firstName,
+          last_name: nameParts.slice(1).join(' ') || 'Import',
+          type: String(parts[2] || 'Attorney'),
+          rate: parseFloat(String(parts[3] || '0').replace(/[$,]/g, '')) || null,
+          password: firstName + Math.floor(1000 + Math.random() * 9000) + '!'
+        });
+        added++;
+      }
+      else if (dataType === 'clients' && parts[0]) {
+        session.contacts.push({
+          type: 'Person',
+          name: String(parts[0]),
+          email: parts[1] ? String(parts[1]) : null,
+          phone: parts[2] ? String(parts[2]) : null
+        });
+        added++;
+      }
+      else if (dataType === 'matters' && parts[0]) {
+        session.matters.push({
+          display_number: String(parts[0] || `M-${session.matters.length + 1}`),
+          description: String(parts[1] || 'Imported Matter'),
+          client: parts[2] ? { name: String(parts[2]) } : null,
+          status: String(parts[3] || 'Open'),
+          billing_method: 'hourly'
+        });
+        added++;
+      }
+      else if (dataType === 'timeEntries' && parts[0]) {
+        session.activities.push({
+          type: 'TimeEntry',
+          date: String(parts[0] || new Date().toISOString().split('T')[0]),
+          matter: parts[1] ? { display_number: String(parts[1]) } : null,
+          user: parts[2] ? { name: String(parts[2]) } : null,
+          quantity: parseFloat(parts[3] || '0') || 0,
+          note: String(parts[4] || 'Time entry')
+        });
+        added++;
+      }
+      else if (dataType === 'calendarEvents' && parts[0]) {
+        session.calendar_entries.push({
+          summary: String(parts[0] || 'Event'),
+          start_at: parts[1] ? String(parts[1]) : null,
+          end_at: parts[2] ? String(parts[2]) : null,
+          description: parts[3] ? String(parts[3]) : null
+        });
+        added++;
+      }
+    }
+    
+    console.log(`[MIGRATION] Chunk added to ${sessionId}: ${dataType} +${added} (total: ${session[dataType === 'clients' ? 'contacts' : dataType === 'timeEntries' ? 'activities' : dataType === 'calendarEvents' ? 'calendar_entries' : dataType].length})`);
+    
+    res.json({ 
+      success: true, 
+      added,
+      totals: {
+        users: session.users.length,
+        contacts: session.contacts.length,
+        matters: session.matters.length,
+        activities: session.activities.length,
+        calendar_entries: session.calendar_entries.length
+      }
+    });
+  } catch (error) {
+    console.error('[MIGRATION] Add chunk error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Finalize session and return parsed data
+router.post('/finalize-session', requireSecureAdmin, (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    
+    if (!sessionId || !migrationSessions.has(sessionId)) {
+      return res.status(400).json({ success: false, error: 'Invalid session ID' });
+    }
+    
+    const session = migrationSessions.get(sessionId);
+    
+    const result = {
+      firm: session.firm,
+      users: session.users,
+      contacts: session.contacts,
+      matters: session.matters,
+      activities: session.activities,
+      calendar_entries: session.calendar_entries
+    };
+    
+    // Clean up session
+    migrationSessions.delete(sessionId);
+    
+    console.log('[MIGRATION] Session finalized:', sessionId, {
+      users: result.users.length,
+      contacts: result.contacts.length,
+      matters: result.matters.length,
+      activities: result.activities.length,
+      calendar_entries: result.calendar_entries.length
+    });
+    
+    res.json({
+      success: true,
+      transformedData: result,
+      summary: {
+        firm: result.firm.name,
+        users: result.users.length,
+        contacts: result.contacts.length,
+        matters: result.matters.length,
+        activities: result.activities.length,
+        calendar_entries: result.calendar_entries.length
+      }
+    });
+  } catch (error) {
+    console.error('[MIGRATION] Finalize error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Clean up old sessions (call periodically)
+setInterval(() => {
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  for (const [id, session] of migrationSessions) {
+    if (session.created < oneHourAgo) {
+      migrationSessions.delete(id);
+      console.log('[MIGRATION] Cleaned up old session:', id);
+    }
+  }
+}, 15 * 60 * 1000); // Every 15 minutes
+
 router.post('/parse-csv', requireSecureAdmin, (req, res) => {
   try {
     console.log('[PARSE-CSV] Request received, body size:', JSON.stringify(req.body || {}).length);

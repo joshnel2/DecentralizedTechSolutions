@@ -844,7 +844,26 @@ export default function SecureAdminDashboard() {
     setDataFormatHint('')
   }
 
-  // CSV Parse / Transform function
+  // Helper to split data into chunks
+  const splitIntoChunks = (data: string, linesPerChunk: number = 500): string[] => {
+    if (!data || !data.trim()) return []
+    const lines = data.trim().split('\n')
+    const header = lines[0]
+    const chunks: string[] = []
+    
+    for (let i = 1; i < lines.length; i += linesPerChunk) {
+      const chunkLines = lines.slice(i, i + linesPerChunk)
+      // Include header only in first chunk
+      if (i === 1) {
+        chunks.push([header, ...chunkLines].join('\n'))
+      } else {
+        chunks.push(chunkLines.join('\n'))
+      }
+    }
+    return chunks
+  }
+
+  // CSV Parse / Transform function - uses chunked uploads for large data
   const handleAITransform = async () => {
     // Check if any data is entered
     const hasData = migrationInputs.firmName.trim() || 
@@ -868,30 +887,87 @@ export default function SecureAdminDashboard() {
     setTransformResult(null)
 
     try {
-      // First try direct CSV parsing (faster, no AI)
-      const res = await fetch(`${API_URL}/migration/parse-csv`, {
+      // Step 1: Start migration session
+      showNotification('success', 'Starting migration session...')
+      const startRes = await fetch(`${API_URL}/migration/start-session`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
           firmName: migrationInputs.firmName,
           firmEmail: migrationInputs.firmEmail,
           firmPhone: migrationInputs.firmPhone,
-          firmAddress: migrationInputs.firmAddress,
-          users: migrationInputs.users,
-          clients: migrationInputs.clients,
-          matters: migrationInputs.matters,
-          timeEntries: migrationInputs.timeEntries,
-          calendarEvents: migrationInputs.calendarEvents
+          firmAddress: migrationInputs.firmAddress
         })
       })
+      
+      const startResult = await startRes.json()
+      if (!startResult.success) {
+        throw new Error(startResult.error || 'Failed to start session')
+      }
+      
+      const sessionId = startResult.sessionId
+      
+      // Step 2: Send data in chunks
+      const dataTypes = [
+        { key: 'users', data: migrationInputs.users },
+        { key: 'clients', data: migrationInputs.clients },
+        { key: 'matters', data: migrationInputs.matters },
+        { key: 'timeEntries', data: migrationInputs.timeEntries },
+        { key: 'calendarEvents', data: migrationInputs.calendarEvents }
+      ]
+      
+      let totalChunks = 0
+      let processedChunks = 0
+      
+      // Count total chunks
+      for (const dt of dataTypes) {
+        if (dt.data.trim()) {
+          totalChunks += splitIntoChunks(dt.data).length
+        }
+      }
+      
+      // Send each data type in chunks
+      for (const dt of dataTypes) {
+        if (!dt.data.trim()) continue
+        
+        const chunks = splitIntoChunks(dt.data)
+        for (let i = 0; i < chunks.length; i++) {
+          processedChunks++
+          // Progress is logged to console, not shown as notification to avoid spam
+          console.log(`Processing ${dt.key} chunk ${i + 1}/${chunks.length} (${processedChunks}/${totalChunks} total)`)
+          
+          const chunkRes = await fetch(`${API_URL}/migration/add-chunk`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+              sessionId,
+              dataType: dt.key,
+              data: chunks[i]
+            })
+          })
+          
+          const chunkResult = await chunkRes.json()
+          if (!chunkResult.success) {
+            console.error(`Chunk error for ${dt.key}:`, chunkResult.error)
+          }
+        }
+      }
+      
+      // Step 3: Finalize and get results
+      showNotification('success', 'Finalizing migration data...')
+      const finalRes = await fetch(`${API_URL}/migration/finalize-session`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ sessionId })
+      })
+      
+      const result = await finalRes.json()
 
-      const result = await res.json()
-
-      if (res.ok && result.success) {
+      if (finalRes.ok && result.success) {
         setTransformResult(result)
         // Auto-populate the migration data field with the transformed JSON
         setMigrationData(JSON.stringify(result.transformedData, null, 2))
-        showNotification('success', `Parsed successfully: ${result.summary.users} users, ${result.summary.contacts} contacts, ${result.summary.matters} matters`)
+        showNotification('success', `Parsed successfully: ${result.summary.users} users, ${result.summary.contacts} contacts, ${result.summary.matters} matters, ${result.summary.activities} time entries`)
       } else {
         setTransformResult({ success: false, error: result.error || 'Parsing failed' })
         showNotification('error', result.error || 'CSV parsing failed - check your data format')
@@ -899,7 +975,7 @@ export default function SecureAdminDashboard() {
     } catch (error) {
       console.error('CSV parsing error:', error)
       setTransformResult({ success: false, error: 'Failed to connect to server' })
-      showNotification('error', 'Failed to connect to server')
+      showNotification('error', error instanceof Error ? error.message : 'Failed to connect to server')
     }
 
     setIsTransforming(false)
