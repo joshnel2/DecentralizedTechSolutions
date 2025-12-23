@@ -6,10 +6,20 @@ import fs from 'fs/promises';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import mammoth from 'mammoth';
-import pdfParseModule from 'pdf-parse';
 
-// pdf-parse returns a function directly
-const pdfParse = pdfParseModule;
+// Dynamic import for pdf-parse (CommonJS module)
+let pdfParse = null;
+async function getPdfParse() {
+  if (!pdfParse) {
+    try {
+      const module = await import('pdf-parse');
+      pdfParse = module.default || module;
+    } catch (err) {
+      console.error('Failed to load pdf-parse:', err);
+    }
+  }
+  return pdfParse;
+}
 
 // Azure OpenAI configuration for Vision OCR
 const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
@@ -156,7 +166,9 @@ router.post('/extract-text', authenticate, extractUpload.single('file'), async (
 
     if (ext === '.pdf') {
       try {
-        const pdfData = await pdfParse(req.file.buffer);
+        const pdfParser = await getPdfParse();
+        if (!pdfParser) throw new Error('PDF parser not available');
+        const pdfData = await pdfParser(req.file.buffer);
         textContent = pdfData.text;
         if (!textContent || textContent.trim().length === 0) {
           textContent = `[PDF file "${req.file.originalname}" - No extractable text found. This may be a scanned image-based PDF.]`;
@@ -285,8 +297,10 @@ async function extractTextFromFile(filePath, originalName, mimeType = null) {
   
   try {
     if (ext === '.pdf') {
+      const pdfParser = await getPdfParse();
+      if (!pdfParser) throw new Error('PDF parser not available');
       const dataBuffer = await fs.readFile(filePath);
-      const pdfData = await pdfParse(dataBuffer);
+      const pdfData = await pdfParser(dataBuffer);
       textContent = pdfData.text;
       
       // If PDF has no text (scanned), try OCR with Vision
@@ -448,8 +462,10 @@ router.get('/:id/content', authenticate, requirePermission('documents:view'), as
     // Extract text based on file type
     if (ext === '.pdf') {
       try {
+        const pdfParser = await getPdfParse();
+        if (!pdfParser) throw new Error('PDF parser not available');
         const dataBuffer = await fs.readFile(doc.path);
-        const pdfData = await pdfParse(dataBuffer);
+        const pdfData = await pdfParser(dataBuffer);
         textContent = pdfData.text;
       } catch (pdfError) {
         console.error('PDF parse error:', pdfError);
