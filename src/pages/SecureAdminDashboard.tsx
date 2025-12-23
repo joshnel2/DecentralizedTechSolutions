@@ -183,6 +183,19 @@ export default function SecureAdminDashboard() {
   const [dataFormatHint, setDataFormatHint] = useState('')
   const [isTransforming, setIsTransforming] = useState(false)
   const [transformResult, setTransformResult] = useState<{ success: boolean; transformedData?: any; summary?: any; error?: string } | null>(null)
+  
+  // Structured migration inputs
+  const [migrationInputs, setMigrationInputs] = useState({
+    firmName: '',
+    firmEmail: '',
+    firmPhone: '',
+    firmAddress: '',
+    users: '',
+    clients: '',
+    matters: '',
+    timeEntries: '',
+    calendarEvents: ''
+  })
 
   // Bulk Import state
   const [showBulkModal, setShowBulkModal] = useState(false)
@@ -824,22 +837,54 @@ export default function SecureAdminDashboard() {
 
   // AI Transformation function
   const handleAITransform = async () => {
-    if (!rawDataInput.trim()) {
-      showNotification('error', 'Please enter data to transform')
+    // Check if any data is entered
+    const hasData = migrationInputs.firmName.trim() || 
+                    migrationInputs.users.trim() || 
+                    migrationInputs.clients.trim() || 
+                    migrationInputs.matters.trim() ||
+                    migrationInputs.timeEntries.trim() ||
+                    migrationInputs.calendarEvents.trim()
+    
+    if (!hasData) {
+      showNotification('error', 'Please enter data in at least one section')
       return
     }
 
     setIsTransforming(true)
     setTransformResult(null)
 
+    // Build structured data string for AI
+    const structuredData = `
+=== FIRM INFORMATION ===
+Name: ${migrationInputs.firmName || 'Not provided'}
+Email: ${migrationInputs.firmEmail || 'Not provided'}
+Phone: ${migrationInputs.firmPhone || 'Not provided'}
+Address: ${migrationInputs.firmAddress || 'Not provided'}
+
+=== USERS (paste from Clio Settings > Users) ===
+${migrationInputs.users || 'No users provided'}
+
+=== CLIENTS/CONTACTS (paste from Clio Contacts export) ===
+${migrationInputs.clients || 'No clients provided'}
+
+=== MATTERS/CASES (paste from Clio Matters export) ===
+${migrationInputs.matters || 'No matters provided'}
+
+=== TIME ENTRIES (paste from Clio Activities export) ===
+${migrationInputs.timeEntries || 'No time entries provided'}
+
+=== CALENDAR EVENTS (paste from Clio Calendar export) ===
+${migrationInputs.calendarEvents || 'No calendar events provided'}
+`.trim()
+
     try {
       const res = await fetch(`${API_URL}/migration/ai-transform`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          rawData: rawDataInput,
-          dataFormat: dataFormatHint || undefined,
-          additionalContext: undefined
+          rawData: structuredData,
+          dataFormat: 'structured_sections',
+          additionalContext: 'Data is provided in clearly labeled sections. Match clients to matters and users to time entries by name.'
         })
       })
 
@@ -1755,58 +1800,165 @@ export default function SecureAdminDashboard() {
                             <Brain size={24} />
                             <div>
                               <h4>AI-Powered Data Transformation</h4>
-                              <p>Paste data in ANY format — CSV exports, spreadsheet data, client lists, matter info — and AI will automatically convert it to our migration format.</p>
+                              <p>Fill in each section below by copying and pasting from your Clio exports. The AI will automatically convert and link everything together.</p>
                             </div>
                           </div>
 
-                          <div className={styles.aiInputGroup}>
-                            <label>
-                              <Wand2 size={16} />
-                              Data Format Hint (optional)
-                            </label>
-                            <select 
-                              value={dataFormatHint}
-                              onChange={(e) => setDataFormatHint(e.target.value)}
-                              className={styles.formatSelect}
-                            >
-                              <option value="">Auto-detect format</option>
-                              <option value="clio_csv">Clio CSV Export</option>
-                              <option value="clio_json">Clio JSON Export</option>
-                              <option value="spreadsheet">Spreadsheet (Tab/Comma separated)</option>
-                              <option value="client_list">Client List</option>
-                              <option value="matter_list">Matter/Case List</option>
-                              <option value="contact_list">Contact List</option>
-                              <option value="time_entries">Time Entries</option>
-                              <option value="mixed">Mixed Data</option>
-                            </select>
+                          {/* Firm Information */}
+                          <div className={styles.migrationSection}>
+                            <div className={styles.sectionHeader}>
+                              <Building2 size={18} />
+                              <h4>1. Firm Information</h4>
+                            </div>
+                            <div className={styles.firmInputGrid}>
+                              <div className={styles.inputField}>
+                                <label>Firm Name *</label>
+                                <input
+                                  type="text"
+                                  value={migrationInputs.firmName}
+                                  onChange={(e) => setMigrationInputs(prev => ({ ...prev, firmName: e.target.value }))}
+                                  placeholder="Smith & Associates LLP"
+                                />
+                              </div>
+                              <div className={styles.inputField}>
+                                <label>Firm Email</label>
+                                <input
+                                  type="email"
+                                  value={migrationInputs.firmEmail}
+                                  onChange={(e) => setMigrationInputs(prev => ({ ...prev, firmEmail: e.target.value }))}
+                                  placeholder="info@smithlaw.com"
+                                />
+                              </div>
+                              <div className={styles.inputField}>
+                                <label>Firm Phone</label>
+                                <input
+                                  type="text"
+                                  value={migrationInputs.firmPhone}
+                                  onChange={(e) => setMigrationInputs(prev => ({ ...prev, firmPhone: e.target.value }))}
+                                  placeholder="555-123-4567"
+                                />
+                              </div>
+                              <div className={styles.inputField}>
+                                <label>Firm Address</label>
+                                <input
+                                  type="text"
+                                  value={migrationInputs.firmAddress}
+                                  onChange={(e) => setMigrationInputs(prev => ({ ...prev, firmAddress: e.target.value }))}
+                                  placeholder="123 Legal Way, Boston, MA 02101"
+                                />
+                              </div>
+                            </div>
                           </div>
 
-                          <div className={styles.aiInputGroup}>
-                            <label>
-                              <FileText size={16} />
-                              Paste Your Raw Data
-                            </label>
+                          {/* Users */}
+                          <div className={styles.migrationSection}>
+                            <div className={styles.sectionHeader}>
+                              <Users size={18} />
+                              <h4>2. Users / Team Members</h4>
+                              <span className={styles.sectionHint}>From Clio: Settings → Firm → Users</span>
+                            </div>
                             <textarea
-                              value={rawDataInput}
-                              onChange={(e) => setRawDataInput(e.target.value)}
-                              placeholder={`Paste your Clio export data here in any format...
+                              value={migrationInputs.users}
+                              onChange={(e) => setMigrationInputs(prev => ({ ...prev, users: e.target.value }))}
+                              placeholder={`Paste user data here. Example formats:
 
-Examples:
-• CSV: "Name,Email,Phone\\nJohn Smith,john@email.com,555-1234"
-• Client list: "Acme Corp - contact@acme.com - Corporate client"
-• Matter info: "Matter #2024-001: Johnson Estate Planning - Open"
-• Spreadsheet data with tabs or commas
-• JSON from Clio export
+Name, Email, Role, Hourly Rate
+Jane Smith, jane@smithlaw.com, Attorney, $400
+Bob Johnson, bob@smithlaw.com, Paralegal, $150
 
-The AI will analyze and convert your data automatically.`}
-                              rows={14}
+Or just paste directly from Clio's user list - the AI will figure it out.`}
+                              rows={6}
+                            />
+                          </div>
+
+                          {/* Clients */}
+                          <div className={styles.migrationSection}>
+                            <div className={styles.sectionHeader}>
+                              <UserPlus size={18} />
+                              <h4>3. Clients / Contacts</h4>
+                              <span className={styles.sectionHint}>From Clio: Contacts → Export</span>
+                            </div>
+                            <textarea
+                              value={migrationInputs.clients}
+                              onChange={(e) => setMigrationInputs(prev => ({ ...prev, clients: e.target.value }))}
+                              placeholder={`Paste client/contact data here. Example:
+
+Name, Email, Phone, Type, Company
+John Doe, john@email.com, 555-1234, Person, Acme Corp
+Acme Corporation, legal@acme.com, 555-5678, Company,
+
+Or paste your Clio Contacts CSV export directly.`}
+                              rows={6}
+                            />
+                          </div>
+
+                          {/* Matters */}
+                          <div className={styles.migrationSection}>
+                            <div className={styles.sectionHeader}>
+                              <Briefcase size={18} />
+                              <h4>4. Matters / Cases</h4>
+                              <span className={styles.sectionHint}>From Clio: Matters → Export</span>
+                            </div>
+                            <textarea
+                              value={migrationInputs.matters}
+                              onChange={(e) => setMigrationInputs(prev => ({ ...prev, matters: e.target.value }))}
+                              placeholder={`Paste matter/case data here. Example:
+
+Matter #, Name, Client, Attorney, Status, Practice Area
+2024-0001, Estate Planning, John Doe, Jane Smith, Open, Estate Planning
+2024-0002, Contract Review, Acme Corporation, Bob Johnson, Open, Corporate
+
+Or paste your Clio Matters CSV export directly.`}
+                              rows={6}
+                            />
+                          </div>
+
+                          {/* Time Entries */}
+                          <div className={styles.migrationSection}>
+                            <div className={styles.sectionHeader}>
+                              <Clock size={18} />
+                              <h4>5. Time Entries (Optional)</h4>
+                              <span className={styles.sectionHint}>From Clio: Activities → Export</span>
+                            </div>
+                            <textarea
+                              value={migrationInputs.timeEntries}
+                              onChange={(e) => setMigrationInputs(prev => ({ ...prev, timeEntries: e.target.value }))}
+                              placeholder={`Paste time entry data here. Example:
+
+Date, Matter, User, Hours, Rate, Description
+2024-01-15, 2024-0001, Jane Smith, 2.5, $400, Initial consultation
+2024-01-16, 2024-0001, Jane Smith, 3.0, $400, Drafted documents
+
+Or paste your Clio Activities CSV export directly.`}
+                              rows={6}
+                            />
+                          </div>
+
+                          {/* Calendar */}
+                          <div className={styles.migrationSection}>
+                            <div className={styles.sectionHeader}>
+                              <Activity size={18} />
+                              <h4>6. Calendar Events (Optional)</h4>
+                              <span className={styles.sectionHint}>From Clio: Calendar → Export</span>
+                            </div>
+                            <textarea
+                              value={migrationInputs.calendarEvents}
+                              onChange={(e) => setMigrationInputs(prev => ({ ...prev, calendarEvents: e.target.value }))}
+                              placeholder={`Paste calendar data here. Example:
+
+Title, Date, Time, Matter, Type, Location
+Client Meeting, 2024-02-15, 10:00 AM, 2024-0001, Meeting, Conference Room
+Court Hearing, 2024-03-20, 9:00 AM, 2024-0002, Court Date, Suffolk County Court
+
+Or paste your Clio Calendar export directly.`}
+                              rows={6}
                             />
                           </div>
 
                           <div className={styles.aiActions}>
                             <button 
                               onClick={handleAITransform}
-                              disabled={!rawDataInput.trim() || isTransforming}
+                              disabled={(!migrationInputs.firmName.trim() && !migrationInputs.users.trim() && !migrationInputs.clients.trim() && !migrationInputs.matters.trim()) || isTransforming}
                               className={styles.aiTransformBtn}
                             >
                               {isTransforming ? (
