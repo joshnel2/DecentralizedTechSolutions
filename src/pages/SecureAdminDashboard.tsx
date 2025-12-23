@@ -835,7 +835,7 @@ export default function SecureAdminDashboard() {
     setDataFormatHint('')
   }
 
-  // AI Transformation function
+  // CSV Parse / Transform function
   const handleAITransform = async () => {
     // Check if any data is entered
     const hasData = migrationInputs.firmName.trim() || 
@@ -850,10 +850,57 @@ export default function SecureAdminDashboard() {
       return
     }
 
+    if (!migrationInputs.firmName.trim()) {
+      showNotification('error', 'Please enter a firm name')
+      return
+    }
+
     setIsTransforming(true)
     setTransformResult(null)
 
-    // Build structured data string for AI
+    try {
+      // First try direct CSV parsing (faster, no AI)
+      const res = await fetch(`${API_URL}/migration/parse-csv`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          firmName: migrationInputs.firmName,
+          firmEmail: migrationInputs.firmEmail,
+          firmPhone: migrationInputs.firmPhone,
+          firmAddress: migrationInputs.firmAddress,
+          users: migrationInputs.users,
+          clients: migrationInputs.clients,
+          matters: migrationInputs.matters,
+          timeEntries: migrationInputs.timeEntries,
+          calendarEvents: migrationInputs.calendarEvents
+        })
+      })
+
+      const result = await res.json()
+
+      if (res.ok && result.success) {
+        setTransformResult(result)
+        // Auto-populate the migration data field with the transformed JSON
+        setMigrationData(JSON.stringify(result.transformedData, null, 2))
+        showNotification('success', `Parsed successfully: ${result.summary.users} users, ${result.summary.contacts} contacts, ${result.summary.matters} matters`)
+      } else {
+        setTransformResult({ success: false, error: result.error || 'Parsing failed' })
+        showNotification('error', result.error || 'CSV parsing failed - check your data format')
+      }
+    } catch (error) {
+      console.error('CSV parsing error:', error)
+      setTransformResult({ success: false, error: 'Failed to connect to server' })
+      showNotification('error', 'Failed to connect to server')
+    }
+
+    setIsTransforming(false)
+  }
+
+  // AI Transformation (fallback for messy data)
+  const handleAITransformFallback = async () => {
+    setIsTransforming(true)
+    setTransformResult(null)
+
     const structuredData = `
 === FIRM INFORMATION ===
 Name: ${migrationInputs.firmName || 'Not provided'}
@@ -861,19 +908,19 @@ Email: ${migrationInputs.firmEmail || 'Not provided'}
 Phone: ${migrationInputs.firmPhone || 'Not provided'}
 Address: ${migrationInputs.firmAddress || 'Not provided'}
 
-=== USERS (paste from Clio Settings > Users) ===
+=== USERS ===
 ${migrationInputs.users || 'No users provided'}
 
-=== CLIENTS/CONTACTS (paste from Clio Contacts export) ===
+=== CLIENTS/CONTACTS ===
 ${migrationInputs.clients || 'No clients provided'}
 
-=== MATTERS/CASES (paste from Clio Matters export) ===
+=== MATTERS/CASES ===
 ${migrationInputs.matters || 'No matters provided'}
 
-=== TIME ENTRIES (paste from Clio Activities export) ===
+=== TIME ENTRIES ===
 ${migrationInputs.timeEntries || 'No time entries provided'}
 
-=== CALENDAR EVENTS (paste from Clio Calendar export) ===
+=== CALENDAR EVENTS ===
 ${migrationInputs.calendarEvents || 'No calendar events provided'}
 `.trim()
 
@@ -892,11 +939,10 @@ ${migrationInputs.calendarEvents || 'No calendar events provided'}
 
       if (res.ok && result.success) {
         setTransformResult(result)
-        // Auto-populate the migration data field with the transformed JSON
         setMigrationData(JSON.stringify(result.transformedData, null, 2))
-        showNotification('success', `AI successfully transformed data: ${result.summary.users} users, ${result.summary.contacts} contacts, ${result.summary.matters} matters`)
+        showNotification('success', `AI transformed: ${result.summary.users} users, ${result.summary.contacts} contacts, ${result.summary.matters} matters`)
       } else {
-        setTransformResult({ success: false, error: result.error || 'Transformation failed' })
+        setTransformResult({ success: false, error: result.error || 'AI transformation failed' })
         showNotification('error', result.error || 'AI transformation failed')
       }
     } catch (error) {
@@ -1774,7 +1820,7 @@ ${migrationInputs.calendarEvents || 'No calendar events provided'}
                         <p>Migrate a law firm's data from Clio to Apex Legal. Use AI to automatically transform any data format, or upload pre-formatted JSON.</p>
                       </div>
 
-                      {/* AI Mode Toggle */}
+                      {/* Mode Toggle */}
                       <div className={styles.aiModeToggle}>
                         <button 
                           className={`${styles.modeBtn} ${!aiMode ? styles.activeMode : ''}`}
@@ -1787,9 +1833,9 @@ ${migrationInputs.calendarEvents || 'No calendar events provided'}
                           className={`${styles.modeBtn} ${aiMode ? styles.activeMode : ''}`}
                           onClick={() => setAiMode(true)}
                         >
-                          <Sparkles size={18} />
-                          AI Transform
-                          <span className={styles.aiLabel}>Recommended</span>
+                          <Upload size={18} />
+                          CSV Import
+                          <span className={styles.aiLabel}>Easy</span>
                         </button>
                       </div>
 
@@ -1797,10 +1843,15 @@ ${migrationInputs.calendarEvents || 'No calendar events provided'}
                       {aiMode ? (
                         <div className={styles.aiTransformSection}>
                           <div className={styles.aiHeader}>
-                            <Brain size={24} />
+                            <Upload size={24} />
                             <div>
-                              <h4>AI-Powered Data Transformation</h4>
-                              <p>Fill in each section below by copying and pasting from your Clio exports. The AI will automatically convert and link everything together.</p>
+                              <h4>Import from Clio (or any Case Management Software)</h4>
+                              <p>
+                                <strong>Step 1:</strong> Fill in firm info and paste your CSV exports below<br />
+                                <strong>Step 2:</strong> Click "Parse CSV Data" to convert<br />
+                                <strong>Step 3:</strong> Click "Validate Data" to check for errors<br />
+                                <strong>Step 4:</strong> Click "Execute Import" to save to database
+                              </p>
                             </div>
                           </div>
 
@@ -1958,22 +2009,35 @@ Or paste your Clio Calendar export directly.`}
                           <div className={styles.aiActions}>
                             <button 
                               onClick={handleAITransform}
-                              disabled={(!migrationInputs.firmName.trim() && !migrationInputs.users.trim() && !migrationInputs.clients.trim() && !migrationInputs.matters.trim()) || isTransforming}
+                              disabled={!migrationInputs.firmName.trim() || isTransforming}
                               className={styles.aiTransformBtn}
                             >
                               {isTransforming ? (
                                 <>
                                   <RefreshCw size={18} className={styles.spinner} />
-                                  AI Processing...
+                                  Processing...
                                 </>
                               ) : (
                                 <>
-                                  <Sparkles size={18} />
-                                  Transform with AI
+                                  <CheckCircle2 size={18} />
+                                  Parse CSV Data
                                 </>
                               )}
                             </button>
+                            <button 
+                              onClick={handleAITransformFallback}
+                              disabled={!migrationInputs.firmName.trim() || isTransforming}
+                              className={styles.aiFallbackBtn}
+                              title="Use AI if your data format is messy or non-standard"
+                            >
+                              <Sparkles size={16} />
+                              AI Assist
+                            </button>
                           </div>
+                          <p className={styles.parseHint}>
+                            <strong>Parse CSV Data</strong> = Fast, direct parsing of standard CSV format<br />
+                            <strong>AI Assist</strong> = Use AI to interpret messy or non-standard data
+                          </p>
 
                           {/* AI Transform Result */}
                           {transformResult && (

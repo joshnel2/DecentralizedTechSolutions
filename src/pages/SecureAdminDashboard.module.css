@@ -1754,6 +1754,150 @@
   animation: spin 1s linear infinite;
 }
 
+.aiFallbackBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.875rem 1.25rem;
+  background: rgba(124, 58, 237, 0.15);
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  border-radius: 10px;
+  color: #a78bfa;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.aiFallbackBtn:hover:not(:disabled) {
+  background: rgba(124, 58, 237, 0.25);
+  border-color: rgba(124, 58, 237, 0.5);
+}
+
+.aiFallbackBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.parseHint {
+  text-align: center;
+  font-size: 0.8125rem;
+  color: #6b7280;
+  margin-top: 1rem;
+  line-height: 1.6;
+}
+
+.parseHint strong {
+  color: #9ca3af;
+}
+
+/* Migration Sections */
+.migrationSection {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.sectionHeader svg {
+  color: #dc2626;
+}
+
+.sectionHeader h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.sectionHint {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: #6b7280;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.25rem 0.625rem;
+  border-radius: 4px;
+}
+
+.firmInputGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+
+.inputField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.inputField label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #9ca3af;
+}
+
+.inputField input {
+  padding: 0.625rem 0.875rem;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #e5e7eb;
+  font-size: 0.875rem;
+}
+
+.inputField input:focus {
+  outline: none;
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+}
+
+.inputField input::placeholder {
+  color: #4b5563;
+}
+
+.migrationSection textarea {
+  width: 100%;
+  padding: 0.875rem;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #e5e7eb;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.migrationSection textarea:focus {
+  outline: none;
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+}
+
+.migrationSection textarea::placeholder {
+  color: #4b5563;
+  font-family: inherit;
+}
+
+@media (max-width: 768px) {
+  .firmInputGrid {
+    grid-template-columns: 1fr;
+  }
+  
+  .sectionHint {
+    display: none;
+  }
+}
+
 /* Transform Result */
 .transformResult {
   padding: 1.5rem;

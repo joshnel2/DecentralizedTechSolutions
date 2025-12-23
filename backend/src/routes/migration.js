@@ -1186,6 +1186,284 @@ router.get('/template', requireSecureAdmin, (req, res) => {
 });
 
 // ============================================
+// DIRECT CSV PARSING (No AI - faster & more reliable)
+// ============================================
+
+/**
+ * Parse CSV string into array of objects
+ */
+const parseCSV = (csvString, expectedHeaders = null) => {
+  if (!csvString || !csvString.trim()) return [];
+  
+  const lines = csvString.trim().split('\n').map(line => line.trim()).filter(line => line);
+  if (lines.length === 0) return [];
+  
+  // Detect delimiter (comma or tab)
+  const firstLine = lines[0];
+  const delimiter = firstLine.includes('\t') ? '\t' : ',';
+  
+  // Parse header row
+  const headers = firstLine.split(delimiter).map(h => h.trim().toLowerCase().replace(/['"]/g, ''));
+  
+  // Parse data rows
+  const results = [];
+  for (let i = 1; i < lines.length; i++) {
+    const values = lines[i].split(delimiter).map(v => v.trim().replace(/^["']|["']$/g, ''));
+    if (values.length === 0 || (values.length === 1 && !values[0])) continue;
+    
+    const row = {};
+    headers.forEach((header, idx) => {
+      row[header] = values[idx] || '';
+    });
+    results.push(row);
+  }
+  
+  return results;
+};
+
+/**
+ * Map CSV headers to our format (handles various naming conventions)
+ */
+const mapHeader = (header) => {
+  const h = header.toLowerCase().replace(/[^a-z0-9]/g, '');
+  
+  // User mappings
+  if (['email', 'emailaddress', 'useremail'].includes(h)) return 'email';
+  if (['firstname', 'first', 'fname'].includes(h)) return 'first_name';
+  if (['lastname', 'last', 'lname'].includes(h)) return 'last_name';
+  if (['name', 'fullname', 'username'].includes(h)) return 'name';
+  if (['role', 'type', 'usertype', 'position'].includes(h)) return 'role';
+  if (['rate', 'hourlyrate', 'billingrate'].includes(h)) return 'rate';
+  if (['phone', 'phonenumber', 'telephone'].includes(h)) return 'phone';
+  
+  // Client mappings
+  if (['company', 'companyname', 'organization'].includes(h)) return 'company';
+  if (['clienttype', 'contacttype'].includes(h)) return 'type';
+  if (['street', 'address', 'streetaddress', 'address1'].includes(h)) return 'street';
+  if (['city'].includes(h)) return 'city';
+  if (['state', 'province', 'region'].includes(h)) return 'state';
+  if (['zip', 'zipcode', 'postalcode', 'postal'].includes(h)) return 'zip';
+  
+  // Matter mappings
+  if (['matternumber', 'matterno', 'casenumber', 'caseno', 'number', 'displaynumber'].includes(h)) return 'number';
+  if (['mattername', 'casename', 'description', 'title'].includes(h)) return 'matter_name';
+  if (['client', 'clientname'].includes(h)) return 'client_name';
+  if (['attorney', 'responsibleattorney', 'assignedto', 'assignee'].includes(h)) return 'attorney_name';
+  if (['status', 'matterstatus', 'casestatus'].includes(h)) return 'status';
+  if (['practicearea', 'area', 'category', 'mattertype'].includes(h)) return 'practice_area';
+  if (['opendate', 'opened', 'dateopen', 'startdate'].includes(h)) return 'open_date';
+  if (['closedate', 'closed', 'dateclosed', 'enddate'].includes(h)) return 'close_date';
+  if (['billingmethod', 'billingtype'].includes(h)) return 'billing_method';
+  
+  // Time entry mappings
+  if (['date', 'entrydate', 'workdate'].includes(h)) return 'date';
+  if (['hours', 'quantity', 'duration', 'time'].includes(h)) return 'hours';
+  if (['note', 'notes', 'description', 'memo', 'narrative'].includes(h)) return 'description';
+  if (['matter', 'matterref', 'matterid'].includes(h)) return 'matter_ref';
+  if (['user', 'attorney', 'timekeeper'].includes(h)) return 'user_name';
+  if (['billable', 'isbillable'].includes(h)) return 'billable';
+  if (['amount', 'total'].includes(h)) return 'amount';
+  
+  // Calendar mappings
+  if (['summary', 'title', 'subject', 'eventname'].includes(h)) return 'title';
+  if (['start', 'startat', 'starttime', 'startdate', 'begins'].includes(h)) return 'start_at';
+  if (['end', 'endat', 'endtime', 'enddate', 'ends'].includes(h)) return 'end_at';
+  if (['location', 'place', 'venue'].includes(h)) return 'location';
+  if (['eventtype', 'calendartype', 'type'].includes(h)) return 'event_type';
+  if (['allday', 'alldayevent'].includes(h)) return 'all_day';
+  
+  return header;
+};
+
+/**
+ * Direct CSV parsing endpoint - no AI, just structured parsing
+ */
+router.post('/parse-csv', requireSecureAdmin, async (req, res) => {
+  const { firmName, firmEmail, firmPhone, firmAddress, users, clients, matters, timeEntries, calendarEvents } = req.body;
+
+  try {
+    logMigrationAudit('CSV_PARSE_START', { firmName }, req.ip);
+
+    const result = {
+      firm: {
+        name: firmName || 'Imported Firm',
+        email: firmEmail || null,
+        phone: firmPhone || null,
+        address: firmAddress || null
+      },
+      users: [],
+      contacts: [],
+      matters: [],
+      activities: [],
+      calendar_entries: []
+    };
+
+    // Parse Users
+    if (users && users.trim()) {
+      const parsedUsers = parseCSV(users);
+      result.users = parsedUsers.map((row, idx) => {
+        const mapped = {};
+        Object.keys(row).forEach(key => {
+          mapped[mapHeader(key)] = row[key];
+        });
+        
+        // Handle full name if first/last not provided
+        if (!mapped.first_name && mapped.name) {
+          const parts = mapped.name.trim().split(/\s+/);
+          mapped.first_name = parts[0];
+          mapped.last_name = parts.slice(1).join(' ') || 'User';
+        }
+        
+        return {
+          email: mapped.email || `user${idx + 1}@import.temp`,
+          first_name: mapped.first_name || 'User',
+          last_name: mapped.last_name || `${idx + 1}`,
+          type: mapped.role || 'Attorney',
+          rate: parseFloat(mapped.rate?.replace(/[$,]/g, '')) || null,
+          phone: mapped.phone || null,
+          password: 'TempPass' + Math.random().toString(36).slice(-8) + '!'
+        };
+      });
+    }
+
+    // Parse Clients/Contacts
+    if (clients && clients.trim()) {
+      const parsedClients = parseCSV(clients);
+      result.contacts = parsedClients.map((row) => {
+        const mapped = {};
+        Object.keys(row).forEach(key => {
+          mapped[mapHeader(key)] = row[key];
+        });
+        
+        const isCompany = mapped.type?.toLowerCase() === 'company' || 
+                          mapped.type?.toLowerCase() === 'organization' ||
+                          (!mapped.first_name && mapped.company);
+        
+        let displayName = mapped.name;
+        if (!displayName) {
+          displayName = isCompany ? mapped.company : `${mapped.first_name || ''} ${mapped.last_name || ''}`.trim();
+        }
+        
+        return {
+          type: isCompany ? 'Company' : 'Person',
+          name: displayName || 'Unknown Contact',
+          first_name: mapped.first_name || null,
+          last_name: mapped.last_name || null,
+          company: mapped.company || null,
+          email: mapped.email || null,
+          phone: mapped.phone || null,
+          addresses: (mapped.street || mapped.city) ? [{
+            street: mapped.street || null,
+            city: mapped.city || null,
+            province: mapped.state || null,
+            postal_code: mapped.zip || null,
+            primary: true
+          }] : []
+        };
+      });
+    }
+
+    // Parse Matters
+    if (matters && matters.trim()) {
+      const parsedMatters = parseCSV(matters);
+      result.matters = parsedMatters.map((row, idx) => {
+        const mapped = {};
+        Object.keys(row).forEach(key => {
+          mapped[mapHeader(key)] = row[key];
+        });
+        
+        return {
+          display_number: mapped.number || `IMP-${String(idx + 1).padStart(4, '0')}`,
+          description: mapped.matter_name || mapped.name || 'Imported Matter',
+          client: mapped.client_name ? { name: mapped.client_name } : null,
+          responsible_attorney: mapped.attorney_name ? { name: mapped.attorney_name } : null,
+          status: mapped.status || 'Open',
+          practice_area: mapped.practice_area ? { name: mapped.practice_area } : null,
+          open_date: mapped.open_date || null,
+          close_date: mapped.close_date || null,
+          billing_method: mapped.billing_method || 'hourly'
+        };
+      });
+    }
+
+    // Parse Time Entries
+    if (timeEntries && timeEntries.trim()) {
+      const parsedTime = parseCSV(timeEntries);
+      result.activities = parsedTime.map((row) => {
+        const mapped = {};
+        Object.keys(row).forEach(key => {
+          mapped[mapHeader(key)] = row[key];
+        });
+        
+        return {
+          type: 'TimeEntry',
+          date: mapped.date || new Date().toISOString().split('T')[0],
+          matter: mapped.matter_ref ? { display_number: mapped.matter_ref } : null,
+          user: mapped.user_name ? { name: mapped.user_name } : null,
+          quantity: parseFloat(mapped.hours) || 0,
+          rate: parseFloat(mapped.rate?.replace(/[$,]/g, '')) || null,
+          total: parseFloat(mapped.amount?.replace(/[$,]/g, '')) || null,
+          note: mapped.description || 'Time entry',
+          non_billable: mapped.billable?.toLowerCase() === 'no' || mapped.billable?.toLowerCase() === 'false'
+        };
+      });
+    }
+
+    // Parse Calendar Events
+    if (calendarEvents && calendarEvents.trim()) {
+      const parsedEvents = parseCSV(calendarEvents);
+      result.calendar_entries = parsedEvents.map((row) => {
+        const mapped = {};
+        Object.keys(row).forEach(key => {
+          mapped[mapHeader(key)] = row[key];
+        });
+        
+        return {
+          summary: mapped.title || 'Imported Event',
+          description: mapped.description || null,
+          matter: mapped.matter_ref ? { display_number: mapped.matter_ref } : null,
+          start_at: mapped.start_at || null,
+          end_at: mapped.end_at || null,
+          all_day: mapped.all_day?.toLowerCase() === 'yes' || mapped.all_day?.toLowerCase() === 'true',
+          location: mapped.location || null,
+          calendar_entry_type: mapped.event_type || 'Meeting'
+        };
+      });
+    }
+
+    logMigrationAudit('CSV_PARSE_SUCCESS', {
+      firm: result.firm.name,
+      users: result.users.length,
+      contacts: result.contacts.length,
+      matters: result.matters.length,
+      activities: result.activities.length,
+      calendar_entries: result.calendar_entries.length
+    }, req.ip);
+
+    res.json({
+      success: true,
+      transformedData: result,
+      summary: {
+        firm: result.firm.name,
+        users: result.users.length,
+        contacts: result.contacts.length,
+        matters: result.matters.length,
+        activities: result.activities.length,
+        calendar_entries: result.calendar_entries.length
+      }
+    });
+
+  } catch (error) {
+    console.error('CSV parsing error:', error);
+    logMigrationAudit('CSV_PARSE_FAILED', { error: error.message }, req.ip);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to parse CSV data: ' + error.message 
+    });
+  }
+});
+
+// ============================================
 // AI-POWERED DATA TRANSFORMATION
 // ============================================
 
