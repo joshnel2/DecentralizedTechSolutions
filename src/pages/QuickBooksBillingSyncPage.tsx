@@ -21,6 +21,13 @@ interface SyncStatus {
     unsyncedInvoices: number
     paymentsImported: number
     paymentsApplied: number
+    // Expense/Bill stats
+    syncedExpenses: number
+    expenseSyncErrors: number
+    unsyncedExpenses: number
+    billsImported: number
+    billsApplied: number
+    mappedVendors: number
   }
   recentLogs: SyncLog[]
 }
@@ -73,6 +80,53 @@ interface UnsyncedInvoice {
   dueDate: string
 }
 
+interface UnsyncedExpense {
+  id: string
+  matterId: string
+  matterName: string
+  date: string
+  description: string
+  amount: number
+  category: string
+  expenseType: string
+  billable: boolean
+  status: string
+}
+
+interface VendorMapping {
+  id: string
+  vendorName: string
+  vendorEmail: string
+  qbVendorId: string
+  qbVendorName: string
+  qbVendorEmail: string
+  syncDirection: string
+  lastSyncedAt: string
+}
+
+interface QBVendor {
+  id: string
+  name: string
+  email: string
+  balance: number
+  active: boolean
+}
+
+interface ImportedBill {
+  id: string
+  qbBillId: string
+  qbVendorId: string
+  qbVendorName: string
+  docNumber: string
+  txnDate: string
+  dueDate: string
+  totalAmount: number
+  balance: number
+  memo: string
+  isPaid: boolean
+  syncStatus: string
+}
+
 interface SyncSettings {
   autoSyncEnabled: boolean
   autoSyncInterval: number
@@ -85,10 +139,16 @@ interface SyncSettings {
   autoSyncPaidStatus: boolean
   autoCreateCustomers: boolean
   autoCreateClients: boolean
+  // Expense sync settings
+  syncExpensesToQb: boolean
+  syncBillsFromQb: boolean
+  autoPushApprovedExpenses: boolean
+  autoCreateVendors: boolean
+  defaultExpenseSyncType: string
   conflictResolution: string
 }
 
-type TabType = 'overview' | 'clients' | 'invoices' | 'payments' | 'settings' | 'logs'
+type TabType = 'overview' | 'clients' | 'invoices' | 'payments' | 'expenses' | 'settings' | 'logs'
 
 export function QuickBooksBillingSyncPage() {
   const navigate = useNavigate()
@@ -105,6 +165,13 @@ export function QuickBooksBillingSyncPage() {
   const [unsyncedInvoices, setUnsyncedInvoices] = useState<UnsyncedInvoice[]>([])
   const [syncLogs, setSyncLogs] = useState<SyncLog[]>([])
 
+  // Expense/Bill sync state
+  const [unsyncedExpenses, setUnsyncedExpenses] = useState<UnsyncedExpense[]>([])
+  const [vendorMappings, setVendorMappings] = useState<VendorMapping[]>([])
+  const [qbVendors, setQbVendors] = useState<QBVendor[]>([])
+  const [importedBills, setImportedBills] = useState<ImportedBill[]>([])
+  const [selectedExpenses, setSelectedExpenses] = useState<string[]>([])
+
   const [showMappingModal, setShowMappingModal] = useState(false)
   const [selectedClient, setSelectedClient] = useState<UnmappedClient | null>(null)
   const [selectedQbCustomer, setSelectedQbCustomer] = useState<string>('')
@@ -112,6 +179,13 @@ export function QuickBooksBillingSyncPage() {
   const [loadingQbCustomers, setLoadingQbCustomers] = useState(false)
 
   const [selectedInvoices, setSelectedInvoices] = useState<string[]>([])
+  
+  // Vendor mapping modal state
+  const [showVendorMappingModal, setShowVendorMappingModal] = useState(false)
+  const [selectedVendorName, setSelectedVendorName] = useState('')
+  const [selectedQbVendor, setSelectedQbVendor] = useState('')
+  const [searchQbVendor, setSearchQbVendor] = useState('')
+  const [loadingQbVendors, setLoadingQbVendors] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -184,12 +258,41 @@ export function QuickBooksBillingSyncPage() {
     }
   }
 
+  const loadExpenseData = async () => {
+    try {
+      const [expensesRes, vendorsRes, billsRes] = await Promise.all([
+        integrationsApi.getUnsyncedExpenses(),
+        integrationsApi.getQuickBooksVendorMappings(),
+        integrationsApi.getImportedBills(),
+      ])
+      setUnsyncedExpenses(expensesRes.expenses || [])
+      setVendorMappings(vendorsRes.mappings || [])
+      setImportedBills(billsRes.bills || [])
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Failed to load expense data' })
+    }
+  }
+
+  const loadQbVendors = async () => {
+    setLoadingQbVendors(true)
+    try {
+      const res = await integrationsApi.getQuickBooksVendorsList()
+      setQbVendors(res.vendors || [])
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Failed to load QuickBooks vendors' })
+    } finally {
+      setLoadingQbVendors(false)
+    }
+  }
+
   // Tab change handler
   useEffect(() => {
     if (activeTab === 'clients') {
       loadClientMappings()
     } else if (activeTab === 'invoices') {
       loadUnsyncedInvoices()
+    } else if (activeTab === 'expenses') {
+      loadExpenseData()
     } else if (activeTab === 'logs') {
       loadSyncLogs()
     }
@@ -323,6 +426,120 @@ export function QuickBooksBillingSyncPage() {
     }
   }
 
+  // Expense/Bill sync handlers
+  const handlePushExpense = async (expenseId: string) => {
+    try {
+      await integrationsApi.pushExpenseToQuickBooks(expenseId, 'bill')
+      setNotification({ type: 'success', message: 'Expense pushed to QuickBooks as Bill' })
+      loadExpenseData()
+      loadData()
+    } catch (error: any) {
+      if (error.data?.needsVendorMapping) {
+        setNotification({ type: 'error', message: `Vendor "${error.data.vendorName}" needs to be mapped first` })
+      } else {
+        setNotification({ type: 'error', message: error.message || 'Failed to push expense' })
+      }
+    }
+  }
+
+  const handlePushSelectedExpenses = async () => {
+    if (selectedExpenses.length === 0) return
+    setSyncing(true)
+    try {
+      const result = await integrationsApi.pushExpensesToQuickBooksBulk(selectedExpenses, 'bill')
+      setNotification({ 
+        type: 'success', 
+        message: `Pushed ${result.successCount} expenses${result.failCount > 0 ? `, ${result.failCount} failed` : ''}` 
+      })
+      setSelectedExpenses([])
+      loadExpenseData()
+      loadData()
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Failed to push expenses' })
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const handlePullBills = async () => {
+    setSyncing(true)
+    try {
+      const result = await integrationsApi.pullBillsFromQuickBooks()
+      setNotification({ 
+        type: 'success', 
+        message: `Imported ${result.imported} bills from QuickBooks` 
+      })
+      loadExpenseData()
+      loadData()
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Failed to pull bills' })
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const handleCreateVendorMapping = async () => {
+    if (!selectedVendorName || !selectedQbVendor) return
+
+    const vendor = qbVendors.find(v => v.id === selectedQbVendor)
+    try {
+      await integrationsApi.createQuickBooksVendorMapping({
+        vendorName: selectedVendorName,
+        qbVendorId: selectedQbVendor,
+        qbVendorName: vendor?.name,
+        qbVendorEmail: vendor?.email,
+      })
+      setNotification({ type: 'success', message: 'Vendor mapped successfully' })
+      setShowVendorMappingModal(false)
+      setSelectedVendorName('')
+      setSelectedQbVendor('')
+      loadExpenseData()
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Failed to create vendor mapping' })
+    }
+  }
+
+  const handleDeleteVendorMapping = async (mappingId: string) => {
+    if (!confirm('Remove this vendor mapping?')) return
+    try {
+      await integrationsApi.deleteQuickBooksVendorMapping(mappingId)
+      setNotification({ type: 'success', message: 'Vendor mapping removed' })
+      loadExpenseData()
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Failed to remove mapping' })
+    }
+  }
+
+  const handleCreateQbVendor = async (vendorName: string) => {
+    try {
+      await integrationsApi.createQuickBooksVendor(vendorName)
+      setNotification({ type: 'success', message: 'Vendor created in QuickBooks and mapped' })
+      loadExpenseData()
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Failed to create vendor' })
+    }
+  }
+
+  const openVendorMappingModal = (vendorName: string) => {
+    setSelectedVendorName(vendorName)
+    setShowVendorMappingModal(true)
+    if (qbVendors.length === 0) {
+      loadQbVendors()
+    }
+  }
+
+  const filteredQbVendors = qbVendors.filter(v =>
+    v.name.toLowerCase().includes(searchQbVendor.toLowerCase()) ||
+    v.email?.toLowerCase().includes(searchQbVendor.toLowerCase())
+  )
+
+  // Get unique unmapped vendor names from expenses
+  const unmappedVendorNames = [...new Set(
+    unsyncedExpenses
+      .filter(e => e.category && !vendorMappings.some(m => m.vendorName === e.category))
+      .map(e => e.category)
+  )]
+
   const openMappingModal = (client: UnmappedClient) => {
     setSelectedClient(client)
     setShowMappingModal(true)
@@ -403,6 +620,7 @@ export function QuickBooksBillingSyncPage() {
           { id: 'clients', label: 'Client Mapping', icon: Users },
           { id: 'invoices', label: 'Invoices', icon: FileText },
           { id: 'payments', label: 'Payments', icon: DollarSign },
+          { id: 'expenses', label: 'Expenses/Bills', icon: FileText },
           { id: 'settings', label: 'Settings', icon: Settings },
           { id: 'logs', label: 'Sync History', icon: History },
         ].map(tab => (
@@ -468,6 +686,21 @@ export function QuickBooksBillingSyncPage() {
               </div>
 
               <div className={styles.statCard}>
+                <div className={styles.statIcon} style={{ background: 'rgba(236, 72, 153, 0.1)' }}>
+                  <FileText size={24} style={{ color: '#EC4899' }} />
+                </div>
+                <div className={styles.statContent}>
+                  <div className={styles.statValue}>{status.stats.syncedExpenses || 0}</div>
+                  <div className={styles.statLabel}>Synced Expenses</div>
+                </div>
+                {(status.stats.unsyncedExpenses || 0) > 0 && (
+                  <div className={styles.statBadge} style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#F59E0B' }}>
+                    {status.stats.unsyncedExpenses} pending
+                  </div>
+                )}
+              </div>
+
+              <div className={styles.statCard}>
                 <div className={styles.statIcon} style={{ background: 'rgba(139, 92, 246, 0.1)' }}>
                   <Clock size={24} style={{ color: '#8B5CF6' }} />
                 </div>
@@ -507,6 +740,14 @@ export function QuickBooksBillingSyncPage() {
                   <div>
                     <strong>Pull Payments</strong>
                     <span>Import payments from QuickBooks</span>
+                  </div>
+                  <ChevronRight size={20} />
+                </button>
+                <button className={styles.actionCard} onClick={() => setActiveTab('expenses')}>
+                  <FileText size={24} />
+                  <div>
+                    <strong>Sync Expenses</strong>
+                    <span>Push expenses as Bills to QuickBooks</span>
                   </div>
                   <ChevronRight size={20} />
                 </button>
@@ -753,6 +994,230 @@ export function QuickBooksBillingSyncPage() {
           </div>
         )}
 
+        {/* EXPENSES TAB */}
+        {activeTab === 'expenses' && (
+          <div className={styles.expensesTab}>
+            <div className={styles.sectionHeader}>
+              <h3>Expense / Bill Sync</h3>
+              <div className={styles.sectionActions}>
+                {selectedExpenses.length > 0 && (
+                  <button 
+                    className={styles.primaryBtn} 
+                    onClick={handlePushSelectedExpenses}
+                    disabled={syncing}
+                  >
+                    <ArrowUpRight size={16} />
+                    Push {selectedExpenses.length} Selected
+                  </button>
+                )}
+                <button 
+                  className={styles.secondaryBtn}
+                  onClick={handlePullBills}
+                  disabled={syncing}
+                >
+                  <ArrowDownRight size={16} />
+                  Pull Bills from QB
+                </button>
+              </div>
+            </div>
+
+            {/* Expense Sync Stats */}
+            <div className={styles.expenseStats}>
+              <div className={styles.infoCard}>
+                <ArrowUpRight size={24} />
+                <div>
+                  <strong>{status?.stats.syncedExpenses || 0}</strong>
+                  <span>Expenses Synced</span>
+                </div>
+              </div>
+              <div className={styles.infoCard}>
+                <ArrowDownRight size={24} />
+                <div>
+                  <strong>{status?.stats.billsImported || 0}</strong>
+                  <span>Bills Imported</span>
+                </div>
+              </div>
+              <div className={styles.infoCard}>
+                <Users size={24} />
+                <div>
+                  <strong>{status?.stats.mappedVendors || 0}</strong>
+                  <span>Vendors Mapped</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Unmapped Vendors */}
+            {unmappedVendorNames.length > 0 && (
+              <div className={styles.subsection}>
+                <h4>
+                  <AlertTriangle size={16} style={{ color: '#F59E0B' }} />
+                  Unmapped Vendors ({unmappedVendorNames.length})
+                </h4>
+                <p className={styles.hint}>These vendors/categories need to be linked to QuickBooks vendors before expenses can sync.</p>
+                <div className={styles.clientList}>
+                  {unmappedVendorNames.map(vendorName => (
+                    <div key={vendorName} className={styles.clientItem}>
+                      <div className={styles.clientInfo}>
+                        <strong>{vendorName}</strong>
+                        <span>From expense categories</span>
+                      </div>
+                      <div className={styles.clientActions}>
+                        <button 
+                          className={styles.linkBtn}
+                          onClick={() => openVendorMappingModal(vendorName)}
+                        >
+                          <Link2 size={14} />
+                          Link to Vendor
+                        </button>
+                        <button 
+                          className={styles.createBtn}
+                          onClick={() => handleCreateQbVendor(vendorName)}
+                        >
+                          <Plus size={14} />
+                          Create in QB
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Unsynced Expenses */}
+            <div className={styles.subsection}>
+              <h4>
+                <FileText size={16} />
+                Expenses to Sync ({unsyncedExpenses.length})
+              </h4>
+              {unsyncedExpenses.length === 0 ? (
+                <div className={styles.emptyState}>
+                  <CheckCircle2 size={48} />
+                  <h4>All expenses synced!</h4>
+                  <p>All approved expenses have been pushed to QuickBooks.</p>
+                </div>
+              ) : (
+                <div className={styles.invoiceList}>
+                  <div className={styles.invoiceHeader}>
+                    <label className={styles.checkbox}>
+                      <input 
+                        type="checkbox"
+                        checked={selectedExpenses.length === unsyncedExpenses.length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedExpenses(unsyncedExpenses.map(i => i.id))
+                          } else {
+                            setSelectedExpenses([])
+                          }
+                        }}
+                      />
+                      Select All
+                    </label>
+                    <span>Date</span>
+                    <span>Description</span>
+                    <span>Category</span>
+                    <span>Amount</span>
+                    <span>Actions</span>
+                  </div>
+                  {unsyncedExpenses.map(expense => (
+                    <div key={expense.id} className={styles.invoiceItem}>
+                      <label className={styles.checkbox}>
+                        <input 
+                          type="checkbox"
+                          checked={selectedExpenses.includes(expense.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedExpenses([...selectedExpenses, expense.id])
+                            } else {
+                              setSelectedExpenses(selectedExpenses.filter(id => id !== expense.id))
+                            }
+                          }}
+                        />
+                      </label>
+                      <span>{new Date(expense.date).toLocaleDateString()}</span>
+                      <span className={styles.expenseDesc}>{expense.description}</span>
+                      <span>{expense.category || 'Uncategorized'}</span>
+                      <span className={styles.amount}>${expense.amount.toLocaleString()}</span>
+                      <button 
+                        className={styles.pushBtn}
+                        onClick={() => handlePushExpense(expense.id)}
+                      >
+                        <ArrowUpRight size={14} />
+                        Push
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Vendor Mappings */}
+            <div className={styles.subsection}>
+              <h4>
+                <CheckCircle2 size={16} style={{ color: '#10B981' }} />
+                Vendor Mappings ({vendorMappings.length})
+              </h4>
+              <div className={styles.mappingList}>
+                {vendorMappings.length === 0 ? (
+                  <div className={styles.empty}>No vendors mapped yet</div>
+                ) : (
+                  vendorMappings.map(mapping => (
+                    <div key={mapping.id} className={styles.mappingItem}>
+                      <div className={styles.mappingLocal}>
+                        <strong>{mapping.vendorName}</strong>
+                        <span>Expense Category</span>
+                      </div>
+                      <div className={styles.mappingArrow}>
+                        <Link2 size={16} />
+                      </div>
+                      <div className={styles.mappingQb}>
+                        <strong>{mapping.qbVendorName}</strong>
+                        <span>QuickBooks Vendor</span>
+                      </div>
+                      <button 
+                        className={styles.deleteBtn}
+                        onClick={() => handleDeleteVendorMapping(mapping.id)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Imported Bills */}
+            {importedBills.length > 0 && (
+              <div className={styles.subsection}>
+                <h4>
+                  <ArrowDownRight size={16} />
+                  Imported Bills ({importedBills.length})
+                </h4>
+                <p className={styles.hint}>Bills imported from QuickBooks that can be created as expenses.</p>
+                <div className={styles.invoiceList}>
+                  <div className={styles.invoiceHeader}>
+                    <span>Date</span>
+                    <span>Vendor</span>
+                    <span>Doc #</span>
+                    <span>Amount</span>
+                    <span>Status</span>
+                  </div>
+                  {importedBills.map(bill => (
+                    <div key={bill.id} className={styles.invoiceItem}>
+                      <span>{new Date(bill.txnDate).toLocaleDateString()}</span>
+                      <span>{bill.qbVendorName}</span>
+                      <span>{bill.docNumber || '-'}</span>
+                      <span className={styles.amount}>${bill.totalAmount.toLocaleString()}</span>
+                      <span className={`${styles.status} ${bill.isPaid ? styles.paid : styles.pending}`}>
+                        {bill.isPaid ? 'Paid' : 'Unpaid'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* SETTINGS TAB */}
         {activeTab === 'settings' && settings && (
           <div className={styles.settingsTab}>
@@ -871,6 +1336,69 @@ export function QuickBooksBillingSyncPage() {
                     type="checkbox" 
                     checked={settings.autoCreateCustomers}
                     onChange={(e) => handleSaveSettings({ autoCreateCustomers: e.target.checked })}
+                  />
+                  <span className={styles.slider}></span>
+                </label>
+              </div>
+            </div>
+
+            <div className={styles.settingsSection}>
+              <h3>Expense / Bill Sync</h3>
+              <div className={styles.settingRow}>
+                <div className={styles.settingInfo}>
+                  <strong>Push Expenses to QuickBooks</strong>
+                  <span>Create Bills in QuickBooks from approved expenses</span>
+                </div>
+                <label className={styles.toggle}>
+                  <input 
+                    type="checkbox" 
+                    checked={settings.syncExpensesToQb}
+                    onChange={(e) => handleSaveSettings({ syncExpensesToQb: e.target.checked })}
+                  />
+                  <span className={styles.slider}></span>
+                </label>
+              </div>
+
+              <div className={styles.settingRow}>
+                <div className={styles.settingInfo}>
+                  <strong>Pull Bills from QuickBooks</strong>
+                  <span>Import Bills from QuickBooks as expenses</span>
+                </div>
+                <label className={styles.toggle}>
+                  <input 
+                    type="checkbox" 
+                    checked={settings.syncBillsFromQb}
+                    onChange={(e) => handleSaveSettings({ syncBillsFromQb: e.target.checked })}
+                  />
+                  <span className={styles.slider}></span>
+                </label>
+              </div>
+
+              <div className={styles.settingRow}>
+                <div className={styles.settingInfo}>
+                  <strong>Auto-Push Approved Expenses</strong>
+                  <span>Automatically push expenses when they're approved</span>
+                </div>
+                <label className={styles.toggle}>
+                  <input 
+                    type="checkbox" 
+                    checked={settings.autoPushApprovedExpenses}
+                    onChange={(e) => handleSaveSettings({ autoPushApprovedExpenses: e.target.checked })}
+                  />
+                  <span className={styles.slider}></span>
+                </label>
+              </div>
+
+              <div className={styles.settingRow}>
+                <div className={styles.settingInfo}>
+                  <strong>Auto-Create Vendors</strong>
+                  <span>Create QuickBooks vendors for unmapped expense categories automatically</span>
+                </div>
+                <label className={styles.toggle}>
+                  <input 
+                    type="checkbox" 
+                    checked={settings.autoCreateVendors}
+                    onChange={(e) => handleSaveSettings({ autoCreateVendors: e.target.checked })}
                   />
                   <span className={styles.slider}></span>
                 </label>
@@ -1008,6 +1536,83 @@ export function QuickBooksBillingSyncPage() {
               >
                 <Link2 size={16} />
                 Link Customer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Vendor Mapping Modal */}
+      {showVendorMappingModal && selectedVendorName && (
+        <div className={styles.modalOverlay} onClick={() => setShowVendorMappingModal(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Link to QuickBooks Vendor</h2>
+              <button onClick={() => setShowVendorMappingModal(false)}><X size={20} /></button>
+            </div>
+            <div className={styles.modalBody}>
+              <div className={styles.mappingPreview}>
+                <div className={styles.previewClient}>
+                  <strong>{selectedVendorName}</strong>
+                  <span>Expense Category</span>
+                </div>
+                <Link2 size={24} />
+                <div className={styles.previewQb}>
+                  {selectedQbVendor ? (
+                    <>
+                      <strong>{qbVendors.find(v => v.id === selectedQbVendor)?.name}</strong>
+                      <span>QuickBooks Vendor</span>
+                    </>
+                  ) : (
+                    <span>Select a vendor...</span>
+                  )}
+                </div>
+              </div>
+
+              <div className={styles.searchBox}>
+                <Search size={18} />
+                <input
+                  type="text"
+                  placeholder="Search QuickBooks vendors..."
+                  value={searchQbVendor}
+                  onChange={(e) => setSearchQbVendor(e.target.value)}
+                />
+              </div>
+
+              {loadingQbVendors ? (
+                <div className={styles.loading}>
+                  <RefreshCw size={20} className={styles.spinning} />
+                  Loading vendors...
+                </div>
+              ) : (
+                <div className={styles.customerList}>
+                  {filteredQbVendors.map(vendor => (
+                    <button
+                      key={vendor.id}
+                      className={`${styles.customerItem} ${selectedQbVendor === vendor.id ? styles.selected : ''}`}
+                      onClick={() => setSelectedQbVendor(vendor.id)}
+                    >
+                      <div>
+                        <strong>{vendor.name}</strong>
+                        <span>{vendor.email || 'No email'}</span>
+                      </div>
+                      {selectedQbVendor === vendor.id && <Check size={18} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className={styles.modalFooter}>
+              <button className={styles.cancelBtn} onClick={() => setShowVendorMappingModal(false)}>
+                Cancel
+              </button>
+              <button 
+                className={styles.primaryBtn} 
+                onClick={handleCreateVendorMapping}
+                disabled={!selectedQbVendor}
+              >
+                <Link2 size={16} />
+                Link Vendor
               </button>
             </div>
           </div>

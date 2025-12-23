@@ -114,6 +114,12 @@ router.get('/settings', authenticate, async (req, res) => {
       autoSyncPaidStatus: settings.auto_sync_paid_status,
       autoCreateCustomers: settings.auto_create_customers,
       autoCreateClients: settings.auto_create_clients,
+      // Expense sync settings
+      syncExpensesToQb: settings.sync_expenses_to_qb ?? true,
+      syncBillsFromQb: settings.sync_bills_from_qb ?? true,
+      autoPushApprovedExpenses: settings.auto_push_approved_expenses ?? true,
+      autoCreateVendors: settings.auto_create_vendors ?? true,
+      defaultExpenseSyncType: settings.default_expense_sync_type ?? 'bill',
       conflictResolution: settings.conflict_resolution,
     });
   } catch (error) {
@@ -137,6 +143,12 @@ router.put('/settings', authenticate, async (req, res) => {
       autoSyncPaidStatus,
       autoCreateCustomers,
       autoCreateClients,
+      // Expense sync settings
+      syncExpensesToQb,
+      syncBillsFromQb,
+      autoPushApprovedExpenses,
+      autoCreateVendors,
+      defaultExpenseSyncType,
       conflictResolution,
     } = req.body;
 
@@ -154,7 +166,12 @@ router.put('/settings', authenticate, async (req, res) => {
          auto_sync_paid_status = COALESCE($10, quickbooks_sync_settings.auto_sync_paid_status),
          auto_create_customers = COALESCE($11, quickbooks_sync_settings.auto_create_customers),
          auto_create_clients = COALESCE($12, quickbooks_sync_settings.auto_create_clients),
-         conflict_resolution = COALESCE($13, quickbooks_sync_settings.conflict_resolution),
+         sync_expenses_to_qb = COALESCE($13, quickbooks_sync_settings.sync_expenses_to_qb),
+         sync_bills_from_qb = COALESCE($14, quickbooks_sync_settings.sync_bills_from_qb),
+         auto_push_approved_expenses = COALESCE($15, quickbooks_sync_settings.auto_push_approved_expenses),
+         auto_create_vendors = COALESCE($16, quickbooks_sync_settings.auto_create_vendors),
+         default_expense_sync_type = COALESCE($17, quickbooks_sync_settings.default_expense_sync_type),
+         conflict_resolution = COALESCE($18, quickbooks_sync_settings.conflict_resolution),
          updated_at = NOW()`,
       [
         req.user.firmId,
@@ -169,6 +186,11 @@ router.put('/settings', authenticate, async (req, res) => {
         autoSyncPaidStatus,
         autoCreateCustomers,
         autoCreateClients,
+        syncExpensesToQb,
+        syncBillsFromQb,
+        autoPushApprovedExpenses,
+        autoCreateVendors,
+        defaultExpenseSyncType,
         conflictResolution,
       ]
     );
@@ -199,13 +221,19 @@ router.get('/status', authenticate, async (req, res) => {
     const lastSyncAt = integration.rows[0]?.last_sync_at;
 
     // Get sync statistics
-    const [mappedClients, syncedInvoices, syncedPayments, recentLogs] = await Promise.all([
+    const [mappedClients, syncedInvoices, syncedPayments, syncedExpenses, importedBills, mappedVendors, recentLogs] = await Promise.all([
       query(`SELECT COUNT(*) as count FROM quickbooks_client_mappings WHERE firm_id = $1`, [req.user.firmId]),
       query(`SELECT COUNT(*) as count, SUM(CASE WHEN sync_status = 'synced' THEN 1 ELSE 0 END) as synced,
              SUM(CASE WHEN sync_status = 'error' THEN 1 ELSE 0 END) as errors
              FROM quickbooks_invoice_sync WHERE firm_id = $1`, [req.user.firmId]),
       query(`SELECT COUNT(*) as count, SUM(CASE WHEN synced_to_billing THEN 1 ELSE 0 END) as applied
              FROM quickbooks_payment_sync WHERE firm_id = $1`, [req.user.firmId]),
+      query(`SELECT COUNT(*) as count, SUM(CASE WHEN sync_status = 'synced' THEN 1 ELSE 0 END) as synced,
+             SUM(CASE WHEN sync_status = 'error' THEN 1 ELSE 0 END) as errors
+             FROM quickbooks_expense_sync WHERE firm_id = $1`, [req.user.firmId]),
+      query(`SELECT COUNT(*) as count, SUM(CASE WHEN imported_to_expenses THEN 1 ELSE 0 END) as applied
+             FROM quickbooks_bills_imported WHERE firm_id = $1`, [req.user.firmId]),
+      query(`SELECT COUNT(*) as count FROM quickbooks_vendor_mappings WHERE firm_id = $1`, [req.user.firmId]),
       query(`SELECT * FROM quickbooks_sync_log WHERE firm_id = $1 ORDER BY started_at DESC LIMIT 10`, [req.user.firmId]),
     ]);
 
@@ -228,6 +256,16 @@ router.get('/status', authenticate, async (req, res) => {
       [req.user.firmId]
     );
 
+    // Get unsynced expenses count
+    const unsyncedExpenses = await query(
+      `SELECT COUNT(*) as count FROM expenses e
+       WHERE e.firm_id = $1 AND e.status IN ('approved', 'billed')
+       AND NOT EXISTS (
+         SELECT 1 FROM quickbooks_expense_sync qes WHERE qes.expense_id = e.id
+       )`,
+      [req.user.firmId]
+    );
+
     res.json({
       isConnected,
       companyName,
@@ -240,6 +278,13 @@ router.get('/status', authenticate, async (req, res) => {
         unsyncedInvoices: parseInt(unsyncedInvoices.rows[0]?.count || 0),
         paymentsImported: parseInt(syncedPayments.rows[0]?.count || 0),
         paymentsApplied: parseInt(syncedPayments.rows[0]?.applied || 0),
+        // Expense/Bill stats
+        syncedExpenses: parseInt(syncedExpenses.rows[0]?.synced || 0),
+        expenseSyncErrors: parseInt(syncedExpenses.rows[0]?.errors || 0),
+        unsyncedExpenses: parseInt(unsyncedExpenses.rows[0]?.count || 0),
+        billsImported: parseInt(importedBills.rows[0]?.count || 0),
+        billsApplied: parseInt(importedBills.rows[0]?.applied || 0),
+        mappedVendors: parseInt(mappedVendors.rows[0]?.count || 0),
       },
       recentLogs: recentLogs.rows.map(log => ({
         id: log.id,
@@ -1049,6 +1094,752 @@ router.post('/apply-payment', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Apply payment error:', error);
     res.status(500).json({ error: 'Failed to apply payment' });
+  }
+});
+
+// ============================================
+// EXPENSE/BILL SYNC
+// ============================================
+
+// Get vendor mappings
+router.get('/vendor-mappings', authenticate, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT * FROM quickbooks_vendor_mappings WHERE firm_id = $1 ORDER BY vendor_name ASC`,
+      [req.user.firmId]
+    );
+
+    res.json({
+      mappings: result.rows.map(m => ({
+        id: m.id,
+        vendorName: m.vendor_name,
+        vendorEmail: m.vendor_email,
+        qbVendorId: m.qb_vendor_id,
+        qbVendorName: m.qb_vendor_name,
+        qbVendorEmail: m.qb_vendor_email,
+        syncDirection: m.sync_direction,
+        lastSyncedAt: m.last_synced_at,
+      })),
+    });
+  } catch (error) {
+    console.error('Get vendor mappings error:', error);
+    res.status(500).json({ error: 'Failed to get vendor mappings' });
+  }
+});
+
+// Fetch QuickBooks vendors (for mapping UI)
+router.get('/qb-vendors', authenticate, async (req, res) => {
+  try {
+    const { accessToken, realmId } = await getQuickBooksToken(req.user.firmId);
+    const baseUrl = getQBBaseUrl();
+
+    const response = await fetch(
+      `${baseUrl}/v3/company/${realmId}/query?query=${encodeURIComponent('SELECT * FROM Vendor MAXRESULTS 1000')}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    const data = await response.json();
+    const vendors = data.QueryResponse?.Vendor || [];
+
+    res.json({
+      vendors: vendors.map(v => ({
+        id: v.Id,
+        name: v.DisplayName || v.CompanyName || `${v.GivenName || ''} ${v.FamilyName || ''}`.trim(),
+        email: v.PrimaryEmailAddr?.Address,
+        balance: v.Balance || 0,
+        active: v.Active,
+      })),
+    });
+  } catch (error) {
+    console.error('Get QB vendors error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch QuickBooks vendors' });
+  }
+});
+
+// Create/update vendor mapping
+router.post('/vendor-mappings', authenticate, async (req, res) => {
+  try {
+    const { vendorName, vendorEmail, qbVendorId, qbVendorName, qbVendorEmail, syncDirection } = req.body;
+
+    if (!vendorName || !qbVendorId) {
+      return res.status(400).json({ error: 'vendorName and qbVendorId are required' });
+    }
+
+    const result = await query(
+      `INSERT INTO quickbooks_vendor_mappings (firm_id, vendor_name, vendor_email, qb_vendor_id, qb_vendor_name, qb_vendor_email, sync_direction)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (firm_id, vendor_name) DO UPDATE SET
+         qb_vendor_id = EXCLUDED.qb_vendor_id,
+         qb_vendor_name = EXCLUDED.qb_vendor_name,
+         qb_vendor_email = EXCLUDED.qb_vendor_email,
+         sync_direction = EXCLUDED.sync_direction,
+         updated_at = NOW()
+       RETURNING *`,
+      [req.user.firmId, vendorName, vendorEmail, qbVendorId, qbVendorName, qbVendorEmail, syncDirection || 'both']
+    );
+
+    res.json({ success: true, mapping: result.rows[0] });
+  } catch (error) {
+    console.error('Create vendor mapping error:', error);
+    res.status(500).json({ error: 'Failed to create vendor mapping' });
+  }
+});
+
+// Delete vendor mapping
+router.delete('/vendor-mappings/:id', authenticate, async (req, res) => {
+  try {
+    await query(
+      `DELETE FROM quickbooks_vendor_mappings WHERE id = $1 AND firm_id = $2`,
+      [req.params.id, req.user.firmId]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete vendor mapping error:', error);
+    res.status(500).json({ error: 'Failed to delete vendor mapping' });
+  }
+});
+
+// Create QB vendor
+router.post('/create-qb-vendor', authenticate, async (req, res) => {
+  try {
+    const { vendorName, vendorEmail } = req.body;
+
+    if (!vendorName) {
+      return res.status(400).json({ error: 'vendorName is required' });
+    }
+
+    const { accessToken, realmId } = await getQuickBooksToken(req.user.firmId);
+    const baseUrl = getQBBaseUrl();
+
+    const vendorData = {
+      DisplayName: vendorName,
+      PrimaryEmailAddr: vendorEmail ? { Address: vendorEmail } : undefined,
+    };
+
+    const response = await fetch(
+      `${baseUrl}/v3/company/${realmId}/vendor`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(vendorData),
+      }
+    );
+
+    const result = await response.json();
+
+    if (result.Vendor) {
+      // Save mapping
+      await query(
+        `INSERT INTO quickbooks_vendor_mappings (firm_id, vendor_name, vendor_email, qb_vendor_id, qb_vendor_name, qb_vendor_email, sync_direction)
+         VALUES ($1, $2, $3, $4, $5, $6, 'both')
+         ON CONFLICT (firm_id, vendor_name) DO UPDATE SET
+           qb_vendor_id = EXCLUDED.qb_vendor_id,
+           qb_vendor_name = EXCLUDED.qb_vendor_name,
+           updated_at = NOW()`,
+        [
+          req.user.firmId,
+          vendorName,
+          vendorEmail,
+          result.Vendor.Id,
+          result.Vendor.DisplayName,
+          result.Vendor.PrimaryEmailAddr?.Address,
+        ]
+      );
+
+      res.json({ success: true, vendor: result.Vendor });
+    } else {
+      throw new Error(result.Fault?.Error?.[0]?.Message || 'Failed to create vendor');
+    }
+  } catch (error) {
+    console.error('Create QB vendor error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create QuickBooks vendor' });
+  }
+});
+
+// Get synced expenses
+router.get('/synced-expenses', authenticate, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT qes.*, e.description, e.amount as local_amount, e.status as local_status,
+              e.category, e.expense_type, e.date as expense_date
+       FROM quickbooks_expense_sync qes
+       JOIN expenses e ON qes.expense_id = e.id
+       WHERE qes.firm_id = $1
+       ORDER BY qes.last_synced_at DESC`,
+      [req.user.firmId]
+    );
+
+    res.json({
+      expenses: result.rows.map(exp => ({
+        id: exp.id,
+        expenseId: exp.expense_id,
+        description: exp.description,
+        category: exp.category,
+        expenseType: exp.expense_type,
+        expenseDate: exp.expense_date,
+        localAmount: parseFloat(exp.local_amount),
+        localStatus: exp.local_status,
+        qbBillId: exp.qb_bill_id,
+        qbExpenseId: exp.qb_expense_id,
+        qbVendorId: exp.qb_vendor_id,
+        qbDocNumber: exp.qb_doc_number,
+        qbTotal: exp.qb_total ? parseFloat(exp.qb_total) : null,
+        syncType: exp.sync_type,
+        syncStatus: exp.sync_status,
+        syncDirection: exp.sync_direction,
+        lastSyncedAt: exp.last_synced_at,
+        syncError: exp.sync_error,
+      })),
+    });
+  } catch (error) {
+    console.error('Get synced expenses error:', error);
+    res.status(500).json({ error: 'Failed to get synced expenses' });
+  }
+});
+
+// Get unsynced expenses
+router.get('/unsynced-expenses', authenticate, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT e.*, m.name as matter_name
+       FROM expenses e
+       LEFT JOIN matters m ON e.matter_id = m.id
+       WHERE e.firm_id = $1 AND e.status IN ('approved', 'billed')
+       AND NOT EXISTS (
+         SELECT 1 FROM quickbooks_expense_sync qes WHERE qes.expense_id = e.id
+       )
+       ORDER BY e.date DESC`,
+      [req.user.firmId]
+    );
+
+    res.json({
+      expenses: result.rows.map(exp => ({
+        id: exp.id,
+        matterId: exp.matter_id,
+        matterName: exp.matter_name,
+        date: exp.date,
+        description: exp.description,
+        amount: parseFloat(exp.amount),
+        category: exp.category,
+        expenseType: exp.expense_type,
+        billable: exp.billable,
+        status: exp.status,
+      })),
+    });
+  } catch (error) {
+    console.error('Get unsynced expenses error:', error);
+    res.status(500).json({ error: 'Failed to get unsynced expenses' });
+  }
+});
+
+// Get unique expense vendors (for mapping)
+router.get('/expense-vendors', authenticate, async (req, res) => {
+  try {
+    // Get unique vendors from expenses that aren't mapped yet
+    const result = await query(
+      `SELECT DISTINCT e.category as vendor_name
+       FROM expenses e
+       WHERE e.firm_id = $1 AND e.category IS NOT NULL AND e.category != ''
+       AND NOT EXISTS (
+         SELECT 1 FROM quickbooks_vendor_mappings qvm WHERE qvm.vendor_name = e.category AND qvm.firm_id = e.firm_id
+       )
+       ORDER BY e.category ASC`,
+      [req.user.firmId]
+    );
+
+    res.json({
+      vendors: result.rows.map(r => ({ name: r.vendor_name })),
+    });
+  } catch (error) {
+    console.error('Get expense vendors error:', error);
+    res.status(500).json({ error: 'Failed to get expense vendors' });
+  }
+});
+
+// Push expense to QuickBooks as Bill
+router.post('/push-expense', authenticate, async (req, res) => {
+  try {
+    const { expenseId, syncType = 'bill' } = req.body;
+
+    // Get expense
+    const expenseResult = await query(
+      `SELECT e.*, qvm.qb_vendor_id
+       FROM expenses e
+       LEFT JOIN quickbooks_vendor_mappings qvm ON e.category = qvm.vendor_name AND qvm.firm_id = e.firm_id
+       WHERE e.id = $1 AND e.firm_id = $2`,
+      [expenseId, req.user.firmId]
+    );
+
+    if (expenseResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Expense not found' });
+    }
+
+    const expense = expenseResult.rows[0];
+    const { accessToken, realmId } = await getQuickBooksToken(req.user.firmId);
+    const baseUrl = getQBBaseUrl();
+
+    let qbResult;
+
+    if (syncType === 'bill') {
+      // Create as Bill (Accounts Payable)
+      if (!expense.qb_vendor_id) {
+        return res.status(400).json({ 
+          error: 'Expense vendor/category is not mapped to a QuickBooks vendor. Please map the vendor first.',
+          needsVendorMapping: true,
+          vendorName: expense.category
+        });
+      }
+
+      const billData = {
+        VendorRef: { value: expense.qb_vendor_id },
+        TxnDate: expense.date ? new Date(expense.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        Line: [{
+          Amount: parseFloat(expense.amount),
+          DetailType: 'AccountBasedExpenseLineDetail',
+          AccountBasedExpenseLineDetail: {
+            AccountRef: { value: '1' }, // Default expense account - would need to be configurable
+          },
+          Description: expense.description,
+        }],
+      };
+
+      const response = await fetch(
+        `${baseUrl}/v3/company/${realmId}/bill`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify(billData),
+        }
+      );
+
+      qbResult = await response.json();
+
+      if (qbResult.Bill) {
+        await query(
+          `INSERT INTO quickbooks_expense_sync (firm_id, expense_id, qb_bill_id, qb_vendor_id, qb_doc_number, qb_txn_date, qb_total, qb_balance, sync_type, sync_status, sync_direction, last_synced_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'bill', 'synced', 'to_qb', NOW())
+           ON CONFLICT (firm_id, expense_id) DO UPDATE SET
+             qb_bill_id = EXCLUDED.qb_bill_id,
+             qb_total = EXCLUDED.qb_total,
+             qb_balance = EXCLUDED.qb_balance,
+             sync_status = 'synced',
+             sync_error = NULL,
+             last_synced_at = NOW()`,
+          [
+            req.user.firmId,
+            expenseId,
+            qbResult.Bill.Id,
+            expense.qb_vendor_id,
+            qbResult.Bill.DocNumber,
+            qbResult.Bill.TxnDate,
+            qbResult.Bill.TotalAmt,
+            qbResult.Bill.Balance,
+          ]
+        );
+
+        res.json({ success: true, qbBill: qbResult.Bill });
+      } else {
+        const errorMsg = qbResult.Fault?.Error?.[0]?.Message || 'Failed to create bill';
+        throw new Error(errorMsg);
+      }
+    } else {
+      // Create as Purchase/Expense (direct expense, not AP)
+      const purchaseData = {
+        PaymentType: 'Cash',
+        TxnDate: expense.date ? new Date(expense.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        Line: [{
+          Amount: parseFloat(expense.amount),
+          DetailType: 'AccountBasedExpenseLineDetail',
+          AccountBasedExpenseLineDetail: {
+            AccountRef: { value: '1' },
+          },
+          Description: expense.description,
+        }],
+        AccountRef: { value: '1' }, // Bank/Cash account
+      };
+
+      const response = await fetch(
+        `${baseUrl}/v3/company/${realmId}/purchase`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify(purchaseData),
+        }
+      );
+
+      qbResult = await response.json();
+
+      if (qbResult.Purchase) {
+        await query(
+          `INSERT INTO quickbooks_expense_sync (firm_id, expense_id, qb_expense_id, qb_doc_number, qb_txn_date, qb_total, sync_type, sync_status, sync_direction, last_synced_at)
+           VALUES ($1, $2, $3, $4, $5, $6, 'expense', 'synced', 'to_qb', NOW())
+           ON CONFLICT (firm_id, expense_id) DO UPDATE SET
+             qb_expense_id = EXCLUDED.qb_expense_id,
+             qb_total = EXCLUDED.qb_total,
+             sync_status = 'synced',
+             sync_error = NULL,
+             last_synced_at = NOW()`,
+          [
+            req.user.firmId,
+            expenseId,
+            qbResult.Purchase.Id,
+            qbResult.Purchase.DocNumber,
+            qbResult.Purchase.TxnDate,
+            qbResult.Purchase.TotalAmt,
+          ]
+        );
+
+        res.json({ success: true, qbPurchase: qbResult.Purchase });
+      } else {
+        const errorMsg = qbResult.Fault?.Error?.[0]?.Message || 'Failed to create expense';
+        throw new Error(errorMsg);
+      }
+    }
+  } catch (error) {
+    console.error('Push expense error:', error);
+    res.status(500).json({ error: error.message || 'Failed to push expense to QuickBooks' });
+  }
+});
+
+// Bulk push expenses
+router.post('/push-expenses-bulk', authenticate, async (req, res) => {
+  try {
+    const { expenseIds, syncType = 'bill' } = req.body;
+
+    if (!expenseIds || !Array.isArray(expenseIds) || expenseIds.length === 0) {
+      return res.status(400).json({ error: 'expenseIds array is required' });
+    }
+
+    // Create sync log
+    const logResult = await query(
+      `INSERT INTO quickbooks_sync_log (firm_id, sync_type, direction, initiated_by)
+       VALUES ($1, 'expenses', 'push', $2) RETURNING id`,
+      [req.user.firmId, req.user.id]
+    );
+    const logId = logResult.rows[0].id;
+
+    let successCount = 0;
+    let failCount = 0;
+    const errors = [];
+
+    const { accessToken, realmId } = await getQuickBooksToken(req.user.firmId);
+    const baseUrl = getQBBaseUrl();
+
+    for (const expenseId of expenseIds) {
+      try {
+        const expenseResult = await query(
+          `SELECT e.*, qvm.qb_vendor_id
+           FROM expenses e
+           LEFT JOIN quickbooks_vendor_mappings qvm ON e.category = qvm.vendor_name AND qvm.firm_id = e.firm_id
+           WHERE e.id = $1 AND e.firm_id = $2`,
+          [expenseId, req.user.firmId]
+        );
+
+        if (expenseResult.rows.length === 0) {
+          errors.push({ expenseId, error: 'Expense not found' });
+          failCount++;
+          continue;
+        }
+
+        const expense = expenseResult.rows[0];
+
+        if (syncType === 'bill' && !expense.qb_vendor_id) {
+          errors.push({ expenseId, error: 'Vendor not mapped', vendorName: expense.category });
+          failCount++;
+          continue;
+        }
+
+        if (syncType === 'bill') {
+          const billData = {
+            VendorRef: { value: expense.qb_vendor_id },
+            TxnDate: expense.date ? new Date(expense.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            Line: [{
+              Amount: parseFloat(expense.amount),
+              DetailType: 'AccountBasedExpenseLineDetail',
+              AccountBasedExpenseLineDetail: { AccountRef: { value: '1' } },
+              Description: expense.description,
+            }],
+          };
+
+          const response = await fetch(
+            `${baseUrl}/v3/company/${realmId}/bill`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+              },
+              body: JSON.stringify(billData),
+            }
+          );
+
+          const result = await response.json();
+
+          if (result.Bill) {
+            await query(
+              `INSERT INTO quickbooks_expense_sync (firm_id, expense_id, qb_bill_id, qb_vendor_id, qb_total, sync_type, sync_status, sync_direction, last_synced_at)
+               VALUES ($1, $2, $3, $4, $5, 'bill', 'synced', 'to_qb', NOW())
+               ON CONFLICT (firm_id, expense_id) DO UPDATE SET
+                 qb_bill_id = EXCLUDED.qb_bill_id,
+                 sync_status = 'synced',
+                 last_synced_at = NOW()`,
+              [req.user.firmId, expenseId, result.Bill.Id, expense.qb_vendor_id, result.Bill.TotalAmt]
+            );
+            successCount++;
+          } else {
+            errors.push({ expenseId, error: result.Fault?.Error?.[0]?.Message || 'Failed' });
+            failCount++;
+          }
+        }
+      } catch (err) {
+        errors.push({ expenseId, error: err.message });
+        failCount++;
+      }
+    }
+
+    // Update log
+    await query(
+      `UPDATE quickbooks_sync_log SET completed_at = NOW(), status = $1, items_synced = $2, items_failed = $3, details = $4
+       WHERE id = $5`,
+      [failCount === 0 ? 'success' : (successCount > 0 ? 'partial' : 'error'), successCount, failCount, JSON.stringify({ errors }), logId]
+    );
+
+    res.json({ success: true, successCount, failCount, errors });
+  } catch (error) {
+    console.error('Bulk push expenses error:', error);
+    res.status(500).json({ error: error.message || 'Failed to push expenses' });
+  }
+});
+
+// Pull bills from QuickBooks
+router.post('/pull-bills', authenticate, async (req, res) => {
+  try {
+    const { accessToken, realmId } = await getQuickBooksToken(req.user.firmId);
+    const baseUrl = getQBBaseUrl();
+
+    // Create sync log
+    const logResult = await query(
+      `INSERT INTO quickbooks_sync_log (firm_id, sync_type, direction, initiated_by)
+       VALUES ($1, 'bills', 'pull', $2) RETURNING id`,
+      [req.user.firmId, req.user.id]
+    );
+    const logId = logResult.rows[0].id;
+
+    // Fetch recent bills from QB (last 90 days)
+    const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const response = await fetch(
+      `${baseUrl}/v3/company/${realmId}/query?query=${encodeURIComponent(`SELECT * FROM Bill WHERE TxnDate >= '${startDate}' MAXRESULTS 500`)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    const data = await response.json();
+    const bills = data.QueryResponse?.Bill || [];
+
+    let importedCount = 0;
+    let skippedCount = 0;
+
+    for (const bill of bills) {
+      // Check if already imported
+      const existing = await query(
+        `SELECT id FROM quickbooks_bills_imported WHERE firm_id = $1 AND qb_bill_id = $2`,
+        [req.user.firmId, bill.Id]
+      );
+
+      if (existing.rows.length > 0) {
+        skippedCount++;
+        continue;
+      }
+
+      // Save bill record
+      await query(
+        `INSERT INTO quickbooks_bills_imported (firm_id, qb_bill_id, qb_vendor_id, qb_vendor_name, doc_number, txn_date, due_date, total_amount, balance, memo, line_items, is_paid, sync_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'imported')`,
+        [
+          req.user.firmId,
+          bill.Id,
+          bill.VendorRef?.value,
+          bill.VendorRef?.name,
+          bill.DocNumber,
+          bill.TxnDate,
+          bill.DueDate,
+          bill.TotalAmt,
+          bill.Balance,
+          bill.PrivateNote,
+          JSON.stringify(bill.Line || []),
+          bill.Balance === 0,
+        ]
+      );
+
+      importedCount++;
+    }
+
+    // Update log
+    await query(
+      `UPDATE quickbooks_sync_log SET completed_at = NOW(), status = 'success', items_synced = $1, details = $2 WHERE id = $3`,
+      [importedCount, JSON.stringify({ skipped: skippedCount }), logId]
+    );
+
+    res.json({
+      success: true,
+      imported: importedCount,
+      skipped: skippedCount,
+      total: bills.length,
+    });
+  } catch (error) {
+    console.error('Pull bills error:', error);
+    res.status(500).json({ error: error.message || 'Failed to pull bills from QuickBooks' });
+  }
+});
+
+// Get imported bills (not yet created as expenses)
+router.get('/imported-bills', authenticate, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT * FROM quickbooks_bills_imported
+       WHERE firm_id = $1 AND imported_to_expenses = false
+       ORDER BY txn_date DESC`,
+      [req.user.firmId]
+    );
+
+    res.json({
+      bills: result.rows.map(b => ({
+        id: b.id,
+        qbBillId: b.qb_bill_id,
+        qbVendorId: b.qb_vendor_id,
+        qbVendorName: b.qb_vendor_name,
+        docNumber: b.doc_number,
+        txnDate: b.txn_date,
+        dueDate: b.due_date,
+        totalAmount: parseFloat(b.total_amount),
+        balance: parseFloat(b.balance),
+        memo: b.memo,
+        lineItems: b.line_items,
+        isPaid: b.is_paid,
+        syncStatus: b.sync_status,
+      })),
+    });
+  } catch (error) {
+    console.error('Get imported bills error:', error);
+    res.status(500).json({ error: 'Failed to get imported bills' });
+  }
+});
+
+// Create expense from imported bill
+router.post('/create-expense-from-bill', authenticate, async (req, res) => {
+  try {
+    const { billId, matterId, category, billable = true } = req.body;
+
+    const billResult = await query(
+      `SELECT * FROM quickbooks_bills_imported WHERE id = $1 AND firm_id = $2`,
+      [billId, req.user.firmId]
+    );
+
+    if (billResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Bill not found' });
+    }
+
+    const bill = billResult.rows[0];
+
+    // Create expense
+    const expenseResult = await query(
+      `INSERT INTO expenses (firm_id, matter_id, user_id, date, description, amount, category, expense_type, billable, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'other', $8, 'approved')
+       RETURNING *`,
+      [
+        req.user.firmId,
+        matterId,
+        req.user.id,
+        bill.txn_date,
+        bill.memo || `Bill #${bill.doc_number} from ${bill.qb_vendor_name}`,
+        bill.total_amount,
+        category || bill.qb_vendor_name,
+        billable,
+      ]
+    );
+
+    const expense = expenseResult.rows[0];
+
+    // Link bill to expense
+    await query(
+      `UPDATE quickbooks_bills_imported SET expense_id = $1, imported_to_expenses = true, sync_status = 'applied' WHERE id = $2`,
+      [expense.id, billId]
+    );
+
+    // Create sync record
+    await query(
+      `INSERT INTO quickbooks_expense_sync (firm_id, expense_id, qb_bill_id, qb_vendor_id, qb_total, sync_type, sync_status, sync_direction, last_synced_at)
+       VALUES ($1, $2, $3, $4, $5, 'bill', 'synced', 'from_qb', NOW())`,
+      [req.user.firmId, expense.id, bill.qb_bill_id, bill.qb_vendor_id, bill.total_amount]
+    );
+
+    res.json({ success: true, expense });
+  } catch (error) {
+    console.error('Create expense from bill error:', error);
+    res.status(500).json({ error: 'Failed to create expense from bill' });
+  }
+});
+
+// Get expense sync status summary
+router.get('/expense-sync-status', authenticate, async (req, res) => {
+  try {
+    const [syncedExpenses, unsyncedExpenses, importedBills, vendorMappings] = await Promise.all([
+      query(
+        `SELECT COUNT(*) as count, SUM(CASE WHEN sync_status = 'synced' THEN 1 ELSE 0 END) as synced,
+                SUM(CASE WHEN sync_status = 'error' THEN 1 ELSE 0 END) as errors
+         FROM quickbooks_expense_sync WHERE firm_id = $1`,
+        [req.user.firmId]
+      ),
+      query(
+        `SELECT COUNT(*) as count FROM expenses e
+         WHERE e.firm_id = $1 AND e.status IN ('approved', 'billed')
+         AND NOT EXISTS (SELECT 1 FROM quickbooks_expense_sync qes WHERE qes.expense_id = e.id)`,
+        [req.user.firmId]
+      ),
+      query(
+        `SELECT COUNT(*) as count, SUM(CASE WHEN imported_to_expenses THEN 1 ELSE 0 END) as applied
+         FROM quickbooks_bills_imported WHERE firm_id = $1`,
+        [req.user.firmId]
+      ),
+      query(
+        `SELECT COUNT(*) as count FROM quickbooks_vendor_mappings WHERE firm_id = $1`,
+        [req.user.firmId]
+      ),
+    ]);
+
+    res.json({
+      syncedExpenses: parseInt(syncedExpenses.rows[0]?.synced || 0),
+      expenseSyncErrors: parseInt(syncedExpenses.rows[0]?.errors || 0),
+      unsyncedExpenses: parseInt(unsyncedExpenses.rows[0]?.count || 0),
+      importedBills: parseInt(importedBills.rows[0]?.count || 0),
+      appliedBills: parseInt(importedBills.rows[0]?.applied || 0),
+      mappedVendors: parseInt(vendorMappings.rows[0]?.count || 0),
+    });
+  } catch (error) {
+    console.error('Get expense sync status error:', error);
+    res.status(500).json({ error: 'Failed to get expense sync status' });
   }
 });
 

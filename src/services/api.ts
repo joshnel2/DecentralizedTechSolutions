@@ -1335,6 +1335,12 @@ export const integrationsApi = {
     autoSyncPaidStatus?: boolean;
     autoCreateCustomers?: boolean;
     autoCreateClients?: boolean;
+    // Expense sync settings
+    syncExpensesToQb?: boolean;
+    syncBillsFromQb?: boolean;
+    autoPushApprovedExpenses?: boolean;
+    autoCreateVendors?: boolean;
+    defaultExpenseSyncType?: string;
     conflictResolution?: string;
   }) {
     return fetchWithAuth('/integrations/quickbooks-billing/settings', {
@@ -1427,6 +1433,91 @@ export const integrationsApi = {
       method: 'POST',
       body: JSON.stringify({ paymentId, invoiceId }),
     });
+  },
+
+  // Expense/Bill Sync - Vendor Mapping
+  async getQuickBooksVendorMappings() {
+    return fetchWithAuth('/integrations/quickbooks-billing/vendor-mappings');
+  },
+
+  async getQuickBooksVendorsList() {
+    return fetchWithAuth('/integrations/quickbooks-billing/qb-vendors');
+  },
+
+  async createQuickBooksVendorMapping(data: {
+    vendorName: string;
+    vendorEmail?: string;
+    qbVendorId: string;
+    qbVendorName?: string;
+    qbVendorEmail?: string;
+    syncDirection?: string;
+  }) {
+    return fetchWithAuth('/integrations/quickbooks-billing/vendor-mappings', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteQuickBooksVendorMapping(mappingId: string) {
+    return fetchWithAuth(`/integrations/quickbooks-billing/vendor-mappings/${mappingId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async createQuickBooksVendor(vendorName: string, vendorEmail?: string) {
+    return fetchWithAuth('/integrations/quickbooks-billing/create-qb-vendor', {
+      method: 'POST',
+      body: JSON.stringify({ vendorName, vendorEmail }),
+    });
+  },
+
+  // Expense/Bill Sync - Expenses
+  async getSyncedExpenses() {
+    return fetchWithAuth('/integrations/quickbooks-billing/synced-expenses');
+  },
+
+  async getUnsyncedExpenses() {
+    return fetchWithAuth('/integrations/quickbooks-billing/unsynced-expenses');
+  },
+
+  async getExpenseVendors() {
+    return fetchWithAuth('/integrations/quickbooks-billing/expense-vendors');
+  },
+
+  async pushExpenseToQuickBooks(expenseId: string, syncType: 'bill' | 'expense' = 'bill') {
+    return fetchWithAuth('/integrations/quickbooks-billing/push-expense', {
+      method: 'POST',
+      body: JSON.stringify({ expenseId, syncType }),
+    });
+  },
+
+  async pushExpensesToQuickBooksBulk(expenseIds: string[], syncType: 'bill' | 'expense' = 'bill') {
+    return fetchWithAuth('/integrations/quickbooks-billing/push-expenses-bulk', {
+      method: 'POST',
+      body: JSON.stringify({ expenseIds, syncType }),
+    });
+  },
+
+  // Expense/Bill Sync - Pull Bills
+  async pullBillsFromQuickBooks() {
+    return fetchWithAuth('/integrations/quickbooks-billing/pull-bills', {
+      method: 'POST',
+    });
+  },
+
+  async getImportedBills() {
+    return fetchWithAuth('/integrations/quickbooks-billing/imported-bills');
+  },
+
+  async createExpenseFromBill(billId: string, matterId?: string, category?: string, billable?: boolean) {
+    return fetchWithAuth('/integrations/quickbooks-billing/create-expense-from-bill', {
+      method: 'POST',
+      body: JSON.stringify({ billId, matterId, category, billable }),
+    });
+  },
+
+  async getExpenseSyncStatus() {
+    return fetchWithAuth('/integrations/quickbooks-billing/expense-sync-status');
   },
 
   // Full Sync

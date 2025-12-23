@@ -117,11 +117,91 @@ CREATE TABLE IF NOT EXISTS quickbooks_sync_settings (
     auto_create_customers BOOLEAN DEFAULT TRUE,   -- Create QB customers for unmapped clients
     auto_create_clients BOOLEAN DEFAULT FALSE,    -- Create clients for unmapped QB customers
     
+    -- Expense/Bill sync settings
+    sync_expenses_to_qb BOOLEAN DEFAULT TRUE,     -- Push expenses to QuickBooks as Bills
+    sync_bills_from_qb BOOLEAN DEFAULT TRUE,      -- Pull Bills from QuickBooks as expenses
+    auto_push_approved_expenses BOOLEAN DEFAULT TRUE, -- Push expenses when approved
+    auto_create_vendors BOOLEAN DEFAULT TRUE,     -- Create QB vendors for new expense vendors
+    default_expense_sync_type VARCHAR(20) DEFAULT 'bill' CHECK (default_expense_sync_type IN ('bill', 'expense')),
+    
     -- Conflict resolution
     conflict_resolution VARCHAR(20) DEFAULT 'apex_wins' CHECK (conflict_resolution IN ('apex_wins', 'qb_wins', 'newest_wins', 'manual')),
     
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ============================================
+-- QUICKBOOKS VENDOR MAPPING
+-- Maps our vendors to QuickBooks vendors
+-- ============================================
+CREATE TABLE IF NOT EXISTS quickbooks_vendor_mappings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+    vendor_name VARCHAR(500) NOT NULL,
+    vendor_email VARCHAR(255),
+    qb_vendor_id VARCHAR(255) NOT NULL,
+    qb_vendor_name VARCHAR(500),
+    qb_vendor_email VARCHAR(255),
+    sync_direction VARCHAR(20) DEFAULT 'both' CHECK (sync_direction IN ('to_qb', 'from_qb', 'both')),
+    last_synced_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(firm_id, vendor_name),
+    UNIQUE(firm_id, qb_vendor_id)
+);
+
+-- ============================================
+-- QUICKBOOKS EXPENSE/BILL SYNC
+-- Tracks which expenses are synced to/from QuickBooks as Bills
+-- ============================================
+CREATE TABLE IF NOT EXISTS quickbooks_expense_sync (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+    expense_id UUID NOT NULL REFERENCES expenses(id) ON DELETE CASCADE,
+    qb_bill_id VARCHAR(255),           -- QuickBooks Bill ID (if synced as Bill)
+    qb_expense_id VARCHAR(255),        -- QuickBooks Purchase/Expense ID (if synced as Expense)
+    qb_vendor_id VARCHAR(255),
+    qb_doc_number VARCHAR(100),
+    qb_txn_date DATE,
+    qb_due_date DATE,
+    qb_total DECIMAL(12, 2),
+    qb_balance DECIMAL(12, 2),
+    sync_type VARCHAR(20) DEFAULT 'bill' CHECK (sync_type IN ('bill', 'expense', 'purchase')),
+    sync_status VARCHAR(20) DEFAULT 'pending' CHECK (sync_status IN ('synced', 'pending', 'error', 'skipped')),
+    sync_direction VARCHAR(20) DEFAULT 'to_qb' CHECK (sync_direction IN ('to_qb', 'from_qb')),
+    last_synced_at TIMESTAMP WITH TIME ZONE,
+    sync_error TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(firm_id, expense_id)
+);
+
+-- ============================================
+-- QUICKBOOKS BILLS IMPORTED
+-- Bills imported from QuickBooks that may need to be created as expenses
+-- ============================================
+CREATE TABLE IF NOT EXISTS quickbooks_bills_imported (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+    expense_id UUID REFERENCES expenses(id) ON DELETE SET NULL,
+    qb_bill_id VARCHAR(255) NOT NULL,
+    qb_vendor_id VARCHAR(255),
+    qb_vendor_name VARCHAR(500),
+    doc_number VARCHAR(100),
+    txn_date DATE,
+    due_date DATE,
+    total_amount DECIMAL(12, 2) NOT NULL,
+    balance DECIMAL(12, 2),
+    memo TEXT,
+    line_items JSONB,
+    is_paid BOOLEAN DEFAULT FALSE,
+    imported_to_expenses BOOLEAN DEFAULT FALSE,
+    sync_status VARCHAR(20) DEFAULT 'pending' CHECK (sync_status IN ('imported', 'pending', 'applied', 'skipped', 'error')),
+    sync_error TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(firm_id, qb_bill_id)
 );
 
 -- Create indexes
@@ -140,3 +220,14 @@ CREATE INDEX IF NOT EXISTS idx_qb_payment_sync_qb_id ON quickbooks_payment_sync(
 
 CREATE INDEX IF NOT EXISTS idx_qb_sync_log_firm ON quickbooks_sync_log(firm_id);
 CREATE INDEX IF NOT EXISTS idx_qb_sync_log_started ON quickbooks_sync_log(started_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_qb_vendor_mappings_firm ON quickbooks_vendor_mappings(firm_id);
+CREATE INDEX IF NOT EXISTS idx_qb_vendor_mappings_qb_id ON quickbooks_vendor_mappings(qb_vendor_id);
+
+CREATE INDEX IF NOT EXISTS idx_qb_expense_sync_firm ON quickbooks_expense_sync(firm_id);
+CREATE INDEX IF NOT EXISTS idx_qb_expense_sync_expense ON quickbooks_expense_sync(expense_id);
+CREATE INDEX IF NOT EXISTS idx_qb_expense_sync_status ON quickbooks_expense_sync(sync_status);
+
+CREATE INDEX IF NOT EXISTS idx_qb_bills_imported_firm ON quickbooks_bills_imported(firm_id);
+CREATE INDEX IF NOT EXISTS idx_qb_bills_imported_qb_id ON quickbooks_bills_imported(qb_bill_id);
+CREATE INDEX IF NOT EXISTS idx_qb_bills_imported_status ON quickbooks_bills_imported(sync_status);

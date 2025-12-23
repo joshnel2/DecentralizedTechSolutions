@@ -719,6 +719,30 @@
   gap: var(--spacing-lg);
 }
 
+/* Expenses Tab */
+.expensesTab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.expenseStats {
+  display: flex;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.expenseDesc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status.pending {
+  background: rgba(245, 158, 11, 0.1);
+  color: #F59E0B;
+}
+
 .paymentInfo {
   display: flex;
   gap: var(--spacing-md);
