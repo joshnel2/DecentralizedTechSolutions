@@ -5433,6 +5433,37 @@ async function resumeIncompleteTasks() {
 async function startBackgroundTask(args, user) {
   const { goal, plan, estimated_steps, matter_id, client_id } = args;
   
+  console.log(`[START_BACKGROUND_TASK] Goal: ${goal}`);
+  console.log(`[START_BACKGROUND_TASK] Plan received:`, JSON.stringify(plan));
+  console.log(`[START_BACKGROUND_TASK] Plan type: ${typeof plan}, isArray: ${Array.isArray(plan)}, length: ${plan?.length}`);
+  
+  // Validate and ensure we have a valid plan
+  let validPlan = [];
+  
+  if (Array.isArray(plan) && plan.length > 0) {
+    // Filter out any empty strings and ensure all items are strings
+    validPlan = plan.filter(step => typeof step === 'string' && step.trim().length > 0);
+  }
+  
+  // If no valid plan steps, generate default steps from the goal
+  if (validPlan.length === 0) {
+    console.log(`[START_BACKGROUND_TASK] WARNING: Empty plan received! Generating default steps from goal.`);
+    
+    // Generate a minimal but useful plan based on the goal
+    validPlan = [
+      `Analyze the request: "${goal}"`,
+      `Search for relevant matters or clients related to the task`,
+      `Gather necessary information and context`,
+      `Execute the main action for: ${goal}`,
+      `Document the work completed with a note`,
+      `Summarize what was accomplished`
+    ];
+    
+    console.log(`[START_BACKGROUND_TASK] Generated default plan with ${validPlan.length} steps`);
+  }
+  
+  console.log(`[START_BACKGROUND_TASK] Final plan (${validPlan.length} steps):`, validPlan);
+  
   try {
     // Create task in database
     // 15 minutes with 2 second delays = ~450 max steps possible
@@ -5444,24 +5475,25 @@ async function startBackgroundTask(args, user) {
         user.firmId, 
         user.id, 
         goal, 
-        JSON.stringify(plan || []),
-        Math.min((estimated_steps || 100) * 3, 450), // Allow up to 450 iterations (15 min / 2 sec)
+        JSON.stringify(validPlan),
+        Math.min((estimated_steps || validPlan.length) * 3, 450), // Allow up to 450 iterations (15 min / 2 sec)
         JSON.stringify({ matter_id, client_id })
       ]
     );
     
     const taskId = result.rows[0].id;
+    console.log(`[START_BACKGROUND_TASK] Created task ${taskId} with ${validPlan.length} steps`);
     
-    // Start background processing
-    processBackgroundTask(taskId, user, goal, plan);
+    // Start background processing with the validated plan
+    processBackgroundTask(taskId, user, goal, validPlan);
     
     return {
       status: 'started',
       task_id: taskId,
       message: `Background task started. I'll work on: ${goal}`,
       goal,
-      plan,
-      estimated_steps: estimated_steps || plan?.length || 10,
+      plan: validPlan,
+      estimated_steps: estimated_steps || validPlan.length,
       _background_task_started: true
     };
   } catch (error) {
@@ -5480,11 +5512,31 @@ async function processBackgroundTask(taskId, user, goal, plan, resumeCheckpoint 
   console.log(`[BACKGROUND] ========================================`);
   console.log(`[BACKGROUND] ${resumeCheckpoint ? 'RESUMING' : 'Starting'} task ${taskId}`);
   console.log(`[BACKGROUND] Goal: ${goal}`);
+  console.log(`[BACKGROUND] Plan type: ${typeof plan}, isArray: ${Array.isArray(plan)}`);
   console.log(`[BACKGROUND] Plan has ${(plan || []).length} steps`);
-  if (plan && plan.length > 0) {
-    plan.forEach((step, i) => console.log(`[BACKGROUND]   ${i + 1}. ${step}`));
-  } else {
-    console.log(`[BACKGROUND] WARNING: No plan steps provided!`);
+  
+  // Ensure plan is a valid array with steps
+  let planStepsInput = plan;
+  if (!Array.isArray(planStepsInput) || planStepsInput.length === 0) {
+    console.log(`[BACKGROUND] WARNING: Invalid or empty plan! Generating fallback steps.`);
+    planStepsInput = [
+      `Analyze the request: "${goal}"`,
+      `Search for relevant matters or clients`,
+      `Execute the main action for the task`,
+      `Document the completed work`,
+      `Provide a summary of what was accomplished`
+    ];
+    console.log(`[BACKGROUND] Generated ${planStepsInput.length} fallback steps`);
+    
+    // Update the database with the new plan
+    await query(
+      `UPDATE ai_tasks SET plan = $1 WHERE id = $2`,
+      [JSON.stringify(planStepsInput), taskId]
+    ).catch(err => console.error(`[BACKGROUND] Failed to update plan:`, err.message));
+  }
+  
+  if (planStepsInput.length > 0) {
+    planStepsInput.forEach((step, i) => console.log(`[BACKGROUND]   ${i + 1}. ${step}`));
   }
   if (resumeCheckpoint) {
     console.log(`[BACKGROUND] Resuming from step ${resumeCheckpoint.stepIndex + 1}`);
@@ -5706,8 +5758,21 @@ DELIVER WORK THAT IMPRESSES. EXECUTE NOW.`;
 
     const systemPrompt = baseSystemPrompt + attorneyInstructions;
     
-    const planSteps = plan || [];
+    // Use the validated planStepsInput (which was validated at the top of the function)
+    const planSteps = planStepsInput;
     const totalSteps = planSteps.length;
+    
+    console.log(`[BACKGROUND ${taskId}] Starting execution with ${totalSteps} steps`);
+    
+    // CRITICAL: Ensure we have steps to execute
+    if (totalSteps === 0) {
+      console.error(`[BACKGROUND ${taskId}] ERROR: No steps to execute! This should not happen.`);
+      await query(
+        `UPDATE ai_tasks SET status = 'error', error = 'No plan steps to execute', completed_at = NOW() WHERE id = $1`,
+        [taskId]
+      );
+      return;
+    }
     
     // Update total step count in database
     await query(
@@ -5790,11 +5855,18 @@ Call the appropriate tool to complete this step. You have full context from prev
       messages.push({ role: 'user', content: stepPrompt });
       
       // Call AI for this step
-      console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Calling AI...`);
+      console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Calling AI with ${messages.length} messages...`);
       let response;
       try {
         response = await callAzureOpenAIWithTools(messages, TOOLS);
-        console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: AI response received. Tool calls: ${response.tool_calls?.length || 0}`);
+        console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: AI response received.`);
+        console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Tool calls: ${response.tool_calls?.length || 0}`);
+        if (response.tool_calls && response.tool_calls.length > 0) {
+          console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Tool: ${response.tool_calls[0].function.name}`);
+        }
+        if (response.content) {
+          console.log(`[BACKGROUND ${taskId}] Step ${stepNumber}: Content preview: ${response.content.substring(0, 100)}...`);
+        }
       } catch (apiError) {
         console.error(`[BACKGROUND ${taskId}] Step ${stepNumber}: AI API error:`, apiError.message);
         // Mark step as failed but continue
