@@ -1416,7 +1416,7 @@ router.post('/clio/oauth-start', requireSecureAdmin, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Client ID and Secret are required' });
     }
     
-    const redirectUri = `${process.env.BACKEND_URL || 'https://strappedai.azurewebsites.net'}/api/migration/clio/callback`;
+    const redirectUri = `${process.env.BACKEND_URL || 'https://strappedai-gpfra9f8gsg9d9hy.canadacentral-01.azurewebsites.net'}/api/migration/clio/callback`;
     
     // Store OAuth config temporarily
     clioConnections.set('oauth_config', {
