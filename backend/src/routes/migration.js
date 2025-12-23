@@ -737,13 +737,15 @@ router.post('/validate', requireSecureAdmin, async (req, res) => {
             seenEmails.add(emailLower);
             const existing = await query('SELECT id FROM users WHERE email = $1', [emailLower]);
             if (existing.rows.length > 0) {
-              errors.push(`User #${idx}: Email "${email}" already exists in the system`);
+              // User already exists - this is a warning, not an error. Will be linked to new firm.
+              warnings.push(`User #${idx}: Email "${email}" already exists - will be linked to firm`);
             }
           }
         }
         
+        // Password will be auto-generated if missing or too short - just log warning
         if (!user.password || user.password.length < 8) {
-          errors.push(`User #${idx} (${email || 'no email'}): Password is required (min 8 characters)`);
+          warnings.push(`User #${idx} (${email || 'no email'}): Password will be auto-generated`);
         }
         
         const firstName = user.first_name || (user.name ? user.name.split(' ')[0] : null);
@@ -780,12 +782,16 @@ router.post('/validate', requireSecureAdmin, async (req, res) => {
       for (let i = 0; i < data.matters.length; i++) {
         const matter = data.matters[i];
         const idx = i + 1;
-        const matterNum = matter.display_number || matter.number;
+        let matterNum = matter.display_number || matter.number;
         
-        if (!matterNum) {
-          errors.push(`Matter #${idx}: display_number is required`);
-        } else if (seenNumbers.has(matterNum)) {
-          errors.push(`Matter #${idx}: Duplicate matter number "${matterNum}"`);
+        // Blank or missing matter numbers will be auto-generated during import
+        if (!matterNum || matterNum === '[blank]' || matterNum.trim() === '') {
+          warnings.push(`Matter #${idx}: Blank matter number - will be auto-generated`);
+          continue; // Skip duplicate check for blank numbers
+        }
+        
+        if (seenNumbers.has(matterNum)) {
+          warnings.push(`Matter #${idx}: Duplicate matter number "${matterNum}" - will be auto-adjusted`);
         } else {
           seenNumbers.add(matterNum);
         }
@@ -1062,7 +1068,11 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
     if (data.matters && Array.isArray(data.matters)) {
       for (const matter of data.matters) {
         try {
-          const matterNumber = matter.display_number || matter.number;
+          // Generate unique matter number if blank
+          let matterNumber = matter.display_number || matter.number;
+          if (!matterNumber || matterNumber === '[blank]' || matterNumber.trim() === '') {
+            matterNumber = `MATTER-${matter.id || matter.clio_id || Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+          }
           const matterName = matter.description || matter.name;
           
           // Find client
