@@ -1288,10 +1288,15 @@ const mapHeader = (header) => {
  * Direct CSV parsing endpoint - no AI, just structured parsing
  */
 router.post('/parse-csv', requireSecureAdmin, async (req, res) => {
-  const { firmName, firmEmail, firmPhone, firmAddress, users, clients, matters, timeEntries, calendarEvents } = req.body;
-
+  console.log('[PARSE-CSV] Request received');
+  
   try {
-    logMigrationAudit('CSV_PARSE_START', { firmName }, req.ip);
+    const { firmName, firmEmail, firmPhone, firmAddress, users, clients, matters, timeEntries, calendarEvents } = req.body || {};
+    
+    console.log('[PARSE-CSV] Firm:', firmName);
+    console.log('[PARSE-CSV] Has users:', !!users);
+    console.log('[PARSE-CSV] Has clients:', !!clients);
+    console.log('[PARSE-CSV] Has matters:', !!matters);
 
     const result = {
       firm: {
@@ -1490,14 +1495,11 @@ router.post('/parse-csv', requireSecureAdmin, async (req, res) => {
       }
     }
 
-    logMigrationAudit('CSV_PARSE_SUCCESS', {
-      firm: result.firm.name,
+    console.log('[PARSE-CSV] Success:', {
       users: result.users.length,
       contacts: result.contacts.length,
-      matters: result.matters.length,
-      activities: result.activities.length,
-      calendar_entries: result.calendar_entries.length
-    }, req.ip);
+      matters: result.matters.length
+    });
 
     res.json({
       success: true,
@@ -1513,11 +1515,10 @@ router.post('/parse-csv', requireSecureAdmin, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('CSV parsing error:', error);
-    logMigrationAudit('CSV_PARSE_FAILED', { error: error.message }, req.ip);
+    console.error('[PARSE-CSV] Error:', error);
     res.status(500).json({ 
       success: false, 
-      error: 'Failed to parse CSV data: ' + error.message 
+      error: 'Failed to parse CSV data: ' + (error.message || 'Unknown error')
     });
   }
 });
