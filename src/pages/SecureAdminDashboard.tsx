@@ -370,11 +370,11 @@ export default function SecureAdminDashboard() {
       })
       if (response.ok) {
         const data = await response.json()
-        const settings: Record<string, any> = {}
-        data.settings?.forEach((s: any) => {
-          settings[s.key] = { value: s.value || '', isConfigured: !!s.value, isSecret: s.is_secret }
-        })
-        setIntegrationSettings(settings)
+        // Backend returns settings as an object directly: { key: { value, isSecret, ... }, ... }
+        // Not wrapped in a settings property
+        if (data && typeof data === 'object' && !data.error) {
+          setIntegrationSettings(data)
+        }
       }
     } catch (err) {
       console.error('Failed to load integration settings:', err)
@@ -394,10 +394,14 @@ export default function SecureAdminDashboard() {
     try {
       const updates: { key: string; value: string }[] = []
       Object.entries(integrationSettings).forEach(([key, val]: [string, any]) => {
+        // Skip masked secret values - don't overwrite with dots
+        if (val.value === '••••••••') return
         if (val.value !== undefined) {
           updates.push({ key, value: val.value })
         }
       })
+
+      console.log('Saving integration settings:', updates.map(u => u.key))
 
       const response = await fetch(`${API_URL}/secure-admin/platform-settings`, {
         method: 'PUT',
@@ -408,14 +412,17 @@ export default function SecureAdminDashboard() {
         body: JSON.stringify({ settings: updates })
       })
 
-      if (response.ok) {
-        setNotification({ type: 'success', message: 'Integration settings saved successfully!' })
+      const data = await response.json()
+      
+      if (response.ok && data.success) {
+        setNotification({ type: 'success', message: `Settings saved! Updated: ${data.updated?.join(', ') || 'none'}` })
         loadIntegrationSettings()
       } else {
-        throw new Error('Failed to save')
+        throw new Error(data.error || 'Failed to save')
       }
-    } catch (err) {
-      setNotification({ type: 'error', message: 'Failed to save integration settings' })
+    } catch (err: any) {
+      console.error('Save integration settings error:', err)
+      setNotification({ type: 'error', message: err.message || 'Failed to save integration settings' })
     }
     setSavingIntegrations(false)
   }
