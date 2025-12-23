@@ -185,10 +185,24 @@ export default function SecureAdminDashboard() {
   const [importResult, setImportResult] = useState<MigrationResult | null>(null)
   const [isMigrating, setIsMigrating] = useState(false)
   
+  // Migration mode: 'csv' | 'clio'
+  const [migrationMode, setMigrationMode] = useState<'csv' | 'clio'>('clio')
+  
   // AI Transformation state - default to CSV Import mode (aiMode = true)
   const [aiMode, setAiMode] = useState(true)
   const [rawDataInput, setRawDataInput] = useState('')
   const [dataFormatHint, setDataFormatHint] = useState('')
+  
+  // Clio API state
+  const [clioToken, setClioToken] = useState('')
+  const [clioConnectionId, setClioConnectionId] = useState<string | null>(null)
+  const [clioUser, setClioUser] = useState<{ name: string; email: string } | null>(null)
+  const [clioImporting, setClioImporting] = useState(false)
+  const [clioProgress, setClioProgress] = useState<{
+    status: string;
+    steps?: Record<string, { status: string; count: number }>;
+    summary?: Record<string, number>;
+  } | null>(null)
   const [isTransforming, setIsTransforming] = useState(false)
   const [transformResult, setTransformResult] = useState<{ success: boolean; transformedData?: any; summary?: any; error?: string } | null>(null)
   
@@ -983,6 +997,135 @@ export default function SecureAdminDashboard() {
     setIsTransforming(false)
   }
 
+  // Clio API Functions
+  const connectToClio = async () => {
+    if (!clioToken.trim()) {
+      showNotification('error', 'Please enter your Clio API access token')
+      return
+    }
+    
+    setClioImporting(true)
+    try {
+      const res = await fetch(`${API_URL}/migration/clio/connect`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ accessToken: clioToken.trim() })
+      })
+      
+      const result = await res.json()
+      
+      if (result.success) {
+        setClioConnectionId(result.connectionId)
+        setClioUser(result.user)
+        showNotification('success', result.message)
+      } else {
+        showNotification('error', result.error || 'Failed to connect to Clio')
+      }
+    } catch (error) {
+      showNotification('error', 'Failed to connect to Clio')
+    }
+    setClioImporting(false)
+  }
+  
+  const startClioImport = async () => {
+    if (!clioConnectionId) {
+      showNotification('error', 'Please connect to Clio first')
+      return
+    }
+    
+    if (!migrationInputs.firmName.trim()) {
+      showNotification('error', 'Please enter a firm name')
+      return
+    }
+    
+    setClioImporting(true)
+    setClioProgress({ status: 'starting' })
+    
+    try {
+      const res = await fetch(`${API_URL}/migration/clio/import`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ 
+          connectionId: clioConnectionId,
+          firmName: migrationInputs.firmName 
+        })
+      })
+      
+      const result = await res.json()
+      
+      if (result.success) {
+        showNotification('success', 'Import started! Pulling data from Clio...')
+        // Start polling for progress
+        pollClioProgress()
+      } else {
+        showNotification('error', result.error || 'Failed to start import')
+        setClioImporting(false)
+      }
+    } catch (error) {
+      showNotification('error', 'Failed to start Clio import')
+      setClioImporting(false)
+    }
+  }
+  
+  const pollClioProgress = async () => {
+    if (!clioConnectionId) return
+    
+    const checkProgress = async () => {
+      try {
+        const res = await fetch(`${API_URL}/migration/clio/progress/${clioConnectionId}`, {
+          headers: getAuthHeaders()
+        })
+        const progress = await res.json()
+        setClioProgress(progress)
+        
+        if (progress.status === 'completed') {
+          // Fetch the result
+          const resultRes = await fetch(`${API_URL}/migration/clio/result/${clioConnectionId}`, {
+            headers: getAuthHeaders()
+          })
+          const result = await resultRes.json()
+          
+          if (result.success) {
+            setTransformResult(result)
+            setMigrationData(JSON.stringify(result.transformedData, null, 2))
+            showNotification('success', `Import complete! ${result.summary.users} users, ${result.summary.contacts} contacts, ${result.summary.matters} matters`)
+          }
+          setClioImporting(false)
+          return
+        } else if (progress.status === 'error') {
+          showNotification('error', progress.error || 'Import failed')
+          setClioImporting(false)
+          return
+        }
+        
+        // Continue polling
+        setTimeout(checkProgress, 2000)
+      } catch (error) {
+        console.error('Progress poll error:', error)
+        setTimeout(checkProgress, 3000)
+      }
+    }
+    
+    checkProgress()
+  }
+  
+  const disconnectClio = async () => {
+    if (clioConnectionId) {
+      try {
+        await fetch(`${API_URL}/migration/clio/disconnect`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ connectionId: clioConnectionId })
+        })
+      } catch (e) {
+        // Ignore
+      }
+    }
+    setClioConnectionId(null)
+    setClioUser(null)
+    setClioToken('')
+    setClioProgress(null)
+  }
 
   const filteredFirms = firms.filter(f => 
     f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1853,24 +1996,190 @@ export default function SecureAdminDashboard() {
                       {/* Mode Toggle */}
                       <div className={styles.aiModeToggle}>
                         <button 
-                          className={`${styles.modeBtn} ${!aiMode ? styles.activeMode : ''}`}
-                          onClick={() => setAiMode(false)}
+                          className={`${styles.modeBtn} ${migrationMode === 'clio' ? styles.activeMode : ''}`}
+                          onClick={() => setMigrationMode('clio')}
+                        >
+                          <Zap size={18} />
+                          Clio API
+                          <span className={styles.aiLabel}>Recommended</span>
+                        </button>
+                        <button 
+                          className={`${styles.modeBtn} ${migrationMode === 'csv' && aiMode ? styles.activeMode : ''}`}
+                          onClick={() => { setMigrationMode('csv'); setAiMode(true); }}
+                        >
+                          <Upload size={18} />
+                          CSV Import
+                        </button>
+                        <button 
+                          className={`${styles.modeBtn} ${migrationMode === 'csv' && !aiMode ? styles.activeMode : ''}`}
+                          onClick={() => { setMigrationMode('csv'); setAiMode(false); }}
                         >
                           <FileJson size={18} />
                           Manual JSON
                         </button>
-                        <button 
-                          className={`${styles.modeBtn} ${aiMode ? styles.activeMode : ''}`}
-                          onClick={() => setAiMode(true)}
-                        >
-                          <Upload size={18} />
-                          CSV Import
-                          <span className={styles.aiLabel}>Easy</span>
-                        </button>
                       </div>
 
-                      {/* AI Transform Mode */}
-                      {aiMode ? (
+                      {/* Clio API Mode */}
+                      {migrationMode === 'clio' ? (
+                        <div className={styles.aiTransformSection}>
+                          <div className={styles.aiHeader}>
+                            <Zap size={24} />
+                            <div>
+                              <h4>Connect to Clio API (Recommended)</h4>
+                              <p>
+                                Direct API connection pulls all your data automatically with intact relationships.
+                                No CSV exports needed - just connect and import.
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Clio Connection */}
+                          <div className={styles.migrationSection}>
+                            <div className={styles.sectionHeader}>
+                              <Key size={18} />
+                              <h4>1. Connect to Clio</h4>
+                            </div>
+                            
+                            {!clioConnectionId ? (
+                              <div className={styles.clioConnect}>
+                                <p className={styles.sectionDescription}>
+                                  To get your API token: Go to <strong>Clio → Settings → API</strong> → Create a Personal Access Token with read permissions.
+                                </p>
+                                <div className={styles.inputField}>
+                                  <label htmlFor="clio-token">Clio API Access Token</label>
+                                  <input
+                                    id="clio-token"
+                                    type="password"
+                                    value={clioToken}
+                                    onChange={(e) => setClioToken(e.target.value)}
+                                    placeholder="Paste your Clio API access token here"
+                                  />
+                                </div>
+                                <button 
+                                  onClick={connectToClio}
+                                  disabled={clioImporting || !clioToken.trim()}
+                                  className={styles.primaryBtn}
+                                >
+                                  {clioImporting ? (
+                                    <><RefreshCw size={18} className={styles.spinner} /> Connecting...</>
+                                  ) : (
+                                    <><Zap size={18} /> Connect to Clio</>
+                                  )}
+                                </button>
+                              </div>
+                            ) : (
+                              <div className={styles.clioConnected}>
+                                <div className={styles.connectedBadge}>
+                                  <CheckCircle2 size={20} />
+                                  <span>Connected as <strong>{clioUser?.name}</strong> ({clioUser?.email})</span>
+                                </div>
+                                <button onClick={disconnectClio} className={styles.secondaryBtn}>
+                                  Disconnect
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Firm Name */}
+                          {clioConnectionId && (
+                            <>
+                              <div className={styles.migrationSection}>
+                                <div className={styles.sectionHeader}>
+                                  <Building2 size={18} />
+                                  <h4>2. Firm Name for Import</h4>
+                                </div>
+                                <div className={styles.inputField}>
+                                  <label htmlFor="clio-firm-name">Firm Name *</label>
+                                  <input
+                                    id="clio-firm-name"
+                                    type="text"
+                                    value={migrationInputs.firmName}
+                                    onChange={(e) => setMigrationInputs(prev => ({ ...prev, firmName: e.target.value }))}
+                                    placeholder="Enter firm name for the import"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Import Button */}
+                              <div className={styles.migrationSection}>
+                                <div className={styles.sectionHeader}>
+                                  <Download size={18} />
+                                  <h4>3. Start Import</h4>
+                                </div>
+                                <p className={styles.sectionDescription}>
+                                  This will pull all data from Clio: Users, Contacts, Matters, Time Entries, Bills, and Calendar Events.
+                                  The process runs in the background and may take several minutes for large firms.
+                                </p>
+                                <button 
+                                  onClick={startClioImport}
+                                  disabled={clioImporting || !migrationInputs.firmName.trim()}
+                                  className={styles.primaryBtn}
+                                >
+                                  {clioImporting ? (
+                                    <><RefreshCw size={18} className={styles.spinner} /> Importing from Clio...</>
+                                  ) : (
+                                    <><Download size={18} /> Start Clio Import</>
+                                  )}
+                                </button>
+                              </div>
+
+                              {/* Progress */}
+                              {clioProgress && clioProgress.steps && (
+                                <div className={styles.migrationSection}>
+                                  <div className={styles.sectionHeader}>
+                                    <Activity size={18} />
+                                    <h4>Import Progress</h4>
+                                  </div>
+                                  <div className={styles.clioProgress}>
+                                    {Object.entries(clioProgress.steps).map(([step, info]) => (
+                                      <div key={step} className={`${styles.progressItem} ${styles[info.status]}`}>
+                                        <span className={styles.progressLabel}>{step}</span>
+                                        <span className={styles.progressStatus}>
+                                          {info.status === 'done' ? (
+                                            <><CheckCircle2 size={16} /> {info.count}</>
+                                          ) : info.status === 'running' ? (
+                                            <><RefreshCw size={16} className={styles.spinner} /> {info.count}...</>
+                                          ) : info.status === 'error' ? (
+                                            <><XCircle size={16} /> Error</>
+                                          ) : (
+                                            <><Clock size={16} /> Pending</>
+                                          )}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {clioProgress.status === 'completed' && clioProgress.summary && (
+                                    <div className={styles.clioSummary}>
+                                      <CheckCircle2 size={24} />
+                                      <div>
+                                        <strong>Import Complete!</strong>
+                                        <p>
+                                          {clioProgress.summary.users} users, {clioProgress.summary.contacts} contacts, 
+                                          {clioProgress.summary.matters} matters, {clioProgress.summary.activities} time entries,
+                                          {clioProgress.summary.bills} bills, {clioProgress.summary.calendar_entries} calendar events
+                                        </p>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </>
+                          )}
+
+                          {/* Show validate button when import is complete */}
+                          {transformResult?.success && (
+                            <div className={styles.aiActions}>
+                              <button 
+                                onClick={handleValidateMigration}
+                                className={styles.validateBtn}
+                              >
+                                <CheckCircle2 size={18} />
+                                Validate Imported Data
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : aiMode ? (
                         <div className={styles.aiTransformSection}>
                           <div className={styles.aiHeader}>
                             <Upload size={24} />
