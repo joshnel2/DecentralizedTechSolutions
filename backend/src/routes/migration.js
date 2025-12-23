@@ -1402,7 +1402,7 @@ router.get('/clio/callback', async (req, res) => {
         <p>${message}</p>
         <pre style="background: #0d0d1a; padding: 20px; border-radius: 8px; overflow: auto;">${JSON.stringify(data, null, 2)}</pre>
         <br/>
-        <a href="${frontendUrl}/rx760819" style="color: #3b82f6;">← Back to Admin Portal</a>
+        <a href="${frontendUrl}/rx760819/dashboard" style="color: #3b82f6;">← Back to Admin Portal</a>
       </body>
       </html>
     `);
@@ -1480,8 +1480,8 @@ router.get('/clio/callback', async (req, res) => {
     
     console.log('[CLIO] Connected successfully, connectionId:', connectionId);
     
-    // Redirect back to admin portal with success
-    const redirectUrl = `${frontendUrl}/rx760819?clio_connected=${connectionId}&firm=${encodeURIComponent(oauthConfig.firmName)}`;
+    // Redirect back to admin portal DASHBOARD with success
+    const redirectUrl = `${frontendUrl}/rx760819/dashboard?clio_connected=${connectionId}&firm=${encodeURIComponent(oauthConfig.firmName)}`;
     console.log('[CLIO] Redirecting to:', redirectUrl);
     res.redirect(redirectUrl);
     
