@@ -457,29 +457,61 @@ router.get('/quickbooks/connect', authenticate, async (req, res) => {
 
 // QuickBooks OAuth callback
 router.get('/quickbooks/callback', async (req, res) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'https://strappedai-gpfra9f8gsg9d9hy.canadacentral-01.azurewebsites.net';
+  
   try {
-    const { code, state, realmId } = req.query;
+    const { code, state, realmId, error: oauthError, error_description } = req.query;
+
+    // Check for OAuth error from Intuit
+    if (oauthError) {
+      console.error('QuickBooks OAuth error from Intuit:', oauthError, error_description);
+      const errorMsg = encodeURIComponent(error_description || oauthError);
+      return res.redirect(`${frontendUrl}/app/settings/integrations?error=${errorMsg}`);
+    }
 
     if (!code || !state) {
-      return res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?error=missing_params`);
+      console.error('QuickBooks callback missing params:', { hasCode: !!code, hasState: !!state, hasRealmId: !!realmId });
+      return res.redirect(`${frontendUrl}/app/settings/integrations?error=missing_params`);
     }
+
+    console.log('QuickBooks callback received:', { hasCode: !!code, hasState: !!state, realmId });
 
     // Get credentials
     const QB_CLIENT_ID = await getCredential('quickbooks_client_id', 'QUICKBOOKS_CLIENT_ID');
     const QB_CLIENT_SECRET = await getCredential('quickbooks_client_secret', 'QUICKBOOKS_CLIENT_SECRET');
-    const QB_REDIRECT_URI = await getCredential('quickbooks_redirect_uri', 'QUICKBOOKS_REDIRECT_URI', 'http://localhost:3001/api/integrations/quickbooks/callback');
+    let QB_REDIRECT_URI = await getCredential('quickbooks_redirect_uri', 'QUICKBOOKS_REDIRECT_URI', '');
     const QB_ENVIRONMENT = await getCredential('quickbooks_environment', 'QUICKBOOKS_ENVIRONMENT', 'sandbox');
 
-    const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
+    // If no redirect URI configured, derive from request
+    if (!QB_REDIRECT_URI) {
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+      const host = req.headers['x-forwarded-host'] || req.headers.host;
+      QB_REDIRECT_URI = `${protocol}://${host}/api/integrations/quickbooks/callback`;
+      console.log(`QuickBooks callback: Using derived redirect URI: ${QB_REDIRECT_URI}`);
+    }
+
+    let stateData;
+    try {
+      stateData = JSON.parse(Buffer.from(state, 'base64').toString());
+    } catch (e) {
+      console.error('QuickBooks: Failed to parse state:', e);
+      return res.redirect(`${frontendUrl}/app/settings/integrations?error=invalid_state`);
+    }
+    
     const { firmId, userId } = stateData;
+    console.log('QuickBooks: Processing for firm:', firmId);
 
     // Exchange code for tokens
     const auth = Buffer.from(`${QB_CLIENT_ID}:${QB_CLIENT_SECRET}`).toString('base64');
+    console.log('QuickBooks: Exchanging code for tokens...');
+    console.log('QuickBooks: Using redirect_uri:', QB_REDIRECT_URI);
+    
     const tokenResponse = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Authorization': `Basic ${auth}`,
+        'Accept': 'application/json',
       },
       body: new URLSearchParams({
         code,
@@ -491,27 +523,44 @@ router.get('/quickbooks/callback', async (req, res) => {
     const tokens = await tokenResponse.json();
 
     if (tokens.error) {
-      console.error('QuickBooks token error:', tokens);
-      return res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?error=token_error`);
+      console.error('QuickBooks token exchange error:', tokens);
+      const errorMsg = tokens.error_description || tokens.error;
+      return res.redirect(`${frontendUrl}/app/settings/integrations?error=${encodeURIComponent(errorMsg)}`);
     }
+
+    if (!tokens.access_token) {
+      console.error('QuickBooks: No access token in response:', tokens);
+      return res.redirect(`${frontendUrl}/app/settings/integrations?error=no_access_token`);
+    }
+
+    console.log('QuickBooks: Token exchange successful, fetching company info...');
 
     // Get company info
     const baseUrl = QB_ENVIRONMENT === 'production'
       ? 'https://quickbooks.api.intuit.com'
       : 'https://sandbox-quickbooks.api.intuit.com';
 
-    const companyResponse = await fetch(
-      `${baseUrl}/v3/company/${realmId}/companyinfo/${realmId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${tokens.access_token}`,
-          Accept: 'application/json',
-        },
-      }
-    );
+    let companyName = 'QuickBooks Account';
+    
+    if (realmId) {
+      try {
+        const companyResponse = await fetch(
+          `${baseUrl}/v3/company/${realmId}/companyinfo/${realmId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${tokens.access_token}`,
+              Accept: 'application/json',
+            },
+          }
+        );
 
-    const companyData = await companyResponse.json();
-    const companyName = companyData.CompanyInfo?.CompanyName || 'QuickBooks Account';
+        const companyData = await companyResponse.json();
+        companyName = companyData.CompanyInfo?.CompanyName || 'QuickBooks Account';
+        console.log('QuickBooks: Connected to company:', companyName);
+      } catch (companyError) {
+        console.error('QuickBooks: Failed to fetch company info (non-fatal):', companyError);
+      }
+    }
 
     // Store integration
     await query(
@@ -525,13 +574,15 @@ router.get('/quickbooks/callback', async (req, res) => {
          token_expires_at = NOW() + INTERVAL '1 hour',
          settings = $5,
          connected_at = NOW()`,
-      [firmId, companyName, tokens.access_token, tokens.refresh_token, JSON.stringify({ realmId }), userId]
+      [firmId, companyName, tokens.access_token, tokens.refresh_token, JSON.stringify({ realmId, environment: QB_ENVIRONMENT }), userId]
     );
 
-    res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?success=quickbooks`);
+    console.log('QuickBooks: Integration saved successfully for firm:', firmId);
+    res.redirect(`${frontendUrl}/app/settings/integrations?success=quickbooks`);
   } catch (error) {
     console.error('QuickBooks callback error:', error);
-    res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?error=callback_error`);
+    const errorMsg = encodeURIComponent(error.message || 'callback_error');
+    res.redirect(`${frontendUrl}/app/settings/integrations?error=${errorMsg}`);
   }
 });
 
