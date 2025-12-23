@@ -37,7 +37,7 @@ export function PrivacyPage() {
         <section className={styles.section}>
           <h2><Shield size={20} style={{ display: 'inline', marginRight: '8px', verticalAlign: 'middle' }} />Introduction</h2>
           <p>
-            Apex Legal Technologies ("Apex," "we," "us," or "our") is committed to protecting your privacy 
+            Strapped AI LLC ("Strapped AI," "we," "us," or "our") is committed to protecting your privacy 
             and maintaining the confidentiality of your data. As a legal practice management platform, we 
             understand the critical importance of data security and attorney-client privilege.
           </p>
@@ -62,7 +62,7 @@ export function PrivacyPage() {
             <li><strong>Account Information:</strong> Name, email address, phone number, law firm name, bar number, 
             professional credentials, and billing information when you create an account or subscribe to our Services.</li>
             <li><strong>Client & Matter Data:</strong> Information about your clients and legal matters that you 
-            choose to store in Apex, including client names, contact information, case details, matter notes, 
+            choose to store in our platform, including client names, contact information, case details, matter notes, 
             court dates, and related legal information.</li>
             <li><strong>Documents & Files:</strong> Legal documents, contracts, pleadings, and other files you 
             upload to the platform for document management, AI analysis, or collaboration.</li>
@@ -75,7 +75,7 @@ export function PrivacyPage() {
           </ul>
 
           <h3>Information from Third-Party Integrations</h3>
-          <p>When you connect third-party services to Apex, we may receive information from those services:</p>
+          <p>When you connect third-party services to our platform, we may receive information from those services:</p>
           <ul>
             <li><strong>QuickBooks Online:</strong> Invoice data, customer information, payment records, and 
             financial transactions to sync billing and accounting.</li>
@@ -84,7 +84,7 @@ export function PrivacyPage() {
             <li><strong>Google Workspace:</strong> Calendar events, email messages, and documents when you connect 
             Google services for synchronization.</li>
             <li><strong>Cloud Storage (OneDrive, Google Drive, Dropbox):</strong> File names, metadata, and document 
-            contents when you sync external storage with your Apex documents.</li>
+            contents when you sync external storage with your documents.</li>
             <li><strong>DocuSign:</strong> Signature requests, envelope status, and signed document information.</li>
             <li><strong>Zoom & Communication Tools:</strong> Meeting information and scheduling data.</li>
           </ul>
@@ -108,7 +108,7 @@ export function PrivacyPage() {
           
           <h3>Providing Our Services</h3>
           <ul>
-            <li>Operating and maintaining the Apex platform and all its features</li>
+            <li>Operating and maintaining our platform and all its features</li>
             <li>Processing legal matter management, time tracking, and billing</li>
             <li>Syncing data with connected third-party integrations</li>
             <li>Generating reports, analytics, and insights for your practice</li>
@@ -150,7 +150,7 @@ export function PrivacyPage() {
         <section className={styles.section}>
           <h2><Cpu size={20} style={{ display: 'inline', marginRight: '8px', verticalAlign: 'middle' }} />AI Features and Data Processing</h2>
           <p>
-            Apex integrates advanced AI capabilities powered by Microsoft Azure OpenAI Service to enhance 
+            Our platform integrates advanced AI capabilities powered by Microsoft Azure OpenAI Service to enhance 
             your legal practice. We are committed to responsible AI use and transparent data handling:
           </p>
           
@@ -183,7 +183,7 @@ export function PrivacyPage() {
           <h3>AI Limitations Disclosure</h3>
           <p>
             AI-generated content is provided as a tool to assist legal professionals and should not be relied 
-            upon as legal advice. All AI outputs should be reviewed by qualified attorneys before use. Apex 
+            upon as legal advice. All AI outputs should be reviewed by qualified attorneys before use. Strapped AI 
             is not responsible for any errors, omissions, or consequences arising from reliance on AI-generated 
             content.
           </p>
@@ -193,8 +193,8 @@ export function PrivacyPage() {
         <section className={styles.section}>
           <h2><RefreshCw size={20} style={{ display: 'inline', marginRight: '8px', verticalAlign: 'middle' }} />Third-Party Integrations</h2>
           <p>
-            Apex integrates with various third-party services to provide a seamless experience. When you 
-            connect these services, you authorize Apex to access and sync data as described below:
+            Our platform integrates with various third-party services to provide a seamless experience. When you 
+            connect these services, you authorize us to access and sync data as described below:
           </p>
 
           <h3>Accounting & Financial Services</h3>
@@ -215,7 +215,7 @@ export function PrivacyPage() {
           <h3>Cloud Storage Services</h3>
           <ul>
             <li><strong>OneDrive, Google Drive, Dropbox:</strong> We access files and folders you choose to sync 
-            with Apex document management.</li>
+            with our document management.</li>
           </ul>
 
           <h3>E-Signature & Communication</h3>
@@ -227,7 +227,7 @@ export function PrivacyPage() {
           <p>
             <strong>Your Control:</strong> You can disconnect any integration at any time through your account 
             settings. Disconnecting an integration will stop future data syncing but will not automatically 
-            delete previously synced data from Apex.
+            delete previously synced data from our platform.
           </p>
         </section>
 
@@ -247,7 +247,7 @@ export function PrivacyPage() {
             <li><strong>Legal Requirements:</strong> We may disclose information when required by law, subpoena, 
             court order, or government request. We will notify you of such requests when legally permitted.</li>
             <li><strong>Protection of Rights:</strong> We may share information to protect the safety, rights, 
-            or property of Apex, our users, or the public.</li>
+            or property of Strapped AI, our users, or the public.</li>
             <li><strong>Business Transfers:</strong> In connection with a merger, acquisition, bankruptcy, or 
             sale of assets, your information may be transferred. We will notify you of any such change.</li>
             <li><strong>With Your Consent:</strong> We may share information when you have given explicit permission.</li>
@@ -255,7 +255,7 @@ export function PrivacyPage() {
 
           <h3>Attorney-Client Privilege</h3>
           <p>
-            We understand that your client data may be protected by attorney-client privilege. Apex is designed 
+            We understand that your client data may be protected by attorney-client privilege. Our platform is designed 
             as a tool for attorneys and does not waive any privilege protections. We maintain strict access 
             controls and will assert all available protections against third-party access to privileged materials.
           </p>
@@ -348,7 +348,7 @@ export function PrivacyPage() {
 
           <p>
             <strong>To exercise any of these rights,</strong> please contact us at{' '}
-            <a href="mailto:privacy@apexlegal.com">privacy@apexlegal.com</a>. We will respond to your 
+            <a href="mailto:privacy@strapped.ai">privacy@strapped.ai</a>. We will respond to your 
             request within 30 days (or as required by applicable law).
           </p>
         </section>
@@ -420,24 +420,22 @@ export function PrivacyPage() {
             practices, please contact us:
           </p>
           <p style={{ marginTop: '1rem' }}>
-            <strong>Apex Legal Technologies</strong><br />
+            <strong>Strapped AI LLC</strong><br />
             Attn: Privacy Team<br />
-            123 Legal Tech Way<br />
-            San Francisco, CA 94105<br />
             United States
           </p>
           <p style={{ marginTop: '1rem' }}>
-            <strong>Email:</strong> <a href="mailto:privacy@apexlegal.com">privacy@apexlegal.com</a><br />
-            <strong>Data Protection Inquiries:</strong> <a href="mailto:dpo@apexlegal.com">dpo@apexlegal.com</a>
+            <strong>Email:</strong> <a href="mailto:privacy@strapped.ai">privacy@strapped.ai</a><br />
+            <strong>Data Protection Inquiries:</strong> <a href="mailto:dpo@strapped.ai">dpo@strapped.ai</a>
           </p>
           <p style={{ marginTop: '1rem' }}>
-            For urgent security concerns, please email <a href="mailto:security@apexlegal.com">security@apexlegal.com</a>.
+            For urgent security concerns, please email <a href="mailto:security@strapped.ai">security@strapped.ai</a>.
           </p>
         </section>
       </div>
 
       <footer className={styles.footer}>
-        <p>© 2025 Apex Legal Technologies. All rights reserved.</p>
+        <p>© 2025 Strapped AI LLC. All rights reserved.</p>
         <Link to="/" className={styles.backLink}>
           <ArrowLeft size={16} /> Back to Home
         </Link>
