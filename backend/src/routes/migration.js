@@ -84,39 +84,89 @@ async function clioRequestUrl(accessToken, fullUrl) {
   return response.json();
 }
 
-// Paginate through all results from Clio using CURSOR pagination
-// Clio returns a full URL in meta.paging.next - we fetch that directly
+// Main fetch function - routes to appropriate method based on endpoint
 async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null) {
+  // For contacts, use A-Z initial batching to bypass 10k limit (officially supported by Clio)
+  if (endpoint.includes('contacts')) {
+    return await clioGetContactsByInitial(accessToken, endpoint, params, onProgress);
+  }
+  
+  // For other endpoints, use standard pagination
+  return await clioGetPaginated(accessToken, endpoint, params, onProgress);
+}
+
+// Fetch contacts by initial A-Z (each letter has its own 10k limit = 260k max)
+// Clio officially supports: ?initial=A, ?initial=B, etc.
+async function clioGetContactsByInitial(accessToken, endpoint, params, onProgress) {
+  const allData = [];
+  const seenIds = new Set();
+  const initials = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  
+  console.log(`[CLIO API] Fetching contacts A-Z to bypass 10k limit...`);
+  
+  for (const initial of initials) {
+    console.log(`[CLIO API] Fetching contacts starting with "${initial}"...`);
+    
+    try {
+      const letterData = await clioGetPaginated(
+        accessToken, 
+        endpoint, 
+        { ...params, initial }, 
+        null // Don't report progress per letter
+      );
+      
+      let newCount = 0;
+      for (const item of letterData) {
+        if (item.id && !seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          allData.push(item);
+          newCount++;
+        }
+      }
+      
+      console.log(`[CLIO API] Letter "${initial}": got ${newCount} new, total now ${allData.length}`);
+      
+      if (onProgress) {
+        onProgress(allData.length);
+      }
+      
+    } catch (err) {
+      console.log(`[CLIO API] Letter "${initial}" error: ${err.message}, continuing...`);
+    }
+  }
+  
+  console.log(`[CLIO API] Contacts A-Z complete: ${allData.length} total records`);
+  return allData;
+}
+
+// Standard paginated fetch using Clio's cursor pagination
+async function clioGetPaginated(accessToken, endpoint, params = {}, onProgress = null) {
   const allData = [];
   const seenIds = new Set();
   const limit = 200;
-  let nextUrl = null; // Full URL for next page
+  let nextUrl = null;
   let hasMore = true;
   let pageCount = 0;
   let retryCount = 0;
   const maxRetries = 5;
   
-  console.log(`[CLIO API] Starting cursor-based fetch for ${endpoint}`);
+  console.log(`[CLIO API] Starting paginated fetch for ${endpoint}`);
   
   while (hasMore) {
     pageCount++;
-    console.log(`[CLIO API] Page ${pageCount}: have ${allData.length} records so far`);
     
     try {
       let response;
       
       if (nextUrl) {
-        // Fetch next page using the full URL from Clio
         response = await clioRequestUrl(accessToken, nextUrl);
       } else {
-        // First page - use normal request
         response = await clioRequest(accessToken, endpoint, { ...params, limit });
       }
       
       const data = response.data || [];
-      console.log(`[CLIO API] Page ${pageCount}: received ${data.length} records`);
+      console.log(`[CLIO API] Page ${pageCount}: received ${data.length}, total ${allData.length + data.length}`);
       
-      // Deduplicate by ID
       let newCount = 0;
       for (const item of data) {
         const id = item.id;
@@ -127,46 +177,45 @@ async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null)
         }
       }
       
-      console.log(`[CLIO API] Page ${pageCount}: added ${newCount} new, total ${allData.length}`);
-      
       retryCount = 0;
       
       if (onProgress) {
         onProgress(allData.length);
       }
       
-      // Check for next page - Clio returns a FULL URL
       const nextPageUrl = response.meta?.paging?.next;
       if (nextPageUrl && data.length > 0) {
         nextUrl = nextPageUrl;
-        console.log(`[CLIO API] Next page URL received`);
       } else {
         hasMore = false;
-        console.log(`[CLIO API] Completed ${endpoint}: ${allData.length} total in ${pageCount} pages`);
       }
       
-      // Delay between requests - Clio limit is 50/min
       await new Promise(r => setTimeout(r, 1500));
       
     } catch (error) {
       if (error.message.includes('rate limit') || error.message.includes('429') || error.message.includes('Rate')) {
         retryCount++;
-        if (retryCount > maxRetries) {
-          console.error(`[CLIO API] Max retries (${maxRetries}) exceeded`);
-          throw error;
-        }
+        if (retryCount > maxRetries) throw error;
         
         const waitTime = 35 + (retryCount * 10);
-        console.log(`[CLIO API] Rate limited. Waiting ${waitTime}s (retry ${retryCount}/${maxRetries})...`);
+        console.log(`[CLIO API] Rate limited. Waiting ${waitTime}s...`);
         await new Promise(r => setTimeout(r, waitTime * 1000));
         pageCount--;
         continue;
       }
+      
+      // Hit 10k limit - stop gracefully
+      if (error.message.includes('out of bounds') || error.message.includes('page_token')) {
+        console.log(`[CLIO API] Hit 10k limit for ${endpoint}, got ${allData.length} records`);
+        hasMore = false;
+        break;
+      }
+      
       throw error;
     }
   }
   
-  console.log(`[CLIO API] Final: ${endpoint} returned ${allData.length} unique records`);
+  console.log(`[CLIO API] Completed ${endpoint}: ${allData.length} records`);
   return allData;
 }
 
