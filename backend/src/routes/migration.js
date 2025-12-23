@@ -1380,11 +1380,16 @@ router.post('/add-chunk', requireSecureAdmin, (req, res) => {
         added++;
       }
       else if (dataType === 'matters' && parts[0]) {
+        // Auto-generate unique matter number, use first column as description
+        const matterNum = `M-${String(session.matters.length + 1).padStart(5, '0')}`;
+        // Use first column as description/name since Clio exports vary
+        const description = String(parts[0] || 'Imported Matter');
         session.matters.push({
-          display_number: String(parts[0] || `M-${session.matters.length + 1}`),
-          description: String(parts[1] || 'Imported Matter'),
-          client: parts[2] ? { name: String(parts[2]) } : null,
-          status: String(parts[3] || 'Open'),
+          display_number: matterNum,
+          description: description,
+          client: parts[1] ? { name: String(parts[1]) } : null,
+          status: parts[2] ? String(parts[2]) : 'Open',
+          practice_area: parts[3] ? { name: String(parts[3]) } : null,
           billing_method: 'hourly'
         });
         added++;
@@ -1568,16 +1573,20 @@ router.post('/parse-csv', requireSecureAdmin, (req, res) => {
       if (body.matters && typeof body.matters === 'string' && body.matters.trim()) {
         console.log('[PARSE-CSV] Parsing matters, length:', body.matters.length);
         const lines = body.matters.trim().split('\n');
+        let matterCount = 0;
         for (let i = 1; i < lines.length; i++) {
           const line = lines[i];
           if (!line || !line.trim()) continue;
           const parts = line.split(',').map(p => (p || '').trim());
           if (parts[0]) {
+            matterCount++;
+            // Auto-generate unique matter number, use first column as description
             result.matters.push({
-              display_number: String(parts[0] || `M-${i}`),
-              description: String(parts[1] || 'Imported Matter'),
-              client: parts[2] ? { name: String(parts[2]) } : null,
-              status: String(parts[3] || 'Open'),
+              display_number: `M-${String(matterCount).padStart(5, '0')}`,
+              description: String(parts[0] || 'Imported Matter'),
+              client: parts[1] ? { name: String(parts[1]) } : null,
+              status: parts[2] ? String(parts[2]) : 'Open',
+              practice_area: parts[3] ? { name: String(parts[3]) } : null,
               billing_method: 'hourly'
             });
           }
