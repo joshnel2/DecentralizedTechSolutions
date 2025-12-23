@@ -46,6 +46,7 @@ const features = [
 
 export function LandingPage() {
   const [showContactModal, setShowContactModal] = useState(false)
+  const [showBookingModal, setShowBookingModal] = useState(false)
 
   return (
     <div className={styles.landing}>
@@ -73,10 +74,10 @@ export function LandingPage() {
           </div>
           <div className={styles.navActions}>
             <Link to="/login" className={styles.loginLink}>Sign In</Link>
-            <a href="https://calendar.app.google/YwNTdJTaif59SvTF7" target="_blank" rel="noopener noreferrer" className={styles.ctaBtn}>
+            <button className={styles.ctaBtn} onClick={() => setShowBookingModal(true)}>
               Book Demo
               <ArrowRight size={16} />
-            </a>
+            </button>
           </div>
         </div>
       </nav>
@@ -96,10 +97,10 @@ export function LandingPage() {
             modern law firms work smarter, bill more, and serve clients better.
           </p>
           <div className={styles.heroActions}>
-            <a href="https://calendar.app.google/YwNTdJTaif59SvTF7" target="_blank" rel="noopener noreferrer" className={styles.primaryBtn}>
+            <button className={styles.primaryBtn} onClick={() => setShowBookingModal(true)}>
               Book Demo
               <ArrowRight size={18} />
-            </a>
+            </button>
             <Link to="/login" className={styles.secondaryBtn}>
               Sign In
               <ArrowRight size={18} />
@@ -234,10 +235,10 @@ export function LandingPage() {
           <h2>Ready to transform your practice?</h2>
           <p>See how Apex can help your firm work smarter.</p>
           <div className={styles.ctaActions}>
-            <a href="https://calendar.app.google/YwNTdJTaif59SvTF7" target="_blank" rel="noopener noreferrer" className={styles.primaryBtn}>
+            <button className={styles.primaryBtn} onClick={() => setShowBookingModal(true)}>
               Book Demo
               <ArrowRight size={18} />
-            </a>
+            </button>
             <Link to="/login" className={styles.secondaryBtn}>
               Sign In
               <ArrowRight size={18} />
@@ -304,6 +305,11 @@ export function LandingPage() {
       {/* Contact Sales Modal */}
       {showContactModal && (
         <ContactSalesModal onClose={() => setShowContactModal(false)} />
+      )}
+
+      {/* Book Demo Modal */}
+      {showBookingModal && (
+        <BookDemoModal onClose={() => setShowBookingModal(false)} />
       )}
     </div>
   )
@@ -432,6 +438,33 @@ function ContactSalesModal({ onClose }: { onClose: () => void }) {
             </form>
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+function BookDemoModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.bookingModal} onClick={e => e.stopPropagation()}>
+        <button className={styles.closeBtn} onClick={onClose}>×</button>
+        <div className={styles.bookingHeader}>
+          <Calendar size={24} />
+          <div>
+            <h2>Book a Demo</h2>
+            <p>Schedule a personalized walkthrough of Apex</p>
+          </div>
+        </div>
+        <div className={styles.bookingContent}>
+          <iframe 
+            src="https://calendar.google.com/calendar/appointments/schedules/AcZssZ2-LCPZzddN3qpNP1e8imSpgJ3QPsJuJvqCRVGRjxUj9kAHmHGtuayCrTbNDY-2B3NDJqdVtnHb?gv=true" 
+            style={{ border: 0 }} 
+            width="100%" 
+            height="600" 
+            frameBorder="0"
+            title="Book a Demo"
+          />
+        </div>
       </div>
     </div>
   )
