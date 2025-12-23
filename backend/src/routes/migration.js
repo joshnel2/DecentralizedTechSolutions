@@ -953,8 +953,12 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
             lastName = parts.slice(1).join(' ') || 'User';
           }
           
-          // Generate password if missing
-          const password = user.password || (firstName || 'User') + Math.floor(1000 + Math.random() * 9000) + '!';
+          // Generate password if missing - ensure minimum 8 characters
+          let password = user.password;
+          if (!password || password.length < 8) {
+            const baseName = (firstName || 'User').padEnd(4, 'x'); // Ensure at least 4 chars
+            password = baseName + Math.floor(1000 + Math.random() * 9000) + '!'; // 4 + 4 + 1 = 9 chars min
+          }
           const passwordHash = await bcrypt.hash(password, 12);
           
           const userResult = await query(
