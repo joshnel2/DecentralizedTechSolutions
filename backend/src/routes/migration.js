@@ -1293,94 +1293,175 @@ router.get('/test', (req, res) => {
 });
 
 router.post('/parse-csv', requireSecureAdmin, (req, res) => {
-  // Super simple version - just return what we received
-  const body = req.body || {};
-  
-  const result = {
-    firm: {
-      name: body.firmName || 'Imported Firm',
-      email: body.firmEmail || null,
-      phone: body.firmPhone || null,
-      address: body.firmAddress || null
-    },
-    users: [],
-    contacts: [],
-    matters: [],
-    activities: [],
-    calendar_entries: []
-  };
+  try {
+    console.log('[PARSE-CSV] Request received, body size:', JSON.stringify(req.body || {}).length);
+    
+    const body = req.body || {};
+    
+    const result = {
+      firm: {
+        name: String(body.firmName || 'Imported Firm'),
+        email: body.firmEmail ? String(body.firmEmail) : null,
+        phone: body.firmPhone ? String(body.firmPhone) : null,
+        address: body.firmAddress ? String(body.firmAddress) : null
+      },
+      users: [],
+      contacts: [],
+      matters: [],
+      activities: [],
+      calendar_entries: []
+    };
 
-  // Parse users if provided
-  if (body.users && typeof body.users === 'string' && body.users.trim()) {
-    const lines = body.users.trim().split('\n');
-    if (lines.length > 1) {
-      // Skip header row, parse remaining
-      for (let i = 1; i < lines.length; i++) {
-        const parts = lines[i].split(',').map(p => p.trim());
-        if (parts.length >= 2) {
-          const nameParts = (parts[0] || 'User').split(' ');
-          result.users.push({
-            email: parts[1] || `user${i}@temp.com`,
-            first_name: nameParts[0] || 'User',
-            last_name: nameParts.slice(1).join(' ') || 'Import',
-            type: parts[2] || 'Attorney',
-            rate: parseFloat((parts[3] || '0').replace(/[$,]/g, '')) || null,
-            password: (nameParts[0] || 'User') + Math.floor(1000 + Math.random() * 9000) + '!'
-          });
+    // Parse users if provided
+    try {
+      if (body.users && typeof body.users === 'string' && body.users.trim()) {
+        console.log('[PARSE-CSV] Parsing users, length:', body.users.length);
+        const lines = body.users.trim().split('\n');
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i];
+          if (!line || !line.trim()) continue;
+          const parts = line.split(',').map(p => (p || '').trim());
+          if (parts.length >= 2) {
+            const name = String(parts[0] || 'User');
+            const nameParts = name.split(' ');
+            const firstName = nameParts[0] || 'User';
+            result.users.push({
+              email: String(parts[1] || `user${i}@temp.com`),
+              first_name: firstName,
+              last_name: nameParts.slice(1).join(' ') || 'Import',
+              type: String(parts[2] || 'Attorney'),
+              rate: parseFloat(String(parts[3] || '0').replace(/[$,]/g, '')) || null,
+              password: firstName + Math.floor(1000 + Math.random() * 9000) + '!'
+            });
+          }
         }
+        console.log('[PARSE-CSV] Users parsed:', result.users.length);
       }
+    } catch (userErr) {
+      console.error('[PARSE-CSV] User parse error:', userErr.message);
     }
-  }
 
-  // Parse clients if provided
-  if (body.clients && typeof body.clients === 'string' && body.clients.trim()) {
-    const lines = body.clients.trim().split('\n');
-    if (lines.length > 1) {
-      for (let i = 1; i < lines.length; i++) {
-        const parts = lines[i].split(',').map(p => p.trim());
-        if (parts.length >= 1 && parts[0]) {
-          result.contacts.push({
-            type: 'Person',
-            name: parts[0],
-            email: parts[1] || null,
-            phone: parts[2] || null
-          });
+    // Parse clients if provided
+    try {
+      if (body.clients && typeof body.clients === 'string' && body.clients.trim()) {
+        console.log('[PARSE-CSV] Parsing clients, length:', body.clients.length);
+        const lines = body.clients.trim().split('\n');
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i];
+          if (!line || !line.trim()) continue;
+          const parts = line.split(',').map(p => (p || '').trim());
+          if (parts[0]) {
+            result.contacts.push({
+              type: 'Person',
+              name: String(parts[0]),
+              email: parts[1] ? String(parts[1]) : null,
+              phone: parts[2] ? String(parts[2]) : null
+            });
+          }
         }
+        console.log('[PARSE-CSV] Clients parsed:', result.contacts.length);
       }
+    } catch (clientErr) {
+      console.error('[PARSE-CSV] Client parse error:', clientErr.message);
     }
-  }
 
-  // Parse matters if provided
-  if (body.matters && typeof body.matters === 'string' && body.matters.trim()) {
-    const lines = body.matters.trim().split('\n');
-    if (lines.length > 1) {
-      for (let i = 1; i < lines.length; i++) {
-        const parts = lines[i].split(',').map(p => p.trim());
-        if (parts.length >= 1 && parts[0]) {
-          result.matters.push({
-            display_number: parts[0] || `M-${i}`,
-            description: parts[1] || 'Imported Matter',
-            client: parts[2] ? { name: parts[2] } : null,
-            status: parts[3] || 'Open',
-            billing_method: 'hourly'
-          });
+    // Parse matters if provided
+    try {
+      if (body.matters && typeof body.matters === 'string' && body.matters.trim()) {
+        console.log('[PARSE-CSV] Parsing matters, length:', body.matters.length);
+        const lines = body.matters.trim().split('\n');
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i];
+          if (!line || !line.trim()) continue;
+          const parts = line.split(',').map(p => (p || '').trim());
+          if (parts[0]) {
+            result.matters.push({
+              display_number: String(parts[0] || `M-${i}`),
+              description: String(parts[1] || 'Imported Matter'),
+              client: parts[2] ? { name: String(parts[2]) } : null,
+              status: String(parts[3] || 'Open'),
+              billing_method: 'hourly'
+            });
+          }
         }
+        console.log('[PARSE-CSV] Matters parsed:', result.matters.length);
       }
+    } catch (matterErr) {
+      console.error('[PARSE-CSV] Matter parse error:', matterErr.message);
     }
-  }
 
-  res.json({
-    success: true,
-    transformedData: result,
-    summary: {
-      firm: result.firm.name,
-      users: result.users.length,
-      contacts: result.contacts.length,
-      matters: result.matters.length,
-      activities: result.activities.length,
-      calendar_entries: result.calendar_entries.length
+    // Parse time entries if provided
+    try {
+      if (body.timeEntries && typeof body.timeEntries === 'string' && body.timeEntries.trim()) {
+        console.log('[PARSE-CSV] Parsing time entries, length:', body.timeEntries.length);
+        const lines = body.timeEntries.trim().split('\n');
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i];
+          if (!line || !line.trim()) continue;
+          const parts = line.split(',').map(p => (p || '').trim());
+          if (parts[0]) {
+            result.activities.push({
+              type: 'TimeEntry',
+              date: String(parts[0] || new Date().toISOString().split('T')[0]),
+              matter: parts[1] ? { display_number: String(parts[1]) } : null,
+              user: parts[2] ? { name: String(parts[2]) } : null,
+              quantity: parseFloat(parts[3] || '0') || 0,
+              note: String(parts[4] || 'Time entry')
+            });
+          }
+        }
+        console.log('[PARSE-CSV] Time entries parsed:', result.activities.length);
+      }
+    } catch (timeErr) {
+      console.error('[PARSE-CSV] Time entry parse error:', timeErr.message);
     }
-  });
+
+    // Parse calendar events if provided
+    try {
+      if (body.calendarEvents && typeof body.calendarEvents === 'string' && body.calendarEvents.trim()) {
+        console.log('[PARSE-CSV] Parsing calendar events, length:', body.calendarEvents.length);
+        const lines = body.calendarEvents.trim().split('\n');
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i];
+          if (!line || !line.trim()) continue;
+          const parts = line.split(',').map(p => (p || '').trim());
+          if (parts[0]) {
+            result.calendar_entries.push({
+              summary: String(parts[0] || 'Event'),
+              start_at: parts[1] ? String(parts[1]) : null,
+              end_at: parts[2] ? String(parts[2]) : null,
+              description: parts[3] ? String(parts[3]) : null
+            });
+          }
+        }
+        console.log('[PARSE-CSV] Calendar events parsed:', result.calendar_entries.length);
+      }
+    } catch (calErr) {
+      console.error('[PARSE-CSV] Calendar parse error:', calErr.message);
+    }
+
+    console.log('[PARSE-CSV] Success - sending response');
+    
+    return res.json({
+      success: true,
+      transformedData: result,
+      summary: {
+        firm: result.firm.name,
+        users: result.users.length,
+        contacts: result.contacts.length,
+        matters: result.matters.length,
+        activities: result.activities.length,
+        calendar_entries: result.calendar_entries.length
+      }
+    });
+
+  } catch (error) {
+    console.error('[PARSE-CSV] FATAL ERROR:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'CSV parsing failed: ' + (error.message || 'Unknown error')
+    });
+  }
 });
 
 // ============================================
