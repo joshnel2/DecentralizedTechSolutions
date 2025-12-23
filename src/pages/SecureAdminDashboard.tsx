@@ -1927,10 +1927,6 @@ ${migrationInputs.calendarEvents || 'No calendar events provided'}
                             <div className={styles.sectionHeader}>
                               <Users size={18} />
                               <h4>2. Users / Team Members</h4>
-                              <span className={styles.sectionHint}>
-                                <Sparkles size={12} style={{ marginRight: '4px' }} />
-                                AI Assisted
-                              </span>
                             </div>
                             <p className={styles.sectionDescription}>
                               Copy the user list from <strong>Clio → Settings → Firm → Users</strong> and paste below. 
@@ -1939,15 +1935,45 @@ ${migrationInputs.calendarEvents || 'No calendar events provided'}
                             <textarea
                               value={migrationInputs.users}
                               onChange={(e) => setMigrationInputs(prev => ({ ...prev, users: e.target.value }))}
-                              placeholder={`Paste user data in any format. Examples:
-
-Jane Smith, jane@smithlaw.com, Attorney, $400/hr
-Bob Johnson, bob@smithlaw.com, Paralegal, $150/hr
-Sarah Lee, sarah@smithlaw.com, Staff
-
-Or copy directly from Clio's user page - it will be parsed automatically.`}
+                              placeholder={`Name, Email, Role, Rate
+Jane Smith, jane@smithlaw.com, Attorney, $400
+Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
                               rows={5}
                             />
+                            <div className={styles.userAiButton}>
+                              <button 
+                                onClick={async () => {
+                                  if (!migrationInputs.users.trim()) {
+                                    showNotification('error', 'Please paste user data first')
+                                    return
+                                  }
+                                  setIsTransforming(true)
+                                  try {
+                                    const res = await fetch(`${API_URL}/migration/ai-format-users`, {
+                                      method: 'POST',
+                                      headers: getAuthHeaders(),
+                                      body: JSON.stringify({ rawUsers: migrationInputs.users })
+                                    })
+                                    const result = await res.json()
+                                    if (res.ok && result.success) {
+                                      setMigrationInputs(prev => ({ ...prev, users: result.formattedCsv }))
+                                      showNotification('success', `Formatted ${result.userCount} users into CSV format`)
+                                    } else {
+                                      showNotification('error', result.error || 'Failed to format users')
+                                    }
+                                  } catch (err) {
+                                    showNotification('error', 'Failed to format users')
+                                  }
+                                  setIsTransforming(false)
+                                }}
+                                disabled={isTransforming || !migrationInputs.users.trim()}
+                                className={styles.formatUsersBtn}
+                              >
+                                <Sparkles size={14} />
+                                {isTransforming ? 'Formatting...' : 'AI Format to CSV'}
+                              </button>
+                              <span className={styles.formatHint}>Click to convert messy data into proper CSV format</span>
+                            </div>
                           </div>
 
                           {/* Clients */}
