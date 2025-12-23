@@ -1444,6 +1444,30 @@ router.post('/clio/oauth-start', requireSecureAdmin, async (req, res) => {
   }
 });
 
+// Get user info for a Clio connection
+router.get('/clio/user/:connectionId', requireSecureAdmin, async (req, res) => {
+  try {
+    const { connectionId } = req.params;
+    const connection = clioConnections.get(connectionId);
+    
+    if (!connection) {
+      return res.status(404).json({ success: false, error: 'Connection not found' });
+    }
+    
+    // Fetch user info from Clio
+    try {
+      const whoami = await clioRequest(connection.accessToken, '/users/who_am_i.json', { fields: 'id,name,email' });
+      res.json({ success: true, user: whoami.data });
+    } catch (apiError) {
+      console.error('[CLIO] Failed to fetch user:', apiError);
+      res.json({ success: true, user: { name: 'Clio User', email: 'Connected' } });
+    }
+  } catch (error) {
+    console.error('[CLIO] User fetch error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Store Clio API credentials (entered by admin)
 router.post('/clio/connect', requireSecureAdmin, async (req, res) => {
   try {

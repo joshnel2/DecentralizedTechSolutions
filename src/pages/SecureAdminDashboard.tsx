@@ -209,26 +209,46 @@ export default function SecureAdminDashboard() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const clioConnected = params.get('clio_connected')
+    const clioError = params.get('clio_error')
+    
     if (clioConnected) {
       setClioConnectionId(clioConnected)
+      setActiveTab('migration')
+      setMigrationMode('clio')
       // Clean up URL
       window.history.replaceState({}, '', window.location.pathname)
-      showNotification('success', 'Connected to Clio successfully!')
+      showNotification('success', 'Connected to Clio successfully! Now enter firm name and start import.')
       // Fetch user info
       fetchClioUser(clioConnected)
+    }
+    
+    if (clioError) {
+      setActiveTab('migration')
+      setMigrationMode('clio')
+      window.history.replaceState({}, '', window.location.pathname)
+      showNotification('error', `Clio connection failed: ${clioError}`)
     }
   }, [])
   
   const fetchClioUser = async (connectionId: string) => {
     try {
-      const res = await fetch(`${API_URL}/migration/clio/progress/${connectionId}`, {
+      // Try to get user info from the connection
+      const res = await fetch(`${API_URL}/migration/clio/user/${connectionId}`, {
         headers: getAuthHeaders()
       })
       if (res.ok) {
+        const data = await res.json()
+        if (data.success && data.user) {
+          setClioUser(data.user)
+        } else {
+          setClioUser({ name: 'Clio User', email: 'Connected via OAuth' })
+        }
+      } else {
         setClioUser({ name: 'Clio User', email: 'Connected via OAuth' })
       }
     } catch (e) {
       console.error('Failed to fetch Clio user:', e)
+      setClioUser({ name: 'Clio User', email: 'Connected via OAuth' })
     }
   }
   const [isTransforming, setIsTransforming] = useState(false)
