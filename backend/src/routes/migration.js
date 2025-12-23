@@ -59,13 +59,15 @@ async function clioRequest(accessToken, endpoint, params = {}) {
   }
 }
 
-// Paginate through all results from Clio with better logging
+// Paginate through all results from Clio with rate limit handling
 async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null) {
   const allData = [];
   let offset = 0;
   const limit = 200; // Clio max per page
   let hasMore = true;
   let pageCount = 0;
+  let retryCount = 0;
+  const maxRetries = 5;
   
   console.log(`[CLIO API] Starting paginated fetch for ${endpoint}`);
   
@@ -73,24 +75,46 @@ async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null)
     pageCount++;
     console.log(`[CLIO API] Fetching page ${pageCount} (offset ${offset}) from ${endpoint}`);
     
-    const response = await clioRequest(accessToken, endpoint, { ...params, limit, offset });
-    const data = response.data || [];
-    allData.push(...data);
-    
-    if (onProgress) {
-      onProgress(allData.length);
+    try {
+      const response = await clioRequest(accessToken, endpoint, { ...params, limit, offset });
+      const data = response.data || [];
+      allData.push(...data);
+      retryCount = 0; // Reset retry count on success
+      
+      if (onProgress) {
+        onProgress(allData.length);
+      }
+      
+      // Check if there's more data
+      if (data.length < limit) {
+        hasMore = false;
+        console.log(`[CLIO API] Completed fetching ${endpoint}: ${allData.length} total records in ${pageCount} pages`);
+      } else {
+        offset += limit;
+      }
+      
+      // Delay between requests to avoid rate limiting (Clio limit is 50/min)
+      // With 200 records per page, we can do ~40 pages per minute safely
+      await new Promise(r => setTimeout(r, 1500)); // 1.5 seconds between requests
+      
+    } catch (error) {
+      // Handle rate limiting with exponential backoff
+      if (error.message.includes('rate limit') || error.message.includes('429') || error.message.includes('Rate')) {
+        retryCount++;
+        if (retryCount > maxRetries) {
+          console.error(`[CLIO API] Max retries exceeded for ${endpoint}`);
+          throw error;
+        }
+        
+        // Wait progressively longer: 40s, 50s, 60s, 70s, 80s
+        const waitTime = 30 + (retryCount * 10);
+        console.log(`[CLIO API] Rate limited. Waiting ${waitTime} seconds before retry ${retryCount}/${maxRetries}...`);
+        await new Promise(r => setTimeout(r, waitTime * 1000));
+        pageCount--; // Retry same page
+        continue;
+      }
+      throw error;
     }
-    
-    // Check if there's more data
-    if (data.length < limit) {
-      hasMore = false;
-      console.log(`[CLIO API] Completed fetching ${endpoint}: ${allData.length} total records in ${pageCount} pages`);
-    } else {
-      offset += limit;
-    }
-    
-    // Small delay to avoid rate limiting
-    await new Promise(r => setTimeout(r, 100));
   }
   
   return allData;
