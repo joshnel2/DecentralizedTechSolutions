@@ -311,6 +311,8 @@ export function LandingPage() {
 
 function ContactSalesModal({ onClose }: { onClose: () => void }) {
   const [submitted, setSubmitted] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -320,10 +322,28 @@ function ContactSalesModal({ onClose }: { onClose: () => void }) {
     message: ''
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // Simulate submission
-    setSubmitted(true)
+    setIsSubmitting(true)
+    setError(null)
+    
+    try {
+      const { demoRequestsApi } = await import('../services/api')
+      await demoRequestsApi.submit({
+        name: formData.name,
+        email: formData.email,
+        company: formData.company,
+        phone: formData.phone || undefined,
+        firmSize: formData.firmSize,
+        message: formData.message || undefined,
+      })
+      setSubmitted(true)
+    } catch (err: any) {
+      console.error('Demo request submission error:', err)
+      setError(err.message || 'Failed to submit request. Please try again.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -425,9 +445,15 @@ function ContactSalesModal({ onClose }: { onClose: () => void }) {
                 />
               </div>
 
-              <button type="submit" className={styles.submitBtn}>
+              {error && (
+                <div className={styles.errorMessage}>
+                  {error}
+                </div>
+              )}
+
+              <button type="submit" className={styles.submitBtn} disabled={isSubmitting}>
                 <Mail size={18} />
-                Request Demo
+                {isSubmitting ? 'Submitting...' : 'Request Demo'}
               </button>
             </form>
           </>
