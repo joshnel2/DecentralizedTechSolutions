@@ -1358,20 +1358,33 @@ router.get('/test', (req, res) => {
 
 // OAuth callback for Clio (if using OAuth flow)
 router.get('/clio/callback', async (req, res) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'https://strappedai.com';
+  
   try {
     const { code, state } = req.query;
     
+    console.log('[CLIO] Callback received, state:', state);
+    
     if (!code) {
-      return res.status(400).send('Missing authorization code');
+      return res.redirect(`${frontendUrl}/rx760819?clio_error=${encodeURIComponent('Missing authorization code')}`);
     }
     
-    // Get stored OAuth config
-    const oauthConfig = clioConnections.get('oauth_config');
-    if (!oauthConfig) {
-      return res.status(400).send('OAuth not configured. Please set up Client ID and Secret first.');
+    if (!state) {
+      return res.redirect(`${frontendUrl}/rx760819?clio_error=${encodeURIComponent('Missing state parameter')}`);
     }
+    
+    // Get stored OAuth config using state
+    const oauthConfig = clioConnections.get(`oauth_${state}`);
+    if (!oauthConfig) {
+      console.error('[CLIO] OAuth config not found for state:', state);
+      return res.redirect(`${frontendUrl}/rx760819?clio_error=${encodeURIComponent('Session expired. Please try again.')}`);
+    }
+    
+    // Clean up the OAuth config
+    clioConnections.delete(`oauth_${state}`);
     
     // Exchange code for access token
+    console.log('[CLIO] Exchanging code for token...');
     const tokenResponse = await fetch('https://app.clio.com/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -1385,28 +1398,29 @@ router.get('/clio/callback', async (req, res) => {
     });
     
     const tokenData = await tokenResponse.json();
+    console.log('[CLIO] Token response status:', tokenResponse.status);
     
     if (tokenData.access_token) {
-      // Store the token
+      // Store the connection
       const connectionId = Date.now().toString(36) + Math.random().toString(36).substr(2);
       clioConnections.set(connectionId, {
         accessToken: tokenData.access_token,
         refreshToken: tokenData.refresh_token,
         expiresAt: Date.now() + (tokenData.expires_in * 1000),
+        firmName: oauthConfig.firmName,
         connectedAt: new Date()
       });
       
-      // Redirect back to admin portal with success (frontend URL)
-      const frontendUrl = process.env.FRONTEND_URL || 'https://strappedai.com';
-      res.redirect(`${frontendUrl}/rx760819?clio_connected=${connectionId}`);
+      console.log('[CLIO] Connected successfully, connectionId:', connectionId);
+      
+      // Redirect back to admin portal with success
+      res.redirect(`${frontendUrl}/rx760819?clio_connected=${connectionId}&firm=${encodeURIComponent(oauthConfig.firmName)}`);
     } else {
       console.error('[CLIO] Token exchange failed:', tokenData);
-      const frontendUrl = process.env.FRONTEND_URL || 'https://strappedai.com';
-      res.redirect(`${frontendUrl}/rx760819?clio_error=${encodeURIComponent(tokenData.error || 'Token exchange failed')}`);
+      res.redirect(`${frontendUrl}/rx760819?clio_error=${encodeURIComponent(tokenData.error_description || tokenData.error || 'Token exchange failed')}`);
     }
   } catch (error) {
     console.error('[CLIO] OAuth callback error:', error);
-    const frontendUrl = process.env.FRONTEND_URL || 'https://strappedai.com';
     res.redirect(`${frontendUrl}/rx760819?clio_error=${encodeURIComponent(error.message)}`);
   }
 });
@@ -1414,7 +1428,7 @@ router.get('/clio/callback', async (req, res) => {
 // Start OAuth flow
 router.post('/clio/oauth-start', requireSecureAdmin, async (req, res) => {
   try {
-    const { clientId, clientSecret } = req.body;
+    const { clientId, clientSecret, firmName } = req.body;
     
     if (!clientId || !clientSecret) {
       return res.status(400).json({ success: false, error: 'Client ID and Secret are required' });
@@ -1422,19 +1436,26 @@ router.post('/clio/oauth-start', requireSecureAdmin, async (req, res) => {
     
     const redirectUri = `${process.env.BACKEND_URL || 'https://strappedai-gpfra9f8gsg9d9hy.canadacentral-01.azurewebsites.net'}/api/migration/clio/callback`;
     
-    // Store OAuth config temporarily
-    clioConnections.set('oauth_config', {
+    // Create a unique state ID to track this OAuth flow
+    const stateId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+    
+    // Store OAuth config with state ID
+    clioConnections.set(`oauth_${stateId}`, {
       clientId,
       clientSecret,
-      redirectUri
+      redirectUri,
+      firmName: firmName || 'Imported from Clio',
+      createdAt: new Date()
     });
     
-    // Build authorization URL
+    console.log('[CLIO] OAuth started, state:', stateId);
+    
+    // Build authorization URL with state
     const authUrl = `https://app.clio.com/oauth/authorize?` + new URLSearchParams({
       response_type: 'code',
       client_id: clientId,
       redirect_uri: redirectUri,
-      scope: 'read'
+      state: stateId
     }).toString();
     
     res.json({ success: true, authUrl });

@@ -210,23 +210,31 @@ export default function SecureAdminDashboard() {
     const params = new URLSearchParams(window.location.search)
     const clioConnected = params.get('clio_connected')
     const clioError = params.get('clio_error')
+    const firmName = params.get('firm')
     
     if (clioConnected) {
       setClioConnectionId(clioConnected)
       setActiveTab('migration')
       setMigrationMode('clio')
+      if (firmName) {
+        setMigrationInputs(prev => ({ ...prev, firmName: decodeURIComponent(firmName) }))
+      }
       // Clean up URL
       window.history.replaceState({}, '', window.location.pathname)
-      showNotification('success', 'Connected to Clio successfully! Now enter firm name and start import.')
+      showNotification('success', 'Connected to Clio! Starting import...')
       // Fetch user info
       fetchClioUser(clioConnected)
+      // Auto-start import after a short delay
+      setTimeout(() => {
+        autoStartClioImport(clioConnected, firmName ? decodeURIComponent(firmName) : 'Imported from Clio')
+      }, 1000)
     }
     
     if (clioError) {
       setActiveTab('migration')
       setMigrationMode('clio')
       window.history.replaceState({}, '', window.location.pathname)
-      showNotification('error', `Clio connection failed: ${clioError}`)
+      showNotification('error', `Clio connection failed: ${decodeURIComponent(clioError)}`)
     }
   }, [])
   
@@ -1052,6 +1060,11 @@ export default function SecureAdminDashboard() {
       return
     }
     
+    if (!migrationInputs.firmName.trim()) {
+      showNotification('error', 'Please enter a firm name before connecting')
+      return
+    }
+    
     setClioImporting(true)
     try {
       const res = await fetch(`${API_URL}/migration/clio/oauth-start`, {
@@ -1059,7 +1072,8 @@ export default function SecureAdminDashboard() {
         headers: getAuthHeaders(),
         body: JSON.stringify({ 
           clientId: clioClientId.trim(),
-          clientSecret: clioClientSecret.trim()
+          clientSecret: clioClientSecret.trim(),
+          firmName: migrationInputs.firmName.trim()
         })
       })
       
@@ -1074,6 +1088,33 @@ export default function SecureAdminDashboard() {
       }
     } catch (error) {
       showNotification('error', 'Failed to connect to Clio')
+      setClioImporting(false)
+    }
+  }
+  
+  // Auto-start import after OAuth callback
+  const autoStartClioImport = async (connectionId: string, firmName: string) => {
+    setClioImporting(true)
+    setClioProgress({ status: 'starting' })
+    
+    try {
+      const res = await fetch(`${API_URL}/migration/clio/import`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ connectionId, firmName })
+      })
+      
+      const result = await res.json()
+      
+      if (result.success) {
+        showNotification('success', 'Import started! Pulling all data from Clio...')
+        pollClioProgress()
+      } else {
+        showNotification('error', result.error || 'Failed to start import')
+        setClioImporting(false)
+      }
+    } catch (error) {
+      showNotification('error', 'Failed to start Clio import')
       setClioImporting(false)
     }
   }
@@ -2094,9 +2135,20 @@ export default function SecureAdminDashboard() {
                             
                             {!clioConnectionId ? (
                               <div className={styles.clioConnect}>
-                                <p className={styles.sectionDescription}>
-                                  Get your credentials from <strong>Clio → Settings → Developer Applications</strong> → Create an app with read permissions.
-                                  <br />Use these values when creating your app:
+                                <div className={styles.inputField}>
+                                  <label htmlFor="clio-firm-name">Firm Name *</label>
+                                  <input
+                                    id="clio-firm-name"
+                                    type="text"
+                                    value={migrationInputs.firmName}
+                                    onChange={(e) => setMigrationInputs(prev => ({ ...prev, firmName: e.target.value }))}
+                                    placeholder="Enter the firm name for this import"
+                                  />
+                                </div>
+                                
+                                <p className={styles.sectionDescription} style={{ marginTop: '1rem' }}>
+                                  Get your credentials from <strong>Clio → Settings → Developer Applications</strong> → Create an app.
+                                  <br />Use these values:
                                   <br />• <strong>Website URL:</strong> https://strappedai.com
                                   <br />• <strong>Redirect URI:</strong> https://strappedai-gpfra9f8gsg9d9hy.canadacentral-01.azurewebsites.net/api/migration/clio/callback
                                 </p>
@@ -2122,13 +2174,13 @@ export default function SecureAdminDashboard() {
                                 </div>
                                 <button 
                                   onClick={connectToClio}
-                                  disabled={clioImporting || !clioClientId.trim() || !clioClientSecret.trim()}
+                                  disabled={clioImporting || !clioClientId.trim() || !clioClientSecret.trim() || !migrationInputs.firmName.trim()}
                                   className={styles.primaryBtn}
                                 >
                                   {clioImporting ? (
                                     <><RefreshCw size={18} className={styles.spinner} /> Connecting...</>
                                   ) : (
-                                    <><Zap size={18} /> Connect to Clio</>
+                                    <><Zap size={18} /> Connect & Import from Clio</>
                                   )}
                                 </button>
                               </div>
