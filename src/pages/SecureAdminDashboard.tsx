@@ -1211,17 +1211,42 @@ export default function SecureAdminDashboard() {
         
         if (progress.status === 'completed') {
           // Fetch the result
-          console.log('[CLIO] Import completed, fetching results...')
+          console.log('[CLIO] Clio data fetch completed, getting results...')
           const resultRes = await fetch(`${API_URL}/migration/clio/result/${connId}`, {
             headers: getAuthHeaders()
           })
           const result = await resultRes.json()
-          console.log('[CLIO] Final result:', result)
+          console.log('[CLIO] Fetched data:', result)
           
-          if (result.success) {
+          if (result.success && result.transformedData) {
             setTransformResult(result)
-            setMigrationData(JSON.stringify(result.transformedData, null, 2))
-            showNotification('success', `Import complete! ${result.summary.users} users, ${result.summary.contacts} contacts, ${result.summary.matters} matters`)
+            const dataJson = JSON.stringify(result.transformedData, null, 2)
+            setMigrationData(dataJson)
+            
+            showNotification('success', `Data fetched! ${result.summary.users} users, ${result.summary.contacts} contacts, ${result.summary.matters} matters. Now importing to database...`)
+            
+            // AUTO-IMPORT: Directly import the data into the database
+            console.log('[CLIO] Auto-importing data to database...')
+            try {
+              const importRes = await fetch(`${API_URL}/migration/import`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ data: result.transformedData })
+              })
+              const importResult = await importRes.json()
+              console.log('[CLIO] Database import result:', importResult)
+              
+              if (importResult.success) {
+                setImportResult(importResult)
+                setMigrationStep('complete')
+                showNotification('success', `✅ Migration complete! Created firm "${importResult.firm_name}" with ${importResult.imported.users} users, ${importResult.imported.contacts} clients, ${importResult.imported.matters} matters, ${importResult.imported.time_entries} time entries, ${importResult.imported.calendar_entries} calendar events`)
+              } else {
+                showNotification('error', `Database import failed: ${importResult.errors?.join(', ') || 'Unknown error'}`)
+              }
+            } catch (importErr) {
+              console.error('[CLIO] Database import error:', importErr)
+              showNotification('error', 'Failed to import data to database. You can try manually clicking Validate then Import.')
+            }
           } else {
             showNotification('error', result.error || 'Failed to fetch import results')
           }
