@@ -56,9 +56,9 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Refresh-Token', 'X-Admin-Auth'],
 }));
 
-// Body parsing - increased limit for CSV migration imports
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Body parsing - large limit for full firm migration imports (can be 100s of MBs)
+app.use(express.json({ limit: '500mb' }));
+app.use(express.urlencoded({ extended: true, limit: '500mb' }));
 app.use(cookieParser());
 
 // Rate limiting
