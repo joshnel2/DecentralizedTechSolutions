@@ -13,36 +13,66 @@ const CLIO_API_BASE = 'https://app.clio.com/api/v4';
 // Store active Clio connections (in production, use database)
 const clioConnections = new Map();
 
-// Helper to make Clio API requests
+// Helper to make Clio API requests with better error handling
 async function clioRequest(accessToken, endpoint, params = {}) {
   const url = new URL(`${CLIO_API_BASE}${endpoint}`);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined) url.searchParams.append(key, value);
   });
   
-  const response = await fetch(url.toString(), {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
+  console.log(`[CLIO API] GET ${endpoint} with params:`, params);
+  
+  try {
+    const response = await fetch(url.toString(), {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log(`[CLIO API] Response status: ${response.status}`);
+    
+    if (!response.ok) {
+      const error = await response.text();
+      console.error(`[CLIO API] Error response: ${error}`);
+      
+      // Handle specific error cases
+      if (response.status === 401) {
+        throw new Error('Clio access token expired or invalid. Please reconnect to Clio.');
+      }
+      if (response.status === 403) {
+        throw new Error('Access denied. Check that your Clio app has the required permissions.');
+      }
+      if (response.status === 429) {
+        throw new Error('Clio rate limit exceeded. Please wait and try again.');
+      }
+      
+      throw new Error(`Clio API error: ${response.status} - ${error}`);
     }
-  });
-  
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Clio API error: ${response.status} - ${error}`);
+    
+    const data = await response.json();
+    console.log(`[CLIO API] Got ${data.data?.length || 0} records from ${endpoint}`);
+    return data;
+  } catch (fetchError) {
+    console.error(`[CLIO API] Fetch error for ${endpoint}:`, fetchError.message);
+    throw fetchError;
   }
-  
-  return response.json();
 }
 
-// Paginate through all results from Clio
+// Paginate through all results from Clio with better logging
 async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null) {
   const allData = [];
   let offset = 0;
   const limit = 200; // Clio max per page
   let hasMore = true;
+  let pageCount = 0;
+  
+  console.log(`[CLIO API] Starting paginated fetch for ${endpoint}`);
   
   while (hasMore) {
+    pageCount++;
+    console.log(`[CLIO API] Fetching page ${pageCount} (offset ${offset}) from ${endpoint}`);
+    
     const response = await clioRequest(accessToken, endpoint, { ...params, limit, offset });
     const data = response.data || [];
     allData.push(...data);
@@ -54,6 +84,7 @@ async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null)
     // Check if there's more data
     if (data.length < limit) {
       hasMore = false;
+      console.log(`[CLIO API] Completed fetching ${endpoint}: ${allData.length} total records in ${pageCount} pages`);
     } else {
       offset += limit;
     }
@@ -1574,7 +1605,15 @@ const migrationProgress = new Map();
 
 router.get('/clio/progress/:connectionId', requireSecureAdmin, (req, res) => {
   const { connectionId } = req.params;
-  const progress = migrationProgress.get(connectionId) || { status: 'not_started' };
+  const progress = migrationProgress.get(connectionId);
+  
+  if (!progress) {
+    console.log('[CLIO PROGRESS] No progress found for connection:', connectionId);
+    console.log('[CLIO PROGRESS] Available progress keys:', Array.from(migrationProgress.keys()));
+    return res.json({ status: 'not_started', message: 'No import has been started for this connection' });
+  }
+  
+  console.log('[CLIO PROGRESS] Returning progress for', connectionId, '- status:', progress.status);
   res.json(progress);
 });
 
@@ -1583,17 +1622,34 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
   try {
     const { connectionId, firmName } = req.body;
     
-    if (!connectionId || !clioConnections.has(connectionId)) {
+    console.log('[CLIO IMPORT] Starting import for connection:', connectionId, 'firmName:', firmName);
+    
+    if (!connectionId) {
+      console.error('[CLIO IMPORT] No connection ID provided');
+      return res.status(400).json({ success: false, error: 'Connection ID is required.' });
+    }
+    
+    if (!clioConnections.has(connectionId)) {
+      console.error('[CLIO IMPORT] Connection not found:', connectionId);
+      console.log('[CLIO IMPORT] Available connections:', Array.from(clioConnections.keys()));
       return res.status(400).json({ success: false, error: 'Invalid connection. Please reconnect to Clio.' });
     }
     
     const connection = clioConnections.get(connectionId);
     const accessToken = connection.accessToken;
     
+    console.log('[CLIO IMPORT] Connection found, access token present:', !!accessToken);
+    
+    // Check if token might be expired
+    if (connection.expiresAt && Date.now() > connection.expiresAt) {
+      console.warn('[CLIO IMPORT] Access token may be expired, but attempting import anyway');
+    }
+    
     // Initialize progress
     migrationProgress.set(connectionId, {
       status: 'running',
       startedAt: new Date(),
+      connectionId: connectionId,
       steps: {
         users: { status: 'pending', count: 0 },
         contacts: { status: 'pending', count: 0 },
@@ -1604,12 +1660,17 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
       }
     });
     
+    console.log('[CLIO IMPORT] Progress initialized, sending response...');
+    
     // Send immediate response - import runs in background
     res.json({ success: true, message: 'Import started. Check progress endpoint for status.' });
     
     // Run import in background
+    console.log('[CLIO IMPORT] Starting background import process...');
     (async () => {
       try {
+        console.log('[CLIO IMPORT] Background process started for connection:', connectionId);
+        
         const result = {
           firm: { name: firmName || 'Imported from Clio', email: null, phone: null, address: null },
           users: [],
@@ -1620,16 +1681,20 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           bills: []
         };
         
-        const updateProgress = (step, status, count) => {
+        const updateProgress = (step, status, count, errorMsg = null) => {
           const prog = migrationProgress.get(connectionId);
           if (prog) {
             prog.steps[step] = { status, count };
+            if (errorMsg) {
+              prog.steps[step].error = errorMsg;
+            }
             prog.lastUpdate = new Date();
+            console.log(`[CLIO IMPORT] Progress: ${step} = ${status} (${count} records)`);
           }
         };
         
         // 1. Import Users
-        console.log('[CLIO] Importing users...');
+        console.log('[CLIO IMPORT] Step 1/6: Importing users...');
         updateProgress('users', 'running', 0);
         try {
           const users = await clioGetAll(accessToken, '/users.json', {
@@ -1648,14 +1713,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             password: (u.first_name || 'User') + Math.floor(1000 + Math.random() * 9000) + '!'
           }));
           updateProgress('users', 'done', result.users.length);
-          console.log(`[CLIO] Imported ${result.users.length} users`);
+          console.log(`[CLIO IMPORT] Users complete: ${result.users.length} records`);
         } catch (err) {
-          console.error('[CLIO] Users import error:', err);
-          updateProgress('users', 'error', 0);
+          console.error('[CLIO IMPORT] Users import error:', err.message);
+          updateProgress('users', 'error', 0, err.message);
         }
         
         // 2. Import Contacts
-        console.log('[CLIO] Importing contacts...');
+        console.log('[CLIO IMPORT] Step 2/6: Importing contacts...');
         updateProgress('contacts', 'running', 0);
         try {
           const contacts = await clioGetAll(accessToken, '/contacts.json', {
@@ -1680,14 +1745,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             }] : []
           }));
           updateProgress('contacts', 'done', result.contacts.length);
-          console.log(`[CLIO] Imported ${result.contacts.length} contacts`);
+          console.log(`[CLIO IMPORT] Contacts complete: ${result.contacts.length} records`);
         } catch (err) {
-          console.error('[CLIO] Contacts import error:', err);
-          updateProgress('contacts', 'error', 0);
+          console.error('[CLIO IMPORT] Contacts import error:', err.message);
+          updateProgress('contacts', 'error', 0, err.message);
         }
         
         // 3. Import Matters
-        console.log('[CLIO] Importing matters...');
+        console.log('[CLIO IMPORT] Step 3/6: Importing matters...');
         updateProgress('matters', 'running', 0);
         try {
           const matters = await clioGetAll(accessToken, '/matters.json', {
@@ -1708,14 +1773,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             billing_method: m.billing_method || 'hourly'
           }));
           updateProgress('matters', 'done', result.matters.length);
-          console.log(`[CLIO] Imported ${result.matters.length} matters`);
+          console.log(`[CLIO IMPORT] Matters complete: ${result.matters.length} records`);
         } catch (err) {
-          console.error('[CLIO] Matters import error:', err);
-          updateProgress('matters', 'error', 0);
+          console.error('[CLIO IMPORT] Matters import error:', err.message);
+          updateProgress('matters', 'error', 0, err.message);
         }
         
         // 4. Import Activities (Time Entries)
-        console.log('[CLIO] Importing time entries...');
+        console.log('[CLIO IMPORT] Step 4/6: Importing activities...');
         updateProgress('activities', 'running', 0);
         try {
           const activities = await clioGetAll(accessToken, '/activities.json', {
@@ -1736,14 +1801,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             non_billable: a.non_billable || false
           }));
           updateProgress('activities', 'done', result.activities.length);
-          console.log(`[CLIO] Imported ${result.activities.length} activities`);
+          console.log(`[CLIO IMPORT] Activities complete: ${result.activities.length} records`);
         } catch (err) {
-          console.error('[CLIO] Activities import error:', err);
-          updateProgress('activities', 'error', 0);
+          console.error('[CLIO IMPORT] Activities import error:', err.message);
+          updateProgress('activities', 'error', 0, err.message);
         }
         
         // 5. Import Bills
-        console.log('[CLIO] Importing bills...');
+        console.log('[CLIO IMPORT] Step 5/6: Importing bills...');
         updateProgress('bills', 'running', 0);
         try {
           const bills = await clioGetAll(accessToken, '/bills.json', {
@@ -1762,14 +1827,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             client: b.client ? { clio_id: b.client.id, name: b.client.name } : null
           }));
           updateProgress('bills', 'done', result.bills.length);
-          console.log(`[CLIO] Imported ${result.bills.length} bills`);
+          console.log(`[CLIO IMPORT] Bills complete: ${result.bills.length} records`);
         } catch (err) {
-          console.error('[CLIO] Bills import error:', err);
-          updateProgress('bills', 'error', 0);
+          console.error('[CLIO IMPORT] Bills import error:', err.message);
+          updateProgress('bills', 'error', 0, err.message);
         }
         
         // 6. Import Calendar Entries
-        console.log('[CLIO] Importing calendar entries...');
+        console.log('[CLIO IMPORT] Step 6/6: Importing calendar entries...');
         updateProgress('calendar', 'running', 0);
         try {
           const events = await clioGetAll(accessToken, '/calendar_entries.json', {
@@ -1788,13 +1853,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             calendar_entry_type: e.calendar_entry_event_type?.name || 'Meeting'
           }));
           updateProgress('calendar', 'done', result.calendar_entries.length);
-          console.log(`[CLIO] Imported ${result.calendar_entries.length} calendar entries`);
+          console.log(`[CLIO IMPORT] Calendar complete: ${result.calendar_entries.length} records`);
         } catch (err) {
-          console.error('[CLIO] Calendar import error:', err);
-          updateProgress('calendar', 'error', 0);
+          console.error('[CLIO IMPORT] Calendar import error:', err.message);
+          updateProgress('calendar', 'error', 0, err.message);
         }
         
         // Store final result
+        console.log('[CLIO IMPORT] All steps complete, storing results...');
         const prog = migrationProgress.get(connectionId);
         if (prog) {
           prog.status = 'completed';
@@ -1809,16 +1875,19 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             bills: result.bills.length,
             calendar_entries: result.calendar_entries.length
           };
+          console.log('[CLIO IMPORT] ✓ Import completed successfully:', prog.summary);
+        } else {
+          console.error('[CLIO IMPORT] Error: Progress object not found after import');
         }
         
-        console.log('[CLIO] Import completed:', prog?.summary);
-        
       } catch (error) {
-        console.error('[CLIO] Import failed:', error);
+        console.error('[CLIO IMPORT] ✗ Import failed with error:', error.message);
+        console.error('[CLIO IMPORT] Stack:', error.stack);
         const prog = migrationProgress.get(connectionId);
         if (prog) {
           prog.status = 'error';
           prog.error = error.message;
+          prog.errorDetails = error.stack;
         }
       }
     })();

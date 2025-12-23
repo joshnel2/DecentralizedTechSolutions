@@ -212,6 +212,21 @@ export default function SecureAdminDashboard() {
     const clioError = params.get('clio_error')
     const firmName = params.get('firm')
     
+    // First verify we have a valid admin session
+    const adminSession = sessionStorage.getItem('_sap_auth')
+    let sessionValid = false
+    
+    if (adminSession) {
+      try {
+        const session = JSON.parse(atob(adminSession))
+        sessionValid = session.exp > Date.now()
+      } catch {
+        sessionValid = false
+      }
+    }
+    
+    console.log('[CLIO OAUTH] Callback check - connected:', clioConnected, 'session valid:', sessionValid)
+    
     if (clioConnected) {
       setClioConnectionId(clioConnected)
       setActiveTab('migration')
@@ -221,13 +236,21 @@ export default function SecureAdminDashboard() {
       }
       // Clean up URL
       window.history.replaceState({}, '', window.location.pathname)
+      
+      if (!sessionValid) {
+        console.error('[CLIO OAUTH] Admin session expired during OAuth flow')
+        showNotification('error', 'Admin session expired. Please log in again and reconnect to Clio.')
+        return
+      }
+      
       showNotification('success', 'Connected to Clio! Starting import...')
       // Fetch user info
       fetchClioUser(clioConnected)
-      // Auto-start import after a short delay
+      // Auto-start import after a short delay to ensure state is updated
       setTimeout(() => {
+        console.log('[CLIO OAUTH] Auto-starting import for connection:', clioConnected)
         autoStartClioImport(clioConnected, firmName ? decodeURIComponent(firmName) : 'Imported from Clio')
-      }, 1000)
+      }, 1500) // Slightly longer delay to ensure everything is ready
     }
     
     if (clioError) {
@@ -1098,6 +1121,7 @@ export default function SecureAdminDashboard() {
     setClioProgress({ status: 'starting' })
     
     try {
+      console.log('[CLIO] Starting import for connection:', connectionId)
       const res = await fetch(`${API_URL}/migration/clio/import`, {
         method: 'POST',
         headers: getAuthHeaders(),
@@ -1105,15 +1129,18 @@ export default function SecureAdminDashboard() {
       })
       
       const result = await res.json()
+      console.log('[CLIO] Import response:', result)
       
       if (result.success) {
         showNotification('success', 'Import started! Pulling all data from Clio...')
-        pollClioProgress()
+        // Pass connectionId directly to avoid closure issues
+        pollClioProgress(connectionId)
       } else {
         showNotification('error', result.error || 'Failed to start import')
         setClioImporting(false)
       }
     } catch (error) {
+      console.error('[CLIO] Import error:', error)
       showNotification('error', 'Failed to start Clio import')
       setClioImporting(false)
     }
@@ -1134,6 +1161,7 @@ export default function SecureAdminDashboard() {
     setClioProgress({ status: 'starting' })
     
     try {
+      console.log('[CLIO] Starting manual import for connection:', clioConnectionId)
       const res = await fetch(`${API_URL}/migration/clio/import`, {
         method: 'POST',
         headers: getAuthHeaders(),
@@ -1144,43 +1172,58 @@ export default function SecureAdminDashboard() {
       })
       
       const result = await res.json()
+      console.log('[CLIO] Manual import response:', result)
       
       if (result.success) {
         showNotification('success', 'Import started! Pulling data from Clio...')
-        // Start polling for progress
-        pollClioProgress()
+        // Start polling for progress - pass connectionId directly
+        pollClioProgress(clioConnectionId)
       } else {
         showNotification('error', result.error || 'Failed to start import')
         setClioImporting(false)
       }
     } catch (error) {
+      console.error('[CLIO] Manual import error:', error)
       showNotification('error', 'Failed to start Clio import')
       setClioImporting(false)
     }
   }
   
-  const pollClioProgress = async () => {
-    if (!clioConnectionId) return
+  // Poll for Clio import progress - connectionId passed as parameter to avoid closure issues
+  const pollClioProgress = async (connectionId?: string) => {
+    // Use passed connectionId or fall back to state
+    const connId = connectionId || clioConnectionId
+    if (!connId) {
+      console.error('[CLIO] No connection ID available for polling')
+      return
+    }
+    
+    console.log('[CLIO] Starting progress polling for:', connId)
     
     const checkProgress = async () => {
       try {
-        const res = await fetch(`${API_URL}/migration/clio/progress/${clioConnectionId}`, {
+        const res = await fetch(`${API_URL}/migration/clio/progress/${connId}`, {
           headers: getAuthHeaders()
         })
         const progress = await res.json()
+        console.log('[CLIO] Progress update:', progress)
         setClioProgress(progress)
         
         if (progress.status === 'completed') {
           // Fetch the result
-          const resultRes = await fetch(`${API_URL}/migration/clio/result/${clioConnectionId}`, {
+          console.log('[CLIO] Import completed, fetching results...')
+          const resultRes = await fetch(`${API_URL}/migration/clio/result/${connId}`, {
             headers: getAuthHeaders()
           })
           const result = await resultRes.json()
+          console.log('[CLIO] Final result:', result)
           
           if (result.success) {
             setTransformResult(result)
             setMigrationData(JSON.stringify(result.transformedData, null, 2))
             showNotification('success', `Import complete! ${result.summary.users} users, ${result.summary.contacts} contacts, ${result.summary.matters} matters`)
+          } else {
+            showNotification('error', result.error || 'Failed to fetch import results')
           }
           setClioImporting(false)
           return
@@ -1193,7 +1236,7 @@ export default function SecureAdminDashboard() {
         // Continue polling
         setTimeout(checkProgress, 2000)
       } catch (error) {
-        console.error('Progress poll error:', error)
+        console.error('[CLIO] Progress poll error:', error)
         setTimeout(checkProgress, 3000)
       }
     }
