@@ -59,39 +59,37 @@ async function clioRequest(accessToken, endpoint, params = {}) {
   }
 }
 
-// Paginate through all results from Clio with rate limit handling
+// Paginate through all results from Clio using CURSOR pagination (not offset)
+// Clio API v4 requires cursor pagination for large datasets
 async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null) {
   const allData = [];
   const seenIds = new Set(); // Prevent duplicates
-  let offset = 0;
-  const limit = 100; // Reduced from 200 to be safer with rate limits
+  const limit = 200;
+  let pageToken = null;
   let hasMore = true;
   let pageCount = 0;
   let retryCount = 0;
   const maxRetries = 5;
-  let lastSuccessfulOffset = -1; // Track to prevent re-fetching
   
-  console.log(`[CLIO API] Starting paginated fetch for ${endpoint}`);
+  console.log(`[CLIO API] Starting cursor-based fetch for ${endpoint}`);
   
   while (hasMore) {
     pageCount++;
-    
-    // Safety check: don't re-fetch same offset
-    if (offset === lastSuccessfulOffset) {
-      console.error(`[CLIO API] ERROR: About to re-fetch same offset ${offset}! Breaking.`);
-      break;
-    }
-    
-    console.log(`[CLIO API] Page ${pageCount}: fetching offset ${offset}, have ${allData.length} records so far`);
+    console.log(`[CLIO API] Page ${pageCount}: fetching ${endpoint}, have ${allData.length} records so far`);
     
     try {
-      const response = await clioRequest(accessToken, endpoint, { ...params, limit, offset });
+      // Build params with cursor pagination
+      const fetchParams = { ...params, limit };
+      if (pageToken) {
+        fetchParams.page_token = pageToken;
+      }
+      
+      const response = await clioRequest(accessToken, endpoint, fetchParams);
       const data = response.data || [];
       
-      // Log exactly what we received
       console.log(`[CLIO API] Page ${pageCount}: received ${data.length} records`);
       
-      // Deduplicate by ID to prevent any duplicates
+      // Deduplicate by ID
       let newCount = 0;
       for (const item of data) {
         const id = item.id;
@@ -100,29 +98,29 @@ async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null)
           allData.push(item);
           newCount++;
         } else if (id && seenIds.has(id)) {
-          console.warn(`[CLIO API] Duplicate record skipped: id=${id}`);
+          console.warn(`[CLIO API] Duplicate skipped: id=${id}`);
         }
       }
       
-      console.log(`[CLIO API] Page ${pageCount}: added ${newCount} new records, total now ${allData.length}`);
+      console.log(`[CLIO API] Page ${pageCount}: added ${newCount} new, total ${allData.length}`);
       
-      lastSuccessfulOffset = offset;
       retryCount = 0;
       
       if (onProgress) {
         onProgress(allData.length);
       }
       
-      // Check if there's more data
-      if (data.length < limit) {
-        hasMore = false;
-        console.log(`[CLIO API] Completed ${endpoint}: ${allData.length} total records in ${pageCount} pages`);
+      // Check for next page using cursor from response meta
+      const nextPageToken = response.meta?.paging?.next;
+      if (nextPageToken && data.length > 0) {
+        pageToken = nextPageToken;
+        console.log(`[CLIO API] Next page token received`);
       } else {
-        offset += limit;
+        hasMore = false;
+        console.log(`[CLIO API] Completed ${endpoint}: ${allData.length} total in ${pageCount} pages`);
       }
       
       // Delay between requests - Clio limit is 50/min
-      // With 100 records per page, we have more buffer
       await new Promise(r => setTimeout(r, 1500));
       
     } catch (error) {
@@ -134,11 +132,9 @@ async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null)
           throw error;
         }
         
-        // Wait progressively longer: 45s, 55s, 65s, 75s, 85s
         const waitTime = 35 + (retryCount * 10);
-        console.log(`[CLIO API] Rate limited at offset ${offset}. Waiting ${waitTime}s (retry ${retryCount}/${maxRetries})...`);
+        console.log(`[CLIO API] Rate limited. Waiting ${waitTime}s (retry ${retryCount}/${maxRetries})...`);
         await new Promise(r => setTimeout(r, waitTime * 1000));
-        // Don't change offset - retry same page
         pageCount--;
         continue;
       }
@@ -1780,27 +1776,35 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         console.log('[CLIO IMPORT] Step 2/6: Importing contacts...');
         updateProgress('contacts', 'running', 0);
         try {
+          // Clio contacts: use simplified fields that work reliably
           const contacts = await clioGetAll(accessToken, '/contacts.json', {
-            fields: 'id,name,first_name,last_name,type,company,primary_email_address,primary_phone_number,primary_address'
+            fields: 'id,name,first_name,last_name,type,company{id,name},email_addresses,phone_numbers,addresses'
           }, (count) => updateProgress('contacts', 'running', count));
           
-          result.contacts = contacts.map(c => ({
-            clio_id: c.id,
-            type: c.type === 'Company' ? 'Company' : 'Person',
-            name: c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown',
-            first_name: c.first_name || null,
-            last_name: c.last_name || null,
-            company: c.company?.name || null,
-            email: c.primary_email_address?.address || null,
-            phone: c.primary_phone_number?.number || null,
-            addresses: c.primary_address ? [{
-              street: c.primary_address.street || null,
-              city: c.primary_address.city || null,
-              province: c.primary_address.province || null,
-              postal_code: c.primary_address.postal_code || null,
-              primary: true
-            }] : []
-          }));
+          result.contacts = contacts.map(c => {
+            // Get primary email/phone from arrays
+            const primaryEmail = c.email_addresses?.find(e => e.default_email) || c.email_addresses?.[0];
+            const primaryPhone = c.phone_numbers?.find(p => p.default_number) || c.phone_numbers?.[0];
+            const primaryAddr = c.addresses?.find(a => a.primary) || c.addresses?.[0];
+            
+            return {
+              clio_id: c.id,
+              type: c.type === 'Company' ? 'Company' : 'Person',
+              name: c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown',
+              first_name: c.first_name || null,
+              last_name: c.last_name || null,
+              company: c.company?.name || null,
+              email: primaryEmail?.address || null,
+              phone: primaryPhone?.number || null,
+              addresses: primaryAddr ? [{
+                street: primaryAddr.street || null,
+                city: primaryAddr.city || null,
+                province: primaryAddr.province || null,
+                postal_code: primaryAddr.postal_code || null,
+                primary: true
+              }] : []
+            };
+          });
           updateProgress('contacts', 'done', result.contacts.length);
           console.log(`[CLIO IMPORT] Contacts complete: ${result.contacts.length} records`);
         } catch (err) {
@@ -1812,8 +1816,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         console.log('[CLIO IMPORT] Step 3/6: Importing matters...');
         updateProgress('matters', 'running', 0);
         try {
+          // Clio matters: nested objects need explicit field specification
           const matters = await clioGetAll(accessToken, '/matters.json', {
-            fields: 'id,display_number,description,status,client,responsible_attorney,originating_attorney,practice_area,open_date,close_date,billing_method'
+            fields: 'id,display_number,description,status,open_date,close_date,billing_method,client{id,name},responsible_attorney{id,name},originating_attorney{id,name},practice_area{id,name}'
           }, (count) => updateProgress('matters', 'running', count));
           
           result.matters = matters.map((m, idx) => ({
@@ -1840,8 +1845,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         console.log('[CLIO IMPORT] Step 4/6: Importing activities...');
         updateProgress('activities', 'running', 0);
         try {
+          // Clio activities: rate is not a direct field, use price; matter/user are nested
           const activities = await clioGetAll(accessToken, '/activities.json', {
-            fields: 'id,type,date,matter,user,quantity,rate,total,note,billed,non_billable'
+            fields: 'id,type,date,quantity,price,total,note,billed,non_billable,matter{id,display_number},user{id,name}'
           }, (count) => updateProgress('activities', 'running', count));
           
           result.activities = activities.map(a => ({
@@ -1851,7 +1857,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             matter: a.matter ? { clio_id: a.matter.id, display_number: a.matter.display_number } : null,
             user: a.user ? { clio_id: a.user.id, name: a.user.name } : null,
             quantity: a.quantity || 0,
-            rate: a.rate || null,
+            rate: a.price || null, // Clio uses 'price' not 'rate'
             total: a.total || null,
             note: a.note || null,
             billed: a.billed || false,
@@ -1868,21 +1874,26 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         console.log('[CLIO IMPORT] Step 5/6: Importing bills...');
         updateProgress('bills', 'running', 0);
         try {
+          // Clio bills: matter/client are nested objects, not direct fields
           const bills = await clioGetAll(accessToken, '/bills.json', {
-            fields: 'id,number,issued_at,due_at,total,balance,state,matter,client,user'
+            fields: 'id,number,issued_at,due_at,total,balance,state,matters{id,display_number},client{id,name}'
           }, (count) => updateProgress('bills', 'running', count));
           
-          result.bills = bills.map(b => ({
-            clio_id: b.id,
-            number: b.number || `INV-${b.id}`,
-            issued_at: b.issued_at || null,
-            due_at: b.due_at || null,
-            total: b.total || 0,
-            balance: b.balance || 0,
-            status: b.state || 'draft',
-            matter: b.matter ? { clio_id: b.matter.id, display_number: b.matter.display_number } : null,
-            client: b.client ? { clio_id: b.client.id, name: b.client.name } : null
-          }));
+          result.bills = bills.map(b => {
+            // Clio uses 'matters' array, not 'matter' object
+            const firstMatter = b.matters && b.matters[0] ? b.matters[0] : null;
+            return {
+              clio_id: b.id,
+              number: b.number || `INV-${b.id}`,
+              issued_at: b.issued_at || null,
+              due_at: b.due_at || null,
+              total: b.total || 0,
+              balance: b.balance || 0,
+              status: b.state || 'draft',
+              matter: firstMatter ? { clio_id: firstMatter.id, display_number: firstMatter.display_number } : null,
+              client: b.client ? { clio_id: b.client.id, name: b.client.name } : null
+            };
+          });
           updateProgress('bills', 'done', result.bills.length);
           console.log(`[CLIO IMPORT] Bills complete: ${result.bills.length} records`);
         } catch (err) {
