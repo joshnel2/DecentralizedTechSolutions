@@ -7,6 +7,8 @@ import { Layout } from './components/Layout'
 import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
+import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { FirmSetupPage } from './pages/FirmSetupPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { MattersPage } from './pages/MattersPage'
@@ -170,6 +172,8 @@ function AppContent() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       {/* Public Footer Pages */}
       <Route path="/about" element={<AboutPage />} />
       <Route path="/security" element={<SecurityPage />} />
