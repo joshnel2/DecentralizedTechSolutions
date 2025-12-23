@@ -1356,32 +1356,57 @@ router.get('/test', (req, res) => {
 // CLIO API INTEGRATION - Direct API Migration
 // ============================================
 
-// OAuth callback for Clio (if using OAuth flow)
+// OAuth callback for Clio - NO AUTH REQUIRED (callback from Clio)
 router.get('/clio/callback', async (req, res) => {
   const frontendUrl = process.env.FRONTEND_URL || 'https://strappedai.com';
   
+  // Helper to show debug page
+  const showDebug = (title, message, data = {}) => {
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head><title>Clio OAuth - ${title}</title></head>
+      <body style="font-family: Arial; padding: 40px; background: #1a1a2e; color: #fff;">
+        <h1 style="color: #f59e0b;">${title}</h1>
+        <p>${message}</p>
+        <pre style="background: #0d0d1a; padding: 20px; border-radius: 8px; overflow: auto;">${JSON.stringify(data, null, 2)}</pre>
+        <br/>
+        <a href="${frontendUrl}/rx760819" style="color: #3b82f6;">← Back to Admin Portal</a>
+      </body>
+      </html>
+    `);
+  };
+  
   try {
-    const { code, state } = req.query;
+    const { code, state, error, error_description } = req.query;
     
-    console.log('[CLIO] Callback received, state:', state);
+    console.log('[CLIO] Callback received:', { code: code ? 'yes' : 'no', state, error });
+    
+    // Check for OAuth error from Clio
+    if (error) {
+      return showDebug('Clio Authorization Failed', error_description || error, { error, error_description });
+    }
     
     if (!code) {
-      return res.redirect(`${frontendUrl}/rx760819?clio_error=${encodeURIComponent('Missing authorization code')}`);
+      return showDebug('Missing Code', 'No authorization code received from Clio', req.query);
     }
     
     if (!state) {
-      return res.redirect(`${frontendUrl}/rx760819?clio_error=${encodeURIComponent('Missing state parameter')}`);
+      return showDebug('Missing State', 'No state parameter received', req.query);
     }
     
     // Get stored OAuth config using state
     const oauthConfig = clioConnections.get(`oauth_${state}`);
     if (!oauthConfig) {
       console.error('[CLIO] OAuth config not found for state:', state);
-      return res.redirect(`${frontendUrl}/rx760819?clio_error=${encodeURIComponent('Session expired. Please try again.')}`);
+      // List all current keys for debugging
+      const keys = Array.from(clioConnections.keys());
+      return showDebug('Session Expired', 'OAuth configuration not found. Please try again.', { 
+        state, 
+        availableKeys: keys,
+        note: 'This can happen if the server restarted or too much time passed'
+      });
     }
-    
-    // Clean up the OAuth config
-    clioConnections.delete(`oauth_${state}`);
     
     // Exchange code for access token
     console.log('[CLIO] Exchanging code for token...');
@@ -1398,30 +1423,40 @@ router.get('/clio/callback', async (req, res) => {
     });
     
     const tokenData = await tokenResponse.json();
-    console.log('[CLIO] Token response status:', tokenResponse.status);
+    console.log('[CLIO] Token response:', tokenResponse.status, tokenData.error || 'success');
     
-    if (tokenData.access_token) {
-      // Store the connection
-      const connectionId = Date.now().toString(36) + Math.random().toString(36).substr(2);
-      clioConnections.set(connectionId, {
-        accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token,
-        expiresAt: Date.now() + (tokenData.expires_in * 1000),
-        firmName: oauthConfig.firmName,
-        connectedAt: new Date()
+    if (!tokenData.access_token) {
+      return showDebug('Token Exchange Failed', 'Failed to get access token from Clio', {
+        status: tokenResponse.status,
+        error: tokenData.error,
+        error_description: tokenData.error_description,
+        redirectUri: oauthConfig.redirectUri
       });
-      
-      console.log('[CLIO] Connected successfully, connectionId:', connectionId);
-      
-      // Redirect back to admin portal with success
-      res.redirect(`${frontendUrl}/rx760819?clio_connected=${connectionId}&firm=${encodeURIComponent(oauthConfig.firmName)}`);
-    } else {
-      console.error('[CLIO] Token exchange failed:', tokenData);
-      res.redirect(`${frontendUrl}/rx760819?clio_error=${encodeURIComponent(tokenData.error_description || tokenData.error || 'Token exchange failed')}`);
     }
+    
+    // Clean up the OAuth config
+    clioConnections.delete(`oauth_${state}`);
+    
+    // Store the connection
+    const connectionId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+    clioConnections.set(connectionId, {
+      accessToken: tokenData.access_token,
+      refreshToken: tokenData.refresh_token,
+      expiresAt: Date.now() + (tokenData.expires_in * 1000),
+      firmName: oauthConfig.firmName,
+      connectedAt: new Date()
+    });
+    
+    console.log('[CLIO] Connected successfully, connectionId:', connectionId);
+    
+    // Redirect back to admin portal with success
+    const redirectUrl = `${frontendUrl}/rx760819?clio_connected=${connectionId}&firm=${encodeURIComponent(oauthConfig.firmName)}`;
+    console.log('[CLIO] Redirecting to:', redirectUrl);
+    res.redirect(redirectUrl);
+    
   } catch (error) {
     console.error('[CLIO] OAuth callback error:', error);
-    res.redirect(`${frontendUrl}/rx760819?clio_error=${encodeURIComponent(error.message)}`);
+    showDebug('Server Error', error.message, { stack: error.stack });
   }
 });
 
