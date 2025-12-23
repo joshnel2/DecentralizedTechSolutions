@@ -1859,12 +1859,14 @@
 }
 
 .inputField input {
+  width: 100%;
   padding: 0.625rem 0.875rem;
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   color: #e5e7eb;
   font-size: 0.875rem;
+  box-sizing: border-box;
 }
 
 .inputField input:focus {
