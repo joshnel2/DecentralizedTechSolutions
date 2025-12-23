@@ -151,123 +151,163 @@ async function clioGetContactsByInitial(accessToken, endpoint, params, onProgres
   return allData;
 }
 
-// Fetch matters by status (Open, Pending, Closed) - each status has its own 10k limit
+// Fetch matters by status + year (each combo has its own 10k limit)
 async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress) {
   const allData = [];
   const seenIds = new Set();
   const statuses = ['Open', 'Pending', 'Closed'];
+  const currentYear = new Date().getFullYear();
   
-  console.log(`[CLIO API] Fetching matters by status to bypass 10k limit...`);
+  console.log(`[CLIO API] Fetching matters by status + year to bypass 10k limit...`);
   
   for (const status of statuses) {
-    console.log(`[CLIO API] Fetching matters with status "${status}"...`);
-    
-    try {
-      const statusData = await clioGetPaginated(
-        accessToken, 
-        endpoint, 
-        { ...params, status }, 
-        null
-      );
+    // For each status, also batch by year
+    for (let year = 2000; year <= currentYear; year++) {
+      console.log(`[CLIO API] Fetching matters: status="${status}", year=${year}...`);
       
-      let newCount = 0;
-      for (const item of statusData) {
-        if (item.id && !seenIds.has(item.id)) {
-          seenIds.add(item.id);
-          allData.push(item);
-          newCount++;
+      try {
+        const batchData = await clioGetPaginated(
+          accessToken, 
+          endpoint, 
+          { 
+            ...params, 
+            status,
+            'open_date[gte]': `${year}-01-01`,
+            'open_date[lte]': `${year}-12-31`
+          }, 
+          null
+        );
+        
+        let newCount = 0;
+        for (const item of batchData) {
+          if (item.id && !seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            allData.push(item);
+            newCount++;
+          }
+        }
+        
+        if (newCount > 0) {
+          console.log(`[CLIO API] Status "${status}" Year ${year}: got ${newCount} new, total ${allData.length}`);
+        }
+        if (onProgress) onProgress(allData.length);
+        
+      } catch (err) {
+        // If date filter doesn't work, skip and continue
+        if (!err.message.includes('open_date')) {
+          console.log(`[CLIO API] Status "${status}" Year ${year} error: ${err.message}`);
         }
       }
-      
-      console.log(`[CLIO API] Status "${status}": got ${newCount} new, total now ${allData.length}`);
-      if (onProgress) onProgress(allData.length);
-      
-    } catch (err) {
-      console.log(`[CLIO API] Status "${status}" error: ${err.message}, continuing...`);
     }
   }
   
-  console.log(`[CLIO API] Matters by status complete: ${allData.length} total records`);
+  console.log(`[CLIO API] Matters complete: ${allData.length} total records`);
   return allData;
 }
 
-// Fetch activities by status - each status has its own 10k limit
+// Fetch activities by status + year (each combo has its own 10k limit)
 async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgress) {
   const allData = [];
   const seenIds = new Set();
   const statuses = ['billed', 'unbilled', 'draft', 'non_billable'];
+  const currentYear = new Date().getFullYear();
   
-  console.log(`[CLIO API] Fetching activities by status to bypass 10k limit...`);
+  console.log(`[CLIO API] Fetching activities by status + year to bypass 10k limit...`);
   
   for (const status of statuses) {
-    console.log(`[CLIO API] Fetching activities with status "${status}"...`);
-    
-    try {
-      const statusData = await clioGetPaginated(
-        accessToken, 
-        endpoint, 
-        { ...params, status }, 
-        null
-      );
+    // For each status, also batch by year
+    for (let year = 2000; year <= currentYear; year++) {
+      console.log(`[CLIO API] Fetching activities: status="${status}", year=${year}...`);
       
-      let newCount = 0;
-      for (const item of statusData) {
-        if (item.id && !seenIds.has(item.id)) {
-          seenIds.add(item.id);
-          allData.push(item);
-          newCount++;
+      try {
+        const batchData = await clioGetPaginated(
+          accessToken, 
+          endpoint, 
+          { 
+            ...params, 
+            status,
+            'date[gte]': `${year}-01-01`,
+            'date[lte]': `${year}-12-31`
+          }, 
+          null
+        );
+        
+        let newCount = 0;
+        for (const item of batchData) {
+          if (item.id && !seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            allData.push(item);
+            newCount++;
+          }
+        }
+        
+        if (newCount > 0) {
+          console.log(`[CLIO API] Status "${status}" Year ${year}: got ${newCount} new, total ${allData.length}`);
+        }
+        if (onProgress) onProgress(allData.length);
+        
+      } catch (err) {
+        if (!err.message.includes('date')) {
+          console.log(`[CLIO API] Status "${status}" Year ${year} error: ${err.message}`);
         }
       }
-      
-      console.log(`[CLIO API] Status "${status}": got ${newCount} new, total now ${allData.length}`);
-      if (onProgress) onProgress(allData.length);
-      
-    } catch (err) {
-      console.log(`[CLIO API] Status "${status}" error: ${err.message}, continuing...`);
     }
   }
   
-  console.log(`[CLIO API] Activities by status complete: ${allData.length} total records`);
+  console.log(`[CLIO API] Activities complete: ${allData.length} total records`);
   return allData;
 }
 
-// Fetch bills by state - each state has its own 10k limit
+// Fetch bills by state + year (each combo has its own 10k limit)
 async function clioGetBillsByState(accessToken, endpoint, params, onProgress) {
   const allData = [];
   const seenIds = new Set();
   const states = ['draft', 'awaiting_approval', 'awaiting_payment', 'paid', 'void', 'deleted'];
+  const currentYear = new Date().getFullYear();
   
-  console.log(`[CLIO API] Fetching bills by state to bypass 10k limit...`);
+  console.log(`[CLIO API] Fetching bills by state + year to bypass 10k limit...`);
   
   for (const state of states) {
-    console.log(`[CLIO API] Fetching bills with state "${state}"...`);
-    
-    try {
-      const stateData = await clioGetPaginated(
-        accessToken, 
-        endpoint, 
-        { ...params, state }, 
-        null
-      );
+    // For each state, also batch by year
+    for (let year = 2000; year <= currentYear; year++) {
+      console.log(`[CLIO API] Fetching bills: state="${state}", year=${year}...`);
       
-      let newCount = 0;
-      for (const item of stateData) {
-        if (item.id && !seenIds.has(item.id)) {
-          seenIds.add(item.id);
-          allData.push(item);
-          newCount++;
+      try {
+        const batchData = await clioGetPaginated(
+          accessToken, 
+          endpoint, 
+          { 
+            ...params, 
+            state,
+            'issued_at[gte]': `${year}-01-01`,
+            'issued_at[lte]': `${year}-12-31`
+          }, 
+          null
+        );
+        
+        let newCount = 0;
+        for (const item of batchData) {
+          if (item.id && !seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            allData.push(item);
+            newCount++;
+          }
+        }
+        
+        if (newCount > 0) {
+          console.log(`[CLIO API] State "${state}" Year ${year}: got ${newCount} new, total ${allData.length}`);
+        }
+        if (onProgress) onProgress(allData.length);
+        
+      } catch (err) {
+        if (!err.message.includes('issued_at')) {
+          console.log(`[CLIO API] State "${state}" Year ${year} error: ${err.message}`);
         }
       }
-      
-      console.log(`[CLIO API] State "${state}": got ${newCount} new, total now ${allData.length}`);
-      if (onProgress) onProgress(allData.length);
-      
-    } catch (err) {
-      console.log(`[CLIO API] State "${state}" error: ${err.message}, continuing...`);
     }
   }
   
-  console.log(`[CLIO API] Bills by state complete: ${allData.length} total records`);
+  console.log(`[CLIO API] Bills complete: ${allData.length} total records`);
   return allData;
 }
 
