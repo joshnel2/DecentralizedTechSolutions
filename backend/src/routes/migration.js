@@ -496,6 +496,7 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
       expenses: 0,
       calendar_entries: 0
     },
+    user_credentials: [], // Store user emails and passwords
     errors: [],
     warnings: []
   };
@@ -589,6 +590,14 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
           userIdMap.set(email, userId);
           if (user.id) userIdMap.set(`clio:${user.id}`, userId);
           if (user.name) userIdMap.set(user.name.toLowerCase(), userId);
+          
+          // Store credentials for display
+          results.user_credentials.push({
+            email: email,
+            name: `${firstName} ${lastName || ''}`.trim(),
+            password: user.password, // Original password before hashing
+            role: mapUserRole(user)
+          });
           
           results.imported.users++;
         } catch (err) {
@@ -1314,6 +1323,10 @@ router.post('/parse-csv', requireSecureAdmin, async (req, res) => {
           mapped.last_name = parts.slice(1).join(' ') || 'User';
         }
         
+        // Generate readable password: FirstName + random number + !
+        const firstName = (mapped.first_name || 'User').replace(/[^a-zA-Z]/g, '');
+        const password = firstName + Math.floor(1000 + Math.random() * 9000) + '!';
+        
         return {
           email: mapped.email || `user${idx + 1}@import.temp`,
           first_name: mapped.first_name || 'User',
@@ -1321,7 +1334,7 @@ router.post('/parse-csv', requireSecureAdmin, async (req, res) => {
           type: mapped.role || 'Attorney',
           rate: parseFloat(mapped.rate?.replace(/[$,]/g, '')) || null,
           phone: mapped.phone || null,
-          password: 'TempPass' + Math.random().toString(36).slice(-8) + '!'
+          password: password
         };
       });
     }

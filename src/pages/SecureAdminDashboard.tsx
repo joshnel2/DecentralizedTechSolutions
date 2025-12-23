@@ -63,6 +63,13 @@ interface MigrationValidation {
   }
 }
 
+interface UserCredential {
+  email: string
+  name: string
+  password: string
+  role: string
+}
+
 interface MigrationResult {
   success: boolean
   firm_id: string | null
@@ -75,6 +82,7 @@ interface MigrationResult {
     expenses: number
     calendar_entries: number
   }
+  user_credentials: UserCredential[]
   errors: string[]
   warnings: string[]
 }
@@ -817,6 +825,7 @@ export default function SecureAdminDashboard() {
         firm_id: null,
         firm_name: null,
         imported: { users: 0, contacts: 0, matters: 0, time_entries: 0, expenses: 0, calendar_entries: 0 },
+        user_credentials: [],
         errors: ['Migration failed. Please try again.'],
         warnings: []
       })
@@ -1906,19 +1915,26 @@ ${migrationInputs.calendarEvents || 'No calendar events provided'}
                             <div className={styles.sectionHeader}>
                               <Users size={18} />
                               <h4>2. Users / Team Members</h4>
-                              <span className={styles.sectionHint}>From Clio: Settings → Firm → Users</span>
+                              <span className={styles.sectionHint}>
+                                <Sparkles size={12} style={{ marginRight: '4px' }} />
+                                AI Assisted
+                              </span>
                             </div>
+                            <p className={styles.sectionDescription}>
+                              Copy the user list from <strong>Clio → Settings → Firm → Users</strong> and paste below. 
+                              Passwords will be auto-generated and shown after import.
+                            </p>
                             <textarea
                               value={migrationInputs.users}
                               onChange={(e) => setMigrationInputs(prev => ({ ...prev, users: e.target.value }))}
-                              placeholder={`Paste user data here. Example formats:
+                              placeholder={`Paste user data in any format. Examples:
 
-Name, Email, Role, Hourly Rate
-Jane Smith, jane@smithlaw.com, Attorney, $400
-Bob Johnson, bob@smithlaw.com, Paralegal, $150
+Jane Smith, jane@smithlaw.com, Attorney, $400/hr
+Bob Johnson, bob@smithlaw.com, Paralegal, $150/hr
+Sarah Lee, sarah@smithlaw.com, Staff
 
-Or just paste directly from Clio's user list - the AI will figure it out.`}
-                              rows={6}
+Or copy directly from Clio's user page - it will be parsed automatically.`}
+                              rows={5}
                             />
                           </div>
 
@@ -2380,35 +2396,88 @@ Or just paste directly from Clio's user list - the AI will figure it out.`}
                       </div>
 
                       {importResult.success && (
-                        <div className={styles.importSummary}>
-                          <h4>Imported Records</h4>
-                          <div className={styles.importGrid}>
-                            <div className={styles.importItem}>
-                              <span className={styles.importCount}>{importResult.imported.users}</span>
-                              <span>Users</span>
-                            </div>
-                            <div className={styles.importItem}>
-                              <span className={styles.importCount}>{importResult.imported.contacts}</span>
-                              <span>Contacts</span>
-                            </div>
-                            <div className={styles.importItem}>
-                              <span className={styles.importCount}>{importResult.imported.matters}</span>
-                              <span>Matters</span>
-                            </div>
-                            <div className={styles.importItem}>
-                              <span className={styles.importCount}>{importResult.imported.time_entries}</span>
-                              <span>Time Entries</span>
-                            </div>
-                            <div className={styles.importItem}>
-                              <span className={styles.importCount}>{importResult.imported.expenses}</span>
-                              <span>Expenses</span>
-                            </div>
-                            <div className={styles.importItem}>
-                              <span className={styles.importCount}>{importResult.imported.calendar_entries}</span>
-                              <span>Calendar Events</span>
+                        <>
+                          <div className={styles.importSummary}>
+                            <h4>Imported Records</h4>
+                            <div className={styles.importGrid}>
+                              <div className={styles.importItem}>
+                                <span className={styles.importCount}>{importResult.imported.users}</span>
+                                <span>Users</span>
+                              </div>
+                              <div className={styles.importItem}>
+                                <span className={styles.importCount}>{importResult.imported.contacts}</span>
+                                <span>Contacts</span>
+                              </div>
+                              <div className={styles.importItem}>
+                                <span className={styles.importCount}>{importResult.imported.matters}</span>
+                                <span>Matters</span>
+                              </div>
+                              <div className={styles.importItem}>
+                                <span className={styles.importCount}>{importResult.imported.time_entries}</span>
+                                <span>Time Entries</span>
+                              </div>
+                              <div className={styles.importItem}>
+                                <span className={styles.importCount}>{importResult.imported.expenses}</span>
+                                <span>Expenses</span>
+                              </div>
+                              <div className={styles.importItem}>
+                                <span className={styles.importCount}>{importResult.imported.calendar_entries}</span>
+                                <span>Calendar Events</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
+
+                          {/* User Credentials */}
+                          {importResult.user_credentials && importResult.user_credentials.length > 0 && (
+                            <div className={styles.credentialsSection}>
+                              <div className={styles.credentialsHeader}>
+                                <Key size={20} />
+                                <h4>User Login Credentials</h4>
+                                <button 
+                                  onClick={() => {
+                                    const credText = importResult.user_credentials.map(u => 
+                                      `${u.name} (${u.role})\nEmail: ${u.email}\nPassword: ${u.password}\n`
+                                    ).join('\n---\n')
+                                    copyToClipboard(credText)
+                                  }}
+                                  className={styles.copyAllBtn}
+                                >
+                                  <Copy size={14} />
+                                  Copy All
+                                </button>
+                              </div>
+                              <p className={styles.credentialsNote}>
+                                ⚠️ Save these passwords now! They cannot be retrieved later.
+                              </p>
+                              <div className={styles.credentialsList}>
+                                {importResult.user_credentials.map((cred, idx) => (
+                                  <div key={idx} className={styles.credentialCard}>
+                                    <div className={styles.credentialName}>
+                                      <span>{cred.name}</span>
+                                      <span className={styles.credentialRole}>{cred.role}</span>
+                                    </div>
+                                    <div className={styles.credentialDetails}>
+                                      <div className={styles.credentialRow}>
+                                        <Mail size={14} />
+                                        <span>{cred.email}</span>
+                                        <button onClick={() => copyToClipboard(cred.email)} title="Copy email">
+                                          <Copy size={12} />
+                                        </button>
+                                      </div>
+                                      <div className={styles.credentialRow}>
+                                        <Key size={14} />
+                                        <code>{cred.password}</code>
+                                        <button onClick={() => copyToClipboard(cred.password)} title="Copy password">
+                                          <Copy size={12} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </>
                       )}
 
                       {importResult.errors.length > 0 && (
