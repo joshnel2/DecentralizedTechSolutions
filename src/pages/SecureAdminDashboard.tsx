@@ -194,7 +194,8 @@ export default function SecureAdminDashboard() {
   const [dataFormatHint, setDataFormatHint] = useState('')
   
   // Clio API state
-  const [clioToken, setClioToken] = useState('')
+  const [clioClientId, setClioClientId] = useState('')
+  const [clioClientSecret, setClioClientSecret] = useState('')
   const [clioConnectionId, setClioConnectionId] = useState<string | null>(null)
   const [clioUser, setClioUser] = useState<{ name: string; email: string } | null>(null)
   const [clioImporting, setClioImporting] = useState(false)
@@ -203,6 +204,33 @@ export default function SecureAdminDashboard() {
     steps?: Record<string, { status: string; count: number }>;
     summary?: Record<string, number>;
   } | null>(null)
+  
+  // Check for Clio OAuth callback on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const clioConnected = params.get('clio_connected')
+    if (clioConnected) {
+      setClioConnectionId(clioConnected)
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname)
+      showNotification('success', 'Connected to Clio successfully!')
+      // Fetch user info
+      fetchClioUser(clioConnected)
+    }
+  }, [])
+  
+  const fetchClioUser = async (connectionId: string) => {
+    try {
+      const res = await fetch(`${API_URL}/migration/clio/progress/${connectionId}`, {
+        headers: getAuthHeaders()
+      })
+      if (res.ok) {
+        setClioUser({ name: 'Clio User', email: 'Connected via OAuth' })
+      }
+    } catch (e) {
+      console.error('Failed to fetch Clio user:', e)
+    }
+  }
   const [isTransforming, setIsTransforming] = useState(false)
   const [transformResult, setTransformResult] = useState<{ success: boolean; transformedData?: any; summary?: any; error?: string } | null>(null)
   
@@ -999,32 +1027,35 @@ export default function SecureAdminDashboard() {
 
   // Clio API Functions
   const connectToClio = async () => {
-    if (!clioToken.trim()) {
-      showNotification('error', 'Please enter your Clio API access token')
+    if (!clioClientId.trim() || !clioClientSecret.trim()) {
+      showNotification('error', 'Please enter both Client ID and Client Secret')
       return
     }
     
     setClioImporting(true)
     try {
-      const res = await fetch(`${API_URL}/migration/clio/connect`, {
+      const res = await fetch(`${API_URL}/migration/clio/oauth-start`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ accessToken: clioToken.trim() })
+        body: JSON.stringify({ 
+          clientId: clioClientId.trim(),
+          clientSecret: clioClientSecret.trim()
+        })
       })
       
       const result = await res.json()
       
-      if (result.success) {
-        setClioConnectionId(result.connectionId)
-        setClioUser(result.user)
-        showNotification('success', result.message)
+      if (result.success && result.authUrl) {
+        // Redirect to Clio authorization page
+        window.location.href = result.authUrl
       } else {
-        showNotification('error', result.error || 'Failed to connect to Clio')
+        showNotification('error', result.error || 'Failed to start Clio authorization')
+        setClioImporting(false)
       }
     } catch (error) {
       showNotification('error', 'Failed to connect to Clio')
+      setClioImporting(false)
     }
-    setClioImporting(false)
   }
   
   const startClioImport = async () => {
