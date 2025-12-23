@@ -298,7 +298,7 @@ export function LandingPage() {
           </div>
         </div>
         <div className={styles.footerBottom}>
-          <p>© 2025 Strapped AI. All rights reserved.</p>
+          <p>© 2025 Strapped AI LLC. All rights reserved.</p>
         </div>
       </footer>
 

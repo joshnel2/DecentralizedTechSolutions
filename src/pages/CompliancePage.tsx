@@ -205,7 +205,7 @@ export function CompliancePage() {
       </div>
 
       <footer className={styles.footer}>
-        <p>© 2025 Apex Legal Technologies. All rights reserved.</p>
+        <p>© 2025 Strapped AI LLC. All rights reserved.</p>
         <Link to="/" className={styles.backLink}>
           <ArrowLeft size={16} /> Back to Home
         </Link>
