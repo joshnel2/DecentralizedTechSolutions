@@ -17,7 +17,14 @@ const clioConnections = new Map();
 async function clioRequest(accessToken, endpoint, params = {}) {
   const url = new URL(`${CLIO_API_BASE}${endpoint}`);
   Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined) url.searchParams.append(key, value);
+    if (value !== undefined) {
+      // Handle array parameters (e.g., open_date[]=['>=2020-01-01', '<=2020-12-31'])
+      if (Array.isArray(value)) {
+        value.forEach(v => url.searchParams.append(key, v));
+      } else {
+        url.searchParams.append(key, value);
+      }
+    }
   });
   
   console.log(`[CLIO API] GET ${endpoint} with params:`, params);
@@ -172,8 +179,7 @@ async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress)
           { 
             ...params, 
             status,
-            'open_date[gte]': `${year}-01-01`,
-            'open_date[lte]': `${year}-12-31`
+            'open_date[]': [`>=${year}-01-01`, `<=${year}-12-31`]
           }, 
           null
         );
@@ -226,8 +232,7 @@ async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgre
           { 
             ...params, 
             status,
-            'date[gte]': `${year}-01-01`,
-            'date[lte]': `${year}-12-31`
+            'date[]': [`>=${year}-01-01`, `<=${year}-12-31`]
           }, 
           null
         );
@@ -279,8 +284,7 @@ async function clioGetBillsByState(accessToken, endpoint, params, onProgress) {
           { 
             ...params, 
             state,
-            'issued_at[gte]': `${year}-01-01`,
-            'issued_at[lte]': `${year}-12-31`
+            'issued_at[]': [`>=${year}-01-01`, `<=${year}-12-31`]
           }, 
           null
         );
