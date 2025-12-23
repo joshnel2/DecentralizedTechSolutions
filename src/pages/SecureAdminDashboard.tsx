@@ -905,63 +905,6 @@ export default function SecureAdminDashboard() {
     setIsTransforming(false)
   }
 
-  // AI Transformation (fallback for messy data)
-  const handleAITransformFallback = async () => {
-    setIsTransforming(true)
-    setTransformResult(null)
-
-    const structuredData = `
-=== FIRM INFORMATION ===
-Name: ${migrationInputs.firmName || 'Not provided'}
-Email: ${migrationInputs.firmEmail || 'Not provided'}
-Phone: ${migrationInputs.firmPhone || 'Not provided'}
-Address: ${migrationInputs.firmAddress || 'Not provided'}
-
-=== USERS ===
-${migrationInputs.users || 'No users provided'}
-
-=== CLIENTS/CONTACTS ===
-${migrationInputs.clients || 'No clients provided'}
-
-=== MATTERS/CASES ===
-${migrationInputs.matters || 'No matters provided'}
-
-=== TIME ENTRIES ===
-${migrationInputs.timeEntries || 'No time entries provided'}
-
-=== CALENDAR EVENTS ===
-${migrationInputs.calendarEvents || 'No calendar events provided'}
-`.trim()
-
-    try {
-      const res = await fetch(`${API_URL}/migration/ai-transform`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          rawData: structuredData,
-          dataFormat: 'structured_sections',
-          additionalContext: 'Data is provided in clearly labeled sections. Match clients to matters and users to time entries by name.'
-        })
-      })
-
-      const result = await res.json()
-
-      if (res.ok && result.success) {
-        setTransformResult(result)
-        setMigrationData(JSON.stringify(result.transformedData, null, 2))
-        showNotification('success', `AI transformed: ${result.summary.users} users, ${result.summary.contacts} contacts, ${result.summary.matters} matters`)
-      } else {
-        setTransformResult({ success: false, error: result.error || 'AI transformation failed' })
-        showNotification('error', result.error || 'AI transformation failed')
-      }
-    } catch (error) {
-      console.error('AI transformation error:', error)
-      setTransformResult({ success: false, error: 'Failed to connect to AI service' })
-      showNotification('error', 'Failed to connect to AI service')
-    }
-
-    setIsTransforming(false)
-  }
 
   const filteredFirms = firms.filter(f => 
     f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -2170,20 +2113,7 @@ Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
                                 </>
                               )}
                             </button>
-                            <button 
-                              onClick={handleAITransformFallback}
-                              disabled={!migrationInputs.firmName.trim() || isTransforming}
-                              className={styles.aiFallbackBtn}
-                              title="Use AI if your data format is messy or non-standard"
-                            >
-                              <Sparkles size={16} />
-                              AI Assist
-                            </button>
                           </div>
-                          <p className={styles.parseHint}>
-                            <strong>Parse CSV Data</strong> = Fast, direct parsing of standard CSV format<br />
-                            <strong>AI Assist</strong> = Use AI to interpret messy or non-standard data
-                          </p>
 
                           {/* AI Transform Result */}
                           {transformResult && (

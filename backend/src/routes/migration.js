@@ -1523,6 +1523,62 @@ router.post('/parse-csv', requireSecureAdmin, async (req, res) => {
 });
 
 // ============================================
+// AI FORMAT USERS ONLY
+// ============================================
+
+router.post('/ai-format-users', requireSecureAdmin, async (req, res) => {
+  const { rawUsers } = req.body;
+
+  if (!rawUsers || !rawUsers.trim()) {
+    return res.status(400).json({ error: 'No user data provided' });
+  }
+
+  if (!AZURE_ENDPOINT || !AZURE_API_KEY || !AZURE_DEPLOYMENT) {
+    return res.status(500).json({ error: 'AI service not configured' });
+  }
+
+  try {
+    const prompt = `Convert this user data into CSV format with headers: Name,Email,Role,Rate
+
+Input data:
+${rawUsers}
+
+Output ONLY valid CSV with the header row and data rows. No explanation, just the CSV.
+Example output:
+Name,Email,Role,Rate
+Jane Smith,jane@email.com,Attorney,400
+Bob Johnson,bob@email.com,Paralegal,150`;
+
+    const messages = [
+      { role: 'system', content: 'You convert messy user data into clean CSV format. Output ONLY the CSV, nothing else.' },
+      { role: 'user', content: prompt }
+    ];
+
+    const csvResult = await callAzureOpenAI(messages, { temperature: 0.1, max_tokens: 2000 });
+    
+    // Clean up the response
+    let cleanCsv = csvResult.trim();
+    if (cleanCsv.startsWith('```')) {
+      cleanCsv = cleanCsv.replace(/```csv\n?|```\n?/g, '').trim();
+    }
+
+    // Count users (lines minus header)
+    const lines = cleanCsv.split('\n').filter(l => l.trim());
+    const userCount = Math.max(0, lines.length - 1);
+
+    res.json({
+      success: true,
+      formattedCsv: cleanCsv,
+      userCount
+    });
+
+  } catch (error) {
+    console.error('AI format users error:', error);
+    res.status(500).json({ error: 'Failed to format users: ' + error.message });
+  }
+});
+
+// ============================================
 // AI-POWERED DATA TRANSFORMATION
 // ============================================
 

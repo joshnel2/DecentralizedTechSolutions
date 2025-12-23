@@ -1796,6 +1796,44 @@
   color: #9ca3af;
 }
 
+/* User AI Format Button */
+.userAiButton {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.formatUsersBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.875rem;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.15) 0%, rgba(220, 38, 38, 0.15) 100%);
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  border-radius: 6px;
+  color: #a78bfa;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.formatUsersBtn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.25) 0%, rgba(220, 38, 38, 0.25) 100%);
+  border-color: rgba(124, 58, 237, 0.5);
+}
+
+.formatUsersBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.formatHint {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
 /* Migration Sections */
 .migrationSection {
   background: rgba(255, 255, 255, 0.02);
