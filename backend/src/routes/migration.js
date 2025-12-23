@@ -1293,245 +1293,94 @@ router.get('/test', (req, res) => {
 });
 
 router.post('/parse-csv', requireSecureAdmin, (req, res) => {
-  try {
-    console.log('[PARSE-CSV] Request received');
-    
-    const body = req.body || {};
-    const firmName = body.firmName || '';
-    const firmEmail = body.firmEmail || '';
-    const firmPhone = body.firmPhone || '';
-    const firmAddress = body.firmAddress || '';
-    const users = body.users || '';
-    const clients = body.clients || '';
-    const matters = body.matters || '';
-    const timeEntries = body.timeEntries || '';
-    const calendarEvents = body.calendarEvents || '';
-    
-    console.log('[PARSE-CSV] Firm:', firmName);
+  // Super simple version - just return what we received
+  const body = req.body || {};
+  
+  const result = {
+    firm: {
+      name: body.firmName || 'Imported Firm',
+      email: body.firmEmail || null,
+      phone: body.firmPhone || null,
+      address: body.firmAddress || null
+    },
+    users: [],
+    contacts: [],
+    matters: [],
+    activities: [],
+    calendar_entries: []
+  };
 
-    const result = {
-      firm: {
-        name: firmName || 'Imported Firm',
-        email: firmEmail || null,
-        phone: firmPhone || null,
-        address: firmAddress || null
-      },
-      users: [],
-      contacts: [],
-      matters: [],
-      activities: [],
-      calendar_entries: []
-    };
-
-    // Parse Users
-    if (users && users.trim()) {
-      try {
-        const parsedUsers = parseCSV(users);
-        result.users = parsedUsers.map((row, idx) => {
-          const mapped = {};
-          Object.keys(row).forEach(key => {
-            mapped[mapHeader(key)] = row[key];
+  // Parse users if provided
+  if (body.users && typeof body.users === 'string' && body.users.trim()) {
+    const lines = body.users.trim().split('\n');
+    if (lines.length > 1) {
+      // Skip header row, parse remaining
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].split(',').map(p => p.trim());
+        if (parts.length >= 2) {
+          const nameParts = (parts[0] || 'User').split(' ');
+          result.users.push({
+            email: parts[1] || `user${i}@temp.com`,
+            first_name: nameParts[0] || 'User',
+            last_name: nameParts.slice(1).join(' ') || 'Import',
+            type: parts[2] || 'Attorney',
+            rate: parseFloat((parts[3] || '0').replace(/[$,]/g, '')) || null,
+            password: (nameParts[0] || 'User') + Math.floor(1000 + Math.random() * 9000) + '!'
           });
-          
-          // Handle full name if first/last not provided
-          if (!mapped.first_name && mapped.name) {
-            const parts = String(mapped.name).trim().split(/\s+/);
-            mapped.first_name = parts[0];
-            mapped.last_name = parts.slice(1).join(' ') || 'User';
-          }
-          
-          // Generate readable password: FirstName + random number + !
-          const firstName = String(mapped.first_name || 'User').replace(/[^a-zA-Z]/g, '') || 'User';
-          const password = firstName + Math.floor(1000 + Math.random() * 9000) + '!';
-          
-          // Safe rate parsing
-          let rate = null;
-          if (mapped.rate) {
-            const rateStr = String(mapped.rate).replace(/[$,]/g, '');
-            rate = parseFloat(rateStr) || null;
-          }
-          
-          return {
-            email: mapped.email || `user${idx + 1}@import.temp`,
-            first_name: mapped.first_name || 'User',
-            last_name: mapped.last_name || `${idx + 1}`,
-            type: mapped.role || 'Attorney',
-            rate: rate,
-            phone: mapped.phone || null,
-            password: password
-          };
-        });
-      } catch (userErr) {
-        console.error('Error parsing users:', userErr);
-        result.users = [];
+        }
       }
     }
+  }
 
-    // Parse Clients/Contacts
-    if (clients && clients.trim()) {
-      try {
-        const parsedClients = parseCSV(clients);
-        result.contacts = parsedClients.map((row) => {
-          const mapped = {};
-          Object.keys(row).forEach(key => {
-            mapped[mapHeader(key)] = row[key];
+  // Parse clients if provided
+  if (body.clients && typeof body.clients === 'string' && body.clients.trim()) {
+    const lines = body.clients.trim().split('\n');
+    if (lines.length > 1) {
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].split(',').map(p => p.trim());
+        if (parts.length >= 1 && parts[0]) {
+          result.contacts.push({
+            type: 'Person',
+            name: parts[0],
+            email: parts[1] || null,
+            phone: parts[2] || null
           });
-          
-          const typeStr = mapped.type ? String(mapped.type).toLowerCase() : '';
-          const isCompany = typeStr === 'company' || 
-                            typeStr === 'organization' ||
-                            (!mapped.first_name && mapped.company);
-          
-          let displayName = mapped.name;
-          if (!displayName) {
-            displayName = isCompany ? mapped.company : `${mapped.first_name || ''} ${mapped.last_name || ''}`.trim();
-          }
-          
-          return {
-            type: isCompany ? 'Company' : 'Person',
-            name: displayName || 'Unknown Contact',
-            first_name: mapped.first_name || null,
-            last_name: mapped.last_name || null,
-            company: mapped.company || null,
-            email: mapped.email || null,
-            phone: mapped.phone || null,
-            addresses: (mapped.street || mapped.city) ? [{
-              street: mapped.street || null,
-              city: mapped.city || null,
-              province: mapped.state || null,
-              postal_code: mapped.zip || null,
-              primary: true
-            }] : []
-          };
-        });
-      } catch (clientErr) {
-        console.error('Error parsing clients:', clientErr);
-        result.contacts = [];
+        }
       }
     }
+  }
 
-    // Parse Matters
-    if (matters && matters.trim()) {
-      try {
-        const parsedMatters = parseCSV(matters);
-        result.matters = parsedMatters.map((row, idx) => {
-          const mapped = {};
-          Object.keys(row).forEach(key => {
-            mapped[mapHeader(key)] = row[key];
+  // Parse matters if provided
+  if (body.matters && typeof body.matters === 'string' && body.matters.trim()) {
+    const lines = body.matters.trim().split('\n');
+    if (lines.length > 1) {
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].split(',').map(p => p.trim());
+        if (parts.length >= 1 && parts[0]) {
+          result.matters.push({
+            display_number: parts[0] || `M-${i}`,
+            description: parts[1] || 'Imported Matter',
+            client: parts[2] ? { name: parts[2] } : null,
+            status: parts[3] || 'Open',
+            billing_method: 'hourly'
           });
-          
-          return {
-            display_number: mapped.number || `IMP-${String(idx + 1).padStart(4, '0')}`,
-            description: mapped.matter_name || mapped.name || 'Imported Matter',
-            client: mapped.client_name ? { name: mapped.client_name } : null,
-            responsible_attorney: mapped.attorney_name ? { name: mapped.attorney_name } : null,
-            status: mapped.status || 'Open',
-            practice_area: mapped.practice_area ? { name: mapped.practice_area } : null,
-            open_date: mapped.open_date || null,
-            close_date: mapped.close_date || null,
-            billing_method: mapped.billing_method || 'hourly'
-          };
-        });
-      } catch (matterErr) {
-        console.error('Error parsing matters:', matterErr);
-        result.matters = [];
+        }
       }
     }
+  }
 
-    // Parse Time Entries
-    if (timeEntries && timeEntries.trim()) {
-      try {
-        const parsedTime = parseCSV(timeEntries);
-        result.activities = parsedTime.map((row) => {
-          const mapped = {};
-          Object.keys(row).forEach(key => {
-            mapped[mapHeader(key)] = row[key];
-          });
-          
-          // Safe parsing
-          let rate = null;
-          let total = null;
-          if (mapped.rate) {
-            rate = parseFloat(String(mapped.rate).replace(/[$,]/g, '')) || null;
-          }
-          if (mapped.amount) {
-            total = parseFloat(String(mapped.amount).replace(/[$,]/g, '')) || null;
-          }
-          const billableStr = mapped.billable ? String(mapped.billable).toLowerCase() : '';
-          
-          return {
-            type: 'TimeEntry',
-            date: mapped.date || new Date().toISOString().split('T')[0],
-            matter: mapped.matter_ref ? { display_number: mapped.matter_ref } : null,
-            user: mapped.user_name ? { name: mapped.user_name } : null,
-            quantity: parseFloat(mapped.hours) || 0,
-            rate: rate,
-            total: total,
-            note: mapped.description || 'Time entry',
-            non_billable: billableStr === 'no' || billableStr === 'false'
-          };
-        });
-      } catch (timeErr) {
-        console.error('Error parsing time entries:', timeErr);
-        result.activities = [];
-      }
-    }
-
-    // Parse Calendar Events
-    if (calendarEvents && calendarEvents.trim()) {
-      try {
-        const parsedEvents = parseCSV(calendarEvents);
-        result.calendar_entries = parsedEvents.map((row) => {
-          const mapped = {};
-          Object.keys(row).forEach(key => {
-            mapped[mapHeader(key)] = row[key];
-          });
-          
-          const allDayStr = mapped.all_day ? String(mapped.all_day).toLowerCase() : '';
-          
-          return {
-            summary: mapped.title || 'Imported Event',
-            description: mapped.description || null,
-            matter: mapped.matter_ref ? { display_number: mapped.matter_ref } : null,
-            start_at: mapped.start_at || null,
-            end_at: mapped.end_at || null,
-            all_day: allDayStr === 'yes' || allDayStr === 'true',
-            location: mapped.location || null,
-            calendar_entry_type: mapped.event_type || 'Meeting'
-          };
-        });
-      } catch (calErr) {
-        console.error('Error parsing calendar events:', calErr);
-        result.calendar_entries = [];
-      }
-    }
-
-    console.log('[PARSE-CSV] Success:', {
+  res.json({
+    success: true,
+    transformedData: result,
+    summary: {
+      firm: result.firm.name,
       users: result.users.length,
       contacts: result.contacts.length,
-      matters: result.matters.length
-    });
-
-    res.json({
-      success: true,
-      transformedData: result,
-      summary: {
-        firm: result.firm.name,
-        users: result.users.length,
-        contacts: result.contacts.length,
-        matters: result.matters.length,
-        activities: result.activities.length,
-        calendar_entries: result.calendar_entries.length
-      }
-    });
-
-  } catch (error) {
-    console.error('[PARSE-CSV] Error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to parse CSV data: ' + (error.message || 'Unknown error')
-    });
-  }
+      matters: result.matters.length,
+      activities: result.activities.length,
+      calendar_entries: result.calendar_entries.length
+    }
+  });
 });
 
 // ============================================
