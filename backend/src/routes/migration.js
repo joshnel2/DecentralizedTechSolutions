@@ -1382,16 +1382,19 @@ router.post('/add-chunk', requireSecureAdmin, (req, res) => {
       }
       else if (dataType === 'matters' && parts[0]) {
         // Auto-generate unique matter number, use first column as description
+        // Expected columns: Name, Client, Status, Practice Area, Responsible Attorney, Originating Attorney, Open Date, Close Date, Billing Method
         const matterNum = `M-${String(session.matters.length + 1).padStart(5, '0')}`;
-        // Use first column as description/name since Clio exports vary
-        const description = String(parts[0] || 'Imported Matter');
         session.matters.push({
           display_number: matterNum,
-          description: description,
+          description: String(parts[0] || 'Imported Matter'),
           client: parts[1] ? { name: String(parts[1]) } : null,
           status: parts[2] ? String(parts[2]) : 'Open',
           practice_area: parts[3] ? { name: String(parts[3]) } : null,
-          billing_method: 'hourly'
+          responsible_attorney: parts[4] ? { name: String(parts[4]) } : null,
+          originating_attorney: parts[5] ? { name: String(parts[5]) } : null,
+          open_date: parts[6] ? String(parts[6]) : null,
+          close_date: parts[7] ? String(parts[7]) : null,
+          billing_method: parts[8] ? String(parts[8]).toLowerCase() : 'hourly'
         });
         added++;
       }
@@ -1431,7 +1434,7 @@ router.post('/add-chunk', requireSecureAdmin, (req, res) => {
       }
     }
     
-    const typeMapping: Record<string, string> = {
+    const typeMapping = {
       clients: 'contacts',
       timeEntries: 'activities', 
       calendarEvents: 'calendar_entries',
@@ -1489,7 +1492,8 @@ router.post('/finalize-session', requireSecureAdmin, (req, res) => {
       contacts: result.contacts.length,
       matters: result.matters.length,
       activities: result.activities.length,
-      calendar_entries: result.calendar_entries.length
+      calendar_entries: result.calendar_entries.length,
+      bills: result.bills.length
     });
     
     res.json({
@@ -1501,7 +1505,8 @@ router.post('/finalize-session', requireSecureAdmin, (req, res) => {
         contacts: result.contacts.length,
         matters: result.matters.length,
         activities: result.activities.length,
-        calendar_entries: result.calendar_entries.length
+        calendar_entries: result.calendar_entries.length,
+        bills: result.bills.length
       }
     });
   } catch (error) {
@@ -1596,6 +1601,7 @@ router.post('/parse-csv', requireSecureAdmin, (req, res) => {
     }
 
     // Parse matters if provided
+    // Expected columns: Name, Client, Status, Practice Area, Responsible Attorney, Originating Attorney, Open Date, Close Date, Billing Method
     try {
       if (body.matters && typeof body.matters === 'string' && body.matters.trim()) {
         console.log('[PARSE-CSV] Parsing matters, length:', body.matters.length);
@@ -1607,14 +1613,17 @@ router.post('/parse-csv', requireSecureAdmin, (req, res) => {
           const parts = line.split(',').map(p => (p || '').trim());
           if (parts[0]) {
             matterCount++;
-            // Auto-generate unique matter number, use first column as description
             result.matters.push({
               display_number: `M-${String(matterCount).padStart(5, '0')}`,
               description: String(parts[0] || 'Imported Matter'),
               client: parts[1] ? { name: String(parts[1]) } : null,
               status: parts[2] ? String(parts[2]) : 'Open',
               practice_area: parts[3] ? { name: String(parts[3]) } : null,
-              billing_method: 'hourly'
+              responsible_attorney: parts[4] ? { name: String(parts[4]) } : null,
+              originating_attorney: parts[5] ? { name: String(parts[5]) } : null,
+              open_date: parts[6] ? String(parts[6]) : null,
+              close_date: parts[7] ? String(parts[7]) : null,
+              billing_method: parts[8] ? String(parts[8]).toLowerCase() : 'hourly'
             });
           }
         }
@@ -1674,6 +1683,35 @@ router.post('/parse-csv', requireSecureAdmin, (req, res) => {
       console.error('[PARSE-CSV] Calendar parse error:', calErr.message);
     }
 
+    // Parse bills if provided
+    // Expected columns: Invoice#, Matter, Client, Date, Amount, Status, Due Date, Balance
+    try {
+      if (body.bills && typeof body.bills === 'string' && body.bills.trim()) {
+        console.log('[PARSE-CSV] Parsing bills, length:', body.bills.length);
+        const lines = body.bills.trim().split('\n');
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i];
+          if (!line || !line.trim()) continue;
+          const parts = line.split(',').map(p => (p || '').trim());
+          if (parts[0]) {
+            result.bills.push({
+              number: String(parts[0] || `INV-${result.bills.length + 1}`),
+              matter: parts[1] ? { display_number: String(parts[1]) } : null,
+              client: parts[2] ? { name: String(parts[2]) } : null,
+              issued_at: parts[3] ? String(parts[3]) : null,
+              total: parseFloat(String(parts[4] || '0').replace(/[$,]/g, '')) || 0,
+              status: parts[5] ? String(parts[5]).toLowerCase() : 'draft',
+              due_at: parts[6] ? String(parts[6]) : null,
+              balance: parseFloat(String(parts[7] || parts[4] || '0').replace(/[$,]/g, '')) || 0
+            });
+          }
+        }
+        console.log('[PARSE-CSV] Bills parsed:', result.bills.length);
+      }
+    } catch (billErr) {
+      console.error('[PARSE-CSV] Bills parse error:', billErr.message);
+    }
+
     console.log('[PARSE-CSV] Success - sending response');
     
     return res.json({
@@ -1685,7 +1723,8 @@ router.post('/parse-csv', requireSecureAdmin, (req, res) => {
         contacts: result.contacts.length,
         matters: result.matters.length,
         activities: result.activities.length,
-        calendar_entries: result.calendar_entries.length
+        calendar_entries: result.calendar_entries.length,
+        bills: result.bills.length
       }
     });
 

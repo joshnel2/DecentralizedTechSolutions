@@ -202,7 +202,8 @@ export default function SecureAdminDashboard() {
     clients: '',
     matters: '',
     timeEntries: '',
-    calendarEvents: ''
+    calendarEvents: '',
+    bills: ''
   })
 
   // Bulk Import state
@@ -913,7 +914,8 @@ export default function SecureAdminDashboard() {
         { key: 'clients', data: migrationInputs.clients },
         { key: 'matters', data: migrationInputs.matters },
         { key: 'timeEntries', data: migrationInputs.timeEntries },
-        { key: 'calendarEvents', data: migrationInputs.calendarEvents }
+        { key: 'calendarEvents', data: migrationInputs.calendarEvents },
+        { key: 'bills', data: migrationInputs.bills }
       ]
       
       let totalChunks = 0
@@ -2167,6 +2169,53 @@ Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
                             {migrationInputs.calendarEvents && (
                               <div className={styles.csvPreview}>
                                 <span>{migrationInputs.calendarEvents.split('\n').length} rows loaded</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Bills Section */}
+                          <div className={styles.migrationSection}>
+                            <div className={styles.sectionHeader}>
+                              <FileText size={18} />
+                              <h4>7. Bills / Invoices</h4>
+                            </div>
+                            <p className={styles.sectionDescription}>
+                              Export from <strong>Clio → Reports → Bills</strong>. 
+                              Columns: Invoice#, Matter, Client, Date, Amount, Status, Due Date, Balance
+                            </p>
+                            <div className={styles.csvUploadArea}>
+                              <input
+                                type="file"
+                                accept=".csv,.txt"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0]
+                                  if (file) {
+                                    const reader = new FileReader()
+                                    reader.onload = (evt) => {
+                                      setMigrationInputs(prev => ({ ...prev, bills: evt.target?.result as string }))
+                                    }
+                                    reader.readAsText(file)
+                                  }
+                                }}
+                                id="bills-csv"
+                                className={styles.fileInput}
+                              />
+                              <label htmlFor="bills-csv" className={styles.csvUploadLabel}>
+                                <Upload size={20} />
+                                <span>{migrationInputs.bills ? '✓ CSV Loaded' : 'Upload Bills CSV'}</span>
+                              </label>
+                              {migrationInputs.bills && (
+                                <button 
+                                  className={styles.clearBtn}
+                                  onClick={() => setMigrationInputs(prev => ({ ...prev, bills: '' }))}
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
+                            {migrationInputs.bills && (
+                              <div className={styles.csvPreview}>
+                                <span>{migrationInputs.bills.split('\n').length} rows loaded</span>
                               </div>
                             )}
                           </div>
