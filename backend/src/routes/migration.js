@@ -1694,11 +1694,13 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         };
         
         // 1. Import Users
+        // Note: Clio users API has limited fields - 'type' is not valid, use subscription_type instead
+        // Users will need to have rates added manually after import
         console.log('[CLIO IMPORT] Step 1/6: Importing users...');
         updateProgress('users', 'running', 0);
         try {
           const users = await clioGetAll(accessToken, '/users.json', {
-            fields: 'id,name,first_name,last_name,email,type,enabled,rate,phone_number'
+            fields: 'id,name,first_name,last_name,email,enabled,subscription_type,default_hourly_rate'
           }, (count) => updateProgress('users', 'running', count));
           
           result.users = users.map(u => ({
@@ -1706,9 +1708,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             email: u.email || `user${u.id}@import.clio`,
             first_name: u.first_name || u.name?.split(' ')[0] || 'User',
             last_name: u.last_name || u.name?.split(' ').slice(1).join(' ') || '',
-            type: u.type || 'Attorney',
-            rate: u.rate || null,
-            phone: u.phone_number || null,
+            type: u.subscription_type || 'Attorney',
+            rate: u.default_hourly_rate || null,
             enabled: u.enabled !== false,
             password: (u.first_name || 'User') + Math.floor(1000 + Math.random() * 9000) + '!'
           }));
@@ -1717,6 +1718,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         } catch (err) {
           console.error('[CLIO IMPORT] Users import error:', err.message);
           updateProgress('users', 'error', 0, err.message);
+          // Users can be added manually via the UI, so continue with import
         }
         
         // 2. Import Contacts
