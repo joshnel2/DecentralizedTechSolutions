@@ -59,13 +59,38 @@ async function clioRequest(accessToken, endpoint, params = {}) {
   }
 }
 
-// Paginate through all results from Clio using CURSOR pagination (not offset)
-// Clio API v4 requires cursor pagination for large datasets
+// Helper to fetch from Clio using a full URL (for pagination)
+async function clioRequestUrl(accessToken, fullUrl) {
+  console.log(`[CLIO API] Fetching URL: ${fullUrl.substring(0, 80)}...`);
+  
+  const response = await fetch(fullUrl, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    }
+  });
+  
+  console.log(`[CLIO API] Response status: ${response.status}`);
+  
+  if (!response.ok) {
+    const text = await response.text();
+    console.log(`[CLIO API] Error response: ${text}`);
+    if (response.status === 429) {
+      throw new Error('Clio rate limit exceeded. Please wait and try again.');
+    }
+    throw new Error(`Clio API error: ${response.status} - ${text}`);
+  }
+  
+  return response.json();
+}
+
+// Paginate through all results from Clio using CURSOR pagination
+// Clio returns a full URL in meta.paging.next - we fetch that directly
 async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null) {
   const allData = [];
-  const seenIds = new Set(); // Prevent duplicates
+  const seenIds = new Set();
   const limit = 200;
-  let pageToken = null;
+  let nextUrl = null; // Full URL for next page
   let hasMore = true;
   let pageCount = 0;
   let retryCount = 0;
@@ -75,18 +100,20 @@ async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null)
   
   while (hasMore) {
     pageCount++;
-    console.log(`[CLIO API] Page ${pageCount}: fetching ${endpoint}, have ${allData.length} records so far`);
+    console.log(`[CLIO API] Page ${pageCount}: have ${allData.length} records so far`);
     
     try {
-      // Build params with cursor pagination
-      const fetchParams = { ...params, limit };
-      if (pageToken) {
-        fetchParams.page_token = pageToken;
+      let response;
+      
+      if (nextUrl) {
+        // Fetch next page using the full URL from Clio
+        response = await clioRequestUrl(accessToken, nextUrl);
+      } else {
+        // First page - use normal request
+        response = await clioRequest(accessToken, endpoint, { ...params, limit });
       }
       
-      const response = await clioRequest(accessToken, endpoint, fetchParams);
       const data = response.data || [];
-      
       console.log(`[CLIO API] Page ${pageCount}: received ${data.length} records`);
       
       // Deduplicate by ID
@@ -97,8 +124,6 @@ async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null)
           seenIds.add(id);
           allData.push(item);
           newCount++;
-        } else if (id && seenIds.has(id)) {
-          console.warn(`[CLIO API] Duplicate skipped: id=${id}`);
         }
       }
       
@@ -110,11 +135,11 @@ async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null)
         onProgress(allData.length);
       }
       
-      // Check for next page using cursor from response meta
-      const nextPageToken = response.meta?.paging?.next;
-      if (nextPageToken && data.length > 0) {
-        pageToken = nextPageToken;
-        console.log(`[CLIO API] Next page token received`);
+      // Check for next page - Clio returns a FULL URL
+      const nextPageUrl = response.meta?.paging?.next;
+      if (nextPageUrl && data.length > 0) {
+        nextUrl = nextPageUrl;
+        console.log(`[CLIO API] Next page URL received`);
       } else {
         hasMore = false;
         console.log(`[CLIO API] Completed ${endpoint}: ${allData.length} total in ${pageCount} pages`);
@@ -124,11 +149,10 @@ async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null)
       await new Promise(r => setTimeout(r, 1500));
       
     } catch (error) {
-      // Handle rate limiting with exponential backoff
       if (error.message.includes('rate limit') || error.message.includes('429') || error.message.includes('Rate')) {
         retryCount++;
         if (retryCount > maxRetries) {
-          console.error(`[CLIO API] Max retries (${maxRetries}) exceeded for ${endpoint}`);
+          console.error(`[CLIO API] Max retries (${maxRetries}) exceeded`);
           throw error;
         }
         
