@@ -1318,7 +1318,8 @@ router.post('/start-session', requireSecureAdmin, (req, res) => {
       matters: [],
       activities: [],
       calendar_entries: [],
-      chunks: { users: 0, clients: 0, matters: 0, timeEntries: 0, calendarEvents: 0 }
+      bills: [],
+      chunks: { users: 0, clients: 0, matters: 0, timeEntries: 0, calendarEvents: 0, bills: 0 }
     });
     
     console.log('[MIGRATION] Session started:', sessionId);
@@ -1414,9 +1415,32 @@ router.post('/add-chunk', requireSecureAdmin, (req, res) => {
         });
         added++;
       }
+      else if (dataType === 'bills' && parts[0]) {
+        // Bills: Invoice#, Matter, Client, Date, Amount, Status, Due Date
+        session.bills.push({
+          number: String(parts[0] || `INV-${session.bills.length + 1}`),
+          matter: parts[1] ? { display_number: String(parts[1]) } : null,
+          client: parts[2] ? { name: String(parts[2]) } : null,
+          issued_at: parts[3] ? String(parts[3]) : null,
+          total: parseFloat(String(parts[4] || '0').replace(/[$,]/g, '')) || 0,
+          status: parts[5] ? String(parts[5]) : 'draft',
+          due_at: parts[6] ? String(parts[6]) : null,
+          balance: parseFloat(String(parts[7] || parts[4] || '0').replace(/[$,]/g, '')) || 0
+        });
+        added++;
+      }
     }
     
-    console.log(`[MIGRATION] Chunk added to ${sessionId}: ${dataType} +${added} (total: ${session[dataType === 'clients' ? 'contacts' : dataType === 'timeEntries' ? 'activities' : dataType === 'calendarEvents' ? 'calendar_entries' : dataType].length})`);
+    const typeMapping: Record<string, string> = {
+      clients: 'contacts',
+      timeEntries: 'activities', 
+      calendarEvents: 'calendar_entries',
+      bills: 'bills',
+      users: 'users',
+      matters: 'matters'
+    };
+    const mappedType = typeMapping[dataType] || dataType;
+    console.log(`[MIGRATION] Chunk added to ${sessionId}: ${dataType} +${added} (total: ${session[mappedType]?.length || 0})`);
     
     res.json({ 
       success: true, 
@@ -1426,7 +1450,8 @@ router.post('/add-chunk', requireSecureAdmin, (req, res) => {
         contacts: session.contacts.length,
         matters: session.matters.length,
         activities: session.activities.length,
-        calendar_entries: session.calendar_entries.length
+        calendar_entries: session.calendar_entries.length,
+        bills: session.bills.length
       }
     });
   } catch (error) {
@@ -1452,7 +1477,8 @@ router.post('/finalize-session', requireSecureAdmin, (req, res) => {
       contacts: session.contacts,
       matters: session.matters,
       activities: session.activities,
-      calendar_entries: session.calendar_entries
+      calendar_entries: session.calendar_entries,
+      bills: session.bills
     };
     
     // Clean up session
@@ -1512,7 +1538,8 @@ router.post('/parse-csv', requireSecureAdmin, (req, res) => {
       contacts: [],
       matters: [],
       activities: [],
-      calendar_entries: []
+      calendar_entries: [],
+      bills: []
     };
 
     // Parse users if provided
