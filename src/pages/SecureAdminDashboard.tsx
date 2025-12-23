@@ -1927,20 +1927,43 @@ Or just paste directly from Clio's user list - the AI will figure it out.`}
                             <div className={styles.sectionHeader}>
                               <UserPlus size={18} />
                               <h4>3. Clients / Contacts</h4>
-                              <span className={styles.sectionHint}>From Clio: Contacts → Export</span>
+                              <span className={styles.sectionHint}>From Clio: Contacts → Export → CSV</span>
                             </div>
-                            <textarea
-                              value={migrationInputs.clients}
-                              onChange={(e) => setMigrationInputs(prev => ({ ...prev, clients: e.target.value }))}
-                              placeholder={`Paste client/contact data here. Example:
-
-Name, Email, Phone, Type, Company
-John Doe, john@email.com, 555-1234, Person, Acme Corp
-Acme Corporation, legal@acme.com, 555-5678, Company,
-
-Or paste your Clio Contacts CSV export directly.`}
-                              rows={6}
-                            />
+                            <div className={styles.csvUploadArea}>
+                              <input
+                                type="file"
+                                accept=".csv,.txt"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0]
+                                  if (file) {
+                                    const reader = new FileReader()
+                                    reader.onload = (evt) => {
+                                      setMigrationInputs(prev => ({ ...prev, clients: evt.target?.result as string }))
+                                    }
+                                    reader.readAsText(file)
+                                  }
+                                }}
+                                id="clients-csv"
+                                className={styles.fileInput}
+                              />
+                              <label htmlFor="clients-csv" className={styles.csvUploadLabel}>
+                                <Upload size={20} />
+                                <span>{migrationInputs.clients ? '✓ CSV Loaded' : 'Upload Contacts CSV'}</span>
+                              </label>
+                              {migrationInputs.clients && (
+                                <button 
+                                  className={styles.clearBtn}
+                                  onClick={() => setMigrationInputs(prev => ({ ...prev, clients: '' }))}
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
+                            {migrationInputs.clients && (
+                              <div className={styles.csvPreview}>
+                                <span>{migrationInputs.clients.split('\n').length} rows loaded</span>
+                              </div>
+                            )}
                           </div>
 
                           {/* Matters */}
@@ -1948,20 +1971,43 @@ Or paste your Clio Contacts CSV export directly.`}
                             <div className={styles.sectionHeader}>
                               <Briefcase size={18} />
                               <h4>4. Matters / Cases</h4>
-                              <span className={styles.sectionHint}>From Clio: Matters → Export</span>
+                              <span className={styles.sectionHint}>From Clio: Matters → Export → CSV</span>
                             </div>
-                            <textarea
-                              value={migrationInputs.matters}
-                              onChange={(e) => setMigrationInputs(prev => ({ ...prev, matters: e.target.value }))}
-                              placeholder={`Paste matter/case data here. Example:
-
-Matter #, Name, Client, Attorney, Status, Practice Area
-2024-0001, Estate Planning, John Doe, Jane Smith, Open, Estate Planning
-2024-0002, Contract Review, Acme Corporation, Bob Johnson, Open, Corporate
-
-Or paste your Clio Matters CSV export directly.`}
-                              rows={6}
-                            />
+                            <div className={styles.csvUploadArea}>
+                              <input
+                                type="file"
+                                accept=".csv,.txt"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0]
+                                  if (file) {
+                                    const reader = new FileReader()
+                                    reader.onload = (evt) => {
+                                      setMigrationInputs(prev => ({ ...prev, matters: evt.target?.result as string }))
+                                    }
+                                    reader.readAsText(file)
+                                  }
+                                }}
+                                id="matters-csv"
+                                className={styles.fileInput}
+                              />
+                              <label htmlFor="matters-csv" className={styles.csvUploadLabel}>
+                                <Upload size={20} />
+                                <span>{migrationInputs.matters ? '✓ CSV Loaded' : 'Upload Matters CSV'}</span>
+                              </label>
+                              {migrationInputs.matters && (
+                                <button 
+                                  className={styles.clearBtn}
+                                  onClick={() => setMigrationInputs(prev => ({ ...prev, matters: '' }))}
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
+                            {migrationInputs.matters && (
+                              <div className={styles.csvPreview}>
+                                <span>{migrationInputs.matters.split('\n').length} rows loaded</span>
+                              </div>
+                            )}
                           </div>
 
                           {/* Time Entries */}
@@ -1969,20 +2015,43 @@ Or paste your Clio Matters CSV export directly.`}
                             <div className={styles.sectionHeader}>
                               <Clock size={18} />
                               <h4>5. Time Entries (Optional)</h4>
-                              <span className={styles.sectionHint}>From Clio: Activities → Export</span>
+                              <span className={styles.sectionHint}>From Clio: Activities → Export → CSV</span>
                             </div>
-                            <textarea
-                              value={migrationInputs.timeEntries}
-                              onChange={(e) => setMigrationInputs(prev => ({ ...prev, timeEntries: e.target.value }))}
-                              placeholder={`Paste time entry data here. Example:
-
-Date, Matter, User, Hours, Rate, Description
-2024-01-15, 2024-0001, Jane Smith, 2.5, $400, Initial consultation
-2024-01-16, 2024-0001, Jane Smith, 3.0, $400, Drafted documents
-
-Or paste your Clio Activities CSV export directly.`}
-                              rows={6}
-                            />
+                            <div className={styles.csvUploadArea}>
+                              <input
+                                type="file"
+                                accept=".csv,.txt"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0]
+                                  if (file) {
+                                    const reader = new FileReader()
+                                    reader.onload = (evt) => {
+                                      setMigrationInputs(prev => ({ ...prev, timeEntries: evt.target?.result as string }))
+                                    }
+                                    reader.readAsText(file)
+                                  }
+                                }}
+                                id="time-csv"
+                                className={styles.fileInput}
+                              />
+                              <label htmlFor="time-csv" className={styles.csvUploadLabel}>
+                                <Upload size={20} />
+                                <span>{migrationInputs.timeEntries ? '✓ CSV Loaded' : 'Upload Time Entries CSV'}</span>
+                              </label>
+                              {migrationInputs.timeEntries && (
+                                <button 
+                                  className={styles.clearBtn}
+                                  onClick={() => setMigrationInputs(prev => ({ ...prev, timeEntries: '' }))}
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
+                            {migrationInputs.timeEntries && (
+                              <div className={styles.csvPreview}>
+                                <span>{migrationInputs.timeEntries.split('\n').length} rows loaded</span>
+                              </div>
+                            )}
                           </div>
 
                           {/* Calendar */}
@@ -1990,20 +2059,43 @@ Or paste your Clio Activities CSV export directly.`}
                             <div className={styles.sectionHeader}>
                               <Activity size={18} />
                               <h4>6. Calendar Events (Optional)</h4>
-                              <span className={styles.sectionHint}>From Clio: Calendar → Export</span>
+                              <span className={styles.sectionHint}>From Clio: Calendar → Export → CSV</span>
                             </div>
-                            <textarea
-                              value={migrationInputs.calendarEvents}
-                              onChange={(e) => setMigrationInputs(prev => ({ ...prev, calendarEvents: e.target.value }))}
-                              placeholder={`Paste calendar data here. Example:
-
-Title, Date, Time, Matter, Type, Location
-Client Meeting, 2024-02-15, 10:00 AM, 2024-0001, Meeting, Conference Room
-Court Hearing, 2024-03-20, 9:00 AM, 2024-0002, Court Date, Suffolk County Court
-
-Or paste your Clio Calendar export directly.`}
-                              rows={6}
-                            />
+                            <div className={styles.csvUploadArea}>
+                              <input
+                                type="file"
+                                accept=".csv,.txt"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0]
+                                  if (file) {
+                                    const reader = new FileReader()
+                                    reader.onload = (evt) => {
+                                      setMigrationInputs(prev => ({ ...prev, calendarEvents: evt.target?.result as string }))
+                                    }
+                                    reader.readAsText(file)
+                                  }
+                                }}
+                                id="calendar-csv"
+                                className={styles.fileInput}
+                              />
+                              <label htmlFor="calendar-csv" className={styles.csvUploadLabel}>
+                                <Upload size={20} />
+                                <span>{migrationInputs.calendarEvents ? '✓ CSV Loaded' : 'Upload Calendar CSV'}</span>
+                              </label>
+                              {migrationInputs.calendarEvents && (
+                                <button 
+                                  className={styles.clearBtn}
+                                  onClick={() => setMigrationInputs(prev => ({ ...prev, calendarEvents: '' }))}
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
+                            {migrationInputs.calendarEvents && (
+                              <div className={styles.csvPreview}>
+                                <span>{migrationInputs.calendarEvents.split('\n').length} rows loaded</span>
+                              </div>
+                            )}
                           </div>
 
                           <div className={styles.aiActions}>
