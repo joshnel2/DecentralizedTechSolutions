@@ -353,33 +353,106 @@ router.post('/google/sync', authenticate, async (req, res) => {
 // QUICKBOOKS INTEGRATION
 // ============================================
 
+// Check QuickBooks configuration status (for debugging)
+router.get('/quickbooks/config-status', authenticate, async (req, res) => {
+  try {
+    const QB_CLIENT_ID = await getCredential('quickbooks_client_id', 'QUICKBOOKS_CLIENT_ID');
+    const QB_CLIENT_SECRET = await getCredential('quickbooks_client_secret', 'QUICKBOOKS_CLIENT_SECRET');
+    const QB_REDIRECT_URI = await getCredential('quickbooks_redirect_uri', 'QUICKBOOKS_REDIRECT_URI', '');
+    const QB_ENVIRONMENT = await getCredential('quickbooks_environment', 'QUICKBOOKS_ENVIRONMENT', 'sandbox');
+
+    // Get the expected callback URL based on the request
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    const expectedCallbackUrl = `${protocol}://${host}/api/integrations/quickbooks/callback`;
+
+    const issues = [];
+    
+    if (!QB_CLIENT_ID) {
+      issues.push('QuickBooks Client ID is not configured');
+    }
+    if (!QB_CLIENT_SECRET) {
+      issues.push('QuickBooks Client Secret is not configured');
+    }
+    if (!QB_REDIRECT_URI) {
+      issues.push(`QuickBooks Redirect URI is not configured. It should be: ${expectedCallbackUrl}`);
+    } else if (QB_REDIRECT_URI !== expectedCallbackUrl) {
+      issues.push(`Redirect URI mismatch. Configured: ${QB_REDIRECT_URI}, Expected: ${expectedCallbackUrl}`);
+    }
+
+    res.json({
+      configured: QB_CLIENT_ID && QB_CLIENT_SECRET && QB_REDIRECT_URI,
+      environment: QB_ENVIRONMENT,
+      redirectUri: QB_REDIRECT_URI || 'NOT SET',
+      expectedRedirectUri: expectedCallbackUrl,
+      hasClientId: !!QB_CLIENT_ID,
+      hasClientSecret: !!QB_CLIENT_SECRET,
+      issues: issues.length > 0 ? issues : null,
+      note: 'Make sure this exact Redirect URI is also added in your QuickBooks Developer Portal app settings.'
+    });
+  } catch (error) {
+    console.error('QuickBooks config check error:', error);
+    res.status(500).json({ error: 'Failed to check configuration' });
+  }
+});
+
 // Initiate QuickBooks OAuth
 router.get('/quickbooks/connect', authenticate, async (req, res) => {
-  const QB_CLIENT_ID = await getCredential('quickbooks_client_id', 'QUICKBOOKS_CLIENT_ID');
-  const QB_REDIRECT_URI = await getCredential('quickbooks_redirect_uri', 'QUICKBOOKS_REDIRECT_URI', 'http://localhost:3001/api/integrations/quickbooks/callback');
-  const QB_ENVIRONMENT = await getCredential('quickbooks_environment', 'QUICKBOOKS_ENVIRONMENT', 'sandbox');
+  try {
+    const QB_CLIENT_ID = await getCredential('quickbooks_client_id', 'QUICKBOOKS_CLIENT_ID');
+    const QB_CLIENT_SECRET = await getCredential('quickbooks_client_secret', 'QUICKBOOKS_CLIENT_SECRET');
+    let QB_REDIRECT_URI = await getCredential('quickbooks_redirect_uri', 'QUICKBOOKS_REDIRECT_URI', '');
+    const QB_ENVIRONMENT = await getCredential('quickbooks_environment', 'QUICKBOOKS_ENVIRONMENT', 'sandbox');
 
-  if (!QB_CLIENT_ID) {
-    return res.status(500).json({ error: 'QuickBooks integration not configured. Please configure in Admin Portal.' });
+    // If no redirect URI is configured, try to build it from the request
+    if (!QB_REDIRECT_URI) {
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+      const host = req.headers['x-forwarded-host'] || req.headers.host;
+      QB_REDIRECT_URI = `${protocol}://${host}/api/integrations/quickbooks/callback`;
+      console.log(`QuickBooks: No redirect URI configured, using derived URI: ${QB_REDIRECT_URI}`);
+    }
+
+    if (!QB_CLIENT_ID) {
+      console.error('QuickBooks: Client ID not configured');
+      return res.status(500).json({ 
+        error: 'QuickBooks integration not configured. Please configure Client ID in Admin Portal > Platform Settings.',
+        details: 'Missing quickbooks_client_id'
+      });
+    }
+
+    if (!QB_CLIENT_SECRET) {
+      console.error('QuickBooks: Client Secret not configured');
+      return res.status(500).json({ 
+        error: 'QuickBooks integration not configured. Please configure Client Secret in Admin Portal > Platform Settings.',
+        details: 'Missing quickbooks_client_secret'
+      });
+    }
+
+    console.log(`QuickBooks OAuth: Starting connection flow`);
+    console.log(`  - Environment: ${QB_ENVIRONMENT}`);
+    console.log(`  - Redirect URI: ${QB_REDIRECT_URI}`);
+
+    const state = Buffer.from(JSON.stringify({
+      nonce: crypto.randomBytes(32).toString('hex'),
+      firmId: req.user.firmId,
+      userId: req.user.id,
+    })).toString('base64');
+
+    const scopes = 'com.intuit.quickbooks.accounting';
+    const baseUrl = 'https://appcenter.intuit.com/connect/oauth2';
+
+    const authUrl = `${baseUrl}?` +
+      `client_id=${QB_CLIENT_ID}` +
+      `&redirect_uri=${encodeURIComponent(QB_REDIRECT_URI)}` +
+      `&response_type=code` +
+      `&scope=${encodeURIComponent(scopes)}` +
+      `&state=${state}`;
+
+    res.json({ authUrl });
+  } catch (error) {
+    console.error('QuickBooks connect error:', error);
+    res.status(500).json({ error: 'Failed to initiate QuickBooks connection' });
   }
-
-  const state = Buffer.from(JSON.stringify({
-    nonce: crypto.randomBytes(32).toString('hex'),
-    firmId: req.user.firmId,
-    userId: req.user.id,
-  })).toString('base64');
-
-  const scopes = 'com.intuit.quickbooks.accounting';
-  const baseUrl = 'https://appcenter.intuit.com/connect/oauth2';
-
-  const authUrl = `${baseUrl}?` +
-    `client_id=${QB_CLIENT_ID}` +
-    `&redirect_uri=${encodeURIComponent(QB_REDIRECT_URI)}` +
-    `&response_type=code` +
-    `&scope=${encodeURIComponent(scopes)}` +
-    `&state=${state}`;
-
-  res.json({ authUrl });
 });
 
 // QuickBooks OAuth callback
