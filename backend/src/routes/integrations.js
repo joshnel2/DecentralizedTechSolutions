@@ -431,11 +431,13 @@ router.get('/quickbooks/connect', authenticate, async (req, res) => {
     console.log(`QuickBooks OAuth: Starting connection flow`);
     console.log(`  - Environment: ${QB_ENVIRONMENT}`);
     console.log(`  - Redirect URI: ${QB_REDIRECT_URI}`);
+    console.log(`  - Client ID starts with: ${QB_CLIENT_ID.substring(0, 10)}...`);
 
     const state = Buffer.from(JSON.stringify({
       nonce: crypto.randomBytes(32).toString('hex'),
       firmId: req.user.firmId,
       userId: req.user.id,
+      environment: QB_ENVIRONMENT, // Store environment in state for callback
     })).toString('base64');
 
     const scopes = 'com.intuit.quickbooks.accounting';
@@ -448,7 +450,8 @@ router.get('/quickbooks/connect', authenticate, async (req, res) => {
       `&scope=${encodeURIComponent(scopes)}` +
       `&state=${state}`;
 
-    res.json({ authUrl });
+    console.log(`QuickBooks OAuth URL generated (environment: ${QB_ENVIRONMENT})`);
+    res.json({ authUrl, environment: QB_ENVIRONMENT });
   } catch (error) {
     console.error('QuickBooks connect error:', error);
     res.status(500).json({ error: 'Failed to initiate QuickBooks connection' });
