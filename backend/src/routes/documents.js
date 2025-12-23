@@ -7,13 +7,16 @@ import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import mammoth from 'mammoth';
 
-// Dynamic import for pdf-parse (CommonJS module)
+// Use createRequire for pdf-parse (CommonJS module that doesn't work with ESM import)
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+
 let pdfParse = null;
 async function getPdfParse() {
   if (!pdfParse) {
     try {
-      const module = await import('pdf-parse');
-      pdfParse = module.default || module;
+      pdfParse = require('pdf-parse');
+      console.log('[PDF] Loaded pdf-parse via require, type:', typeof pdfParse);
     } catch (err) {
       console.error('Failed to load pdf-parse:', err);
     }
