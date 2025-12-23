@@ -62,24 +62,52 @@ async function clioRequest(accessToken, endpoint, params = {}) {
 // Paginate through all results from Clio with rate limit handling
 async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null) {
   const allData = [];
+  const seenIds = new Set(); // Prevent duplicates
   let offset = 0;
-  const limit = 200; // Clio max per page
+  const limit = 100; // Reduced from 200 to be safer with rate limits
   let hasMore = true;
   let pageCount = 0;
   let retryCount = 0;
   const maxRetries = 5;
+  let lastSuccessfulOffset = -1; // Track to prevent re-fetching
   
   console.log(`[CLIO API] Starting paginated fetch for ${endpoint}`);
   
   while (hasMore) {
     pageCount++;
-    console.log(`[CLIO API] Fetching page ${pageCount} (offset ${offset}) from ${endpoint}`);
+    
+    // Safety check: don't re-fetch same offset
+    if (offset === lastSuccessfulOffset) {
+      console.error(`[CLIO API] ERROR: About to re-fetch same offset ${offset}! Breaking.`);
+      break;
+    }
+    
+    console.log(`[CLIO API] Page ${pageCount}: fetching offset ${offset}, have ${allData.length} records so far`);
     
     try {
       const response = await clioRequest(accessToken, endpoint, { ...params, limit, offset });
       const data = response.data || [];
-      allData.push(...data);
-      retryCount = 0; // Reset retry count on success
+      
+      // Log exactly what we received
+      console.log(`[CLIO API] Page ${pageCount}: received ${data.length} records`);
+      
+      // Deduplicate by ID to prevent any duplicates
+      let newCount = 0;
+      for (const item of data) {
+        const id = item.id;
+        if (id && !seenIds.has(id)) {
+          seenIds.add(id);
+          allData.push(item);
+          newCount++;
+        } else if (id && seenIds.has(id)) {
+          console.warn(`[CLIO API] Duplicate record skipped: id=${id}`);
+        }
+      }
+      
+      console.log(`[CLIO API] Page ${pageCount}: added ${newCount} new records, total now ${allData.length}`);
+      
+      lastSuccessfulOffset = offset;
+      retryCount = 0;
       
       if (onProgress) {
         onProgress(allData.length);
@@ -88,35 +116,37 @@ async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null)
       // Check if there's more data
       if (data.length < limit) {
         hasMore = false;
-        console.log(`[CLIO API] Completed fetching ${endpoint}: ${allData.length} total records in ${pageCount} pages`);
+        console.log(`[CLIO API] Completed ${endpoint}: ${allData.length} total records in ${pageCount} pages`);
       } else {
         offset += limit;
       }
       
-      // Delay between requests to avoid rate limiting (Clio limit is 50/min)
-      // With 200 records per page, we can do ~40 pages per minute safely
-      await new Promise(r => setTimeout(r, 1500)); // 1.5 seconds between requests
+      // Delay between requests - Clio limit is 50/min
+      // With 100 records per page, we have more buffer
+      await new Promise(r => setTimeout(r, 1500));
       
     } catch (error) {
       // Handle rate limiting with exponential backoff
       if (error.message.includes('rate limit') || error.message.includes('429') || error.message.includes('Rate')) {
         retryCount++;
         if (retryCount > maxRetries) {
-          console.error(`[CLIO API] Max retries exceeded for ${endpoint}`);
+          console.error(`[CLIO API] Max retries (${maxRetries}) exceeded for ${endpoint}`);
           throw error;
         }
         
-        // Wait progressively longer: 40s, 50s, 60s, 70s, 80s
-        const waitTime = 30 + (retryCount * 10);
-        console.log(`[CLIO API] Rate limited. Waiting ${waitTime} seconds before retry ${retryCount}/${maxRetries}...`);
+        // Wait progressively longer: 45s, 55s, 65s, 75s, 85s
+        const waitTime = 35 + (retryCount * 10);
+        console.log(`[CLIO API] Rate limited at offset ${offset}. Waiting ${waitTime}s (retry ${retryCount}/${maxRetries})...`);
         await new Promise(r => setTimeout(r, waitTime * 1000));
-        pageCount--; // Retry same page
+        // Don't change offset - retry same page
+        pageCount--;
         continue;
       }
       throw error;
     }
   }
   
+  console.log(`[CLIO API] Final: ${endpoint} returned ${allData.length} unique records`);
   return allData;
 }
 
