@@ -135,7 +135,7 @@ export function APIReferencePage() {
           <h2>Example Request</h2>
           <div className={styles.card} style={{ background: 'var(--apex-slate)', fontFamily: 'monospace', fontSize: '0.875rem', whiteSpace: 'pre-wrap' }}>
             <code style={{ color: 'var(--apex-light)' }}>
-{`curl -X GET "https://api.apexlegal.com/v1/matters" \\
+{`curl -X GET "https://api.strapped.ai/v1/matters" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json"`}
             </code>

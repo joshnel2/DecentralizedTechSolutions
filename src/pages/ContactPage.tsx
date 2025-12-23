@@ -47,8 +47,8 @@ export function ContactPage() {
               <Mail size={24} />
               <div>
                 <h3>Email</h3>
-                <p>hello@apexlegal.com</p>
-                <p>support@apexlegal.com</p>
+                <p>hello@strapped.ai</p>
+                <p>support@strapped.ai</p>
               </div>
             </div>
             <div className={styles.contactItem}>
@@ -63,8 +63,8 @@ export function ContactPage() {
               <MapPin size={24} />
               <div>
                 <h3>Address</h3>
-                <p>123 Legal Tech Way</p>
-                <p>San Francisco, CA 94105</p>
+                <p>Austin, TX</p>
+                <p>United States</p>
               </div>
             </div>
             <div className={styles.contactItem}>

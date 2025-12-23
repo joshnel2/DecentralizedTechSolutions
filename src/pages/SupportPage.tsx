@@ -44,7 +44,7 @@ export function SupportPage() {
             <div className={styles.card}>
               <div className={styles.cardIcon}><Mail size={24} /></div>
               <h3>Email Support</h3>
-              <p>Send us an email at support@apexlegal.com. We respond within 24 hours.</p>
+              <p>Send us an email at support@strapped.ai. We respond within 24 hours.</p>
             </div>
             <div className={styles.card}>
               <div className={styles.cardIcon}><Phone size={24} /></div>

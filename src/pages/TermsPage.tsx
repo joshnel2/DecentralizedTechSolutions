@@ -36,12 +36,12 @@ export function TermsPage() {
         <section className={styles.section}>
           <h2>1. Agreement to Terms</h2>
           <p>
-            By accessing or using Apex Legal Technologies' services ("Services"), you agree to be bound by 
+            By accessing or using Strapped AI LLC's services ("Services"), you agree to be bound by 
             these Terms of Service ("Terms"). If you do not agree to these Terms, do not use our Services.
           </p>
           <p>
-            These Terms constitute a legally binding agreement between you and Apex Legal Technologies 
-            ("Apex," "we," "us," or "our").
+            These Terms constitute a legally binding agreement between you and Strapped AI LLC 
+            ("Strapped AI," "we," "us," or "our").
           </p>
         </section>
 
@@ -196,8 +196,8 @@ export function TermsPage() {
             For questions about these Terms, please contact us at:
           </p>
           <p>
-            <strong>Email:</strong> <a href="mailto:legal@apexlegal.com">legal@apexlegal.com</a><br />
-            <strong>Address:</strong> Apex Legal Technologies, 123 Legal Tech Way, San Francisco, CA 94105
+            <strong>Email:</strong> <a href="mailto:legal@strapped.ai">legal@strapped.ai</a><br />
+            <strong>Address:</strong> Strapped AI LLC, Austin, TX
           </p>
         </section>
       </div>

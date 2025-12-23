@@ -12,7 +12,7 @@ export function ReferralsPage() {
   
   const referralData = {
     code: 'APEX-JOHN2024',
-    link: 'https://apexlegal.com/ref/APEX-JOHN2024',
+    link: 'https://strapped.ai/ref/APEX-JOHN2024',
     earnings: 1500,
     referrals: 3,
     pending: 1

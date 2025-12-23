@@ -178,7 +178,7 @@ export function SecurityPage() {
           <h2>Report a Vulnerability</h2>
           <p>
             We take security seriously and appreciate responsible disclosure of any vulnerabilities. 
-            Please report security issues to <a href="mailto:security@apexlegal.com">security@apexlegal.com</a>.
+            Please report security issues to <a href="mailto:security@strapped.ai">security@strapped.ai</a>.
           </p>
         </section>
       </div>

@@ -125,7 +125,7 @@ export function CompliancePage() {
               <li>Data deletion and return procedures</li>
             </ul>
             <p style={{ marginTop: '1rem' }}>
-              Contact <a href="mailto:legal@apexlegal.com">legal@apexlegal.com</a> to request a DPA.
+              Contact <a href="mailto:legal@strapped.ai">legal@strapped.ai</a> to request a DPA.
             </p>
           </div>
         </section>
@@ -190,7 +190,7 @@ export function CompliancePage() {
             <li>Penetration Test Executive Summary</li>
           </ul>
           <p style={{ marginTop: '1rem' }}>
-            Contact <a href="mailto:compliance@apexlegal.com">compliance@apexlegal.com</a> to request documentation.
+            Contact <a href="mailto:compliance@strapped.ai">compliance@strapped.ai</a> to request documentation.
           </p>
         </section>
 
@@ -199,7 +199,7 @@ export function CompliancePage() {
           <p>
             If you have questions about our compliance program or need additional documentation for your 
             firm's due diligence, please contact our compliance team at{' '}
-            <a href="mailto:compliance@apexlegal.com">compliance@apexlegal.com</a>.
+            <a href="mailto:compliance@strapped.ai">compliance@strapped.ai</a>.
           </p>
         </section>
       </div>
