@@ -5,6 +5,40 @@ import { query } from '../db/connection.js';
 
 const router = Router();
 
+// Azure OpenAI configuration (same as ai.js)
+const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
+const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
+const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
+const API_VERSION = '2024-02-15-preview';
+
+// Helper to call Azure OpenAI (same as ai.js)
+async function callAzureOpenAI(messages, options = {}) {
+  const url = `${AZURE_ENDPOINT}openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${API_VERSION}`;
+  
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'api-key': AZURE_API_KEY,
+    },
+    body: JSON.stringify({
+      messages,
+      temperature: options.temperature ?? 0.3, // Lower temperature for more consistent data transformation
+      max_tokens: options.max_tokens ?? 8000,
+      top_p: 0.95,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error('Azure OpenAI error:', error);
+    throw new Error(`Azure OpenAI API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
 /*
 ================================================================================
 CLIO TO APEX LEGAL MIGRATION API
@@ -1149,6 +1183,255 @@ router.get('/template', requireSecureAdmin, (req, res) => {
   };
 
   res.json(template);
+});
+
+// ============================================
+// AI-POWERED DATA TRANSFORMATION
+// ============================================
+
+const AI_TRANSFORM_SYSTEM_PROMPT = `You are an expert data transformation AI for migrating law firm data from Clio (and similar legal practice management systems) to our platform.
+
+Your task is to transform raw data into our exact JSON format. The user may provide data in various formats:
+- CSV exports from Clio
+- JSON exports from Clio
+- Spreadsheet data (tab or comma-separated)
+- Unstructured data lists
+- Mixed formats
+
+You MUST output valid JSON that matches this EXACT structure:
+
+{
+  "firm": {
+    "name": "Firm Name (REQUIRED)",
+    "phone": "555-123-4567",
+    "email": "info@firm.com",
+    "website": "https://firm.com",
+    "address": "Street address",
+    "city": "City",
+    "state": "ST",
+    "zip_code": "12345"
+  },
+  "users": [
+    {
+      "email": "user@firm.com (REQUIRED)",
+      "password": "TempPass123! (REQUIRED - generate secure 12+ char password if not provided)",
+      "first_name": "First (REQUIRED)",
+      "last_name": "Last",
+      "type": "Attorney/Paralegal/Staff/Admin",
+      "rate": 350.00,
+      "phone": "555-123-4567"
+    }
+  ],
+  "contacts": [
+    {
+      "type": "Person or Company",
+      "name": "Display Name (REQUIRED for company)",
+      "first_name": "First (REQUIRED for person)",
+      "last_name": "Last",
+      "company": "Company name if person works at one",
+      "email": "client@email.com",
+      "phone": "555-123-4567",
+      "addresses": [
+        {
+          "street": "123 Main St",
+          "city": "Boston",
+          "province": "MA",
+          "postal_code": "02101",
+          "primary": true
+        }
+      ],
+      "notes": "Any notes about the client"
+    }
+  ],
+  "matters": [
+    {
+      "display_number": "2024-0001 (REQUIRED - generate if not provided)",
+      "description": "Matter Name/Description (REQUIRED)",
+      "detailed_description": "Longer description of the matter",
+      "client": {
+        "name": "Client Name (must match a contact name)"
+      },
+      "status": "Open/Pending/Closed",
+      "practice_area": {
+        "name": "Estate Planning/Corporate/Litigation/Family Law/Real Estate/Criminal/Immigration/Bankruptcy/IP/Employment/Other"
+      },
+      "responsible_attorney": {
+        "name": "Attorney Name (must match a user name)"
+      },
+      "open_date": "YYYY-MM-DD",
+      "close_date": "YYYY-MM-DD or null",
+      "billing_method": "hourly/flat/contingency/retainer/pro_bono"
+    }
+  ],
+  "activities": [
+    {
+      "type": "TimeEntry or ExpenseEntry",
+      "date": "YYYY-MM-DD (REQUIRED)",
+      "matter": {
+        "display_number": "2024-0001 (must match a matter)"
+      },
+      "user": {
+        "name": "User Name (must match a user)"
+      },
+      "quantity": 2.5,
+      "rate": 350.00,
+      "total": 875.00,
+      "note": "Description of work performed",
+      "non_billable": false
+    }
+  ],
+  "calendar_entries": [
+    {
+      "summary": "Event Title (REQUIRED)",
+      "description": "Event details",
+      "matter": {
+        "display_number": "2024-0001 (optional - link to matter)"
+      },
+      "start_at": "2024-03-15T10:00:00-05:00 (REQUIRED)",
+      "end_at": "2024-03-15T11:00:00-05:00",
+      "all_day": false,
+      "location": "Conference Room A",
+      "calendar_entry_type": "Meeting/Court Date/Deadline/Deposition/Reminder"
+    }
+  ]
+}
+
+RULES:
+1. ALWAYS output valid JSON - no markdown, no explanations, JUST the JSON object
+2. If firm name is not clear, use a reasonable default like "Law Firm (Imported)"
+3. Generate secure passwords (12+ chars with uppercase, lowercase, numbers, symbols) for users if not provided
+4. Generate matter numbers in YYYY-NNNN format if not provided
+5. Parse dates from any format (MM/DD/YYYY, YYYY-MM-DD, "January 15, 2024", etc.) and output as YYYY-MM-DD
+6. Infer practice areas from matter names/descriptions if not specified
+7. Link contacts to matters by matching names
+8. Calculate time entry totals if rate and quantity are provided
+9. Map roles: Attorney/Lawyer -> Attorney, Secretary/Assistant -> Staff, Owner/Admin -> Admin
+10. If data seems incomplete, include what you can and omit empty arrays
+11. For ambiguous data, make reasonable assumptions - it's better to import something than nothing
+12. Preserve all original data - don't lose any information during transformation
+
+IMPORTANT: Your response must be ONLY the JSON object, starting with { and ending with }. No other text.`;
+
+router.post('/ai-transform', requireSecureAdmin, async (req, res) => {
+  const { rawData, dataFormat, additionalContext } = req.body;
+
+  if (!rawData) {
+    return res.status(400).json({ error: 'No data provided for transformation' });
+  }
+
+  if (!AZURE_ENDPOINT || !AZURE_API_KEY || !AZURE_DEPLOYMENT) {
+    return res.status(500).json({ error: 'AI service not configured. Please configure Azure OpenAI in integration settings.' });
+  }
+
+  try {
+    logMigrationAudit('AI_TRANSFORM_START', { 
+      dataLength: rawData.length,
+      format: dataFormat 
+    }, req.ip);
+
+    // Build user message with context
+    let userMessage = `Transform this law firm data into the required JSON format:\n\n`;
+    
+    if (dataFormat) {
+      userMessage += `Data format hint: ${dataFormat}\n\n`;
+    }
+    
+    if (additionalContext) {
+      userMessage += `Additional context: ${additionalContext}\n\n`;
+    }
+    
+    userMessage += `DATA:\n${rawData}`;
+
+    const messages = [
+      { role: 'system', content: AI_TRANSFORM_SYSTEM_PROMPT },
+      { role: 'user', content: userMessage }
+    ];
+
+    const aiResponse = await callAzureOpenAI(messages, { 
+      temperature: 0.2, // Very low for consistent formatting
+      max_tokens: 8000 
+    });
+
+    // Try to parse the AI response as JSON
+    let transformedData;
+    try {
+      // Clean up the response - remove any markdown code blocks if present
+      let cleanResponse = aiResponse.trim();
+      if (cleanResponse.startsWith('```json')) {
+        cleanResponse = cleanResponse.slice(7);
+      } else if (cleanResponse.startsWith('```')) {
+        cleanResponse = cleanResponse.slice(3);
+      }
+      if (cleanResponse.endsWith('```')) {
+        cleanResponse = cleanResponse.slice(0, -3);
+      }
+      cleanResponse = cleanResponse.trim();
+
+      transformedData = JSON.parse(cleanResponse);
+    } catch (parseError) {
+      console.error('Failed to parse AI response:', parseError);
+      console.error('AI response:', aiResponse);
+      
+      return res.status(422).json({ 
+        error: 'AI generated invalid JSON. Please try again or adjust your input data.',
+        rawResponse: aiResponse.substring(0, 1000) // Return partial response for debugging
+      });
+    }
+
+    // Validate minimum required fields
+    if (!transformedData.firm || !transformedData.firm.name) {
+      return res.status(422).json({ 
+        error: 'Transformed data is missing required firm name',
+        transformedData 
+      });
+    }
+
+    // Ensure users have passwords
+    if (transformedData.users && Array.isArray(transformedData.users)) {
+      transformedData.users = transformedData.users.map(user => {
+        if (!user.password) {
+          // Generate a secure random password
+          const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
+          let password = '';
+          for (let i = 0; i < 14; i++) {
+            password += chars.charAt(Math.floor(Math.random() * chars.length));
+          }
+          user.password = password;
+        }
+        return user;
+      });
+    }
+
+    logMigrationAudit('AI_TRANSFORM_SUCCESS', {
+      firm: transformedData.firm?.name,
+      users: transformedData.users?.length || 0,
+      contacts: transformedData.contacts?.length || 0,
+      matters: transformedData.matters?.length || 0,
+      activities: transformedData.activities?.length || 0,
+      calendar_entries: transformedData.calendar_entries?.length || 0
+    }, req.ip);
+
+    res.json({
+      success: true,
+      transformedData,
+      summary: {
+        firm: transformedData.firm?.name,
+        users: transformedData.users?.length || 0,
+        contacts: transformedData.contacts?.length || 0,
+        matters: transformedData.matters?.length || 0,
+        activities: transformedData.activities?.length || 0,
+        calendar_entries: transformedData.calendar_entries?.length || 0
+      }
+    });
+
+  } catch (error) {
+    console.error('AI transformation error:', error);
+    logMigrationAudit('AI_TRANSFORM_FAILED', { error: error.message }, req.ip);
+    
+    res.status(500).json({ 
+      error: 'AI transformation failed: ' + error.message 
+    });
+  }
 });
 
 // ============================================

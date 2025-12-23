@@ -8,7 +8,7 @@ import {
   Mail, ToggleLeft, ToggleRight, ArrowRightLeft, Zap,
   TrendingUp, UserCheck, AlertCircle, BarChart3, Copy,
   Settings, ChevronDown, ExternalLink, Briefcase, FileText,
-  ShieldCheck, Check, X
+  ShieldCheck, Check, X, Sparkles, Brain, Wand2
 } from 'lucide-react'
 import styles from './SecureAdminDashboard.module.css'
 
@@ -176,6 +176,13 @@ export default function SecureAdminDashboard() {
   const [validationResult, setValidationResult] = useState<MigrationValidation | null>(null)
   const [importResult, setImportResult] = useState<MigrationResult | null>(null)
   const [isMigrating, setIsMigrating] = useState(false)
+  
+  // AI Transformation state
+  const [aiMode, setAiMode] = useState(false)
+  const [rawDataInput, setRawDataInput] = useState('')
+  const [dataFormatHint, setDataFormatHint] = useState('')
+  const [isTransforming, setIsTransforming] = useState(false)
+  const [transformResult, setTransformResult] = useState<{ success: boolean; transformedData?: any; summary?: any; error?: string } | null>(null)
 
   // Bulk Import state
   const [showBulkModal, setShowBulkModal] = useState(false)
@@ -810,6 +817,50 @@ export default function SecureAdminDashboard() {
     setMigrationStep('input')
     setValidationResult(null)
     setImportResult(null)
+    setTransformResult(null)
+    setRawDataInput('')
+    setDataFormatHint('')
+  }
+
+  // AI Transformation function
+  const handleAITransform = async () => {
+    if (!rawDataInput.trim()) {
+      showNotification('error', 'Please enter data to transform')
+      return
+    }
+
+    setIsTransforming(true)
+    setTransformResult(null)
+
+    try {
+      const res = await fetch(`${API_URL}/migration/ai-transform`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          rawData: rawDataInput,
+          dataFormat: dataFormatHint || undefined,
+          additionalContext: undefined
+        })
+      })
+
+      const result = await res.json()
+
+      if (res.ok && result.success) {
+        setTransformResult(result)
+        // Auto-populate the migration data field with the transformed JSON
+        setMigrationData(JSON.stringify(result.transformedData, null, 2))
+        showNotification('success', `AI successfully transformed data: ${result.summary.users} users, ${result.summary.contacts} contacts, ${result.summary.matters} matters`)
+      } else {
+        setTransformResult({ success: false, error: result.error || 'Transformation failed' })
+        showNotification('error', result.error || 'AI transformation failed')
+      }
+    } catch (error) {
+      console.error('AI transformation error:', error)
+      setTransformResult({ success: false, error: 'Failed to connect to AI service' })
+      showNotification('error', 'Failed to connect to AI service')
+    }
+
+    setIsTransforming(false)
   }
 
   const filteredFirms = firms.filter(f => 
@@ -1674,47 +1725,219 @@ export default function SecureAdminDashboard() {
                   {migrationStep === 'input' && (
                     <div className={styles.migrationInput}>
                       <div className={styles.migrationHeader}>
-                        <h3>Import Firm Data (Clio Format)</h3>
-                        <p>Upload a JSON file or paste data in Clio export format to migrate a firm with all its data.</p>
+                        <h3>Import Firm Data from Clio</h3>
+                        <p>Migrate a law firm's data from Clio to Apex Legal. Use AI to automatically transform any data format, or upload pre-formatted JSON.</p>
                       </div>
 
-                      <div className={styles.templateDownload}>
-                        <button onClick={handleDownloadTemplate} className={styles.templateBtn}>
+                      {/* AI Mode Toggle */}
+                      <div className={styles.aiModeToggle}>
+                        <button 
+                          className={`${styles.modeBtn} ${!aiMode ? styles.activeMode : ''}`}
+                          onClick={() => setAiMode(false)}
+                        >
                           <FileJson size={18} />
-                          Download Clio Format Template
+                          Manual JSON
                         </button>
-                        <span className={styles.templateHint}>
-                          Use this template as a reference for the expected data format
-                        </span>
+                        <button 
+                          className={`${styles.modeBtn} ${aiMode ? styles.activeMode : ''}`}
+                          onClick={() => setAiMode(true)}
+                        >
+                          <Sparkles size={18} />
+                          AI Transform
+                          <span className={styles.aiLabel}>Recommended</span>
+                        </button>
                       </div>
 
-                      <div className={styles.uploadArea}>
-                        <input
-                          type="file"
-                          accept=".json"
-                          onChange={handleFileUpload}
-                          id="migration-file"
-                          className={styles.fileInput}
-                        />
-                        <label htmlFor="migration-file" className={styles.uploadLabel}>
-                          <Upload size={32} />
-                          <span>Drop JSON file here or click to upload</span>
-                        </label>
-                      </div>
+                      {/* AI Transform Mode */}
+                      {aiMode ? (
+                        <div className={styles.aiTransformSection}>
+                          <div className={styles.aiHeader}>
+                            <Brain size={24} />
+                            <div>
+                              <h4>AI-Powered Data Transformation</h4>
+                              <p>Paste data in ANY format — CSV exports, spreadsheet data, client lists, matter info — and AI will automatically convert it to our migration format.</p>
+                            </div>
+                          </div>
 
-                      <div className={styles.orDivider}>
-                        <span>OR</span>
-                      </div>
+                          <div className={styles.aiInputGroup}>
+                            <label>
+                              <Wand2 size={16} />
+                              Data Format Hint (optional)
+                            </label>
+                            <select 
+                              value={dataFormatHint}
+                              onChange={(e) => setDataFormatHint(e.target.value)}
+                              className={styles.formatSelect}
+                            >
+                              <option value="">Auto-detect format</option>
+                              <option value="clio_csv">Clio CSV Export</option>
+                              <option value="clio_json">Clio JSON Export</option>
+                              <option value="spreadsheet">Spreadsheet (Tab/Comma separated)</option>
+                              <option value="client_list">Client List</option>
+                              <option value="matter_list">Matter/Case List</option>
+                              <option value="contact_list">Contact List</option>
+                              <option value="time_entries">Time Entries</option>
+                              <option value="mixed">Mixed Data</option>
+                            </select>
+                          </div>
 
-                      <div className={styles.jsonInput}>
-                        <label>Paste JSON Data:</label>
-                        <textarea
-                          value={migrationData}
-                          onChange={(e) => setMigrationData(e.target.value)}
-                          placeholder='{"firm": {"name": "..."}, "users": [...], "contacts": [...], ...}'
-                          rows={12}
-                        />
-                      </div>
+                          <div className={styles.aiInputGroup}>
+                            <label>
+                              <FileText size={16} />
+                              Paste Your Raw Data
+                            </label>
+                            <textarea
+                              value={rawDataInput}
+                              onChange={(e) => setRawDataInput(e.target.value)}
+                              placeholder={`Paste your Clio export data here in any format...
+
+Examples:
+• CSV: "Name,Email,Phone\\nJohn Smith,john@email.com,555-1234"
+• Client list: "Acme Corp - contact@acme.com - Corporate client"
+• Matter info: "Matter #2024-001: Johnson Estate Planning - Open"
+• Spreadsheet data with tabs or commas
+• JSON from Clio export
+
+The AI will analyze and convert your data automatically.`}
+                              rows={14}
+                            />
+                          </div>
+
+                          <div className={styles.aiActions}>
+                            <button 
+                              onClick={handleAITransform}
+                              disabled={!rawDataInput.trim() || isTransforming}
+                              className={styles.aiTransformBtn}
+                            >
+                              {isTransforming ? (
+                                <>
+                                  <RefreshCw size={18} className={styles.spinner} />
+                                  AI Processing...
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles size={18} />
+                                  Transform with AI
+                                </>
+                              )}
+                            </button>
+                          </div>
+
+                          {/* AI Transform Result */}
+                          {transformResult && (
+                            <div className={`${styles.transformResult} ${transformResult.success ? styles.success : styles.error}`}>
+                              {transformResult.success ? (
+                                <>
+                                  <div className={styles.transformHeader}>
+                                    <CheckCircle2 size={24} />
+                                    <div>
+                                      <h4>Transformation Successful!</h4>
+                                      <p>AI has converted your data to the migration format.</p>
+                                    </div>
+                                  </div>
+                                  <div className={styles.transformSummary}>
+                                    <div className={styles.summaryItem}>
+                                      <Building2 size={16} />
+                                      <span>Firm: {transformResult.summary?.firm}</span>
+                                    </div>
+                                    <div className={styles.summaryItem}>
+                                      <Users size={16} />
+                                      <span>{transformResult.summary?.users} Users</span>
+                                    </div>
+                                    <div className={styles.summaryItem}>
+                                      <span>👤</span>
+                                      <span>{transformResult.summary?.contacts} Contacts</span>
+                                    </div>
+                                    <div className={styles.summaryItem}>
+                                      <span>📁</span>
+                                      <span>{transformResult.summary?.matters} Matters</span>
+                                    </div>
+                                    <div className={styles.summaryItem}>
+                                      <Clock size={16} />
+                                      <span>{transformResult.summary?.activities} Activities</span>
+                                    </div>
+                                    <div className={styles.summaryItem}>
+                                      <span>📅</span>
+                                      <span>{transformResult.summary?.calendar_entries} Events</span>
+                                    </div>
+                                  </div>
+                                  <p className={styles.transformNote}>The transformed data has been loaded below. Review and proceed to validation.</p>
+                                </>
+                              ) : (
+                                <>
+                                  <div className={styles.transformHeader}>
+                                    <XCircle size={24} />
+                                    <div>
+                                      <h4>Transformation Failed</h4>
+                                      <p>{transformResult.error}</p>
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Show transformed JSON if successful */}
+                          {transformResult?.success && migrationData && (
+                            <div className={styles.jsonPreview}>
+                              <div className={styles.previewHeader}>
+                                <h4>Transformed JSON Data</h4>
+                                <button onClick={() => copyToClipboard(migrationData)} className={styles.copyBtn}>
+                                  <Copy size={14} />
+                                  Copy
+                                </button>
+                              </div>
+                              <textarea
+                                value={migrationData}
+                                onChange={(e) => setMigrationData(e.target.value)}
+                                rows={10}
+                                className={styles.jsonPreviewText}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        /* Manual JSON Mode */
+                        <>
+                          <div className={styles.templateDownload}>
+                            <button onClick={handleDownloadTemplate} className={styles.templateBtn}>
+                              <FileJson size={18} />
+                              Download Clio Format Template
+                            </button>
+                            <span className={styles.templateHint}>
+                              Use this template as a reference for the expected data format
+                            </span>
+                          </div>
+
+                          <div className={styles.uploadArea}>
+                            <input
+                              type="file"
+                              accept=".json"
+                              onChange={handleFileUpload}
+                              id="migration-file"
+                              className={styles.fileInput}
+                            />
+                            <label htmlFor="migration-file" className={styles.uploadLabel}>
+                              <Upload size={32} />
+                              <span>Drop JSON file here or click to upload</span>
+                            </label>
+                          </div>
+
+                          <div className={styles.orDivider}>
+                            <span>OR</span>
+                          </div>
+
+                          <div className={styles.jsonInput}>
+                            <label>Paste JSON Data:</label>
+                            <textarea
+                              value={migrationData}
+                              onChange={(e) => setMigrationData(e.target.value)}
+                              placeholder='{"firm": {"name": "..."}, "users": [...], "contacts": [...], ...}'
+                              rows={12}
+                            />
+                          </div>
+                        </>
+                      )}
 
                       <div className={styles.migrationActions}>
                         <button 
