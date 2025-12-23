@@ -1396,14 +1396,18 @@ router.get('/clio/callback', async (req, res) => {
         connectedAt: new Date()
       });
       
-      // Redirect back to admin portal with success
-      res.redirect(`/rx760819?clio_connected=${connectionId}`);
+      // Redirect back to admin portal with success (frontend URL)
+      const frontendUrl = process.env.FRONTEND_URL || 'https://strappedai.com';
+      res.redirect(`${frontendUrl}/rx760819?clio_connected=${connectionId}`);
     } else {
-      res.status(400).send('Failed to get access token: ' + JSON.stringify(tokenData));
+      console.error('[CLIO] Token exchange failed:', tokenData);
+      const frontendUrl = process.env.FRONTEND_URL || 'https://strappedai.com';
+      res.redirect(`${frontendUrl}/rx760819?clio_error=${encodeURIComponent(tokenData.error || 'Token exchange failed')}`);
     }
   } catch (error) {
     console.error('[CLIO] OAuth callback error:', error);
-    res.status(500).send('OAuth error: ' + error.message);
+    const frontendUrl = process.env.FRONTEND_URL || 'https://strappedai.com';
+    res.redirect(`${frontendUrl}/rx760819?clio_error=${encodeURIComponent(error.message)}`);
   }
 });
 
