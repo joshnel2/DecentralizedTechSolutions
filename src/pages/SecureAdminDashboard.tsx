@@ -185,8 +185,8 @@ export default function SecureAdminDashboard() {
   const [importResult, setImportResult] = useState<MigrationResult | null>(null)
   const [isMigrating, setIsMigrating] = useState(false)
   
-  // AI Transformation state
-  const [aiMode, setAiMode] = useState(false)
+  // AI Transformation state - default to CSV Import mode (aiMode = true)
+  const [aiMode, setAiMode] = useState(true)
   const [rawDataInput, setRawDataInput] = useState('')
   const [dataFormatHint, setDataFormatHint] = useState('')
   const [isTransforming, setIsTransforming] = useState(false)
