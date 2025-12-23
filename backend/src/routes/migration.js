@@ -86,12 +86,27 @@ async function clioRequestUrl(accessToken, fullUrl) {
 
 // Main fetch function - routes to appropriate method based on endpoint
 async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null) {
-  // For contacts, use A-Z initial batching to bypass 10k limit (officially supported by Clio)
+  // For contacts, use A-Z initial batching (officially supported by Clio)
   if (endpoint.includes('contacts')) {
     return await clioGetContactsByInitial(accessToken, endpoint, params, onProgress);
   }
   
-  // For other endpoints, use standard pagination
+  // For matters, batch by status (Open, Pending, Closed)
+  if (endpoint.includes('matters')) {
+    return await clioGetMattersByStatus(accessToken, endpoint, params, onProgress);
+  }
+  
+  // For activities, batch by status (billed, unbilled, non_billable, etc.)
+  if (endpoint.includes('activities')) {
+    return await clioGetActivitiesByStatus(accessToken, endpoint, params, onProgress);
+  }
+  
+  // For bills, batch by state (draft, awaiting_payment, paid, etc.)
+  if (endpoint.includes('bills')) {
+    return await clioGetBillsByState(accessToken, endpoint, params, onProgress);
+  }
+  
+  // For other endpoints (users, calendar), use standard pagination
   return await clioGetPaginated(accessToken, endpoint, params, onProgress);
 }
 
@@ -112,7 +127,7 @@ async function clioGetContactsByInitial(accessToken, endpoint, params, onProgres
         accessToken, 
         endpoint, 
         { ...params, initial }, 
-        null // Don't report progress per letter
+        null
       );
       
       let newCount = 0;
@@ -125,10 +140,7 @@ async function clioGetContactsByInitial(accessToken, endpoint, params, onProgres
       }
       
       console.log(`[CLIO API] Letter "${initial}": got ${newCount} new, total now ${allData.length}`);
-      
-      if (onProgress) {
-        onProgress(allData.length);
-      }
+      if (onProgress) onProgress(allData.length);
       
     } catch (err) {
       console.log(`[CLIO API] Letter "${initial}" error: ${err.message}, continuing...`);
@@ -136,6 +148,126 @@ async function clioGetContactsByInitial(accessToken, endpoint, params, onProgres
   }
   
   console.log(`[CLIO API] Contacts A-Z complete: ${allData.length} total records`);
+  return allData;
+}
+
+// Fetch matters by status (Open, Pending, Closed) - each status has its own 10k limit
+async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress) {
+  const allData = [];
+  const seenIds = new Set();
+  const statuses = ['Open', 'Pending', 'Closed'];
+  
+  console.log(`[CLIO API] Fetching matters by status to bypass 10k limit...`);
+  
+  for (const status of statuses) {
+    console.log(`[CLIO API] Fetching matters with status "${status}"...`);
+    
+    try {
+      const statusData = await clioGetPaginated(
+        accessToken, 
+        endpoint, 
+        { ...params, status }, 
+        null
+      );
+      
+      let newCount = 0;
+      for (const item of statusData) {
+        if (item.id && !seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          allData.push(item);
+          newCount++;
+        }
+      }
+      
+      console.log(`[CLIO API] Status "${status}": got ${newCount} new, total now ${allData.length}`);
+      if (onProgress) onProgress(allData.length);
+      
+    } catch (err) {
+      console.log(`[CLIO API] Status "${status}" error: ${err.message}, continuing...`);
+    }
+  }
+  
+  console.log(`[CLIO API] Matters by status complete: ${allData.length} total records`);
+  return allData;
+}
+
+// Fetch activities by status - each status has its own 10k limit
+async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgress) {
+  const allData = [];
+  const seenIds = new Set();
+  const statuses = ['billed', 'unbilled', 'draft', 'non_billable'];
+  
+  console.log(`[CLIO API] Fetching activities by status to bypass 10k limit...`);
+  
+  for (const status of statuses) {
+    console.log(`[CLIO API] Fetching activities with status "${status}"...`);
+    
+    try {
+      const statusData = await clioGetPaginated(
+        accessToken, 
+        endpoint, 
+        { ...params, status }, 
+        null
+      );
+      
+      let newCount = 0;
+      for (const item of statusData) {
+        if (item.id && !seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          allData.push(item);
+          newCount++;
+        }
+      }
+      
+      console.log(`[CLIO API] Status "${status}": got ${newCount} new, total now ${allData.length}`);
+      if (onProgress) onProgress(allData.length);
+      
+    } catch (err) {
+      console.log(`[CLIO API] Status "${status}" error: ${err.message}, continuing...`);
+    }
+  }
+  
+  console.log(`[CLIO API] Activities by status complete: ${allData.length} total records`);
+  return allData;
+}
+
+// Fetch bills by state - each state has its own 10k limit
+async function clioGetBillsByState(accessToken, endpoint, params, onProgress) {
+  const allData = [];
+  const seenIds = new Set();
+  const states = ['draft', 'awaiting_approval', 'awaiting_payment', 'paid', 'void', 'deleted'];
+  
+  console.log(`[CLIO API] Fetching bills by state to bypass 10k limit...`);
+  
+  for (const state of states) {
+    console.log(`[CLIO API] Fetching bills with state "${state}"...`);
+    
+    try {
+      const stateData = await clioGetPaginated(
+        accessToken, 
+        endpoint, 
+        { ...params, state }, 
+        null
+      );
+      
+      let newCount = 0;
+      for (const item of stateData) {
+        if (item.id && !seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          allData.push(item);
+          newCount++;
+        }
+      }
+      
+      console.log(`[CLIO API] State "${state}": got ${newCount} new, total now ${allData.length}`);
+      if (onProgress) onProgress(allData.length);
+      
+    } catch (err) {
+      console.log(`[CLIO API] State "${state}" error: ${err.message}, continuing...`);
+    }
+  }
+  
+  console.log(`[CLIO API] Bills by state complete: ${allData.length} total records`);
   return allData;
 }
 
@@ -781,7 +913,9 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
             lastName = parts.slice(1).join(' ') || 'User';
           }
           
-          const passwordHash = await bcrypt.hash(user.password, 12);
+          // Generate password if missing
+          const password = user.password || (firstName || 'User') + Math.floor(1000 + Math.random() * 9000) + '!';
+          const passwordHash = await bcrypt.hash(password, 12);
           
           const userResult = await query(
             `INSERT INTO users (firm_id, email, password_hash, first_name, last_name, role, phone, hourly_rate, is_active)
