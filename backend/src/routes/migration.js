@@ -2250,14 +2250,16 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
       connectionId, 
       firmName, 
       existingFirmId,
-      skipMatters, 
-      skipActivities, 
-      skipBills, 
-      skipCalendar 
+      includeUsers = true,
+      includeContacts = true,
+      includeMatters = true, 
+      includeActivities = true, 
+      includeBills = true, 
+      includeCalendar = true 
     } = req.body;
     
     console.log('[CLIO IMPORT] Starting import for connection:', connectionId, 'firmName:', firmName);
-    console.log('[CLIO IMPORT] Options:', { existingFirmId, skipMatters, skipActivities, skipBills, skipCalendar });
+    console.log('[CLIO IMPORT] Include options:', { includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar });
     
     if (!connectionId) {
       console.error('[CLIO IMPORT] No connection ID provided');
@@ -2281,7 +2283,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
     }
     
     // Store options for background process
-    const importOptions = { existingFirmId, skipMatters, skipActivities, skipBills, skipCalendar };
+    const importOptions = { existingFirmId, includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar };
     
     // Initialize progress
     migrationProgress.set(connectionId, {
@@ -2333,76 +2335,86 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         };
         
         // 1. Import Users
-        // Note: Clio users API has very limited fields available
-        // Valid fields: id, name, first_name, last_name, email, enabled, subscription_type
-        // Rates are NOT available on user endpoint - will need to be set manually
-        console.log('[CLIO IMPORT] Step 1/6: Importing users...');
-        updateProgress('users', 'running', 0);
-        try {
-          const users = await clioGetAll(accessToken, '/users.json', {
-            fields: 'id,name,first_name,last_name,email,enabled,subscription_type'
-          }, (count) => updateProgress('users', 'running', count));
-          
-          result.users = users.map(u => ({
-            clio_id: u.id,
-            email: u.email || `user${u.id}@import.clio`,
-            first_name: u.first_name || u.name?.split(' ')[0] || 'User',
-            last_name: u.last_name || u.name?.split(' ').slice(1).join(' ') || '',
-            type: u.subscription_type || 'Attorney',
-            rate: null, // Rates not available from Clio API - set manually after import
-            enabled: u.enabled !== false,
-            password: (u.first_name || 'User') + Math.floor(1000 + Math.random() * 9000) + '!'
-          }));
-          updateProgress('users', 'done', result.users.length);
-          console.log(`[CLIO IMPORT] Users complete: ${result.users.length} records`);
-        } catch (err) {
-          console.error('[CLIO IMPORT] Users import error:', err.message);
-          updateProgress('users', 'error', 0, err.message);
-          // Users can be added manually via the UI, so continue with import
+        if (!includeUsers) {
+          console.log('[CLIO IMPORT] Step 1/6: SKIPPING users (user requested)');
+          updateProgress('users', 'skipped', 0);
+        } else {
+          // Note: Clio users API has very limited fields available
+          // Valid fields: id, name, first_name, last_name, email, enabled, subscription_type
+          // Rates are NOT available on user endpoint - will need to be set manually
+          console.log('[CLIO IMPORT] Step 1/6: Importing users...');
+          updateProgress('users', 'running', 0);
+          try {
+            const users = await clioGetAll(accessToken, '/users.json', {
+              fields: 'id,name,first_name,last_name,email,enabled,subscription_type'
+            }, (count) => updateProgress('users', 'running', count));
+            
+            result.users = users.map(u => ({
+              clio_id: u.id,
+              email: u.email || `user${u.id}@import.clio`,
+              first_name: u.first_name || u.name?.split(' ')[0] || 'User',
+              last_name: u.last_name || u.name?.split(' ').slice(1).join(' ') || '',
+              type: u.subscription_type || 'Attorney',
+              rate: null, // Rates not available from Clio API - set manually after import
+              enabled: u.enabled !== false,
+              password: (u.first_name || 'User') + Math.floor(1000 + Math.random() * 9000) + '!'
+            }));
+            updateProgress('users', 'done', result.users.length);
+            console.log(`[CLIO IMPORT] Users complete: ${result.users.length} records`);
+          } catch (err) {
+            console.error('[CLIO IMPORT] Users import error:', err.message);
+            updateProgress('users', 'error', 0, err.message);
+            // Users can be added manually via the UI, so continue with import
+          }
         }
         
         // 2. Import Contacts
-        console.log('[CLIO IMPORT] Step 2/6: Importing contacts...');
-        updateProgress('contacts', 'running', 0);
-        try {
-          // Clio contacts: use simplified fields that work reliably
-          const contacts = await clioGetAll(accessToken, '/contacts.json', {
-            fields: 'id,name,first_name,last_name,type,company{id,name},email_addresses,phone_numbers,addresses'
-          }, (count) => updateProgress('contacts', 'running', count));
-          
-          result.contacts = contacts.map(c => {
-            // Get primary email/phone from arrays
-            const primaryEmail = c.email_addresses?.find(e => e.default_email) || c.email_addresses?.[0];
-            const primaryPhone = c.phone_numbers?.find(p => p.default_number) || c.phone_numbers?.[0];
-            const primaryAddr = c.addresses?.find(a => a.primary) || c.addresses?.[0];
+        if (!includeContacts) {
+          console.log('[CLIO IMPORT] Step 2/6: SKIPPING contacts (user requested)');
+          updateProgress('contacts', 'skipped', 0);
+        } else {
+          console.log('[CLIO IMPORT] Step 2/6: Importing contacts...');
+          updateProgress('contacts', 'running', 0);
+          try {
+            // Clio contacts: use simplified fields that work reliably
+            const contacts = await clioGetAll(accessToken, '/contacts.json', {
+              fields: 'id,name,first_name,last_name,type,company{id,name},email_addresses,phone_numbers,addresses'
+            }, (count) => updateProgress('contacts', 'running', count));
             
-            return {
-              clio_id: c.id,
-              type: c.type === 'Company' ? 'Company' : 'Person',
-              name: c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown',
-              first_name: c.first_name || null,
-              last_name: c.last_name || null,
-              company: c.company?.name || null,
-              email: primaryEmail?.address || null,
-              phone: primaryPhone?.number || null,
-              addresses: primaryAddr ? [{
-                street: primaryAddr.street || null,
-                city: primaryAddr.city || null,
-                province: primaryAddr.province || null,
-                postal_code: primaryAddr.postal_code || null,
-                primary: true
-              }] : []
-            };
-          });
-          updateProgress('contacts', 'done', result.contacts.length);
-          console.log(`[CLIO IMPORT] Contacts complete: ${result.contacts.length} records`);
-        } catch (err) {
-          console.error('[CLIO IMPORT] Contacts import error:', err.message);
-          updateProgress('contacts', 'error', 0, err.message);
+            result.contacts = contacts.map(c => {
+              // Get primary email/phone from arrays
+              const primaryEmail = c.email_addresses?.find(e => e.default_email) || c.email_addresses?.[0];
+              const primaryPhone = c.phone_numbers?.find(p => p.default_number) || c.phone_numbers?.[0];
+              const primaryAddr = c.addresses?.find(a => a.primary) || c.addresses?.[0];
+              
+              return {
+                clio_id: c.id,
+                type: c.type === 'Company' ? 'Company' : 'Person',
+                name: c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown',
+                first_name: c.first_name || null,
+                last_name: c.last_name || null,
+                company: c.company?.name || null,
+                email: primaryEmail?.address || null,
+                phone: primaryPhone?.number || null,
+                addresses: primaryAddr ? [{
+                  street: primaryAddr.street || null,
+                  city: primaryAddr.city || null,
+                  province: primaryAddr.province || null,
+                  postal_code: primaryAddr.postal_code || null,
+                  primary: true
+                }] : []
+              };
+            });
+            updateProgress('contacts', 'done', result.contacts.length);
+            console.log(`[CLIO IMPORT] Contacts complete: ${result.contacts.length} records`);
+          } catch (err) {
+            console.error('[CLIO IMPORT] Contacts import error:', err.message);
+            updateProgress('contacts', 'error', 0, err.message);
+          }
         }
         
         // 3. Import Matters (using client IDs for better coverage)
-        if (skipMatters) {
+        if (!includeMatters) {
           console.log('[CLIO IMPORT] Step 3/6: SKIPPING matters (user requested)');
           updateProgress('matters', 'skipped', 0);
         } else {
@@ -2447,7 +2459,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         }
         
         // 4. Import Activities (Time Entries) - using matter IDs for better coverage
-        if (skipActivities) {
+        if (!includeActivities) {
           console.log('[CLIO IMPORT] Step 4/6: SKIPPING activities (user requested)');
           updateProgress('activities', 'skipped', 0);
         } else {
@@ -2492,7 +2504,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         }
         
         // 5. Import Bills
-        if (skipBills) {
+        if (!includeBills) {
           console.log('[CLIO IMPORT] Step 5/6: SKIPPING bills (user requested)');
           updateProgress('bills', 'skipped', 0);
         } else {
@@ -2528,7 +2540,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         }
         
         // 6. Import Calendar Entries
-        if (skipCalendar) {
+        if (!includeCalendar) {
           console.log('[CLIO IMPORT] Step 6/6: SKIPPING calendar (user requested)');
           updateProgress('calendar', 'skipped', 0);
         } else {

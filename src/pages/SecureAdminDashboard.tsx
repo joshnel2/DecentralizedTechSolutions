@@ -1160,10 +1160,12 @@ export default function SecureAdminDashboard() {
           connectionId, 
           firmName,
           existingFirmId: useExistingFirm ? selectedExistingFirmId : null,
-          skipMatters,
-          skipActivities,
-          skipBills,
-          skipCalendar
+          includeUsers,
+          includeContacts,
+          includeMatters,
+          includeActivities,
+          includeBills,
+          includeCalendar
         })
       })
       
@@ -1206,12 +1208,14 @@ export default function SecureAdminDashboard() {
         headers: getAuthHeaders(),
         body: JSON.stringify({ 
           connectionId: clioConnectionId,
-          skipMatters,
-          skipActivities,
-          skipBills,
-          skipCalendar,
           firmName: migrationInputs.firmName,
-          existingFirmId: useExistingFirm ? selectedExistingFirmId : null
+          existingFirmId: useExistingFirm ? selectedExistingFirmId : null,
+          includeUsers,
+          includeContacts,
+          includeMatters,
+          includeActivities,
+          includeBills,
+          includeCalendar
         })
       })
       
@@ -2313,27 +2317,35 @@ export default function SecureAdminDashboard() {
                                   />
                                 </div>
                                 
-                                {/* Skip options for testing */}
+                                {/* Data to Import */}
                                 <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '8px' }}>
                                   <p style={{ fontSize: '0.85rem', marginBottom: '0.5rem', color: '#93c5fd' }}>
-                                    <strong>Skip Options (for testing):</strong>
+                                    <strong>Select Data to Import:</strong>
                                   </p>
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                                      <input type="checkbox" checked={skipMatters} onChange={(e) => setSkipMatters(e.target.checked)} />
-                                      <span style={{ fontSize: '0.85rem' }}>Skip Matters</span>
+                                      <input type="checkbox" checked={includeUsers} onChange={(e) => setIncludeUsers(e.target.checked)} />
+                                      <span style={{ fontSize: '0.85rem' }}>Users</span>
                                     </label>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                                      <input type="checkbox" checked={skipActivities} onChange={(e) => setSkipActivities(e.target.checked)} />
-                                      <span style={{ fontSize: '0.85rem' }}>Skip Activities</span>
+                                      <input type="checkbox" checked={includeContacts} onChange={(e) => setIncludeContacts(e.target.checked)} />
+                                      <span style={{ fontSize: '0.85rem' }}>Contacts</span>
                                     </label>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                                      <input type="checkbox" checked={skipBills} onChange={(e) => setSkipBills(e.target.checked)} />
-                                      <span style={{ fontSize: '0.85rem' }}>Skip Bills</span>
+                                      <input type="checkbox" checked={includeMatters} onChange={(e) => setIncludeMatters(e.target.checked)} />
+                                      <span style={{ fontSize: '0.85rem' }}>Matters</span>
                                     </label>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                                      <input type="checkbox" checked={skipCalendar} onChange={(e) => setSkipCalendar(e.target.checked)} />
-                                      <span style={{ fontSize: '0.85rem' }}>Skip Calendar</span>
+                                      <input type="checkbox" checked={includeActivities} onChange={(e) => setIncludeActivities(e.target.checked)} />
+                                      <span style={{ fontSize: '0.85rem' }}>Time Entries</span>
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                      <input type="checkbox" checked={includeBills} onChange={(e) => setIncludeBills(e.target.checked)} />
+                                      <span style={{ fontSize: '0.85rem' }}>Bills</span>
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                      <input type="checkbox" checked={includeCalendar} onChange={(e) => setIncludeCalendar(e.target.checked)} />
+                                      <span style={{ fontSize: '0.85rem' }}>Calendar</span>
                                     </label>
                                   </div>
                                 </div>
