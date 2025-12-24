@@ -1151,6 +1151,27 @@ export default function SecureAdminDashboard() {
     setClioImporting(true)
     setClioProgress({ status: 'starting' })
     
+    // Read options directly from sessionStorage since React state may not be synced yet after OAuth redirect
+    const storedUseExistingFirm = sessionStorage.getItem('clio_useExistingFirm') === 'true'
+    const storedExistingFirmId = sessionStorage.getItem('clio_existingFirmId') || ''
+    const storedIncludeUsers = sessionStorage.getItem('clio_includeUsers') !== 'false'
+    const storedIncludeContacts = sessionStorage.getItem('clio_includeContacts') !== 'false'
+    const storedIncludeMatters = sessionStorage.getItem('clio_includeMatters') !== 'false'
+    const storedIncludeActivities = sessionStorage.getItem('clio_includeActivities') !== 'false'
+    const storedIncludeBills = sessionStorage.getItem('clio_includeBills') !== 'false'
+    const storedIncludeCalendar = sessionStorage.getItem('clio_includeCalendar') !== 'false'
+    
+    console.log('[CLIO] Import options from sessionStorage:', {
+      useExistingFirm: storedUseExistingFirm,
+      existingFirmId: storedExistingFirmId,
+      includeUsers: storedIncludeUsers,
+      includeContacts: storedIncludeContacts,
+      includeMatters: storedIncludeMatters,
+      includeActivities: storedIncludeActivities,
+      includeBills: storedIncludeBills,
+      includeCalendar: storedIncludeCalendar
+    })
+    
     try {
       console.log('[CLIO] Starting import for connection:', connectionId)
       const res = await fetch(`${API_URL}/migration/clio/import`, {
@@ -1159,13 +1180,13 @@ export default function SecureAdminDashboard() {
         body: JSON.stringify({ 
           connectionId, 
           firmName,
-          existingFirmId: useExistingFirm ? selectedExistingFirmId : null,
-          includeUsers,
-          includeContacts,
-          includeMatters,
-          includeActivities,
-          includeBills,
-          includeCalendar
+          existingFirmId: storedUseExistingFirm ? storedExistingFirmId : null,
+          includeUsers: storedIncludeUsers,
+          includeContacts: storedIncludeContacts,
+          includeMatters: storedIncludeMatters,
+          includeActivities: storedIncludeActivities,
+          includeBills: storedIncludeBills,
+          includeCalendar: storedIncludeCalendar
         })
       })
       
