@@ -84,41 +84,45 @@ const integrationConfigs: IntegrationConfig[] = [
   { 
     id: 'onedrive', 
     name: 'Microsoft OneDrive', 
-    description: 'Sync documents from OneDrive. Separate from Outlook - connect both for full Microsoft integration.', 
+    subtitle: 'Cloud file sync',
+    description: 'Connect your OneDrive account to automatically sync files to Documents. Click "Sync Now" to import files.', 
     category: 'storage', 
     icon: '☁️',
     provider: 'onedrive',
-    features: ['Document sync', 'Word/Excel/PPT', 'Cloud storage'],
+    features: ['Auto-sync files', 'Word/Excel/PPT', 'Import to Documents'],
     syncOptions: { documents: true }
   },
   { 
     id: 'google-drive', 
     name: 'Google Drive', 
-    description: 'Connect Google Drive for document storage and collaboration. Includes Docs, Sheets.', 
+    subtitle: 'Cloud file sync',
+    description: 'Connect your Google Drive to automatically sync files to Documents. Includes Docs, Sheets, and more.', 
     category: 'storage', 
     icon: '📁',
     provider: 'googledrive',
-    features: ['Cloud storage', 'Google Docs', 'File sharing'],
+    features: ['Auto-sync files', 'Google Docs', 'Import to Documents'],
     syncOptions: { documents: true }
   },
   { 
     id: 'dropbox', 
     name: 'Dropbox', 
-    description: 'Sync documents with Dropbox for secure file storage.', 
+    subtitle: 'Cloud file sync',
+    description: 'Connect your Dropbox account to automatically sync files to Documents.', 
     category: 'storage', 
     icon: '📦',
     provider: 'dropbox',
-    features: ['Secure storage', 'File sync', 'Team folders'],
+    features: ['Auto-sync files', 'Secure storage', 'Import to Documents'],
     syncOptions: { documents: true }
   },
   { 
     id: 'file-storage', 
     name: 'Local & Network Files', 
-    description: 'Link documents from your computer, network drives, or any cloud storage location.', 
+    subtitle: 'Link files from anywhere',
+    description: 'Link documents from your computer, network drives, SharePoint, or paste any URL. Files stay where they are - just linked for easy access.', 
     category: 'storage', 
     icon: '💾',
     provider: 'file-storage',
-    features: ['Local files', 'Network paths', 'Any cloud URL'],
+    features: ['Local files', 'Network drives', 'SharePoint', 'Any URL'],
     syncOptions: { documents: true }
   },
   
