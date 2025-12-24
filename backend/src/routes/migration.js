@@ -1417,7 +1417,6 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
     // 3. CREATE CONTACTS (Clients)
     // ============================================
     if (data.contacts && Array.isArray(data.contacts)) {
-      let skippedContacts = 0;
       for (const contact of data.contacts) {
         try {
           // Determine type
@@ -1435,34 +1434,6 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
             }
           }
           
-          // CHECK FOR EXISTING CONTACT - by name or email (for existing firm imports)
-          const existingClientId = contactIdMap.get(displayName.toLowerCase());
-          if (existingClientId) {
-            // Contact already exists - add clio_id mapping and skip
-            if (contact.id) contactIdMap.set(`clio:${contact.id}`, existingClientId);
-            if (contact.clio_id) contactIdMap.set(`clio:${contact.clio_id}`, existingClientId);
-            skippedContacts++;
-            continue;
-          }
-          
-          // Also check by email
-          const contactEmail = extractEmail(contact.email_addresses, contact.email);
-          if (contactEmail) {
-            const existingByEmail = await query(
-              'SELECT id FROM clients WHERE firm_id = $1 AND LOWER(email) = LOWER($2)',
-              [firmId, contactEmail]
-            );
-            if (existingByEmail.rows.length > 0) {
-              const existingId = existingByEmail.rows[0].id;
-              contactIdMap.set(displayName.toLowerCase(), existingId);
-              if (contact.id) contactIdMap.set(`clio:${contact.id}`, existingId);
-              if (contact.clio_id) contactIdMap.set(`clio:${contact.clio_id}`, existingId);
-              if (contact.name) contactIdMap.set(contact.name.toLowerCase(), existingId);
-              skippedContacts++;
-              continue;
-            }
-          }
-          
           const address = extractAddress(contact.addresses);
           
           const clientResult = await query(
@@ -1477,7 +1448,7 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
               contact.first_name || null,
               contact.last_name || null,
               contact.company || null,
-              contactEmail,
+              extractEmail(contact.email_addresses, contact.email),
               extractPhone(contact.phone_numbers, contact.phone),
               address.street,
               address.city,
@@ -1498,9 +1469,6 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
         } catch (err) {
           results.errors.push(`Contact "${contact.name || contact.company}": ${err.message}`);
         }
-      }
-      if (skippedContacts > 0) {
-        results.warnings.push(`Skipped ${skippedContacts} contacts that already existed in the firm`);
       }
     }
 
@@ -1534,7 +1502,6 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
     const firmShortName = firmName.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8).toUpperCase() || 'IMPORT';
     
     if (data.matters && Array.isArray(data.matters)) {
-      let skippedMatters = 0;
       for (const matter of data.matters) {
         try {
           // Generate unique matter number if blank
@@ -1543,31 +1510,15 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
             matterNumber = `MATTER-${matter.id || matter.clio_id || Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
           }
           
-          const matterName = matter.description || matter.name;
-          
-          // CHECK FOR EXISTING MATTER - if in same firm, skip and use existing
-          const existingMatter = await query(
-            'SELECT id, firm_id, number FROM matters WHERE number = $1', 
-            [matterNumber]
-          );
+          // CHECK FOR EXISTING MATTER NUMBER - ensure uniqueness
+          const existingMatter = await query('SELECT id, firm_id FROM matters WHERE number = $1', [matterNumber]);
           if (existingMatter.rows.length > 0) {
-            // Check if it's in the same firm we're importing to
-            if (existingFirmId && existingMatter.rows[0].firm_id === firmId) {
-              // Same firm - skip and use existing for linking
-              const existingId = existingMatter.rows[0].id;
-              matterIdMap.set(matterNumber, existingId);
-              if (matter.display_number) matterIdMap.set(matter.display_number, existingId);
-              if (matter.id) matterIdMap.set(`clio:${matter.id}`, existingId);
-              if (matter.clio_id) matterIdMap.set(`clio:${matter.clio_id}`, existingId);
-              skippedMatters++;
-              continue;
-            } else {
-              // Different firm - generate unique number
-              const originalNumber = matterNumber;
-              matterNumber = await generateUniqueMatterNumber(matterNumber, firmShortName);
-              results.warnings.push(`Matter number "${originalNumber}" already exists - using "${matterNumber}" instead`);
-            }
+            const originalNumber = matterNumber;
+            matterNumber = await generateUniqueMatterNumber(matterNumber, firmShortName);
+            results.warnings.push(`Matter number "${originalNumber}" already exists - using "${matterNumber}" instead`);
           }
+          
+          const matterName = matter.description || matter.name;
           
           // Find client
           let clientId = null;
