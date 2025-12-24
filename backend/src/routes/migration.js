@@ -196,56 +196,152 @@ async function clioGetContactsByInitial(accessToken, endpoint, params, onProgres
   return allData;
 }
 
-// Fetch matters by status + month (smallest possible batches)
-async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress) {
+// Fetch matters by client (most reliable - bypasses 10K limit per client)
+// Falls back to status+date batching if no clients available
+async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress, clientIds = null) {
   const allData = [];
   const seenIds = new Set();
-  const statuses = ['Open', 'Pending', 'Closed'];
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().getMonth() + 1;
   
-  console.log(`[CLIO API] Fetching matters by status + month (smallest batches)...`);
-  
-  for (const status of statuses) {
-    for (let year = 2000; year <= currentYear; year++) {
-      const maxMonth = (year === currentYear) ? currentMonth : 12;
+  // If we have client IDs, fetch matters per client (most reliable)
+  if (clientIds && clientIds.length > 0) {
+    console.log(`[CLIO API] Fetching matters by client (${clientIds.length} clients)...`);
+    
+    // Process clients in parallel batches of 5 for speed
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < clientIds.length; i += BATCH_SIZE) {
+      const batch = clientIds.slice(i, i + BATCH_SIZE);
       
-      for (let month = 1; month <= maxMonth; month++) {
-        const monthStr = String(month).padStart(2, '0');
-        const lastDay = new Date(year, month, 0).getDate();
-        const startDate = `${year}-${monthStr}-01`;
-        const endDate = `${year}-${monthStr}-${lastDay}`;
-        
+      const batchPromises = batch.map(async (clientId) => {
         try {
-          const batchData = await clioGetPaginated(
-            accessToken, 
-            endpoint, 
-            { 
-              ...params, 
-              status,
-              'open_date[]': [`>=${startDate}`, `<=${endDate}`]
-            }, 
+          const clientMatters = await clioGetPaginated(
+            accessToken,
+            endpoint,
+            { ...params, client_id: clientId },
             null
           );
-          
-          let newCount = 0;
-          for (const item of batchData) {
+          return clientMatters;
+        } catch (err) {
+          console.log(`[CLIO API] Error fetching matters for client ${clientId}: ${err.message}`);
+          return [];
+        }
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      
+      for (const clientMatters of batchResults) {
+        for (const item of clientMatters) {
+          if (item.id && !seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            allData.push(item);
+          }
+        }
+      }
+      
+      if (onProgress) onProgress(allData.length);
+      console.log(`[CLIO API] Matters progress: ${i + batch.length}/${clientIds.length} clients, ${allData.length} matters`);
+    }
+    
+    // Also fetch matters with no client (orphaned matters)
+    console.log(`[CLIO API] Fetching matters with no client...`);
+    try {
+      const noClientMatters = await clioGetPaginated(
+        accessToken,
+        endpoint,
+        { ...params, client_id: 'null' },
+        null
+      );
+      for (const item of noClientMatters) {
+        if (item.id && !seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          allData.push(item);
+        }
+      }
+    } catch (err) {
+      // Try without client filter for orphaned matters - use status batching
+      console.log(`[CLIO API] Fetching orphaned matters by status...`);
+      for (const status of ['Open', 'Pending', 'Closed']) {
+        try {
+          const statusMatters = await clioGetPaginated(
+            accessToken,
+            endpoint,
+            { ...params, status },
+            null
+          );
+          for (const item of statusMatters) {
             if (item.id && !seenIds.has(item.id)) {
               seenIds.add(item.id);
               allData.push(item);
-              newCount++;
             }
           }
-          
-          if (newCount > 0) {
-            console.log(`[CLIO API] Matters ${status} ${year}-${monthStr}: +${newCount}, total ${allData.length}`);
-          }
-          if (onProgress) onProgress(allData.length);
-          
-        } catch (err) {
-          // Skip errors silently for date filters
+        } catch (e) {
+          // Continue
         }
       }
+    }
+    
+    console.log(`[CLIO API] Matters complete: ${allData.length} total records`);
+    return allData;
+  }
+  
+  // Fallback: status + year batching (if no clients provided)
+  const statuses = ['Open', 'Pending', 'Closed'];
+  const currentYear = new Date().getFullYear();
+  
+  console.log(`[CLIO API] Fetching matters by status + year (fallback)...`);
+  
+  for (const status of statuses) {
+    // Batch by year instead of month for speed
+    for (let year = 1990; year <= currentYear; year++) {
+      const startDate = `${year}-01-01`;
+      const endDate = `${year}-12-31`;
+      
+      try {
+        const batchData = await clioGetPaginated(
+          accessToken, 
+          endpoint, 
+          { 
+            ...params, 
+            status,
+            'open_date[]': [`>=${startDate}`, `<=${endDate}`]
+          }, 
+          null
+        );
+        
+        let newCount = 0;
+        for (const item of batchData) {
+          if (item.id && !seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            allData.push(item);
+            newCount++;
+          }
+        }
+        
+        if (newCount > 0) {
+          console.log(`[CLIO API] Matters ${status} ${year}: +${newCount}, total ${allData.length}`);
+        }
+        if (onProgress) onProgress(allData.length);
+        
+      } catch (err) {
+        // Skip errors silently for date filters
+      }
+    }
+    
+    // Also get matters with NULL open_date for this status
+    try {
+      const nullDateMatters = await clioGetPaginated(
+        accessToken,
+        endpoint,
+        { ...params, status, open_date: 'null' },
+        null
+      );
+      for (const item of nullDateMatters) {
+        if (item.id && !seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          allData.push(item);
+        }
+      }
+    } catch (err) {
+      // Continue
     }
   }
   
@@ -253,55 +349,102 @@ async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress)
   return allData;
 }
 
-// Fetch activities by status + month (smallest possible batches)
-async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgress) {
+// Fetch activities by matter (most reliable - bypasses 10K limit)
+// Falls back to status+year batching if no matters available
+async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgress, matterIds = null) {
   const allData = [];
   const seenIds = new Set();
-  const statuses = ['billed', 'unbilled', 'draft', 'non_billable'];
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().getMonth() + 1;
   
-  console.log(`[CLIO API] Fetching activities by status + month (smallest batches)...`);
-  
-  for (const status of statuses) {
-    for (let year = 2000; year <= currentYear; year++) {
-      const maxMonth = (year === currentYear) ? currentMonth : 12;
+  // If we have matter IDs, fetch activities per matter (most reliable)
+  if (matterIds && matterIds.length > 0) {
+    console.log(`[CLIO API] Fetching activities by matter (${matterIds.length} matters)...`);
+    
+    // Process matters in parallel batches of 10 for speed
+    const BATCH_SIZE = 10;
+    let processedCount = 0;
+    
+    for (let i = 0; i < matterIds.length; i += BATCH_SIZE) {
+      const batch = matterIds.slice(i, i + BATCH_SIZE);
       
-      for (let month = 1; month <= maxMonth; month++) {
-        const monthStr = String(month).padStart(2, '0');
-        const lastDay = new Date(year, month, 0).getDate();
-        const startDate = `${year}-${monthStr}-01`;
-        const endDate = `${year}-${monthStr}-${lastDay}`;
-        
+      const batchPromises = batch.map(async (matterId) => {
         try {
-          const batchData = await clioGetPaginated(
-            accessToken, 
-            endpoint, 
-            { 
-              ...params, 
-              status,
-              'date[]': [`>=${startDate}`, `<=${endDate}`]
-            }, 
+          const matterActivities = await clioGetPaginated(
+            accessToken,
+            endpoint,
+            { ...params, matter_id: matterId },
             null
           );
-          
-          let newCount = 0;
-          for (const item of batchData) {
-            if (item.id && !seenIds.has(item.id)) {
-              seenIds.add(item.id);
-              allData.push(item);
-              newCount++;
-            }
-          }
-          
-          if (newCount > 0) {
-            console.log(`[CLIO API] Activities ${status} ${year}-${monthStr}: +${newCount}, total ${allData.length}`);
-          }
-          if (onProgress) onProgress(allData.length);
-          
+          return matterActivities;
         } catch (err) {
-          // Skip errors silently for date filters
+          // Silent fail for individual matters
+          return [];
         }
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      
+      for (const matterActivities of batchResults) {
+        for (const item of matterActivities) {
+          if (item.id && !seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            allData.push(item);
+          }
+        }
+      }
+      
+      processedCount += batch.length;
+      if (onProgress) onProgress(allData.length);
+      
+      // Log progress every 50 matters
+      if (processedCount % 50 === 0 || processedCount === matterIds.length) {
+        console.log(`[CLIO API] Activities progress: ${processedCount}/${matterIds.length} matters, ${allData.length} activities`);
+      }
+    }
+    
+    console.log(`[CLIO API] Activities complete: ${allData.length} total records`);
+    return allData;
+  }
+  
+  // Fallback: status + year batching (if no matters provided)
+  const statuses = ['billed', 'unbilled', 'non_billable'];
+  const currentYear = new Date().getFullYear();
+  
+  console.log(`[CLIO API] Fetching activities by status + year (fallback)...`);
+  
+  for (const status of statuses) {
+    // Batch by year for speed
+    for (let year = 1990; year <= currentYear; year++) {
+      const startDate = `${year}-01-01`;
+      const endDate = `${year}-12-31`;
+      
+      try {
+        const batchData = await clioGetPaginated(
+          accessToken, 
+          endpoint, 
+          { 
+            ...params, 
+            status,
+            'date[]': [`>=${startDate}`, `<=${endDate}`]
+          }, 
+          null
+        );
+        
+        let newCount = 0;
+        for (const item of batchData) {
+          if (item.id && !seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            allData.push(item);
+            newCount++;
+          }
+        }
+        
+        if (newCount > 0) {
+          console.log(`[CLIO API] Activities ${status} ${year}: +${newCount}, total ${allData.length}`);
+        }
+        if (onProgress) onProgress(allData.length);
+        
+      } catch (err) {
+        // Skip errors silently for date filters
       }
     }
   }
@@ -2225,14 +2368,25 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           updateProgress('contacts', 'error', 0, err.message);
         }
         
-        // 3. Import Matters
+        // 3. Import Matters (using client IDs for better coverage)
         console.log('[CLIO IMPORT] Step 3/6: Importing matters...');
         updateProgress('matters', 'running', 0);
         try {
+          // Extract client IDs from contacts for per-client batching
+          const clientIds = result.contacts
+            .filter(c => c.clio_id)
+            .map(c => c.clio_id);
+          
+          console.log(`[CLIO IMPORT] Using ${clientIds.length} client IDs for matter batching`);
+          
           // Clio matters: nested objects need explicit field specification
-          const matters = await clioGetAll(accessToken, '/matters.json', {
-            fields: 'id,display_number,description,status,open_date,close_date,billing_method,client{id,name},responsible_attorney{id,name},originating_attorney{id,name},practice_area{id,name}'
-          }, (count) => updateProgress('matters', 'running', count));
+          const matters = await clioGetMattersByStatus(
+            accessToken, 
+            '/matters.json', 
+            { fields: 'id,display_number,description,status,open_date,close_date,billing_method,client{id,name},responsible_attorney{id,name},originating_attorney{id,name},practice_area{id,name}' },
+            (count) => updateProgress('matters', 'running', count),
+            clientIds.length > 0 ? clientIds : null
+          );
           
           result.matters = matters.map((m, idx) => ({
             clio_id: m.id,
@@ -2254,14 +2408,25 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           updateProgress('matters', 'error', 0, err.message);
         }
         
-        // 4. Import Activities (Time Entries)
+        // 4. Import Activities (Time Entries) - using matter IDs for better coverage
         console.log('[CLIO IMPORT] Step 4/6: Importing activities...');
         updateProgress('activities', 'running', 0);
         try {
+          // Extract matter IDs for per-matter batching (bypasses 10K limit)
+          const matterIds = result.matters
+            .filter(m => m.clio_id)
+            .map(m => m.clio_id);
+          
+          console.log(`[CLIO IMPORT] Using ${matterIds.length} matter IDs for activity batching`);
+          
           // Clio activities: rate is not a direct field, use price; matter/user are nested
-          const activities = await clioGetAll(accessToken, '/activities.json', {
-            fields: 'id,type,date,quantity,price,total,note,billed,non_billable,matter{id,display_number},user{id,name}'
-          }, (count) => updateProgress('activities', 'running', count));
+          const activities = await clioGetActivitiesByStatus(
+            accessToken, 
+            '/activities.json', 
+            { fields: 'id,type,date,quantity,price,total,note,billed,non_billable,matter{id,display_number},user{id,name}' },
+            (count) => updateProgress('activities', 'running', count),
+            matterIds.length > 0 ? matterIds : null
+          );
           
           result.activities = activities.map(a => ({
             clio_id: a.id,
