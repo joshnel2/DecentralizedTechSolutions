@@ -2201,6 +2201,17 @@
   border-color: rgba(239, 68, 68, 0.3);
 }
 
+.progressItem.skipped {
+  background: rgba(107, 114, 128, 0.1);
+  border-color: rgba(107, 114, 128, 0.3);
+  opacity: 0.7;
+}
+
+.progressItem.pending {
+  background: rgba(251, 191, 36, 0.05);
+  border-color: rgba(251, 191, 36, 0.2);
+}
+
 .progressLabel {
   font-weight: 500;
   text-transform: capitalize;
@@ -2224,6 +2235,14 @@
 
 .progressItem.error .progressStatus {
   color: #ef4444;
+}
+
+.progressItem.skipped .progressStatus {
+  color: #6b7280;
+}
+
+.progressItem.pending .progressStatus {
+  color: #fbbf24;
 }
 
 .clioSummary {
