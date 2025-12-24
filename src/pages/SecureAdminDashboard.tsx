@@ -199,6 +199,12 @@ export default function SecureAdminDashboard() {
   const [clioConnectionId, setClioConnectionId] = useState<string | null>(null)
   const [clioUser, setClioUser] = useState<{ name: string; email: string } | null>(null)
   const [clioImporting, setClioImporting] = useState(false)
+  
+  // Skip options for testing
+  const [skipMatters, setSkipMatters] = useState(false)
+  const [skipActivities, setSkipActivities] = useState(false)
+  const [skipBills, setSkipBills] = useState(false)
+  const [skipCalendar, setSkipCalendar] = useState(false)
   const [clioProgress, setClioProgress] = useState<{
     status: string;
     steps?: Record<string, { status: string; count: number }>;
@@ -1133,7 +1139,14 @@ export default function SecureAdminDashboard() {
       const res = await fetch(`${API_URL}/migration/clio/import`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ connectionId, firmName })
+        body: JSON.stringify({ 
+          connectionId, 
+          firmName,
+          skipMatters,
+          skipActivities,
+          skipBills,
+          skipCalendar
+        })
       })
       
       const result = await res.json()
@@ -2232,10 +2245,37 @@ export default function SecureAdminDashboard() {
                                     placeholder="Paste your Clio Client Secret"
                                   />
                                 </div>
+                                
+                                {/* Skip options for testing */}
+                                <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '8px' }}>
+                                  <p style={{ fontSize: '0.85rem', marginBottom: '0.5rem', color: '#93c5fd' }}>
+                                    <strong>Skip Options (for testing):</strong>
+                                  </p>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                      <input type="checkbox" checked={skipMatters} onChange={(e) => setSkipMatters(e.target.checked)} />
+                                      <span style={{ fontSize: '0.85rem' }}>Skip Matters</span>
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                      <input type="checkbox" checked={skipActivities} onChange={(e) => setSkipActivities(e.target.checked)} />
+                                      <span style={{ fontSize: '0.85rem' }}>Skip Activities</span>
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                      <input type="checkbox" checked={skipBills} onChange={(e) => setSkipBills(e.target.checked)} />
+                                      <span style={{ fontSize: '0.85rem' }}>Skip Bills</span>
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                      <input type="checkbox" checked={skipCalendar} onChange={(e) => setSkipCalendar(e.target.checked)} />
+                                      <span style={{ fontSize: '0.85rem' }}>Skip Calendar</span>
+                                    </label>
+                                  </div>
+                                </div>
+                                
                                 <button 
                                   onClick={connectToClio}
                                   disabled={clioImporting || !clioClientId.trim() || !clioClientSecret.trim() || !migrationInputs.firmName.trim()}
                                   className={styles.primaryBtn}
+                                  style={{ marginTop: '1rem' }}
                                 >
                                   {clioImporting ? (
                                     <><RefreshCw size={18} className={styles.spinner} /> Connecting...</>
