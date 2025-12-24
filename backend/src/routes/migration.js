@@ -14,8 +14,22 @@ const CLIO_API_BASE = 'https://app.clio.com/api/v4';
 const clioConnections = new Map();
 
 // Helper to make Clio API requests with better error handling
+// Clio rate limit: 50 requests per minute (approx 1.2 seconds between requests)
+const REQUEST_DELAY_MS = 1300; // 1.3 seconds between requests to stay under 50/min
+let lastRequestTime = 0;
+
 async function clioRequest(accessToken, endpoint, params = {}, retryCount = 0) {
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 5; // Increased retries for rate limits
+  
+  // Rate limiting: ensure minimum delay between requests
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastRequestTime;
+  if (timeSinceLastRequest < REQUEST_DELAY_MS && lastRequestTime > 0) {
+    const waitTime = REQUEST_DELAY_MS - timeSinceLastRequest;
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+  lastRequestTime = Date.now();
+  
   const url = new URL(`${CLIO_API_BASE}${endpoint}`);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined) {
@@ -44,18 +58,19 @@ async function clioRequest(accessToken, endpoint, params = {}, retryCount = 0) {
       const error = await response.text();
       console.error(`[CLIO API] Error response: ${error}`);
       
-      // Handle rate limiting with automatic retry
+      // Handle rate limiting with exponential backoff
       if (response.status === 429) {
         if (retryCount >= MAX_RETRIES) {
-          throw new Error('Clio rate limit exceeded after maximum retries.');
+          console.error(`[CLIO API] Rate limit exceeded after ${MAX_RETRIES} retries. Continuing with partial data.`);
+          return { data: [] }; // Return empty instead of throwing to continue import
         }
-        // Parse retry time from error message, default to 60 seconds
-        let waitTime = 60;
+        // Parse retry time from error message, default to exponential backoff
+        let waitTime = Math.min(30 + (retryCount * 30), 120); // 30s, 60s, 90s, 120s
         try {
           const errorObj = JSON.parse(error);
           const match = errorObj?.error?.message?.match(/Retry in (\d+) seconds/);
           if (match) {
-            waitTime = parseInt(match[1], 10) + 5; // Add 5 second buffer
+            waitTime = parseInt(match[1], 10) + 10; // Add 10 second buffer
           }
         } catch (e) {}
         console.log(`[CLIO API] Rate limited. Waiting ${waitTime}s before retry ${retryCount + 1}/${MAX_RETRIES}...`);
@@ -71,6 +86,12 @@ async function clioRequest(accessToken, endpoint, params = {}, retryCount = 0) {
         throw new Error('Access denied. Check that your Clio app has the required permissions.');
       }
       
+      // Handle 400 errors (bad request) - often due to invalid field parameters
+      if (response.status === 400) {
+        console.error(`[CLIO API] Bad request for ${endpoint}. Trying with minimal fields...`);
+        return { data: [] }; // Return empty to continue
+      }
+      
       throw new Error(`Clio API error: ${response.status} - ${error}`);
     }
     
@@ -79,51 +100,87 @@ async function clioRequest(accessToken, endpoint, params = {}, retryCount = 0) {
     return data;
   } catch (fetchError) {
     console.error(`[CLIO API] Fetch error for ${endpoint}:`, fetchError.message);
+    // For network errors, retry with exponential backoff
+    if (retryCount < MAX_RETRIES && (fetchError.message.includes('network') || fetchError.message.includes('ETIMEDOUT'))) {
+      const waitTime = 5 + (retryCount * 5);
+      console.log(`[CLIO API] Network error, retrying in ${waitTime}s...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+      return clioRequest(accessToken, endpoint, params, retryCount + 1);
+    }
     throw fetchError;
   }
 }
 
 // Helper to fetch from Clio using a full URL (for pagination)
 async function clioRequestUrl(accessToken, fullUrl, retryCount = 0) {
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 5;
+  
+  // Rate limiting: ensure minimum delay between requests
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastRequestTime;
+  if (timeSinceLastRequest < REQUEST_DELAY_MS && lastRequestTime > 0) {
+    const waitTime = REQUEST_DELAY_MS - timeSinceLastRequest;
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+  lastRequestTime = Date.now();
+  
   console.log(`[CLIO API] Fetching URL: ${fullUrl.substring(0, 80)}...`);
   
-  const response = await fetch(fullUrl, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    }
-  });
-  
-  console.log(`[CLIO API] Response status: ${response.status}`);
-  
-  if (!response.ok) {
-    const text = await response.text();
-    console.log(`[CLIO API] Error response: ${text}`);
-    
-    // Handle rate limiting with automatic retry
-    if (response.status === 429) {
-      if (retryCount >= MAX_RETRIES) {
-        throw new Error('Clio rate limit exceeded after maximum retries.');
+  try {
+    const response = await fetch(fullUrl, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
       }
-      // Parse retry time from error message, default to 60 seconds
-      let waitTime = 60;
-      try {
-        const errorObj = JSON.parse(text);
-        const match = errorObj?.error?.message?.match(/Retry in (\d+) seconds/);
-        if (match) {
-          waitTime = parseInt(match[1], 10) + 5; // Add 5 second buffer
+    });
+    
+    console.log(`[CLIO API] Response status: ${response.status}`);
+    
+    if (!response.ok) {
+      const text = await response.text();
+      console.log(`[CLIO API] Error response: ${text}`);
+      
+      // Handle rate limiting with exponential backoff
+      if (response.status === 429) {
+        if (retryCount >= MAX_RETRIES) {
+          console.error(`[CLIO API] Rate limit exceeded after ${MAX_RETRIES} retries. Returning partial data.`);
+          return { data: [], meta: {} }; // Return empty instead of throwing
         }
-      } catch (e) {}
-      console.log(`[CLIO API] Rate limited. Waiting ${waitTime}s before retry ${retryCount + 1}/${MAX_RETRIES}...`);
+        // Parse retry time from error message, default to exponential backoff
+        let waitTime = Math.min(30 + (retryCount * 30), 120);
+        try {
+          const errorObj = JSON.parse(text);
+          const match = errorObj?.error?.message?.match(/Retry in (\d+) seconds/);
+          if (match) {
+            waitTime = parseInt(match[1], 10) + 10;
+          }
+        } catch (e) {}
+        console.log(`[CLIO API] Rate limited. Waiting ${waitTime}s before retry ${retryCount + 1}/${MAX_RETRIES}...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+        return clioRequestUrl(accessToken, fullUrl, retryCount + 1);
+      }
+      
+      // For out of bounds/10k limit errors, stop pagination gracefully
+      if (text.includes('out of bounds') || text.includes('page_token') || response.status === 400) {
+        console.log(`[CLIO API] Pagination limit reached, returning collected data`);
+        return { data: [], meta: {} };
+      }
+      
+      throw new Error(`Clio API error: ${response.status} - ${text}`);
+    }
+    
+    return response.json();
+  } catch (fetchError) {
+    console.error(`[CLIO API] Fetch error:`, fetchError.message);
+    // For network errors, retry with exponential backoff
+    if (retryCount < MAX_RETRIES && (fetchError.message.includes('network') || fetchError.message.includes('ETIMEDOUT'))) {
+      const waitTime = 5 + (retryCount * 5);
+      console.log(`[CLIO API] Network error, retrying in ${waitTime}s...`);
       await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
       return clioRequestUrl(accessToken, fullUrl, retryCount + 1);
     }
-    
-    throw new Error(`Clio API error: ${response.status} - ${text}`);
+    throw fetchError;
   }
-  
-  return response.json();
 }
 
 // Main fetch function - routes to appropriate method based on endpoint
@@ -547,8 +604,8 @@ async function clioGetPaginated(accessToken, endpoint, params = {}, onProgress =
   let nextUrl = null;
   let hasMore = true;
   let pageCount = 0;
-  let retryCount = 0;
-  const maxRetries = 5;
+  let consecutiveErrors = 0;
+  const maxConsecutiveErrors = 3;
   
   console.log(`[CLIO API] Starting paginated fetch for ${endpoint}`);
   
@@ -577,7 +634,8 @@ async function clioGetPaginated(accessToken, endpoint, params = {}, onProgress =
         }
       }
       
-      retryCount = 0;
+      // Reset error count on success
+      consecutiveErrors = 0;
       
       if (onProgress) {
         onProgress(allData.length);
@@ -590,28 +648,33 @@ async function clioGetPaginated(accessToken, endpoint, params = {}, onProgress =
         hasMore = false;
       }
       
-      await new Promise(r => setTimeout(r, 1500));
+      // Rate limiting is now handled in clioRequest/clioRequestUrl
+      // Just a small buffer between pages
+      await new Promise(r => setTimeout(r, 200));
       
     } catch (error) {
-      if (error.message.includes('rate limit') || error.message.includes('429') || error.message.includes('Rate')) {
-        retryCount++;
-        if (retryCount > maxRetries) throw error;
-        
-        const waitTime = 35 + (retryCount * 10);
-        console.log(`[CLIO API] Rate limited. Waiting ${waitTime}s...`);
-        await new Promise(r => setTimeout(r, waitTime * 1000));
-        pageCount--;
-        continue;
-      }
+      consecutiveErrors++;
+      console.error(`[CLIO API] Error on page ${pageCount}:`, error.message);
       
-      // Hit 10k limit - stop gracefully
-      if (error.message.includes('out of bounds') || error.message.includes('page_token')) {
-        console.log(`[CLIO API] Hit 10k limit for ${endpoint}, got ${allData.length} records`);
+      // Hit 10k limit or pagination error - stop gracefully
+      if (error.message.includes('out of bounds') || error.message.includes('page_token') || error.message.includes('400')) {
+        console.log(`[CLIO API] Pagination limit reached for ${endpoint}, got ${allData.length} records`);
         hasMore = false;
         break;
       }
       
-      throw error;
+      // If too many consecutive errors, stop gracefully with what we have
+      if (consecutiveErrors >= maxConsecutiveErrors) {
+        console.log(`[CLIO API] ${maxConsecutiveErrors} consecutive errors, stopping with ${allData.length} records`);
+        hasMore = false;
+        break;
+      }
+      
+      // For other errors, wait and retry the same page
+      const waitTime = 10 + (consecutiveErrors * 10);
+      console.log(`[CLIO API] Waiting ${waitTime}s before retry...`);
+      await new Promise(r => setTimeout(r, waitTime * 1000));
+      pageCount--; // Retry same page
     }
   }
   
@@ -1205,6 +1268,65 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
     results.firm_name = firmName;
 
     // ============================================
+    // 1.5. PRE-LOAD EXISTING FIRM DATA FOR LINKING
+    // ============================================
+    // When importing to existing firm, pre-populate lookup maps with existing data
+    // This allows selective imports (e.g., only activities) to link to existing matters/users
+    if (existingFirmId) {
+      console.log(`[MIGRATION] Pre-loading existing firm data for linking...`);
+      
+      // Load existing users
+      const existingUsers = await query(
+        'SELECT id, email, first_name, last_name FROM users WHERE firm_id = $1',
+        [firmId]
+      );
+      for (const user of existingUsers.rows) {
+        const email = user.email?.toLowerCase();
+        if (email) {
+          userIdMap.set(email, user.id);
+          const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim().toLowerCase();
+          if (fullName) userIdMap.set(fullName, user.id);
+        }
+      }
+      console.log(`[MIGRATION] Pre-loaded ${existingUsers.rows.length} existing users`);
+      
+      // Load existing clients
+      const existingClients = await query(
+        'SELECT id, display_name, first_name, last_name, company_name FROM clients WHERE firm_id = $1',
+        [firmId]
+      );
+      for (const client of existingClients.rows) {
+        if (client.display_name) {
+          contactIdMap.set(client.display_name.toLowerCase(), client.id);
+        }
+        if (client.company_name) {
+          contactIdMap.set(client.company_name.toLowerCase(), client.id);
+        }
+        const fullName = `${client.first_name || ''} ${client.last_name || ''}`.trim().toLowerCase();
+        if (fullName) {
+          contactIdMap.set(fullName, client.id);
+        }
+      }
+      console.log(`[MIGRATION] Pre-loaded ${existingClients.rows.length} existing clients`);
+      
+      // Load existing matters
+      const existingMatters = await query(
+        'SELECT id, number, name FROM matters WHERE firm_id = $1',
+        [firmId]
+      );
+      for (const matter of existingMatters.rows) {
+        if (matter.number) {
+          matterIdMap.set(matter.number, matter.id);
+          matterIdMap.set(matter.number.toLowerCase(), matter.id);
+        }
+        if (matter.name) {
+          matterIdMap.set(matter.name.toLowerCase(), matter.id);
+        }
+      }
+      console.log(`[MIGRATION] Pre-loaded ${existingMatters.rows.length} existing matters`);
+    }
+
+    // ============================================
     // 2. CREATE USERS
     // ============================================
     if (data.users && Array.isArray(data.users)) {
@@ -1295,6 +1417,7 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
     // 3. CREATE CONTACTS (Clients)
     // ============================================
     if (data.contacts && Array.isArray(data.contacts)) {
+      let skippedContacts = 0;
       for (const contact of data.contacts) {
         try {
           // Determine type
@@ -1312,6 +1435,34 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
             }
           }
           
+          // CHECK FOR EXISTING CONTACT - by name or email (for existing firm imports)
+          const existingClientId = contactIdMap.get(displayName.toLowerCase());
+          if (existingClientId) {
+            // Contact already exists - add clio_id mapping and skip
+            if (contact.id) contactIdMap.set(`clio:${contact.id}`, existingClientId);
+            if (contact.clio_id) contactIdMap.set(`clio:${contact.clio_id}`, existingClientId);
+            skippedContacts++;
+            continue;
+          }
+          
+          // Also check by email
+          const contactEmail = extractEmail(contact.email_addresses, contact.email);
+          if (contactEmail) {
+            const existingByEmail = await query(
+              'SELECT id FROM clients WHERE firm_id = $1 AND LOWER(email) = LOWER($2)',
+              [firmId, contactEmail]
+            );
+            if (existingByEmail.rows.length > 0) {
+              const existingId = existingByEmail.rows[0].id;
+              contactIdMap.set(displayName.toLowerCase(), existingId);
+              if (contact.id) contactIdMap.set(`clio:${contact.id}`, existingId);
+              if (contact.clio_id) contactIdMap.set(`clio:${contact.clio_id}`, existingId);
+              if (contact.name) contactIdMap.set(contact.name.toLowerCase(), existingId);
+              skippedContacts++;
+              continue;
+            }
+          }
+          
           const address = extractAddress(contact.addresses);
           
           const clientResult = await query(
@@ -1326,7 +1477,7 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
               contact.first_name || null,
               contact.last_name || null,
               contact.company || null,
-              extractEmail(contact.email_addresses, contact.email),
+              contactEmail,
               extractPhone(contact.phone_numbers, contact.phone),
               address.street,
               address.city,
@@ -1347,6 +1498,9 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
         } catch (err) {
           results.errors.push(`Contact "${contact.name || contact.company}": ${err.message}`);
         }
+      }
+      if (skippedContacts > 0) {
+        results.warnings.push(`Skipped ${skippedContacts} contacts that already existed in the firm`);
       }
     }
 
@@ -1380,6 +1534,7 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
     const firmShortName = firmName.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8).toUpperCase() || 'IMPORT';
     
     if (data.matters && Array.isArray(data.matters)) {
+      let skippedMatters = 0;
       for (const matter of data.matters) {
         try {
           // Generate unique matter number if blank
@@ -1388,15 +1543,31 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
             matterNumber = `MATTER-${matter.id || matter.clio_id || Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
           }
           
-          // CHECK FOR EXISTING MATTER NUMBER - ensure uniqueness
-          const existingMatter = await query('SELECT id, firm_id FROM matters WHERE number = $1', [matterNumber]);
-          if (existingMatter.rows.length > 0) {
-            const originalNumber = matterNumber;
-            matterNumber = await generateUniqueMatterNumber(matterNumber, firmShortName);
-            results.warnings.push(`Matter number "${originalNumber}" already exists - using "${matterNumber}" instead`);
-          }
-          
           const matterName = matter.description || matter.name;
+          
+          // CHECK FOR EXISTING MATTER - if in same firm, skip and use existing
+          const existingMatter = await query(
+            'SELECT id, firm_id, number FROM matters WHERE number = $1', 
+            [matterNumber]
+          );
+          if (existingMatter.rows.length > 0) {
+            // Check if it's in the same firm we're importing to
+            if (existingFirmId && existingMatter.rows[0].firm_id === firmId) {
+              // Same firm - skip and use existing for linking
+              const existingId = existingMatter.rows[0].id;
+              matterIdMap.set(matterNumber, existingId);
+              if (matter.display_number) matterIdMap.set(matter.display_number, existingId);
+              if (matter.id) matterIdMap.set(`clio:${matter.id}`, existingId);
+              if (matter.clio_id) matterIdMap.set(`clio:${matter.clio_id}`, existingId);
+              skippedMatters++;
+              continue;
+            } else {
+              // Different firm - generate unique number
+              const originalNumber = matterNumber;
+              matterNumber = await generateUniqueMatterNumber(matterNumber, firmShortName);
+              results.warnings.push(`Matter number "${originalNumber}" already exists - using "${matterNumber}" instead`);
+            }
+          }
           
           // Find client
           let clientId = null;

@@ -2458,6 +2458,8 @@ export default function SecureAdminDashboard() {
                                             <><RefreshCw size={16} className={styles.spinner} /> {info.count}...</>
                                           ) : info.status === 'error' ? (
                                             <><XCircle size={16} /> Error</>
+                                          ) : info.status === 'skipped' ? (
+                                            <><span style={{ opacity: 0.5 }}>—</span> Skipped</>
                                           ) : (
                                             <><Clock size={16} /> Pending</>
                                           )}
@@ -2544,16 +2546,22 @@ export default function SecureAdminDashboard() {
                                     setIsMigrating(true)
                                     try {
                                       const parsedData = JSON.parse(migrationData)
+                                      // Pass existingFirmId if migrating to existing firm
+                                      const importPayload: { data: typeof parsedData; existingFirmId?: string } = { data: parsedData }
+                                      if (useExistingFirm && selectedExistingFirmId) {
+                                        importPayload.existingFirmId = selectedExistingFirmId
+                                      }
                                       const res = await fetch(`${API_URL}/migration/import`, {
                                         method: 'POST',
                                         headers: getAuthHeaders(),
-                                        body: JSON.stringify({ data: parsedData })
+                                        body: JSON.stringify(importPayload)
                                       })
                                       const result = await res.json()
                                       setImportResult(result)
                                       setMigrationStep('complete')
                                       if (result.success) {
-                                        showNotification('success', `✅ Migration complete! Created firm "${result.firm_name}"`)
+                                        const actionText = useExistingFirm ? 'Added data to' : 'Created firm'
+                                        showNotification('success', `✅ Migration complete! ${actionText} "${result.firm_name}"`)
                                         await loadData()
                                       } else {
                                         showNotification('error', `Import had issues: ${result.errors?.slice(0, 2).join(', ') || 'Check results'}`)
@@ -2570,7 +2578,7 @@ export default function SecureAdminDashboard() {
                                   {isMigrating ? (
                                     <><RefreshCw size={18} className={styles.spinner} /> Importing...</>
                                   ) : (
-                                    <><Upload size={18} /> Import to Database</>
+                                    <><Upload size={18} /> {useExistingFirm ? 'Add to Existing Firm' : 'Import to Database'}</>
                                   )}
                                 </button>
                               </div>
