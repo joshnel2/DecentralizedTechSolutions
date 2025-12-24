@@ -58,11 +58,11 @@ const integrationConfigs: IntegrationConfig[] = [
   { 
     id: 'microsoft', 
     name: 'Microsoft', 
-    description: 'Outlook Email & Calendar', 
+    description: 'Outlook, Calendar, OneDrive', 
     category: 'calendar', 
     icon: '📆', 
     provider: 'outlook',
-    features: ['Outlook Calendar', 'Outlook Email', 'Send & receive', 'Drafts'],
+    features: ['Outlook Email', 'Calendar sync', 'Send & receive', 'Drafts'],
     syncOptions: { calendar: true, email: true }
   },
   
