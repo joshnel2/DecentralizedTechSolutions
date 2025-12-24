@@ -117,44 +117,82 @@ async function clioGetAll(accessToken, endpoint, params = {}, onProgress = null)
   return await clioGetPaginated(accessToken, endpoint, params, onProgress);
 }
 
-// Fetch contacts by initial A-Z (each letter has its own 10k limit = 260k max)
-// Clio officially supports: ?initial=A, ?initial=B, etc.
+// Fetch contacts by initial A-Z + type (Person/Company) for maximum coverage
+// Each combination has its own 10k limit = 52 batches max + numeric/special chars
 async function clioGetContactsByInitial(accessToken, endpoint, params, onProgress) {
   const allData = [];
   const seenIds = new Set();
   const initials = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  const types = ['Person', 'Company'];
   
-  console.log(`[CLIO API] Fetching contacts A-Z to bypass 10k limit...`);
+  console.log(`[CLIO API] Fetching contacts by initial + type to bypass 10k limit...`);
   
-  for (const initial of initials) {
-    console.log(`[CLIO API] Fetching contacts starting with "${initial}"...`);
-    
-    try {
-      const letterData = await clioGetPaginated(
-        accessToken, 
-        endpoint, 
-        { ...params, initial }, 
-        null
-      );
+  // First, fetch by initial A-Z for each type
+  for (const type of types) {
+    for (const initial of initials) {
+      console.log(`[CLIO API] Fetching ${type} contacts starting with "${initial}"...`);
       
-      let newCount = 0;
-      for (const item of letterData) {
-        if (item.id && !seenIds.has(item.id)) {
-          seenIds.add(item.id);
-          allData.push(item);
-          newCount++;
+      try {
+        const letterData = await clioGetPaginated(
+          accessToken, 
+          endpoint, 
+          { ...params, initial, type }, 
+          null
+        );
+        
+        let newCount = 0;
+        for (const item of letterData) {
+          if (item.id && !seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            allData.push(item);
+            newCount++;
+          }
         }
+        
+        if (newCount > 0) {
+          console.log(`[CLIO API] ${type} "${initial}": got ${newCount} new, total ${allData.length}`);
+        }
+        if (onProgress) onProgress(allData.length);
+        
+      } catch (err) {
+        console.log(`[CLIO API] ${type} "${initial}" error: ${err.message}, continuing...`);
       }
-      
-      console.log(`[CLIO API] Letter "${initial}": got ${newCount} new, total now ${allData.length}`);
-      if (onProgress) onProgress(allData.length);
-      
-    } catch (err) {
-      console.log(`[CLIO API] Letter "${initial}" error: ${err.message}, continuing...`);
     }
   }
   
-  console.log(`[CLIO API] Contacts A-Z complete: ${allData.length} total records`);
+  // Also fetch contacts with numeric initials (0-9)
+  for (const type of types) {
+    for (let num = 0; num <= 9; num++) {
+      const initial = String(num);
+      try {
+        const numData = await clioGetPaginated(
+          accessToken, 
+          endpoint, 
+          { ...params, initial, type }, 
+          null
+        );
+        
+        let newCount = 0;
+        for (const item of numData) {
+          if (item.id && !seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            allData.push(item);
+            newCount++;
+          }
+        }
+        
+        if (newCount > 0) {
+          console.log(`[CLIO API] ${type} "${initial}": got ${newCount} new, total ${allData.length}`);
+        }
+        if (onProgress) onProgress(allData.length);
+        
+      } catch (err) {
+        // Numeric initials might not be supported, that's ok
+      }
+    }
+  }
+  
+  console.log(`[CLIO API] Contacts complete: ${allData.length} total records`);
   return allData;
 }
 
