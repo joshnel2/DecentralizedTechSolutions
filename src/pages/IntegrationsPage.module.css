@@ -432,6 +432,17 @@
   cursor: pointer;
 }
 
+.syncOptionStatic {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--gold-primary);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--gold-primary-transparent);
+}
+
 .integrationActions {
   display: flex;
   gap: var(--spacing-sm);

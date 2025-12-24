@@ -56,13 +56,13 @@ const integrationConfigs: IntegrationConfig[] = [
     syncOptions: { calendar: true }
   },
   { 
-    id: 'outlook-calendar', 
-    name: 'Microsoft 365 (Outlook)', 
-    description: 'Full Microsoft integration: sync your Outlook Calendar AND access Outlook Email. One connection for both!', 
+    id: 'microsoft', 
+    name: 'Microsoft', 
+    description: 'Outlook Email & Calendar', 
     category: 'calendar', 
     icon: '📆', 
     provider: 'outlook',
-    features: ['Calendar sync', 'Email inbox', 'Send emails', 'Drafts'],
+    features: ['Outlook Calendar', 'Outlook Email', 'Send & receive', 'Drafts'],
     syncOptions: { calendar: true, email: true }
   },
   
@@ -81,12 +81,12 @@ const integrationConfigs: IntegrationConfig[] = [
   // Cloud Storage
   { 
     id: 'onedrive', 
-    name: 'OneDrive', 
-    description: 'Store and sync documents with Microsoft OneDrive. Includes Word, Excel, PowerPoint.', 
+    name: 'Microsoft OneDrive', 
+    description: 'Sync documents from OneDrive. Separate from Outlook - connect both for full Microsoft integration.', 
     category: 'storage', 
     icon: '☁️',
     provider: 'onedrive',
-    features: ['Document storage', 'Word/Excel/PPT', 'Version control'],
+    features: ['Document sync', 'Word/Excel/PPT', 'Cloud storage'],
     syncOptions: { documents: true }
   },
   { 
