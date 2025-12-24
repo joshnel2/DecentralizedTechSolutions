@@ -791,10 +791,11 @@ router.post('/validate', requireSecureAdmin, async (req, res) => {
             errors.push(`User #${idx}: Duplicate email "${email}"`);
           } else {
             seenEmails.add(emailLower);
-            const existing = await query('SELECT id FROM users WHERE email = $1', [emailLower]);
+            const existing = await query('SELECT id, first_name, last_name FROM users WHERE email = $1', [emailLower]);
             if (existing.rows.length > 0) {
-              // User already exists - this is a warning, not an error. Will be linked to new firm.
-              warnings.push(`User #${idx}: Email "${email}" already exists - will be linked to firm`);
+              // User already exists - we'll skip creating and use their existing account for linking
+              const existingName = `${existing.rows[0].first_name} ${existing.rows[0].last_name}`.trim();
+              warnings.push(`User #${idx}: Email "${email}" already exists as "${existingName}" - will use existing account (won't create duplicate)`);
             }
           }
         }
@@ -834,6 +835,7 @@ router.post('/validate', requireSecureAdmin, async (req, res) => {
     if (data.matters && Array.isArray(data.matters)) {
       summary.matters = data.matters.length;
       const seenNumbers = new Set();
+      let existingMatterCount = 0;
       
       for (let i = 0; i < data.matters.length; i++) {
         const matter = data.matters[i];
@@ -847,14 +849,23 @@ router.post('/validate', requireSecureAdmin, async (req, res) => {
         }
         
         if (seenNumbers.has(matterNum)) {
-          warnings.push(`Matter #${idx}: Duplicate matter number "${matterNum}" - will be auto-adjusted`);
+          warnings.push(`Matter #${idx}: Duplicate matter number "${matterNum}" in import data - will be auto-adjusted`);
         } else {
           seenNumbers.add(matterNum);
+          // Check if matter number exists in database
+          const existingMatter = await query('SELECT id FROM matters WHERE number = $1', [matterNum]);
+          if (existingMatter.rows.length > 0) {
+            existingMatterCount++;
+          }
         }
         
         if (!matter.description && !matter.name) {
           errors.push(`Matter #${idx}: description (matter name) is required`);
         }
+      }
+      
+      if (existingMatterCount > 0) {
+        warnings.push(`${existingMatterCount} matter number(s) already exist in database - they will be prefixed with firm name to ensure uniqueness`);
       }
     }
 
@@ -1015,6 +1026,23 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
             lastName = parts.slice(1).join(' ') || 'User';
           }
           
+          // CHECK FOR EXISTING USER - handle duplicates gracefully
+          const existingUser = await query('SELECT id, firm_id, first_name, last_name FROM users WHERE email = $1', [email]);
+          
+          if (existingUser.rows.length > 0) {
+            // User already exists - add to lookup map for matter/activity linking
+            const existingId = existingUser.rows[0].id;
+            const existingName = `${existingUser.rows[0].first_name} ${existingUser.rows[0].last_name}`.trim();
+            
+            userIdMap.set(email, existingId);
+            if (user.id) userIdMap.set(`clio:${user.id}`, existingId);
+            if (user.clio_id) userIdMap.set(`clio:${user.clio_id}`, existingId);
+            if (user.name) userIdMap.set(user.name.toLowerCase(), existingId);
+            
+            results.warnings.push(`User "${email}" already exists as "${existingName}" - using existing account for linking`);
+            continue; // Skip to next user, don't try to insert
+          }
+          
           // Generate password if missing - ensure minimum 8 characters
           let password = user.password;
           if (!password || password.length < 8) {
@@ -1043,13 +1071,14 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
           const userId = userResult.rows[0].id;
           userIdMap.set(email, userId);
           if (user.id) userIdMap.set(`clio:${user.id}`, userId);
+          if (user.clio_id) userIdMap.set(`clio:${user.clio_id}`, userId);
           if (user.name) userIdMap.set(user.name.toLowerCase(), userId);
           
           // Store credentials for display
           results.user_credentials.push({
             email: email,
             name: `${firstName} ${lastName || ''}`.trim(),
-            password: user.password, // Original password before hashing
+            password: password, // Password before hashing
             role: mapUserRole(user)
           });
           
@@ -1109,6 +1138,7 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
           const clientId = clientResult.rows[0].id;
           contactIdMap.set(displayName.toLowerCase(), clientId);
           if (contact.id) contactIdMap.set(`clio:${contact.id}`, clientId);
+          if (contact.clio_id) contactIdMap.set(`clio:${contact.clio_id}`, clientId);
           if (contact.name) contactIdMap.set(contact.name.toLowerCase(), clientId);
           
           results.imported.contacts++;
@@ -1121,6 +1151,32 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
     // ============================================
     // 4. CREATE MATTERS
     // ============================================
+    // Helper function to generate unique matter number
+    const generateUniqueMatterNumber = async (baseNumber, firmShortName) => {
+      let matterNumber = baseNumber;
+      let attempt = 0;
+      const maxAttempts = 100;
+      
+      while (attempt < maxAttempts) {
+        const existing = await query('SELECT id FROM matters WHERE number = $1', [matterNumber]);
+        if (existing.rows.length === 0) {
+          return matterNumber;
+        }
+        attempt++;
+        // Append firm prefix and/or counter to make it unique
+        if (attempt === 1) {
+          matterNumber = `${firmShortName}-${baseNumber}`;
+        } else {
+          matterNumber = `${firmShortName}-${baseNumber}-${attempt}`;
+        }
+      }
+      // Fallback: use timestamp
+      return `${firmShortName}-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+    };
+    
+    // Create a short firm identifier for matter number prefix
+    const firmShortName = firmName.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8).toUpperCase() || 'IMPORT';
+    
     if (data.matters && Array.isArray(data.matters)) {
       for (const matter of data.matters) {
         try {
@@ -1129,6 +1185,15 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
           if (!matterNumber || matterNumber === '[blank]' || matterNumber.trim() === '') {
             matterNumber = `MATTER-${matter.id || matter.clio_id || Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
           }
+          
+          // CHECK FOR EXISTING MATTER NUMBER - ensure uniqueness
+          const existingMatter = await query('SELECT id, firm_id FROM matters WHERE number = $1', [matterNumber]);
+          if (existingMatter.rows.length > 0) {
+            const originalNumber = matterNumber;
+            matterNumber = await generateUniqueMatterNumber(matterNumber, firmShortName);
+            results.warnings.push(`Matter number "${originalNumber}" already exists - using "${matterNumber}" instead`);
+          }
+          
           const matterName = matter.description || matter.name;
           
           // Find client
@@ -1136,6 +1201,9 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
           if (matter.client) {
             if (matter.client.id) {
               clientId = contactIdMap.get(`clio:${matter.client.id}`);
+            }
+            if (!clientId && matter.client.clio_id) {
+              clientId = contactIdMap.get(`clio:${matter.client.clio_id}`);
             }
             if (!clientId && matter.client.name) {
               clientId = contactIdMap.get(matter.client.name.toLowerCase());
@@ -1147,6 +1215,9 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
           if (matter.responsible_attorney) {
             if (matter.responsible_attorney.id) {
               attorneyId = userIdMap.get(`clio:${matter.responsible_attorney.id}`);
+            }
+            if (!attorneyId && matter.responsible_attorney.clio_id) {
+              attorneyId = userIdMap.get(`clio:${matter.responsible_attorney.clio_id}`);
             }
             if (!attorneyId && matter.responsible_attorney.name) {
               attorneyId = userIdMap.get(matter.responsible_attorney.name.toLowerCase());
@@ -1177,7 +1248,10 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
           
           const matterId = matterResult.rows[0].id;
           matterIdMap.set(matterNumber, matterId);
+          // Also map by original number for activity linking
+          if (matter.display_number) matterIdMap.set(matter.display_number, matterId);
           if (matter.id) matterIdMap.set(`clio:${matter.id}`, matterId);
+          if (matter.clio_id) matterIdMap.set(`clio:${matter.clio_id}`, matterId);
           
           results.imported.matters++;
         } catch (err) {
@@ -1195,7 +1269,10 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
           // Find matter
           let matterId = null;
           if (activity.matter) {
-            if (activity.matter.id) {
+            if (activity.matter.clio_id) {
+              matterId = matterIdMap.get(`clio:${activity.matter.clio_id}`);
+            }
+            if (!matterId && activity.matter.id) {
               matterId = matterIdMap.get(`clio:${activity.matter.id}`);
             }
             if (!matterId && activity.matter.display_number) {
@@ -1204,18 +1281,24 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
           }
           
           if (!matterId) {
-            results.warnings.push(`Activity skipped: Matter not found`);
+            results.warnings.push(`Activity skipped: Matter not found (ref: ${activity.matter?.display_number || activity.matter?.clio_id || 'unknown'})`);
             continue;
           }
           
           // Find user
           let userId = null;
           if (activity.user) {
-            if (activity.user.id) {
+            if (activity.user.clio_id) {
+              userId = userIdMap.get(`clio:${activity.user.clio_id}`);
+            }
+            if (!userId && activity.user.id) {
               userId = userIdMap.get(`clio:${activity.user.id}`);
             }
             if (!userId && activity.user.name) {
               userId = userIdMap.get(activity.user.name.toLowerCase());
+            }
+            if (!userId && activity.user.email) {
+              userId = userIdMap.get(activity.user.email.toLowerCase());
             }
           }
           
@@ -1275,7 +1358,10 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
           // Find matter if linked
           let matterId = null;
           if (entry.matter) {
-            if (entry.matter.id) {
+            if (entry.matter.clio_id) {
+              matterId = matterIdMap.get(`clio:${entry.matter.clio_id}`);
+            }
+            if (!matterId && entry.matter.id) {
               matterId = matterIdMap.get(`clio:${entry.matter.id}`);
             }
             if (!matterId && entry.matter.display_number) {
