@@ -892,7 +892,11 @@ export default function SecureAdminDashboard() {
   }
 
   const handleExecuteMigration = async () => {
-    if (!validationResult?.valid) return
+    // Allow importing even if validation failed - the backend handles duplicates gracefully
+    if (!migrationData.trim()) {
+      showNotification('error', 'No data to import')
+      return
+    }
 
     setIsMigrating(true)
     try {
@@ -911,6 +915,9 @@ export default function SecureAdminDashboard() {
       // Refresh data if successful
       if (result.success) {
         await loadData()
+        showNotification('success', `Migration complete! Created firm "${result.firm_name}"`)
+      } else {
+        showNotification('error', `Import had issues - check results below`)
       }
     } catch (error) {
       console.error('Migration failed:', error)
@@ -920,10 +927,11 @@ export default function SecureAdminDashboard() {
         firm_name: null,
         imported: { users: 0, contacts: 0, matters: 0, time_entries: 0, expenses: 0, calendar_entries: 0 },
         user_credentials: [],
-        errors: ['Migration failed. Please try again.'],
+        errors: ['Migration failed. Please check the JSON format and try again.'],
         warnings: []
       })
       setMigrationStep('complete')
+      showNotification('error', 'Migration failed - check JSON format')
     }
     setIsMigrating(false)
   }
@@ -1223,30 +1231,14 @@ export default function SecureAdminDashboard() {
             const dataJson = JSON.stringify(result.transformedData, null, 2)
             setMigrationData(dataJson)
             
-            showNotification('success', `Data fetched! ${result.summary.users} users, ${result.summary.contacts} contacts, ${result.summary.matters} matters. Now importing to database...`)
+            showNotification('success', `✅ Data fetched from Clio! ${result.summary.users} users, ${result.summary.contacts} contacts, ${result.summary.matters} matters. Review the data below and click "Validate & Import" when ready.`)
             
-            // AUTO-IMPORT: Directly import the data into the database
-            console.log('[CLIO] Auto-importing data to database...')
-            try {
-              const importRes = await fetch(`${API_URL}/migration/import`, {
-                method: 'POST',
-                headers: getAuthHeaders(),
-                body: JSON.stringify({ data: result.transformedData })
-              })
-              const importResult = await importRes.json()
-              console.log('[CLIO] Database import result:', importResult)
-              
-              if (importResult.success) {
-                setImportResult(importResult)
-                setMigrationStep('complete')
-                showNotification('success', `✅ Migration complete! Created firm "${importResult.firm_name}" with ${importResult.imported.users} users, ${importResult.imported.contacts} clients, ${importResult.imported.matters} matters, ${importResult.imported.time_entries} time entries, ${importResult.imported.calendar_entries} calendar events`)
-              } else {
-                showNotification('error', `Database import failed: ${importResult.errors?.join(', ') || 'Unknown error'}`)
-              }
-            } catch (importErr) {
-              console.error('[CLIO] Database import error:', importErr)
-              showNotification('error', 'Failed to import data to database. You can try manually clicking Validate then Import.')
-            }
+            // DON'T AUTO-IMPORT - Let user review and edit data first
+            // The user can now:
+            // 1. Click "Edit Data" to modify the JSON if needed
+            // 2. Click "Validate Data" to check for issues
+            // 3. Click "Execute Import" to save to database
+            console.log('[CLIO] Data fetched - waiting for user to review and import')
           } else {
             showNotification('error', result.error || 'Failed to fetch import results')
           }
@@ -2351,16 +2343,102 @@ export default function SecureAdminDashboard() {
                             </>
                           )}
 
-                          {/* Show validate button when import is complete */}
+                          {/* Show data review and import options when Clio data is fetched */}
                           {transformResult?.success && (
-                            <div className={styles.aiActions}>
-                              <button 
-                                onClick={handleValidateMigration}
-                                className={styles.validateBtn}
-                              >
+                            <div className={styles.migrationSection}>
+                              <div className={styles.sectionHeader}>
                                 <CheckCircle2 size={18} />
-                                Validate Imported Data
-                              </button>
+                                <h4>Data Ready for Import</h4>
+                              </div>
+                              
+                              <div className={styles.clioDataSummary}>
+                                <p>
+                                  <strong>{transformResult.summary?.users || 0}</strong> users, 
+                                  <strong> {transformResult.summary?.contacts || 0}</strong> contacts, 
+                                  <strong> {transformResult.summary?.matters || 0}</strong> matters, 
+                                  <strong> {transformResult.summary?.activities || 0}</strong> time entries, 
+                                  <strong> {transformResult.summary?.calendar_entries || 0}</strong> calendar events
+                                </p>
+                              </div>
+
+                              {/* Data Editor Toggle */}
+                              <div className={styles.dataEditorSection}>
+                                <button 
+                                  onClick={() => {
+                                    const editor = document.getElementById('clio-data-editor')
+                                    if (editor) {
+                                      editor.style.display = editor.style.display === 'none' ? 'block' : 'none'
+                                    }
+                                  }}
+                                  className={styles.secondaryBtn}
+                                  style={{ marginBottom: '0.5rem' }}
+                                >
+                                  <FileJson size={16} />
+                                  Edit Data (Advanced)
+                                </button>
+                                <textarea
+                                  id="clio-data-editor"
+                                  style={{ display: 'none', width: '100%', height: '300px', fontFamily: 'monospace', fontSize: '12px' }}
+                                  value={migrationData}
+                                  onChange={(e) => setMigrationData(e.target.value)}
+                                />
+                                <p className={styles.sectionDescription} style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                                  Edit the JSON data to remove users or fix any issues before importing.
+                                </p>
+                              </div>
+
+                              <div className={styles.aiActions}>
+                                <button 
+                                  onClick={handleValidateMigration}
+                                  className={styles.secondaryBtn}
+                                >
+                                  <AlertTriangle size={18} />
+                                  Validate First (Optional)
+                                </button>
+                                <button 
+                                  onClick={async () => {
+                                    if (!migrationData.trim()) {
+                                      showNotification('error', 'No data to import')
+                                      return
+                                    }
+                                    setIsMigrating(true)
+                                    try {
+                                      const parsedData = JSON.parse(migrationData)
+                                      const res = await fetch(`${API_URL}/migration/import`, {
+                                        method: 'POST',
+                                        headers: getAuthHeaders(),
+                                        body: JSON.stringify({ data: parsedData })
+                                      })
+                                      const result = await res.json()
+                                      setImportResult(result)
+                                      setMigrationStep('complete')
+                                      if (result.success) {
+                                        showNotification('success', `✅ Migration complete! Created firm "${result.firm_name}"`)
+                                        await loadData()
+                                      } else {
+                                        showNotification('error', `Import had issues: ${result.errors?.slice(0, 2).join(', ') || 'Check results'}`)
+                                      }
+                                    } catch (error) {
+                                      console.error('Import error:', error)
+                                      showNotification('error', 'Failed to import. Check JSON format.')
+                                    }
+                                    setIsMigrating(false)
+                                  }}
+                                  disabled={isMigrating}
+                                  className={styles.primaryBtn}
+                                >
+                                  {isMigrating ? (
+                                    <><RefreshCw size={18} className={styles.spinner} /> Importing...</>
+                                  ) : (
+                                    <><Upload size={18} /> Import to Database</>
+                                  )}
+                                </button>
+                              </div>
+                              
+                              <p className={styles.sectionDescription} style={{ marginTop: '1rem', fontSize: '0.85rem' }}>
+                                <strong>Note:</strong> Duplicate users/matters are handled automatically - 
+                                existing users will be linked, and matter numbers will be made unique.
+                              </p>
                             </div>
                           )}
                         </div>
@@ -2945,17 +3023,21 @@ Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
                         <button onClick={resetMigration} className={styles.secondaryBtn}>
                           ← Back to Edit
                         </button>
-                        {validationResult.valid && (
-                          <button 
-                            onClick={handleExecuteMigration}
-                            disabled={isMigrating}
-                            className={styles.primaryBtn}
-                          >
-                            {isMigrating ? 'Importing...' : 'Import Data'}
-                            <ChevronRight size={18} />
-                          </button>
-                        )}
+                        <button 
+                          onClick={handleExecuteMigration}
+                          disabled={isMigrating}
+                          className={styles.primaryBtn}
+                        >
+                          {isMigrating ? 'Importing...' : validationResult.valid ? 'Import Data' : 'Import Anyway (Skip Errors)'}
+                          <ChevronRight size={18} />
+                        </button>
                       </div>
+                      {!validationResult.valid && (
+                        <p style={{ fontSize: '0.85rem', color: '#666', marginTop: '0.5rem' }}>
+                          <strong>Note:</strong> Duplicates and some errors are handled automatically. 
+                          Existing users will be linked, matter numbers will be made unique.
+                        </p>
+                      )}
                     </div>
                   )}
 

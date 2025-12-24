@@ -2698,6 +2698,44 @@
   font-size: 0.75rem;
 }
 
+/* Clio Data Review Section */
+.clioDataSummary {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.clioDataSummary p {
+  margin: 0;
+  color: #93c5fd;
+}
+
+.clioDataSummary strong {
+  color: #60a5fa;
+  margin: 0 0.25rem;
+}
+
+.dataEditorSection {
+  margin-bottom: 1rem;
+}
+
+.dataEditorSection textarea {
+  background: #1a1a2e;
+  border: 1px solid #2d2d4a;
+  border-radius: 8px;
+  color: #e5e7eb;
+  padding: 1rem;
+  resize: vertical;
+  margin-top: 0.5rem;
+}
+
+.dataEditorSection textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
 /* Responsive */
 @media (max-width: 1200px) {
   .metricsGrid {
