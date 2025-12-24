@@ -200,21 +200,25 @@ export default function SecureAdminDashboard() {
   const [clioUser, setClioUser] = useState<{ name: string; email: string } | null>(null)
   const [clioImporting, setClioImporting] = useState(false)
   
-  // Skip options for testing - restore from sessionStorage after OAuth redirect
-  const [skipMatters, setSkipMatters] = useState(() => sessionStorage.getItem('clio_skipMatters') === 'true')
-  const [skipActivities, setSkipActivities] = useState(() => sessionStorage.getItem('clio_skipActivities') === 'true')
-  const [skipBills, setSkipBills] = useState(() => sessionStorage.getItem('clio_skipBills') === 'true')
-  const [skipCalendar, setSkipCalendar] = useState(() => sessionStorage.getItem('clio_skipCalendar') === 'true')
+  // Data to include (default all true = import everything)
+  const [includeUsers, setIncludeUsers] = useState(() => sessionStorage.getItem('clio_includeUsers') !== 'false')
+  const [includeContacts, setIncludeContacts] = useState(() => sessionStorage.getItem('clio_includeContacts') !== 'false')
+  const [includeMatters, setIncludeMatters] = useState(() => sessionStorage.getItem('clio_includeMatters') !== 'false')
+  const [includeActivities, setIncludeActivities] = useState(() => sessionStorage.getItem('clio_includeActivities') !== 'false')
+  const [includeBills, setIncludeBills] = useState(() => sessionStorage.getItem('clio_includeBills') !== 'false')
+  const [includeCalendar, setIncludeCalendar] = useState(() => sessionStorage.getItem('clio_includeCalendar') !== 'false')
   
   // Migrate to existing firm option
   const [useExistingFirm, setUseExistingFirm] = useState(() => sessionStorage.getItem('clio_useExistingFirm') === 'true')
   const [selectedExistingFirmId, setSelectedExistingFirmId] = useState(() => sessionStorage.getItem('clio_existingFirmId') || '')
   
-  // Sync skip options to sessionStorage so they persist through OAuth redirect
-  useEffect(() => { sessionStorage.setItem('clio_skipMatters', String(skipMatters)) }, [skipMatters])
-  useEffect(() => { sessionStorage.setItem('clio_skipActivities', String(skipActivities)) }, [skipActivities])
-  useEffect(() => { sessionStorage.setItem('clio_skipBills', String(skipBills)) }, [skipBills])
-  useEffect(() => { sessionStorage.setItem('clio_skipCalendar', String(skipCalendar)) }, [skipCalendar])
+  // Sync options to sessionStorage so they persist through OAuth redirect
+  useEffect(() => { sessionStorage.setItem('clio_includeUsers', String(includeUsers)) }, [includeUsers])
+  useEffect(() => { sessionStorage.setItem('clio_includeContacts', String(includeContacts)) }, [includeContacts])
+  useEffect(() => { sessionStorage.setItem('clio_includeMatters', String(includeMatters)) }, [includeMatters])
+  useEffect(() => { sessionStorage.setItem('clio_includeActivities', String(includeActivities)) }, [includeActivities])
+  useEffect(() => { sessionStorage.setItem('clio_includeBills', String(includeBills)) }, [includeBills])
+  useEffect(() => { sessionStorage.setItem('clio_includeCalendar', String(includeCalendar)) }, [includeCalendar])
   useEffect(() => { sessionStorage.setItem('clio_useExistingFirm', String(useExistingFirm)) }, [useExistingFirm])
   useEffect(() => { sessionStorage.setItem('clio_existingFirmId', selectedExistingFirmId) }, [selectedExistingFirmId])
   
