@@ -5,7 +5,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
   Link2, Calendar, Cloud, FileSignature,
   Calculator, MessageSquare, Shield, CheckCircle2,
-  RefreshCw, AlertTriangle,
+  RefreshCw, AlertTriangle, Mail,
   Lock, Globe, Zap, AlertCircle, ArrowLeft, HardDrive
 } from 'lucide-react'
 import styles from './IntegrationsPage.module.css'
@@ -39,30 +39,31 @@ interface IntegrationConfig {
     calendar?: boolean // Can sync with Calendar page
     documents?: boolean // Can sync with Documents page
     billing?: boolean // Can sync with Billing page
+    email?: boolean // Has email access
   }
 }
 
 const integrationConfigs: IntegrationConfig[] = [
-  // Calendar - Real integrations
+  // Calendar & Email - Real integrations
   { 
     id: 'google-calendar', 
     name: 'Google Calendar', 
-    description: 'Sync your Google Calendar events with Apex. Just sign in with your Google account.', 
+    description: 'Import your Google Calendar events into Apex. Calendar only - does not include Gmail.', 
     category: 'calendar', 
     icon: '📅', 
     provider: 'google',
-    features: ['Import events', 'Two-way sync', 'Automatic updates'],
+    features: ['Calendar sync', 'Import events', 'Event updates'],
     syncOptions: { calendar: true }
   },
   { 
     id: 'outlook-calendar', 
-    name: 'Microsoft Outlook', 
-    description: 'Connect your Outlook calendar and email. Sign in with your Microsoft account.', 
+    name: 'Microsoft 365 (Outlook)', 
+    description: 'Full Microsoft integration: sync your Outlook Calendar AND access Outlook Email. One connection for both!', 
     category: 'calendar', 
     icon: '📆', 
     provider: 'outlook',
-    features: ['Calendar sync', 'Email access', 'Microsoft 365'],
-    syncOptions: { calendar: true }
+    features: ['Calendar sync', 'Email inbox', 'Send emails', 'Drafts'],
+    syncOptions: { calendar: true, email: true }
   },
   
   // Accounting - Real integrations
@@ -551,7 +552,7 @@ export function IntegrationsPage() {
                   {/* Sync Settings - shown when connected */}
                   {connected && config.syncOptions && (
                     <div className={styles.syncSettings}>
-                      <span className={styles.syncSettingsLabel}>Sync with:</span>
+                      <span className={styles.syncSettingsLabel}>Features enabled:</span>
                       {config.syncOptions.calendar && (
                         <label className={styles.syncOption}>
                           <input 
@@ -562,6 +563,12 @@ export function IntegrationsPage() {
                           <Calendar size={14} />
                           Calendar
                         </label>
+                      )}
+                      {config.syncOptions.email && (
+                        <span className={styles.syncOptionStatic}>
+                          <Mail size={14} />
+                          Email (always on)
+                        </span>
                       )}
                       {config.syncOptions.documents && (
                         <label className={styles.syncOption}>
