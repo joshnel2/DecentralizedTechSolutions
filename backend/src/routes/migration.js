@@ -791,11 +791,15 @@ router.post('/validate', requireSecureAdmin, async (req, res) => {
             errors.push(`User #${idx}: Duplicate email "${email}"`);
           } else {
             seenEmails.add(emailLower);
-            const existing = await query('SELECT id, first_name, last_name FROM users WHERE email = $1', [emailLower]);
+            const existing = await query(
+              'SELECT id, firm_id, first_name, last_name, email FROM users WHERE LOWER(email) = LOWER($1)', 
+              [emailLower]
+            );
             if (existing.rows.length > 0) {
               // User already exists - we'll skip creating and use their existing account for linking
               const existingName = `${existing.rows[0].first_name} ${existing.rows[0].last_name}`.trim();
-              warnings.push(`User #${idx}: Email "${email}" already exists as "${existingName}" - will use existing account (won't create duplicate)`);
+              const existingFirmId = existing.rows[0].firm_id;
+              warnings.push(`User #${idx}: Email "${email}" already exists as "${existingName}" (ID: ${existing.rows[0].id.substring(0,8)}..., Firm: ${existingFirmId ? existingFirmId.substring(0,8) + '...' : 'none'}) - will skip and use existing account for linking`);
             }
           }
         }
@@ -1026,12 +1030,17 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
             lastName = parts.slice(1).join(' ') || 'User';
           }
           
-          // CHECK FOR EXISTING USER - handle duplicates gracefully
-          const existingUser = await query('SELECT id, firm_id, first_name, last_name FROM users WHERE email = $1', [email]);
+          // CHECK FOR EXISTING USER - handle duplicates gracefully (case-insensitive check)
+          const existingUser = await query(
+            'SELECT id, firm_id, first_name, last_name, email FROM users WHERE LOWER(email) = LOWER($1)', 
+            [email]
+          );
           
           if (existingUser.rows.length > 0) {
             // User already exists - add to lookup map for matter/activity linking
             const existingId = existingUser.rows[0].id;
+            const existingFirmId = existingUser.rows[0].firm_id;
+            const existingEmail = existingUser.rows[0].email;
             const existingName = `${existingUser.rows[0].first_name} ${existingUser.rows[0].last_name}`.trim();
             
             userIdMap.set(email, existingId);
@@ -1039,7 +1048,8 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
             if (user.clio_id) userIdMap.set(`clio:${user.clio_id}`, existingId);
             if (user.name) userIdMap.set(user.name.toLowerCase(), existingId);
             
-            results.warnings.push(`User "${email}" already exists as "${existingName}" - using existing account for linking`);
+            console.log(`[MIGRATION] Existing user found: email="${existingEmail}", id="${existingId}", firm_id="${existingFirmId}"`);
+            results.warnings.push(`User "${email}" already exists as "${existingName}" (ID: ${existingId.substring(0,8)}..., Firm: ${existingFirmId ? existingFirmId.substring(0,8) + '...' : 'none'}) - using existing account for linking`);
             continue; // Skip to next user, don't try to insert
           }
           
@@ -3179,6 +3189,77 @@ router.get('/history', requireSecureAdmin, async (req, res) => {
   } catch (error) {
     console.error('Migration history error:', error);
     res.status(500).json({ error: 'Failed to get migration history' });
+  }
+});
+
+// ============================================
+// DIAGNOSTIC: Check if user/email exists
+// ============================================
+
+router.get('/check-user/:email', requireSecureAdmin, async (req, res) => {
+  try {
+    const { email } = req.params;
+    
+    console.log(`[MIGRATION DIAGNOSTIC] Checking for user with email: "${email}"`);
+    
+    // Check with exact match
+    const exactResult = await query(
+      'SELECT id, email, first_name, last_name, firm_id, is_active, created_at FROM users WHERE email = $1',
+      [email]
+    );
+    
+    // Check with lowercase match
+    const lowerResult = await query(
+      'SELECT id, email, first_name, last_name, firm_id, is_active, created_at FROM users WHERE LOWER(email) = LOWER($1)',
+      [email]
+    );
+    
+    // Check with ILIKE (partial match like admin portal uses)
+    const ilikeResult = await query(
+      'SELECT id, email, first_name, last_name, firm_id, is_active, created_at FROM users WHERE email ILIKE $1',
+      [`%${email}%`]
+    );
+    
+    // Get firm names for context
+    const firmIds = [...new Set([
+      ...exactResult.rows.map(r => r.firm_id),
+      ...lowerResult.rows.map(r => r.firm_id),
+      ...ilikeResult.rows.map(r => r.firm_id)
+    ])].filter(Boolean);
+    
+    const firmNames = {};
+    if (firmIds.length > 0) {
+      const firms = await query('SELECT id, name FROM firms WHERE id = ANY($1)', [firmIds]);
+      firms.rows.forEach(f => { firmNames[f.id] = f.name; });
+    }
+    
+    const formatUser = (u) => ({
+      id: u.id,
+      email: u.email,
+      name: `${u.first_name} ${u.last_name}`,
+      firmId: u.firm_id,
+      firmName: firmNames[u.firm_id] || 'Unknown',
+      isActive: u.is_active,
+      createdAt: u.created_at
+    });
+    
+    res.json({
+      searchedFor: email,
+      results: {
+        exactMatch: exactResult.rows.map(formatUser),
+        caseInsensitiveMatch: lowerResult.rows.map(formatUser),
+        partialMatch: ilikeResult.rows.map(formatUser)
+      },
+      summary: {
+        exactMatchCount: exactResult.rows.length,
+        caseInsensitiveMatchCount: lowerResult.rows.length,
+        partialMatchCount: ilikeResult.rows.length,
+        userExists: lowerResult.rows.length > 0
+      }
+    });
+  } catch (error) {
+    console.error('Check user error:', error);
+    res.status(500).json({ error: 'Failed to check user: ' + error.message });
   }
 });
 
