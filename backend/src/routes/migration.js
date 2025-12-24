@@ -1088,7 +1088,7 @@ router.post('/validate', requireSecureAdmin, async (req, res) => {
 // ============================================
 
 router.post('/import', requireSecureAdmin, async (req, res) => {
-  const { data } = req.body;
+  const { data, existingFirmId } = req.body;
   
   const results = {
     success: false,
@@ -1119,42 +1119,59 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
     await query('SET LOCAL statement_timeout = 3600000');
 
     // ============================================
-    // 1. CREATE FIRM
+    // 1. CREATE OR USE EXISTING FIRM
     // ============================================
-    let firmName = data.firm.name;
+    let firmId;
+    let firmName;
     
-    const existingFirm = await query('SELECT id FROM firms WHERE name = $1', [firmName]);
-    if (existingFirm.rows.length > 0) {
-      const timestamp = new Date().toISOString().split('T')[0];
-      firmName = `${firmName} (Imported ${timestamp})`;
-      results.warnings.push(`Firm already exists, created as "${firmName}"`);
-    }
+    if (existingFirmId) {
+      // Use existing firm
+      const existingFirm = await query('SELECT id, name FROM firms WHERE id = $1', [existingFirmId]);
+      if (existingFirm.rows.length === 0) {
+        throw new Error('Selected firm not found');
+      }
+      firmId = existingFirm.rows[0].id;
+      firmName = existingFirm.rows[0].name;
+      results.warnings.push(`Adding data to existing firm "${firmName}"`);
+      console.log(`[MIGRATION] Using existing firm: ${firmName} (${firmId})`);
+    } else {
+      // Create new firm
+      firmName = data.firm.name;
+      
+      const existingFirm = await query('SELECT id FROM firms WHERE name = $1', [firmName]);
+      if (existingFirm.rows.length > 0) {
+        const timestamp = new Date().toISOString().split('T')[0];
+        firmName = `${firmName} (Imported ${timestamp})`;
+        results.warnings.push(`Firm already exists, created as "${firmName}"`);
+      }
 
-    const firmAddress = extractAddress(data.firm.addresses);
+      const firmAddress = extractAddress(data.firm.addresses);
     
-    const firmResult = await query(
-      `INSERT INTO firms (name, address, city, state, zip_code, phone, email, website, billing_defaults)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id`,
-      [
-        firmName,
-        firmAddress.street || data.firm.address || null,
-        firmAddress.city || data.firm.city || null,
-        firmAddress.state || data.firm.state || null,
-        firmAddress.zip || data.firm.zip_code || null,
-        extractPhone(data.firm.phone_numbers, data.firm.phone),
-        extractEmail(data.firm.email_addresses, data.firm.email),
-        data.firm.website || null,
-        JSON.stringify({
-          hourlyRate: data.firm.default_rate || 350,
-          incrementMinutes: 6,
-          paymentTerms: 30,
-          currency: "USD"
-        })
-      ]
-    );
+      const firmResult = await query(
+        `INSERT INTO firms (name, address, city, state, zip_code, phone, email, website, billing_defaults)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id`,
+        [
+          firmName,
+          firmAddress.street || data.firm.address || null,
+          firmAddress.city || data.firm.city || null,
+          firmAddress.state || data.firm.state || null,
+          firmAddress.zip || data.firm.zip_code || null,
+          extractPhone(data.firm.phone_numbers, data.firm.phone),
+          extractEmail(data.firm.email_addresses, data.firm.email),
+          data.firm.website || null,
+          JSON.stringify({
+            hourlyRate: data.firm.default_rate || 350,
+            incrementMinutes: 6,
+            paymentTerms: 30,
+            currency: "USD"
+          })
+        ]
+      );
+      
+      firmId = firmResult.rows[0].id;
+    }
     
-    const firmId = firmResult.rows[0].id;
     results.firm_id = firmId;
     results.firm_name = firmName;
 
@@ -2229,9 +2246,18 @@ router.get('/clio/progress/:connectionId', requireSecureAdmin, (req, res) => {
 // Start the full Clio data import
 router.post('/clio/import', requireSecureAdmin, async (req, res) => {
   try {
-    const { connectionId, firmName } = req.body;
+    const { 
+      connectionId, 
+      firmName, 
+      existingFirmId,
+      skipMatters, 
+      skipActivities, 
+      skipBills, 
+      skipCalendar 
+    } = req.body;
     
     console.log('[CLIO IMPORT] Starting import for connection:', connectionId, 'firmName:', firmName);
+    console.log('[CLIO IMPORT] Options:', { existingFirmId, skipMatters, skipActivities, skipBills, skipCalendar });
     
     if (!connectionId) {
       console.error('[CLIO IMPORT] No connection ID provided');
@@ -2254,11 +2280,15 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
       console.warn('[CLIO IMPORT] Access token may be expired, but attempting import anyway');
     }
     
+    // Store options for background process
+    const importOptions = { existingFirmId, skipMatters, skipActivities, skipBills, skipCalendar };
+    
     // Initialize progress
     migrationProgress.set(connectionId, {
       status: 'running',
       startedAt: new Date(),
       connectionId: connectionId,
+      importOptions,
       steps: {
         users: { status: 'pending', count: 0 },
         contacts: { status: 'pending', count: 0 },
@@ -2372,140 +2402,160 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         }
         
         // 3. Import Matters (using client IDs for better coverage)
-        console.log('[CLIO IMPORT] Step 3/6: Importing matters...');
-        updateProgress('matters', 'running', 0);
-        try {
-          // Extract client IDs from contacts for per-client batching
-          const clientIds = result.contacts
-            .filter(c => c.clio_id)
-            .map(c => c.clio_id);
-          
-          console.log(`[CLIO IMPORT] Using ${clientIds.length} client IDs for matter batching`);
-          
-          // Clio matters: nested objects need explicit field specification
-          const matters = await clioGetMattersByStatus(
-            accessToken, 
-            '/matters.json', 
-            { fields: 'id,display_number,description,status,open_date,close_date,billing_method,client{id,name},responsible_attorney{id,name},originating_attorney{id,name},practice_area{id,name}' },
-            (count) => updateProgress('matters', 'running', count),
-            clientIds.length > 0 ? clientIds : null
-          );
-          
-          result.matters = matters.map((m, idx) => ({
-            clio_id: m.id,
-            display_number: m.display_number || `M-${String(idx + 1).padStart(5, '0')}`,
-            description: m.description || 'Imported Matter',
-            client: m.client ? { clio_id: m.client.id, name: m.client.name } : null,
-            responsible_attorney: m.responsible_attorney ? { clio_id: m.responsible_attorney.id, name: m.responsible_attorney.name } : null,
-            originating_attorney: m.originating_attorney ? { clio_id: m.originating_attorney.id, name: m.originating_attorney.name } : null,
-            practice_area: m.practice_area ? { name: m.practice_area.name } : null,
-            status: m.status || 'Open',
-            open_date: m.open_date || null,
-            close_date: m.close_date || null,
-            billing_method: m.billing_method || 'hourly'
-          }));
-          updateProgress('matters', 'done', result.matters.length);
-          console.log(`[CLIO IMPORT] Matters complete: ${result.matters.length} records`);
-        } catch (err) {
-          console.error('[CLIO IMPORT] Matters import error:', err.message);
-          updateProgress('matters', 'error', 0, err.message);
+        if (skipMatters) {
+          console.log('[CLIO IMPORT] Step 3/6: SKIPPING matters (user requested)');
+          updateProgress('matters', 'skipped', 0);
+        } else {
+          console.log('[CLIO IMPORT] Step 3/6: Importing matters...');
+          updateProgress('matters', 'running', 0);
+          try {
+            // Extract client IDs from contacts for per-client batching
+            const clientIds = result.contacts
+              .filter(c => c.clio_id)
+              .map(c => c.clio_id);
+            
+            console.log(`[CLIO IMPORT] Using ${clientIds.length} client IDs for matter batching`);
+            
+            // Clio matters: nested objects need explicit field specification
+            const matters = await clioGetMattersByStatus(
+              accessToken, 
+              '/matters.json', 
+              { fields: 'id,display_number,description,status,open_date,close_date,billing_method,client{id,name},responsible_attorney{id,name},originating_attorney{id,name},practice_area{id,name}' },
+              (count) => updateProgress('matters', 'running', count),
+              clientIds.length > 0 ? clientIds : null
+            );
+            
+            result.matters = matters.map((m, idx) => ({
+              clio_id: m.id,
+              display_number: m.display_number || `M-${String(idx + 1).padStart(5, '0')}`,
+              description: m.description || 'Imported Matter',
+              client: m.client ? { clio_id: m.client.id, name: m.client.name } : null,
+              responsible_attorney: m.responsible_attorney ? { clio_id: m.responsible_attorney.id, name: m.responsible_attorney.name } : null,
+              originating_attorney: m.originating_attorney ? { clio_id: m.originating_attorney.id, name: m.originating_attorney.name } : null,
+              practice_area: m.practice_area ? { name: m.practice_area.name } : null,
+              status: m.status || 'Open',
+              open_date: m.open_date || null,
+              close_date: m.close_date || null,
+              billing_method: m.billing_method || 'hourly'
+            }));
+            updateProgress('matters', 'done', result.matters.length);
+            console.log(`[CLIO IMPORT] Matters complete: ${result.matters.length} records`);
+          } catch (err) {
+            console.error('[CLIO IMPORT] Matters import error:', err.message);
+            updateProgress('matters', 'error', 0, err.message);
+          }
         }
         
         // 4. Import Activities (Time Entries) - using matter IDs for better coverage
-        console.log('[CLIO IMPORT] Step 4/6: Importing activities...');
-        updateProgress('activities', 'running', 0);
-        try {
-          // Extract matter IDs for per-matter batching (bypasses 10K limit)
-          const matterIds = result.matters
-            .filter(m => m.clio_id)
-            .map(m => m.clio_id);
-          
-          console.log(`[CLIO IMPORT] Using ${matterIds.length} matter IDs for activity batching`);
-          
-          // Clio activities: rate is not a direct field, use price; matter/user are nested
-          const activities = await clioGetActivitiesByStatus(
-            accessToken, 
-            '/activities.json', 
-            { fields: 'id,type,date,quantity,price,total,note,billed,non_billable,matter{id,display_number},user{id,name}' },
-            (count) => updateProgress('activities', 'running', count),
-            matterIds.length > 0 ? matterIds : null
-          );
-          
-          result.activities = activities.map(a => ({
-            clio_id: a.id,
-            type: a.type || 'TimeEntry',
-            date: a.date || null,
-            matter: a.matter ? { clio_id: a.matter.id, display_number: a.matter.display_number } : null,
-            user: a.user ? { clio_id: a.user.id, name: a.user.name } : null,
-            quantity: a.quantity || 0,
-            rate: a.price || null, // Clio uses 'price' not 'rate'
-            total: a.total || null,
-            note: a.note || null,
-            billed: a.billed || false,
-            non_billable: a.non_billable || false
-          }));
-          updateProgress('activities', 'done', result.activities.length);
-          console.log(`[CLIO IMPORT] Activities complete: ${result.activities.length} records`);
-        } catch (err) {
-          console.error('[CLIO IMPORT] Activities import error:', err.message);
-          updateProgress('activities', 'error', 0, err.message);
+        if (skipActivities) {
+          console.log('[CLIO IMPORT] Step 4/6: SKIPPING activities (user requested)');
+          updateProgress('activities', 'skipped', 0);
+        } else {
+          console.log('[CLIO IMPORT] Step 4/6: Importing activities...');
+          updateProgress('activities', 'running', 0);
+          try {
+            // Extract matter IDs for per-matter batching (bypasses 10K limit)
+            const matterIds = result.matters
+              .filter(m => m.clio_id)
+              .map(m => m.clio_id);
+            
+            console.log(`[CLIO IMPORT] Using ${matterIds.length} matter IDs for activity batching`);
+            
+            // Clio activities: rate is not a direct field, use price; matter/user are nested
+            const activities = await clioGetActivitiesByStatus(
+              accessToken, 
+              '/activities.json', 
+              { fields: 'id,type,date,quantity,price,total,note,billed,non_billable,matter{id,display_number},user{id,name}' },
+              (count) => updateProgress('activities', 'running', count),
+              matterIds.length > 0 ? matterIds : null
+            );
+            
+            result.activities = activities.map(a => ({
+              clio_id: a.id,
+              type: a.type || 'TimeEntry',
+              date: a.date || null,
+              matter: a.matter ? { clio_id: a.matter.id, display_number: a.matter.display_number } : null,
+              user: a.user ? { clio_id: a.user.id, name: a.user.name } : null,
+              quantity: a.quantity || 0,
+              rate: a.price || null, // Clio uses 'price' not 'rate'
+              total: a.total || null,
+              note: a.note || null,
+              billed: a.billed || false,
+              non_billable: a.non_billable || false
+            }));
+            updateProgress('activities', 'done', result.activities.length);
+            console.log(`[CLIO IMPORT] Activities complete: ${result.activities.length} records`);
+          } catch (err) {
+            console.error('[CLIO IMPORT] Activities import error:', err.message);
+            updateProgress('activities', 'error', 0, err.message);
+          }
         }
         
         // 5. Import Bills
-        console.log('[CLIO IMPORT] Step 5/6: Importing bills...');
-        updateProgress('bills', 'running', 0);
-        try {
-          // Clio bills: matter/client are nested objects, not direct fields
-          const bills = await clioGetAll(accessToken, '/bills.json', {
-            fields: 'id,number,issued_at,due_at,total,balance,state,matters{id,display_number},client{id,name}'
-          }, (count) => updateProgress('bills', 'running', count));
-          
-          result.bills = bills.map(b => {
-            // Clio uses 'matters' array, not 'matter' object
-            const firstMatter = b.matters && b.matters[0] ? b.matters[0] : null;
-            return {
-              clio_id: b.id,
-              number: b.number || `INV-${b.id}`,
-              issued_at: b.issued_at || null,
-              due_at: b.due_at || null,
-              total: b.total || 0,
-              balance: b.balance || 0,
-              status: b.state || 'draft',
-              matter: firstMatter ? { clio_id: firstMatter.id, display_number: firstMatter.display_number } : null,
-              client: b.client ? { clio_id: b.client.id, name: b.client.name } : null
-            };
-          });
-          updateProgress('bills', 'done', result.bills.length);
-          console.log(`[CLIO IMPORT] Bills complete: ${result.bills.length} records`);
-        } catch (err) {
-          console.error('[CLIO IMPORT] Bills import error:', err.message);
-          updateProgress('bills', 'error', 0, err.message);
+        if (skipBills) {
+          console.log('[CLIO IMPORT] Step 5/6: SKIPPING bills (user requested)');
+          updateProgress('bills', 'skipped', 0);
+        } else {
+          console.log('[CLIO IMPORT] Step 5/6: Importing bills...');
+          updateProgress('bills', 'running', 0);
+          try {
+            // Clio bills: matter/client are nested objects, not direct fields
+            const bills = await clioGetAll(accessToken, '/bills.json', {
+              fields: 'id,number,issued_at,due_at,total,balance,state,matters{id,display_number},client{id,name}'
+            }, (count) => updateProgress('bills', 'running', count));
+            
+            result.bills = bills.map(b => {
+              // Clio uses 'matters' array, not 'matter' object
+              const firstMatter = b.matters && b.matters[0] ? b.matters[0] : null;
+              return {
+                clio_id: b.id,
+                number: b.number || `INV-${b.id}`,
+                issued_at: b.issued_at || null,
+                due_at: b.due_at || null,
+                total: b.total || 0,
+                balance: b.balance || 0,
+                status: b.state || 'draft',
+                matter: firstMatter ? { clio_id: firstMatter.id, display_number: firstMatter.display_number } : null,
+                client: b.client ? { clio_id: b.client.id, name: b.client.name } : null
+              };
+            });
+            updateProgress('bills', 'done', result.bills.length);
+            console.log(`[CLIO IMPORT] Bills complete: ${result.bills.length} records`);
+          } catch (err) {
+            console.error('[CLIO IMPORT] Bills import error:', err.message);
+            updateProgress('bills', 'error', 0, err.message);
+          }
         }
         
         // 6. Import Calendar Entries
-        console.log('[CLIO IMPORT] Step 6/6: Importing calendar entries...');
-        updateProgress('calendar', 'running', 0);
-        try {
-          const events = await clioGetAll(accessToken, '/calendar_entries.json', {
-            fields: 'id,summary,description,start_at,end_at,all_day,location,matter,attendees,calendar_entry_event_type'
-          }, (count) => updateProgress('calendar', 'running', count));
-          
-          result.calendar_entries = events.map(e => ({
-            clio_id: e.id,
-            summary: e.summary || 'Event',
-            description: e.description || null,
-            start_at: e.start_at || null,
-            end_at: e.end_at || null,
-            all_day: e.all_day || false,
-            location: e.location || null,
-            matter: e.matter ? { clio_id: e.matter.id, display_number: e.matter.display_number } : null,
-            calendar_entry_type: e.calendar_entry_event_type?.name || 'Meeting'
-          }));
-          updateProgress('calendar', 'done', result.calendar_entries.length);
-          console.log(`[CLIO IMPORT] Calendar complete: ${result.calendar_entries.length} records`);
-        } catch (err) {
-          console.error('[CLIO IMPORT] Calendar import error:', err.message);
-          updateProgress('calendar', 'error', 0, err.message);
+        if (skipCalendar) {
+          console.log('[CLIO IMPORT] Step 6/6: SKIPPING calendar (user requested)');
+          updateProgress('calendar', 'skipped', 0);
+        } else {
+          console.log('[CLIO IMPORT] Step 6/6: Importing calendar entries...');
+          updateProgress('calendar', 'running', 0);
+          try {
+            const events = await clioGetAll(accessToken, '/calendar_entries.json', {
+              fields: 'id,summary,description,start_at,end_at,all_day,location,matter,attendees,calendar_entry_event_type'
+            }, (count) => updateProgress('calendar', 'running', count));
+            
+            result.calendar_entries = events.map(e => ({
+              clio_id: e.id,
+              summary: e.summary || 'Event',
+              description: e.description || null,
+              start_at: e.start_at || null,
+              end_at: e.end_at || null,
+              all_day: e.all_day || false,
+              location: e.location || null,
+              matter: e.matter ? { clio_id: e.matter.id, display_number: e.matter.display_number } : null,
+              calendar_entry_type: e.calendar_entry_event_type?.name || 'Meeting'
+            }));
+            updateProgress('calendar', 'done', result.calendar_entries.length);
+            console.log(`[CLIO IMPORT] Calendar complete: ${result.calendar_entries.length} records`);
+          } catch (err) {
+            console.error('[CLIO IMPORT] Calendar import error:', err.message);
+            updateProgress('calendar', 'error', 0, err.message);
+          }
         }
         
         // Store final result

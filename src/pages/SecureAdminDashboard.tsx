@@ -205,6 +205,10 @@ export default function SecureAdminDashboard() {
   const [skipActivities, setSkipActivities] = useState(false)
   const [skipBills, setSkipBills] = useState(false)
   const [skipCalendar, setSkipCalendar] = useState(false)
+  
+  // Migrate to existing firm option
+  const [useExistingFirm, setUseExistingFirm] = useState(false)
+  const [selectedExistingFirmId, setSelectedExistingFirmId] = useState('')
   const [clioProgress, setClioProgress] = useState<{
     status: string;
     steps?: Record<string, { status: string; count: number }>;
@@ -1142,6 +1146,7 @@ export default function SecureAdminDashboard() {
         body: JSON.stringify({ 
           connectionId, 
           firmName,
+          existingFirmId: useExistingFirm ? selectedExistingFirmId : null,
           skipMatters,
           skipActivities,
           skipBills,
@@ -1188,7 +1193,12 @@ export default function SecureAdminDashboard() {
         headers: getAuthHeaders(),
         body: JSON.stringify({ 
           connectionId: clioConnectionId,
-          firmName: migrationInputs.firmName 
+          skipMatters,
+          skipActivities,
+          skipBills,
+          skipCalendar,
+          firmName: migrationInputs.firmName,
+          existingFirmId: useExistingFirm ? selectedExistingFirmId : null
         })
       })
       
@@ -2208,16 +2218,60 @@ export default function SecureAdminDashboard() {
                             
                             {!clioConnectionId ? (
                               <div className={styles.clioConnect}>
-                                <div className={styles.inputField}>
-                                  <label htmlFor="clio-firm-name">Firm Name *</label>
-                                  <input
-                                    id="clio-firm-name"
-                                    type="text"
-                                    value={migrationInputs.firmName}
-                                    onChange={(e) => setMigrationInputs(prev => ({ ...prev, firmName: e.target.value }))}
-                                    placeholder="Enter the firm name for this import"
-                                  />
+                                {/* Option to use existing firm */}
+                                <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'rgba(34, 197, 94, 0.1)', borderRadius: '8px' }}>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', marginBottom: '0.5rem' }}>
+                                    <input 
+                                      type="checkbox" 
+                                      checked={useExistingFirm} 
+                                      onChange={(e) => {
+                                        setUseExistingFirm(e.target.checked)
+                                        if (!e.target.checked) setSelectedExistingFirmId('')
+                                      }} 
+                                    />
+                                    <span style={{ fontSize: '0.9rem', fontWeight: 500, color: '#4ade80' }}>
+                                      Migrate to Existing Firm
+                                    </span>
+                                  </label>
+                                  {useExistingFirm && (
+                                    <select
+                                      value={selectedExistingFirmId}
+                                      onChange={(e) => {
+                                        setSelectedExistingFirmId(e.target.value)
+                                        const firm = firms.find(f => f.id === e.target.value)
+                                        if (firm) {
+                                          setMigrationInputs(prev => ({ ...prev, firmName: firm.name }))
+                                        }
+                                      }}
+                                      style={{ 
+                                        width: '100%', 
+                                        padding: '0.5rem', 
+                                        borderRadius: '6px', 
+                                        background: '#1a1a2e', 
+                                        border: '1px solid #2d2d4a',
+                                        color: '#e5e7eb'
+                                      }}
+                                    >
+                                      <option value="">Select a firm...</option>
+                                      {firms.map(f => (
+                                        <option key={f.id} value={f.id}>{f.name} ({f.users_count} users)</option>
+                                      ))}
+                                    </select>
+                                  )}
                                 </div>
+
+                                {!useExistingFirm && (
+                                  <div className={styles.inputField}>
+                                    <label htmlFor="clio-firm-name">New Firm Name *</label>
+                                    <input
+                                      id="clio-firm-name"
+                                      type="text"
+                                      value={migrationInputs.firmName}
+                                      onChange={(e) => setMigrationInputs(prev => ({ ...prev, firmName: e.target.value }))}
+                                      placeholder="Enter the firm name for this import"
+                                    />
+                                  </div>
+                                )}
                                 
                                 <p className={styles.sectionDescription} style={{ marginTop: '1rem' }}>
                                   Get your credentials from <strong>Clio → Settings → Developer Applications</strong> → Create an app.
