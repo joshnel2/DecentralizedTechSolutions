@@ -14,7 +14,8 @@ const CLIO_API_BASE = 'https://app.clio.com/api/v4';
 const clioConnections = new Map();
 
 // Helper to make Clio API requests with better error handling
-async function clioRequest(accessToken, endpoint, params = {}) {
+async function clioRequest(accessToken, endpoint, params = {}, retryCount = 0) {
+  const MAX_RETRIES = 3;
   const url = new URL(`${CLIO_API_BASE}${endpoint}`);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined) {
@@ -43,15 +44,31 @@ async function clioRequest(accessToken, endpoint, params = {}) {
       const error = await response.text();
       console.error(`[CLIO API] Error response: ${error}`);
       
+      // Handle rate limiting with automatic retry
+      if (response.status === 429) {
+        if (retryCount >= MAX_RETRIES) {
+          throw new Error('Clio rate limit exceeded after maximum retries.');
+        }
+        // Parse retry time from error message, default to 60 seconds
+        let waitTime = 60;
+        try {
+          const errorObj = JSON.parse(error);
+          const match = errorObj?.error?.message?.match(/Retry in (\d+) seconds/);
+          if (match) {
+            waitTime = parseInt(match[1], 10) + 5; // Add 5 second buffer
+          }
+        } catch (e) {}
+        console.log(`[CLIO API] Rate limited. Waiting ${waitTime}s before retry ${retryCount + 1}/${MAX_RETRIES}...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+        return clioRequest(accessToken, endpoint, params, retryCount + 1);
+      }
+      
       // Handle specific error cases
       if (response.status === 401) {
         throw new Error('Clio access token expired or invalid. Please reconnect to Clio.');
       }
       if (response.status === 403) {
         throw new Error('Access denied. Check that your Clio app has the required permissions.');
-      }
-      if (response.status === 429) {
-        throw new Error('Clio rate limit exceeded. Please wait and try again.');
       }
       
       throw new Error(`Clio API error: ${response.status} - ${error}`);
@@ -67,7 +84,8 @@ async function clioRequest(accessToken, endpoint, params = {}) {
 }
 
 // Helper to fetch from Clio using a full URL (for pagination)
-async function clioRequestUrl(accessToken, fullUrl) {
+async function clioRequestUrl(accessToken, fullUrl, retryCount = 0) {
+  const MAX_RETRIES = 3;
   console.log(`[CLIO API] Fetching URL: ${fullUrl.substring(0, 80)}...`);
   
   const response = await fetch(fullUrl, {
@@ -82,9 +100,26 @@ async function clioRequestUrl(accessToken, fullUrl) {
   if (!response.ok) {
     const text = await response.text();
     console.log(`[CLIO API] Error response: ${text}`);
+    
+    // Handle rate limiting with automatic retry
     if (response.status === 429) {
-      throw new Error('Clio rate limit exceeded. Please wait and try again.');
+      if (retryCount >= MAX_RETRIES) {
+        throw new Error('Clio rate limit exceeded after maximum retries.');
+      }
+      // Parse retry time from error message, default to 60 seconds
+      let waitTime = 60;
+      try {
+        const errorObj = JSON.parse(text);
+        const match = errorObj?.error?.message?.match(/Retry in (\d+) seconds/);
+        if (match) {
+          waitTime = parseInt(match[1], 10) + 5; // Add 5 second buffer
+        }
+      } catch (e) {}
+      console.log(`[CLIO API] Rate limited. Waiting ${waitTime}s before retry ${retryCount + 1}/${MAX_RETRIES}...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+      return clioRequestUrl(accessToken, fullUrl, retryCount + 1);
     }
+    
     throw new Error(`Clio API error: ${response.status} - ${text}`);
   }
   
@@ -206,39 +241,40 @@ async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress,
   if (clientIds && clientIds.length > 0) {
     console.log(`[CLIO API] Fetching matters by client (${clientIds.length} clients)...`);
     
-    // Process clients in parallel batches of 5 for speed
-    const BATCH_SIZE = 5;
-    for (let i = 0; i < clientIds.length; i += BATCH_SIZE) {
-      const batch = clientIds.slice(i, i + BATCH_SIZE);
+    // Process clients SEQUENTIALLY to avoid rate limits (Clio limit: 50 req/min)
+    // Each paginated fetch can use multiple requests, so we go one at a time
+    for (let i = 0; i < clientIds.length; i++) {
+      const clientId = clientIds[i];
       
-      const batchPromises = batch.map(async (clientId) => {
-        try {
-          const clientMatters = await clioGetPaginated(
-            accessToken,
-            endpoint,
-            { ...params, client_id: clientId },
-            null
-          );
-          return clientMatters;
-        } catch (err) {
-          console.log(`[CLIO API] Error fetching matters for client ${clientId}: ${err.message}`);
-          return [];
-        }
-      });
-      
-      const batchResults = await Promise.all(batchPromises);
-      
-      for (const clientMatters of batchResults) {
+      try {
+        const clientMatters = await clioGetPaginated(
+          accessToken,
+          endpoint,
+          { ...params, client_id: clientId },
+          null
+        );
+        
         for (const item of clientMatters) {
           if (item.id && !seenIds.has(item.id)) {
             seenIds.add(item.id);
             allData.push(item);
           }
         }
+      } catch (err) {
+        console.log(`[CLIO API] Error fetching matters for client ${clientId}: ${err.message}`);
       }
       
       if (onProgress) onProgress(allData.length);
-      console.log(`[CLIO API] Matters progress: ${i + batch.length}/${clientIds.length} clients, ${allData.length} matters`);
+      
+      // Log progress every 10 clients
+      if ((i + 1) % 10 === 0 || i === clientIds.length - 1) {
+        console.log(`[CLIO API] Matters progress: ${i + 1}/${clientIds.length} clients, ${allData.length} matters`);
+      }
+      
+      // Small delay between clients to stay under rate limit
+      if (i < clientIds.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
     }
     
     // Also fetch matters with no client (orphaned matters)
@@ -359,45 +395,38 @@ async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgre
   if (matterIds && matterIds.length > 0) {
     console.log(`[CLIO API] Fetching activities by matter (${matterIds.length} matters)...`);
     
-    // Process matters in parallel batches of 10 for speed
-    const BATCH_SIZE = 10;
-    let processedCount = 0;
-    
-    for (let i = 0; i < matterIds.length; i += BATCH_SIZE) {
-      const batch = matterIds.slice(i, i + BATCH_SIZE);
+    // Process matters SEQUENTIALLY to avoid rate limits (Clio limit: 50 req/min)
+    for (let i = 0; i < matterIds.length; i++) {
+      const matterId = matterIds[i];
       
-      const batchPromises = batch.map(async (matterId) => {
-        try {
-          const matterActivities = await clioGetPaginated(
-            accessToken,
-            endpoint,
-            { ...params, matter_id: matterId },
-            null
-          );
-          return matterActivities;
-        } catch (err) {
-          // Silent fail for individual matters
-          return [];
-        }
-      });
-      
-      const batchResults = await Promise.all(batchPromises);
-      
-      for (const matterActivities of batchResults) {
+      try {
+        const matterActivities = await clioGetPaginated(
+          accessToken,
+          endpoint,
+          { ...params, matter_id: matterId },
+          null
+        );
+        
         for (const item of matterActivities) {
           if (item.id && !seenIds.has(item.id)) {
             seenIds.add(item.id);
             allData.push(item);
           }
         }
+      } catch (err) {
+        // Silent fail for individual matters
       }
       
-      processedCount += batch.length;
       if (onProgress) onProgress(allData.length);
       
       // Log progress every 50 matters
-      if (processedCount % 50 === 0 || processedCount === matterIds.length) {
-        console.log(`[CLIO API] Activities progress: ${processedCount}/${matterIds.length} matters, ${allData.length} activities`);
+      if ((i + 1) % 50 === 0 || i === matterIds.length - 1) {
+        console.log(`[CLIO API] Activities progress: ${i + 1}/${matterIds.length} matters, ${allData.length} activities`);
+      }
+      
+      // Small delay between matters to stay under rate limit
+      if (i < matterIds.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
     
