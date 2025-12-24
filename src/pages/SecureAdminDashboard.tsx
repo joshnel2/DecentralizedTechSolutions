@@ -200,15 +200,24 @@ export default function SecureAdminDashboard() {
   const [clioUser, setClioUser] = useState<{ name: string; email: string } | null>(null)
   const [clioImporting, setClioImporting] = useState(false)
   
-  // Skip options for testing
-  const [skipMatters, setSkipMatters] = useState(false)
-  const [skipActivities, setSkipActivities] = useState(false)
-  const [skipBills, setSkipBills] = useState(false)
-  const [skipCalendar, setSkipCalendar] = useState(false)
+  // Skip options for testing - restore from sessionStorage after OAuth redirect
+  const [skipMatters, setSkipMatters] = useState(() => sessionStorage.getItem('clio_skipMatters') === 'true')
+  const [skipActivities, setSkipActivities] = useState(() => sessionStorage.getItem('clio_skipActivities') === 'true')
+  const [skipBills, setSkipBills] = useState(() => sessionStorage.getItem('clio_skipBills') === 'true')
+  const [skipCalendar, setSkipCalendar] = useState(() => sessionStorage.getItem('clio_skipCalendar') === 'true')
   
   // Migrate to existing firm option
-  const [useExistingFirm, setUseExistingFirm] = useState(false)
-  const [selectedExistingFirmId, setSelectedExistingFirmId] = useState('')
+  const [useExistingFirm, setUseExistingFirm] = useState(() => sessionStorage.getItem('clio_useExistingFirm') === 'true')
+  const [selectedExistingFirmId, setSelectedExistingFirmId] = useState(() => sessionStorage.getItem('clio_existingFirmId') || '')
+  
+  // Sync skip options to sessionStorage so they persist through OAuth redirect
+  useEffect(() => { sessionStorage.setItem('clio_skipMatters', String(skipMatters)) }, [skipMatters])
+  useEffect(() => { sessionStorage.setItem('clio_skipActivities', String(skipActivities)) }, [skipActivities])
+  useEffect(() => { sessionStorage.setItem('clio_skipBills', String(skipBills)) }, [skipBills])
+  useEffect(() => { sessionStorage.setItem('clio_skipCalendar', String(skipCalendar)) }, [skipCalendar])
+  useEffect(() => { sessionStorage.setItem('clio_useExistingFirm', String(useExistingFirm)) }, [useExistingFirm])
+  useEffect(() => { sessionStorage.setItem('clio_existingFirmId', selectedExistingFirmId) }, [selectedExistingFirmId])
+  
   const [clioProgress, setClioProgress] = useState<{
     status: string;
     steps?: Record<string, { status: string; count: number }>;
