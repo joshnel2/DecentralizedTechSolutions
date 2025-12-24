@@ -1502,6 +1502,7 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
     const firmShortName = firmName.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8).toUpperCase() || 'IMPORT';
     
     if (data.matters && Array.isArray(data.matters)) {
+      let skippedMatters = 0;
       for (const matter of data.matters) {
         try {
           // Generate unique matter number if blank
@@ -1510,15 +1511,26 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
             matterNumber = `MATTER-${matter.id || matter.clio_id || Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
           }
           
-          // CHECK FOR EXISTING MATTER NUMBER - ensure uniqueness
+          const matterName = matter.description || matter.name;
+          
+          // CHECK FOR EXISTING MATTER NUMBER
           const existingMatter = await query('SELECT id, firm_id FROM matters WHERE number = $1', [matterNumber]);
           if (existingMatter.rows.length > 0) {
+            // If importing to existing firm and matter already exists in that firm, skip it
+            if (existingFirmId && existingMatter.rows[0].firm_id === firmId) {
+              const existingId = existingMatter.rows[0].id;
+              matterIdMap.set(matterNumber, existingId);
+              if (matter.display_number) matterIdMap.set(matter.display_number, existingId);
+              if (matter.id) matterIdMap.set(`clio:${matter.id}`, existingId);
+              if (matter.clio_id) matterIdMap.set(`clio:${matter.clio_id}`, existingId);
+              skippedMatters++;
+              continue;
+            }
+            // Different firm - generate unique number
             const originalNumber = matterNumber;
             matterNumber = await generateUniqueMatterNumber(matterNumber, firmShortName);
             results.warnings.push(`Matter number "${originalNumber}" already exists - using "${matterNumber}" instead`);
           }
-          
-          const matterName = matter.description || matter.name;
           
           // Find client
           let clientId = null;
@@ -1581,6 +1593,9 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
         } catch (err) {
           results.errors.push(`Matter "${matter.display_number || matter.number}": ${err.message}`);
         }
+      }
+      if (skippedMatters > 0) {
+        results.warnings.push(`Skipped ${skippedMatters} matters that already exist in the firm`);
       }
     }
 
