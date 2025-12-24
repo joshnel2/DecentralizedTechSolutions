@@ -288,6 +288,13 @@
   font-size: 1.05rem;
   font-weight: 600;
   color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.integrationSubtitle {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
   margin-bottom: 0.375rem;
 }
 

@@ -30,6 +30,7 @@ interface IntegrationStatus {
 interface IntegrationConfig {
   id: string
   name: string
+  subtitle?: string // Shows below the name (e.g. "Outlook, Calendar, OneDrive")
   description: string
   category: 'calendar' | 'email' | 'storage' | 'accounting' | 'esign' | 'communication'
   icon: string
@@ -58,7 +59,8 @@ const integrationConfigs: IntegrationConfig[] = [
   { 
     id: 'microsoft', 
     name: 'Microsoft', 
-    description: 'Outlook, Calendar, OneDrive', 
+    subtitle: 'Outlook, Calendar, OneDrive',
+    description: 'Connect your Microsoft account to sync Outlook email, calendar events, and OneDrive files.', 
     category: 'calendar', 
     icon: '📆', 
     provider: 'outlook',
@@ -517,6 +519,9 @@ export function IntegrationsPage() {
                     <span className={styles.integrationIcon}>{config.icon}</span>
                     <div className={styles.integrationInfo}>
                       <h3>{config.name}</h3>
+                      {config.subtitle && (
+                        <span className={styles.integrationSubtitle}>{config.subtitle}</span>
+                      )}
                       <span className={styles.categoryTag}>
                         {categoryLabels[config.category]?.label || config.category}
                       </span>
