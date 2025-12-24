@@ -1115,8 +1115,8 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
   try {
     await query('BEGIN');
     
-    // Set statement timeout to 30 minutes for large imports
-    await query('SET LOCAL statement_timeout = 1800000');
+    // Set statement timeout to 1 hour for large imports
+    await query('SET LOCAL statement_timeout = 3600000');
 
     // ============================================
     // 1. CREATE FIRM
