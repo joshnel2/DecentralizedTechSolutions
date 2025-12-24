@@ -1350,7 +1350,11 @@ router.post('/outlook/sync-calendar', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Outlook not connected' });
     }
 
-    let accessToken = integration.rows[0].access_token;
+    // Get valid access token (refreshes if expired)
+    const accessToken = await getValidOutlookToken(integration.rows[0]);
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Outlook token expired. Please reconnect your account.' });
+    }
 
     // Fetch calendar events
     const now = new Date();
@@ -1358,9 +1362,15 @@ router.post('/outlook/sync-calendar', authenticate, async (req, res) => {
     const oneMonthAhead = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     const eventsResponse = await fetch(
-      `https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${oneMonthAgo.toISOString()}&endDateTime=${oneMonthAhead.toISOString()}`,
+      `https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${oneMonthAgo.toISOString()}&endDateTime=${oneMonthAhead.toISOString()}&$top=100`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
+
+    if (!eventsResponse.ok) {
+      const errorText = await eventsResponse.text();
+      console.error('Calendar API error:', errorText);
+      return res.status(500).json({ error: 'Failed to fetch calendar events from Outlook' });
+    }
 
     const eventsData = await eventsResponse.json();
     let syncedCount = 0;
@@ -1370,21 +1380,30 @@ router.post('/outlook/sync-calendar', authenticate, async (req, res) => {
     
     if (syncSettings.syncCalendar !== false) {
       for (const event of eventsData.value || []) {
+        // Skip cancelled events
+        if (event.isCancelled) continue;
+
         const existingEvent = await query(
-          `SELECT id FROM calendar_events WHERE firm_id = $1 AND external_id = $2`,
+          `SELECT id FROM calendar_events WHERE firm_id = $1 AND external_id = $2 AND external_source = 'outlook'`,
           [req.user.firmId, event.id]
         );
 
         if (existingEvent.rows.length === 0) {
+          // Parse start/end times - Outlook can return dateTime or date (for all-day events)
+          const startTime = event.start?.dateTime || event.start?.date;
+          const endTime = event.end?.dateTime || event.end?.date;
+          const isAllDay = !event.start?.dateTime && !!event.start?.date;
+
           await query(
-            `INSERT INTO calendar_events (firm_id, title, description, start_time, end_time, location, type, external_id, external_source, created_by)
-             VALUES ($1, $2, $3, $4, $5, $6, 'meeting', $7, 'outlook', $8)`,
+            `INSERT INTO calendar_events (firm_id, title, description, start_time, end_time, all_day, location, type, external_id, external_source, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'meeting', $8, 'outlook', $9)`,
             [
               req.user.firmId,
               event.subject || 'Untitled Event',
               event.bodyPreview || null,
-              event.start?.dateTime,
-              event.end?.dateTime,
+              startTime,
+              endTime,
+              isAllDay,
               event.location?.displayName || null,
               event.id,
               req.user.id,
@@ -1403,12 +1422,13 @@ router.post('/outlook/sync-calendar', authenticate, async (req, res) => {
     res.json({ 
       success: true, 
       syncedCount,
+      totalEvents: eventsData.value?.length || 0,
       message: syncSettings.syncCalendar !== false 
-        ? `Synced ${syncedCount} events from Outlook Calendar` 
+        ? `Synced ${syncedCount} new events from Outlook Calendar` 
         : 'Calendar sync disabled - use integration settings to enable'
     });
   } catch (error) {
-    console.error('Outlook sync error:', error);
+    console.error('Outlook calendar sync error:', error);
     res.status(500).json({ error: 'Failed to sync calendar' });
   }
 });

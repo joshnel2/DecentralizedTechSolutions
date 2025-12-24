@@ -320,11 +320,14 @@ CREATE TABLE calendar_events (
     is_private BOOLEAN DEFAULT false,
     status VARCHAR(20) DEFAULT 'confirmed',
     recurrence_rule TEXT,
+    external_id VARCHAR(255),
+    external_source VARCHAR(50),
     created_by UUID REFERENCES users(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     CONSTRAINT valid_type CHECK (type IN ('meeting', 'court_date', 'deadline', 'reminder', 'task', 'closing', 'deposition', 'other')),
-    CONSTRAINT valid_status CHECK (status IN ('confirmed', 'tentative', 'cancelled'))
+    CONSTRAINT valid_status CHECK (status IN ('confirmed', 'tentative', 'cancelled')),
+    CONSTRAINT calendar_events_firm_external_unique UNIQUE (firm_id, external_id, external_source)
 );
 
 -- Documents
