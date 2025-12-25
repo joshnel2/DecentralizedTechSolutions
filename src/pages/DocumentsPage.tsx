@@ -7,9 +7,10 @@ import {
   Search, FolderOpen, FileText, Upload,
   Sparkles, Download, Trash2, X, Loader2,
   FileSearch, Scale, AlertTriangle, List, MessageSquare,
-  Eye, ExternalLink, Wand2
+  Eye, ExternalLink, Wand2, History, GitCompare, Lock, Edit3,
+  HardDrive, Settings
 } from 'lucide-react'
-import { documentsApi } from '../services/api'
+import { documentsApi, driveApi } from '../services/api'
 import { format, parseISO } from 'date-fns'
 import styles from './DocumentsPage.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
@@ -302,6 +303,14 @@ export function DocumentsPage() {
         </div>
         <div className={styles.headerActions}>
           <button 
+            className={styles.driveBtn}
+            onClick={() => navigate('/app/settings/drives')}
+            title="Configure document drives"
+          >
+            <HardDrive size={18} />
+            Drives
+          </button>
+          <button 
             className={styles.automationBtn}
             onClick={() => navigate('/app/settings/documents')}
           >
@@ -499,6 +508,26 @@ export function DocumentsPage() {
                 >
                   <Eye size={18} />
                   Preview
+                </button>
+                <button 
+                  className={styles.historyBtn}
+                  onClick={() => {
+                    navigate(`/app/documents/${selectedDoc.id}/versions`)
+                    setSelectedDoc(null)
+                  }}
+                >
+                  <History size={18} />
+                  Version History
+                </button>
+                <button 
+                  className={styles.compareBtn}
+                  onClick={() => {
+                    navigate(`/app/documents/${selectedDoc.id}/compare`)
+                    setSelectedDoc(null)
+                  }}
+                >
+                  <GitCompare size={18} />
+                  Compare Versions
                 </button>
                 <button 
                   className={styles.downloadBtn}

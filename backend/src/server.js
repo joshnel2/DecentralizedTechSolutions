@@ -26,6 +26,7 @@ import billingDataRoutes from './routes/billingData.js';
 import documentTemplatesRoutes from './routes/documentTemplates.js';
 import timerStateRoutes from './routes/timerState.js';
 import userSettingsRoutes from './routes/userSettings.js';
+import driveRoutes from './routes/drive.js';
 
 // AI Agent Tool Routes (v1 API)
 import billingRoutes from './routes/billing.js';
@@ -91,6 +92,7 @@ app.use('/api/billing-data', billingDataRoutes);
 app.use('/api/document-templates', documentTemplatesRoutes);
 app.use('/api/timer', timerStateRoutes);
 app.use('/api/user-settings', userSettingsRoutes);
+app.use('/api/drive', driveRoutes);
 
 // AI Agent Tool Routes (v1 API - optimized for AI interaction)
 app.use('/api/v1/billing', billingRoutes);

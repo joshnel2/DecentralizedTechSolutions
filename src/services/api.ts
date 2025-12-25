@@ -1311,6 +1311,141 @@ export const integrationsApi = {
 };
 
 // ============================================
+// DRIVE API - Document Drive Integration
+// ============================================
+
+export const driveApi = {
+  // Drive Configurations
+  async getConfigurations() {
+    return fetchWithAuth('/drive/configurations');
+  },
+
+  async getConfiguration(id: string) {
+    return fetchWithAuth(`/drive/configurations/${id}`);
+  },
+
+  async createConfiguration(data: {
+    name: string;
+    driveType?: string;
+    rootPath: string;
+    syncEnabled?: boolean;
+    syncIntervalMinutes?: number;
+    syncDirection?: string;
+    autoVersionOnSave?: boolean;
+    conflictResolution?: string;
+    isDefault?: boolean;
+    isPersonal?: boolean;
+    settings?: Record<string, unknown>;
+  }) {
+    return fetchWithAuth('/drive/configurations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateConfiguration(id: string, data: Partial<{
+    name: string;
+    rootPath: string;
+    syncEnabled: boolean;
+    syncIntervalMinutes: number;
+    syncDirection: string;
+    autoVersionOnSave: boolean;
+    conflictResolution: string;
+    isDefault: boolean;
+    settings: Record<string, unknown>;
+  }>) {
+    return fetchWithAuth(`/drive/configurations/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteConfiguration(id: string) {
+    return fetchWithAuth(`/drive/configurations/${id}`, { method: 'DELETE' });
+  },
+
+  // Document Versions
+  async getVersions(documentId: string) {
+    return fetchWithAuth(`/drive/documents/${documentId}/versions`);
+  },
+
+  async getVersionContent(documentId: string, versionId: string) {
+    return fetchWithAuth(`/drive/documents/${documentId}/versions/${versionId}/content`);
+  },
+
+  async createVersion(documentId: string, data: {
+    content: string;
+    versionLabel?: string;
+    changeSummary?: string;
+    changeType?: string;
+  }) {
+    return fetchWithAuth(`/drive/documents/${documentId}/versions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async restoreVersion(documentId: string, versionId: string) {
+    return fetchWithAuth(`/drive/documents/${documentId}/versions/${versionId}/restore`, {
+      method: 'POST',
+    });
+  },
+
+  // Document Comparison
+  async compareVersions(documentId: string, version1: number, version2: number) {
+    return fetchWithAuth(`/drive/documents/${documentId}/compare?version1=${version1}&version2=${version2}`);
+  },
+
+  // Document Locking
+  async acquireLock(documentId: string, lockType?: string, sessionId?: string) {
+    return fetchWithAuth(`/drive/documents/${documentId}/lock`, {
+      method: 'POST',
+      body: JSON.stringify({ lockType, sessionId }),
+    });
+  },
+
+  async sendHeartbeat(documentId: string) {
+    return fetchWithAuth(`/drive/documents/${documentId}/lock/heartbeat`, {
+      method: 'POST',
+    });
+  },
+
+  async releaseLock(documentId: string, reason?: string) {
+    return fetchWithAuth(`/drive/documents/${documentId}/lock`, {
+      method: 'DELETE',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async getLockStatus(documentId: string) {
+    return fetchWithAuth(`/drive/documents/${documentId}/lock`);
+  },
+
+  // Document Activities
+  async getActivities(documentId: string, limit?: number, offset?: number) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    if (offset) params.set('offset', String(offset));
+    return fetchWithAuth(`/drive/documents/${documentId}/activities?${params}`);
+  },
+
+  // Folders
+  async getFolders(driveId?: string, path?: string) {
+    const params = new URLSearchParams();
+    if (driveId) params.set('driveId', driveId);
+    if (path) params.set('path', path);
+    return fetchWithAuth(`/drive/folders?${params}`);
+  },
+
+  async createFolder(name: string, parentPath?: string, driveId?: string) {
+    return fetchWithAuth('/drive/folders', {
+      method: 'POST',
+      body: JSON.stringify({ name, parentPath, driveId }),
+    });
+  },
+};
+
+// ============================================
 // ADMIN API (Platform Admin Only)
 // ============================================
 
@@ -1387,4 +1522,5 @@ export default {
   billingData: billingDataApi,
   documentTemplates: documentTemplatesApi,
   timer: timerApi,
+  drive: driveApi,
 };
