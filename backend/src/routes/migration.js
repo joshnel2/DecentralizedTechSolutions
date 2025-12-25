@@ -2384,71 +2384,30 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               (count) => updateProgress('matters', 'running', count)
             );
             
-            // Helper to generate unique matter number
-            const usedNumbers = new Set();
-            const generateUniqueMatterNumber = async (baseNumber) => {
-              let num = baseNumber;
-              let attempt = 0;
-              while (attempt < 100) {
-                if (!usedNumbers.has(num)) {
-                  const existing = await query('SELECT id FROM matters WHERE number = $1', [num]);
-                  if (existing.rows.length === 0) {
-                    usedNumbers.add(num);
-                    return num;
-                  }
-                }
-                attempt++;
-                num = `${actualFirmName.substring(0,3).toUpperCase()}-${baseNumber}-${attempt}`;
-              }
-              return `${baseNumber}-${Date.now()}`;
-            };
-            
             for (const m of matters) {
               try {
+                // Always use unique matter number - append Clio ID to guarantee uniqueness
                 const baseNumber = m.display_number || `M-${m.id}`;
-                const matterNumber = await generateUniqueMatterNumber(baseNumber);
+                const matterNumber = `${baseNumber}-${m.id}`;
                 const clientId = m.client?.id ? contactIdMap.get(`clio:${m.client.id}`) : null;
                 const responsibleId = m.responsible_attorney?.id ? userIdMap.get(`clio:${m.responsible_attorney.id}`) : null;
                 
-                // Use a unique number with timestamp fallback if still conflicting
-                let result;
-                try {
-                  result = await query(
-                    `INSERT INTO matters (firm_id, client_id, number, name, description, status, responsible_attorney, open_date, close_date, billing_type)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-                    [
-                      firmId,
-                      clientId,
-                      matterNumber,
-                      m.description || matterNumber,
-                      m.description || null,
-                      m.status?.toLowerCase() === 'closed' ? 'closed' : 'active',
-                      responsibleId,
-                      m.open_date || null,
-                      m.close_date || null,
-                      m.billing_method || 'hourly'
-                    ]
-                  );
-                } catch (insertErr) {
-                  // If still duplicate, use timestamp to guarantee uniqueness
-                  const uniqueNumber = `${baseNumber}-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
-                  result = await query(
-                    `INSERT INTO matters (firm_id, client_id, number, name, description, status, responsible_attorney, open_date, close_date, billing_type)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-                    [
-                      firmId,
-                      clientId,
-                      uniqueNumber,
-                      m.description || uniqueNumber,
-                      m.description || null,
-                      m.status?.toLowerCase() === 'closed' ? 'closed' : 'active',
-                      responsibleId,
-                      m.open_date || null,
-                      m.close_date || null,
-                      m.billing_method || 'hourly'
-                    ]
-                  );
-                }
+                const result = await query(
+                  `INSERT INTO matters (firm_id, client_id, number, name, description, status, responsible_attorney, open_date, close_date, billing_type)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+                  [
+                    firmId,
+                    clientId,
+                    matterNumber,
+                    m.description || matterNumber,
+                    m.description || null,
+                    m.status?.toLowerCase() === 'closed' ? 'closed' : 'active',
+                    responsibleId,
+                    m.open_date || null,
+                    m.close_date || null,
+                    m.billing_method || 'hourly'
+                  ]
+                );
                 
                 matterIdMap.set(`clio:${m.id}`, result.rows[0].id);
                 counts.matters++;
@@ -2457,8 +2416,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   console.log(`[CLIO IMPORT] Matters saved: ${counts.matters}`);
                 }
               } catch (err) {
-                // Log but don't fail - continue with other matters
-                console.log(`[CLIO IMPORT] Matter skip: ${m.display_number || m.id} - ${err.message}`);
+                console.log(`[CLIO IMPORT] Matter error: ${m.display_number || m.id} - ${err.message}`);
               }
             }
             updateProgress('matters', 'done', counts.matters);
