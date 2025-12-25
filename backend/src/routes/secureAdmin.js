@@ -220,24 +220,56 @@ router.put('/firms/:id', requireSecureAdmin, async (req, res) => {
 
 router.delete('/firms/:id', requireSecureAdmin, async (req, res) => {
   try {
-    // First get firm name for audit
-    const firm = await query('SELECT name FROM firms WHERE id = $1', [req.params.id]);
+    const firmId = req.params.id;
     
-    const result = await query(
-      'DELETE FROM firms WHERE id = $1 RETURNING id',
-      [req.params.id]
-    );
+    // Get firm info and counts before deletion
+    const firm = await query('SELECT name FROM firms WHERE id = $1', [firmId]);
+    if (firm.rows.length === 0) {
+      return res.status(404).json({ error: 'Firm not found' });
+    }
+    
+    const firmName = firm.rows[0].name;
+    
+    // Get counts of what will be deleted (for logging)
+    const counts = await query(`
+      SELECT 
+        (SELECT COUNT(*) FROM users WHERE firm_id = $1) as users,
+        (SELECT COUNT(*) FROM clients WHERE firm_id = $1) as clients,
+        (SELECT COUNT(*) FROM matters WHERE firm_id = $1) as matters,
+        (SELECT COUNT(*) FROM time_entries WHERE firm_id = $1) as time_entries,
+        (SELECT COUNT(*) FROM invoices WHERE firm_id = $1) as invoices,
+        (SELECT COUNT(*) FROM calendar_events WHERE firm_id = $1) as calendar_events,
+        (SELECT COUNT(*) FROM documents WHERE firm_id = $1) as documents
+    `, [firmId]);
+    
+    const deleteCounts = counts.rows[0];
+    console.log(`[DELETE FIRM] Deleting "${firmName}" with:`, deleteCounts);
+    
+    // Delete firm - CASCADE will automatically delete all related records
+    const result = await query('DELETE FROM firms WHERE id = $1 RETURNING id', [firmId]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Firm not found' });
     }
 
-    logAudit('DELETE_FIRM', `Deleted firm: ${firm.rows[0]?.name || req.params.id}`, req.ip);
+    logAudit('DELETE_FIRM', `Deleted firm "${firmName}" and all data: ${JSON.stringify(deleteCounts)}`, req.ip);
 
-    res.json({ message: 'Firm deleted successfully' });
+    res.json({ 
+      message: 'Firm and all associated data deleted successfully',
+      deleted: {
+        firm: firmName,
+        users: parseInt(deleteCounts.users),
+        clients: parseInt(deleteCounts.clients),
+        matters: parseInt(deleteCounts.matters),
+        time_entries: parseInt(deleteCounts.time_entries),
+        invoices: parseInt(deleteCounts.invoices),
+        calendar_events: parseInt(deleteCounts.calendar_events),
+        documents: parseInt(deleteCounts.documents)
+      }
+    });
   } catch (error) {
     console.error('Delete firm error:', error);
-    res.status(500).json({ error: 'Failed to delete firm. It may have associated users.' });
+    res.status(500).json({ error: `Failed to delete firm: ${error.message}` });
   }
 });
 
