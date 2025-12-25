@@ -353,6 +353,11 @@
   color: #3B82F6;
 }
 
+.statusBadge.closed {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--apex-text);
+}
+
 .statusBadge.closed_won {
   background: rgba(16, 185, 129, 0.1);
   color: var(--apex-success);
@@ -416,6 +421,12 @@
   color: #3B82F6;
 }
 
+.statusSelect.closed,
+.statusSelect.closed_other {
+  background-color: rgba(148, 163, 184, 0.1);
+  color: var(--apex-text);
+}
+
 .statusSelect.closed_won,
 .statusSelect.closed_settled {
   background-color: rgba(16, 185, 129, 0.1);
@@ -425,11 +436,6 @@
 .statusSelect.closed_lost {
   background-color: rgba(239, 68, 68, 0.1);
   color: var(--apex-error);
-}
-
-.statusSelect.closed_other {
-  background-color: rgba(148, 163, 184, 0.1);
-  color: var(--apex-text);
 }
 
 .billingInfo {

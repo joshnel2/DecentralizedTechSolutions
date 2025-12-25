@@ -211,6 +211,11 @@
   color: #3B82F6;
 }
 
+.statusBadge.closed {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--apex-text);
+}
+
 .statusBadge.inactive,
 .statusBadge.former {
   background: rgba(100, 116, 139, 0.15);

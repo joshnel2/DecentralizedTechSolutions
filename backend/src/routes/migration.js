@@ -668,6 +668,8 @@ const extractAddress = (addresses) => {
 
 /**
  * Map Clio status to Apex status
+ * Clio statuses: Open, Pending, Closed
+ * DB constraint: active, pending, closed, on_hold, archived
  */
 const mapMatterStatus = (clioStatus) => {
   if (!clioStatus) return 'active';
@@ -2247,12 +2249,24 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             
             for (const u of users) {
               try {
-                // Always use unique email with Clio ID suffix
+                // Use real email first, only add suffix if duplicate exists
                 const baseEmail = (u.email || `user${u.id}@import.clio`).toLowerCase();
-                const [localPart, domain] = baseEmail.split('@');
-                const email = `${localPart}+${u.id}@${domain}`;
                 const firstName = u.first_name || u.name?.split(' ')[0] || 'User';
                 const lastName = u.last_name || u.name?.split(' ').slice(1).join(' ') || '';
+                
+                // Check if email already exists in database
+                let email = baseEmail;
+                const existingUser = await query(
+                  'SELECT id FROM users WHERE LOWER(email) = LOWER($1)',
+                  [baseEmail]
+                );
+                
+                if (existingUser.rows.length > 0) {
+                  // Email exists, add Clio ID suffix to make unique
+                  const [localPart, domain] = baseEmail.split('@');
+                  email = `${localPart}+clio${u.id}@${domain}`;
+                  console.log(`[CLIO IMPORT] Email ${baseEmail} exists, using ${email}`);
+                }
                 
                 const result = await query(
                   `INSERT INTO users (firm_id, email, password_hash, first_name, last_name, role, is_active)
@@ -2297,7 +2311,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const isCompany = c.type === 'Company';
                 const displayName = c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown';
                 const primaryEmail = c.email_addresses?.find(e => e.default_email) || c.email_addresses?.[0];
-                const primaryPhone = c.phone_numbers?.find(p => p.default_number) || c.phone_numbers?.[0];
+                const primaryPhone = c.phone_numbers?.find(p => p.default_phone) || c.phone_numbers?.[0];
                 const primaryAddr = c.addresses?.find(a => a.primary) || c.addresses?.[0];
                 
                 const result = await query(
@@ -2378,7 +2392,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     matterNumber,
                     m.description || matterNumber,
                     m.description || null,
-                    m.status?.toLowerCase() === 'closed' ? 'closed' : 'active',
+                    mapMatterStatus(m.status),
                     responsibleId,
                     m.open_date || null,
                     m.close_date || null,
@@ -2430,6 +2444,23 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 
                 if (!matterId) continue; // Skip entries without linked matter
                 
+                // Calculate rate from Clio data:
+                // - price: rate per hour
+                // - total: total amount (price * quantity)
+                // - quantity: hours
+                const hours = parseFloat(a.quantity) || 0;
+                let rate = parseFloat(a.price) || 0;
+                
+                // If no rate but we have total and hours, calculate rate
+                if (rate === 0 && hours > 0 && a.total) {
+                  rate = parseFloat(a.total) / hours;
+                }
+                
+                // Default rate if still 0 (for analytics to work)
+                if (rate === 0) {
+                  rate = 350; // Default hourly rate
+                }
+                
                 await query(
                   `INSERT INTO time_entries (firm_id, matter_id, user_id, date, hours, rate, description, billable, billed)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -2438,8 +2469,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     matterId,
                     userId,
                     a.date || new Date().toISOString().split('T')[0],
-                    a.quantity || 0, // hours as decimal
-                    a.price || 0, // rate is required, default to 0
+                    hours,
+                    rate,
                     a.note || 'Imported from Clio',
                     !a.non_billable,
                     a.billed || false
@@ -2486,9 +2517,22 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const matterId = firstMatter?.id ? matterIdMap.get(`clio:${firstMatter.id}`) : null;
                 const clientId = b.client?.id ? contactIdMap.get(`clio:${b.client.id}`) : null;
                 
+                // Calculate amounts - Clio provides total and balance
+                // We need to set subtotal_fees because the DB trigger recalculates total from subtotals
+                const billTotal = parseFloat(b.total) || 0;
+                const billBalance = parseFloat(b.balance) || 0;
+                const amountPaid = billTotal - billBalance;
+                
+                // Map Clio state to our status
+                let invoiceStatus = 'draft';
+                if (b.state === 'paid') invoiceStatus = 'paid';
+                else if (b.state === 'void' || b.state === 'deleted') invoiceStatus = 'void';
+                else if (b.state === 'awaiting_payment') invoiceStatus = 'sent';
+                else if (b.state === 'awaiting_approval') invoiceStatus = 'draft';
+                
                 await query(
-                  `INSERT INTO invoices (firm_id, matter_id, client_id, number, issue_date, due_date, total, status)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                  `INSERT INTO invoices (firm_id, matter_id, client_id, number, issue_date, due_date, subtotal_fees, amount_paid, status)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
                   [
                     firmId,
                     matterId,
@@ -2496,8 +2540,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     `${b.number || 'INV'}-${b.id}`, // Append ID to ensure unique
                     b.issued_at || new Date().toISOString().split('T')[0],
                     b.due_at || null,
-                    b.total || 0,
-                    b.state === 'paid' ? 'paid' : b.state === 'void' ? 'void' : 'draft'
+                    billTotal, // Set as subtotal_fees, trigger will calculate total
+                    amountPaid, // Track what's been paid
+                    invoiceStatus
                   ]
                 );
                 

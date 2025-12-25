@@ -482,6 +482,7 @@ export type MatterStatus =
   | 'active'
   | 'pending'
   | 'on_hold'
+  | 'closed'
   | 'closed_won'
   | 'closed_lost'
   | 'closed_settled'

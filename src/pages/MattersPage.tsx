@@ -359,6 +359,7 @@ export function MattersPage() {
                     <option value="active">Active</option>
                     <option value="pending">Pending</option>
                     <option value="on_hold">On Hold</option>
+                    <option value="closed">Closed</option>
                     <option value="closed_won">Closed - Won</option>
                     <option value="closed_lost">Closed - Lost</option>
                     <option value="closed_settled">Closed - Settled</option>
