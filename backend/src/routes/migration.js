@@ -2220,7 +2220,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           }
           
           const firmResult = await query(
-            `INSERT INTO firms (name, status, settings) VALUES ($1, 'active', $2) RETURNING id`,
+            `INSERT INTO firms (name, settings) VALUES ($1, $2) RETURNING id`,
             [actualFirmName, JSON.stringify({ source: 'clio', importedAt: new Date().toISOString() })]
           );
           firmId = firmResult.rows[0].id;
