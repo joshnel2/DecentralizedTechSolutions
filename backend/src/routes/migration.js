@@ -2268,35 +2268,32 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             
             for (const u of users) {
               try {
-                const email = (u.email || `user${u.id}@import.clio`).toLowerCase();
+                const baseEmail = (u.email || `user${u.id}@import.clio`).toLowerCase();
                 const firstName = u.first_name || u.name?.split(' ')[0] || 'User';
                 const lastName = u.last_name || u.name?.split(' ').slice(1).join(' ') || '';
                 
-                // Check for existing user (case-insensitive)
+                // Generate unique email - add suffix if needed
+                let email = baseEmail;
                 const existing = await query('SELECT id FROM users WHERE LOWER(email) = LOWER($1)', [email]);
                 if (existing.rows.length > 0) {
-                  userIdMap.set(`clio:${u.id}`, existing.rows[0].id);
-                  // Don't warn for every duplicate, just track it
-                  continue;
+                  // Add unique suffix to email
+                  const [localPart, domain] = baseEmail.split('@');
+                  email = `${localPart}+clio${u.id}@${domain}`;
                 }
                 
-                // Generate password and insert - use ON CONFLICT to handle race conditions
                 const password = firstName + Math.floor(1000 + Math.random() * 9000) + '!';
                 const passwordHash = await bcrypt.hash(password, 12);
                 
                 const result = await query(
                   `INSERT INTO users (firm_id, email, password_hash, first_name, last_name, role, is_active)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7)
-                   ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
-                   RETURNING id`,
+                   VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
                   [firmId, email, passwordHash, firstName, lastName, 'attorney', u.enabled !== false]
                 );
                 
                 userIdMap.set(`clio:${u.id}`, result.rows[0].id);
                 counts.users++;
               } catch (err) {
-                // Silently skip user errors - they can be added manually
-                console.log(`[CLIO IMPORT] User skip: ${u.email || u.id} - ${err.message}`);
+                console.log(`[CLIO IMPORT] User error: ${u.email || u.id} - ${err.message}`);
               }
             }
             updateProgress('users', 'done', counts.users);
