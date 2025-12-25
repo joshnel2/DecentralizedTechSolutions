@@ -2090,21 +2090,46 @@ router.post('/clio/connect', requireSecureAdmin, async (req, res) => {
   }
 });
 
-// Get migration status/progress
-const migrationProgress = new Map();
-
-router.get('/clio/progress/:connectionId', requireSecureAdmin, (req, res) => {
+// Get migration status/progress - now from database for persistence
+router.get('/clio/progress/:connectionId', requireSecureAdmin, async (req, res) => {
   const { connectionId } = req.params;
-  const progress = migrationProgress.get(connectionId);
   
-  if (!progress) {
-    console.log('[CLIO PROGRESS] No progress found for connection:', connectionId);
-    console.log('[CLIO PROGRESS] Available progress keys:', Array.from(migrationProgress.keys()));
-    return res.json({ status: 'not_started', message: 'No import has been started for this connection' });
+  try {
+    const result = await query(
+      'SELECT * FROM migration_jobs WHERE connection_id = $1',
+      [connectionId]
+    );
+    
+    if (result.rows.length === 0) {
+      console.log('[CLIO PROGRESS] No progress found for connection:', connectionId);
+      return res.json({ status: 'not_started', message: 'No import has been started for this connection' });
+    }
+    
+    const job = result.rows[0];
+    const progress = {
+      status: job.status,
+      startedAt: job.started_at,
+      completedAt: job.completed_at,
+      connectionId: job.connection_id,
+      importOptions: job.import_options,
+      steps: {
+        users: { status: job.users_status, count: job.users_count },
+        contacts: { status: job.contacts_status, count: job.contacts_count },
+        matters: { status: job.matters_status, count: job.matters_count },
+        activities: { status: job.activities_status, count: job.activities_count },
+        bills: { status: job.bills_status, count: job.bills_count },
+        calendar: { status: job.calendar_status, count: job.calendar_count }
+      },
+      summary: job.summary,
+      error: job.error_message
+    };
+    
+    console.log('[CLIO PROGRESS] Returning progress for', connectionId, '- status:', progress.status);
+    res.json(progress);
+  } catch (err) {
+    console.error('[CLIO PROGRESS] Database error:', err.message);
+    res.json({ status: 'not_started', message: 'No import has been started for this connection' });
   }
-  
-  console.log('[CLIO PROGRESS] Returning progress for', connectionId, '- status:', progress.status);
-  res.json(progress);
 });
 
 // Start the full Clio data import
