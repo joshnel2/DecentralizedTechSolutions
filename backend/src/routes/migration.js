@@ -2241,28 +2241,23 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               fields: 'id,name,first_name,last_name,email,enabled,subscription_type'
             }, (count) => updateProgress('users', 'running', count));
             
+            // Pre-hash a common password for speed (users can reset later)
+            const defaultPassword = 'ClioImport2024!';
+            const defaultPasswordHash = await bcrypt.hash(defaultPassword, 10);
+            
             for (const u of users) {
               try {
+                // Always use unique email with Clio ID suffix
                 const baseEmail = (u.email || `user${u.id}@import.clio`).toLowerCase();
+                const [localPart, domain] = baseEmail.split('@');
+                const email = `${localPart}+${u.id}@${domain}`;
                 const firstName = u.first_name || u.name?.split(' ')[0] || 'User';
                 const lastName = u.last_name || u.name?.split(' ').slice(1).join(' ') || '';
-                
-                // Generate unique email - add suffix if needed
-                let email = baseEmail;
-                const existing = await query('SELECT id FROM users WHERE LOWER(email) = LOWER($1)', [email]);
-                if (existing.rows.length > 0) {
-                  // Add unique suffix to email
-                  const [localPart, domain] = baseEmail.split('@');
-                  email = `${localPart}+clio${u.id}@${domain}`;
-                }
-                
-                const password = firstName + Math.floor(1000 + Math.random() * 9000) + '!';
-                const passwordHash = await bcrypt.hash(password, 12);
                 
                 const result = await query(
                   `INSERT INTO users (firm_id, email, password_hash, first_name, last_name, role, is_active)
                    VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-                  [firmId, email, passwordHash, firstName, lastName, 'attorney', u.enabled !== false]
+                  [firmId, email, defaultPasswordHash, firstName, lastName, 'attorney', u.enabled !== false]
                 );
                 
                 userIdMap.set(`clio:${u.id}`, result.rows[0].id);
@@ -2271,6 +2266,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 console.log(`[CLIO IMPORT] User error: ${u.email || u.id} - ${err.message}`);
               }
             }
+            console.log('[CLIO IMPORT] Note: All users have password "ClioImport2024!" - they should reset it');
             // Verify users were saved
             const userVerify = await query('SELECT COUNT(*) FROM users WHERE firm_id = $1', [firmId]);
             const actualUserCount = parseInt(userVerify.rows[0].count);
