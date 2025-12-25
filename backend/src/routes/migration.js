@@ -2426,15 +2426,15 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 if (!matterId) continue; // Skip entries without linked matter
                 
                 await query(
-                  `INSERT INTO time_entries (firm_id, matter_id, user_id, date, duration, rate, description, billable, billed)
+                  `INSERT INTO time_entries (firm_id, matter_id, user_id, date, hours, rate, description, billable, billed)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
                   [
                     firmId,
                     matterId,
                     userId,
                     a.date || new Date().toISOString().split('T')[0],
-                    Math.round((a.quantity || 0) * 60), // Convert hours to minutes
-                    a.price || null,
+                    a.quantity || 0, // hours as decimal
+                    a.price || 0, // rate is required, default to 0
                     a.note || 'Imported from Clio',
                     !a.non_billable,
                     a.billed || false
@@ -2479,18 +2479,17 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const clientId = b.client?.id ? contactIdMap.get(`clio:${b.client.id}`) : null;
                 
                 await query(
-                  `INSERT INTO invoices (firm_id, matter_id, client_id, number, date, due_date, total, balance, status)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                  `INSERT INTO invoices (firm_id, matter_id, client_id, number, issue_date, due_date, total, status)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
                   [
                     firmId,
                     matterId,
                     clientId,
-                    b.number || `INV-${b.id}`,
+                    `${b.number || 'INV'}-${b.id}`, // Append ID to ensure unique
                     b.issued_at || new Date().toISOString().split('T')[0],
                     b.due_at || null,
                     b.total || 0,
-                    b.balance || 0,
-                    b.state === 'paid' ? 'paid' : b.state === 'void' ? 'void' : 'pending'
+                    b.state === 'paid' ? 'paid' : b.state === 'void' ? 'void' : 'draft'
                   ]
                 );
                 
@@ -2523,6 +2522,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             
             for (const e of events) {
               try {
+                // Skip events without start/end times (required fields)
+                if (!e.start_at || !e.end_at) continue;
+                
                 const matterId = e.matter?.id ? matterIdMap.get(`clio:${e.matter.id}`) : null;
                 
                 await query(
@@ -2533,8 +2535,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     matterId,
                     e.summary || 'Event',
                     e.description || null,
-                    e.start_at || null,
-                    e.end_at || null,
+                    e.start_at,
+                    e.end_at,
                     e.all_day || false,
                     e.location || null
                   ]
