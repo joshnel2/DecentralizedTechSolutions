@@ -2271,8 +2271,11 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 console.log(`[CLIO IMPORT] User error: ${u.email || u.id} - ${err.message}`);
               }
             }
-            updateProgress('users', 'done', counts.users);
-            console.log(`[CLIO IMPORT] Users saved to DB: ${counts.users}`);
+            // Verify users were saved
+            const userVerify = await query('SELECT COUNT(*) FROM users WHERE firm_id = $1', [firmId]);
+            const actualUserCount = parseInt(userVerify.rows[0].count);
+            console.log(`[CLIO IMPORT] Users saved to DB: ${counts.users}, verified in DB: ${actualUserCount}`);
+            updateProgress('users', 'done', actualUserCount);
           } catch (err) {
             console.error('[CLIO IMPORT] Users error:', err.message);
             updateProgress('users', 'error', counts.users, err.message);
@@ -2335,8 +2338,11 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 }
               }
             }
-            updateProgress('contacts', 'done', counts.contacts);
-            console.log(`[CLIO IMPORT] Contacts saved to DB: ${counts.contacts}`);
+            // Verify contacts were saved
+            const contactVerify = await query('SELECT COUNT(*) FROM clients WHERE firm_id = $1', [firmId]);
+            const actualContactCount = parseInt(contactVerify.rows[0].count);
+            console.log(`[CLIO IMPORT] Contacts saved to DB: ${counts.contacts}, verified in DB: ${actualContactCount}`);
+            updateProgress('contacts', 'done', actualContactCount);
           } catch (err) {
             console.error('[CLIO IMPORT] Contacts error:', err.message);
             updateProgress('contacts', 'error', counts.contacts, err.message);
@@ -2394,8 +2400,11 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 console.log(`[CLIO IMPORT] Matter error: ${m.display_number || m.id} - ${err.message}`);
               }
             }
-            updateProgress('matters', 'done', counts.matters);
-            console.log(`[CLIO IMPORT] Matters saved to DB: ${counts.matters}`);
+            // Verify matters were saved
+            const matterVerify = await query('SELECT COUNT(*) FROM matters WHERE firm_id = $1', [firmId]);
+            const actualMatterCount = parseInt(matterVerify.rows[0].count);
+            console.log(`[CLIO IMPORT] Matters saved to DB: ${counts.matters}, verified in DB: ${actualMatterCount}`);
+            updateProgress('matters', 'done', actualMatterCount);
           } catch (err) {
             console.error('[CLIO IMPORT] Matters error:', err.message);
             updateProgress('matters', 'error', counts.matters, err.message);
@@ -2450,8 +2459,11 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 // Skip silently - time entries often have issues
               }
             }
-            updateProgress('activities', 'done', counts.activities);
-            console.log(`[CLIO IMPORT] Time entries saved to DB: ${counts.activities}`);
+            // Verify time entries were saved
+            const activityVerify = await query('SELECT COUNT(*) FROM time_entries WHERE firm_id = $1', [firmId]);
+            const actualActivityCount = parseInt(activityVerify.rows[0].count);
+            console.log(`[CLIO IMPORT] Time entries saved to DB: ${counts.activities}, verified in DB: ${actualActivityCount}`);
+            updateProgress('activities', 'done', actualActivityCount);
           } catch (err) {
             console.error('[CLIO IMPORT] Activities error:', err.message);
             updateProgress('activities', 'error', counts.activities, err.message);
@@ -2498,8 +2510,11 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 // Skip silently
               }
             }
-            updateProgress('bills', 'done', counts.bills);
-            console.log(`[CLIO IMPORT] Bills saved to DB: ${counts.bills}`);
+            // Verify bills were saved
+            const billVerify = await query('SELECT COUNT(*) FROM invoices WHERE firm_id = $1', [firmId]);
+            const actualBillCount = parseInt(billVerify.rows[0].count);
+            console.log(`[CLIO IMPORT] Bills saved to DB: ${counts.bills}, verified in DB: ${actualBillCount}`);
+            updateProgress('bills', 'done', actualBillCount);
           } catch (err) {
             console.error('[CLIO IMPORT] Bills error:', err.message);
             updateProgress('bills', 'error', counts.bills, err.message);
@@ -2547,8 +2562,11 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 // Skip silently
               }
             }
-            updateProgress('calendar', 'done', counts.calendar);
-            console.log(`[CLIO IMPORT] Calendar saved to DB: ${counts.calendar}`);
+            // Verify calendar events were saved
+            const calendarVerify = await query('SELECT COUNT(*) FROM calendar_events WHERE firm_id = $1', [firmId]);
+            const actualCalendarCount = parseInt(calendarVerify.rows[0].count);
+            console.log(`[CLIO IMPORT] Calendar saved to DB: ${counts.calendar}, verified in DB: ${actualCalendarCount}`);
+            updateProgress('calendar', 'done', actualCalendarCount);
           } catch (err) {
             console.error('[CLIO IMPORT] Calendar error:', err.message);
             updateProgress('calendar', 'error', counts.calendar, err.message);
