@@ -3399,31 +3399,57 @@ Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                       {/* Microsoft/Outlook */}
-                      <div className={styles.card}>
-                        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                          <span style={{ fontSize: '1.5rem' }}>📧</span> Microsoft (Outlook + OneDrive)
-                        </h3>
+                      <div className={styles.card} style={{ 
+                        borderColor: integrationSettings.microsoft_client_id?.isConfigured && integrationSettings.microsoft_client_secret?.isConfigured ? '#10b981' : undefined, 
+                        borderWidth: integrationSettings.microsoft_client_id?.isConfigured && integrationSettings.microsoft_client_secret?.isConfigured ? '2px' : undefined,
+                        background: integrationSettings.microsoft_client_id?.isConfigured && integrationSettings.microsoft_client_secret?.isConfigured ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(30, 41, 59, 1) 100%)' : undefined
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                          <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+                            <span style={{ fontSize: '1.5rem' }}>📧</span> Microsoft (Outlook + Word + OneDrive)
+                          </h3>
+                          {integrationSettings.microsoft_client_id?.isConfigured && integrationSettings.microsoft_client_secret?.isConfigured && (
+                            <span style={{ 
+                              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', 
+                              color: 'white', 
+                              padding: '0.25rem 0.75rem', 
+                              borderRadius: '9999px', 
+                              fontSize: '0.75rem', 
+                              fontWeight: '600',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.25rem'
+                            }}>
+                              ✓ Configured
+                            </span>
+                          )}
+                        </div>
                         <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: '1rem' }}>
                           <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener noreferrer" style={{ color: '#d4af37' }}>Register app in Azure Portal →</a>
                         </p>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                           <div className={styles.formGroup}>
-                            <label>Client ID</label>
-                            <input type="text" value={integrationSettings.microsoft_client_id?.value || ''} onChange={(e) => updateIntegrationSetting('microsoft_client_id', e.target.value)} placeholder="Enter Client ID" />
+                            <label>Client ID {integrationSettings.microsoft_client_id?.isConfigured && <span style={{ color: '#10b981' }}>✓</span>}</label>
+                            <input type="text" value={integrationSettings.microsoft_client_id?.value || ''} onChange={(e) => updateIntegrationSetting('microsoft_client_id', e.target.value)} placeholder="Enter Client ID" style={integrationSettings.microsoft_client_id?.isConfigured ? { borderColor: '#10b981' } : undefined} />
                           </div>
                           <div className={styles.formGroup}>
-                            <label>Client Secret</label>
-                            <input type="password" value={integrationSettings.microsoft_client_secret?.value || ''} onChange={(e) => updateIntegrationSetting('microsoft_client_secret', e.target.value)} placeholder={integrationSettings.microsoft_client_secret?.isConfigured ? '••••••••' : 'Enter Secret'} />
+                            <label>Client Secret {integrationSettings.microsoft_client_secret?.isConfigured && <span style={{ color: '#10b981' }}>✓</span>}</label>
+                            <input type="password" value={integrationSettings.microsoft_client_secret?.value || ''} onChange={(e) => updateIntegrationSetting('microsoft_client_secret', e.target.value)} placeholder={integrationSettings.microsoft_client_secret?.isConfigured ? '••••••••' : 'Enter Secret'} style={integrationSettings.microsoft_client_secret?.isConfigured ? { borderColor: '#10b981' } : undefined} />
                           </div>
                           <div className={styles.formGroup}>
-                            <label>Redirect URI</label>
-                            <input type="text" value={integrationSettings.microsoft_redirect_uri?.value || ''} onChange={(e) => updateIntegrationSetting('microsoft_redirect_uri', e.target.value)} placeholder="https://your-api/api/integrations/outlook/callback" />
+                            <label>Redirect URI {integrationSettings.microsoft_redirect_uri?.isConfigured && <span style={{ color: '#10b981' }}>✓</span>}</label>
+                            <input type="text" value={integrationSettings.microsoft_redirect_uri?.value || ''} onChange={(e) => updateIntegrationSetting('microsoft_redirect_uri', e.target.value)} placeholder="https://your-api/api/integrations/outlook/callback" style={integrationSettings.microsoft_redirect_uri?.isConfigured ? { borderColor: '#10b981' } : undefined} />
                           </div>
                           <div className={styles.formGroup}>
-                            <label>Tenant</label>
-                            <input type="text" value={integrationSettings.microsoft_tenant?.value || 'common'} onChange={(e) => updateIntegrationSetting('microsoft_tenant', e.target.value)} placeholder="common" />
+                            <label>Tenant {integrationSettings.microsoft_tenant?.isConfigured && <span style={{ color: '#10b981' }}>✓</span>}</label>
+                            <input type="text" value={integrationSettings.microsoft_tenant?.value || 'common'} onChange={(e) => updateIntegrationSetting('microsoft_tenant', e.target.value)} placeholder="common" style={integrationSettings.microsoft_tenant?.isConfigured ? { borderColor: '#10b981' } : undefined} />
                           </div>
                         </div>
+                        {integrationSettings.microsoft_client_id?.isConfigured && integrationSettings.microsoft_client_secret?.isConfigured && (
+                          <p style={{ color: '#10b981', fontSize: '0.75rem', marginTop: '1rem', fontWeight: '500' }}>
+                            ✓ Microsoft integration is configured. Users can connect Outlook, Word Online, and OneDrive.
+                          </p>
+                        )}
                       </div>
 
                       {/* Google */}
@@ -3451,34 +3477,60 @@ Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
                       </div>
 
                       {/* QuickBooks */}
-                      <div className={styles.card}>
-                        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                          <span style={{ fontSize: '1.5rem' }}>📊</span> QuickBooks
-                        </h3>
+                      <div className={styles.card} style={{ 
+                        borderColor: integrationSettings.quickbooks_client_id?.isConfigured && integrationSettings.quickbooks_client_secret?.isConfigured ? '#10b981' : undefined, 
+                        borderWidth: integrationSettings.quickbooks_client_id?.isConfigured && integrationSettings.quickbooks_client_secret?.isConfigured ? '2px' : undefined,
+                        background: integrationSettings.quickbooks_client_id?.isConfigured && integrationSettings.quickbooks_client_secret?.isConfigured ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(30, 41, 59, 1) 100%)' : undefined
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                          <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+                            <span style={{ fontSize: '1.5rem' }}>📊</span> QuickBooks
+                          </h3>
+                          {integrationSettings.quickbooks_client_id?.isConfigured && integrationSettings.quickbooks_client_secret?.isConfigured && (
+                            <span style={{ 
+                              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', 
+                              color: 'white', 
+                              padding: '0.25rem 0.75rem', 
+                              borderRadius: '9999px', 
+                              fontSize: '0.75rem', 
+                              fontWeight: '600',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.25rem'
+                            }}>
+                              ✓ Configured
+                            </span>
+                          )}
+                        </div>
                         <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: '1rem' }}>
                           <a href="https://developer.intuit.com/app/developer/dashboard" target="_blank" rel="noopener noreferrer" style={{ color: '#d4af37' }}>Register in Intuit Developer →</a>
                         </p>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                           <div className={styles.formGroup}>
-                            <label>Client ID</label>
-                            <input type="text" value={integrationSettings.quickbooks_client_id?.value || ''} onChange={(e) => updateIntegrationSetting('quickbooks_client_id', e.target.value)} placeholder="Enter Client ID" />
+                            <label>Client ID {integrationSettings.quickbooks_client_id?.isConfigured && <span style={{ color: '#10b981' }}>✓</span>}</label>
+                            <input type="text" value={integrationSettings.quickbooks_client_id?.value || ''} onChange={(e) => updateIntegrationSetting('quickbooks_client_id', e.target.value)} placeholder="Enter Client ID" style={integrationSettings.quickbooks_client_id?.isConfigured ? { borderColor: '#10b981' } : undefined} />
                           </div>
                           <div className={styles.formGroup}>
-                            <label>Client Secret</label>
-                            <input type="password" value={integrationSettings.quickbooks_client_secret?.value || ''} onChange={(e) => updateIntegrationSetting('quickbooks_client_secret', e.target.value)} placeholder={integrationSettings.quickbooks_client_secret?.isConfigured ? '••••••••' : 'Enter Secret'} />
+                            <label>Client Secret {integrationSettings.quickbooks_client_secret?.isConfigured && <span style={{ color: '#10b981' }}>✓</span>}</label>
+                            <input type="password" value={integrationSettings.quickbooks_client_secret?.value || ''} onChange={(e) => updateIntegrationSetting('quickbooks_client_secret', e.target.value)} placeholder={integrationSettings.quickbooks_client_secret?.isConfigured ? '••••••••' : 'Enter Secret'} style={integrationSettings.quickbooks_client_secret?.isConfigured ? { borderColor: '#10b981' } : undefined} />
                           </div>
                           <div className={styles.formGroup}>
-                            <label>Redirect URI</label>
-                            <input type="text" value={integrationSettings.quickbooks_redirect_uri?.value || ''} onChange={(e) => updateIntegrationSetting('quickbooks_redirect_uri', e.target.value)} placeholder="https://your-api/api/integrations/quickbooks/callback" />
+                            <label>Redirect URI {integrationSettings.quickbooks_redirect_uri?.isConfigured && <span style={{ color: '#10b981' }}>✓</span>}</label>
+                            <input type="text" value={integrationSettings.quickbooks_redirect_uri?.value || ''} onChange={(e) => updateIntegrationSetting('quickbooks_redirect_uri', e.target.value)} placeholder="https://your-api/api/integrations/quickbooks/callback" style={integrationSettings.quickbooks_redirect_uri?.isConfigured ? { borderColor: '#10b981' } : undefined} />
                           </div>
                           <div className={styles.formGroup}>
-                            <label>Environment</label>
-                            <select value={integrationSettings.quickbooks_environment?.value || 'sandbox'} onChange={(e) => updateIntegrationSetting('quickbooks_environment', e.target.value)}>
+                            <label>Environment {integrationSettings.quickbooks_environment?.isConfigured && <span style={{ color: '#10b981' }}>✓</span>}</label>
+                            <select value={integrationSettings.quickbooks_environment?.value || 'sandbox'} onChange={(e) => updateIntegrationSetting('quickbooks_environment', e.target.value)} style={integrationSettings.quickbooks_environment?.isConfigured ? { borderColor: '#10b981' } : undefined}>
                               <option value="sandbox">Sandbox</option>
                               <option value="production">Production</option>
                             </select>
                           </div>
                         </div>
+                        {integrationSettings.quickbooks_client_id?.isConfigured && integrationSettings.quickbooks_client_secret?.isConfigured && (
+                          <p style={{ color: '#10b981', fontSize: '0.75rem', marginTop: '1rem', fontWeight: '500' }}>
+                            ✓ QuickBooks integration is configured. Users can connect their QuickBooks accounts.
+                          </p>
+                        )}
                       </div>
 
                       {/* Dropbox */}
