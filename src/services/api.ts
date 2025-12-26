@@ -563,6 +563,24 @@ export const documentsApi = {
     return `${API_URL}/documents/${id}/download`;
   },
 
+  async download(id: string): Promise<Blob> {
+    const headers: HeadersInit = {};
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+    
+    const response = await fetch(`${API_URL}/documents/${id}/download`, {
+      headers,
+      credentials: 'include',
+    });
+    
+    if (!response.ok) {
+      throw new ApiError(response.status, 'Failed to download document');
+    }
+    
+    return response.blob();
+  },
+
   async getContent(id: string) {
     return fetchWithAuth(`/documents/${id}/content`);
   },

@@ -824,6 +824,73 @@
   cursor: not-allowed;
 }
 
+/* Quick Access Banner - One-Click Open Firm Drive */
+.quickAccessBanner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border-radius: 16px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.3);
+}
+
+.quickAccessContent {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.quickAccessIcon {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  color: white;
+}
+
+.quickAccessText h3 {
+  margin: 0 0 4px 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: white;
+}
+
+.quickAccessText p {
+  margin: 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.openDriveBtn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 28px;
+  background: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #059669;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.openDriveBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.openDriveBtn:active {
+  transform: translateY(0);
+}
+
 @media (max-width: 768px) {
   .header {
     flex-direction: column;
@@ -851,5 +918,20 @@
   .driveStatus {
     width: 100%;
     justify-content: flex-start;
+  }
+  
+  .quickAccessBanner {
+    flex-direction: column;
+    text-align: center;
+    gap: 20px;
+  }
+  
+  .quickAccessContent {
+    flex-direction: column;
+  }
+  
+  .openDriveBtn {
+    width: 100%;
+    justify-content: center;
   }
 }

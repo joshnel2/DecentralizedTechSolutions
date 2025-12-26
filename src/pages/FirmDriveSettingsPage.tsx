@@ -283,6 +283,28 @@ export function FirmDriveSettingsPage() {
         </div>
       </div>
 
+      {/* Quick Access Button for Admins */}
+      {isAdmin && (
+        <div className={styles.quickAccessBanner}>
+          <div className={styles.quickAccessContent}>
+            <div className={styles.quickAccessIcon}>
+              <FolderOpen size={32} />
+            </div>
+            <div className={styles.quickAccessText}>
+              <h3>Open Firm Drive</h3>
+              <p>Browse and manage all your firm's documents in one place</p>
+            </div>
+          </div>
+          <button 
+            className={styles.openDriveBtn}
+            onClick={() => navigate('/app/drive/browse')}
+          >
+            <FolderOpen size={20} />
+            Open Firm Drive
+          </button>
+        </div>
+      )}
+
       {/* User Experience Info - Only show admin setup instructions to admins */}
       {isAdmin ? (
         <div className={styles.accessBanner}>
