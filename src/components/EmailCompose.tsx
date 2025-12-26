@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { 
   X, Minus, Maximize2, Send, Paperclip, Trash2, 
-  FileText, File, Loader2, ChevronDown, Upload, Check
+  FileText, File, Loader2, ChevronDown, Upload, Check, Sparkles
 } from 'lucide-react'
 import { useEmailCompose } from '../contexts/EmailComposeContext'
+import { useAIChat } from '../contexts/AIChatContext'
 import { documentsApi, integrationsApi } from '../services/api'
 import styles from './EmailCompose.module.css'
 
@@ -20,14 +21,30 @@ export function EmailCompose() {
     removeAttachment
   } = useEmailCompose()
 
+  const { isOpen: aiChatOpen, openChat, closeChat } = useAIChat()
+  
   const [sending, setSending] = useState(false)
   const [showAttachMenu, setShowAttachMenu] = useState(false)
   const [documents, setDocuments] = useState<Array<{ id: string; name: string; size: number }>>([])
   const [loadingDocs, setLoadingDocs] = useState(false)
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [aiAssistActive, setAiAssistActive] = useState(false)
   
   const fileInputRef = useRef<HTMLInputElement>(null)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
+
+  // Handle opening AI assistant alongside email
+  const handleOpenAI = () => {
+    setAiAssistActive(true)
+    openChat()
+  }
+
+  // Track when AI is closed externally
+  useEffect(() => {
+    if (!aiChatOpen && aiAssistActive) {
+      setAiAssistActive(false)
+    }
+  }, [aiChatOpen, aiAssistActive])
 
   // Load documents when attachment menu opens
   useEffect(() => {
@@ -143,7 +160,7 @@ export function EmailCompose() {
   // Minimized state - just show header bar
   if (isMinimized) {
     return (
-      <div className={styles.composeMinimized} onClick={maximizeCompose}>
+      <div className={`${styles.composeMinimized} ${aiAssistActive ? styles.shiftedLeft : ''}`} onClick={maximizeCompose}>
         <div className={styles.minimizedContent}>
           <span className={styles.minimizedSubject}>
             {draft.subject || 'New Message'}
@@ -162,7 +179,7 @@ export function EmailCompose() {
   }
 
   return (
-    <div className={styles.composeContainer}>
+    <div className={`${styles.composeContainer} ${aiAssistActive ? styles.shiftedLeft : ''}`}>
       {/* Notification */}
       {notification && (
         <div className={`${styles.notification} ${styles[notification.type]}`}>
@@ -316,6 +333,15 @@ export function EmailCompose() {
             style={{ display: 'none' }}
             onChange={handleFileSelect}
           />
+
+          {/* AI Assistant */}
+          <button 
+            className={`${styles.toolbarBtn} ${aiAssistActive ? styles.aiActive : ''}`}
+            onClick={handleOpenAI}
+            title="AI Assistant"
+          >
+            <Sparkles size={18} />
+          </button>
 
           {/* Discard */}
           <button 
