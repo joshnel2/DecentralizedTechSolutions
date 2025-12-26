@@ -404,8 +404,20 @@ export function IntegrationsPage() {
           break
         case 'apex-drive':
         case 'azure-files':
-          // These sync through the drive system
-          setNotification({ type: 'success', message: 'Document sync initiated. Check Documents page.' })
+          // Sync through the drive system
+          try {
+            const driveResult = await import('../services/api').then(m => m.driveApi.getConfigurations())
+            const firmDrive = driveResult.drives?.find((d: any) => !d.isPersonal && d.isDefault)
+            if (firmDrive) {
+              const syncApi = await import('../services/api').then(m => m.driveSyncApi)
+              await syncApi.syncDrive(firmDrive.id)
+              setNotification({ type: 'success', message: 'Drive sync complete!' })
+            } else {
+              setNotification({ type: 'error', message: 'Apex Drive not enabled. Go to Settings > Apex Drive to enable.' })
+            }
+          } catch (err: any) {
+            setNotification({ type: 'error', message: err.message || 'Sync failed' })
+          }
           setSyncing(null)
           return
       }

@@ -11,6 +11,7 @@
     "db:seed": "node src/db/seed.js"
   },
   "dependencies": {
+    "@azure/storage-file-share": "^12.29.1",
     "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.6",

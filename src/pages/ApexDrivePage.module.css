@@ -286,6 +286,60 @@
   margin: 0;
 }
 
+.statusActions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.syncBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #059669;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: white;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.syncBtn:hover:not(:disabled) {
+  background: #047857;
+}
+
+.syncBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.downloadAllBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #2563eb;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: white;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.downloadAllBtn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.downloadAllBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
 .disableBtn {
   padding: 8px 16px;
   background: transparent;

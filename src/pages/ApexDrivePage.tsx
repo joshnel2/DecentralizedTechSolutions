@@ -4,9 +4,9 @@ import {
   ArrowLeft, HardDrive, Check, X, RefreshCw, 
   AlertCircle, Loader2, FileText, Users, Lock,
   History, GitCompare, Download, Cloud, CheckCircle2,
-  Monitor, Smartphone, Globe, FolderOpen, Copy, Eye
+  Monitor, Smartphone, Globe, FolderOpen, Copy, Eye, Archive
 } from 'lucide-react'
-import { driveApi } from '../services/api'
+import { driveApi, documentsApi, driveSyncApi } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 import styles from './ApexDrivePage.module.css'
 
@@ -37,6 +37,8 @@ export function ApexDrivePage() {
   } | null>(null)
   const [showConnectionInfo, setShowConnectionInfo] = useState(false)
   const [copiedPath, setCopiedPath] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
     checkStatus()
@@ -79,6 +81,44 @@ export function ApexDrivePage() {
     navigator.clipboard.writeText(path)
     setCopiedPath(true)
     setTimeout(() => setCopiedPath(false), 2000)
+  }
+
+  const downloadAllDocuments = async () => {
+    setDownloading(true)
+    try {
+      const blob = await documentsApi.downloadAll()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `ApexDrive_Documents_${new Date().toISOString().split('T')[0]}.zip`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      setNotification({ type: 'success', message: 'Download started!' })
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Download failed' })
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  const syncDrive = async () => {
+    setSyncing(true)
+    try {
+      // Get the drive config first
+      const result = await driveApi.getConfigurations()
+      const firmDrive = result.drives?.find((d: any) => !d.isPersonal && d.isDefault)
+      if (firmDrive) {
+        await driveSyncApi.syncDrive(firmDrive.id)
+        setNotification({ type: 'success', message: 'Sync complete!' })
+        checkStatus() // Refresh stats
+      }
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Sync failed' })
+    } finally {
+      setSyncing(false)
+    }
   }
 
   const enableApexDrive = async () => {
@@ -245,11 +285,29 @@ export function ApexDrivePage() {
                   <h2>Apex Drive is enabled</h2>
                   <p>Your documents are syncing to the cloud</p>
                 </div>
-                {isAdmin && (
-                  <button className={styles.disableBtn} onClick={disableApexDrive}>
-                    Disable
+                <div className={styles.statusActions}>
+                  <button 
+                    className={styles.syncBtn} 
+                    onClick={syncDrive}
+                    disabled={syncing}
+                  >
+                    <RefreshCw size={16} className={syncing ? styles.spinning : ''} />
+                    {syncing ? 'Syncing...' : 'Sync Now'}
                   </button>
-                )}
+                  <button 
+                    className={styles.downloadAllBtn} 
+                    onClick={downloadAllDocuments}
+                    disabled={downloading}
+                  >
+                    <Archive size={16} />
+                    {downloading ? 'Preparing...' : 'Download All'}
+                  </button>
+                  {isAdmin && (
+                    <button className={styles.disableBtn} onClick={disableApexDrive}>
+                      Disable
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className={styles.statsRow}>

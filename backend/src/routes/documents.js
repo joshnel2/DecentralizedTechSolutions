@@ -8,6 +8,7 @@ import archiver from 'archiver';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import mammoth from 'mammoth';
+import { uploadFile, isAzureConfigured, downloadFile } from '../utils/azureStorage.js';
 
 // Use createRequire for pdf-parse (CommonJS module that doesn't work with ESM import)
 import { createRequire } from 'module';
@@ -364,11 +365,37 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
       // Continue without text - not critical
     }
 
+    // Build folder path for Azure
+    let folderPath = 'documents';
+    if (matterId) {
+      // Get matter name for folder structure
+      const matterResult = await query('SELECT name FROM matters WHERE id = $1', [matterId]);
+      if (matterResult.rows.length > 0) {
+        const matterName = matterResult.rows[0].name.replace(/[^a-zA-Z0-9 ]/g, '_');
+        folderPath = `matters/${matterName}`;
+      }
+    }
+    const azurePath = `${folderPath}/${req.file.originalname}`;
+
+    // Upload to Azure File Share if configured
+    let azureResult = null;
+    try {
+      const azureEnabled = await isAzureConfigured();
+      if (azureEnabled) {
+        azureResult = await uploadFile(req.file.path, azurePath, req.user.firmId);
+        console.log(`[UPLOAD] Also uploaded to Azure: ${azureResult.path}`);
+      }
+    } catch (azureError) {
+      console.error('[UPLOAD] Azure upload failed (continuing with local):', azureError.message);
+      // Don't fail the request - local upload still succeeded
+    }
+
     const result = await query(
       `INSERT INTO documents (
         firm_id, matter_id, client_id, name, original_name, type, size, path,
-        tags, is_confidential, status, uploaded_by, content_text, content_extracted_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        tags, is_confidential, status, uploaded_by, content_text, content_extracted_at,
+        folder_path, external_path
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING *`,
       [
         req.user.firmId, matterId || null, clientId || null,
@@ -377,7 +404,8 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
         tags ? (Array.isArray(tags) ? tags : JSON.parse(tags)) : [],
         isConfidential === 'true' || isConfidential === true,
         status, req.user.id,
-        contentText, contentText ? new Date() : null
+        contentText, contentText ? new Date() : null,
+        folderPath, azureResult ? azureResult.path : null
       ]
     );
 
@@ -387,7 +415,12 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
     await query(
       `INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
        VALUES ($1, $2, 'document.uploaded', 'document', $3, $4)`,
-      [req.user.firmId, req.user.id, d.id, JSON.stringify({ name: d.name, size: d.size, textExtracted: !!contentText })]
+      [req.user.firmId, req.user.id, d.id, JSON.stringify({ 
+        name: d.name, 
+        size: d.size, 
+        textExtracted: !!contentText,
+        azureUploaded: !!azureResult 
+      })]
     );
 
     res.status(201).json({
@@ -400,7 +433,8 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
       version: d.version,
       status: d.status,
       uploadedAt: d.uploaded_at,
-      contentExtracted: !!contentText
+      contentExtracted: !!contentText,
+      azurePath: azureResult?.path || null
     });
   } catch (error) {
     console.error('Upload document error:', error);
