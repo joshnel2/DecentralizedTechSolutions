@@ -227,16 +227,78 @@ async function clioGetContactsByInitial(accessToken, endpoint, params, onProgres
     }
   }
   
+  // CATCH-ALL: Fetch contacts WITHOUT initial filter to catch any missed
+  // This catches: special characters, unicode/accented names, empty names, etc.
+  // We fetch by type only (no initial) to get everything, deduping by ID
+  console.log(`[CLIO API] Running catch-all fetch to get any missed contacts...`);
+  for (const type of types) {
+    try {
+      console.log(`[CLIO API] Catch-all fetch for ${type} contacts...`);
+      const catchAllData = await clioGetPaginated(
+        accessToken, 
+        endpoint, 
+        { ...params, type }, 
+        null
+      );
+      
+      let newCount = 0;
+      for (const item of catchAllData) {
+        if (item.id && !seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          allData.push(item);
+          newCount++;
+        }
+      }
+      
+      if (newCount > 0) {
+        console.log(`[CLIO API] Catch-all ${type}: found ${newCount} additional contacts! Total: ${allData.length}`);
+      }
+      if (onProgress) onProgress(allData.length);
+      
+    } catch (err) {
+      console.log(`[CLIO API] Catch-all ${type} error: ${err.message}`);
+    }
+  }
+  
+  // FINAL CATCH-ALL: Fetch without type filter to catch any other contact types
+  try {
+    console.log(`[CLIO API] Final catch-all fetch (no type filter)...`);
+    const finalCatchAll = await clioGetPaginated(
+      accessToken, 
+      endpoint, 
+      { ...params }, 
+      null
+    );
+    
+    let newCount = 0;
+    for (const item of finalCatchAll) {
+      if (item.id && !seenIds.has(item.id)) {
+        seenIds.add(item.id);
+        allData.push(item);
+        newCount++;
+      }
+    }
+    
+    if (newCount > 0) {
+      console.log(`[CLIO API] Final catch-all: found ${newCount} additional contacts! Total: ${allData.length}`);
+    }
+    if (onProgress) onProgress(allData.length);
+    
+  } catch (err) {
+    console.log(`[CLIO API] Final catch-all error: ${err.message}`);
+  }
+  
   console.log(`[CLIO API] Contacts complete: ${allData.length} total records`);
   return allData;
 }
 
-// Fetch matters by STATUS (Open, Pending, Closed) - simple and fast
-// Each status can have up to 10k records, allowing up to 30k total
+// Fetch matters by STATUS - includes all possible Clio statuses + catch-all
+// Each status can have up to 10k records
 async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress, clientIds = null) {
   const allData = [];
   const seenIds = new Set();
-  const statuses = ['Open', 'Pending', 'Closed'];
+  // Include ALL possible Clio matter statuses
+  const statuses = ['Open', 'Pending', 'Closed', 'Archived'];
   
   console.log(`[CLIO API] Fetching matters by status (bypasses 10k limit)...`);
   
@@ -270,12 +332,42 @@ async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress,
     }
   }
   
+  // CATCH-ALL: Fetch matters WITHOUT status filter to catch any with null/empty/custom status
+  console.log(`[CLIO API] Running catch-all fetch for matters without status filter...`);
+  try {
+    const catchAllMatters = await clioGetPaginated(
+      accessToken,
+      endpoint,
+      { ...params },
+      (count) => {
+        if (onProgress) onProgress(allData.length + count);
+      }
+    );
+    
+    let newCount = 0;
+    for (const item of catchAllMatters) {
+      if (item.id && !seenIds.has(item.id)) {
+        seenIds.add(item.id);
+        allData.push(item);
+        newCount++;
+      }
+    }
+    
+    if (newCount > 0) {
+      console.log(`[CLIO API] Catch-all matters: found ${newCount} additional! Total: ${allData.length}`);
+    }
+    if (onProgress) onProgress(allData.length);
+    
+  } catch (err) {
+    console.log(`[CLIO API] Catch-all matters error: ${err.message}`);
+  }
+  
   console.log(`[CLIO API] Matters complete: ${allData.length} total records`);
   return allData;
 }
 
-// Fetch activities by STATUS (billed, unbilled, non_billable) - simple and fast
-// Each status can have up to 10k records, allowing up to 30k total
+// Fetch activities by STATUS - includes all statuses + catch-all
+// Each status can have up to 10k records
 async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgress, matterIds = null) {
   const allData = [];
   const seenIds = new Set();
@@ -311,6 +403,36 @@ async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgre
     } catch (err) {
       console.log(`[CLIO API] Error fetching ${status} activities: ${err.message}`);
     }
+  }
+  
+  // CATCH-ALL: Fetch activities WITHOUT status filter to catch any with null/other status
+  console.log(`[CLIO API] Running catch-all fetch for activities without status filter...`);
+  try {
+    const catchAllActivities = await clioGetPaginated(
+      accessToken,
+      endpoint,
+      { ...params },
+      (count) => {
+        if (onProgress) onProgress(allData.length + count);
+      }
+    );
+    
+    let newCount = 0;
+    for (const item of catchAllActivities) {
+      if (item.id && !seenIds.has(item.id)) {
+        seenIds.add(item.id);
+        allData.push(item);
+        newCount++;
+      }
+    }
+    
+    if (newCount > 0) {
+      console.log(`[CLIO API] Catch-all activities: found ${newCount} additional! Total: ${allData.length}`);
+    }
+    if (onProgress) onProgress(allData.length);
+    
+  } catch (err) {
+    console.log(`[CLIO API] Catch-all activities error: ${err.message}`);
   }
   
   console.log(`[CLIO API] Activities complete: ${allData.length} total records`);
@@ -677,6 +799,8 @@ const mapMatterStatus = (clioStatus) => {
   if (status === 'open') return 'active';
   if (status === 'pending') return 'pending';
   if (status === 'closed') return 'closed';
+  if (status === 'archived') return 'archived';
+  if (status === 'on_hold' || status === 'on hold') return 'on_hold';
   return 'active';
 };
 
