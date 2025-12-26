@@ -249,6 +249,12 @@ async function syncAzureFiles(driveConfig, user) {
 }
 
 // Match folder path to a matter or client for permissions
+// Supports Clio Drive folder structure:
+//   - /Matters/[ClientName] - [MatterName]/...
+//   - /Matters/[MatterNumber] - [MatterName]/...
+//   - /Matters/[MatterNumber]/...
+//   - /Clients/[ClientName]/[MatterName]/...
+//   - /[ClientName]/[MatterName]/...
 function matchFolderToPermissions(folderPath, matters, clients) {
   let matterId = null;
   let clientId = null;
@@ -257,51 +263,123 @@ function matchFolderToPermissions(folderPath, matters, clients) {
     return { matterId, clientId };
   }
   
-  // Normalize the folder path
-  const normalizedPath = folderPath.toLowerCase().replace(/[_-]/g, ' ').trim();
-  const pathParts = normalizedPath.split('/').filter(p => p);
+  // Get path parts
+  const pathParts = folderPath.split('/').filter(p => p && p.trim());
   
-  // Check each part of the path for matter/client matches
-  for (const part of pathParts) {
-    // Skip common folder names
-    if (['matters', 'clients', 'documents', 'files', 'general'].includes(part)) {
+  // Skip the first part if it's a common root folder
+  const skipFolders = ['matters', 'clients', 'documents', 'files', 'general', 'firm'];
+  let startIndex = 0;
+  if (pathParts.length > 0 && skipFolders.includes(pathParts[0].toLowerCase())) {
+    startIndex = 1;
+  }
+  
+  // Process remaining path parts
+  for (let i = startIndex; i < pathParts.length; i++) {
+    const part = pathParts[i];
+    
+    // Skip if empty or common subfolder names
+    if (!part || ['documents', 'files', 'correspondence', 'pleadings', 'discovery'].includes(part.toLowerCase())) {
       continue;
     }
     
-    // Try to match to a matter (by name or number)
-    for (const matter of matters) {
-      const matterName = matter.name.toLowerCase().replace(/[_-]/g, ' ').trim();
-      const matterNumber = (matter.number || '').toLowerCase().trim();
+    // === CLIO FORMAT: "[ClientName] - [MatterName]" or "[MatterNumber] - [MatterName]" ===
+    if (part.includes(' - ')) {
+      const [prefix, suffix] = part.split(' - ').map(s => s.trim());
       
-      // Fuzzy match: check if folder contains matter name or vice versa
-      if (matterName && (part.includes(matterName) || matterName.includes(part))) {
-        matterId = matter.id;
-        console.log(`[SYNC] Matched folder "${folderPath}" to matter "${matter.name}"`);
+      // Try to match prefix as matter number first
+      const matchedByNumber = matters.find(m => 
+        m.number && normalizeString(m.number) === normalizeString(prefix)
+      );
+      if (matchedByNumber) {
+        matterId = matchedByNumber.id;
+        console.log(`[SYNC] Clio match: "${part}" -> matter #${matchedByNumber.number}`);
         break;
       }
-      // Also match by matter number
-      if (matterNumber && part.includes(matterNumber)) {
-        matterId = matter.id;
-        console.log(`[SYNC] Matched folder "${folderPath}" to matter number "${matter.number}"`);
+      
+      // Try to match prefix as client name, suffix as matter name
+      const matchedClient = clients.find(c => 
+        normalizeString(c.name) === normalizeString(prefix) ||
+        normalizeString(c.name).includes(normalizeString(prefix)) ||
+        normalizeString(prefix).includes(normalizeString(c.name))
+      );
+      if (matchedClient) {
+        clientId = matchedClient.id;
+        // Now find matter by name (suffix)
+        const matchedMatter = matters.find(m =>
+          normalizeString(m.name) === normalizeString(suffix) ||
+          normalizeString(m.name).includes(normalizeString(suffix)) ||
+          normalizeString(suffix).includes(normalizeString(m.name))
+        );
+        if (matchedMatter) {
+          matterId = matchedMatter.id;
+          console.log(`[SYNC] Clio match: "${part}" -> client "${matchedClient.name}", matter "${matchedMatter.name}"`);
+          break;
+        }
+      }
+      
+      // Try matching suffix as matter name directly
+      const matterBySuffix = matters.find(m =>
+        normalizeString(m.name) === normalizeString(suffix) ||
+        normalizeString(m.name).includes(normalizeString(suffix))
+      );
+      if (matterBySuffix) {
+        matterId = matterBySuffix.id;
+        console.log(`[SYNC] Clio match: "${part}" -> matter "${matterBySuffix.name}"`);
         break;
       }
     }
     
-    if (matterId) break;
+    // === DIRECT MATTER NUMBER MATCH ===
+    const matterByNumber = matters.find(m => 
+      m.number && normalizeString(m.number) === normalizeString(part)
+    );
+    if (matterByNumber) {
+      matterId = matterByNumber.id;
+      console.log(`[SYNC] Number match: "${part}" -> matter #${matterByNumber.number}`);
+      break;
+    }
     
-    // Try to match to a client
-    for (const client of clients) {
-      const clientName = client.name.toLowerCase().replace(/[_-]/g, ' ').trim();
-      
-      if (clientName && (part.includes(clientName) || clientName.includes(part))) {
-        clientId = client.id;
-        console.log(`[SYNC] Matched folder "${folderPath}" to client "${client.name}"`);
-        break;
+    // === DIRECT MATTER NAME MATCH ===
+    const matterByName = matters.find(m => {
+      const mName = normalizeString(m.name);
+      const pName = normalizeString(part);
+      return mName === pName || 
+             (mName.length > 3 && pName.includes(mName)) || 
+             (pName.length > 3 && mName.includes(pName));
+    });
+    if (matterByName) {
+      matterId = matterByName.id;
+      console.log(`[SYNC] Name match: "${part}" -> matter "${matterByName.name}"`);
+      break;
+    }
+    
+    // === CLIENT NAME MATCH (only if no matter found yet) ===
+    if (!matterId && !clientId) {
+      const clientByName = clients.find(c => {
+        const cName = normalizeString(c.name);
+        const pName = normalizeString(part);
+        return cName === pName || 
+               (cName.length > 3 && pName.includes(cName)) || 
+               (pName.length > 3 && cName.includes(pName));
+      });
+      if (clientByName) {
+        clientId = clientByName.id;
+        console.log(`[SYNC] Client match: "${part}" -> client "${clientByName.name}"`);
+        // Don't break - keep looking for matter in subfolders
       }
     }
   }
   
   return { matterId, clientId };
+}
+
+// Normalize string for comparison
+function normalizeString(str) {
+  if (!str) return '';
+  return str.toLowerCase()
+    .replace(/[_\-\.]/g, ' ')  // Replace separators with spaces
+    .replace(/\s+/g, ' ')       // Collapse multiple spaces
+    .trim();
 }
 
 // Recursively scan Azure directory

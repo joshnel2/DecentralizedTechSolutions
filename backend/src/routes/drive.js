@@ -1242,4 +1242,156 @@ router.get('/connection-info', authenticate, async (req, res) => {
   }
 });
 
+// Download desktop shortcut to access drive (Windows .bat file)
+router.get('/download-shortcut/windows', authenticate, async (req, res) => {
+  try {
+    if (!['owner', 'admin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Only admins can download shortcuts' });
+    }
+
+    if (!AZURE_STORAGE_ACCOUNT || !AZURE_STORAGE_KEY) {
+      return res.status(400).json({ error: 'Azure Storage not configured' });
+    }
+
+    const firmFolder = getFirmFolderPath(req.user.firmId);
+    const drivePath = `\\\\${AZURE_STORAGE_ACCOUNT}.file.core.windows.net\\${AZURE_FILE_SHARE}\\${firmFolder}`;
+    
+    // Get firm name for the shortcut
+    const firmResult = await query('SELECT name FROM firms WHERE id = $1', [req.user.firmId]);
+    const firmName = firmResult.rows[0]?.name || 'Apex Drive';
+    const safeFirmName = firmName.replace(/[^a-zA-Z0-9 ]/g, '');
+
+    // Create a batch file that maps the drive and opens it
+    const batchContent = `@echo off
+:: ${safeFirmName} - Apex Drive Shortcut
+:: This script maps your firm's document drive
+
+echo.
+echo ========================================
+echo   ${safeFirmName} - Apex Drive
+echo ========================================
+echo.
+
+:: Check if drive Z: is already mapped
+if exist Z:\\ (
+    echo Drive Z: is already mapped. Opening...
+    explorer Z:\\
+    goto end
+)
+
+echo Connecting to your firm's document drive...
+echo.
+echo You will be prompted for credentials:
+echo   Username: AZURE\\${AZURE_STORAGE_ACCOUNT}
+echo   Password: (get from your platform admin)
+echo.
+
+:: Map the drive
+net use Z: "${drivePath}" /persistent:yes
+
+if %errorlevel% neq 0 (
+    echo.
+    echo Failed to connect. Please check your credentials.
+    echo.
+    echo Manual connection:
+    echo   Path: ${drivePath}
+    echo   User: AZURE\\${AZURE_STORAGE_ACCOUNT}
+    echo.
+    pause
+    goto end
+)
+
+echo.
+echo Successfully connected! Opening drive...
+explorer Z:\\
+
+:end
+`;
+
+    res.setHeader('Content-Type', 'application/x-batch');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFirmName} Drive.bat"`);
+    res.send(batchContent);
+
+  } catch (error) {
+    console.error('Download shortcut error:', error);
+    res.status(500).json({ error: 'Failed to generate shortcut' });
+  }
+});
+
+// Download desktop shortcut for Mac (.command file)
+router.get('/download-shortcut/mac', authenticate, async (req, res) => {
+  try {
+    if (!['owner', 'admin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Only admins can download shortcuts' });
+    }
+
+    if (!AZURE_STORAGE_ACCOUNT || !AZURE_STORAGE_KEY) {
+      return res.status(400).json({ error: 'Azure Storage not configured' });
+    }
+
+    const firmFolder = getFirmFolderPath(req.user.firmId);
+    const drivePath = `smb://${AZURE_STORAGE_ACCOUNT}.file.core.windows.net/${AZURE_FILE_SHARE}/${firmFolder}`;
+    
+    // Get firm name for the shortcut
+    const firmResult = await query('SELECT name FROM firms WHERE id = $1', [req.user.firmId]);
+    const firmName = firmResult.rows[0]?.name || 'Apex Drive';
+    const safeFirmName = firmName.replace(/[^a-zA-Z0-9 ]/g, '');
+
+    // Create a shell script that mounts and opens the drive
+    const scriptContent = `#!/bin/bash
+# ${safeFirmName} - Apex Drive Shortcut
+# This script connects to your firm's document drive
+
+echo ""
+echo "========================================"
+echo "  ${safeFirmName} - Apex Drive"
+echo "========================================"
+echo ""
+
+MOUNT_POINT="/Volumes/${safeFirmName}"
+
+# Check if already mounted
+if [ -d "$MOUNT_POINT" ]; then
+    echo "Drive already connected. Opening..."
+    open "$MOUNT_POINT"
+    exit 0
+fi
+
+echo "Connecting to your firm's document drive..."
+echo ""
+echo "When prompted for credentials:"
+echo "  Username: ${AZURE_STORAGE_ACCOUNT}"
+echo "  Password: (get from your platform admin)"
+echo ""
+
+# Create mount point
+mkdir -p "$MOUNT_POINT"
+
+# Mount the drive (will prompt for password)
+mount_smbfs "//${AZURE_STORAGE_ACCOUNT}@${AZURE_STORAGE_ACCOUNT}.file.core.windows.net/${AZURE_FILE_SHARE}/${firmFolder}" "$MOUNT_POINT"
+
+if [ $? -eq 0 ]; then
+    echo ""
+    echo "Successfully connected! Opening drive..."
+    open "$MOUNT_POINT"
+else
+    echo ""
+    echo "Failed to connect. Please try manually:"
+    echo "  1. Open Finder"
+    echo "  2. Press Cmd+K"
+    echo "  3. Enter: ${drivePath}"
+    rmdir "$MOUNT_POINT" 2>/dev/null
+fi
+`;
+
+    res.setHeader('Content-Type', 'application/x-sh');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFirmName} Drive.command"`);
+    res.send(scriptContent);
+
+  } catch (error) {
+    console.error('Download Mac shortcut error:', error);
+    res.status(500).json({ error: 'Failed to generate shortcut' });
+  }
+});
+
 export default router;
