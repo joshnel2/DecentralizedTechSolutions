@@ -4,7 +4,7 @@ import {
   ArrowLeft, HardDrive, Check, X, RefreshCw, 
   AlertCircle, Loader2, FileText, Users, Lock,
   History, GitCompare, Download, Cloud, CheckCircle2,
-  Monitor, Smartphone, Globe, FolderOpen, Copy, Eye
+  Monitor, Globe, FolderOpen, Copy, Eye
 } from 'lucide-react'
 import { driveApi } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
@@ -359,14 +359,6 @@ export function ApexDrivePage() {
                   <button className={styles.secondary} onClick={() => setShowConnectionInfo(true)}>
                     <FolderOpen size={16} />
                     View Instructions
-                  </button>
-                </div>
-                <div className={styles.accessCard}>
-                  <Smartphone size={32} />
-                  <h4>Mobile App</h4>
-                  <p>Access documents on the go from your phone or tablet.</p>
-                  <button className={styles.secondary} disabled>
-                    Coming Soon
                   </button>
                 </div>
               </div>
