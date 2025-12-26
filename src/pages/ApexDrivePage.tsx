@@ -354,11 +354,11 @@ export function ApexDrivePage() {
                 </div>
                 <div className={styles.accessCard}>
                   <Monitor size={32} />
-                  <h4>Desktop App</h4>
-                  <p>Sync files to your computer. Edit with your favorite apps.</p>
-                  <button className={styles.secondary}>
-                    <Download size={16} />
-                    Download for Windows
+                  <h4>Map Network Drive</h4>
+                  <p>Access files from Windows Explorer or Mac Finder like a local drive.</p>
+                  <button className={styles.secondary} onClick={() => setShowConnectionInfo(true)}>
+                    <FolderOpen size={16} />
+                    View Instructions
                   </button>
                 </div>
                 <div className={styles.accessCard}>
