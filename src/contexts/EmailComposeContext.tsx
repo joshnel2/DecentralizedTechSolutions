@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, ReactNode, useCallback } from 'react'
+import { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react'
+import { integrationsApi } from '../services/api'
 
 interface Attachment {
   id: string
@@ -19,10 +20,18 @@ interface EmailDraft {
   isForward?: boolean
 }
 
+interface EmailIntegrationStatus {
+  isConnected: boolean
+  provider: 'outlook' | 'gmail' | null
+  checkingStatus: boolean
+  showSetupPrompt: boolean
+}
+
 interface EmailComposeContextType {
   isOpen: boolean
   draft: EmailDraft
   isMinimized: boolean
+  emailIntegration: EmailIntegrationStatus
   openCompose: (options?: Partial<EmailDraft>) => void
   closeCompose: (saveDraft?: boolean) => void
   minimizeCompose: () => void
@@ -30,6 +39,7 @@ interface EmailComposeContextType {
   updateDraft: (updates: Partial<EmailDraft>) => void
   addAttachment: (attachment: Attachment) => void
   removeAttachment: (id: string) => void
+  dismissSetupPrompt: () => void
   // Quick actions
   emailDocument: (doc: { id: string; name: string; size: number }) => void
   emailInvoice: (invoice: { id: string; invoiceNumber: string; clientName: string; total: number }) => void
@@ -49,12 +59,74 @@ export function EmailComposeProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false)
   const [isMinimized, setIsMinimized] = useState(false)
   const [draft, setDraft] = useState<EmailDraft>(defaultDraft)
+  const [emailIntegration, setEmailIntegration] = useState<EmailIntegrationStatus>({
+    isConnected: false,
+    provider: null,
+    checkingStatus: true,
+    showSetupPrompt: false
+  })
+
+  // Check email integration status on mount
+  useEffect(() => {
+    checkEmailIntegration()
+  }, [])
+
+  const checkEmailIntegration = async () => {
+    setEmailIntegration(prev => ({ ...prev, checkingStatus: true }))
+    try {
+      const data = await integrationsApi.getAll()
+      const integrations = data.integrations || {}
+      
+      // Check Outlook first, then Gmail
+      if (integrations.outlook?.isConnected) {
+        setEmailIntegration({
+          isConnected: true,
+          provider: 'outlook',
+          checkingStatus: false,
+          showSetupPrompt: false
+        })
+      } else if (integrations.google?.isConnected) {
+        setEmailIntegration({
+          isConnected: true,
+          provider: 'gmail',
+          checkingStatus: false,
+          showSetupPrompt: false
+        })
+      } else {
+        setEmailIntegration({
+          isConnected: false,
+          provider: null,
+          checkingStatus: false,
+          showSetupPrompt: false
+        })
+      }
+    } catch (error) {
+      console.error('Failed to check email integration:', error)
+      setEmailIntegration({
+        isConnected: false,
+        provider: null,
+        checkingStatus: false,
+        showSetupPrompt: false
+      })
+    }
+  }
+
+  const dismissSetupPrompt = useCallback(() => {
+    setEmailIntegration(prev => ({ ...prev, showSetupPrompt: false }))
+  }, [])
 
   const openCompose = useCallback((options?: Partial<EmailDraft>) => {
+    // Check if email is connected
+    if (!emailIntegration.isConnected && !emailIntegration.checkingStatus) {
+      // Show setup prompt instead of compose
+      setEmailIntegration(prev => ({ ...prev, showSetupPrompt: true }))
+      return
+    }
+    
     setDraft({ ...defaultDraft, ...options })
     setIsOpen(true)
     setIsMinimized(false)
-  }, [])
+  }, [emailIntegration.isConnected, emailIntegration.checkingStatus])
 
   const closeCompose = useCallback(async (saveDraft = true) => {
     // If there's content and saveDraft is true, save to Outlook drafts
@@ -146,6 +218,7 @@ export function EmailComposeProvider({ children }: { children: ReactNode }) {
       isOpen,
       draft,
       isMinimized,
+      emailIntegration,
       openCompose,
       closeCompose,
       minimizeCompose,
@@ -153,6 +226,7 @@ export function EmailComposeProvider({ children }: { children: ReactNode }) {
       updateDraft,
       addAttachment,
       removeAttachment,
+      dismissSetupPrompt,
       emailDocument,
       emailInvoice
     }}>

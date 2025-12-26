@@ -480,6 +480,110 @@
   to { transform: rotate(360deg); }
 }
 
+/* Setup Prompt - When email integration not connected */
+.setupPrompt {
+  position: fixed;
+  bottom: 0;
+  right: 24px;
+  width: 380px;
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  animation: slideUp 0.2s ease;
+}
+
+.setupPromptContent {
+  padding: 24px;
+  text-align: center;
+}
+
+.setupPromptIcon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.05) 100%);
+  border-radius: 50%;
+  margin-bottom: 16px;
+  color: #60a5fa;
+}
+
+.setupAlertIcon {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  color: #fbbf24;
+  background: #1e293b;
+  border-radius: 50%;
+}
+
+.setupPromptContent h3 {
+  margin: 0 0 8px;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.setupPromptContent p {
+  margin: 0 0 20px;
+  font-size: 0.875rem;
+  color: #94a3b8;
+  line-height: 1.5;
+}
+
+.setupPromptContent strong {
+  color: #cbd5e1;
+}
+
+.setupPromptActions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.setupDismissBtn {
+  padding: 10px 20px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #94a3b8;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.setupDismissBtn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+}
+
+.setupConnectBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.setupConnectBtn:hover {
+  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
 /* Responsive */
 @media (max-width: 480px) {
   .composeContainer {

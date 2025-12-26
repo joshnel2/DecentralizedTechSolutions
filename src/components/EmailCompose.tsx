@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   X, Minus, Maximize2, Send, Paperclip, Trash2, 
-  FileText, File, Loader2, ChevronDown, Upload, Check, Sparkles
+  FileText, File, Loader2, ChevronDown, Upload, Check, Sparkles,
+  Mail, Settings, AlertCircle
 } from 'lucide-react'
 import { useEmailCompose } from '../contexts/EmailComposeContext'
 import { useAIChat } from '../contexts/AIChatContext'
@@ -9,16 +11,19 @@ import { documentsApi, integrationsApi } from '../services/api'
 import styles from './EmailCompose.module.css'
 
 export function EmailCompose() {
+  const navigate = useNavigate()
   const {
     isOpen,
     draft,
     isMinimized,
+    emailIntegration,
     closeCompose,
     minimizeCompose,
     maximizeCompose,
     updateDraft,
     addAttachment,
-    removeAttachment
+    removeAttachment,
+    dismissSetupPrompt
   } = useEmailCompose()
 
   const { isOpen: aiChatOpen, openChat, closeChat } = useAIChat()
@@ -177,6 +182,43 @@ export function EmailCompose() {
       if (!confirm('Discard this draft?')) return
     }
     closeCompose(false)
+  }
+
+  // Show setup prompt if email not connected
+  if (emailIntegration.showSetupPrompt) {
+    return (
+      <div className={styles.setupPrompt}>
+        <div className={styles.setupPromptContent}>
+          <div className={styles.setupPromptIcon}>
+            <Mail size={32} />
+            <AlertCircle size={16} className={styles.setupAlertIcon} />
+          </div>
+          <h3>Connect Your Email</h3>
+          <p>
+            To send emails from Apex, you need to connect your email account. 
+            We support <strong>Microsoft Outlook</strong> and <strong>Gmail</strong>.
+          </p>
+          <div className={styles.setupPromptActions}>
+            <button 
+              className={styles.setupDismissBtn}
+              onClick={dismissSetupPrompt}
+            >
+              Cancel
+            </button>
+            <button 
+              className={styles.setupConnectBtn}
+              onClick={() => {
+                dismissSetupPrompt()
+                navigate('/app/settings/integrations')
+              }}
+            >
+              <Settings size={16} />
+              Go to Integrations
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (!isOpen) return null
