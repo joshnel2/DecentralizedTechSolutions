@@ -1,0 +1,319 @@
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import {
+  ArrowLeft, HardDrive, Check, X, RefreshCw, 
+  AlertCircle, Loader2, FileText, Users, Lock,
+  History, GitCompare, Download, Cloud, CheckCircle2,
+  Monitor, Smartphone, Globe
+} from 'lucide-react'
+import { driveApi } from '../services/api'
+import { useAuthStore } from '../stores/authStore'
+import styles from './ApexDrivePage.module.css'
+
+export function ApexDrivePage() {
+  const navigate = useNavigate()
+  const { user } = useAuthStore()
+  const isAdmin = user?.role === 'owner' || user?.role === 'admin'
+
+  const [isEnabled, setIsEnabled] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [enabling, setEnabling] = useState(false)
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  // Stats
+  const [stats, setStats] = useState({
+    documentCount: 0,
+    userCount: 0,
+    lastSync: null as string | null,
+  })
+
+  useEffect(() => {
+    checkStatus()
+  }, [])
+
+  const checkStatus = async () => {
+    setLoading(true)
+    try {
+      const result = await driveApi.getConfigurations()
+      const firmDrive = result.drives?.find((d: any) => !d.isPersonal && d.isDefault)
+      if (firmDrive) {
+        setIsEnabled(true)
+        setStats({
+          documentCount: firmDrive.documentCount || 0,
+          userCount: firmDrive.userCount || 0,
+          lastSync: firmDrive.lastSyncAt,
+        })
+      }
+    } catch (error) {
+      console.error('Failed to check status:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const enableApexDrive = async () => {
+    setEnabling(true)
+    try {
+      // Create the default Apex Drive configuration
+      // Storage is handled by the backend (Azure)
+      await driveApi.createConfiguration({
+        name: 'Apex Drive',
+        driveType: 'azure_files',
+        rootPath: 'apex-drive', // Backend will set up Azure storage
+        syncEnabled: true,
+        syncIntervalMinutes: 5,
+        syncDirection: 'bidirectional',
+        autoVersionOnSave: true,
+        conflictResolution: 'keep_both',
+        isDefault: true,
+        isPersonal: false,
+      })
+
+      setIsEnabled(true)
+      setNotification({ type: 'success', message: 'Apex Drive is now enabled!' })
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Failed to enable Apex Drive' })
+    } finally {
+      setEnabling(false)
+    }
+  }
+
+  const disableApexDrive = async () => {
+    if (!confirm('Are you sure you want to disable Apex Drive? Your documents will still be accessible, but sync will stop.')) {
+      return
+    }
+
+    try {
+      const result = await driveApi.getConfigurations()
+      const firmDrive = result.drives?.find((d: any) => !d.isPersonal && d.isDefault)
+      if (firmDrive) {
+        await driveApi.deleteConfiguration(firmDrive.id)
+      }
+      setIsEnabled(false)
+      setNotification({ type: 'success', message: 'Apex Drive disabled' })
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Failed to disable' })
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className={styles.container}>
+        <div className={styles.loading}>
+          <Loader2 size={32} className={styles.spinning} />
+          <span>Loading...</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className={styles.container}>
+      {notification && (
+        <div className={`${styles.notification} ${styles[notification.type]}`}>
+          {notification.type === 'success' ? <Check size={16} /> : <AlertCircle size={16} />}
+          {notification.message}
+          <button onClick={() => setNotification(null)}>×</button>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className={styles.header}>
+        <button className={styles.backBtn} onClick={() => navigate('/app/settings')}>
+          <ArrowLeft size={20} />
+        </button>
+        <div className={styles.headerContent}>
+          <div className={styles.headerIcon}>
+            <HardDrive size={28} />
+          </div>
+          <div>
+            <h1>Apex Drive</h1>
+            <p>Securely store and manage your firm's documents</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className={styles.main}>
+        {!isEnabled ? (
+          /* Not Enabled State */
+          <div className={styles.enableSection}>
+            <div className={styles.enableCard}>
+              <div className={styles.enableIcon}>
+                <Cloud size={48} />
+              </div>
+              <h2>Enable Apex Drive</h2>
+              <p>
+                Apex Drive provides secure cloud storage for all your firm's documents. 
+                Access files from anywhere, track versions, and collaborate in real-time.
+              </p>
+
+              {isAdmin ? (
+                <button 
+                  className={styles.enableBtn}
+                  onClick={enableApexDrive}
+                  disabled={enabling}
+                >
+                  {enabling ? (
+                    <><Loader2 size={20} className={styles.spinning} /> Enabling...</>
+                  ) : (
+                    <><Check size={20} /> Enable Apex Drive</>
+                  )}
+                </button>
+              ) : (
+                <p className={styles.adminNote}>
+                  Contact your administrator to enable Apex Drive.
+                </p>
+              )}
+            </div>
+
+            {/* Features */}
+            <div className={styles.features}>
+              <h3>What you get with Apex Drive:</h3>
+              <div className={styles.featureGrid}>
+                <div className={styles.feature}>
+                  <Lock size={24} />
+                  <div>
+                    <h4>Smart Document Locks</h4>
+                    <p>Edit documents without conflicts. Locks automatically release when you're done.</p>
+                  </div>
+                </div>
+                <div className={styles.feature}>
+                  <History size={24} />
+                  <div>
+                    <h4>Complete Version History</h4>
+                    <p>Every change is tracked. See who edited what and when.</p>
+                  </div>
+                </div>
+                <div className={styles.feature}>
+                  <GitCompare size={24} />
+                  <div>
+                    <h4>Redline Comparison</h4>
+                    <p>Compare any two versions side-by-side with tracked changes.</p>
+                  </div>
+                </div>
+                <div className={styles.feature}>
+                  <Users size={24} />
+                  <div>
+                    <h4>Real-Time Collaboration</h4>
+                    <p>Edit documents together in Word Online. See who's viewing.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Enabled State */
+          <div className={styles.enabledSection}>
+            {/* Status Card */}
+            <div className={styles.statusCard}>
+              <div className={styles.statusHeader}>
+                <div className={styles.statusIcon}>
+                  <CheckCircle2 size={32} />
+                </div>
+                <div className={styles.statusText}>
+                  <h2>Apex Drive is enabled</h2>
+                  <p>Your documents are syncing to the cloud</p>
+                </div>
+                {isAdmin && (
+                  <button className={styles.disableBtn} onClick={disableApexDrive}>
+                    Disable
+                  </button>
+                )}
+              </div>
+
+              <div className={styles.statsRow}>
+                <div className={styles.stat}>
+                  <FileText size={20} />
+                  <div>
+                    <span className={styles.statValue}>{stats.documentCount.toLocaleString()}</span>
+                    <span className={styles.statLabel}>Documents</span>
+                  </div>
+                </div>
+                <div className={styles.stat}>
+                  <Users size={20} />
+                  <div>
+                    <span className={styles.statValue}>{stats.userCount || 'All'}</span>
+                    <span className={styles.statLabel}>Users</span>
+                  </div>
+                </div>
+                <div className={styles.stat}>
+                  <RefreshCw size={20} />
+                  <div>
+                    <span className={styles.statValue}>
+                      {stats.lastSync ? 'Just now' : 'Syncing...'}
+                    </span>
+                    <span className={styles.statLabel}>Last Sync</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Access Options */}
+            <div className={styles.accessSection}>
+              <h3>Access your documents</h3>
+              <div className={styles.accessGrid}>
+                <div className={styles.accessCard}>
+                  <Globe size={32} />
+                  <h4>Web Browser</h4>
+                  <p>Access documents from any browser. View, edit, and share files.</p>
+                  <button onClick={() => navigate('/app/documents')}>
+                    Open Documents
+                  </button>
+                </div>
+                <div className={styles.accessCard}>
+                  <Monitor size={32} />
+                  <h4>Desktop App</h4>
+                  <p>Sync files to your computer. Edit with your favorite apps.</p>
+                  <button className={styles.secondary}>
+                    <Download size={16} />
+                    Download for Windows
+                  </button>
+                </div>
+                <div className={styles.accessCard}>
+                  <Smartphone size={32} />
+                  <h4>Mobile App</h4>
+                  <p>Access documents on the go from your phone or tablet.</p>
+                  <button className={styles.secondary} disabled>
+                    Coming Soon
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Better than Clio */}
+            <div className={styles.comparison}>
+              <h3>Better than Clio Drive</h3>
+              <div className={styles.comparisonGrid}>
+                <div className={styles.comparisonItem}>
+                  <X size={20} className={styles.xIcon} />
+                  <span><strong>Clio:</strong> Documents get stuck locked</span>
+                </div>
+                <div className={styles.comparisonItem}>
+                  <Check size={20} className={styles.checkIcon} />
+                  <span><strong>Apex:</strong> Smart locks auto-expire</span>
+                </div>
+                <div className={styles.comparisonItem}>
+                  <X size={20} className={styles.xIcon} />
+                  <span><strong>Clio:</strong> Hard to compare versions</span>
+                </div>
+                <div className={styles.comparisonItem}>
+                  <Check size={20} className={styles.checkIcon} />
+                  <span><strong>Apex:</strong> Built-in redline comparison</span>
+                </div>
+                <div className={styles.comparisonItem}>
+                  <X size={20} className={styles.xIcon} />
+                  <span><strong>Clio:</strong> No real-time co-editing</span>
+                </div>
+                <div className={styles.comparisonItem}>
+                  <Check size={20} className={styles.checkIcon} />
+                  <span><strong>Apex:</strong> Word Online collaboration</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

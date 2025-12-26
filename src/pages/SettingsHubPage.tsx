@@ -54,8 +54,8 @@ const systemSettings: SettingItem[] = [
   },
   {
     id: 'drives',
-    name: 'Document Drives',
-    description: 'Configure firm and personal document drives with version control and sync.',
+    name: 'Apex Drive',
+    description: 'Securely store and manage your firm\'s documents with version history and redlining.',
     icon: HardDrive,
     path: '/app/settings/drives',
     badge: 'New'

@@ -365,10 +365,10 @@ export function DocumentsPage() {
               <button 
                 className={styles.driveBtn}
                 onClick={() => navigate('/app/settings/drives')}
-                title="Configure document drives"
+                title="Apex Drive settings"
               >
                 <HardDrive size={18} />
-                Drives
+                Apex Drive
               </button>
               <button 
                 className={styles.permissionsBtn}
