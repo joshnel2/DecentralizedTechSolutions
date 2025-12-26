@@ -30,6 +30,7 @@ import driveRoutes from './routes/drive.js';
 import documentPermissionsRoutes from './routes/documentPermissions.js';
 import wordOnlineRoutes from './routes/wordOnline.js';
 import driveSyncRoutes from './routes/driveSync.js';
+import sharingGroupsRoutes from './routes/sharingGroups.js';
 
 // AI Agent Tool Routes (v1 API)
 import billingRoutes from './routes/billing.js';
@@ -99,6 +100,7 @@ app.use('/api/drive', driveRoutes);
 app.use('/api/drive-sync', driveSyncRoutes);
 app.use('/api/document-permissions', documentPermissionsRoutes);
 app.use('/api/word-online', wordOnlineRoutes);
+app.use('/api/sharing-groups', sharingGroupsRoutes);
 
 // AI Agent Tool Routes (v1 API - optimized for AI interaction)
 app.use('/api/v1/billing', billingRoutes);

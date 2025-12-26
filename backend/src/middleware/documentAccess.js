@@ -114,7 +114,88 @@ export async function canAccessDocument(userId, userRole, documentId, firmId, re
     return { hasAccess: true, reason: 'firm_wide' };
   }
 
+  // 8. Check sharing groups - if document owner is in a sharing group with the user
+  const sharingGroupAccess = await checkSharingGroupAccess(userId, doc.uploaded_by || doc.owner_id, documentId, firmId, 'document');
+  if (sharingGroupAccess.hasAccess) {
+    if (requiredAccess === 'view' || requiredAccess === 'download') {
+      return { hasAccess: true, reason: 'sharing_group' };
+    }
+    if (requiredAccess === 'edit' && sharingGroupAccess.canEdit) {
+      return { hasAccess: true, reason: 'sharing_group_edit' };
+    }
+  }
+
   return { hasAccess: false, reason: 'no_permission' };
+}
+
+/**
+ * Check if two users share a sharing group that shares the specified item type
+ */
+async function checkSharingGroupAccess(userId, ownerId, itemId, firmId, itemType = 'document') {
+  if (!ownerId || userId === ownerId) {
+    return { hasAccess: false };
+  }
+
+  // Find sharing groups where both users are members
+  const groupsResult = await query(`
+    SELECT sg.id, sg.default_permission_level, sg.share_documents, sg.share_matters,
+           sg.share_clients, sg.share_calendar, sg.share_tasks, sg.share_notes
+    FROM sharing_groups sg
+    JOIN sharing_group_members sgm1 ON sg.id = sgm1.sharing_group_id AND sgm1.user_id = $1
+    JOIN sharing_group_members sgm2 ON sg.id = sgm2.sharing_group_id AND sgm2.user_id = $2
+    WHERE sg.firm_id = $3 AND sg.is_active = true
+  `, [userId, ownerId, firmId]);
+
+  if (groupsResult.rows.length === 0) {
+    return { hasAccess: false };
+  }
+
+  // Check if any group shares this item type
+  for (const group of groupsResult.rows) {
+    let sharesItemType = false;
+    switch (itemType) {
+      case 'document':
+        sharesItemType = group.share_documents;
+        break;
+      case 'matter':
+        sharesItemType = group.share_matters;
+        break;
+      case 'client':
+        sharesItemType = group.share_clients;
+        break;
+      case 'calendar':
+        sharesItemType = group.share_calendar;
+        break;
+      case 'task':
+        sharesItemType = group.share_tasks;
+        break;
+      case 'note':
+        sharesItemType = group.share_notes;
+        break;
+      default:
+        sharesItemType = false;
+    }
+
+    if (!sharesItemType) continue;
+
+    // Check if item is hidden from this group
+    const hiddenCheck = await query(`
+      SELECT 1 FROM sharing_group_hidden_items
+      WHERE sharing_group_id = $1 AND user_id = $2 AND item_type = $3 AND item_id = $4
+    `, [group.id, ownerId, itemType, itemId]);
+
+    if (hiddenCheck.rows.length > 0) continue; // Owner hid this item
+
+    // Access granted through this group
+    return {
+      hasAccess: true,
+      canEdit: group.default_permission_level !== 'view',
+      groupId: group.id,
+      permissionLevel: group.default_permission_level
+    };
+  }
+
+  return { hasAccess: false };
 }
 
 /**
@@ -323,6 +404,23 @@ export async function buildDocumentAccessFilter(userId, userRole, firmId, tableA
           AND ug.user_id = $${startParamIndex + 1}
           AND dp.can_view = true
           AND (dp.expires_at IS NULL OR dp.expires_at > NOW())
+      )
+      -- Owner is in a sharing group with user that shares documents
+      OR EXISTS (
+        SELECT 1 FROM sharing_groups sg
+        JOIN sharing_group_members sgm1 ON sg.id = sgm1.sharing_group_id AND sgm1.user_id = $${startParamIndex + 1}
+        JOIN sharing_group_members sgm2 ON sg.id = sgm2.sharing_group_id 
+          AND (sgm2.user_id = ${tableAlias}.uploaded_by OR sgm2.user_id = ${tableAlias}.owner_id)
+        WHERE sg.firm_id = $${startParamIndex}
+          AND sg.is_active = true
+          AND sg.share_documents = true
+          AND NOT EXISTS (
+            SELECT 1 FROM sharing_group_hidden_items shi
+            WHERE shi.sharing_group_id = sg.id
+              AND shi.user_id = COALESCE(${tableAlias}.uploaded_by, ${tableAlias}.owner_id)
+              AND shi.item_type = 'document'
+              AND shi.item_id = ${tableAlias}.id
+          )
       )
     )
   `;
