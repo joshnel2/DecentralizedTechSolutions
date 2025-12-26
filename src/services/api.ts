@@ -1446,6 +1446,157 @@ export const driveApi = {
 };
 
 // ============================================
+// DOCUMENT PERMISSIONS API
+// ============================================
+
+export const documentPermissionsApi = {
+  // Folder permissions
+  async getFolderPermissions(folderPath?: string, driveId?: string) {
+    const params = new URLSearchParams();
+    if (folderPath) params.set('folderPath', folderPath);
+    if (driveId) params.set('driveId', driveId);
+    return fetchWithAuth(`/document-permissions/folders?${params}`);
+  },
+
+  async setFolderPermission(data: {
+    folderPath: string;
+    driveId?: string;
+    userId?: string;
+    groupId?: string;
+    permissionLevel?: string;
+    canView?: boolean;
+    canDownload?: boolean;
+    canEdit?: boolean;
+    canDelete?: boolean;
+    canCreate?: boolean;
+    canShare?: boolean;
+    canManagePermissions?: boolean;
+  }) {
+    return fetchWithAuth('/document-permissions/folders', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteFolderPermission(permissionId: string) {
+    return fetchWithAuth(`/document-permissions/folders/${permissionId}`, { method: 'DELETE' });
+  },
+
+  // Document permissions
+  async getDocumentPermissions(documentId: string) {
+    return fetchWithAuth(`/document-permissions/documents/${documentId}`);
+  },
+
+  async setDocumentPermission(documentId: string, data: {
+    userId?: string;
+    groupId?: string;
+    permissionLevel?: string;
+    canView?: boolean;
+    canDownload?: boolean;
+    canEdit?: boolean;
+    canDelete?: boolean;
+    canShare?: boolean;
+    expiresAt?: string;
+  }) {
+    return fetchWithAuth(`/document-permissions/documents/${documentId}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateDocumentPrivacy(documentId: string, data: {
+    isPrivate?: boolean;
+    privacyLevel?: 'private' | 'shared' | 'team' | 'firm';
+  }) {
+    return fetchWithAuth(`/document-permissions/documents/${documentId}/privacy`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteDocumentPermission(documentId: string, permissionId: string) {
+    return fetchWithAuth(`/document-permissions/documents/${documentId}/permissions/${permissionId}`, { 
+      method: 'DELETE' 
+    });
+  },
+
+  // User preferences
+  async getPreferences() {
+    return fetchWithAuth('/document-permissions/preferences');
+  },
+
+  async updatePreferences(data: {
+    defaultPrivacy?: string;
+    privateFolderPatterns?: string[];
+    notifyOnAccess?: boolean;
+    notifyOnEdit?: boolean;
+    preferWordOnline?: boolean;
+    autoSaveInterval?: number;
+  }) {
+    return fetchWithAuth('/document-permissions/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+};
+
+// ============================================
+// WORD ONLINE API - Real-time Co-Editing
+// ============================================
+
+export const wordOnlineApi = {
+  // Open document in Word Online
+  async openDocument(documentId: string) {
+    return fetchWithAuth(`/word-online/documents/${documentId}/open`, { method: 'POST' });
+  },
+
+  // Get active editors
+  async getActiveEditors(documentId: string) {
+    return fetchWithAuth(`/word-online/documents/${documentId}/editors`);
+  },
+
+  // Send heartbeat while editing
+  async sendHeartbeat(documentId: string) {
+    return fetchWithAuth(`/word-online/documents/${documentId}/heartbeat`, { method: 'POST' });
+  },
+
+  // Close editing session
+  async closeSession(documentId: string, changesCount?: number) {
+    return fetchWithAuth(`/word-online/documents/${documentId}/close`, {
+      method: 'POST',
+      body: JSON.stringify({ changesCount }),
+    });
+  },
+
+  // Share document
+  async shareDocument(documentId: string, data: {
+    userIds?: string[];
+    groupIds?: string[];
+    permissionLevel?: string;
+    canEdit?: boolean;
+    canDownload?: boolean;
+    canShare?: boolean;
+    message?: string;
+    expiresAt?: string;
+  }) {
+    return fetchWithAuth(`/word-online/documents/${documentId}/share`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Get shares
+  async getShares(documentId: string) {
+    return fetchWithAuth(`/word-online/documents/${documentId}/shared`);
+  },
+
+  // Remove share
+  async removeShare(documentId: string, shareId: string) {
+    return fetchWithAuth(`/word-online/documents/${documentId}/share/${shareId}`, { method: 'DELETE' });
+  },
+};
+
+// ============================================
 // ADMIN API (Platform Admin Only)
 // ============================================
 
@@ -1523,4 +1674,6 @@ export default {
   documentTemplates: documentTemplatesApi,
   timer: timerApi,
   drive: driveApi,
+  documentPermissions: documentPermissionsApi,
+  wordOnline: wordOnlineApi,
 };

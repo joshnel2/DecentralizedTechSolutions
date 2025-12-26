@@ -27,6 +27,8 @@ import documentTemplatesRoutes from './routes/documentTemplates.js';
 import timerStateRoutes from './routes/timerState.js';
 import userSettingsRoutes from './routes/userSettings.js';
 import driveRoutes from './routes/drive.js';
+import documentPermissionsRoutes from './routes/documentPermissions.js';
+import wordOnlineRoutes from './routes/wordOnline.js';
 
 // AI Agent Tool Routes (v1 API)
 import billingRoutes from './routes/billing.js';
@@ -93,6 +95,8 @@ app.use('/api/document-templates', documentTemplatesRoutes);
 app.use('/api/timer', timerStateRoutes);
 app.use('/api/user-settings', userSettingsRoutes);
 app.use('/api/drive', driveRoutes);
+app.use('/api/document-permissions', documentPermissionsRoutes);
+app.use('/api/word-online', wordOnlineRoutes);
 
 // AI Agent Tool Routes (v1 API - optimized for AI interaction)
 app.use('/api/v1/billing', billingRoutes);

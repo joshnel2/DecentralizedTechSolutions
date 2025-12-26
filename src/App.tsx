@@ -65,6 +65,7 @@ import { RedlineAIPage } from './pages/RedlineAIPage'
 import { FirmDriveSettingsPage } from './pages/FirmDriveSettingsPage'
 import { DocumentVersionsPage } from './pages/DocumentVersionsPage'
 import { DocumentComparePage } from './pages/DocumentComparePage'
+import { FolderPermissionsPage } from './pages/FolderPermissionsPage'
 // Public Pages
 import { AboutPage } from './pages/AboutPage'
 import { SecurityPage } from './pages/SecurityPage'
@@ -215,6 +216,7 @@ function AppContent() {
         <Route path="documents" element={<DocumentsPage />} />
         <Route path="documents/:documentId/versions" element={<DocumentVersionsPage />} />
         <Route path="documents/:documentId/compare" element={<DocumentComparePage />} />
+        <Route path="documents/permissions" element={<FolderPermissionsPage />} />
         <Route path="document-automation" element={<DocumentAutomationPage />} />
         <Route path="ai" element={<AIAssistantPage />} />
         <Route path="ai/redline" element={<RedlineAIPage />} />

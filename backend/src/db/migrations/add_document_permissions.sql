@@ -108,10 +108,10 @@ BEGIN
 
     -- Privacy level (more granular than just private)
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'privacy_level') THEN
-        ALTER TABLE documents ADD COLUMN privacy_level VARCHAR(20) DEFAULT 'inherited';
-        -- 'inherited' - Use folder permissions
-        -- 'private' - Only owner can see
-        -- 'restricted' - Only explicitly granted users
+        ALTER TABLE documents ADD COLUMN privacy_level VARCHAR(20) DEFAULT 'private';
+        -- 'private' - Only owner + admins can see (DEFAULT - most secure)
+        -- 'shared' - Owner + admins + explicitly shared users
+        -- 'team' - Owner + admins + assigned matter team
         -- 'firm' - Everyone in firm can see
         RAISE NOTICE 'Added privacy_level column to documents';
     END IF;

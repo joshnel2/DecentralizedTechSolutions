@@ -8,12 +8,13 @@ import {
   Sparkles, Download, Trash2, X, Loader2,
   FileSearch, Scale, AlertTriangle, List, MessageSquare,
   Eye, ExternalLink, Wand2, History, GitCompare, Lock, Edit3,
-  HardDrive, Settings
+  HardDrive, Settings, Share2, Shield
 } from 'lucide-react'
 import { documentsApi, driveApi } from '../services/api'
 import { format, parseISO } from 'date-fns'
 import styles from './DocumentsPage.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+import { ShareDocumentModal } from '../components/ShareDocumentModal'
 import { parseDocument } from '../utils/documentParser'
 
 // AI suggestion prompts for document analysis
@@ -182,6 +183,13 @@ export function DocumentsPage() {
     docName: string
   }>({ isOpen: false, docId: '', docName: '' })
 
+  // Share modal state
+  const [shareModal, setShareModal] = useState<{
+    isOpen: boolean
+    documentId: string
+    documentName: string
+  }>({ isOpen: false, documentId: '', documentName: '' })
+
   // Document viewer state (preview only - no editing)
   const [editorDoc, setEditorDoc] = useState<typeof documents[0] | null>(null)
   const [editorContent, setEditorContent] = useState('')
@@ -309,6 +317,14 @@ export function DocumentsPage() {
           >
             <HardDrive size={18} />
             Drives
+          </button>
+          <button 
+            className={styles.permissionsBtn}
+            onClick={() => navigate('/app/documents/permissions')}
+            title="Manage folder permissions"
+          >
+            <Shield size={18} />
+            Permissions
           </button>
           <button 
             className={styles.automationBtn}
@@ -530,6 +546,20 @@ export function DocumentsPage() {
                   Compare Versions
                 </button>
                 <button 
+                  className={styles.shareBtn}
+                  onClick={() => {
+                    setShareModal({
+                      isOpen: true,
+                      documentId: selectedDoc.id,
+                      documentName: selectedDoc.name
+                    })
+                    setSelectedDoc(null)
+                  }}
+                >
+                  <Share2 size={18} />
+                  Share
+                </button>
+                <button 
                   className={styles.downloadBtn}
                   onClick={() => downloadDocument(selectedDoc)}
                 >
@@ -585,6 +615,14 @@ export function DocumentsPage() {
         message={`Are you sure you want to delete "${confirmModal.docName}"? This action cannot be undone.`}
         confirmText="Delete"
         type="danger"
+      />
+
+      {/* Share Document Modal */}
+      <ShareDocumentModal
+        isOpen={shareModal.isOpen}
+        onClose={() => setShareModal({ isOpen: false, documentId: '', documentName: '' })}
+        documentId={shareModal.documentId}
+        documentName={shareModal.documentName}
       />
 
       {/* Document Preview Modal */}
