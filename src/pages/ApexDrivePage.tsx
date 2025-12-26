@@ -413,20 +413,49 @@ export function ApexDrivePage() {
 {isAdmin && connectionInfo?.configured && (
                 <div className={styles.accessCard}>
                   <Monitor size={32} />
-                  <h4>Mapped Drive (Admin)</h4>
-                  <p>Map the Azure drive to your computer for direct access.</p>
-                  <button 
-                    className={styles.secondary}
-                    onClick={() => {
-                      if (connectionInfo?.windowsPath) {
-                        navigator.clipboard.writeText(connectionInfo.windowsPath)
-                        setNotification({ type: 'success', message: 'Path copied! Open File Explorer and paste.' })
-                      }
-                    }}
-                  >
-                    <Copy size={16} />
-                    Copy Drive Path
-                  </button>
+                  <h4>Desktop Access (Admin)</h4>
+                  <p>Download a shortcut to instantly open your firm's drive.</p>
+                  <div className={styles.shortcutButtons}>
+                    <button 
+                      onClick={async () => {
+                        try {
+                          const blob = await driveApi.downloadWindowsShortcut()
+                          const url = window.URL.createObjectURL(blob)
+                          const a = document.createElement('a')
+                          a.href = url
+                          a.download = 'Apex Drive.bat'
+                          a.click()
+                          window.URL.revokeObjectURL(url)
+                          setNotification({ type: 'success', message: 'Downloaded! Double-click the file to connect.' })
+                        } catch (err) {
+                          setNotification({ type: 'error', message: 'Failed to download shortcut' })
+                        }
+                      }}
+                    >
+                      <Download size={16} />
+                      Windows
+                    </button>
+                    <button 
+                      className={styles.secondary}
+                      onClick={async () => {
+                        try {
+                          const blob = await driveApi.downloadMacShortcut()
+                          const url = window.URL.createObjectURL(blob)
+                          const a = document.createElement('a')
+                          a.href = url
+                          a.download = 'Apex Drive.command'
+                          a.click()
+                          window.URL.revokeObjectURL(url)
+                          setNotification({ type: 'success', message: 'Downloaded! Double-click and allow in Security settings.' })
+                        } catch (err) {
+                          setNotification({ type: 'error', message: 'Failed to download shortcut' })
+                        }
+                      }}
+                    >
+                      <Download size={16} />
+                      Mac
+                    </button>
+                  </div>
                 </div>
                 )}
                 <div className={styles.accessCard}>

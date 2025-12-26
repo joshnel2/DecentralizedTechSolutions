@@ -655,6 +655,8 @@ router.get('/outlook/connect', authenticate, async (req, res) => {
     'Mail.Read',
     'Mail.Send',
     'Calendars.ReadWrite',
+    'Files.ReadWrite.All',      // For Word Online editing
+    'Sites.ReadWrite.All',      // For SharePoint access
   ].join(' ');
 
   const authUrl = `https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/authorize?` +

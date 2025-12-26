@@ -18,7 +18,7 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
 
     // Get document info
     const doc = await query(
-      `SELECT d.*, dc.drive_type, dc.root_path, dc.access_token, dc.refresh_token
+      `SELECT d.*, dc.drive_type, dc.root_path
        FROM documents d
        LEFT JOIN drive_configurations dc ON d.drive_id = dc.id
        WHERE d.id = $1 AND d.firm_id = $2`,
@@ -37,29 +37,77 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'You do not have permission to edit this document' });
     }
 
-    // For Azure Files / OneDrive / SharePoint, get Word Online URL
-    if (['azure_files', 'onedrive', 'sharepoint'].includes(document.drive_type)) {
-      // If we already have a Graph item ID, use it
-      if (document.graph_item_id) {
-        const editUrl = await getWordOnlineUrl(document.graph_item_id, document.access_token);
-        
-        // Record session
-        await startEditSession(documentId, req.user.id, req.user.firmId, document.graph_item_id, editUrl);
-        
-        return res.json({
-          editUrl,
-          graphItemId: document.graph_item_id,
-          coAuthoring: true,
-          message: 'Open in Word Online for real-time co-editing'
-        });
-      }
+    // Get Microsoft integration token (same as Outlook - uses Files.ReadWrite.All scope)
+    const msIntegration = await query(
+      `SELECT access_token, refresh_token, token_expires_at 
+       FROM integrations 
+       WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+      [req.user.firmId]
+    );
 
-      // Otherwise, we need to upload to OneDrive/SharePoint first for Word Online
+    if (msIntegration.rows.length === 0) {
       return res.json({
         editUrl: null,
         coAuthoring: false,
-        message: 'Document needs to be synced to cloud storage for Word Online editing',
-        fallback: 'desktop' // Use desktop Word instead
+        message: 'Connect Microsoft in Integrations to enable Word Online editing',
+        fallback: 'desktop',
+        needsMicrosoftAuth: true
+      });
+    }
+
+    const accessToken = msIntegration.rows[0].access_token;
+
+    // For Azure Files / OneDrive / SharePoint, get Word Online URL
+    if (['azure_files', 'onedrive', 'sharepoint'].includes(document.drive_type) || document.external_path) {
+      // If we already have a Graph item ID, use it
+      if (document.graph_item_id) {
+        const editUrl = await getWordOnlineUrl(document.graph_item_id, accessToken);
+        
+        if (editUrl) {
+          // Record session
+          await startEditSession(documentId, req.user.id, req.user.firmId, document.graph_item_id, editUrl);
+          
+          return res.json({
+            editUrl,
+            graphItemId: document.graph_item_id,
+            coAuthoring: true,
+            message: 'Open in Word Online for real-time co-editing'
+          });
+        }
+      }
+
+      // Try to upload the document to OneDrive for Word Online editing
+      if (document.path || document.external_path) {
+        try {
+          const uploadResult = await uploadToOneDriveForEditing(document, accessToken, req.user.firmId);
+          if (uploadResult && uploadResult.webUrl) {
+            // Save the Graph item ID for future use
+            await query(
+              `UPDATE documents SET graph_item_id = $1, word_online_url = $2 WHERE id = $3`,
+              [uploadResult.id, uploadResult.webUrl, documentId]
+            );
+
+            // Record session
+            await startEditSession(documentId, req.user.id, req.user.firmId, uploadResult.id, uploadResult.webUrl);
+
+            return res.json({
+              editUrl: uploadResult.webUrl,
+              graphItemId: uploadResult.id,
+              coAuthoring: true,
+              message: 'Document uploaded to OneDrive. Opening in Word Online...'
+            });
+          }
+        } catch (uploadError) {
+          console.error('Failed to upload to OneDrive:', uploadError.message);
+        }
+      }
+
+      // Fallback to desktop
+      return res.json({
+        editUrl: null,
+        coAuthoring: false,
+        message: 'Could not open in Word Online. Use desktop Word instead.',
+        fallback: 'desktop'
       });
     }
 
@@ -77,6 +125,75 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
     res.status(500).json({ error: 'Failed to open document' });
   }
 });
+
+// Upload document to OneDrive for Word Online editing
+async function uploadToOneDriveForEditing(document, accessToken, firmId) {
+  try {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    
+    // Read file content
+    let fileContent;
+    if (document.path) {
+      fileContent = await fs.readFile(document.path);
+    } else {
+      // For external files, we'd need to download from Azure first
+      // For now, skip
+      return null;
+    }
+
+    const fileName = document.original_name || document.name;
+    const folderName = `ApexDrive-${firmId}`;
+
+    // Create folder in OneDrive if it doesn't exist
+    try {
+      await fetch(`https://graph.microsoft.com/v1.0/me/drive/root/children`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: folderName,
+          folder: {},
+          '@microsoft.graph.conflictBehavior': 'fail'
+        })
+      });
+    } catch (e) {
+      // Folder might already exist, that's OK
+    }
+
+    // Upload file to OneDrive
+    const uploadResponse = await fetch(
+      `https://graph.microsoft.com/v1.0/me/drive/root:/${folderName}/${fileName}:/content`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/octet-stream'
+        },
+        body: fileContent
+      }
+    );
+
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      console.error('OneDrive upload failed:', errorText);
+      return null;
+    }
+
+    const uploadResult = await uploadResponse.json();
+    console.log(`[WORD ONLINE] Uploaded ${fileName} to OneDrive, id: ${uploadResult.id}`);
+
+    return {
+      id: uploadResult.id,
+      webUrl: uploadResult.webUrl
+    };
+  } catch (error) {
+    console.error('Upload to OneDrive error:', error);
+    return null;
+  }
+}
 
 // Get active editors for a document (who's currently editing)
 router.get('/documents/:documentId/editors', authenticate, async (req, res) => {

@@ -465,6 +465,15 @@
   cursor: not-allowed;
 }
 
+.shortcutButtons {
+  display: flex;
+  gap: 8px;
+}
+
+.shortcutButtons button {
+  flex: 1;
+}
+
 /* Comparison */
 .comparison {
   background: white;

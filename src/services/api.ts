@@ -1473,6 +1473,34 @@ export const driveApi = {
   async getConnectionInfo() {
     return fetchWithAuth('/drive/connection-info');
   },
+
+  // Admin: Download desktop shortcut for Windows
+  async downloadWindowsShortcut() {
+    const headers: HeadersInit = {};
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+    const response = await fetch(`${API_URL}/drive/download-shortcut/windows`, {
+      headers,
+      credentials: 'include',
+    });
+    if (!response.ok) throw new ApiError(response.status, 'Failed to download shortcut');
+    return response.blob();
+  },
+
+  // Admin: Download desktop shortcut for Mac
+  async downloadMacShortcut() {
+    const headers: HeadersInit = {};
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+    const response = await fetch(`${API_URL}/drive/download-shortcut/mac`, {
+      headers,
+      credentials: 'include',
+    });
+    if (!response.ok) throw new ApiError(response.status, 'Failed to download shortcut');
+    return response.blob();
+  },
 };
 
 // ============================================
