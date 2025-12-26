@@ -935,7 +935,7 @@ router.post('/extract-all', authenticate, requirePermission('documents:edit'), a
   }
 });
 
-// Download document
+// Download document - with Azure fallback if local file is missing
 router.get('/:id/download', authenticate, requirePermission('documents:view'), async (req, res) => {
   try {
     const result = await query(
@@ -952,7 +952,82 @@ router.get('/:id/download', authenticate, requirePermission('documents:view'), a
     // Determine the filename to use - prioritize original_name, then name
     const downloadFilename = doc.original_name || doc.name || 'document';
     
-    // Handle external files (stored in cloud storage)
+    // Determine MIME type
+    const mimeTypes = {
+      '.pdf': 'application/pdf',
+      '.doc': 'application/msword',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.xls': 'application/vnd.ms-excel',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.ppt': 'application/vnd.ms-powerpoint',
+      '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      '.txt': 'text/plain',
+      '.csv': 'text/csv',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.zip': 'application/zip',
+    };
+    const ext = path.extname(downloadFilename).toLowerCase();
+    const contentType = mimeTypes[ext] || doc.type || 'application/octet-stream';
+
+    // Try local file first
+    let localFileExists = false;
+    if (doc.path) {
+      try {
+        await fs.access(doc.path);
+        localFileExists = true;
+      } catch {
+        localFileExists = false;
+      }
+    }
+
+    if (localFileExists) {
+      // Serve local file
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(downloadFilename)}"`);
+      res.setHeader('Content-Type', contentType);
+      return res.download(doc.path, downloadFilename);
+    }
+
+    // Try Azure File Share fallback
+    if (doc.azure_path || doc.folder_path) {
+      try {
+        const { downloadFile, isAzureConfigured } = await import('../utils/azureStorage.js');
+        
+        const azureEnabled = await isAzureConfigured();
+        if (!azureEnabled) {
+          console.log('[DOWNLOAD] Azure not configured, cannot fallback');
+          return res.status(404).json({ error: 'File not found on server and Azure not configured' });
+        }
+
+        // Determine the Azure path - try azure_path first, then construct from folder_path
+        const azurePath = doc.azure_path || 
+          (doc.folder_path ? `${doc.folder_path}/${downloadFilename}` : downloadFilename);
+        
+        console.log(`[DOWNLOAD] Downloading from Azure: ${azurePath}`);
+        
+        const fileBuffer = await downloadFile(azurePath, req.user.firmId);
+        
+        if (!fileBuffer || fileBuffer.length === 0) {
+          return res.status(404).json({ error: 'File not found in Azure storage' });
+        }
+
+        // Set headers and send buffer
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(downloadFilename)}"`);
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Length', fileBuffer.length);
+        
+        console.log(`[DOWNLOAD] Serving ${downloadFilename} from Azure (${fileBuffer.length} bytes)`);
+        return res.send(fileBuffer);
+        
+      } catch (azureError) {
+        console.error('[DOWNLOAD] Azure fallback failed:', azureError.message);
+        // Fall through to external file check
+      }
+    }
+    
+    // Handle external files (stored in external cloud storage like Google Drive, Dropbox)
     if (doc.external_path && doc.external_type) {
       // For external files, redirect to the external URL or return an error
       // The frontend should handle external files differently
@@ -960,24 +1035,14 @@ router.get('/:id/download', authenticate, requirePermission('documents:view'), a
         error: 'External file', 
         externalPath: doc.external_path,
         externalType: doc.external_type,
-        filename: downloadFilename
+        filename: downloadFilename,
+        message: 'This file is stored externally. Please access it through the external service.'
       });
     }
 
-    // Check if local file exists
-    if (!doc.path) {
-      return res.status(404).json({ error: 'File path not found' });
-    }
+    // No file found anywhere
+    return res.status(404).json({ error: 'File not found on server or in cloud storage' });
     
-    try {
-      await fs.access(doc.path);
-    } catch {
-      return res.status(404).json({ error: 'File not found on server' });
-    }
-
-    // Set content-disposition header with proper filename
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(downloadFilename)}"`);
-    res.download(doc.path, downloadFilename);
   } catch (error) {
     console.error('Download document error:', error);
     res.status(500).json({ error: 'Failed to download document' });

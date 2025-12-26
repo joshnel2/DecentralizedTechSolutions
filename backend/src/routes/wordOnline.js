@@ -8,6 +8,192 @@ const router = Router();
 const GRAPH_API_BASE = 'https://graph.microsoft.com/v1.0';
 
 // ============================================
+// TOKEN REFRESH FOR LONG EDITING SESSIONS
+// ============================================
+
+/**
+ * Refresh Microsoft access token using refresh token
+ * Called when token is expired or about to expire
+ */
+async function refreshMicrosoftToken(firmId) {
+  try {
+    // Get current tokens
+    const integration = await query(
+      `SELECT id, access_token, refresh_token, token_expires_at 
+       FROM integrations 
+       WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+      [firmId]
+    );
+
+    if (integration.rows.length === 0) {
+      return { success: false, error: 'No Microsoft integration found' };
+    }
+
+    const { id, refresh_token, token_expires_at } = integration.rows[0];
+
+    // Check if token is still valid (with 5 min buffer)
+    const expiresAt = new Date(token_expires_at);
+    const now = new Date();
+    const bufferMs = 5 * 60 * 1000; // 5 minutes
+
+    if (expiresAt > new Date(now.getTime() + bufferMs)) {
+      // Token still valid
+      return { success: true, accessToken: integration.rows[0].access_token, refreshed: false };
+    }
+
+    if (!refresh_token) {
+      return { success: false, error: 'No refresh token available' };
+    }
+
+    // Get Microsoft credentials from platform settings
+    const settingsResult = await query(
+      `SELECT key, value FROM platform_settings 
+       WHERE key IN ('microsoft_client_id', 'microsoft_client_secret', 'microsoft_tenant')`
+    );
+    
+    const settings = {};
+    settingsResult.rows.forEach(row => { settings[row.key] = row.value; });
+
+    if (!settings.microsoft_client_id || !settings.microsoft_client_secret) {
+      return { success: false, error: 'Microsoft credentials not configured' };
+    }
+
+    const tenant = settings.microsoft_tenant || 'common';
+
+    // Refresh the token
+    const tokenResponse = await fetch(
+      `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: settings.microsoft_client_id,
+          client_secret: settings.microsoft_client_secret,
+          refresh_token: refresh_token,
+          grant_type: 'refresh_token',
+          scope: 'https://graph.microsoft.com/.default offline_access'
+        })
+      }
+    );
+
+    if (!tokenResponse.ok) {
+      const errorText = await tokenResponse.text();
+      console.error('[TOKEN REFRESH] Failed:', errorText);
+      return { success: false, error: 'Token refresh failed' };
+    }
+
+    const tokenData = await tokenResponse.json();
+
+    // Calculate new expiry
+    const newExpiresAt = new Date(Date.now() + (tokenData.expires_in * 1000));
+
+    // Update stored tokens
+    await query(
+      `UPDATE integrations SET 
+        access_token = $1,
+        refresh_token = COALESCE($2, refresh_token),
+        token_expires_at = $3,
+        updated_at = NOW()
+       WHERE id = $4`,
+      [
+        tokenData.access_token,
+        tokenData.refresh_token || null,
+        newExpiresAt,
+        id
+      ]
+    );
+
+    console.log(`[TOKEN REFRESH] Successfully refreshed token for firm ${firmId}, expires at ${newExpiresAt}`);
+
+    return { 
+      success: true, 
+      accessToken: tokenData.access_token, 
+      refreshed: true,
+      expiresAt: newExpiresAt
+    };
+  } catch (error) {
+    console.error('[TOKEN REFRESH] Error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Get a valid access token, refreshing if needed
+ */
+async function getValidAccessToken(firmId) {
+  const result = await refreshMicrosoftToken(firmId);
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to get valid token');
+  }
+  return result.accessToken;
+}
+
+/**
+ * Endpoint to check/refresh token status
+ * Called periodically by frontend during long editing sessions
+ */
+router.post('/token/refresh', authenticate, async (req, res) => {
+  try {
+    const result = await refreshMicrosoftToken(req.user.firmId);
+    
+    if (!result.success) {
+      return res.status(400).json({ 
+        valid: false, 
+        error: result.error,
+        needsReauth: true,
+        message: 'Please reconnect your Microsoft account in Integrations'
+      });
+    }
+
+    res.json({
+      valid: true,
+      refreshed: result.refreshed,
+      expiresAt: result.expiresAt,
+      message: result.refreshed ? 'Token refreshed successfully' : 'Token still valid'
+    });
+  } catch (error) {
+    console.error('Token refresh endpoint error:', error);
+    res.status(500).json({ error: 'Failed to refresh token' });
+  }
+});
+
+/**
+ * Get token status without refreshing
+ */
+router.get('/token/status', authenticate, async (req, res) => {
+  try {
+    const integration = await query(
+      `SELECT token_expires_at, is_connected 
+       FROM integrations 
+       WHERE firm_id = $1 AND provider = 'outlook'`,
+      [req.user.firmId]
+    );
+
+    if (integration.rows.length === 0 || !integration.rows[0].is_connected) {
+      return res.json({ 
+        connected: false, 
+        message: 'Microsoft not connected' 
+      });
+    }
+
+    const expiresAt = new Date(integration.rows[0].token_expires_at);
+    const now = new Date();
+    const minutesRemaining = Math.floor((expiresAt - now) / 60000);
+
+    res.json({
+      connected: true,
+      expiresAt: expiresAt,
+      minutesRemaining: Math.max(0, minutesRemaining),
+      needsRefresh: minutesRemaining < 10,
+      expired: minutesRemaining <= 0
+    });
+  } catch (error) {
+    console.error('Token status error:', error);
+    res.status(500).json({ error: 'Failed to get token status' });
+  }
+});
+
+// ============================================
 // WORD ONLINE CO-EDITING
 // ============================================
 
@@ -286,18 +472,17 @@ router.post('/documents/:documentId/save', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Document is not linked to OneDrive' });
     }
 
-    // Get Microsoft integration
-    const msIntegration = await query(
-      `SELECT access_token FROM integrations 
-       WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
-      [req.user.firmId]
-    );
-
-    if (msIntegration.rows.length === 0) {
-      return res.status(400).json({ error: 'Microsoft integration not connected' });
+    // Get valid access token with automatic refresh for long sessions
+    let accessToken;
+    try {
+      accessToken = await getValidAccessToken(req.user.firmId);
+    } catch (tokenError) {
+      return res.status(401).json({ 
+        error: 'Token expired', 
+        needsReauth: true,
+        message: 'Please reconnect your Microsoft account in Integrations'
+      });
     }
-
-    const accessToken = msIntegration.rows[0].access_token;
 
     // Get file metadata from OneDrive to check if it was modified
     const metadataResponse = await fetch(
@@ -446,6 +631,19 @@ router.post('/documents/:documentId/save', authenticate, async (req, res) => {
 
     console.log(`[WORD ONLINE] Created version ${nextVersion} for document ${documentId}`);
 
+    // Create notifications for other editors/interested parties
+    try {
+      await createDocumentNotification(
+        documentId,
+        req.user.firmId,
+        req.user.id,
+        'version_created',
+        `${req.user.firstName} ${req.user.lastName} saved version ${nextVersion} in Word Online`
+      );
+    } catch (notifError) {
+      console.error('Notification error (non-fatal):', notifError.message);
+    }
+
     res.json({
       saved: true,
       versionNumber: nextVersion,
@@ -566,6 +764,7 @@ router.post('/documents/:documentId/close', authenticate, async (req, res) => {
 
 /**
  * Helper function to sync document from OneDrive (reusable)
+ * Uses token refresh for reliability
  */
 async function syncDocumentFromOneDrive(documentId, user, firmId) {
   // Get document info
@@ -584,18 +783,14 @@ async function syncDocumentFromOneDrive(documentId, user, firmId) {
     return { saved: false, reason: 'not_linked' };
   }
 
-  // Get Microsoft integration
-  const msIntegration = await query(
-    `SELECT access_token FROM integrations 
-     WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
-    [firmId]
-  );
-
-  if (msIntegration.rows.length === 0) {
-    return { saved: false, reason: 'not_connected' };
+  // Get valid access token with automatic refresh
+  let accessToken;
+  try {
+    accessToken = await getValidAccessToken(firmId);
+  } catch (tokenError) {
+    console.error('[SYNC] Token error:', tokenError.message);
+    return { saved: false, reason: 'token_error', needsReauth: true };
   }
-
-  const accessToken = msIntegration.rows[0].access_token;
 
   // Download content
   const contentResponse = await fetch(
@@ -1739,6 +1934,389 @@ router.post('/webhook', async (req, res) => {
     res.status(500).send();
   }
 });
+
+// ============================================
+// POLLING FALLBACK WHEN WEBHOOKS FAIL
+// ============================================
+
+/**
+ * Start auto-polling for a document
+ * Frontend calls this when webhooks aren't available
+ * Returns polling config and initial state
+ */
+router.post('/documents/:documentId/start-polling', authenticate, async (req, res) => {
+  try {
+    const documentId = req.params.documentId;
+    const { intervalMs = 30000 } = req.body; // Default 30 seconds
+
+    // Get document info
+    const docResult = await query(
+      `SELECT graph_item_id, content_hash, last_online_edit, version
+       FROM documents WHERE id = $1 AND firm_id = $2`,
+      [documentId, req.user.firmId]
+    );
+
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const doc = docResult.rows[0];
+
+    if (!doc.graph_item_id) {
+      return res.json({ 
+        polling: false, 
+        reason: 'not_linked',
+        message: 'Document is not linked to OneDrive'
+      });
+    }
+
+    // Update session to indicate polling mode
+    await query(
+      `UPDATE word_online_sessions SET 
+        polling_mode = true,
+        polling_interval = $1,
+        last_poll = NOW()
+       WHERE document_id = $2 AND user_id = $3 AND status = 'active'`,
+      [intervalMs, documentId, req.user.id]
+    );
+
+    res.json({
+      polling: true,
+      intervalMs: intervalMs,
+      currentVersion: doc.version,
+      lastSync: doc.last_online_edit,
+      contentHash: doc.content_hash,
+      message: `Polling for changes every ${intervalMs / 1000} seconds`
+    });
+  } catch (error) {
+    console.error('Start polling error:', error);
+    res.status(500).json({ error: 'Failed to start polling' });
+  }
+});
+
+/**
+ * Poll for changes and auto-sync if detected
+ * Frontend calls this at regular intervals
+ * Automatically creates a new version if changes detected
+ */
+router.post('/documents/:documentId/poll-sync', authenticate, async (req, res) => {
+  try {
+    const documentId = req.params.documentId;
+
+    // Get document info
+    const docResult = await query(
+      `SELECT d.*, dc.drive_type
+       FROM documents d
+       LEFT JOIN drive_configurations dc ON d.drive_id = dc.id
+       WHERE d.id = $1 AND d.firm_id = $2`,
+      [documentId, req.user.firmId]
+    );
+
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const doc = docResult.rows[0];
+
+    if (!doc.graph_item_id) {
+      return res.json({ hasChanges: false, reason: 'not_linked' });
+    }
+
+    // Get valid access token (refresh if needed)
+    let accessToken;
+    try {
+      accessToken = await getValidAccessToken(req.user.firmId);
+    } catch (tokenError) {
+      return res.json({ 
+        hasChanges: false, 
+        reason: 'token_error',
+        needsReauth: true,
+        message: 'Please reconnect Microsoft in Integrations'
+      });
+    }
+
+    // Get file metadata from OneDrive
+    const metadataResponse = await fetch(
+      `https://graph.microsoft.com/v1.0/me/drive/items/${doc.graph_item_id}`,
+      {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      }
+    );
+
+    if (!metadataResponse.ok) {
+      const status = metadataResponse.status;
+      if (status === 401) {
+        return res.json({ 
+          hasChanges: false, 
+          reason: 'unauthorized',
+          needsReauth: true
+        });
+      }
+      return res.json({ hasChanges: false, reason: 'fetch_failed' });
+    }
+
+    const metadata = await metadataResponse.json();
+    const lastModified = new Date(metadata.lastModifiedDateTime);
+    const lastSync = doc.last_online_edit ? new Date(doc.last_online_edit) : null;
+
+    // Update poll timestamp
+    await query(
+      `UPDATE word_online_sessions SET last_poll = NOW()
+       WHERE document_id = $1 AND user_id = $2 AND status = 'active'`,
+      [documentId, req.user.id]
+    );
+
+    // Check if file was modified after our last sync
+    if (!lastSync || lastModified > lastSync) {
+      // Auto-sync: download and create new version
+      try {
+        const syncResult = await syncDocumentFromOneDrive(documentId, req.user, req.user.firmId);
+        
+        if (syncResult.saved) {
+          // Create notification for other editors
+          await createDocumentNotification(
+            documentId,
+            req.user.firmId,
+            req.user.id,
+            'version_created',
+            `${req.user.firstName} ${req.user.lastName} saved version ${syncResult.versionNumber}`
+          );
+
+          return res.json({
+            hasChanges: true,
+            synced: true,
+            versionNumber: syncResult.versionNumber,
+            modifiedBy: metadata.lastModifiedBy?.user?.displayName,
+            lastModified: metadata.lastModifiedDateTime,
+            message: `Version ${syncResult.versionNumber} synced automatically`
+          });
+        }
+      } catch (syncError) {
+        console.error('Auto-sync during poll failed:', syncError.message);
+      }
+
+      return res.json({
+        hasChanges: true,
+        synced: false,
+        modifiedBy: metadata.lastModifiedBy?.user?.displayName,
+        lastModified: metadata.lastModifiedDateTime,
+        message: 'Changes detected but sync failed'
+      });
+    }
+
+    res.json({
+      hasChanges: false,
+      lastModified: metadata.lastModifiedDateTime,
+      lastSync: doc.last_online_edit,
+      currentVersion: doc.version
+    });
+  } catch (error) {
+    console.error('Poll-sync error:', error);
+    res.status(500).json({ error: 'Failed to poll for changes' });
+  }
+});
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+/**
+ * Create a document change notification
+ */
+async function createDocumentNotification(documentId, firmId, triggeredByUserId, type, message) {
+  try {
+    // Get all users who should be notified (active editors, owner, people with permissions)
+    const usersResult = await query(
+      `SELECT DISTINCT u.id, u.email, u.first_name
+       FROM users u
+       WHERE u.firm_id = $1 AND u.id != $2
+       AND (
+         -- Active editors on this document
+         u.id IN (
+           SELECT user_id FROM word_online_sessions 
+           WHERE document_id = $3 AND status = 'active' 
+             AND last_activity > NOW() - INTERVAL '30 minutes'
+         )
+         -- Document owner
+         OR u.id IN (SELECT owner_id FROM documents WHERE id = $3)
+         -- Users with explicit permissions
+         OR u.id IN (
+           SELECT user_id FROM document_permissions 
+           WHERE document_id = $3 AND user_id IS NOT NULL
+         )
+       )`,
+      [firmId, triggeredByUserId, documentId]
+    );
+
+    if (usersResult.rows.length === 0) {
+      return { notified: 0 };
+    }
+
+    // Create notifications for each user
+    const notificationInserts = usersResult.rows.map(user => 
+      query(
+        `INSERT INTO notifications (
+          firm_id, user_id, type, title, message, 
+          entity_type, entity_id, triggered_by
+        ) VALUES ($1, $2, $3, $4, $5, 'document', $6, $7)`,
+        [
+          firmId,
+          user.id,
+          type,
+          'Document Updated',
+          message,
+          documentId,
+          triggeredByUserId
+        ]
+      ).catch(err => {
+        // notifications table might not exist, that's OK
+        console.log(`[NOTIFICATION] Could not create notification:`, err.message);
+        return null;
+      })
+    );
+
+    await Promise.all(notificationInserts);
+
+    console.log(`[NOTIFICATION] Created ${usersResult.rows.length} notifications for document ${documentId}`);
+    return { notified: usersResult.rows.length };
+  } catch (error) {
+    console.error('[NOTIFICATION] Error:', error.message);
+    return { notified: 0, error: error.message };
+  }
+}
+
+/**
+ * Get notifications for current user
+ */
+router.get('/notifications', authenticate, async (req, res) => {
+  try {
+    const { unreadOnly = false, limit = 50 } = req.query;
+
+    let sql = `
+      SELECT n.*, d.name as document_name, d.original_name,
+             u.first_name || ' ' || u.last_name as triggered_by_name
+      FROM notifications n
+      LEFT JOIN documents d ON n.entity_type = 'document' AND n.entity_id = d.id
+      LEFT JOIN users u ON n.triggered_by = u.id
+      WHERE n.user_id = $1 AND n.firm_id = $2
+    `;
+    
+    const params = [req.user.id, req.user.firmId];
+    
+    if (unreadOnly === 'true') {
+      sql += ` AND n.read_at IS NULL`;
+    }
+    
+    sql += ` ORDER BY n.created_at DESC LIMIT $3`;
+    params.push(parseInt(limit) || 50);
+
+    const result = await query(sql, params);
+
+    // Get unread count
+    const unreadResult = await query(
+      `SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND firm_id = $2 AND read_at IS NULL`,
+      [req.user.id, req.user.firmId]
+    );
+
+    res.json({
+      notifications: result.rows.map(n => ({
+        id: n.id,
+        type: n.type,
+        title: n.title,
+        message: n.message,
+        documentId: n.entity_type === 'document' ? n.entity_id : null,
+        documentName: n.document_name || n.original_name,
+        triggeredBy: n.triggered_by,
+        triggeredByName: n.triggered_by_name,
+        read: !!n.read_at,
+        createdAt: n.created_at
+      })),
+      unreadCount: parseInt(unreadResult.rows[0].count)
+    });
+  } catch (error) {
+    // Table might not exist
+    if (error.code === '42P01') {
+      return res.json({ notifications: [], unreadCount: 0 });
+    }
+    console.error('Get notifications error:', error);
+    res.status(500).json({ error: 'Failed to get notifications' });
+  }
+});
+
+/**
+ * Mark notification as read
+ */
+router.put('/notifications/:id/read', authenticate, async (req, res) => {
+  try {
+    await query(
+      `UPDATE notifications SET read_at = NOW() 
+       WHERE id = $1 AND user_id = $2`,
+      [req.params.id, req.user.id]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Mark read error:', error);
+    res.status(500).json({ error: 'Failed to mark as read' });
+  }
+});
+
+/**
+ * Mark all notifications as read
+ */
+router.put('/notifications/read-all', authenticate, async (req, res) => {
+  try {
+    const result = await query(
+      `UPDATE notifications SET read_at = NOW() 
+       WHERE user_id = $1 AND firm_id = $2 AND read_at IS NULL`,
+      [req.user.id, req.user.firmId]
+    );
+    res.json({ success: true, marked: result.rowCount });
+  } catch (error) {
+    console.error('Mark all read error:', error);
+    res.status(500).json({ error: 'Failed to mark all as read' });
+  }
+});
+
+/**
+ * Get real-time notifications via Server-Sent Events (SSE)
+ * Frontend can use this for live updates
+ */
+router.get('/notifications/stream', authenticate, async (req, res) => {
+  // Set up SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  // Send initial connection message
+  res.write(`data: ${JSON.stringify({ type: 'connected', userId: req.user.id })}\n\n`);
+
+  // Store the user's SSE connection (in production, use Redis or similar)
+  const userId = req.user.id;
+  if (!global.sseConnections) global.sseConnections = new Map();
+  global.sseConnections.set(userId, res);
+
+  // Send heartbeat every 30 seconds
+  const heartbeat = setInterval(() => {
+    res.write(`data: ${JSON.stringify({ type: 'heartbeat', time: new Date().toISOString() })}\n\n`);
+  }, 30000);
+
+  // Clean up on close
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    global.sseConnections.delete(userId);
+  });
+});
+
+/**
+ * Send SSE notification to a user (internal helper)
+ */
+function sendSSENotification(userId, notification) {
+  if (global.sseConnections && global.sseConnections.has(userId)) {
+    const connection = global.sseConnections.get(userId);
+    connection.write(`data: ${JSON.stringify(notification)}\n\n`);
+  }
+}
 
 /**
  * Subscribe to file change notifications for a document
