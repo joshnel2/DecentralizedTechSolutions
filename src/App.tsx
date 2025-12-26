@@ -62,7 +62,7 @@ import { AIConfigPage } from './pages/AIConfigPage'
 import { ReportingSettingsPage } from './pages/ReportingSettingsPage'
 import { RedlineAIPage } from './pages/RedlineAIPage'
 // Drive Integration Pages
-import { FirmDriveSettingsPage } from './pages/FirmDriveSettingsPage'
+import { ApexDriveSettingsPage } from './pages/ApexDriveSettingsPage'
 import { DocumentVersionsPage } from './pages/DocumentVersionsPage'
 import { DocumentComparePage } from './pages/DocumentComparePage'
 import { FolderPermissionsPage } from './pages/FolderPermissionsPage'
@@ -267,7 +267,7 @@ function AppContent() {
         <Route path="settings/text-messaging" element={<TextMessagingPage />} />
         <Route path="settings/ai" element={<AIConfigPage />} />
         <Route path="settings/reporting" element={<ReportingSettingsPage />} />
-        <Route path="settings/drives" element={<FirmDriveSettingsPage />} />
+        <Route path="settings/drives" element={<ApexDriveSettingsPage />} />
         
         {/* Trust Accounting */}
         <Route path="trust" element={<TrustAccountingPage />} />
