@@ -283,35 +283,48 @@ export function FirmDriveSettingsPage() {
         </div>
       </div>
 
-      {/* How to Access Your Drive */}
-      <div className={styles.accessBanner}>
-        <h3>📂 How to Open Your Apex Drive</h3>
-        <div className={styles.accessMethods}>
-          <div className={styles.accessMethod}>
-            <h4>Windows (Recommended)</h4>
-            <ol>
-              <li>Open <strong>File Explorer</strong></li>
-              <li>Click on "This PC" in the sidebar</li>
-              <li>Right-click and select <strong>"Map network drive"</strong></li>
-              <li>Enter your drive path (shown below after you add a drive)</li>
-              <li>Check "Reconnect at sign-in"</li>
-            </ol>
-          </div>
-          <div className={styles.accessMethod}>
-            <h4>Mac</h4>
-            <ol>
-              <li>Open <strong>Finder</strong></li>
-              <li>Press <strong>⌘ + K</strong> (Go → Connect to Server)</li>
-              <li>Enter your drive path as <code>smb://path</code></li>
-              <li>Click Connect</li>
-            </ol>
-          </div>
-          <div className={styles.accessMethod}>
-            <h4>Quick Access</h4>
-            <p>After configuring a drive, click <strong>"Open Drive"</strong> to access it directly. Documents you add will sync to Apex automatically!</p>
+      {/* User Experience Info - Only show admin setup instructions to admins */}
+      {isAdmin ? (
+        <div className={styles.accessBanner}>
+          <h3>🔧 Admin: Drive Backend Setup</h3>
+          <div className={styles.accessMethods}>
+            <div className={styles.accessMethod}>
+              <h4>How It Works</h4>
+              <p>You set up the drive connection here. <strong>Users don't need to do anything</strong> - they just:</p>
+              <ol>
+                <li>Sign in with Microsoft (Integrations page)</li>
+                <li>Access documents from the Documents page</li>
+                <li>Click "Edit in Word" to open Word Online</li>
+              </ol>
+            </div>
+            <div className={styles.accessMethod}>
+              <h4>Azure File Share Setup</h4>
+              <ol>
+                <li>Create an Azure Storage Account</li>
+                <li>Create a File Share</li>
+                <li>Add the connection string here</li>
+                <li>Documents sync automatically</li>
+              </ol>
+            </div>
+            <div className={styles.accessMethod}>
+              <h4>What Users See</h4>
+              <p>Users see documents in Apex and can edit with Word Online. They never need to map drives or access file shares directly.</p>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className={styles.accessBanner}>
+          <h3>📄 Your Documents</h3>
+          <p className={styles.userInfo}>
+            All your firm's documents are available in the <strong>Documents</strong> page. 
+            To edit, just click <strong>"Edit in Word"</strong> and it opens in Microsoft Word Online. 
+            Your changes are saved automatically with full version history.
+          </p>
+          <button className={styles.goToDocsBtn} onClick={() => navigate('/app/documents')}>
+            Go to Documents →
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className={styles.loading}>

@@ -751,6 +751,33 @@
   font-size: 12px;
 }
 
+.userInfo {
+  font-size: 14px;
+  color: #374151;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+.goToDocsBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.goToDocsBtn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
 /* Sync and Open buttons */
 .openBtn {
   display: flex;
