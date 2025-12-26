@@ -212,6 +212,19 @@ export function ApexDriveSettingsPage() {
         </div>
       </div>
 
+      {/* Azure Banner */}
+      <div className={styles.azureBanner}>
+        <div className={styles.azureInfo}>
+          <div className={styles.azureLogo}>
+            <Cloud size={28} />
+          </div>
+          <div>
+            <h3>Powered by Microsoft Azure</h3>
+            <p>Your firm's documents are stored on Azure File Share - the same enterprise-grade infrastructure used by Fortune 500 companies. Integrates seamlessly with Word Online for real-time editing.</p>
+          </div>
+        </div>
+      </div>
+
       {/* Comparison Banner */}
       <div className={styles.comparisonBanner}>
         <div className={styles.comparison}>
@@ -226,12 +239,12 @@ export function ApexDriveSettingsPage() {
           </div>
           <div className={styles.vs}>VS</div>
           <div className={styles.comparisonItem}>
-            <span className={styles.comparisonLabel}>Apex Drive</span>
+            <span className={styles.comparisonLabel}>Apex Drive <span className={styles.azureTag}>Azure</span></span>
             <ul className={styles.pros}>
               <li>✅ Smart locks auto-expire</li>
               <li>✅ Full version history with names</li>
               <li>✅ Built-in redline comparison</li>
-              <li>✅ Clear conflict resolution</li>
+              <li>✅ Word Online co-editing</li>
             </ul>
           </div>
         </div>
@@ -347,23 +360,25 @@ export function ApexDriveSettingsPage() {
               
               <div className={styles.setupOptions}>
                 <button 
-                  className={styles.setupOption}
+                  className={`${styles.setupOption} ${styles.primary}`}
                   onClick={() => { setSetupData({ ...setupData, storageType: 'azure' }); setShowSetup(true); }}
                 >
                   <Cloud size={32} />
                   <h4>Azure File Share</h4>
-                  <p>Recommended for firms. Enterprise-grade cloud storage.</p>
-                  <span className={styles.recommended}>Recommended</span>
-                </button>
-                <button 
-                  className={styles.setupOption}
-                  onClick={() => { setSetupData({ ...setupData, storageType: 'local' }); setShowSetup(true); }}
-                >
-                  <HardDrive size={32} />
-                  <h4>Local/Network Drive</h4>
-                  <p>Use an existing network share or local folder.</p>
+                  <p>Your firm's cloud drive on Microsoft Azure. Secure, scalable, and integrates with Word Online.</p>
+                  <span className={styles.recommended}>Your Branded Drive</span>
                 </button>
               </div>
+              <p className={styles.altOption}>
+                Need to use a local network drive instead?{' '}
+                <button 
+                  type="button"
+                  className={styles.linkBtn}
+                  onClick={() => { setSetupData({ ...setupData, storageType: 'local' }); setShowSetup(true); }}
+                >
+                  Configure local storage
+                </button>
+              </p>
             </div>
           ) : (
             <form onSubmit={handleSetup} className={styles.setupForm}>
