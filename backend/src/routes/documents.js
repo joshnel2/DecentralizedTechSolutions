@@ -7,6 +7,7 @@ import { createReadStream } from 'fs';
 import archiver from 'archiver';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
+import { buildDocumentAccessFilter, canAccessDocument, requireDocumentAccess, FULL_ACCESS_ROLES } from '../middleware/documentAccess.js';
 import mammoth from 'mammoth';
 import { uploadFile, isAzureConfigured, downloadFile } from '../utils/azureStorage.js';
 
@@ -218,23 +219,46 @@ router.post('/extract-text', authenticate, extractUpload.single('file'), async (
   }
 });
 
-// Get documents
+/**
+ * Get documents with Clio-style permission filtering:
+ * - Admins (owner/admin): See ALL documents in the firm
+ * - Regular users: See only documents they can access:
+ *   1. Documents they uploaded
+ *   2. Documents they own
+ *   3. Documents in matters they have permission to
+ *   4. Documents explicitly shared with them
+ */
 router.get('/', authenticate, requirePermission('documents:view'), async (req, res) => {
   try {
     const { matterId, clientId, search, status, limit = 100, offset = 0 } = req.query;
+    const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
+    
+    // Build permission-based filter
+    const accessFilter = await buildDocumentAccessFilter(
+      req.user.id, 
+      req.user.role, 
+      req.user.firmId, 
+      'd',
+      1
+    );
     
     let sql = `
       SELECT d.*,
              m.name as matter_name,
              m.number as matter_number,
-             u.first_name || ' ' || u.last_name as uploaded_by_name
+             u.first_name || ' ' || u.last_name as uploaded_by_name,
+             CASE 
+               WHEN d.uploaded_by = $${accessFilter.nextParamIndex} THEN true
+               WHEN d.owner_id = $${accessFilter.nextParamIndex} THEN true
+               ELSE false
+             END as is_owned
       FROM documents d
       LEFT JOIN matters m ON d.matter_id = m.id
       LEFT JOIN users u ON d.uploaded_by = u.id
-      WHERE d.firm_id = $1
+      WHERE ${accessFilter.whereClause}
     `;
-    const params = [req.user.firmId];
-    let paramIndex = 2;
+    let params = [...accessFilter.params, req.user.id];
+    let paramIndex = accessFilter.nextParamIndex + 1;
 
     if (matterId) {
       sql += ` AND d.matter_id = $${paramIndex}`;
@@ -288,7 +312,10 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
         uploadedByName: d.uploaded_by_name,
         uploadedAt: d.uploaded_at,
         updatedAt: d.updated_at,
+        isOwned: d.is_owned,
+        privacyLevel: d.privacy_level,
       })),
+      isAdmin,
     });
   } catch (error) {
     console.error('Get documents error:', error);

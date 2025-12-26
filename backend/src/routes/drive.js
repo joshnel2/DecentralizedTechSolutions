@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
+import { buildDocumentAccessFilter, FULL_ACCESS_ROLES } from '../middleware/documentAccess.js';
+import { ensureDirectory, isAzureConfigured } from '../utils/azureStorage.js';
 import crypto from 'crypto';
 import path from 'path';
 
@@ -22,22 +24,36 @@ function getMatterFolderPath(firmId, matterId) {
   return `firm-${firmId}/matter-${matterId}`;
 }
 
-// Helper: Create folder in Azure File Share (placeholder - would use @azure/storage-file-share SDK)
+// Helper: Create folder in Azure File Share using the actual Azure SDK
 async function ensureFirmFolder(firmId) {
   const folderPath = getFirmFolderPath(firmId);
-  // In production, this would use Azure SDK:
-  // const { ShareServiceClient } = require('@azure/storage-file-share');
-  // const serviceClient = ShareServiceClient.fromConnectionString(connectionString);
-  // const shareClient = serviceClient.getShareClient(AZURE_FILE_SHARE);
-  // const directoryClient = shareClient.getDirectoryClient(folderPath);
-  // await directoryClient.createIfNotExists();
-  console.log(`[AZURE] Would create folder: ${folderPath}`);
+  try {
+    const azureConfigured = await isAzureConfigured();
+    if (azureConfigured) {
+      await ensureDirectory(folderPath);
+      console.log(`[AZURE] Created folder: ${folderPath}`);
+    } else {
+      console.log(`[AZURE] Not configured, would create folder: ${folderPath}`);
+    }
+  } catch (error) {
+    console.error(`[AZURE] Failed to create folder ${folderPath}:`, error.message);
+  }
   return folderPath;
 }
 
 async function ensureMatterFolder(firmId, matterId) {
   const folderPath = getMatterFolderPath(firmId, matterId);
-  console.log(`[AZURE] Would create folder: ${folderPath}`);
+  try {
+    const azureConfigured = await isAzureConfigured();
+    if (azureConfigured) {
+      await ensureDirectory(folderPath);
+      console.log(`[AZURE] Created matter folder: ${folderPath}`);
+    } else {
+      console.log(`[AZURE] Not configured, would create folder: ${folderPath}`);
+    }
+  } catch (error) {
+    console.error(`[AZURE] Failed to create matter folder ${folderPath}:`, error.message);
+  }
   return folderPath;
 }
 
@@ -1073,23 +1089,36 @@ router.post('/folders', authenticate, async (req, res) => {
 });
 
 // ============================================
-// ADMIN DRIVE BROWSER - View firm's drive contents
+// DRIVE BROWSER - View firm's drive contents
 // ============================================
 
-// Get firm's folder structure and files (admin only)
+/**
+ * Browse drive with Clio-style permissions:
+ * - Admins (owner/admin roles): See ALL documents in the firm
+ * - Regular users: See only documents they can access:
+ *   1. Documents they uploaded
+ *   2. Documents they own
+ *   3. Documents in matters they have permission to
+ *   4. Documents explicitly shared with them
+ */
 router.get('/browse', authenticate, async (req, res) => {
   try {
-    // Only admins can browse the full drive
-    if (!['owner', 'admin'].includes(req.user.role)) {
-      return res.status(403).json({ error: 'Only admins can browse the drive' });
-    }
-
     const { path: folderPath = '' } = req.query;
     const firmFolder = getFirmFolderPath(req.user.firmId);
+    const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
     
-    // Get all documents in this firm's folder from database
-    const result = await query(
-      `SELECT 
+    // Build permission-based filter
+    const accessFilter = await buildDocumentAccessFilter(
+      req.user.id, 
+      req.user.role, 
+      req.user.firmId, 
+      'd',
+      1
+    );
+    
+    // Build the main query with permission filtering
+    let sql = `
+      SELECT 
         d.id,
         d.name,
         d.original_name,
@@ -1103,50 +1132,125 @@ router.get('/browse', authenticate, async (req, res) => {
         d.uploaded_by,
         u.first_name || ' ' || u.last_name as uploaded_by_name,
         d.is_folder,
-        d.version_count
+        d.version_count,
+        d.owner_id,
+        d.privacy_level,
+        CASE 
+          WHEN d.uploaded_by = $${accessFilter.nextParamIndex} THEN true
+          WHEN d.owner_id = $${accessFilter.nextParamIndex} THEN true
+          ELSE false
+        END as is_owned
        FROM documents d
        LEFT JOIN matters m ON d.matter_id = m.id
        LEFT JOIN users u ON d.uploaded_by = u.id
-       WHERE d.firm_id = $1
-         AND ($2 = '' OR d.folder_path = $2 OR d.folder_path LIKE $3)
-       ORDER BY d.is_folder DESC, d.name ASC`,
-      [req.user.firmId, folderPath, folderPath + '/%']
-    );
+       WHERE ${accessFilter.whereClause}
+    `;
+    
+    let params = [...accessFilter.params, req.user.id];
+    let paramIndex = accessFilter.nextParamIndex + 1;
+    
+    // Add folder path filter
+    if (folderPath) {
+      sql += ` AND (d.folder_path = $${paramIndex} OR d.folder_path LIKE $${paramIndex + 1})`;
+      params.push(folderPath, folderPath + '/%');
+      paramIndex += 2;
+    }
+    
+    sql += ` ORDER BY d.is_folder DESC, d.name ASC`;
+    
+    const result = await query(sql, params);
 
-    // Get unique folder paths to build folder structure
-    const foldersResult = await query(
-      `SELECT DISTINCT folder_path 
-       FROM documents 
-       WHERE firm_id = $1 AND folder_path IS NOT NULL AND folder_path != ''
-       ORDER BY folder_path`,
-      [req.user.firmId]
-    );
+    // Get accessible folders for this user
+    let foldersResult;
+    if (isAdmin) {
+      foldersResult = await query(
+        `SELECT DISTINCT folder_path 
+         FROM documents 
+         WHERE firm_id = $1 AND folder_path IS NOT NULL AND folder_path != ''
+         ORDER BY folder_path`,
+        [req.user.firmId]
+      );
+    } else {
+      // Only show folders containing accessible documents
+      const folderAccessFilter = await buildDocumentAccessFilter(
+        req.user.id, req.user.role, req.user.firmId, 'd', 1
+      );
+      foldersResult = await query(
+        `SELECT DISTINCT d.folder_path 
+         FROM documents d
+         WHERE ${folderAccessFilter.whereClause}
+           AND d.folder_path IS NOT NULL AND d.folder_path != ''
+         ORDER BY d.folder_path`,
+        folderAccessFilter.params
+      );
+    }
 
-    // Get matter folders
-    const mattersResult = await query(
-      `SELECT id, name, case_number 
-       FROM matters 
-       WHERE firm_id = $1 AND status != 'closed'
-       ORDER BY name`,
-      [req.user.firmId]
-    );
+    // Get accessible matters for this user
+    let mattersResult;
+    if (isAdmin) {
+      mattersResult = await query(
+        `SELECT id, name, case_number 
+         FROM matters 
+         WHERE firm_id = $1 AND status != 'closed'
+         ORDER BY name`,
+        [req.user.firmId]
+      );
+    } else {
+      // Only show matters user has access to
+      mattersResult = await query(
+        `SELECT DISTINCT m.id, m.name, m.case_number 
+         FROM matters m
+         WHERE m.firm_id = $1 AND m.status != 'closed'
+           AND (
+             m.visibility = 'firm_wide'
+             OR m.responsible_attorney = $2
+             OR m.originating_attorney = $2
+             OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+             OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
+             OR EXISTS (
+               SELECT 1 FROM matter_permissions mp
+               JOIN user_groups ug ON mp.group_id = ug.group_id
+               WHERE mp.matter_id = m.id AND ug.user_id = $2
+             )
+           )
+         ORDER BY m.name`,
+        [req.user.firmId, req.user.id]
+      );
+    }
 
-    // Build stats
-    const statsResult = await query(
-      `SELECT 
-        COUNT(*) as total_files,
-        COALESCE(SUM(size), 0) as total_size,
-        COUNT(DISTINCT matter_id) as matters_with_files
-       FROM documents 
-       WHERE firm_id = $1`,
-      [req.user.firmId]
-    );
+    // Build stats (scoped to accessible documents)
+    let statsResult;
+    if (isAdmin) {
+      statsResult = await query(
+        `SELECT 
+          COUNT(*) as total_files,
+          COALESCE(SUM(size), 0) as total_size,
+          COUNT(DISTINCT matter_id) as matters_with_files
+         FROM documents 
+         WHERE firm_id = $1`,
+        [req.user.firmId]
+      );
+    } else {
+      const statsAccessFilter = await buildDocumentAccessFilter(
+        req.user.id, req.user.role, req.user.firmId, 'd', 1
+      );
+      statsResult = await query(
+        `SELECT 
+          COUNT(*) as total_files,
+          COALESCE(SUM(d.size), 0) as total_size,
+          COUNT(DISTINCT d.matter_id) as matters_with_files
+         FROM documents d
+         WHERE ${statsAccessFilter.whereClause}`,
+        statsAccessFilter.params
+      );
+    }
 
     const stats = statsResult.rows[0];
 
     res.json({
       firmFolder,
       currentPath: folderPath,
+      isAdmin,
       files: result.rows.map(f => ({
         id: f.id,
         name: f.name,
@@ -1162,6 +1266,8 @@ router.get('/browse', authenticate, async (req, res) => {
         uploadedByName: f.uploaded_by_name,
         isFolder: f.is_folder,
         versionCount: f.version_count || 1,
+        isOwned: f.is_owned,
+        privacyLevel: f.privacy_level,
       })),
       folders: foldersResult.rows.map(f => f.folder_path),
       matters: mattersResult.rows.map(m => ({
@@ -1175,18 +1281,116 @@ router.get('/browse', authenticate, async (req, res) => {
         totalSize: parseInt(stats.total_size) || 0,
         mattersWithFiles: parseInt(stats.matters_with_files) || 0,
       },
-      azureConfig: {
+      // Only show Azure config to admins
+      azureConfig: isAdmin ? {
         configured: !!(AZURE_STORAGE_ACCOUNT && AZURE_STORAGE_KEY),
         shareName: AZURE_FILE_SHARE,
-        // Connection info for admin to map drive (only show to admins)
         connectionPath: AZURE_STORAGE_ACCOUNT 
           ? `\\\\${AZURE_STORAGE_ACCOUNT}.file.core.windows.net\\${AZURE_FILE_SHARE}\\${firmFolder}`
           : null,
-      }
+      } : { configured: false }
     });
   } catch (error) {
     console.error('Browse drive error:', error);
     res.status(500).json({ error: 'Failed to browse drive' });
+  }
+});
+
+/**
+ * My Documents - View only user's own documents
+ * This is the default view for non-admin users
+ * Shows: documents uploaded by user + documents user owns + documents shared with user
+ */
+router.get('/my-documents', authenticate, async (req, res) => {
+  try {
+    const { search, limit = 100, offset = 0 } = req.query;
+    
+    let sql = `
+      SELECT 
+        d.id,
+        d.name,
+        d.original_name,
+        d.type as content_type,
+        d.size,
+        d.folder_path,
+        d.matter_id,
+        m.name as matter_name,
+        m.case_number as matter_number,
+        d.uploaded_at,
+        d.version_count,
+        d.privacy_level,
+        CASE 
+          WHEN d.uploaded_by = $1 THEN 'uploaded'
+          WHEN d.owner_id = $1 THEN 'owned'
+          ELSE 'shared'
+        END as access_type
+       FROM documents d
+       LEFT JOIN matters m ON d.matter_id = m.id
+       WHERE d.firm_id = $2
+         AND (
+           d.uploaded_by = $1
+           OR d.owner_id = $1
+           OR EXISTS (
+             SELECT 1 FROM document_permissions dp
+             WHERE dp.document_id = d.id AND dp.user_id = $1
+               AND dp.can_view = true
+               AND (dp.expires_at IS NULL OR dp.expires_at > NOW())
+           )
+         )
+    `;
+    const params = [req.user.id, req.user.firmId];
+    let paramIndex = 3;
+    
+    if (search) {
+      sql += ` AND d.name ILIKE $${paramIndex}`;
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+    
+    sql += ` ORDER BY d.uploaded_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(parseInt(limit), parseInt(offset));
+    
+    const result = await query(sql, params);
+    
+    // Get counts by access type
+    const statsResult = await query(`
+      SELECT 
+        COUNT(*) FILTER (WHERE uploaded_by = $1) as uploaded_count,
+        COUNT(*) FILTER (WHERE owner_id = $1 AND uploaded_by != $1) as owned_count,
+        COALESCE(SUM(size) FILTER (WHERE uploaded_by = $1 OR owner_id = $1), 0) as total_size
+      FROM documents
+      WHERE firm_id = $2
+        AND (uploaded_by = $1 OR owner_id = $1)
+    `, [req.user.id, req.user.firmId]);
+    
+    const stats = statsResult.rows[0];
+    
+    res.json({
+      documents: result.rows.map(d => ({
+        id: d.id,
+        name: d.name,
+        originalName: d.original_name,
+        contentType: d.content_type,
+        size: d.size,
+        folderPath: d.folder_path,
+        matterId: d.matter_id,
+        matterName: d.matter_name,
+        matterNumber: d.matter_number,
+        uploadedAt: d.uploaded_at,
+        versionCount: d.version_count || 1,
+        privacyLevel: d.privacy_level,
+        accessType: d.access_type, // 'uploaded', 'owned', or 'shared'
+      })),
+      stats: {
+        uploadedCount: parseInt(stats.uploaded_count) || 0,
+        ownedCount: parseInt(stats.owned_count) || 0,
+        totalSize: parseInt(stats.total_size) || 0,
+      },
+      isPersonalView: true,
+    });
+  } catch (error) {
+    console.error('Get my documents error:', error);
+    res.status(500).json({ error: 'Failed to get your documents' });
   }
 });
 
