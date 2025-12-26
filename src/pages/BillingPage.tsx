@@ -8,8 +8,9 @@ import {
   Plus, Search, DollarSign, FileText, TrendingUp, AlertCircle,
   CheckCircle2, Clock, Send, MoreVertical, Sparkles, Download,
   CreditCard, XCircle, Eye, ChevronRight, Filter, Calendar,
-  ArrowUpRight, ArrowDownRight, Wallet, Receipt, Trash2, Edit2, User, Users
+  ArrowUpRight, ArrowDownRight, Wallet, Receipt, Trash2, Edit2, User, Users, Mail
 } from 'lucide-react'
+import { useEmailCompose } from '../contexts/EmailComposeContext'
 import { format, parseISO, differenceInDays, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './BillingPage.module.css'
@@ -24,6 +25,7 @@ export function BillingPage() {
   const { invoices, clients, matters, timeEntries, expenses, fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries, addInvoice, updateInvoice } = useDataStore()
   const { firm, user } = useAuthStore()
   const { openChat } = useAIChat()
+  const { emailInvoice } = useEmailCompose()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   
@@ -105,6 +107,17 @@ export function BillingPage() {
 
   const handleEditInvoice = (invoice: any) => {
     setShowEditModal(invoice)
+    setOpenDropdownId(null)
+  }
+
+  const handleEmailInvoice = (invoice: any) => {
+    const client = clients.find(c => c.id === invoice.clientId)
+    emailInvoice({
+      id: invoice.id,
+      invoiceNumber: invoice.number,
+      clientName: client?.displayName || client?.name || 'Client',
+      total: invoice.total
+    })
     setOpenDropdownId(null)
   }
 
@@ -630,6 +643,13 @@ export function BillingPage() {
                           >
                             <Eye size={14} />
                             Preview
+                          </button>
+                          <button 
+                            className={styles.dropdownItem}
+                            onClick={() => handleEmailInvoice(invoice)}
+                          >
+                            <Mail size={14} />
+                            Email Invoice
                           </button>
                           {invoice.status === 'draft' && (
                             <button 

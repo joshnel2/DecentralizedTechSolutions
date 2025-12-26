@@ -1146,7 +1146,7 @@ export const integrationsApi = {
     return fetchWithAuth(`/integrations/outlook/email/${emailId}/body`);
   },
 
-  async sendOutlookEmail(data: { to: string; cc?: string; subject: string; body: string }) {
+  async sendOutlookEmail(data: { to: string; cc?: string; subject: string; body: string; documentIds?: string[] }) {
     return fetchWithAuth('/integrations/outlook/send', {
       method: 'POST',
       body: JSON.stringify(data),

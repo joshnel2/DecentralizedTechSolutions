@@ -12,6 +12,7 @@ import {
   HardDrive, Settings, Share2, Shield, Mail
 } from 'lucide-react'
 import { documentsApi, driveApi, wordOnlineApi } from '../services/api'
+import { useEmailCompose } from '../contexts/EmailComposeContext'
 import { format, parseISO } from 'date-fns'
 import styles from './DocumentsPage.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
@@ -239,23 +240,15 @@ export function DocumentsPage() {
     documentName: string
   }>({ isOpen: false, documentId: '', documentName: '' })
 
-  // Email draft state
-  const [emailDraft, setEmailDraft] = useState<{
-    isOpen: boolean
-    attachedDocument: typeof documents[0] | null
-    to: string
-    subject: string
-    body: string
-  }>({ isOpen: false, attachedDocument: null, to: '', subject: '', body: '' })
+  // Email compose (global)
+  const { emailDocument } = useEmailCompose()
 
-  // Open email draft with document attached
+  // Open email with document attached
   const openEmailWithDocument = (doc: typeof documents[0]) => {
-    setEmailDraft({
-      isOpen: true,
-      attachedDocument: doc,
-      to: '',
-      subject: `Document: ${doc.name}`,
-      body: `Please find the attached document: ${doc.name}\n\n`
+    emailDocument({
+      id: doc.id,
+      name: doc.name,
+      size: doc.size
     })
     setSelectedDoc(null)
   }
@@ -722,65 +715,6 @@ export function DocumentsPage() {
         documentId={shareModal.documentId}
         documentName={shareModal.documentName}
       />
-
-      {/* Email Draft Modal (Bottom Right Corner) */}
-      {emailDraft.isOpen && (
-        <div className={styles.emailDraftModal}>
-          <div className={styles.emailDraftHeader}>
-            <span>New Email</span>
-            <button onClick={() => setEmailDraft({ ...emailDraft, isOpen: false })} className={styles.emailDraftClose}>
-              <X size={16} />
-            </button>
-          </div>
-          <div className={styles.emailDraftBody}>
-            <div className={styles.emailDraftField}>
-              <label>To:</label>
-              <input 
-                type="email" 
-                value={emailDraft.to}
-                onChange={(e) => setEmailDraft({ ...emailDraft, to: e.target.value })}
-                placeholder="recipient@example.com"
-              />
-            </div>
-            <div className={styles.emailDraftField}>
-              <label>Subject:</label>
-              <input 
-                type="text" 
-                value={emailDraft.subject}
-                onChange={(e) => setEmailDraft({ ...emailDraft, subject: e.target.value })}
-              />
-            </div>
-            <textarea 
-              className={styles.emailDraftContent}
-              value={emailDraft.body}
-              onChange={(e) => setEmailDraft({ ...emailDraft, body: e.target.value })}
-              rows={6}
-            />
-            {emailDraft.attachedDocument && (
-              <div className={styles.emailAttachment}>
-                <FileText size={16} />
-                <span>{emailDraft.attachedDocument.name}</span>
-                <button onClick={() => setEmailDraft({ ...emailDraft, attachedDocument: null })}>
-                  <X size={14} />
-                </button>
-              </div>
-            )}
-          </div>
-          <div className={styles.emailDraftFooter}>
-            <button 
-              className={styles.emailSendBtn}
-              onClick={async () => {
-                // In a real implementation, this would send via Outlook API
-                alert('Email functionality requires Outlook integration. Go to Settings > Integrations to connect.')
-                setEmailDraft({ isOpen: false, attachedDocument: null, to: '', subject: '', body: '' })
-              }}
-            >
-              <Mail size={16} />
-              Send
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Document Preview Modal */}
       {editorDoc && (

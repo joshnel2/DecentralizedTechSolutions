@@ -1,0 +1,485 @@
+/* Gmail-style Email Compose - Bottom Right */
+.composeContainer {
+  position: fixed;
+  bottom: 0;
+  right: 24px;
+  width: 420px;
+  max-height: 500px;
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4), 0 0 40px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+  animation: slideUp 0.2s ease;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Header */
+.composeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, #334155 0%, #1e293b 100%);
+  border-radius: 12px 12px 0 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  cursor: default;
+}
+
+.headerTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.headerActions {
+  display: flex;
+  gap: 4px;
+}
+
+.headerActions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.headerActions button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+}
+
+/* Notification */
+.notification {
+  position: absolute;
+  top: -40px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  animation: fadeIn 0.2s ease;
+  z-index: 10;
+}
+
+.notification.success {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+}
+
+.notification.error {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* Form */
+.composeForm {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.formField {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.formField label {
+  width: 55px;
+  font-size: 0.8125rem;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.formField input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #f1f5f9;
+  font-size: 0.875rem;
+  padding: 4px 0;
+  outline: none;
+}
+
+.formField input::placeholder {
+  color: #475569;
+}
+
+.composeBody {
+  flex: 1;
+  min-height: 150px;
+  padding: 12px;
+  background: transparent;
+  border: none;
+  color: #e2e8f0;
+  font-size: 0.875rem;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+}
+
+.composeBody::placeholder {
+  color: #475569;
+}
+
+/* Attachments */
+.attachmentsList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.attachmentChip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 10px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 16px;
+  font-size: 0.75rem;
+  color: #60a5fa;
+}
+
+.attachmentChip span {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachmentSize {
+  color: #64748b;
+  font-size: 0.6875rem;
+}
+
+.attachmentChip button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: transparent;
+  border: none;
+  color: #60a5fa;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.attachmentChip button:hover {
+  opacity: 1;
+}
+
+/* Footer */
+.composeFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.sendBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sendBtn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.sendBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toolbarActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.toolbarBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toolbarBtn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+}
+
+/* Attachment Dropdown */
+.attachDropdown {
+  position: relative;
+}
+
+.attachMenu {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  width: 280px;
+  max-height: 320px;
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  margin-bottom: 8px;
+  overflow: hidden;
+  animation: fadeUp 0.15s ease;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.attachOption {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  background: transparent;
+  border: none;
+  color: #e2e8f0;
+  font-size: 0.875rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.attachOption:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.attachDivider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.attachSection {
+  padding: 8px;
+}
+
+.attachSectionLabel {
+  display: block;
+  padding: 4px 8px 8px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.attachLoading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 8px;
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
+.noAttachDocs {
+  display: block;
+  padding: 12px 8px;
+  font-size: 0.8125rem;
+  color: #64748b;
+  font-style: italic;
+}
+
+.attachDocsList {
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.attachDocItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #cbd5e1;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.attachDocItem:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.attachDocItem:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.attachDocItem span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachedIcon {
+  color: #10b981;
+}
+
+/* Minimized State */
+.composeMinimized {
+  position: fixed;
+  bottom: 0;
+  right: 24px;
+  width: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, #334155 0%, #1e293b 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  z-index: 1000;
+  transition: all 0.15s;
+}
+
+.composeMinimized:hover {
+  background: linear-gradient(135deg, #475569 0%, #334155 100%);
+}
+
+.minimizedContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.minimizedSubject {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #f1f5f9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.minimizedActions {
+  display: flex;
+  gap: 4px;
+}
+
+.minimizedActions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.minimizedActions button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+}
+
+/* Spinner */
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .composeContainer {
+    right: 0;
+    left: 0;
+    width: 100%;
+    max-height: 70vh;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .composeMinimized {
+    right: 0;
+    left: 0;
+    width: 100%;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .attachMenu {
+    right: -12px;
+    width: calc(100vw - 24px);
+  }
+}

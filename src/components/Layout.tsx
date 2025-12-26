@@ -8,6 +8,8 @@ import { useAIChat } from '../contexts/AIChatContext'
 import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
 import { AIChat } from './AIChat'
 import { BackgroundTaskBar } from './BackgroundTaskBar'
+import { EmailCompose } from './EmailCompose'
+import { EmailComposeProvider } from '../contexts/EmailComposeContext'
 import { integrationsApi } from '../services/api'
 import { 
   LayoutDashboard, Briefcase, Users, Calendar, DollarSign, 
@@ -168,6 +170,7 @@ export function Layout() {
   }
 
   return (
+    <EmailComposeProvider>
     <div className={styles.layout}>
       {/* Mobile Overlay */}
       <div 
@@ -489,8 +492,12 @@ export function Layout() {
         onClose={closeChat} 
       />
       
+      {/* Global Email Compose (Gmail-style) */}
+      <EmailCompose />
+      
       {/* Global background task progress bar */}
       <BackgroundTaskBar />
     </div>
+    </EmailComposeProvider>
   )
 }
