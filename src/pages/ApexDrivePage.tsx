@@ -410,15 +410,25 @@ export function ApexDrivePage() {
                     Open Documents
                   </button>
                 </div>
+{isAdmin && connectionInfo?.configured && (
                 <div className={styles.accessCard}>
                   <Monitor size={32} />
-                  <h4>Desktop App</h4>
-                  <p>Sync files to your computer. Edit with your favorite apps.</p>
-                  <button className={styles.secondary}>
-                    <Download size={16} />
-                    Download for Windows
+                  <h4>Mapped Drive (Admin)</h4>
+                  <p>Map the Azure drive to your computer for direct access.</p>
+                  <button 
+                    className={styles.secondary}
+                    onClick={() => {
+                      if (connectionInfo?.windowsPath) {
+                        navigator.clipboard.writeText(connectionInfo.windowsPath)
+                        setNotification({ type: 'success', message: 'Path copied! Open File Explorer and paste.' })
+                      }
+                    }}
+                  >
+                    <Copy size={16} />
+                    Copy Drive Path
                   </button>
                 </div>
+                )}
                 <div className={styles.accessCard}>
                   <Smartphone size={32} />
                   <h4>Mobile App</h4>
