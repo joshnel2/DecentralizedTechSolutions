@@ -453,6 +453,63 @@
   flex-shrink: 0;
 }
 
+/* Integration Note */
+.integrationNote {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 24px;
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+}
+
+.noteIcon {
+  width: 48px;
+  height: 48px;
+  background: #2563eb;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  flex-shrink: 0;
+}
+
+.noteContent {
+  flex: 1;
+}
+
+.noteContent h4 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e40af;
+  margin: 0 0 4px;
+}
+
+.noteContent p {
+  font-size: 13px;
+  color: #3b82f6;
+  margin: 0;
+}
+
+.integrationNote button {
+  padding: 10px 20px;
+  background: #2563eb;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.integrationNote button:hover {
+  background: #1d4ed8;
+}
+
 @media (max-width: 768px) {
   .featureGrid {
     grid-template-columns: 1fr;

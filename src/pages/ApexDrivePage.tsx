@@ -281,6 +281,20 @@ export function ApexDrivePage() {
               </div>
             </div>
 
+            {/* Microsoft Integration Note */}
+            <div className={styles.integrationNote}>
+              <div className={styles.noteIcon}>
+                <Cloud size={24} />
+              </div>
+              <div className={styles.noteContent}>
+                <h4>Want Word Online editing?</h4>
+                <p>Connect your Microsoft account to edit documents directly in Word Online with real-time collaboration.</p>
+              </div>
+              <button onClick={() => navigate('/app/integrations')}>
+                Connect Microsoft
+              </button>
+            </div>
+
             {/* Better than Clio */}
             <div className={styles.comparison}>
               <h3>Better than Clio Drive</h3>
