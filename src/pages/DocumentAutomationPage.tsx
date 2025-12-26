@@ -753,7 +753,20 @@ export function DocumentAutomationPage() {
     URL.revokeObjectURL(url)
   }
 
-  const handleOpenInDocumentAI = () => {
+  const handleDownloadAndReviewWithAI = () => {
+    // First, auto-download the document
+    if (generatedContent && generatedTemplateName) {
+      const blob = new Blob([generatedContent], { type: 'text/plain' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${generatedTemplateName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.txt`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    }
+
     // Store the document content in sessionStorage to pass to AI page
     sessionStorage.setItem('documentAI_content', JSON.stringify({
       content: generatedContent,
@@ -1385,11 +1398,12 @@ export function DocumentAutomationPage() {
               </button>
               <button onClick={handleDownloadDocument} className={styles.secondaryBtn}>
                 <Download size={18} />
-                Download
+                Download Only
               </button>
-              <button onClick={handleOpenInDocumentAI} className={styles.primaryBtn}>
+              <button onClick={handleDownloadAndReviewWithAI} className={styles.primaryBtn}>
+                <Download size={18} />
                 <Sparkles size={18} />
-                Review with AI
+                Download & Review with AI
               </button>
             </div>
           </div>

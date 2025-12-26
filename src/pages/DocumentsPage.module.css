@@ -622,7 +622,25 @@
 
 .quickActions {
   display: flex;
-  gap: 0.75rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.quickActions button {
+  flex: 1 1 calc(50% - 0.25rem);
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.8125rem;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .downloadBtn {
@@ -1481,4 +1499,182 @@
     flex-wrap: wrap;
     gap: 0.5rem;
   }
+}
+
+/* Email button style */
+.emailBtn {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #60A5FA;
+}
+
+.emailBtn:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.25) 0%, rgba(59, 130, 246, 0.1) 100%);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+/* Email Draft Modal - Bottom Right */
+.emailDraftModal {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  width: 380px;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  animation: slideUp 0.2s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.emailDraftHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--apex-slate);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.emailDraftClose {
+  background: none;
+  border: none;
+  color: var(--apex-text);
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+}
+
+.emailDraftClose:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--apex-white);
+}
+
+.emailDraftBody {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.emailDraftField {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.emailDraftField label {
+  font-size: 0.8125rem;
+  color: var(--apex-text);
+  width: 50px;
+  flex-shrink: 0;
+}
+
+.emailDraftField input {
+  flex: 1;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem;
+  color: var(--apex-white);
+  font-size: 0.875rem;
+}
+
+.emailDraftField input:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+}
+
+.emailDraftContent {
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+  color: var(--apex-white);
+  font-size: 0.875rem;
+  resize: none;
+  font-family: inherit;
+}
+
+.emailDraftContent:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+}
+
+.emailAttachment {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  color: #60A5FA;
+}
+
+.emailAttachment span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emailAttachment button {
+  background: none;
+  border: none;
+  color: #60A5FA;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  opacity: 0.7;
+}
+
+.emailAttachment button:hover {
+  opacity: 1;
+}
+
+.emailDraftFooter {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.emailSendBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.25rem;
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.emailSendBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(212, 175, 55, 0.3);
 }

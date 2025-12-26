@@ -1376,7 +1376,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "send_email",
-      description: "Send an email from the user's connected Outlook account.",
+      description: "Send an email from the user's connected Outlook account. Can attach documents from the firm's document library.",
       parameters: {
         type: "object",
         properties: {
@@ -1384,7 +1384,8 @@ const TOOLS = [
           subject: { type: "string", description: "Email subject line" },
           body: { type: "string", description: "Email body content (plain text or HTML)" },
           cc: { type: "string", description: "CC recipients, comma-separated (optional)" },
-          matter_id: { type: "string", description: "Link this email to a matter (optional)" }
+          matter_id: { type: "string", description: "Link this email to a matter (optional)" },
+          document_ids: { type: "array", items: { type: "string" }, description: "Array of document IDs to attach to the email (optional)" }
         },
         required: ["to", "subject", "body"]
       }
@@ -1692,7 +1693,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "send_email",
-      description: "Send an email directly through the user's Outlook. Use this when the user wants to send an email immediately.",
+      description: "Send an email directly through the user's Outlook. Use this when the user wants to send an email immediately. Can attach documents from the firm's document library.",
       parameters: {
         type: "object",
         properties: {
@@ -1700,7 +1701,8 @@ const TOOLS = [
           subject: { type: "string", description: "Email subject line" },
           body: { type: "string", description: "Email body content (can include HTML)" },
           cc: { type: "string", description: "CC recipients, comma-separated (optional)" },
-          importance: { type: "string", enum: ["low", "normal", "high"], description: "Email importance (default: normal)" }
+          importance: { type: "string", enum: ["low", "normal", "high"], description: "Email importance (default: normal)" },
+          document_ids: { type: "array", items: { type: "string" }, description: "Array of document IDs from the Documents section to attach (optional)" }
         },
         required: ["to", "subject", "body"]
       }
@@ -7170,6 +7172,67 @@ async function sendEmail(args, user) {
     ccRecipients
   };
   
+  // Handle document attachments
+  if (args.document_ids && args.document_ids.length > 0) {
+    const attachments = [];
+    
+    for (const docId of args.document_ids) {
+      try {
+        // Get document info
+        const docResult = await query(
+          `SELECT name, original_name, path, azure_path, folder_path, type FROM documents WHERE id = $1 AND firm_id = $2`,
+          [docId, user.firmId]
+        );
+        
+        if (docResult.rows.length === 0) continue;
+        
+        const doc = docResult.rows[0];
+        const fileName = doc.original_name || doc.name;
+        
+        // Try to get file content
+        let fileBuffer = null;
+        
+        // Try local file first
+        if (doc.path) {
+          try {
+            const fs = await import('fs/promises');
+            fileBuffer = await fs.readFile(doc.path);
+          } catch (e) {
+            // Local file not found, try Azure
+          }
+        }
+        
+        // Try Azure if local not found
+        if (!fileBuffer && (doc.azure_path || doc.folder_path)) {
+          try {
+            const { downloadFile, isAzureConfigured } = await import('../utils/azureStorage.js');
+            if (await isAzureConfigured()) {
+              const azurePath = doc.azure_path || `${doc.folder_path}/${fileName}`;
+              fileBuffer = await downloadFile(azurePath, user.firmId);
+            }
+          } catch (e) {
+            console.error('Failed to download from Azure for attachment:', e.message);
+          }
+        }
+        
+        if (fileBuffer) {
+          attachments.push({
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            name: fileName,
+            contentType: doc.type || 'application/octet-stream',
+            contentBytes: fileBuffer.toString('base64')
+          });
+        }
+      } catch (e) {
+        console.error(`Failed to attach document ${docId}:`, e.message);
+      }
+    }
+    
+    if (attachments.length > 0) {
+      message.attachments = attachments;
+    }
+  }
+  
   const response = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
     method: 'POST',
     headers: {
@@ -7189,13 +7252,14 @@ async function sendEmail(args, user) {
     await query(`
       INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
       VALUES ($1, $2, 'email.sent', 'matter', $3, $4)
-    `, [user.firmId, user.id, args.matter_id, JSON.stringify({ to: args.to, subject: args.subject })]);
+    `, [user.firmId, user.id, args.matter_id, JSON.stringify({ to: args.to, subject: args.subject, attachmentCount: args.document_ids?.length || 0 })]);
   }
   
   return {
     success: true,
-    message: `Email sent to ${args.to}`,
-    subject: args.subject
+    message: `Email sent to ${args.to}${args.document_ids?.length ? ` with ${args.document_ids.length} attachment(s)` : ''}`,
+    subject: args.subject,
+    attachmentCount: args.document_ids?.length || 0
   };
 }
 

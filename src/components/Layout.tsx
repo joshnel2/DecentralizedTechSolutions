@@ -76,6 +76,9 @@ export function Layout() {
 
   const unreadCount = notifications.filter(n => !n.read).length
 
+  // Track if Outlook is connected
+  const [outlookConnected, setOutlookConnected] = useState(false)
+
   // Fetch connected integrations
   useEffect(() => {
     const fetchIntegrations = async () => {
@@ -84,13 +87,18 @@ export function Layout() {
         const connected = Object.entries(data.integrations || {})
           .filter(([_, status]: [string, any]) => status?.isConnected)
           .map(([provider]) => provider)
-          // Exclude Outlook since it has its own menu item above AI Assistant
-          .filter(provider => provider !== 'outlook')
+        
+        // Check if Outlook is connected
+        setOutlookConnected(connected.includes('outlook'))
+        
+        // Filter out Outlook from the "Connected" section since it gets its own menu item
+        const otherIntegrations = connected.filter(provider => provider !== 'outlook')
         // Remove duplicates just in case
-        const uniqueConnected = [...new Set(connected)]
+        const uniqueConnected = [...new Set(otherIntegrations)]
         setConnectedIntegrations(uniqueConnected)
       } catch (error) {
         // Silently fail - integrations might not be configured
+        setOutlookConnected(false)
       }
     }
     fetchIntegrations()
@@ -211,13 +219,16 @@ export function Layout() {
             </NavLink>
           ))}
 
-          <NavLink
-            to="/app/integrations/outlook"
-            className={({ isActive }) => clsx(styles.navItem, isActive && styles.active)}
-          >
-            <Mail size={20} />
-            {(sidebarOpen || isMobile) && <span>Outlook</span>}
-          </NavLink>
+          {/* Outlook - only show when connected via Integrations */}
+          {outlookConnected && (
+            <NavLink
+              to="/app/integrations/outlook"
+              className={({ isActive }) => clsx(styles.navItem, isActive && styles.active)}
+            >
+              <Mail size={20} />
+              {(sidebarOpen || isMobile) && <span>Outlook</span>}
+            </NavLink>
+          )}
 
           <NavLink
             to="/app/ai"
