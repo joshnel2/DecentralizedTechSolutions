@@ -252,46 +252,420 @@ router.post('/documents/:documentId/heartbeat', authenticate, async (req, res) =
 });
 
 // End editing session
+/**
+ * SAVE DOCUMENT FROM WORD ONLINE
+ * This is the KEY endpoint that creates a new version when user saves in Word
+ * It downloads the latest content from OneDrive and creates a new version
+ */
+router.post('/documents/:documentId/save', authenticate, async (req, res) => {
+  try {
+    const documentId = req.params.documentId;
+
+    // Check edit access
+    const canEdit = await checkDocumentAccess(documentId, req.user.id, req.user.firmId, req.user.role, 'edit');
+    if (!canEdit) {
+      return res.status(403).json({ error: 'No edit permission' });
+    }
+
+    // Get document info
+    const docResult = await query(
+      `SELECT d.*, dc.drive_type
+       FROM documents d
+       LEFT JOIN drive_configurations dc ON d.drive_id = dc.id
+       WHERE d.id = $1 AND d.firm_id = $2`,
+      [documentId, req.user.firmId]
+    );
+
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const doc = docResult.rows[0];
+
+    if (!doc.graph_item_id) {
+      return res.status(400).json({ error: 'Document is not linked to OneDrive' });
+    }
+
+    // Get Microsoft integration
+    const msIntegration = await query(
+      `SELECT access_token FROM integrations 
+       WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+      [req.user.firmId]
+    );
+
+    if (msIntegration.rows.length === 0) {
+      return res.status(400).json({ error: 'Microsoft integration not connected' });
+    }
+
+    const accessToken = msIntegration.rows[0].access_token;
+
+    // Get file metadata from OneDrive to check if it was modified
+    const metadataResponse = await fetch(
+      `https://graph.microsoft.com/v1.0/me/drive/items/${doc.graph_item_id}`,
+      {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      }
+    );
+
+    if (!metadataResponse.ok) {
+      console.error('Failed to get file metadata:', await metadataResponse.text());
+      return res.status(500).json({ error: 'Failed to check file status' });
+    }
+
+    const metadata = await metadataResponse.json();
+    const lastModified = new Date(metadata.lastModifiedDateTime);
+
+    // Download the file content from OneDrive
+    const contentResponse = await fetch(
+      `https://graph.microsoft.com/v1.0/me/drive/items/${doc.graph_item_id}/content`,
+      {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      }
+    );
+
+    if (!contentResponse.ok) {
+      console.error('Failed to download file:', await contentResponse.text());
+      return res.status(500).json({ error: 'Failed to download file' });
+    }
+
+    const fileBuffer = Buffer.from(await contentResponse.arrayBuffer());
+    const crypto = require('crypto');
+    const contentHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+
+    // Check if content actually changed
+    if (doc.content_hash === contentHash) {
+      return res.json({ 
+        saved: false, 
+        message: 'No changes detected',
+        versionNumber: doc.version || 1
+      });
+    }
+
+    // Extract text from the document (DOCX files)
+    let textContent = '';
+    try {
+      const ext = (doc.original_name || doc.name || '').toLowerCase();
+      if (ext.endsWith('.docx') || doc.type?.includes('word')) {
+        const mammoth = await import('mammoth');
+        const result = await mammoth.extractRawText({ buffer: fileBuffer });
+        textContent = result.value || '';
+      } else if (ext.endsWith('.txt')) {
+        textContent = fileBuffer.toString('utf-8');
+      }
+    } catch (extractError) {
+      console.error('Text extraction error:', extractError.message);
+    }
+
+    // Get next version number
+    const versionResult = await query(
+      `SELECT COALESCE(MAX(version_number), 0) + 1 as next_version 
+       FROM document_versions WHERE document_id = $1`,
+      [documentId]
+    );
+    const nextVersion = versionResult.rows[0].next_version;
+
+    // Calculate word counts
+    const wordCount = textContent ? textContent.split(/\s+/).filter(w => w).length : 0;
+    const characterCount = textContent ? textContent.length : 0;
+
+    // Get previous version for diff stats
+    const prevVersion = await query(
+      `SELECT word_count FROM document_versions 
+       WHERE document_id = $1 ORDER BY version_number DESC LIMIT 1`,
+      [documentId]
+    );
+    const prevWordCount = prevVersion.rows[0]?.word_count || 0;
+    const wordsAdded = Math.max(0, wordCount - prevWordCount);
+    const wordsRemoved = Math.max(0, prevWordCount - wordCount);
+
+    // CREATE NEW VERSION - This is the key operation!
+    await query(
+      `INSERT INTO document_versions (
+        document_id, firm_id, version_number, version_label,
+        content_text, content_hash, change_summary, change_type,
+        word_count, character_count, words_added, words_removed,
+        file_size, created_by, created_by_name, source
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'edit', $8, $9, $10, $11, $12, $13, $14, 'word_online')`,
+      [
+        documentId,
+        req.user.firmId,
+        nextVersion,
+        `Saved from Word Online`,
+        textContent,
+        contentHash,
+        `Saved from Word Online by ${req.user.firstName} ${req.user.lastName}`,
+        wordCount,
+        characterCount,
+        wordsAdded,
+        wordsRemoved,
+        fileBuffer.length,
+        req.user.id,
+        `${req.user.firstName} ${req.user.lastName}`
+      ]
+    );
+
+    // Update document with new version info
+    await query(
+      `UPDATE documents SET 
+        version = $1,
+        version_count = $1,
+        content_text = $2,
+        content_hash = $3,
+        size = $4,
+        last_online_edit = NOW(),
+        updated_at = NOW()
+       WHERE id = $5`,
+      [nextVersion, textContent, contentHash, fileBuffer.length, documentId]
+    );
+
+    // Update the word online session
+    await query(
+      `UPDATE word_online_sessions SET last_activity = NOW(), changes_count = changes_count + 1
+       WHERE document_id = $1 AND user_id = $2 AND status = 'active'`,
+      [documentId, req.user.id]
+    );
+
+    // Log activity
+    await query(
+      `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
+       VALUES ($1, $2, 'save_from_word_online', $3, $4, $5)`,
+      [
+        documentId, 
+        req.user.firmId, 
+        req.user.id, 
+        `${req.user.firstName} ${req.user.lastName}`,
+        JSON.stringify({ 
+          versionNumber: nextVersion, 
+          wordCount, 
+          wordsAdded, 
+          wordsRemoved,
+          source: 'word_online' 
+        })
+      ]
+    );
+
+    console.log(`[WORD ONLINE] Created version ${nextVersion} for document ${documentId}`);
+
+    res.json({
+      saved: true,
+      versionNumber: nextVersion,
+      wordCount,
+      wordsAdded,
+      wordsRemoved,
+      message: `Version ${nextVersion} saved successfully`
+    });
+  } catch (error) {
+    console.error('Save from Word Online error:', error);
+    res.status(500).json({ error: 'Failed to save document' });
+  }
+});
+
+/**
+ * CHECK FOR CHANGES - Poll to see if document changed in OneDrive
+ * Frontend can call this periodically to auto-save versions
+ */
+router.get('/documents/:documentId/check-changes', authenticate, async (req, res) => {
+  try {
+    const documentId = req.params.documentId;
+
+    // Get document info
+    const docResult = await query(
+      `SELECT graph_item_id, content_hash, last_online_edit, version
+       FROM documents WHERE id = $1 AND firm_id = $2`,
+      [documentId, req.user.firmId]
+    );
+
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const doc = docResult.rows[0];
+
+    if (!doc.graph_item_id) {
+      return res.json({ hasChanges: false, reason: 'not_linked' });
+    }
+
+    // Get Microsoft integration
+    const msIntegration = await query(
+      `SELECT access_token FROM integrations 
+       WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+      [req.user.firmId]
+    );
+
+    if (msIntegration.rows.length === 0) {
+      return res.json({ hasChanges: false, reason: 'not_connected' });
+    }
+
+    // Get file metadata from OneDrive
+    const metadataResponse = await fetch(
+      `https://graph.microsoft.com/v1.0/me/drive/items/${doc.graph_item_id}`,
+      {
+        headers: { 'Authorization': `Bearer ${msIntegration.rows[0].access_token}` }
+      }
+    );
+
+    if (!metadataResponse.ok) {
+      return res.json({ hasChanges: false, reason: 'fetch_failed' });
+    }
+
+    const metadata = await metadataResponse.json();
+    const lastModified = new Date(metadata.lastModifiedDateTime);
+    const lastSync = doc.last_online_edit ? new Date(doc.last_online_edit) : null;
+
+    // Check if file was modified after our last sync
+    const hasChanges = !lastSync || lastModified > lastSync;
+
+    res.json({
+      hasChanges,
+      lastModified: metadata.lastModifiedDateTime,
+      lastSync: doc.last_online_edit,
+      currentVersion: doc.version,
+      modifiedBy: metadata.lastModifiedBy?.user?.displayName,
+    });
+  } catch (error) {
+    console.error('Check changes error:', error);
+    res.status(500).json({ error: 'Failed to check for changes' });
+  }
+});
+
+/**
+ * CLOSE SESSION - End editing and sync final version
+ */
 router.post('/documents/:documentId/close', authenticate, async (req, res) => {
   try {
-    const { changesCount = 0 } = req.body;
+    const documentId = req.params.documentId;
 
+    // First, sync any pending changes from Word Online
+    try {
+      const syncResult = await syncDocumentFromOneDrive(documentId, req.user, req.user.firmId);
+      if (syncResult.saved) {
+        console.log(`[WORD ONLINE] Final sync created version ${syncResult.versionNumber} on close`);
+      }
+    } catch (syncError) {
+      console.error('Final sync on close failed:', syncError.message);
+      // Continue with close even if sync fails
+    }
+
+    // End the session
     await query(
       `UPDATE word_online_sessions 
-       SET status = 'ended', ended_at = NOW(), changes_count = $1
-       WHERE document_id = $2 AND user_id = $3 AND status = 'active'`,
-      [changesCount, req.params.documentId, req.user.id]
+       SET status = 'ended', ended_at = NOW()
+       WHERE document_id = $1 AND user_id = $2 AND status = 'active'`,
+      [documentId, req.user.id]
     );
 
     // Update active_editors on document
-    await updateActiveEditors(req.params.documentId);
+    await updateActiveEditors(documentId);
 
-    // If changes were made, create a version
-    if (changesCount > 0) {
-      await query(
-        `INSERT INTO document_versions (
-          document_id, firm_id, version_number, change_type,
-          change_summary, created_by, created_by_name, source
-        ) SELECT 
-          $1, firm_id, 
-          COALESCE((SELECT MAX(version_number) FROM document_versions WHERE document_id = $1), 0) + 1,
-          'edit', $2, $3, $4, 'apex'
-        FROM documents WHERE id = $1`,
-        [
-          req.params.documentId,
-          `Edited in Word Online (${changesCount} changes)`,
-          req.user.id,
-          `${req.user.firstName} ${req.user.lastName}`
-        ]
-      );
-    }
-
-    res.json({ success: true });
+    res.json({ success: true, message: 'Session closed and changes saved' });
   } catch (error) {
     console.error('Close session error:', error);
     res.status(500).json({ error: 'Failed to close session' });
   }
 });
+
+/**
+ * Helper function to sync document from OneDrive (reusable)
+ */
+async function syncDocumentFromOneDrive(documentId, user, firmId) {
+  // Get document info
+  const docResult = await query(
+    `SELECT * FROM documents WHERE id = $1 AND firm_id = $2`,
+    [documentId, firmId]
+  );
+
+  if (docResult.rows.length === 0) {
+    throw new Error('Document not found');
+  }
+
+  const doc = docResult.rows[0];
+
+  if (!doc.graph_item_id) {
+    return { saved: false, reason: 'not_linked' };
+  }
+
+  // Get Microsoft integration
+  const msIntegration = await query(
+    `SELECT access_token FROM integrations 
+     WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+    [firmId]
+  );
+
+  if (msIntegration.rows.length === 0) {
+    return { saved: false, reason: 'not_connected' };
+  }
+
+  const accessToken = msIntegration.rows[0].access_token;
+
+  // Download content
+  const contentResponse = await fetch(
+    `https://graph.microsoft.com/v1.0/me/drive/items/${doc.graph_item_id}/content`,
+    {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    }
+  );
+
+  if (!contentResponse.ok) {
+    throw new Error('Failed to download from OneDrive');
+  }
+
+  const fileBuffer = Buffer.from(await contentResponse.arrayBuffer());
+  const crypto = require('crypto');
+  const contentHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+
+  // Check if content changed
+  if (doc.content_hash === contentHash) {
+    return { saved: false, reason: 'no_changes', versionNumber: doc.version };
+  }
+
+  // Extract text
+  let textContent = '';
+  try {
+    const ext = (doc.original_name || doc.name || '').toLowerCase();
+    if (ext.endsWith('.docx') || doc.type?.includes('word')) {
+      const mammoth = await import('mammoth');
+      const result = await mammoth.extractRawText({ buffer: fileBuffer });
+      textContent = result.value || '';
+    }
+  } catch (e) {
+    console.error('Text extraction failed:', e.message);
+  }
+
+  // Get next version
+  const versionResult = await query(
+    `SELECT COALESCE(MAX(version_number), 0) + 1 as next_version 
+     FROM document_versions WHERE document_id = $1`,
+    [documentId]
+  );
+  const nextVersion = versionResult.rows[0].next_version;
+
+  // Create version
+  await query(
+    `INSERT INTO document_versions (
+      document_id, firm_id, version_number, version_label,
+      content_text, content_hash, change_summary, change_type,
+      word_count, character_count, file_size, created_by, created_by_name, source
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'edit', $8, $9, $10, $11, $12, 'word_online')`,
+    [
+      documentId, firmId, nextVersion, 'Saved from Word Online',
+      textContent, contentHash, `Saved from Word Online by ${user.firstName} ${user.lastName}`,
+      textContent.split(/\s+/).filter(w => w).length,
+      textContent.length, fileBuffer.length,
+      user.id, `${user.firstName} ${user.lastName}`
+    ]
+  );
+
+  // Update document
+  await query(
+    `UPDATE documents SET 
+      version = $1, version_count = $1, content_text = $2, content_hash = $3,
+      size = $4, last_online_edit = NOW(), updated_at = NOW()
+     WHERE id = $5`,
+    [nextVersion, textContent, contentHash, fileBuffer.length, documentId]
+  );
+
+  return { saved: true, versionNumber: nextVersion };
+}
 
 // ============================================
 // SHARING ENDPOINTS
@@ -1283,6 +1657,187 @@ async function getWordOnlineUrl(graphItemId, accessToken) {
   
   return `https://office.com/edit/${graphItemId}`;
 }
+
+// ============================================
+// MICROSOFT GRAPH WEBHOOK
+// ============================================
+
+/**
+ * Microsoft Graph sends change notifications to this endpoint
+ * When a user saves a document in Word Online, Microsoft calls this
+ */
+router.post('/webhook', async (req, res) => {
+  try {
+    // Microsoft sends a validation request first
+    if (req.query.validationToken) {
+      console.log('[WEBHOOK] Validation request received');
+      res.set('Content-Type', 'text/plain');
+      return res.send(req.query.validationToken);
+    }
+
+    // Process change notifications
+    const notifications = req.body?.value || [];
+    
+    for (const notification of notifications) {
+      console.log('[WEBHOOK] Change notification:', JSON.stringify(notification));
+      
+      const resourceId = notification.resourceData?.id;
+      if (!resourceId) continue;
+
+      // Find document by graph_item_id
+      const docResult = await query(
+        `SELECT d.id, d.firm_id, d.content_hash
+         FROM documents d
+         WHERE d.graph_item_id = $1`,
+        [resourceId]
+      );
+
+      if (docResult.rows.length === 0) {
+        console.log(`[WEBHOOK] No document found for graph_item_id: ${resourceId}`);
+        continue;
+      }
+
+      const doc = docResult.rows[0];
+
+      // Get active session user for this document
+      const sessionResult = await query(
+        `SELECT ws.user_id, u.first_name, u.last_name, u.role
+         FROM word_online_sessions ws
+         JOIN users u ON ws.user_id = u.id
+         WHERE ws.document_id = $1 AND ws.status = 'active'
+         ORDER BY ws.last_activity DESC LIMIT 1`,
+        [doc.id]
+      );
+
+      if (sessionResult.rows.length === 0) {
+        console.log(`[WEBHOOK] No active session for document: ${doc.id}`);
+        continue;
+      }
+
+      const user = sessionResult.rows[0];
+
+      // Sync the document and create new version
+      try {
+        const syncResult = await syncDocumentFromOneDrive(doc.id, {
+          id: user.user_id,
+          firstName: user.first_name,
+          lastName: user.last_name,
+          role: user.role
+        }, doc.firm_id);
+
+        if (syncResult.saved) {
+          console.log(`[WEBHOOK] Created version ${syncResult.versionNumber} for document ${doc.id}`);
+        }
+      } catch (syncError) {
+        console.error(`[WEBHOOK] Sync failed for document ${doc.id}:`, syncError.message);
+      }
+    }
+
+    res.status(202).send(); // Accepted
+  } catch (error) {
+    console.error('[WEBHOOK] Error processing notification:', error);
+    res.status(500).send();
+  }
+});
+
+/**
+ * Subscribe to file change notifications for a document
+ * Called when user opens a document in Word Online
+ */
+router.post('/documents/:documentId/subscribe', authenticate, async (req, res) => {
+  try {
+    const documentId = req.params.documentId;
+
+    // Get document info
+    const docResult = await query(
+      `SELECT graph_item_id FROM documents WHERE id = $1 AND firm_id = $2`,
+      [documentId, req.user.firmId]
+    );
+
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const doc = docResult.rows[0];
+
+    if (!doc.graph_item_id) {
+      return res.json({ subscribed: false, reason: 'not_linked' });
+    }
+
+    // Get Microsoft integration
+    const msIntegration = await query(
+      `SELECT access_token FROM integrations 
+       WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+      [req.user.firmId]
+    );
+
+    if (msIntegration.rows.length === 0) {
+      return res.json({ subscribed: false, reason: 'not_connected' });
+    }
+
+    const accessToken = msIntegration.rows[0].access_token;
+    const webhookUrl = process.env.API_BASE_URL 
+      ? `${process.env.API_BASE_URL}/api/word-online/webhook`
+      : null;
+
+    if (!webhookUrl) {
+      return res.json({ 
+        subscribed: false, 
+        reason: 'webhook_url_not_configured',
+        message: 'Use polling instead (check-changes endpoint)'
+      });
+    }
+
+    // Create subscription via Microsoft Graph
+    const subscriptionResponse = await fetch(
+      'https://graph.microsoft.com/v1.0/subscriptions',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          changeType: 'updated',
+          notificationUrl: webhookUrl,
+          resource: `/me/drive/items/${doc.graph_item_id}`,
+          expirationDateTime: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(), // 4 hours
+          clientState: `apex_${req.user.firmId}_${documentId}`
+        })
+      }
+    );
+
+    if (!subscriptionResponse.ok) {
+      const errorText = await subscriptionResponse.text();
+      console.error('[SUBSCRIBE] Failed to create subscription:', errorText);
+      return res.json({ 
+        subscribed: false, 
+        reason: 'subscription_failed',
+        message: 'Use polling instead (check-changes endpoint)'
+      });
+    }
+
+    const subscription = await subscriptionResponse.json();
+
+    // Store subscription ID with the session
+    await query(
+      `UPDATE word_online_sessions SET 
+        graph_subscription_id = $1
+       WHERE document_id = $2 AND user_id = $3 AND status = 'active'`,
+      [subscription.id, documentId, req.user.id]
+    );
+
+    res.json({
+      subscribed: true,
+      subscriptionId: subscription.id,
+      expiresAt: subscription.expirationDateTime,
+      message: 'Will receive notifications when document is saved'
+    });
+  } catch (error) {
+    console.error('Subscribe error:', error);
+    res.status(500).json({ error: 'Failed to subscribe' });
+  }
+});
 
 export { checkDocumentAccess };
 export default router;

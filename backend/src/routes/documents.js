@@ -323,6 +323,219 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
   }
 });
 
+/**
+ * Apex Documents Section - Combined view for admins
+ * Returns:
+ * - For Admins: "Firm Drive" (all firm documents) + "My Documents" (their own)
+ * - For Users: Only "My Documents" (documents they have access to)
+ */
+router.get('/sections', authenticate, requirePermission('documents:view'), async (req, res) => {
+  try {
+    const { search, limit = 50 } = req.query;
+    const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
+    
+    const response = {
+      isAdmin,
+      sections: [],
+    };
+
+    // ===== MY DOCUMENTS SECTION =====
+    // Shows: documents user uploaded + owns + has explicit permission to
+    let myDocsSql = `
+      SELECT 
+        d.id, d.name, d.original_name, d.type, d.size, d.folder_path,
+        d.matter_id, m.name as matter_name,
+        d.uploaded_at, d.version, d.privacy_level,
+        CASE 
+          WHEN d.uploaded_by = $1 THEN 'uploaded'
+          WHEN d.owner_id = $1 THEN 'owned'
+          ELSE 'shared'
+        END as access_type
+      FROM documents d
+      LEFT JOIN matters m ON d.matter_id = m.id
+      WHERE d.firm_id = $2
+        AND (
+          d.uploaded_by = $1 OR d.owner_id = $1
+          OR EXISTS (
+            SELECT 1 FROM document_permissions dp
+            WHERE dp.document_id = d.id AND dp.user_id = $1 AND dp.can_view = true
+              AND (dp.expires_at IS NULL OR dp.expires_at > NOW())
+          )
+        )
+    `;
+    let myDocsParams = [req.user.id, req.user.firmId];
+    let paramIdx = 3;
+
+    if (search) {
+      myDocsSql += ` AND d.name ILIKE $${paramIdx}`;
+      myDocsParams.push(`%${search}%`);
+      paramIdx++;
+    }
+
+    myDocsSql += ` ORDER BY d.uploaded_at DESC LIMIT $${paramIdx}`;
+    myDocsParams.push(parseInt(limit));
+
+    const myDocsResult = await query(myDocsSql, myDocsParams);
+
+    // Get my documents stats
+    const myStatsResult = await query(`
+      SELECT 
+        COUNT(*) as total,
+        COALESCE(SUM(size), 0) as total_size
+      FROM documents
+      WHERE firm_id = $1 AND (uploaded_by = $2 OR owner_id = $2)
+    `, [req.user.firmId, req.user.id]);
+
+    response.sections.push({
+      id: 'my-documents',
+      title: 'My Documents',
+      description: 'Documents you\'ve uploaded, own, or have been shared with you',
+      documents: myDocsResult.rows.map(d => ({
+        id: d.id,
+        name: d.name,
+        originalName: d.original_name,
+        type: d.type,
+        size: d.size,
+        folderPath: d.folder_path,
+        matterId: d.matter_id,
+        matterName: d.matter_name,
+        uploadedAt: d.uploaded_at,
+        version: d.version,
+        privacyLevel: d.privacy_level,
+        accessType: d.access_type,
+      })),
+      stats: {
+        total: parseInt(myStatsResult.rows[0]?.total) || 0,
+        totalSize: parseInt(myStatsResult.rows[0]?.total_size) || 0,
+      },
+      canUpload: true,
+    });
+
+    // ===== FIRM DRIVE SECTION (Admins only) =====
+    if (isAdmin) {
+      let firmDocsSql = `
+        SELECT 
+          d.id, d.name, d.original_name, d.type, d.size, d.folder_path,
+          d.matter_id, m.name as matter_name,
+          d.uploaded_at, d.version, d.privacy_level,
+          u.first_name || ' ' || u.last_name as uploaded_by_name
+        FROM documents d
+        LEFT JOIN matters m ON d.matter_id = m.id
+        LEFT JOIN users u ON d.uploaded_by = u.id
+        WHERE d.firm_id = $1
+      `;
+      let firmDocsParams = [req.user.firmId];
+      let firmParamIdx = 2;
+
+      if (search) {
+        firmDocsSql += ` AND d.name ILIKE $${firmParamIdx}`;
+        firmDocsParams.push(`%${search}%`);
+        firmParamIdx++;
+      }
+
+      firmDocsSql += ` ORDER BY d.uploaded_at DESC LIMIT $${firmParamIdx}`;
+      firmDocsParams.push(parseInt(limit));
+
+      const firmDocsResult = await query(firmDocsSql, firmDocsParams);
+
+      // Get firm-wide stats
+      const firmStatsResult = await query(`
+        SELECT 
+          COUNT(*) as total,
+          COALESCE(SUM(size), 0) as total_size,
+          COUNT(DISTINCT uploaded_by) as unique_uploaders,
+          COUNT(DISTINCT matter_id) as matters_with_docs
+        FROM documents
+        WHERE firm_id = $1
+      `, [req.user.firmId]);
+
+      response.sections.unshift({
+        id: 'firm-drive',
+        title: 'Firm Drive',
+        description: 'All documents across the firm',
+        documents: firmDocsResult.rows.map(d => ({
+          id: d.id,
+          name: d.name,
+          originalName: d.original_name,
+          type: d.type,
+          size: d.size,
+          folderPath: d.folder_path,
+          matterId: d.matter_id,
+          matterName: d.matter_name,
+          uploadedAt: d.uploaded_at,
+          version: d.version,
+          privacyLevel: d.privacy_level,
+          uploadedByName: d.uploaded_by_name,
+        })),
+        stats: {
+          total: parseInt(firmStatsResult.rows[0]?.total) || 0,
+          totalSize: parseInt(firmStatsResult.rows[0]?.total_size) || 0,
+          uniqueUploaders: parseInt(firmStatsResult.rows[0]?.unique_uploaders) || 0,
+          mattersWithDocs: parseInt(firmStatsResult.rows[0]?.matters_with_docs) || 0,
+        },
+        canUpload: true,
+        canManage: true,
+        driveLink: '/drive/browse', // Link to full drive browser
+      });
+    }
+
+    // ===== MATTER DOCUMENTS (for non-admins) =====
+    // Users can see documents from matters they have access to
+    if (!isAdmin) {
+      const matterDocsSql = `
+        SELECT 
+          d.id, d.name, d.original_name, d.type, d.size, d.folder_path,
+          d.matter_id, m.name as matter_name,
+          d.uploaded_at, d.version, d.privacy_level
+        FROM documents d
+        JOIN matters m ON d.matter_id = m.id
+        WHERE d.firm_id = $1
+          AND d.uploaded_by != $2 AND d.owner_id != $2
+          AND (
+            m.visibility = 'firm_wide'
+            OR m.responsible_attorney = $2
+            OR m.originating_attorney = $2
+            OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+            OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
+          )
+        ORDER BY d.uploaded_at DESC
+        LIMIT $3
+      `;
+      const matterDocsResult = await query(matterDocsSql, [req.user.firmId, req.user.id, parseInt(limit)]);
+
+      if (matterDocsResult.rows.length > 0) {
+        response.sections.push({
+          id: 'matter-documents',
+          title: 'Matter Documents',
+          description: 'Documents from matters you\'re assigned to',
+          documents: matterDocsResult.rows.map(d => ({
+            id: d.id,
+            name: d.name,
+            originalName: d.original_name,
+            type: d.type,
+            size: d.size,
+            folderPath: d.folder_path,
+            matterId: d.matter_id,
+            matterName: d.matter_name,
+            uploadedAt: d.uploaded_at,
+            version: d.version,
+            privacyLevel: d.privacy_level,
+          })),
+          stats: {
+            total: matterDocsResult.rows.length,
+          },
+          canUpload: false, // They can upload through the matter page
+        });
+      }
+    }
+
+    res.json(response);
+  } catch (error) {
+    console.error('Get document sections error:', error);
+    res.status(500).json({ error: 'Failed to get document sections' });
+  }
+});
+
 // Helper function to extract text from a file
 async function extractTextFromFile(filePath, originalName, mimeType = null) {
   const ext = path.extname(originalName).toLowerCase();
@@ -417,12 +630,17 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
       // Don't fail the request - local upload still succeeded
     }
 
+    // Determine privacy level based on matter association (Clio-style)
+    // - Documents in matters inherit 'team' privacy (matter team can access)
+    // - Standalone documents default to 'private' (only uploader + admins)
+    const privacyLevel = matterId ? 'team' : 'private';
+
     const result = await query(
       `INSERT INTO documents (
         firm_id, matter_id, client_id, name, original_name, type, size, path,
         tags, is_confidential, status, uploaded_by, content_text, content_extracted_at,
-        folder_path, external_path
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        folder_path, external_path, owner_id, privacy_level
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       RETURNING *`,
       [
         req.user.firmId, matterId || null, clientId || null,
@@ -432,11 +650,51 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
         isConfidential === 'true' || isConfidential === true,
         status, req.user.id,
         contentText, contentText ? new Date() : null,
-        folderPath, azureResult ? azureResult.path : null
+        folderPath, azureResult ? azureResult.path : null,
+        req.user.id, // owner_id - uploader automatically owns the document
+        privacyLevel
       ]
     );
 
     const d = result.rows[0];
+
+    // Auto-create permission for uploader (Clio-style - uploader has full access)
+    try {
+      await query(
+        `INSERT INTO document_permissions (
+          document_id, firm_id, user_id, permission_level,
+          can_view, can_download, can_edit, can_delete, can_share, can_manage_permissions,
+          created_by
+        ) VALUES ($1, $2, $3, 'full', true, true, true, true, true, true, $3)
+        ON CONFLICT DO NOTHING`,
+        [d.id, req.user.firmId, req.user.id]
+      );
+    } catch (permError) {
+      console.log('[UPLOAD] Permission auto-create skipped (may already exist)');
+    }
+
+    // Create initial version record
+    try {
+      const contentHash = contentText 
+        ? require('crypto').createHash('sha256').update(contentText).digest('hex')
+        : null;
+      await query(
+        `INSERT INTO document_versions (
+          document_id, firm_id, version_number, version_label,
+          content_text, content_hash, change_summary, change_type,
+          word_count, character_count, file_size, created_by, created_by_name, source
+        ) VALUES ($1, $2, 1, 'Initial upload', $3, $4, 'Document uploaded', 'upload', $5, $6, $7, $8, $9, 'apex')`,
+        [
+          d.id, req.user.firmId, contentText, contentHash,
+          contentText ? contentText.split(/\s+/).filter(w => w).length : 0,
+          contentText ? contentText.length : 0,
+          req.file.size, req.user.id,
+          `${req.user.firstName} ${req.user.lastName}`
+        ]
+      );
+    } catch (versionError) {
+      console.log('[UPLOAD] Initial version creation skipped:', versionError.message);
+    }
 
     // Log action
     await query(
@@ -446,7 +704,9 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
         name: d.name, 
         size: d.size, 
         textExtracted: !!contentText,
-        azureUploaded: !!azureResult 
+        azureUploaded: !!azureResult,
+        ownerId: req.user.id,
+        privacyLevel
       })]
     );
 
