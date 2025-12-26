@@ -3609,30 +3609,57 @@ Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
                       </div>
 
                       {/* Azure Storage (Apex Drive) */}
-                      <div className={styles.card} style={{ borderColor: '#0078d4', borderWidth: '2px' }}>
-                        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                          <span style={{ fontSize: '1.5rem' }}>☁️</span> Azure Storage (Apex Drive)
-                        </h3>
+                      <div className={styles.card} style={{ 
+                        borderColor: integrationSettings.azure_storage_account_name?.isConfigured && integrationSettings.azure_storage_account_key?.isConfigured ? '#10b981' : '#0078d4', 
+                        borderWidth: '2px',
+                        background: integrationSettings.azure_storage_account_name?.isConfigured && integrationSettings.azure_storage_account_key?.isConfigured ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(30, 41, 59, 1) 100%)' : undefined
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                          <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+                            <span style={{ fontSize: '1.5rem' }}>☁️</span> Azure Storage (Apex Drive)
+                          </h3>
+                          {integrationSettings.azure_storage_account_name?.isConfigured && integrationSettings.azure_storage_account_key?.isConfigured && (
+                            <span style={{ 
+                              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', 
+                              color: 'white', 
+                              padding: '0.25rem 0.75rem', 
+                              borderRadius: '9999px', 
+                              fontSize: '0.75rem', 
+                              fontWeight: '600',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.25rem'
+                            }}>
+                              ✓ Configured
+                            </span>
+                          )}
+                        </div>
                         <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: '1rem' }}>
                           Document storage for all firms. <a href="https://portal.azure.com/#browse/Microsoft.Storage%2FStorageAccounts" target="_blank" rel="noopener noreferrer" style={{ color: '#d4af37' }}>Create Storage Account in Azure →</a>
                         </p>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                           <div className={styles.formGroup}>
-                            <label>Storage Account Name</label>
-                            <input type="text" value={integrationSettings.azure_storage_account_name?.value || ''} onChange={(e) => updateIntegrationSetting('azure_storage_account_name', e.target.value)} placeholder="mystorageaccount" />
+                            <label>Storage Account Name {integrationSettings.azure_storage_account_name?.isConfigured && <span style={{ color: '#10b981' }}>✓</span>}</label>
+                            <input type="text" value={integrationSettings.azure_storage_account_name?.value || ''} onChange={(e) => updateIntegrationSetting('azure_storage_account_name', e.target.value)} placeholder="mystorageaccount" style={integrationSettings.azure_storage_account_name?.isConfigured ? { borderColor: '#10b981' } : undefined} />
                           </div>
                           <div className={styles.formGroup}>
-                            <label>Storage Account Key</label>
-                            <input type="password" value={integrationSettings.azure_storage_account_key?.value || ''} onChange={(e) => updateIntegrationSetting('azure_storage_account_key', e.target.value)} placeholder={integrationSettings.azure_storage_account_key?.isConfigured ? '••••••••' : 'Enter Key'} />
+                            <label>Storage Account Key {integrationSettings.azure_storage_account_key?.isConfigured && <span style={{ color: '#10b981' }}>✓</span>}</label>
+                            <input type="password" value={integrationSettings.azure_storage_account_key?.value || ''} onChange={(e) => updateIntegrationSetting('azure_storage_account_key', e.target.value)} placeholder={integrationSettings.azure_storage_account_key?.isConfigured ? '••••••••' : 'Enter Key'} style={integrationSettings.azure_storage_account_key?.isConfigured ? { borderColor: '#10b981' } : undefined} />
                           </div>
                           <div className={styles.formGroup}>
-                            <label>File Share Name</label>
-                            <input type="text" value={integrationSettings.azure_file_share_name?.value || ''} onChange={(e) => updateIntegrationSetting('azure_file_share_name', e.target.value)} placeholder="apexdrive" />
+                            <label>File Share Name {integrationSettings.azure_file_share_name?.isConfigured && <span style={{ color: '#10b981' }}>✓</span>}</label>
+                            <input type="text" value={integrationSettings.azure_file_share_name?.value || ''} onChange={(e) => updateIntegrationSetting('azure_file_share_name', e.target.value)} placeholder="apexdrive" style={integrationSettings.azure_file_share_name?.isConfigured ? { borderColor: '#10b981' } : undefined} />
                           </div>
                         </div>
-                        <p style={{ color: '#64748b', fontSize: '0.75rem', marginTop: '1rem' }}>
-                          After saving, firm admins can enable Apex Drive from their Settings. Documents will be stored in this Azure File Share.
-                        </p>
+                        {integrationSettings.azure_storage_account_name?.isConfigured && integrationSettings.azure_storage_account_key?.isConfigured ? (
+                          <p style={{ color: '#10b981', fontSize: '0.75rem', marginTop: '1rem', fontWeight: '500' }}>
+                            ✓ Azure Storage is configured and ready. Firm admins can now enable Apex Drive from their Settings.
+                          </p>
+                        ) : (
+                          <p style={{ color: '#64748b', fontSize: '0.75rem', marginTop: '1rem' }}>
+                            After saving, firm admins can enable Apex Drive from their Settings. Documents will be stored in this Azure File Share.
+                          </p>
+                        )}
                       </div>
 
                       {/* Save Button */}
