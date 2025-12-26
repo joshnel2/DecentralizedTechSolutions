@@ -2284,11 +2284,12 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
       includeMatters = true, 
       includeActivities = true, 
       includeBills = true, 
-      includeCalendar = true 
+      includeCalendar = true,
+      includeDocuments = true 
     } = req.body;
     
     console.log('[CLIO IMPORT] Starting import for connection:', connectionId, 'firmName:', firmName);
-    console.log('[CLIO IMPORT] Include options:', { includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar });
+    console.log('[CLIO IMPORT] Include options:', { includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar, includeDocuments });
     
     if (!connectionId) {
       console.error('[CLIO IMPORT] No connection ID provided');
@@ -2312,7 +2313,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
     }
     
     // Store options for background process
-    const importOptions = { existingFirmId, includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar };
+    const importOptions = { existingFirmId, includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar, includeDocuments };
     
     // Initialize progress
     migrationProgress.set(connectionId, {
@@ -2326,7 +2327,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         matters: { status: 'pending', count: 0 },
         activities: { status: 'pending', count: 0 },
         bills: { status: 'pending', count: 0 },
-        calendar: { status: 'pending', count: 0 }
+        calendar: { status: 'pending', count: 0 },
+        documents: { status: 'pending', count: 0 }
       }
     });
     
@@ -2348,7 +2350,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           matters: [],
           activities: [],
           calendar_entries: [],
-          bills: []
+          bills: [],
+          documents: []
         };
         
         const updateProgress = (step, status, count, errorMsg = null) => {
@@ -2570,10 +2573,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         
         // 6. Import Calendar Entries
         if (!includeCalendar) {
-          console.log('[CLIO IMPORT] Step 6/6: SKIPPING calendar (user requested)');
+          console.log('[CLIO IMPORT] Step 6/7: SKIPPING calendar (user requested)');
           updateProgress('calendar', 'skipped', 0);
         } else {
-          console.log('[CLIO IMPORT] Step 6/6: Importing calendar entries...');
+          console.log('[CLIO IMPORT] Step 6/7: Importing calendar entries...');
           updateProgress('calendar', 'running', 0);
           try {
             const events = await clioGetAll(accessToken, '/calendar_entries.json', {
@@ -2599,6 +2602,40 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           }
         }
         
+        // 7. Import Documents (from Clio Drive)
+        if (!includeDocuments) {
+          console.log('[CLIO IMPORT] Step 7/7: SKIPPING documents (user requested)');
+          updateProgress('documents', 'skipped', 0);
+        } else {
+          console.log('[CLIO IMPORT] Step 7/7: Importing documents...');
+          updateProgress('documents', 'running', 0);
+          try {
+            // Get all documents from Clio
+            // Clio documents are linked to matters
+            const documents = await clioGetAll(accessToken, '/documents.json', {
+              fields: 'id,name,created_at,updated_at,content_type,size,matter,document_category,parent,latest_document_version'
+            }, (count) => updateProgress('documents', 'running', count));
+            
+            result.documents = documents.map(d => ({
+              clio_id: d.id,
+              name: d.name || 'Untitled Document',
+              created_at: d.created_at,
+              updated_at: d.updated_at,
+              content_type: d.content_type || 'application/octet-stream',
+              size: d.size || 0,
+              matter: d.matter ? { clio_id: d.matter.id, display_number: d.matter.display_number } : null,
+              category: d.document_category?.name || null,
+              parent_folder: d.parent ? { clio_id: d.parent.id, name: d.parent.name } : null,
+              latest_version_id: d.latest_document_version?.id || null
+            }));
+            updateProgress('documents', 'done', result.documents.length);
+            console.log(`[CLIO IMPORT] Documents complete: ${result.documents.length} records`);
+          } catch (err) {
+            console.error('[CLIO IMPORT] Documents import error:', err.message);
+            updateProgress('documents', 'error', 0, err.message);
+          }
+        }
+        
         // Store final result
         console.log('[CLIO IMPORT] All steps complete, storing results...');
         const prog = migrationProgress.get(connectionId);
@@ -2613,7 +2650,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             matters: result.matters.length,
             activities: result.activities.length,
             bills: result.bills.length,
-            calendar_entries: result.calendar_entries.length
+            calendar_entries: result.calendar_entries.length,
+            documents: result.documents.length
           };
           console.log('[CLIO IMPORT] ✓ Import completed successfully:', prog.summary);
         } else {
