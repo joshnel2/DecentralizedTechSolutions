@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS drive_configurations (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     created_by UUID REFERENCES users(id),
     
-    CONSTRAINT valid_drive_type CHECK (drive_type IN ('local', 'network', 'onedrive', 'google_drive', 'dropbox', 'sharepoint', 'box', 's3')),
+    CONSTRAINT valid_drive_type CHECK (drive_type IN ('local', 'network', 'onedrive', 'google_drive', 'dropbox', 'sharepoint', 'box', 's3', 'azure_files')),
     CONSTRAINT valid_sync_direction CHECK (sync_direction IN ('bidirectional', 'to_apex', 'from_apex')),
     CONSTRAINT valid_conflict_resolution CHECK (conflict_resolution IN ('ask_user', 'keep_both', 'newest_wins', 'apex_wins', 'external_wins')),
     CONSTRAINT valid_status CHECK (status IN ('active', 'disconnected', 'error', 'syncing', 'pending_auth'))

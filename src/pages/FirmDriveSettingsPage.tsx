@@ -32,6 +32,7 @@ interface DriveConfiguration {
 }
 
 const DRIVE_TYPES = [
+  { value: 'azure_files', label: 'Azure File Share', icon: Cloud, description: 'Your branded cloud drive (recommended)' },
   { value: 'local', label: 'Local/Network Path', icon: HardDrive, description: 'Link to folders on your computer or network drive' },
   { value: 'onedrive', label: 'OneDrive', icon: Cloud, description: 'Microsoft OneDrive for Business' },
   { value: 'google_drive', label: 'Google Drive', icon: Cloud, description: 'Google Drive cloud storage' },
@@ -474,6 +475,7 @@ export function FirmDriveSettingsPage() {
                   value={formData.rootPath}
                   onChange={e => setFormData({ ...formData, rootPath: e.target.value })}
                   placeholder={
+                    formData.driveType === 'azure_files' ? '\\\\yourstorage.file.core.windows.net\\firmshare' :
                     formData.driveType === 'local' ? 'C:\\Documents\\LegalFiles or /Users/name/Documents' :
                     formData.driveType === 'network' ? '\\\\server\\share\\legal' :
                     formData.driveType === 'onedrive' ? 'https://onedrive.live.com/...' :
