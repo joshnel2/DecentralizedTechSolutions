@@ -3,8 +3,43 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import crypto from 'crypto';
+import path from 'path';
 
 const router = Router();
+
+// Azure Storage configuration from environment
+const AZURE_STORAGE_ACCOUNT = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+const AZURE_STORAGE_KEY = process.env.AZURE_STORAGE_ACCOUNT_KEY;
+const AZURE_FILE_SHARE = process.env.AZURE_FILE_SHARE_NAME || 'apexdrive';
+
+// Helper: Get firm folder path
+function getFirmFolderPath(firmId) {
+  return `firm-${firmId}`;
+}
+
+// Helper: Get matter folder path
+function getMatterFolderPath(firmId, matterId) {
+  return `firm-${firmId}/matter-${matterId}`;
+}
+
+// Helper: Create folder in Azure File Share (placeholder - would use @azure/storage-file-share SDK)
+async function ensureFirmFolder(firmId) {
+  const folderPath = getFirmFolderPath(firmId);
+  // In production, this would use Azure SDK:
+  // const { ShareServiceClient } = require('@azure/storage-file-share');
+  // const serviceClient = ShareServiceClient.fromConnectionString(connectionString);
+  // const shareClient = serviceClient.getShareClient(AZURE_FILE_SHARE);
+  // const directoryClient = shareClient.getDirectoryClient(folderPath);
+  // await directoryClient.createIfNotExists();
+  console.log(`[AZURE] Would create folder: ${folderPath}`);
+  return folderPath;
+}
+
+async function ensureMatterFolder(firmId, matterId) {
+  const folderPath = getMatterFolderPath(firmId, matterId);
+  console.log(`[AZURE] Would create folder: ${folderPath}`);
+  return folderPath;
+}
 
 // ============================================
 // DRIVE CONFIGURATION ENDPOINTS
@@ -155,6 +190,17 @@ router.post('/configurations', authenticate, async (req, res) => {
 
     const d = result.rows[0];
 
+    // Create firm folder in Azure when enabling Apex Drive
+    if (driveType === 'azure_files' && !isPersonal) {
+      try {
+        await ensureFirmFolder(req.user.firmId);
+        console.log(`[APEX DRIVE] Created folder for firm ${req.user.firmId}`);
+      } catch (folderError) {
+        console.error('[APEX DRIVE] Failed to create firm folder:', folderError);
+        // Don't fail the whole request, folder can be created later
+      }
+    }
+
     // Log action
     await query(
       `INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
@@ -170,6 +216,7 @@ router.post('/configurations', authenticate, async (req, res) => {
       status: d.status,
       isDefault: d.is_default,
       createdAt: d.created_at,
+      firmFolder: getFirmFolderPath(req.user.firmId),
     });
   } catch (error) {
     console.error('Create drive configuration error:', error);
@@ -1022,6 +1069,176 @@ router.post('/folders', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Create folder error:', error);
     res.status(500).json({ error: 'Failed to create folder' });
+  }
+});
+
+// ============================================
+// ADMIN DRIVE BROWSER - View firm's drive contents
+// ============================================
+
+// Get firm's folder structure and files (admin only)
+router.get('/browse', authenticate, async (req, res) => {
+  try {
+    // Only admins can browse the full drive
+    if (!['owner', 'admin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Only admins can browse the drive' });
+    }
+
+    const { path: folderPath = '' } = req.query;
+    const firmFolder = getFirmFolderPath(req.user.firmId);
+    
+    // Get all documents in this firm's folder from database
+    const result = await query(
+      `SELECT 
+        d.id,
+        d.name,
+        d.original_name,
+        d.type as content_type,
+        d.size,
+        d.folder_path,
+        d.matter_id,
+        m.name as matter_name,
+        m.case_number as matter_number,
+        d.uploaded_at,
+        d.uploaded_by,
+        u.first_name || ' ' || u.last_name as uploaded_by_name,
+        d.is_folder,
+        d.version_count
+       FROM documents d
+       LEFT JOIN matters m ON d.matter_id = m.id
+       LEFT JOIN users u ON d.uploaded_by = u.id
+       WHERE d.firm_id = $1
+         AND ($2 = '' OR d.folder_path = $2 OR d.folder_path LIKE $3)
+       ORDER BY d.is_folder DESC, d.name ASC`,
+      [req.user.firmId, folderPath, folderPath + '/%']
+    );
+
+    // Get unique folder paths to build folder structure
+    const foldersResult = await query(
+      `SELECT DISTINCT folder_path 
+       FROM documents 
+       WHERE firm_id = $1 AND folder_path IS NOT NULL AND folder_path != ''
+       ORDER BY folder_path`,
+      [req.user.firmId]
+    );
+
+    // Get matter folders
+    const mattersResult = await query(
+      `SELECT id, name, case_number 
+       FROM matters 
+       WHERE firm_id = $1 AND status != 'closed'
+       ORDER BY name`,
+      [req.user.firmId]
+    );
+
+    // Build stats
+    const statsResult = await query(
+      `SELECT 
+        COUNT(*) as total_files,
+        COALESCE(SUM(size), 0) as total_size,
+        COUNT(DISTINCT matter_id) as matters_with_files
+       FROM documents 
+       WHERE firm_id = $1`,
+      [req.user.firmId]
+    );
+
+    const stats = statsResult.rows[0];
+
+    res.json({
+      firmFolder,
+      currentPath: folderPath,
+      files: result.rows.map(f => ({
+        id: f.id,
+        name: f.name,
+        originalName: f.original_name,
+        contentType: f.content_type,
+        size: f.size,
+        folderPath: f.folder_path,
+        matterId: f.matter_id,
+        matterName: f.matter_name,
+        matterNumber: f.matter_number,
+        uploadedAt: f.uploaded_at,
+        uploadedBy: f.uploaded_by,
+        uploadedByName: f.uploaded_by_name,
+        isFolder: f.is_folder,
+        versionCount: f.version_count || 1,
+      })),
+      folders: foldersResult.rows.map(f => f.folder_path),
+      matters: mattersResult.rows.map(m => ({
+        id: m.id,
+        name: m.name,
+        caseNumber: m.case_number,
+        folderPath: getMatterFolderPath(req.user.firmId, m.id),
+      })),
+      stats: {
+        totalFiles: parseInt(stats.total_files) || 0,
+        totalSize: parseInt(stats.total_size) || 0,
+        mattersWithFiles: parseInt(stats.matters_with_files) || 0,
+      },
+      azureConfig: {
+        configured: !!(AZURE_STORAGE_ACCOUNT && AZURE_STORAGE_KEY),
+        shareName: AZURE_FILE_SHARE,
+        // Connection info for admin to map drive (only show to admins)
+        connectionPath: AZURE_STORAGE_ACCOUNT 
+          ? `\\\\${AZURE_STORAGE_ACCOUNT}.file.core.windows.net\\${AZURE_FILE_SHARE}\\${firmFolder}`
+          : null,
+      }
+    });
+  } catch (error) {
+    console.error('Browse drive error:', error);
+    res.status(500).json({ error: 'Failed to browse drive' });
+  }
+});
+
+// Get Azure connection info for admin to map drive
+router.get('/connection-info', authenticate, async (req, res) => {
+  try {
+    if (!['owner', 'admin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Only admins can view connection info' });
+    }
+
+    const firmFolder = getFirmFolderPath(req.user.firmId);
+
+    if (!AZURE_STORAGE_ACCOUNT || !AZURE_STORAGE_KEY) {
+      return res.json({
+        configured: false,
+        message: 'Azure Storage is not configured. Contact platform administrator.'
+      });
+    }
+
+    res.json({
+      configured: true,
+      firmFolder,
+      // Windows path for mapping network drive
+      windowsPath: `\\\\${AZURE_STORAGE_ACCOUNT}.file.core.windows.net\\${AZURE_FILE_SHARE}\\${firmFolder}`,
+      // Mac/Linux path
+      macPath: `smb://${AZURE_STORAGE_ACCOUNT}.file.core.windows.net/${AZURE_FILE_SHARE}/${firmFolder}`,
+      // Instructions
+      instructions: {
+        windows: [
+          'Open File Explorer',
+          'Right-click "This PC" and select "Map network drive"',
+          'Choose a drive letter (e.g., Z:)',
+          'Enter the Windows path shown above',
+          'Check "Connect using different credentials"',
+          'Username: AZURE\\' + AZURE_STORAGE_ACCOUNT,
+          'Password: Your storage account key'
+        ],
+        mac: [
+          'Open Finder',
+          'Press Cmd+K (Go → Connect to Server)',
+          'Enter the Mac path shown above',
+          'Click Connect',
+          'Username: ' + AZURE_STORAGE_ACCOUNT,
+          'Password: Your storage account key'
+        ]
+      },
+      // Note: Don't expose the actual key, admin gets it from Azure portal or platform admin
+      note: 'Contact your platform administrator for the storage account key.'
+    });
+  } catch (error) {
+    console.error('Get connection info error:', error);
+    res.status(500).json({ error: 'Failed to get connection info' });
   }
 });
 

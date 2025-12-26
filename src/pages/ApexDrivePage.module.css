@@ -510,6 +510,150 @@
   background: #1d4ed8;
 }
 
+/* Admin Section */
+.adminSection {
+  background: white;
+  border: 2px solid #f59e0b;
+  border-radius: 12px;
+  padding: 20px 24px;
+}
+
+.adminHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.adminHeader svg {
+  color: #f59e0b;
+}
+
+.adminHeader h3 {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
+
+.toggleBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #92400e;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toggleBtn:hover {
+  background: #fde68a;
+}
+
+.connectionInfo {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #fcd34d;
+}
+
+.connectionNote {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0 0 20px;
+}
+
+.pathBox {
+  margin-bottom: 16px;
+}
+
+.pathBox label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.pathRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.pathRow code {
+  flex: 1;
+  padding: 10px 14px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: monospace;
+  color: #111827;
+  overflow-x: auto;
+}
+
+.pathRow button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: #111827;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  color: white;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.pathRow button:hover {
+  background: #374151;
+}
+
+.instructions {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.instructions h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin: 0 0 10px;
+}
+
+.instructions ol {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.8;
+}
+
+.keyNote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 12px;
+  background: #fef3c7;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #92400e;
+}
+
+.keyNote svg {
+  flex-shrink: 0;
+}
+
 @media (max-width: 768px) {
   .featureGrid {
     grid-template-columns: 1fr;

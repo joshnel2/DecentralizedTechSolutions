@@ -1443,6 +1443,17 @@ export const driveApi = {
       body: JSON.stringify({ name, parentPath, driveId }),
     });
   },
+
+  // Admin: Browse firm's drive contents
+  async browseDrive(folderPath?: string) {
+    const params = folderPath ? `?path=${encodeURIComponent(folderPath)}` : '';
+    return fetchWithAuth(`/drive/browse${params}`);
+  },
+
+  // Admin: Get connection info for mapping drive
+  async getConnectionInfo() {
+    return fetchWithAuth('/drive/connection-info');
+  },
 };
 
 // ============================================

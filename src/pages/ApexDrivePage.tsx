@@ -4,7 +4,7 @@ import {
   ArrowLeft, HardDrive, Check, X, RefreshCw, 
   AlertCircle, Loader2, FileText, Users, Lock,
   History, GitCompare, Download, Cloud, CheckCircle2,
-  Monitor, Smartphone, Globe
+  Monitor, Smartphone, Globe, FolderOpen, Copy, Eye
 } from 'lucide-react'
 import { driveApi } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
@@ -27,6 +27,17 @@ export function ApexDrivePage() {
     lastSync: null as string | null,
   })
 
+  // Admin: Connection info and drive browser
+  const [connectionInfo, setConnectionInfo] = useState<{
+    configured: boolean
+    windowsPath?: string
+    macPath?: string
+    firmFolder?: string
+    instructions?: { windows: string[]; mac: string[] }
+  } | null>(null)
+  const [showConnectionInfo, setShowConnectionInfo] = useState(false)
+  const [copiedPath, setCopiedPath] = useState(false)
+
   useEffect(() => {
     checkStatus()
   }, [])
@@ -43,12 +54,31 @@ export function ApexDrivePage() {
           userCount: firmDrive.userCount || 0,
           lastSync: firmDrive.lastSyncAt,
         })
+        // Load connection info for admins
+        if (isAdmin) {
+          loadConnectionInfo()
+        }
       }
     } catch (error) {
       console.error('Failed to check status:', error)
     } finally {
       setLoading(false)
     }
+  }
+
+  const loadConnectionInfo = async () => {
+    try {
+      const info = await driveApi.getConnectionInfo()
+      setConnectionInfo(info)
+    } catch (error) {
+      console.error('Failed to load connection info:', error)
+    }
+  }
+
+  const copyPath = (path: string) => {
+    navigator.clipboard.writeText(path)
+    setCopiedPath(true)
+    setTimeout(() => setCopiedPath(false), 2000)
   }
 
   const enableApexDrive = async () => {
@@ -248,6 +278,67 @@ export function ApexDrivePage() {
                 </div>
               </div>
             </div>
+
+            {/* Admin: Drive Connection Info */}
+            {isAdmin && connectionInfo?.configured && (
+              <div className={styles.adminSection}>
+                <div className={styles.adminHeader}>
+                  <FolderOpen size={20} />
+                  <h3>Admin: Map Your Drive</h3>
+                  <button 
+                    className={styles.toggleBtn}
+                    onClick={() => setShowConnectionInfo(!showConnectionInfo)}
+                  >
+                    <Eye size={16} />
+                    {showConnectionInfo ? 'Hide' : 'Show'} Connection Info
+                  </button>
+                </div>
+                
+                {showConnectionInfo && (
+                  <div className={styles.connectionInfo}>
+                    <p className={styles.connectionNote}>
+                      Map this drive on your computer to drag files from Clio Drive. Users access documents through the web app.
+                    </p>
+                    
+                    <div className={styles.pathBox}>
+                      <label>Windows Path:</label>
+                      <div className={styles.pathRow}>
+                        <code>{connectionInfo.windowsPath}</code>
+                        <button onClick={() => copyPath(connectionInfo.windowsPath || '')}>
+                          <Copy size={14} />
+                          {copiedPath ? 'Copied!' : 'Copy'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className={styles.pathBox}>
+                      <label>Mac Path:</label>
+                      <div className={styles.pathRow}>
+                        <code>{connectionInfo.macPath}</code>
+                        <button onClick={() => copyPath(connectionInfo.macPath || '')}>
+                          <Copy size={14} />
+                          {copiedPath ? 'Copied!' : 'Copy'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className={styles.instructions}>
+                      <h4>Windows Instructions:</h4>
+                      <ol>
+                        {connectionInfo.instructions?.windows.map((step, i) => (
+                          <li key={i}>{step}</li>
+                        ))}
+                      </ol>
+                    </div>
+
+                    <p className={styles.keyNote}>
+                      <AlertCircle size={14} />
+                      Get the storage account key from your platform administrator or Azure Portal.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Access Options */}
             <div className={styles.accessSection}>
