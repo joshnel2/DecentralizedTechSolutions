@@ -55,14 +55,14 @@ const integrationConfigs: IntegrationConfig[] = [
     syncOptions: { calendar: true }
   },
   { 
-    id: 'outlook-calendar', 
-    name: 'Microsoft Outlook', 
-    description: 'Connect your Outlook calendar and email. Sign in with your Microsoft account.', 
+    id: 'microsoft-365', 
+    name: 'Microsoft 365', 
+    description: 'Connect once for Outlook email, calendar, and Word Online document editing. One sign-in covers everything.', 
     category: 'calendar', 
-    icon: '📆', 
+    icon: '🔷', 
     provider: 'outlook',
-    features: ['Calendar sync', 'Email access', 'Microsoft 365'],
-    syncOptions: { calendar: true }
+    features: ['Outlook Email', 'Calendar Sync', 'Word Online Editing', 'Excel & PowerPoint'],
+    syncOptions: { calendar: true, documents: true }
   },
   
   // Accounting - Real integrations
@@ -77,35 +77,15 @@ const integrationConfigs: IntegrationConfig[] = [
     syncOptions: { billing: true }
   },
   
-  // Cloud Storage - Featured: Apex Drive with Microsoft 365
+  // Cloud Storage - Apex Drive
   { 
     id: 'apex-drive', 
-    name: 'Apex Drive (Microsoft 365)', 
-    description: 'Your firm\'s virtual drive with Word Online co-editing, version history, and auto-sync. The recommended way to manage documents.', 
+    name: 'Apex Drive', 
+    description: 'Your firm\'s document storage with version history and auto-sync. Connect Microsoft 365 above for Word Online editing.', 
     category: 'storage', 
     icon: '🚀',
     provider: 'apex-drive',
-    features: ['Word Online editing', 'Real-time co-authoring', 'Version history', 'Auto-sync'],
-    syncOptions: { documents: true }
-  },
-  { 
-    id: 'azure-files', 
-    name: 'Azure File Share', 
-    description: 'Connect your Azure File Share for firm-wide document storage. Mount as a network drive on Windows.', 
-    category: 'storage', 
-    icon: '🔷',
-    provider: 'azure-files',
-    features: ['Network drive', 'Windows mount', 'Enterprise storage'],
-    syncOptions: { documents: true }
-  },
-  { 
-    id: 'onedrive', 
-    name: 'OneDrive', 
-    description: 'Store and sync documents with Microsoft OneDrive. Includes Word, Excel, PowerPoint.', 
-    category: 'storage', 
-    icon: '☁️',
-    provider: 'onedrive',
-    features: ['Document storage', 'Word/Excel/PPT', 'Version control'],
+    features: ['Document storage', 'Version history', 'Auto-sync', 'Network drive access'],
     syncOptions: { documents: true }
   },
   { 
@@ -201,7 +181,6 @@ export function IntegrationsPage() {
     google: null,
     quickbooks: null,
     outlook: null,
-    onedrive: null,
     googledrive: null,
     dropbox: null,
     docusign: null,
@@ -209,7 +188,6 @@ export function IntegrationsPage() {
     zoom: null,
     quicken: null,
     'apex-drive': null,
-    'azure-files': null,
   })
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [connecting, setConnecting] = useState<string | null>(null)
@@ -273,9 +251,6 @@ export function IntegrationsPage() {
         case 'outlook':
           response = await integrationsApi.connectOutlook()
           break
-        case 'onedrive':
-          response = await integrationsApi.connectOneDrive()
-          break
         case 'googledrive':
           response = await integrationsApi.connectGoogleDrive()
           break
@@ -302,11 +277,6 @@ export function IntegrationsPage() {
         case 'apex-drive':
           // Apex Drive - navigate to drive settings
           navigate('/app/settings/drives')
-          setConnecting(null)
-          return
-        case 'azure-files':
-          // Azure Files - navigate to drive settings with azure preset
-          navigate('/app/settings/drives?type=azure_files')
           setConnecting(null)
           return
         default:
@@ -337,9 +307,6 @@ export function IntegrationsPage() {
           break
         case 'outlook':
           await integrationsApi.disconnectOutlook()
-          break
-        case 'onedrive':
-          await integrationsApi.disconnectOneDrive()
           break
         case 'googledrive':
           await integrationsApi.disconnectGoogleDrive()
@@ -381,9 +348,6 @@ export function IntegrationsPage() {
         case 'outlook':
           result = await integrationsApi.syncOutlookCalendar()
           break
-        case 'onedrive':
-          result = await integrationsApi.syncOneDrive()
-          break
         case 'googledrive':
           result = await integrationsApi.syncGoogleDrive()
           break
@@ -403,7 +367,6 @@ export function IntegrationsPage() {
           result = await integrationsApi.syncQuicken()
           break
         case 'apex-drive':
-        case 'azure-files':
           // Sync through the drive system
           try {
             const driveResult = await import('../services/api').then(m => m.driveApi.getConfigurations())

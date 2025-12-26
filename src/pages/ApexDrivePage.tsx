@@ -4,7 +4,7 @@ import {
   ArrowLeft, HardDrive, Check, X, RefreshCw, 
   AlertCircle, Loader2, FileText, Users, Lock,
   History, GitCompare, Download, Cloud, CheckCircle2,
-  Monitor, Smartphone, Globe, FolderOpen, Copy, Eye, Archive
+  Monitor, Globe, FolderOpen, Copy, Eye, Archive
 } from 'lucide-react'
 import { driveApi, documentsApi, driveSyncApi } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
@@ -458,14 +458,6 @@ export function ApexDrivePage() {
                   </div>
                 </div>
                 )}
-                <div className={styles.accessCard}>
-                  <Smartphone size={32} />
-                  <h4>Mobile App</h4>
-                  <p>Access documents on the go from your phone or tablet.</p>
-                  <button className={styles.secondary} disabled>
-                    Coming Soon
-                  </button>
-                </div>
               </div>
             </div>
 
