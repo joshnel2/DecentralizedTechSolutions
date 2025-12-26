@@ -988,7 +988,60 @@ router.post('/documents/:documentId/share', authenticate, async (req, res) => {
       ]
     );
 
-    // TODO: Send notification to shared users
+    // Send notifications to shared users
+    try {
+      // Get document name for notification
+      const docInfo = await query(
+        `SELECT name, original_name FROM documents WHERE id = $1`,
+        [req.params.documentId]
+      );
+      const documentName = docInfo.rows[0]?.name || docInfo.rows[0]?.original_name || 'Document';
+      const sharerName = `${req.user.firstName} ${req.user.lastName}`.trim() || 'Someone';
+      
+      // Collect all user IDs to notify (direct users + group members)
+      const usersToNotify = new Set(userIds);
+      
+      // Get members of shared groups
+      if (groupIds.length > 0) {
+        const groupMembers = await query(
+          `SELECT DISTINCT user_id FROM user_groups WHERE group_id = ANY($1)`,
+          [groupIds]
+        );
+        groupMembers.rows.forEach(row => usersToNotify.add(row.user_id));
+      }
+      
+      // Remove the sharer from notifications (don't notify yourself)
+      usersToNotify.delete(req.user.id);
+      
+      // Create notifications for each user
+      const notificationPromises = Array.from(usersToNotify).map(userId =>
+        query(
+          `INSERT INTO notifications (
+            firm_id, user_id, type, title, message,
+            entity_type, entity_id, triggered_by, action_url
+          ) VALUES ($1, $2, 'document_shared', $3, $4, 'document', $5, $6, $7)`,
+          [
+            req.user.firmId,
+            userId,
+            `${sharerName} shared a document with you`,
+            message || `"${documentName}" has been shared with you${permissionLevel === 'edit' ? ' for editing' : ''}.`,
+            req.params.documentId,
+            req.user.id,
+            `/app/documents?preview=${req.params.documentId}`
+          ]
+        ).catch(err => {
+          // Notification table might not exist or other non-critical error
+          console.log(`[SHARE] Could not create notification for user ${userId}:`, err.message);
+          return null;
+        })
+      );
+      
+      await Promise.all(notificationPromises);
+      console.log(`[SHARE] Created ${usersToNotify.size} notification(s) for document ${req.params.documentId}`);
+    } catch (notifyError) {
+      // Don't fail the share operation if notifications fail
+      console.error('[SHARE] Error creating notifications:', notifyError.message);
+    }
 
     res.json({
       success: true,
