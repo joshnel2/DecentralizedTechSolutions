@@ -2239,8 +2239,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 1/6: Importing users directly to DB...');
           updateProgress('users', 'running', 0);
           try {
+            // Fetch users with rate info for hourly_rate
             const users = await clioGetAll(accessToken, '/users.json', {
-              fields: 'id,name,first_name,last_name,email,enabled,subscription_type'
+              fields: 'id,name,first_name,last_name,email,enabled,subscription_type,rate,phone_number,is_admin,is_owner'
             }, (count) => updateProgress('users', 'running', count));
             
             // Pre-hash a common password for speed (users can reset later)
@@ -2253,6 +2254,23 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const baseEmail = (u.email || `user${u.id}@import.clio`).toLowerCase();
                 const firstName = u.first_name || u.name?.split(' ')[0] || 'User';
                 const lastName = u.last_name || u.name?.split(' ').slice(1).join(' ') || '';
+                
+                // Map Clio subscription_type to Apex role
+                let role = 'attorney';
+                if (u.is_owner || u.subscription_type === 'Owner') {
+                  role = 'owner';
+                } else if (u.is_admin || u.subscription_type === 'Admin') {
+                  role = 'admin';
+                } else if (u.subscription_type === 'Attorney' || u.subscription_type === 'User') {
+                  role = 'attorney';
+                } else if (u.subscription_type === 'Paralegal') {
+                  role = 'paralegal';
+                } else if (u.subscription_type === 'Staff' || u.subscription_type === 'Associate') {
+                  role = 'staff';
+                }
+                
+                // Extract hourly rate (Clio returns rate as decimal)
+                const hourlyRate = u.rate ? parseFloat(u.rate) : null;
                 
                 // Check if email already exists in database
                 let email = baseEmail;
@@ -2269,9 +2287,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 }
                 
                 const result = await query(
-                  `INSERT INTO users (firm_id, email, password_hash, first_name, last_name, role, is_active)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-                  [firmId, email, defaultPasswordHash, firstName, lastName, 'attorney', u.enabled !== false]
+                  `INSERT INTO users (firm_id, email, password_hash, first_name, last_name, role, hourly_rate, phone, is_active)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+                  [firmId, email, defaultPasswordHash, firstName, lastName, role, hourlyRate, u.phone_number || null, u.enabled !== false]
                 );
                 
                 userIdMap.set(`clio:${u.id}`, result.rows[0].id);
@@ -2302,8 +2320,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 2/6: Importing contacts directly to DB...');
           updateProgress('contacts', 'running', 0);
           try {
+            // Fetch contacts with all available fields including title, prefix for notes
             const contacts = await clioGetAll(accessToken, '/contacts.json', {
-              fields: 'id,name,first_name,last_name,type,company{id,name},email_addresses,phone_numbers,addresses'
+              fields: 'id,name,first_name,last_name,type,title,prefix,company{id,name},email_addresses,phone_numbers,addresses,website{url},custom_field_values{id,field_name,value}'
             }, (count) => updateProgress('contacts', 'running', count));
             
             for (const c of contacts) {
@@ -2314,9 +2333,22 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const primaryPhone = c.phone_numbers?.find(p => p.default_phone) || c.phone_numbers?.[0];
                 const primaryAddr = c.addresses?.find(a => a.primary) || c.addresses?.[0];
                 
+                // Build notes from available Clio fields
+                const notesParts = [];
+                if (c.title) notesParts.push(`Title: ${c.title}`);
+                if (c.prefix) notesParts.push(`Prefix: ${c.prefix}`);
+                if (c.website?.url) notesParts.push(`Website: ${c.website.url}`);
+                // Include custom field values as notes
+                if (c.custom_field_values && c.custom_field_values.length > 0) {
+                  c.custom_field_values.forEach(cf => {
+                    if (cf.value) notesParts.push(`${cf.field_name}: ${cf.value}`);
+                  });
+                }
+                const notes = notesParts.length > 0 ? notesParts.join('\n') : null;
+                
                 const result = await query(
-                  `INSERT INTO clients (firm_id, type, display_name, first_name, last_name, company_name, email, phone, address_street, address_city, address_state, address_zip, is_active)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+                  `INSERT INTO clients (firm_id, type, display_name, first_name, last_name, company_name, email, phone, address_street, address_city, address_state, address_zip, notes, is_active)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
                   [
                     firmId,
                     isCompany ? 'company' : 'person',
@@ -2330,6 +2362,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     primaryAddr?.city || null,
                     primaryAddr?.province || null,
                     primaryAddr?.postal_code || null,
+                    notes,
                     true
                   ]
                 );
@@ -2369,9 +2402,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 3/6: Importing matters directly to DB...');
           updateProgress('matters', 'running', 0);
           try {
+            // Fetch matters with additional fields: billing rates, custom fields, statute_of_limitations
             const matters = await clioGetMattersByStatus(
               accessToken, '/matters.json',
-              { fields: 'id,display_number,description,status,open_date,close_date,billing_method,client{id,name},responsible_attorney{id,name},originating_attorney{id,name},practice_area{id,name}' },
+              { fields: 'id,display_number,description,status,open_date,close_date,billing_method,billable,client{id,name},responsible_attorney{id,name,rate},originating_attorney{id,name},practice_area{id,name},custom_rate,statute_of_limitations,location,custom_field_values{id,field_name,value}' },
               (count) => updateProgress('matters', 'running', count)
             );
             
@@ -2382,25 +2416,93 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const matterNumber = `${baseNumber}-${m.id}`;
                 const clientId = m.client?.id ? contactIdMap.get(`clio:${m.client.id}`) : null;
                 const responsibleId = m.responsible_attorney?.id ? userIdMap.get(`clio:${m.responsible_attorney.id}`) : null;
+                const originatingId = m.originating_attorney?.id ? userIdMap.get(`clio:${m.originating_attorney.id}`) : null;
+                
+                // Map practice_area to matter type
+                const matterType = m.practice_area?.name || null;
+                
+                // Get billing rate from matter's custom_rate or responsible attorney's rate
+                const billingRate = m.custom_rate 
+                  ? parseFloat(m.custom_rate) 
+                  : (m.responsible_attorney?.rate ? parseFloat(m.responsible_attorney.rate) : null);
+                
+                // Map Clio billing_method to Apex billing_type
+                let billingType = 'hourly';
+                if (m.billing_method) {
+                  const method = m.billing_method.toLowerCase();
+                  if (method === 'flat' || method === 'flat_fee' || method === 'flat rate') {
+                    billingType = 'flat';
+                  } else if (method === 'contingency' || method === 'contingent') {
+                    billingType = 'contingency';
+                  } else if (method === 'retainer') {
+                    billingType = 'retainer';
+                  } else if (method === 'pro_bono' || method === 'no_charge' || method === 'non-billable') {
+                    billingType = 'pro_bono';
+                  }
+                }
+                
+                // Build custom_fields JSON from Clio custom_field_values
+                const customFields = {};
+                if (m.custom_field_values && m.custom_field_values.length > 0) {
+                  m.custom_field_values.forEach(cf => {
+                    if (cf.field_name && cf.value) {
+                      customFields[cf.field_name] = cf.value;
+                    }
+                  });
+                }
                 
                 const result = await query(
-                  `INSERT INTO matters (firm_id, client_id, number, name, description, status, responsible_attorney, open_date, close_date, billing_type)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+                  `INSERT INTO matters (firm_id, client_id, number, name, description, type, status, responsible_attorney, originating_attorney, open_date, close_date, billing_type, billing_rate, statute_of_limitations, jurisdiction, custom_fields)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
                   [
                     firmId,
                     clientId,
                     matterNumber,
                     m.description || matterNumber,
                     m.description || null,
+                    matterType,
                     mapMatterStatus(m.status),
                     responsibleId,
+                    originatingId,
                     m.open_date || null,
                     m.close_date || null,
-                    m.billing_method || 'hourly'
+                    billingType,
+                    billingRate,
+                    m.statute_of_limitations || null,
+                    m.location || null,
+                    Object.keys(customFields).length > 0 ? JSON.stringify(customFields) : '{}'
                   ]
                 );
                 
-                matterIdMap.set(`clio:${m.id}`, result.rows[0].id);
+                const matterId = result.rows[0].id;
+                matterIdMap.set(`clio:${m.id}`, matterId);
+                
+                // Create matter_assignments for responsible and originating attorneys
+                if (responsibleId) {
+                  try {
+                    await query(
+                      `INSERT INTO matter_assignments (matter_id, user_id, role, billing_rate)
+                       VALUES ($1, $2, $3, $4)
+                       ON CONFLICT (matter_id, user_id) DO NOTHING`,
+                      [matterId, responsibleId, 'responsible_attorney', billingRate]
+                    );
+                  } catch (assignErr) {
+                    // Ignore assignment errors
+                  }
+                }
+                if (originatingId && originatingId !== responsibleId) {
+                  try {
+                    await query(
+                      `INSERT INTO matter_assignments (matter_id, user_id, role, billing_rate)
+                       VALUES ($1, $2, $3, $4)
+                       ON CONFLICT (matter_id, user_id) DO NOTHING`,
+                      [matterId, originatingId, 'originating_attorney', null]
+                    );
+                  } catch (assignErr) {
+                    // Ignore assignment errors
+                  }
+                }
+                
                 counts.matters++;
                 
                 if (counts.matters % 500 === 0) {
@@ -2428,14 +2530,17 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 4/6: SKIPPING activities');
           updateProgress('activities', 'skipped', 0);
         } else {
-          console.log('[CLIO IMPORT] Step 4/6: Importing time entries directly to DB...');
+          console.log('[CLIO IMPORT] Step 4/6: Importing time entries and expenses directly to DB...');
           updateProgress('activities', 'running', 0);
           try {
+            // Fetch activities with UTBMS/activity codes
             const activities = await clioGetActivitiesByStatus(
               accessToken, '/activities.json',
-              { fields: 'id,type,date,quantity,price,total,note,billed,non_billable,matter{id,display_number},user{id,name}' },
+              { fields: 'id,type,date,quantity,quantity_in_hours,price,total,note,billed,non_billable,flat_rate,matter{id,display_number},user{id,name},activity_description{id,name,utbms_code}' },
               (count) => updateProgress('activities', 'running', count)
             );
+            
+            let expenseCount = 0;
             
             for (const a of activities) {
               try {
@@ -2444,53 +2549,89 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 
                 if (!matterId) continue; // Skip entries without linked matter
                 
-                // Calculate rate from Clio data:
-                // - price: rate per hour
-                // - total: total amount (price * quantity)
-                // - quantity: hours
-                const hours = parseFloat(a.quantity) || 0;
-                let rate = parseFloat(a.price) || 0;
+                // Clio has TimeEntry and ExpenseEntry types
+                const isExpense = a.type === 'ExpenseEntry';
                 
-                // If no rate but we have total and hours, calculate rate
-                if (rate === 0 && hours > 0 && a.total) {
-                  rate = parseFloat(a.total) / hours;
+                if (isExpense) {
+                  // Insert as expense
+                  const amount = parseFloat(a.total) || parseFloat(a.price) || 0;
+                  const category = a.activity_description?.name || 'Expense';
+                  
+                  await query(
+                    `INSERT INTO expenses (firm_id, matter_id, user_id, date, description, amount, category, billable, billed, status)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                      firmId,
+                      matterId,
+                      userId,
+                      a.date || new Date().toISOString().split('T')[0],
+                      a.note || 'Imported expense from Clio',
+                      amount,
+                      category,
+                      !a.non_billable,
+                      a.billed || false,
+                      a.billed ? 'billed' : 'pending'
+                    ]
+                  );
+                  expenseCount++;
+                } else {
+                  // Insert as time entry
+                  // Use quantity_in_hours if available (more accurate), fallback to quantity
+                  const hours = parseFloat(a.quantity_in_hours) || parseFloat(a.quantity) || 0;
+                  let rate = parseFloat(a.price) || 0;
+                  
+                  // If no rate but we have total and hours, calculate rate
+                  if (rate === 0 && hours > 0 && a.total) {
+                    rate = parseFloat(a.total) / hours;
+                  }
+                  
+                  // Default rate if still 0 (for analytics to work)
+                  if (rate === 0) {
+                    rate = 350; // Default hourly rate
+                  }
+                  
+                  // Extract UTBMS activity code
+                  const activityCode = a.activity_description?.utbms_code || a.activity_description?.name || null;
+                  
+                  // Determine entry status based on billed flag
+                  const status = a.billed ? 'billed' : 'pending';
+                  
+                  await query(
+                    `INSERT INTO time_entries (firm_id, matter_id, user_id, date, hours, rate, description, activity_code, billable, billed, status)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                    [
+                      firmId,
+                      matterId,
+                      userId,
+                      a.date || new Date().toISOString().split('T')[0],
+                      hours,
+                      rate,
+                      a.note || 'Imported from Clio',
+                      activityCode,
+                      !a.non_billable,
+                      a.billed || false,
+                      status
+                    ]
+                  );
+                  
+                  counts.activities++;
                 }
                 
-                // Default rate if still 0 (for analytics to work)
-                if (rate === 0) {
-                  rate = 350; // Default hourly rate
-                }
-                
-                await query(
-                  `INSERT INTO time_entries (firm_id, matter_id, user_id, date, hours, rate, description, billable, billed)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-                  [
-                    firmId,
-                    matterId,
-                    userId,
-                    a.date || new Date().toISOString().split('T')[0],
-                    hours,
-                    rate,
-                    a.note || 'Imported from Clio',
-                    !a.non_billable,
-                    a.billed || false
-                  ]
-                );
-                
-                counts.activities++;
-                
-                if (counts.activities % 1000 === 0) {
-                  console.log(`[CLIO IMPORT] Time entries saved: ${counts.activities}`);
+                if ((counts.activities + expenseCount) % 1000 === 0) {
+                  console.log(`[CLIO IMPORT] Activities saved: ${counts.activities} time entries, ${expenseCount} expenses`);
                 }
               } catch (err) {
                 // Skip silently - time entries often have issues
               }
             }
-            // Verify time entries were saved
+            // Verify time entries and expenses were saved
             const activityVerify = await query('SELECT COUNT(*) FROM time_entries WHERE firm_id = $1', [firmId]);
+            const expenseVerify = await query('SELECT COUNT(*) FROM expenses WHERE firm_id = $1', [firmId]);
             const actualActivityCount = parseInt(activityVerify.rows[0].count);
-            console.log(`[CLIO IMPORT] Time entries saved to DB: ${counts.activities}, verified in DB: ${actualActivityCount}`);
-            updateProgress('activities', 'done', actualActivityCount);
+            const actualExpenseCount = parseInt(expenseVerify.rows[0].count);
+            console.log(`[CLIO IMPORT] Time entries saved: ${counts.activities}, expenses saved: ${expenseCount}`);
+            console.log(`[CLIO IMPORT] Verified in DB: ${actualActivityCount} time entries, ${actualExpenseCount} expenses`);
+            updateProgress('activities', 'done', actualActivityCount + actualExpenseCount);
           } catch (err) {
             console.error('[CLIO IMPORT] Activities error:', err.message);
             updateProgress('activities', 'error', counts.activities, err.message);
@@ -2507,8 +2648,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 5/6: Importing bills directly to DB...');
           updateProgress('bills', 'running', 0);
           try {
+            // Fetch bills with comprehensive financial data
             const bills = await clioGetAll(accessToken, '/bills.json', {
-              fields: 'id,number,issued_at,due_at,total,balance,state,matters{id,display_number},client{id,name}'
+              fields: 'id,number,issued_at,due_at,sent_at,paid_at,total,balance,sub_total,services_total,expenses_total,credits_total,discount,tax_rate,tax_total,state,notes,memo,matters{id,display_number},client{id,name}'
             }, (count) => updateProgress('bills', 'running', count));
             
             for (const b of bills) {
@@ -2517,11 +2659,29 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const matterId = firstMatter?.id ? matterIdMap.get(`clio:${firstMatter.id}`) : null;
                 const clientId = b.client?.id ? contactIdMap.get(`clio:${b.client.id}`) : null;
                 
-                // Calculate amounts - Clio provides total and balance
-                // We need to set subtotal_fees because the DB trigger recalculates total from subtotals
+                // Parse all Clio financial fields
                 const billTotal = parseFloat(b.total) || 0;
                 const billBalance = parseFloat(b.balance) || 0;
                 const amountPaid = billTotal - billBalance;
+                
+                // Clio provides:
+                // - services_total: total for time entries
+                // - expenses_total: total for expenses
+                // - sub_total: services + expenses before tax/discount
+                // - discount: discount amount
+                // - tax_rate: tax percentage
+                // - tax_total: calculated tax amount
+                const subtotalFees = parseFloat(b.services_total) || parseFloat(b.sub_total) || billTotal;
+                const subtotalExpenses = parseFloat(b.expenses_total) || 0;
+                const discountAmount = parseFloat(b.discount) || 0;
+                const taxRate = parseFloat(b.tax_rate) || 0;
+                const taxAmount = parseFloat(b.tax_total) || 0;
+                
+                // Build notes from Clio memo and notes fields
+                const notesParts = [];
+                if (b.notes) notesParts.push(b.notes);
+                if (b.memo) notesParts.push(`Memo: ${b.memo}`);
+                const notes = notesParts.length > 0 ? notesParts.join('\n\n') : null;
                 
                 // Map Clio state to our status
                 let invoiceStatus = 'draft';
@@ -2529,10 +2689,11 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 else if (b.state === 'void' || b.state === 'deleted') invoiceStatus = 'void';
                 else if (b.state === 'awaiting_payment') invoiceStatus = 'sent';
                 else if (b.state === 'awaiting_approval') invoiceStatus = 'draft';
+                else if (b.state === 'partial') invoiceStatus = 'partial';
                 
                 await query(
-                  `INSERT INTO invoices (firm_id, matter_id, client_id, number, issue_date, due_date, subtotal_fees, amount_paid, status)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                  `INSERT INTO invoices (firm_id, matter_id, client_id, number, issue_date, due_date, sent_at, paid_at, subtotal_fees, subtotal_expenses, tax_rate, discount_amount, amount_paid, notes, status)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
                   [
                     firmId,
                     matterId,
@@ -2540,8 +2701,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     `${b.number || 'INV'}-${b.id}`, // Append ID to ensure unique
                     b.issued_at || new Date().toISOString().split('T')[0],
                     b.due_at || null,
-                    billTotal, // Set as subtotal_fees, trigger will calculate total
-                    amountPaid, // Track what's been paid
+                    b.sent_at || null,
+                    b.paid_at || null,
+                    subtotalFees,
+                    subtotalExpenses,
+                    taxRate,
+                    discountAmount,
+                    amountPaid,
+                    notes,
                     invoiceStatus
                   ]
                 );
@@ -2572,8 +2739,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 6/6: Importing calendar directly to DB...');
           updateProgress('calendar', 'running', 0);
           try {
+            // Fetch calendar entries with type and recurrence info
             const events = await clioGetAll(accessToken, '/calendar_entries.json', {
-              fields: 'id,summary,description,start_at,end_at,all_day,location,matter,attendees'
+              fields: 'id,summary,description,start_at,end_at,all_day,location,matter{id},attendees{id,name,email,type},calendar_entry_type{id,name},recurrence_rule,reminders{minutes,method},permission'
             }, (count) => updateProgress('calendar', 'running', count));
             
             for (const e of events) {
@@ -2583,18 +2751,68 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 
                 const matterId = e.matter?.id ? matterIdMap.get(`clio:${e.matter.id}`) : null;
                 
+                // Map Clio calendar_entry_type to Apex event type
+                let eventType = 'other';
+                const clioType = (e.calendar_entry_type?.name || '').toLowerCase();
+                if (clioType.includes('court') || clioType.includes('hearing')) {
+                  eventType = 'court_date';
+                } else if (clioType.includes('meeting') || clioType.includes('conference')) {
+                  eventType = 'meeting';
+                } else if (clioType.includes('deadline') || clioType.includes('due')) {
+                  eventType = 'deadline';
+                } else if (clioType.includes('reminder') || clioType.includes('follow')) {
+                  eventType = 'reminder';
+                } else if (clioType.includes('task')) {
+                  eventType = 'task';
+                } else if (clioType.includes('closing')) {
+                  eventType = 'closing';
+                } else if (clioType.includes('deposition')) {
+                  eventType = 'deposition';
+                }
+                
+                // Format attendees as JSON array
+                const attendees = [];
+                if (e.attendees && Array.isArray(e.attendees)) {
+                  e.attendees.forEach(att => {
+                    attendees.push({
+                      name: att.name || 'Unknown',
+                      email: att.email || null,
+                      type: att.type || 'required'
+                    });
+                  });
+                }
+                
+                // Format reminders as JSON array
+                const reminders = [];
+                if (e.reminders && Array.isArray(e.reminders)) {
+                  e.reminders.forEach(rem => {
+                    reminders.push({
+                      minutes: rem.minutes || 15,
+                      method: rem.method || 'popup'
+                    });
+                  });
+                }
+                
+                // Check if event is private
+                const isPrivate = e.permission === 'private' || e.permission === 'private_no_time';
+                
                 await query(
-                  `INSERT INTO calendar_events (firm_id, matter_id, title, description, start_time, end_time, all_day, location)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                  `INSERT INTO calendar_events (firm_id, matter_id, title, description, type, start_time, end_time, all_day, location, attendees, reminders, recurrence_rule, is_private)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
                   [
                     firmId,
                     matterId,
                     e.summary || 'Event',
                     e.description || null,
+                    eventType,
                     e.start_at,
                     e.end_at,
                     e.all_day || false,
-                    e.location || null
+                    e.location || null,
+                    JSON.stringify(attendees),
+                    JSON.stringify(reminders),
+                    e.recurrence_rule || null,
+                    isPrivate
                   ]
                 );
                 
