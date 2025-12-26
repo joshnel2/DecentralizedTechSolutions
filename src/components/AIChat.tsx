@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Bot } from 'lucide-react'
+import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Bot, Mail } from 'lucide-react'
 import { aiApi, documentsApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import styles from './AIChat.module.css'
@@ -216,15 +216,23 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
       let response;
       
       // If there's a file, include its content in the context
-      const fileContext = currentFile ? {
-        uploadedDocument: {
-          name: currentFile.name,
-          type: currentFile.type,
-          size: currentFile.size,
-          content: currentFile.content,
-          base64: currentFile.base64
-        }
-      } : {}
+      // Also include any additional context (like email draft)
+      const fileContext = {
+        ...(currentFile ? {
+          uploadedDocument: {
+            name: currentFile.name,
+            type: currentFile.type,
+            size: currentFile.size,
+            content: currentFile.content,
+            base64: currentFile.base64
+          }
+        } : {}),
+        // Include email draft context if present
+        ...(mergedContext.emailDraft ? {
+          emailDraft: mergedContext.emailDraft,
+          contextHint: `The user is drafting an email. Current draft:\n${mergedContext.draftSummary || ''}\n\nHelp them with their email.`
+        } : {})
+      }
       
       // Use AI Agent with function calling
       response = await aiApi.agentChat(
@@ -337,14 +345,24 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
 
         {/* Messages */}
         <div className={styles.messages} ref={messagesContainerRef}>
+          {/* Email Draft Context Banner */}
+          {mergedContext.emailDraft && (
+            <div className={styles.contextBanner}>
+              <Mail size={14} />
+              <span>I can see your email draft. Ask me to help improve it, check grammar, or suggest changes!</span>
+            </div>
+          )}
+          
           {messages.length === 0 ? (
             <div className={styles.welcome}>
               <div className={styles.welcomeIcon}>
                 <Sparkles size={32} />
               </div>
-              <h3>How can I help you?</h3>
+              <h3>{mergedContext.emailDraft ? 'Need help with your email?' : 'How can I help you?'}</h3>
               <p>
-                I can answer questions and take actions like logging time, creating events, and more.
+                {mergedContext.emailDraft 
+                  ? "I can see your draft. Ask me to improve it, make it more professional, check for errors, or suggest a better subject line."
+                  : "I can answer questions and take actions like logging time, creating events, and more."}
                 {useBackgroundAgent && " Background Agent is ON - I'll run tasks with a progress bar."}
               </p>
               

@@ -256,6 +256,24 @@
   gap: 16px;
 }
 
+/* Context Banner (Email Draft, etc.) */
+.contextBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin: 12px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  color: #60a5fa;
+}
+
+.contextBanner svg {
+  flex-shrink: 0;
+}
+
 /* Welcome State */
 .welcome {
   display: flex;

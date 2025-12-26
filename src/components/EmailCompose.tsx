@@ -33,10 +33,34 @@ export function EmailCompose() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
 
-  // Handle opening AI assistant alongside email
+  // Handle opening AI assistant alongside email with draft context
   const handleOpenAI = () => {
     setAiAssistActive(true)
-    openChat()
+    
+    // Build email context for AI
+    const emailContext = {
+      to: draft.to,
+      cc: draft.cc,
+      subject: draft.subject,
+      body: draft.body,
+      attachments: draft.attachments.map(a => a.name)
+    }
+    
+    openChat({
+      label: 'Email Assistant',
+      contextType: 'email_draft',
+      suggestedQuestions: [
+        'Help me improve this email',
+        'Make it more professional',
+        'Make it shorter and more concise',
+        'Check for grammar and spelling',
+        'Suggest a better subject line'
+      ],
+      additionalContext: {
+        emailDraft: emailContext,
+        draftSummary: `Drafting email${draft.to ? ` to: ${draft.to}` : ''}${draft.subject ? `\nSubject: ${draft.subject}` : ''}${draft.body ? `\n\nBody:\n${draft.body}` : ''}`
+      }
+    })
   }
 
   // Track when AI is closed externally
