@@ -515,11 +515,19 @@ export default function SecureAdminDashboard() {
       })
       if (response.ok) {
         const data = await response.json()
-        const settings: Record<string, any> = {}
-        data.settings?.forEach((s: any) => {
-          settings[s.key] = { value: s.value || '', isConfigured: !!s.value, isSecret: s.is_secret }
-        })
-        setIntegrationSettings(settings)
+        // Backend returns object directly: { key: { value, isConfigured, ... }, ... }
+        // Handle both formats for compatibility
+        if (data.settings && Array.isArray(data.settings)) {
+          // Old array format
+          const settings: Record<string, any> = {}
+          data.settings.forEach((s: any) => {
+            settings[s.key] = { value: s.value || '', isConfigured: !!s.value, isSecret: s.is_secret }
+          })
+          setIntegrationSettings(settings)
+        } else {
+          // New object format - directly from backend
+          setIntegrationSettings(data)
+        }
       }
     } catch (err) {
       console.error('Failed to load integration settings:', err)
