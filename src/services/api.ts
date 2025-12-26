@@ -567,6 +567,25 @@ export const documentsApi = {
     return fetchWithAuth(`/documents/${id}/content`);
   },
 
+  // Download all documents as a zip file
+  async downloadAll() {
+    const headers: HeadersInit = {};
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+    
+    const response = await fetch(`${API_URL}/documents/download-all/zip`, {
+      headers,
+      credentials: 'include',
+    });
+    
+    if (!response.ok) {
+      throw new ApiError(response.status, 'Failed to download documents');
+    }
+    
+    return response.blob();
+  },
+
   // Extract text from a file without saving it (for AI analysis)
   async extractText(file: File): Promise<{ name: string; type: string; size: number; content: string }> {
     const formData = new FormData();

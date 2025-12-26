@@ -3,6 +3,8 @@ import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs/promises';
+import { createReadStream } from 'fs';
+import archiver from 'archiver';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import mammoth from 'mammoth';
@@ -658,6 +660,86 @@ router.get('/:id/download', authenticate, requirePermission('documents:view'), a
   } catch (error) {
     console.error('Download document error:', error);
     res.status(500).json({ error: 'Failed to download document' });
+  }
+});
+
+// Download ALL documents as a zip file
+router.get('/download-all/zip', authenticate, requirePermission('documents:view'), async (req, res) => {
+  try {
+    // Get all documents for this firm that the user can access
+    const result = await query(
+      `SELECT d.*, m.name as matter_name, c.name as client_name
+       FROM documents d
+       LEFT JOIN matters m ON d.matter_id = m.id
+       LEFT JOIN clients c ON d.client_id = c.id
+       WHERE d.firm_id = $1 AND d.is_folder = false
+       ORDER BY d.folder_path, d.name`,
+      [req.user.firmId]
+    );
+
+    const documents = result.rows;
+    
+    if (documents.length === 0) {
+      return res.status(404).json({ error: 'No documents found' });
+    }
+
+    // Set up the zip response
+    const firmName = req.user.firmName || 'ApexDrive';
+    const zipFilename = `${firmName.replace(/[^a-zA-Z0-9]/g, '_')}_Documents_${new Date().toISOString().split('T')[0]}.zip`;
+    
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
+
+    const archive = archiver('zip', { zlib: { level: 5 } });
+    
+    archive.on('error', (err) => {
+      console.error('Archive error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to create zip file' });
+      }
+    });
+
+    archive.pipe(res);
+
+    let addedCount = 0;
+    let skippedCount = 0;
+
+    for (const doc of documents) {
+      // Skip external files and files without paths
+      if (!doc.path || doc.external_path) {
+        skippedCount++;
+        continue;
+      }
+
+      try {
+        await fs.access(doc.path);
+        
+        // Create folder structure in zip
+        let zipPath = '';
+        if (doc.matter_name) {
+          zipPath = `Matters/${doc.matter_name.replace(/[^a-zA-Z0-9 ]/g, '_')}/`;
+        } else if (doc.client_name) {
+          zipPath = `Clients/${doc.client_name.replace(/[^a-zA-Z0-9 ]/g, '_')}/`;
+        } else {
+          zipPath = 'General/';
+        }
+        
+        const filename = doc.original_name || doc.name || `document_${doc.id}`;
+        archive.file(doc.path, { name: zipPath + filename });
+        addedCount++;
+      } catch {
+        // File doesn't exist, skip it
+        skippedCount++;
+      }
+    }
+
+    console.log(`[ZIP] Created zip with ${addedCount} files, skipped ${skippedCount}`);
+    await archive.finalize();
+  } catch (error) {
+    console.error('Bulk download error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to download documents' });
+    }
   }
 });
 
