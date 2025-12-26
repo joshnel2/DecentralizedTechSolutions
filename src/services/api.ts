@@ -1446,6 +1446,30 @@ export const driveApi = {
 };
 
 // ============================================
+// DRIVE SYNC API - Auto-sync documents from drives
+// ============================================
+
+export const driveSyncApi = {
+  // Trigger sync for a drive
+  async syncDrive(driveId: string) {
+    return fetchWithAuth(`/drive-sync/sync/${driveId}`, { method: 'POST' });
+  },
+
+  // Get sync status
+  async getStatus() {
+    return fetchWithAuth('/drive-sync/status');
+  },
+
+  // Watch a folder for changes
+  async watchFolder(driveId: string, folderPath?: string) {
+    return fetchWithAuth(`/drive-sync/watch/${driveId}`, {
+      method: 'POST',
+      body: JSON.stringify({ folderPath }),
+    });
+  },
+};
+
+// ============================================
 // DOCUMENT PERMISSIONS API
 // ============================================
 
@@ -1674,6 +1698,7 @@ export default {
   documentTemplates: documentTemplatesApi,
   timer: timerApi,
   drive: driveApi,
+  driveSync: driveSyncApi,
   documentPermissions: documentPermissionsApi,
   wordOnline: wordOnlineApi,
 };

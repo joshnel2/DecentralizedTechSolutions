@@ -5,7 +5,7 @@ import {
   Check, X, RefreshCw, Settings, FolderOpen, AlertCircle,
   Loader2, Save, ChevronDown, ChevronUp, FileText, Users
 } from 'lucide-react'
-import { driveApi } from '../services/api'
+import { driveApi, driveSyncApi } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 import styles from './FirmDriveSettingsPage.module.css'
 
@@ -69,6 +69,7 @@ export function FirmDriveSettingsPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingDrive, setEditingDrive] = useState<DriveConfiguration | null>(null)
   const [expandedDrive, setExpandedDrive] = useState<string | null>(null)
+  const [syncingDrive, setSyncingDrive] = useState<string | null>(null)
   
   // Form fields
   const [formData, setFormData] = useState({
@@ -178,6 +179,36 @@ export function FirmDriveSettingsPage() {
     }
   }
 
+  const handleSyncDrive = async (driveId: string) => {
+    setSyncingDrive(driveId)
+    try {
+      const result = await driveSyncApi.syncDrive(driveId)
+      setNotification({ 
+        type: 'success', 
+        message: result.message || `Synced ${result.synced} new, updated ${result.updated} documents` 
+      })
+      loadDrives()
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Sync failed' })
+    } finally {
+      setSyncingDrive(null)
+    }
+  }
+
+  const openDriveFolder = (rootPath: string) => {
+    // For local/network paths, open in file explorer
+    // This uses the file:// protocol which may work in some browsers
+    // For best results, users should access directly via file explorer
+    if (rootPath.startsWith('\\\\') || rootPath.startsWith('/') || rootPath.match(/^[A-Z]:\\/i)) {
+      // It's a local or network path
+      const formattedPath = rootPath.replace(/\\/g, '/')
+      window.open(`file://${formattedPath}`, '_blank')
+    } else if (rootPath.startsWith('http')) {
+      // It's a URL (OneDrive, SharePoint, etc.)
+      window.open(rootPath, '_blank')
+    }
+  }
+
   const getDriveIcon = (type: string) => {
     const driveType = DRIVE_TYPES.find(d => d.value === type)
     return driveType?.icon || HardDrive
@@ -238,16 +269,47 @@ export function FirmDriveSettingsPage() {
           <FileText size={24} />
         </div>
         <div className={styles.infoContent}>
-          <h3>Better than Clio Drive</h3>
+          <h3>Your Apex Drive - Better than Clio Drive</h3>
           <p>
-            Configure document drives to sync your files automatically. Unlike Clio, our system:
+            Configure your firm's virtual drive to sync documents automatically. Unlike Clio:
           </p>
           <ul>
             <li><strong>No stuck locks</strong> - Locks auto-expire after inactivity</li>
             <li><strong>Automatic versioning</strong> - Every save creates a version with your name</li>
-            <li><strong>Built-in comparison</strong> - See exactly what changed between versions</li>
+            <li><strong>Built-in redline</strong> - See exactly what changed between versions</li>
             <li><strong>Smart conflict resolution</strong> - Choose how to handle sync conflicts</li>
+            <li><strong>Auto-sync to Apex</strong> - Documents you add show up automatically</li>
           </ul>
+        </div>
+      </div>
+
+      {/* How to Access Your Drive */}
+      <div className={styles.accessBanner}>
+        <h3>📂 How to Open Your Apex Drive</h3>
+        <div className={styles.accessMethods}>
+          <div className={styles.accessMethod}>
+            <h4>Windows (Recommended)</h4>
+            <ol>
+              <li>Open <strong>File Explorer</strong></li>
+              <li>Click on "This PC" in the sidebar</li>
+              <li>Right-click and select <strong>"Map network drive"</strong></li>
+              <li>Enter your drive path (shown below after you add a drive)</li>
+              <li>Check "Reconnect at sign-in"</li>
+            </ol>
+          </div>
+          <div className={styles.accessMethod}>
+            <h4>Mac</h4>
+            <ol>
+              <li>Open <strong>Finder</strong></li>
+              <li>Press <strong>⌘ + K</strong> (Go → Connect to Server)</li>
+              <li>Enter your drive path as <code>smb://path</code></li>
+              <li>Click Connect</li>
+            </ol>
+          </div>
+          <div className={styles.accessMethod}>
+            <h4>Quick Access</h4>
+            <p>After configuring a drive, click <strong>"Open Drive"</strong> to access it directly. Documents you add will sync to Apex automatically!</p>
+          </div>
         </div>
       </div>
 
@@ -348,18 +410,35 @@ export function FirmDriveSettingsPage() {
                             </div>
                           )}
                           
-                          {isAdmin && (
-                            <div className={styles.driveActions}>
-                              <button onClick={() => handleEditDrive(drive)}>
-                                <Edit2 size={16} />
-                                Edit
-                              </button>
-                              <button className={styles.deleteBtn} onClick={() => handleDeleteDrive(drive.id)}>
-                                <Trash2 size={16} />
-                                Remove
-                              </button>
-                            </div>
-                          )}
+                          <div className={styles.driveActions}>
+                            <button 
+                              className={styles.openBtn}
+                              onClick={() => openDriveFolder(drive.rootPath)}
+                            >
+                              <FolderOpen size={16} />
+                              Open Drive
+                            </button>
+                            <button 
+                              className={styles.syncBtn}
+                              onClick={() => handleSyncDrive(drive.id)}
+                              disabled={syncingDrive === drive.id}
+                            >
+                              <RefreshCw size={16} className={syncingDrive === drive.id ? styles.spinning : ''} />
+                              {syncingDrive === drive.id ? 'Syncing...' : 'Sync Now'}
+                            </button>
+                            {isAdmin && (
+                              <>
+                                <button onClick={() => handleEditDrive(drive)}>
+                                  <Edit2 size={16} />
+                                  Edit
+                                </button>
+                                <button className={styles.deleteBtn} onClick={() => handleDeleteDrive(drive.id)}>
+                                  <Trash2 size={16} />
+                                  Remove
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
