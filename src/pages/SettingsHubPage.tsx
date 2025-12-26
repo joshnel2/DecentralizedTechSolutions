@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import {
   // System
-  Users, Lock, FileText, Shield,
+  Users, Lock, FileText, Shield, HardDrive,
   // Personal
   User, Calendar, Bell,
   // Firm Settings
@@ -51,6 +51,14 @@ const systemSettings: SettingItem[] = [
     icon: FileText,
     path: '/app/settings/documents',
     adminOnly: true
+  },
+  {
+    id: 'drives',
+    name: 'Apex Drive',
+    description: 'Securely store and manage your firm\'s documents with version history and redlining.',
+    icon: HardDrive,
+    path: '/app/settings/drives',
+    badge: 'New'
   }
 ]
 

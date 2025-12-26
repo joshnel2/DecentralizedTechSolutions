@@ -2121,7 +2121,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
       includeMatters = true, 
       includeActivities = true, 
       includeBills = true, 
-      includeCalendar = true 
+      includeCalendar = true
     } = req.body;
     
     console.log('[CLIO IMPORT] Starting import for connection:', connectionId, 'firmName:', firmName);
@@ -2614,10 +2614,18 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           }
         }
         
+<<<<<<< HEAD
         // ============================================
         // COMPLETE
         // ============================================
         console.log('[CLIO IMPORT] All steps complete!');
+=======
+        // Note: Documents are NOT imported via API - firms drag files from Clio Drive to Apex Drive
+        // Permissions are based on matter assignments which are already imported above
+        
+        // Store final result
+        console.log('[CLIO IMPORT] All steps complete, storing results...');
+>>>>>>> cursor/file-drive-integration-feature-32e4
         const prog = migrationProgress.get(connectionId);
         if (prog) {
           prog.status = 'completed';

@@ -2,17 +2,20 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAIStore } from '../stores/aiStore'
+import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { 
   Search, FolderOpen, FileText, Upload,
   Sparkles, Download, Trash2, X, Loader2,
   FileSearch, Scale, AlertTriangle, List, MessageSquare,
-  Eye, ExternalLink, Wand2
+  Eye, ExternalLink, Wand2, History, GitCompare, Lock, Edit3,
+  HardDrive, Settings, Share2, Shield
 } from 'lucide-react'
-import { documentsApi } from '../services/api'
+import { documentsApi, driveApi, wordOnlineApi } from '../services/api'
 import { format, parseISO } from 'date-fns'
 import styles from './DocumentsPage.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+import { ShareDocumentModal } from '../components/ShareDocumentModal'
 import { parseDocument } from '../utils/documentParser'
 
 // AI suggestion prompts for document analysis
@@ -28,16 +31,64 @@ export function DocumentsPage() {
   const navigate = useNavigate()
   const { documents, matters, fetchDocuments, fetchMatters, addDocument, deleteDocument } = useDataStore()
   const { setSelectedMode, setDocumentContext, createConversation, setInitialMessage } = useAIStore()
+  const { user } = useAuthStore()
+  const isAdmin = user?.role === 'owner' || user?.role === 'admin'
   const { openChat } = useAIChat()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [isExtracting, setIsExtracting] = useState(false)
+  const [isOpeningWord, setIsOpeningWord] = useState(false)
   
   // Fetch data from API on mount
   useEffect(() => {
     fetchDocuments()
     fetchMatters()
   }, [fetchDocuments, fetchMatters])
+  
+  // Edit in Word Online
+  const editInWord = async (doc: typeof documents[0], e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
+    
+    // Check if it's a Word document
+    const wordExtensions = ['.doc', '.docx', '.odt', '.rtf']
+    const isWordDoc = wordExtensions.some(ext => doc.name.toLowerCase().endsWith(ext))
+    
+    if (!isWordDoc) {
+      alert('Word Online editing is only available for Word documents (.doc, .docx)')
+      return
+    }
+
+    setIsOpeningWord(true)
+    try {
+      const result = await wordOnlineApi.openDocument(doc.id)
+      
+      if (result.editUrl) {
+        // Open Word Online in new tab
+        window.open(result.editUrl, '_blank')
+      } else if (result.fallback === 'desktop') {
+        // Fallback to opening locally
+        const confirmed = confirm(
+          'Word Online is not available for this document. Would you like to download and edit it locally instead?'
+        )
+        if (confirmed) {
+          downloadDocument(doc)
+        }
+      } else {
+        alert(result.message || 'Unable to open in Word Online')
+      }
+    } catch (error: any) {
+      console.error('Failed to open Word Online:', error)
+      // Fallback - offer to download
+      const confirmed = confirm(
+        'Could not open Word Online. Would you like to download the document to edit locally?'
+      )
+      if (confirmed) {
+        downloadDocument(doc)
+      }
+    } finally {
+      setIsOpeningWord(false)
+    }
+  }
   
   // Download document
   const downloadDocument = async (doc: typeof documents[0], e?: React.MouseEvent) => {
@@ -181,6 +232,13 @@ export function DocumentsPage() {
     docName: string
   }>({ isOpen: false, docId: '', docName: '' })
 
+  // Share modal state
+  const [shareModal, setShareModal] = useState<{
+    isOpen: boolean
+    documentId: string
+    documentName: string
+  }>({ isOpen: false, documentId: '', documentName: '' })
+
   // Document viewer state (preview only - no editing)
   const [editorDoc, setEditorDoc] = useState<typeof documents[0] | null>(null)
   const [editorContent, setEditorContent] = useState('')
@@ -301,13 +359,34 @@ export function DocumentsPage() {
           <span className={styles.count}>{documents.length} files</span>
         </div>
         <div className={styles.headerActions}>
-          <button 
-            className={styles.automationBtn}
-            onClick={() => navigate('/app/settings/documents')}
-          >
-            <Wand2 size={18} />
-            Automation
-          </button>
+          {/* Admin-only buttons */}
+          {isAdmin && (
+            <>
+              <button 
+                className={styles.driveBtn}
+                onClick={() => navigate('/app/settings/drives')}
+                title="Apex Drive settings"
+              >
+                <HardDrive size={18} />
+                Apex Drive
+              </button>
+              <button 
+                className={styles.permissionsBtn}
+                onClick={() => navigate('/app/documents/permissions')}
+                title="Manage folder permissions"
+              >
+                <Shield size={18} />
+                Permissions
+              </button>
+              <button 
+                className={styles.automationBtn}
+                onClick={() => navigate('/app/settings/documents')}
+              >
+                <Wand2 size={18} />
+                Automation
+              </button>
+            </>
+          )}
           <button 
             className={styles.primaryBtn} 
             onClick={() => fileInputRef.current?.click()}
@@ -480,6 +559,22 @@ export function DocumentsPage() {
             
             <div className={styles.docModalContent}>
               <div className={styles.quickActions}>
+                {/* Edit in Word - Primary action for Word docs */}
+                {(selectedDoc.name.toLowerCase().endsWith('.doc') || 
+                  selectedDoc.name.toLowerCase().endsWith('.docx') ||
+                  selectedDoc.name.toLowerCase().endsWith('.odt')) && (
+                  <button 
+                    className={styles.editWordBtn}
+                    onClick={() => {
+                      editInWord(selectedDoc)
+                      setSelectedDoc(null)
+                    }}
+                    disabled={isOpeningWord}
+                  >
+                    <Edit3 size={18} />
+                    {isOpeningWord ? 'Opening...' : 'Edit in Word'}
+                  </button>
+                )}
                 <button 
                   className={styles.openFileBtn}
                   onClick={() => {
@@ -499,6 +594,40 @@ export function DocumentsPage() {
                 >
                   <Eye size={18} />
                   Preview
+                </button>
+                <button 
+                  className={styles.historyBtn}
+                  onClick={() => {
+                    navigate(`/app/documents/${selectedDoc.id}/versions`)
+                    setSelectedDoc(null)
+                  }}
+                >
+                  <History size={18} />
+                  Version History
+                </button>
+                <button 
+                  className={styles.compareBtn}
+                  onClick={() => {
+                    navigate(`/app/documents/${selectedDoc.id}/compare`)
+                    setSelectedDoc(null)
+                  }}
+                >
+                  <GitCompare size={18} />
+                  Compare Versions
+                </button>
+                <button 
+                  className={styles.shareBtn}
+                  onClick={() => {
+                    setShareModal({
+                      isOpen: true,
+                      documentId: selectedDoc.id,
+                      documentName: selectedDoc.name
+                    })
+                    setSelectedDoc(null)
+                  }}
+                >
+                  <Share2 size={18} />
+                  Share
                 </button>
                 <button 
                   className={styles.downloadBtn}
@@ -556,6 +685,14 @@ export function DocumentsPage() {
         message={`Are you sure you want to delete "${confirmModal.docName}"? This action cannot be undone.`}
         confirmText="Delete"
         type="danger"
+      />
+
+      {/* Share Document Modal */}
+      <ShareDocumentModal
+        isOpen={shareModal.isOpen}
+        onClose={() => setShareModal({ isOpen: false, documentId: '', documentName: '' })}
+        documentId={shareModal.documentId}
+        documentName={shareModal.documentName}
       />
 
       {/* Document Preview Modal */}

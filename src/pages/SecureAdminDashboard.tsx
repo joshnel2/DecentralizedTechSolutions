@@ -3608,6 +3608,33 @@ Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
                         </div>
                       </div>
 
+                      {/* Azure Storage (Apex Drive) */}
+                      <div className={styles.card} style={{ borderColor: '#0078d4', borderWidth: '2px' }}>
+                        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                          <span style={{ fontSize: '1.5rem' }}>☁️</span> Azure Storage (Apex Drive)
+                        </h3>
+                        <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: '1rem' }}>
+                          Document storage for all firms. <a href="https://portal.azure.com/#browse/Microsoft.Storage%2FStorageAccounts" target="_blank" rel="noopener noreferrer" style={{ color: '#d4af37' }}>Create Storage Account in Azure →</a>
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div className={styles.formGroup}>
+                            <label>Storage Account Name</label>
+                            <input type="text" value={integrationSettings.azure_storage_account_name?.value || ''} onChange={(e) => updateIntegrationSetting('azure_storage_account_name', e.target.value)} placeholder="mystorageaccount" />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>Storage Account Key</label>
+                            <input type="password" value={integrationSettings.azure_storage_account_key?.value || ''} onChange={(e) => updateIntegrationSetting('azure_storage_account_key', e.target.value)} placeholder={integrationSettings.azure_storage_account_key?.isConfigured ? '••••••••' : 'Enter Key'} />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>File Share Name</label>
+                            <input type="text" value={integrationSettings.azure_file_share_name?.value || ''} onChange={(e) => updateIntegrationSetting('azure_file_share_name', e.target.value)} placeholder="apexdrive" />
+                          </div>
+                        </div>
+                        <p style={{ color: '#64748b', fontSize: '0.75rem', marginTop: '1rem' }}>
+                          After saving, firm admins can enable Apex Drive from their Settings. Documents will be stored in this Azure File Share.
+                        </p>
+                      </div>
+
                       {/* Save Button */}
                       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
                         <button onClick={saveIntegrationSettings} disabled={savingIntegrations} className={styles.saveBtn} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>

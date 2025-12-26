@@ -61,6 +61,11 @@ import { TextMessagingPage } from './pages/TextMessagingPage'
 import { AIConfigPage } from './pages/AIConfigPage'
 import { ReportingSettingsPage } from './pages/ReportingSettingsPage'
 import { RedlineAIPage } from './pages/RedlineAIPage'
+// Drive Integration Pages
+import { ApexDrivePage } from './pages/ApexDrivePage'
+import { DocumentVersionsPage } from './pages/DocumentVersionsPage'
+import { DocumentComparePage } from './pages/DocumentComparePage'
+import { FolderPermissionsPage } from './pages/FolderPermissionsPage'
 // Public Pages
 import { AboutPage } from './pages/AboutPage'
 import { SecurityPage } from './pages/SecurityPage'
@@ -209,6 +214,9 @@ function AppContent() {
         <Route path="time" element={<TimeTrackingPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="documents" element={<DocumentsPage />} />
+        <Route path="documents/:documentId/versions" element={<DocumentVersionsPage />} />
+        <Route path="documents/:documentId/compare" element={<DocumentComparePage />} />
+        <Route path="documents/permissions" element={<FolderPermissionsPage />} />
         <Route path="document-automation" element={<DocumentAutomationPage />} />
         <Route path="ai" element={<AIAssistantPage />} />
         <Route path="ai/redline" element={<RedlineAIPage />} />
@@ -259,6 +267,7 @@ function AppContent() {
         <Route path="settings/text-messaging" element={<TextMessagingPage />} />
         <Route path="settings/ai" element={<AIConfigPage />} />
         <Route path="settings/reporting" element={<ReportingSettingsPage />} />
+        <Route path="settings/drives" element={<ApexDrivePage />} />
         
         {/* Trust Accounting */}
         <Route path="trust" element={<TrustAccountingPage />} />

@@ -6,7 +6,7 @@ import {
   Link2, Calendar, Cloud, FileSignature,
   Calculator, MessageSquare, Shield, CheckCircle2,
   RefreshCw, AlertTriangle,
-  Lock, Globe, Zap, AlertCircle, ArrowLeft, HardDrive
+  Lock, Globe, Zap, AlertCircle, ArrowLeft, HardDrive, FileText, Users
 } from 'lucide-react'
 import styles from './IntegrationsPage.module.css'
 
@@ -77,7 +77,27 @@ const integrationConfigs: IntegrationConfig[] = [
     syncOptions: { billing: true }
   },
   
-  // Cloud Storage
+  // Cloud Storage - Featured: Apex Drive with Microsoft 365
+  { 
+    id: 'apex-drive', 
+    name: 'Apex Drive (Microsoft 365)', 
+    description: 'Your firm\'s virtual drive with Word Online co-editing, version history, and auto-sync. The recommended way to manage documents.', 
+    category: 'storage', 
+    icon: '🚀',
+    provider: 'apex-drive',
+    features: ['Word Online editing', 'Real-time co-authoring', 'Version history', 'Auto-sync'],
+    syncOptions: { documents: true }
+  },
+  { 
+    id: 'azure-files', 
+    name: 'Azure File Share', 
+    description: 'Connect your Azure File Share for firm-wide document storage. Mount as a network drive on Windows.', 
+    category: 'storage', 
+    icon: '🔷',
+    provider: 'azure-files',
+    features: ['Network drive', 'Windows mount', 'Enterprise storage'],
+    syncOptions: { documents: true }
+  },
   { 
     id: 'onedrive', 
     name: 'OneDrive', 
@@ -188,6 +208,8 @@ export function IntegrationsPage() {
     slack: null,
     zoom: null,
     quicken: null,
+    'apex-drive': null,
+    'azure-files': null,
   })
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [connecting, setConnecting] = useState<string | null>(null)
@@ -275,6 +297,16 @@ export function IntegrationsPage() {
         case 'file-storage':
           // File storage doesn't need OAuth - just navigate to the page
           navigate('/app/integrations/file-storage')
+          setConnecting(null)
+          return
+        case 'apex-drive':
+          // Apex Drive - navigate to drive settings
+          navigate('/app/settings/drives')
+          setConnecting(null)
+          return
+        case 'azure-files':
+          // Azure Files - navigate to drive settings with azure preset
+          navigate('/app/settings/drives?type=azure_files')
           setConnecting(null)
           return
         default:
@@ -370,6 +402,12 @@ export function IntegrationsPage() {
         case 'quicken':
           result = await integrationsApi.syncQuicken()
           break
+        case 'apex-drive':
+        case 'azure-files':
+          // These sync through the drive system
+          setNotification({ type: 'success', message: 'Document sync initiated. Check Documents page.' })
+          setSyncing(null)
+          return
       }
       
       if (result?.syncedCount !== undefined) {
