@@ -7,10 +7,25 @@ const router = Router();
 // Get all user settings
 router.get('/', authenticate, async (req, res) => {
   try {
+    // Check which columns exist to handle different database states
+    const colCheck = await query(
+      `SELECT column_name FROM information_schema.columns 
+       WHERE table_name = 'users' AND column_name IN ('email_signature', 'ai_custom_instructions', 'settings', 'notification_preferences')`
+    );
+    const existingCols = colCheck.rows.map(r => r.column_name);
+    
+    // Build dynamic query based on existing columns
+    const selectCols = [];
+    if (existingCols.includes('email_signature')) selectCols.push('email_signature');
+    if (existingCols.includes('ai_custom_instructions')) selectCols.push('ai_custom_instructions');
+    if (existingCols.includes('settings')) selectCols.push('settings');
+    if (existingCols.includes('notification_preferences')) selectCols.push('notification_preferences');
+    
+    // Always select at least id to ensure we get a row
+    const selectClause = selectCols.length > 0 ? selectCols.join(', ') : '1 as placeholder';
+    
     const result = await query(
-      `SELECT email_signature, ai_custom_instructions, 
-              settings, notification_preferences
-       FROM users WHERE id = $1`,
+      `SELECT ${selectClause} FROM users WHERE id = $1`,
       [req.user.id]
     );
 

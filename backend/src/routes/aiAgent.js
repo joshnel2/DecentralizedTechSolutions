@@ -9520,18 +9520,26 @@ async function draftEmailForMatter(args, user) {
   
   const matter = matterResult.rows[0];
   
-  // Get user's email signature if available
+  // Get user's email signature if available (column may not exist in all deployments)
   let signature = '';
   try {
-    const sigResult = await query(
-      'SELECT email_signature FROM users WHERE id = $1',
-      [user.id]
+    // Check if email_signature column exists before querying
+    const colCheck = await query(
+      `SELECT column_name FROM information_schema.columns 
+       WHERE table_name = 'users' AND column_name = 'email_signature'`
     );
-    if (sigResult.rows.length > 0 && sigResult.rows[0].email_signature) {
-      signature = '\n\n' + sigResult.rows[0].email_signature;
+    if (colCheck.rows.length > 0) {
+      const sigResult = await query(
+        'SELECT email_signature FROM users WHERE id = $1',
+        [user.id]
+      );
+      if (sigResult.rows.length > 0 && sigResult.rows[0].email_signature) {
+        signature = '\n\n' + sigResult.rows[0].email_signature;
+      }
     }
   } catch (e) {
-    // No signature available
+    // No signature available - column may not exist
+    console.log('Email signature not available:', e.message);
   }
   
   // Format the body with signature
