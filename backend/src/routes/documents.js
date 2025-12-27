@@ -36,7 +36,7 @@ async function getPdfParse() {
 const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
 const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
 const AZURE_VISION_DEPLOYMENT = process.env.AZURE_OPENAI_VISION_DEPLOYMENT || process.env.AZURE_OPENAI_DEPLOYMENT;
-const API_VERSION = '2024-02-15-preview';
+const API_VERSION = '2024-12-01-preview'; // Latest API version
 
 // Use Azure OpenAI Vision to extract text from images/scanned documents
 async function extractTextWithVision(imageBuffer, mimeType, fileName) {

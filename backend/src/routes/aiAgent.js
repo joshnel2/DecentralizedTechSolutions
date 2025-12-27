@@ -27,7 +27,7 @@ const router = Router();
 const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
 const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
 const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
-const API_VERSION = '2024-08-01-preview';
+const API_VERSION = '2024-12-01-preview'; // Latest API version for newer models
 
 // =============================================================================
 // TOOL DEFINITIONS - Complete set of user actions
@@ -9938,6 +9938,18 @@ Please analyze the document above and respond to the user's question.`;
 async function callAzureOpenAIWithTools(messages, tools) {
   const url = `${AZURE_ENDPOINT}openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${API_VERSION}`;
   
+  // Log config for debugging (without exposing full key)
+  console.log(`[AZURE AI] Calling: ${AZURE_DEPLOYMENT} at ${AZURE_ENDPOINT?.substring(0, 30)}...`);
+  
+  if (!AZURE_ENDPOINT || !AZURE_API_KEY || !AZURE_DEPLOYMENT) {
+    console.error('[AZURE AI] Missing config:', {
+      hasEndpoint: !!AZURE_ENDPOINT,
+      hasKey: !!AZURE_API_KEY,
+      hasDeployment: !!AZURE_DEPLOYMENT
+    });
+    throw new Error('Azure OpenAI not configured. Check AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT.');
+  }
+  
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -9954,13 +9966,29 @@ async function callAzureOpenAIWithTools(messages, tools) {
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    console.error('Azure OpenAI error:', error);
-    throw new Error(`Azure OpenAI API error: ${response.status}`);
+    const errorText = await response.text();
+    console.error(`[AZURE AI] Error ${response.status}:`, errorText);
+    console.error(`[AZURE AI] URL was: ${url}`);
+    
+    // Parse error for better message
+    let errorMessage = `Azure OpenAI API error: ${response.status}`;
+    try {
+      const errorJson = JSON.parse(errorText);
+      errorMessage = errorJson.error?.message || errorMessage;
+    } catch (e) {}
+    
+    throw new Error(errorMessage);
   }
 
   const data = await response.json();
+  
+  if (!data.choices || data.choices.length === 0) {
+    console.error('[AZURE AI] No choices in response:', JSON.stringify(data).substring(0, 500));
+    throw new Error('Azure OpenAI returned no response');
+  }
+  
   const choice = data.choices[0];
+  console.log(`[AZURE AI] Success - got response with ${choice.message.tool_calls?.length || 0} tool calls`);
   
   return {
     content: choice.message.content,
