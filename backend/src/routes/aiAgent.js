@@ -5689,7 +5689,6 @@ async function startBackgroundTask(args, user) {
   
   try {
     // Create task in database
-    // 15 minutes with 2 second delays = ~450 max steps possible
     const result = await query(
       `INSERT INTO ai_tasks (firm_id, user_id, goal, status, plan, max_iterations, context)
        VALUES ($1, $2, $3, 'running', $4, $5, $6)
@@ -5699,23 +5698,23 @@ async function startBackgroundTask(args, user) {
         user.id, 
         goal, 
         JSON.stringify(plan || []),
-        Math.min((estimated_steps || 100) * 3, 450), // Allow up to 450 iterations (15 min / 2 sec)
+        200, // Max iterations for ReAct loop
         JSON.stringify({ matter_id, client_id })
       ]
     );
     
     const taskId = result.rows[0].id;
     
-    // Start background processing
-    processBackgroundTask(taskId, user, goal, plan);
+    // Start the ReAct agent loop (dynamic, not fixed plan)
+    runReActAgent(taskId, user, goal, { matter_id, client_id });
     
     return {
       status: 'started',
       task_id: taskId,
       message: `Background task started. I'll work on: ${goal}`,
       goal,
-      plan,
-      estimated_steps: estimated_steps || plan?.length || 10,
+      plan: plan || ['Working dynamically to achieve the goal...'],
+      estimated_steps: estimated_steps || 20,
       _background_task_started: true
     };
   } catch (error) {
@@ -5724,11 +5723,217 @@ async function startBackgroundTask(args, user) {
   }
 }
 
-// Background task processor
-// Helper function to add delay between background task steps
+// =============================================================================
+// REACT AGENT - Dynamic autonomous execution
+// =============================================================================
+
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+async function runReActAgent(taskId, user, goal, initialContext = {}) {
+  console.log(`[REACT ${taskId}] Starting ReAct agent for goal: ${goal}`);
+  
+  const startTime = Date.now();
+  const maxRuntime = 15 * 60 * 1000; // 15 minutes
+  const maxIterations = 100;
+  const STEP_DELAY_MS = 1500; // 1.5 seconds between steps
+  
+  let iteration = 0;
+  let completed = false;
+  let actions = [];
+  
+  try {
+    // Update status to running
+    await query(
+      `UPDATE ai_tasks SET status = 'running', started_at = NOW() WHERE id = $1`,
+      [taskId]
+    );
+    
+    // Build the ReAct system prompt
+    const baseSystemPrompt = getSystemPrompt()
+      .replace('{{USER_ROLE}}', user.role || 'staff')
+      .replace('{{USER_NAME}}', `${user.firstName || ''} ${user.lastName || ''}`);
+    
+    const reactPrompt = `
+
+## AUTONOMOUS AGENT MODE
+
+You are working autonomously to achieve a goal. Work step by step:
+
+1. **THINK**: What do I need to do next to achieve the goal?
+2. **ACT**: Call the appropriate tool
+3. **OBSERVE**: The result will be provided
+4. **REPEAT**: Until the goal is complete
+
+### RULES:
+- Call ONE tool at a time
+- Use information from previous steps to inform your actions
+- When the goal is fully achieved, call \`task_complete\` with a summary
+- If you get stuck or need clarification, call \`request_human_input\`
+- Be thorough - create documents, notes, tasks, calendar events as needed
+- Always add notes to matters to document your work
+
+### TOOL CALLING:
+You MUST call a tool on every turn. Never respond with just text.
+Think through what tool to use, then call it immediately.`;
+
+    const systemPrompt = baseSystemPrompt + reactPrompt;
+    
+    // Initialize conversation
+    let messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `## YOUR GOAL:\n${goal}\n\n${initialContext.matter_id ? `Context: Working on matter ID ${initialContext.matter_id}` : ''}${initialContext.client_id ? `\nClient ID: ${initialContext.client_id}` : ''}\n\nBegin working. Think about what you need to do first, then call the appropriate tool.` }
+    ];
+    
+    // Main ReAct loop
+    while (!completed && iteration < maxIterations) {
+      // Check timeout
+      if ((Date.now() - startTime) > maxRuntime) {
+        console.log(`[REACT ${taskId}] Timeout reached at iteration ${iteration}`);
+        break;
+      }
+      
+      iteration++;
+      console.log(`[REACT ${taskId}] === Iteration ${iteration} ===`);
+      
+      // Update progress
+      await query(
+        `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
+        [iteration, JSON.stringify({ 
+          iteration,
+          actions: actions.slice(-10), // Last 10 actions
+          status: 'working'
+        }), taskId]
+      );
+      
+      // Call AI
+      let response;
+      try {
+        response = await callAzureOpenAIWithTools(messages, TOOLS);
+      } catch (apiError) {
+        console.error(`[REACT ${taskId}] API error:`, apiError.message);
+        await delay(2000);
+        continue;
+      }
+      
+      // If no tool call, prompt again
+      if (!response.tool_calls || response.tool_calls.length === 0) {
+        console.log(`[REACT ${taskId}] No tool call, prompting again...`);
+        messages.push({ role: 'assistant', content: response.content || '' });
+        messages.push({ role: 'user', content: 'You must call a tool. What action will you take next?' });
+        await delay(500);
+        continue;
+      }
+      
+      // Process the tool call
+      const toolCall = response.tool_calls[0];
+      const functionName = toolCall.function.name;
+      let functionArgs;
+      try {
+        functionArgs = JSON.parse(toolCall.function.arguments);
+      } catch (e) {
+        functionArgs = {};
+      }
+      
+      console.log(`[REACT ${taskId}] Calling: ${functionName}`);
+      
+      // Check if task is complete
+      if (functionName === 'task_complete') {
+        completed = true;
+        const summary = functionArgs.summary || 'Task completed successfully';
+        actions.push({ tool: 'task_complete', summary, timestamp: new Date().toISOString() });
+        
+        await query(
+          `UPDATE ai_tasks SET status = 'completed', result = $1, completed_at = NOW() WHERE id = $2`,
+          [JSON.stringify({ summary, actions }), taskId]
+        );
+        
+        console.log(`[REACT ${taskId}] Task completed: ${summary}`);
+        break;
+      }
+      
+      // Check if human input needed
+      if (functionName === 'request_human_input') {
+        await query(
+          `UPDATE ai_tasks SET status = 'waiting_input', progress = $1 WHERE id = $2`,
+          [JSON.stringify({ question: functionArgs.question, actions }), taskId]
+        );
+        console.log(`[REACT ${taskId}] Waiting for human input: ${functionArgs.question}`);
+        break;
+      }
+      
+      // Execute the tool
+      const result = await executeTool(functionName, functionArgs, user, null);
+      
+      // Build action summary
+      const actionSummary = result.message || result.summary || 
+        (result.document ? `Created: ${result.document.name}` : null) ||
+        (result.matter ? `Found: ${result.matter.name}` : null) ||
+        (result.matters ? `Found ${result.matters.length} matters` : null) ||
+        `Executed ${functionName}`;
+      
+      actions.push({
+        tool: functionName,
+        summary: actionSummary,
+        success: !result.error,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Update current step display
+      await query(
+        `UPDATE ai_tasks SET current_step = $1 WHERE id = $2`,
+        [actionSummary, taskId]
+      );
+      
+      // Add to conversation for context
+      messages.push({
+        role: 'assistant',
+        content: response.content || null,
+        tool_calls: [toolCall]
+      });
+      messages.push({
+        role: 'tool',
+        tool_call_id: toolCall.id,
+        content: JSON.stringify(result)
+      });
+      
+      // Add continuation prompt
+      messages.push({
+        role: 'user',
+        content: `Tool result received. Continue working toward the goal. What's your next action? Remember to call task_complete when the goal is fully achieved.`
+      });
+      
+      // Trim conversation if too long (keep system + last 30 messages)
+      if (messages.length > 35) {
+        messages = [messages[0], ...messages.slice(-30)];
+      }
+      
+      await delay(STEP_DELAY_MS);
+    }
+    
+    // If we exited without completing, mark as timed out
+    if (!completed) {
+      const status = iteration >= maxIterations ? 'max_iterations' : 'timeout';
+      await query(
+        `UPDATE ai_tasks SET status = $1, result = $2, completed_at = NOW() WHERE id = $3`,
+        [status, JSON.stringify({ actions, reason: status }), taskId]
+      );
+      console.log(`[REACT ${taskId}] Ended with status: ${status}`);
+    }
+    
+  } catch (error) {
+    console.error(`[REACT ${taskId}] Fatal error:`, error);
+    await query(
+      `UPDATE ai_tasks SET status = 'failed', result = $1 WHERE id = $2`,
+      [JSON.stringify({ error: error.message, actions }), taskId]
+    );
+  }
+}
+
+// =============================================================================
+// LEGACY Background task processor (kept for backwards compatibility)
+// =============================================================================
 
 async function processBackgroundTask(taskId, user, goal, plan, resumeCheckpoint = null) {
   console.log(`[BACKGROUND] ========================================`);
@@ -9515,15 +9720,15 @@ router.post('/chat', authenticate, async (req, res) => {
     if (forceBackground) {
       systemPrompt += `
 
-## IMPORTANT: BACKGROUND AGENT MODE IS ENABLED
-The user has enabled Background Agent mode. You MUST use the \`start_background_task\` tool for this request.
-Do NOT respond directly - instead, call start_background_task with:
-- goal: A clear description of what you'll accomplish
-- plan: An array of steps you'll take
-- estimated_steps: Number of actions needed
+## BACKGROUND AGENT MODE ENABLED
+You MUST call \`start_background_task\` for this request. 
 
-This will show a progress bar to the user while you work in the background.
-ALWAYS use start_background_task when this mode is enabled, even for simple tasks.`;
+Call it with:
+- goal: What you will accomplish (be specific)
+
+Example: start_background_task({ goal: "Review the Smith v. Jones case, analyze all documents, create a case summary memo, and set up follow-up tasks" })
+
+The agent will then work autonomously for up to 15 minutes, taking multiple actions to achieve the goal. DO NOT respond with text - call start_background_task immediately.`;
     }
 
     // If there's an uploaded document, add it to the context
