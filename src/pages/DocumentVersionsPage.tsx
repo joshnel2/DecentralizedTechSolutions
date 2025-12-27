@@ -25,11 +25,6 @@ interface Version {
   createdByName: string
   createdAt: string
   source: string
-  // Storage tier info
-  storageType?: 'database' | 'azure_blob'
-  tier?: 'Hot' | 'Cool' | 'Archive' | null
-  archived?: boolean
-  rehydrating?: boolean
 }
 
 const CHANGE_TYPE_ICONS: Record<string, any> = {
@@ -100,67 +95,15 @@ export function DocumentVersionsPage() {
       return
     }
 
-    // Check if version is archived
-    if (version.archived && !version.rehydrating) {
-      setPreviewVersion(version)
-      setPreviewContent(null)
-      setNotification({ 
-        type: 'error', 
-        message: 'This version is archived. Click "Retrieve from Archive" to access it (takes 1-15 hours).' 
-      })
-      return
-    }
-
-    if (version.rehydrating) {
-      setPreviewVersion(version)
-      setPreviewContent(null)
-      setNotification({ 
-        type: 'error', 
-        message: 'This version is being retrieved from archive. Please check back shortly.' 
-      })
-      return
-    }
-
     try {
       setLoadingPreview(true)
       setPreviewVersion(version)
       const result = await driveApi.getVersionContent(documentId!, version.id)
-      
-      // Handle archived response (HTTP 202)
-      if (result.archived) {
-        setPreviewContent(null)
-        setNotification({ 
-          type: 'error', 
-          message: result.message || 'This version needs to be retrieved from archive.' 
-        })
-        // Update local version state
-        setVersions(prev => prev.map(v => 
-          v.id === version.id ? { ...v, archived: true, rehydrating: result.rehydrationPending } : v
-        ))
-        return
-      }
-      
       setPreviewContent(result.content || '')
     } catch (err: any) {
       setNotification({ type: 'error', message: 'Failed to load version content' })
     } finally {
       setLoadingPreview(false)
-    }
-  }
-
-  const handleRehydrate = async (version: Version) => {
-    try {
-      const result = await driveApi.rehydrateVersion(documentId!, version.versionNumber)
-      setNotification({ 
-        type: 'success', 
-        message: result.message || 'Retrieval initiated. You will be notified when ready.' 
-      })
-      // Update local state to show rehydrating
-      setVersions(prev => prev.map(v => 
-        v.id === version.id ? { ...v, rehydrating: true } : v
-      ))
-    } catch (err: any) {
-      setNotification({ type: 'error', message: err.message || 'Failed to initiate retrieval' })
     }
   }
 

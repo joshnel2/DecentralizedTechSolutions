@@ -17,7 +17,7 @@ import {
   Bell, Sparkles, Menu, X, FolderOpen, Shield, Key, UserCircle,
   Building2, UsersRound, Link2, TrendingUp, Lock, FileStack,
   Play, Pause, Square, Mail, Cloud, FileText, Video, MessageSquare, 
-  Calculator, HardDrive, Share2
+  Calculator, HardDrive
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './Layout.module.css'
@@ -413,9 +413,6 @@ export function Layout() {
                           {notif.type === 'ai_insight' && <Sparkles size={14} />}
                           {notif.type === 'deadline_reminder' && <Clock size={14} />}
                           {notif.type === 'invoice_overdue' && <DollarSign size={14} />}
-                          {notif.type === 'document_shared' && <Share2 size={14} />}
-                          {notif.type === 'task_assigned' && <Briefcase size={14} />}
-                          {notif.type === 'mention' && <Bell size={14} />}
                         </div>
                         <div className={styles.notifContent}>
                           <strong>{notif.title}</strong>

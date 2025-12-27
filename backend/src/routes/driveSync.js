@@ -174,98 +174,36 @@ async function syncAzureFiles(driveConfig, user) {
     for (const file of allFiles) {
       try {
         // Check if document already exists in database
-        // Cloud-native: We track size, etag, and last_modified to detect changes
-        // This is more efficient than Clio which relies on file system watchers
         const existing = await query(
-          `SELECT id, content_hash, external_path, matter_id, size, 
-                  external_etag, external_modified_at 
-           FROM documents 
+          `SELECT id, content_hash, external_path, matter_id FROM documents 
            WHERE firm_id = $1 AND external_path = $2`,
           [user.firmId, file.path]
         );
 
         // Match folder path to matter/client for permissions
         const { matterId, clientId } = matchFolderToPermissions(file.folder, matters, clients);
-        const ext = path.extname(file.name).toLowerCase();
-        const mimeType = getFileType(ext);
 
         if (existing.rows.length > 0) {
-          const doc = existing.rows[0];
-          
-          // Check if file has actually changed using Azure metadata
-          // Priority: etag > size comparison > always update
-          const hasChanged = (
-            // If we have etag and it's different, file changed
-            (file.etag && doc.external_etag && file.etag !== doc.external_etag) ||
-            // If size changed, file definitely changed
-            (file.size && doc.size && file.size !== doc.size) ||
-            // If we have lastModified and it's newer, file changed
-            (file.lastModified && doc.external_modified_at && 
-             new Date(file.lastModified) > new Date(doc.external_modified_at))
-          );
-
-          // Build update fields
-          const updateFields = [];
-          const updateValues = [];
-          let paramIndex = 1;
-
-          // Always update size if different (cheap comparison)
-          if (file.size && file.size !== doc.size) {
-            updateFields.push(`size = $${paramIndex++}`);
-            updateValues.push(file.size);
-          }
-
-          // Update matter_id if we found a match and it's not set
-          if (matterId && !doc.matter_id) {
-            updateFields.push(`matter_id = $${paramIndex++}`);
-            updateValues.push(matterId);
+          // Document exists - update matter_id if we found a match and it's not set
+          if (matterId && !existing.rows[0].matter_id) {
+            await query(
+              `UPDATE documents SET matter_id = $1 WHERE id = $2`,
+              [matterId, existing.rows[0].id]
+            );
             results.matched++;
             console.log(`[SYNC] Matched existing doc "${file.name}" to matter`);
           }
-
-          // Update client_id if we found a match and it's not set
-          if (clientId && !doc.client_id) {
-            updateFields.push(`client_id = $${paramIndex++}`);
-            updateValues.push(clientId);
-          }
-
-          // Store Azure metadata for future change detection
-          if (file.etag && file.etag !== doc.external_etag) {
-            updateFields.push(`external_etag = $${paramIndex++}`);
-            updateValues.push(file.etag);
-          }
-          if (file.lastModified) {
-            updateFields.push(`external_modified_at = $${paramIndex++}`);
-            updateValues.push(file.lastModified);
-          }
-
-          // Update sync timestamp
-          updateFields.push(`last_synced_at = NOW()`);
-
-          // If file content changed, mark it for re-indexing
-          if (hasChanged) {
-            updateFields.push(`needs_reindex = true`);
-            updateFields.push(`content_extracted_at = NULL`);
-            results.updated++;
-            console.log(`[SYNC] Updated: ${file.name} (content changed)`);
-          }
-
-          // Only run update if we have fields to update
-          if (updateFields.length > 0) {
-            updateValues.push(doc.id);
-            await query(
-              `UPDATE documents SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`,
-              updateValues
-            );
-          }
+          results.updated++;
         } else {
           // Create new document record from Azure file with permissions
+          const ext = path.extname(file.name).toLowerCase();
+          const mimeType = getFileType(ext);
+          
           await query(
             `INSERT INTO documents (
               firm_id, matter_id, client_id, name, original_name, type, size,
-              drive_id, external_path, folder_path, uploaded_by,
-              external_etag, external_modified_at, last_synced_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())`,
+              drive_id, external_path, folder_path, uploaded_by
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
             [
               user.firmId,
               matterId,
@@ -277,9 +215,7 @@ async function syncAzureFiles(driveConfig, user) {
               driveConfig.id,
               file.path,
               file.folder,
-              user.id,
-              file.etag || null,
-              file.lastModified || null
+              user.id
             ]
           );
           results.synced++;
@@ -475,11 +411,7 @@ async function scanAzureDirectory(shareClient, basePath, subPath) {
             name: item.name,
             path: `${basePath}/${itemPath}`,
             folder: subPath || '/',
-            size: item.properties?.contentLength || 0,
-            // Capture Azure file metadata for change detection
-            lastModified: item.properties?.lastModified || null,
-            contentMD5: item.properties?.contentMD5 || null,
-            etag: item.properties?.etag || null
+            size: item.properties?.contentLength || 0
           });
         }
       }
@@ -498,64 +430,14 @@ async function syncLocalDrive(driveConfig, user) {
 }
 
 async function syncMicrosoftCloud(driveConfig, user) {
-  // OneDrive/SharePoint sync using Microsoft Graph API
-  // 
-  // Cloud-Native Architecture (Better than Clio's approach):
-  // 1. Register webhook with Graph API for change notifications
-  // 2. Use delta queries to get only changed files
-  // 3. Process changes incrementally instead of full scans
-  //
-  // Required setup:
-  // - Microsoft Graph API permissions: Files.Read.All, Sites.Read.All
-  // - Webhook endpoint registered with Microsoft
-  // - User's OAuth tokens stored in integrations table
+  // OneDrive/SharePoint sync using Graph API
+  // This would use stored access tokens to call Microsoft Graph
   
-  const results = { synced: 0, updated: 0, matched: 0, errors: [] };
+  const results = { synced: 0, updated: 0, errors: [] };
 
-  try {
-    // Check if user has Microsoft integration set up
-    const integration = await query(
-      `SELECT access_token, refresh_token, token_expires_at, settings
-       FROM integrations 
-       WHERE firm_id = $1 AND provider = 'microsoft' AND is_active = true`,
-      [user.firmId]
-    );
-
-    if (integration.rows.length === 0) {
-      results.errors.push({ 
-        error: 'Microsoft integration not configured',
-        action: 'Go to Settings → Integrations → Microsoft 365 to connect your account',
-        code: 'INTEGRATION_REQUIRED'
-      });
-      return results;
-    }
-
-    const { access_token, token_expires_at } = integration.rows[0];
-
-    // Check if token is expired
-    if (new Date(token_expires_at) < new Date()) {
-      results.errors.push({ 
-        error: 'Microsoft access token expired',
-        action: 'Re-authenticate in Settings → Integrations → Microsoft 365',
-        code: 'TOKEN_EXPIRED'
-      });
-      return results;
-    }
-
-    // TODO: Implement Graph API delta sync
-    // For now, return a helpful message indicating the feature is in development
-    results.errors.push({ 
-      error: 'OneDrive/SharePoint sync is coming soon',
-      message: 'For now, use Apex Drive (Azure File Share) for full sync support. OneDrive documents can still be opened directly via Word Online.',
-      code: 'FEATURE_IN_DEVELOPMENT'
-    });
-
-    console.log(`[SYNC] Microsoft Cloud sync requested for firm ${user.firmId} - feature in development`);
-
-  } catch (error) {
-    console.error('[SYNC] Microsoft Cloud sync error:', error);
-    results.errors.push({ error: error.message });
-  }
+  // TODO: Implement Graph API sync
+  // For now, return placeholder
+  results.errors.push({ error: 'Cloud sync requires Microsoft Graph API setup' });
 
   return results;
 }
