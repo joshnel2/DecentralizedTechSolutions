@@ -5731,25 +5731,34 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Background Agent - Runs for 15 minutes with separate prompts
+ * 
+ * The backend drives the conversation by sending prompts based on the initial task.
+ * Each prompt is a separate API call, but conversation history is maintained.
+ * One prompt at a time - waits for response before sending next.
+ */
 async function runReActAgent(taskId, user, goal, initialContext = {}) {
-  console.log(`[REACT ${taskId}] Starting ReAct agent for goal: ${goal}`);
+  console.log(`[AGENT ${taskId}] ========================================`);
+  console.log(`[AGENT ${taskId}] Starting 15-minute background agent session`);
+  console.log(`[AGENT ${taskId}] Goal: ${goal}`);
+  console.log(`[AGENT ${taskId}] ========================================`);
   
   const startTime = Date.now();
-  const maxRuntime = 15 * 60 * 1000; // 15 minutes
-  const maxIterations = 500;
-  const STEP_DELAY_MS = 2000; // 2 seconds between API calls
+  const maxRuntime = 15 * 60 * 1000; // 15 minutes exactly
+  const PROMPT_DELAY_MS = 2000; // 2 seconds between prompts
   
-  let iteration = 0;
+  let promptCount = 0;
   let actions = [];
+  let phase = 'discovery'; // Phases: discovery, analysis, action, review
   
-  // Filter out problematic tools - agent should just keep working
+  // Filter out tools that shouldn't be used in background mode
   const AGENT_TOOLS = TOOLS.filter(t => {
     const name = t.function.name;
-    // Remove tools that would stop or pause the agent
     return name !== 'task_complete' && 
            name !== 'request_human_input' && 
            name !== 'send_email' &&
-           name !== 'start_background_task'; // Can't start another background task
+           name !== 'start_background_task';
   });
   
   try {
@@ -5758,69 +5767,128 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
       [taskId]
     );
     
-    // Simple, focused system prompt
-    const systemPrompt = `You are an autonomous legal AI assistant working on a task.
+    // System prompt - sets up the AI's role and context
+    const systemPrompt = `You are an autonomous legal AI assistant. You are working on a background task for 15 minutes.
 
-GOAL: ${goal}
+TASK: ${goal}
 
-RULES:
-1. Call ONE tool at a time. Wait for the result before calling the next tool.
-2. Work step by step toward the goal.
-3. Use draft_email to draft emails (do not send).
-4. Add notes to matters to document your work.
-5. Keep working until you've done everything useful.
+CONTEXT:
+${initialContext.matter_id ? `- Working on Matter ID: ${initialContext.matter_id}` : '- No specific matter (search if needed)'}
+${initialContext.client_id ? `- Working with Client ID: ${initialContext.client_id}` : ''}
 
-${initialContext.matter_id ? `Matter ID: ${initialContext.matter_id}` : ''}
-${initialContext.client_id ? `Client ID: ${initialContext.client_id}` : ''}
+INSTRUCTIONS:
+- You will receive prompts from the system guiding your work
+- Execute ONE tool per response
+- Build on previous results - the conversation history is preserved
+- Be thorough - you have 15 minutes to complete this task
+- Document your findings and actions
 
-Start by gathering information, then take action.`;
+Available actions: search matters, review documents, log time, create tasks, draft emails, create notes, etc.`;
 
-    let messages = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: `Begin working on: ${goal}\n\nCall a tool to start.` }
+    // Conversation history - maintained throughout the session
+    let conversationHistory = [
+      { role: 'system', content: systemPrompt }
     ];
     
-    // Main ReAct loop - runs until timeout
-    while (iteration < maxIterations) {
-      // Check timeout
-      if ((Date.now() - startTime) > maxRuntime) {
-        console.log(`[REACT ${taskId}] Timeout reached at iteration ${iteration}`);
+    // Break down the initial task into sub-tasks for the backend to prompt
+    const taskPrompts = generateTaskPrompts(goal, initialContext);
+    let currentTaskIndex = 0;
+    let consecutiveNoToolCalls = 0;
+    
+    // Send initial prompt based on the task
+    conversationHistory.push({
+      role: 'user',
+      content: taskPrompts[0] || `Let's begin working on: "${goal}"\n\nFirst, gather the information you need. What tool will you call?`
+    });
+    
+    // Main loop - runs for exactly 15 minutes
+    while (true) {
+      const elapsed = Date.now() - startTime;
+      const remainingMs = maxRuntime - elapsed;
+      const remainingMinutes = Math.ceil(remainingMs / 60000);
+      
+      // Check if time is up
+      if (elapsed >= maxRuntime) {
+        console.log(`[AGENT ${taskId}] 15 minutes reached. Ending session.`);
         break;
       }
       
-      iteration++;
-      console.log(`[REACT ${taskId}] === Iteration ${iteration} ===`);
+      promptCount++;
+      const elapsedMinutes = Math.floor(elapsed / 60000);
+      console.log(`[AGENT ${taskId}] --- Prompt #${promptCount} (${elapsedMinutes}m elapsed, ${remainingMinutes}m remaining) ---`);
       
-      // Update progress
+      // Update progress in database
       await query(
         `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
-        [iteration, JSON.stringify({ 
-          iteration,
-          actions: actions.slice(-10), // Last 10 actions
+        [promptCount, JSON.stringify({ 
+          promptCount,
+          phase,
+          actions: actions.slice(-10),
+          remainingMinutes,
           status: 'working'
         }), taskId]
       );
       
-      // Call AI with filtered tools (no task_complete, send_email, etc.)
+      // Send prompt to AI (one at a time)
       let response;
       try {
-        response = await callAzureOpenAIWithTools(messages, AGENT_TOOLS);
+        console.log(`[AGENT ${taskId}] Sending prompt to Azure AI...`);
+        response = await callAzureOpenAIWithTools(conversationHistory, AGENT_TOOLS);
+        console.log(`[AGENT ${taskId}] Received response (tool_calls: ${response.tool_calls?.length || 0})`);
       } catch (apiError) {
-        console.error(`[REACT ${taskId}] API error:`, apiError.message);
-        await delay(3000);
+        console.error(`[AGENT ${taskId}] API error:`, apiError.message);
+        // Wait and retry on error
+        await delay(5000);
         continue;
       }
       
-      // If no tool call, prompt again
+      // Handle response
       if (!response.tool_calls || response.tool_calls.length === 0) {
-        console.log(`[REACT ${taskId}] No tool call, prompting again...`);
-        messages.push({ role: 'assistant', content: response.content || '' });
-        messages.push({ role: 'user', content: 'Call a tool to continue. What action will you take?' });
-        await delay(1000);
+        // No tool call - AI responded with text only
+        consecutiveNoToolCalls++;
+        console.log(`[AGENT ${taskId}] No tool call (${consecutiveNoToolCalls} consecutive)`);
+        
+        // Add AI's response to history
+        conversationHistory.push({ 
+          role: 'assistant', 
+          content: response.content || '' 
+        });
+        
+        // Backend sends next prompt based on task progress
+        if (consecutiveNoToolCalls >= 3) {
+          // Move to next task phase
+          currentTaskIndex++;
+          consecutiveNoToolCalls = 0;
+          
+          if (currentTaskIndex < taskPrompts.length) {
+            conversationHistory.push({
+              role: 'user',
+              content: taskPrompts[currentTaskIndex]
+            });
+          } else {
+            // Generate a continuation prompt based on what's been done
+            const nextPrompt = generateContinuationPrompt(goal, actions, remainingMinutes, phase);
+            conversationHistory.push({ role: 'user', content: nextPrompt });
+            
+            // Advance phase
+            if (phase === 'discovery') phase = 'analysis';
+            else if (phase === 'analysis') phase = 'action';
+            else if (phase === 'action') phase = 'review';
+          }
+        } else {
+          // Prompt to continue with a tool
+          conversationHistory.push({
+            role: 'user',
+            content: `Please call a tool to continue. What's the next action for: "${goal}"?`
+          });
+        }
+        
+        await delay(PROMPT_DELAY_MS);
         continue;
       }
       
-      // Process ONLY THE FIRST tool call (one at a time)
+      // Process ONE tool call (sequential, not parallel)
+      consecutiveNoToolCalls = 0;
       const toolCall = response.tool_calls[0];
       const functionName = toolCall.function.name;
       let functionArgs;
@@ -5830,7 +5898,7 @@ Start by gathering information, then take action.`;
         functionArgs = {};
       }
       
-      console.log(`[REACT ${taskId}] Calling: ${functionName}`);
+      console.log(`[AGENT ${taskId}] Executing: ${functionName}(${JSON.stringify(functionArgs).substring(0, 100)}...)`);
       
       // Execute the tool
       const toolResult = await executeTool(functionName, functionArgs, user, null);
@@ -5840,71 +5908,226 @@ Start by gathering information, then take action.`;
         (toolResult.document ? `Created: ${toolResult.document.name}` : null) ||
         (toolResult.matter ? `Found: ${toolResult.matter.name}` : null) ||
         (toolResult.matters ? `Found ${toolResult.matters.length} matters` : null) ||
+        (toolResult.clients ? `Found ${toolResult.clients.length} clients` : null) ||
+        (toolResult.time_entry ? `Logged ${toolResult.time_entry.hours}h` : null) ||
+        (toolResult.event ? `Created event: ${toolResult.event.title}` : null) ||
+        (toolResult.task ? `Created task: ${toolResult.task.title}` : null) ||
         `Executed ${functionName}`;
       
       actions.push({
+        prompt: promptCount,
         tool: functionName,
+        args: functionArgs,
         summary: actionSummary,
         success: !toolResult.error,
         timestamp: new Date().toISOString()
       });
       
-      // Update current step display
+      console.log(`[AGENT ${taskId}] Result: ${actionSummary}`);
+      
+      // Update current step in database
       await query(
         `UPDATE ai_tasks SET current_step = $1 WHERE id = $2`,
         [actionSummary, taskId]
       );
       
-      // Add assistant message with ONLY the one tool call we're responding to
-      messages.push({
+      // Add to conversation history
+      conversationHistory.push({
         role: 'assistant',
         content: response.content || null,
         tool_calls: [toolCall]
       });
       
-      // Add tool result
-      messages.push({
+      conversationHistory.push({
         role: 'tool',
         tool_call_id: toolCall.id,
         content: JSON.stringify(toolResult)
       });
       
-      // Simple continuation prompt
-      messages.push({
-        role: 'user',
-        content: 'Result received. Continue working. Call one tool.'
-      });
+      // Backend sends next prompt based on the result and task
+      const nextPrompt = generateNextPrompt(goal, functionName, toolResult, actions, remainingMinutes, phase);
+      conversationHistory.push({ role: 'user', content: nextPrompt });
       
-      // Trim conversation if too long (keep system + last 40 messages)
-      if (messages.length > 45) {
-        messages = [messages[0], ...messages.slice(-40)];
+      // Trim conversation history if getting too long (keep recent context)
+      if (conversationHistory.length > 60) {
+        // Keep system prompt + summary of early actions + recent messages
+        const systemMsg = conversationHistory[0];
+        const recentMessages = conversationHistory.slice(-50);
+        const actionsSummary = {
+          role: 'user',
+          content: `[Previous actions: ${actions.slice(0, -10).map(a => a.summary).join(', ')}]\n\nContinuing...`
+        };
+        conversationHistory = [systemMsg, actionsSummary, ...recentMessages];
       }
       
-      await delay(STEP_DELAY_MS);
+      // Delay before next prompt
+      await delay(PROMPT_DELAY_MS);
     }
     
-    // Session complete - ran for full duration
+    // Session complete - generate final summary
     const elapsedMinutes = Math.round((Date.now() - startTime) / 60000);
-    const finalSummary = `Completed ${actions.length} actions over ${elapsedMinutes} minutes`;
+    const successfulActions = actions.filter(a => a.success).length;
+    
+    console.log(`[AGENT ${taskId}] ========================================`);
+    console.log(`[AGENT ${taskId}] Session complete`);
+    console.log(`[AGENT ${taskId}] Duration: ${elapsedMinutes} minutes`);
+    console.log(`[AGENT ${taskId}] Prompts sent: ${promptCount}`);
+    console.log(`[AGENT ${taskId}] Actions: ${successfulActions}/${actions.length} successful`);
+    console.log(`[AGENT ${taskId}] ========================================`);
+    
+    // Generate a summary using the AI
+    let summary = '';
+    try {
+      conversationHistory.push({
+        role: 'user',
+        content: `The 15-minute session is complete. Summarize what you accomplished for the task: "${goal}"\n\nProvide a brief summary of actions taken and any recommendations.`
+      });
+      
+      const summaryResponse = await callAzureOpenAIWithTools(conversationHistory, []);
+      summary = summaryResponse.content || '';
+    } catch (e) {
+      summary = `Completed ${successfulActions} actions in ${elapsedMinutes} minutes.`;
+    }
     
     await query(
-      `UPDATE ai_tasks SET status = 'completed', result = $1, completed_at = NOW() WHERE id = $2`,
+      `UPDATE ai_tasks SET status = 'completed', result = $1, summary = $2, completed_at = NOW() WHERE id = $3`,
       [JSON.stringify({ 
-        summary: finalSummary,
         actions,
-        totalIterations: iteration,
-        durationMinutes: elapsedMinutes
-      }), taskId]
+        totalPrompts: promptCount,
+        durationMinutes: elapsedMinutes,
+        successfulActions
+      }), summary, taskId]
     );
-    
-    console.log(`[REACT ${taskId}] Session complete: ${iteration} actions in ${elapsedMinutes} minutes`);
     
   } catch (error) {
-    console.error(`[REACT ${taskId}] Fatal error:`, error);
+    console.error(`[AGENT ${taskId}] Fatal error:`, error);
     await query(
-      `UPDATE ai_tasks SET status = 'failed', result = $1 WHERE id = $2`,
-      [JSON.stringify({ error: error.message, actions }), taskId]
+      `UPDATE ai_tasks SET status = 'failed', result = $1, error = $2, completed_at = NOW() WHERE id = $3`,
+      [JSON.stringify({ actions }), error.message, taskId]
     );
+  }
+}
+
+/**
+ * Generate initial task prompts based on the goal
+ * These guide the AI through different phases of the task
+ */
+function generateTaskPrompts(goal, context) {
+  const goalLower = goal.toLowerCase();
+  const prompts = [];
+  
+  // Discovery phase prompts
+  if (context.matter_id) {
+    prompts.push(`Start by getting the details of the matter (ID: ${context.matter_id}). Call get_matter to understand what we're working with.`);
+  } else if (goalLower.includes('matter') || goalLower.includes('case')) {
+    prompts.push(`First, let's find the relevant matter. Use search_matters to locate it.`);
+  } else if (context.client_id) {
+    prompts.push(`Start by getting information about the client (ID: ${context.client_id}). Call get_client.`);
+  } else if (goalLower.includes('client')) {
+    prompts.push(`First, find the relevant client. Use list_clients or search.`);
+  } else {
+    prompts.push(`Let's start by gathering information. Search for any relevant matters, clients, or documents related to: "${goal}"`);
+  }
+  
+  // Analysis phase prompts
+  if (goalLower.includes('review') || goalLower.includes('analyze')) {
+    prompts.push(`Now review the documents associated with this matter. Use list_documents and read_document_content to analyze them.`);
+  }
+  
+  if (goalLower.includes('document') || goalLower.includes('draft') || goalLower.includes('prepare')) {
+    prompts.push(`Based on what you've found, what documents need to be created or reviewed? List them and start working.`);
+  }
+  
+  // Action phase prompts
+  if (goalLower.includes('email') || goalLower.includes('contact')) {
+    prompts.push(`Draft any necessary emails using draft_email_for_matter. Don't send - just create drafts.`);
+  }
+  
+  if (goalLower.includes('task') || goalLower.includes('todo') || goalLower.includes('follow')) {
+    prompts.push(`Create any necessary follow-up tasks using create_task.`);
+  }
+  
+  if (goalLower.includes('time') || goalLower.includes('billing')) {
+    prompts.push(`Review and log any time entries that should be recorded.`);
+  }
+  
+  // Always end with documentation
+  prompts.push(`Document your findings and any important notes about this work using create_note.`);
+  
+  return prompts;
+}
+
+/**
+ * Generate the next prompt based on what just happened
+ */
+function generateNextPrompt(goal, lastTool, lastResult, actions, remainingMinutes, phase) {
+  const actionCount = actions.length;
+  
+  // If there was an error, acknowledge and suggest alternative
+  if (lastResult.error) {
+    return `That action encountered an issue: ${lastResult.error}\n\nTry a different approach. What else can you do for: "${goal}"?`;
+  }
+  
+  // Context-aware follow-up based on what tool was just used
+  switch (lastTool) {
+    case 'get_matter':
+    case 'search_matters':
+      return `Good, you have the matter information. Now dig deeper - check the documents, review any linked emails, or look at recent activity. What's next?`;
+    
+    case 'get_client':
+    case 'list_clients':
+      return `You have client information. Now look at their matters, documents, or recent communications. Continue working on: "${goal}"`;
+    
+    case 'list_documents':
+      return `You found documents. Read the important ones to understand their contents. Use read_document_content on the most relevant ones.`;
+    
+    case 'read_document_content':
+      return `You've read the document content. Based on this information, what action should be taken for: "${goal}"? Continue working.`;
+    
+    case 'create_document':
+    case 'create_note':
+      return `Document created. What else needs to be done? You have ${remainingMinutes} minutes remaining for: "${goal}"`;
+    
+    case 'draft_email_for_matter':
+      return `Email drafted. Any other communications needed? Or move to the next part of: "${goal}"`;
+    
+    case 'create_task':
+    case 'create_event':
+      return `Task/event created. Continue with other actions needed for: "${goal}"`;
+    
+    case 'log_time':
+      return `Time logged. Continue with other work for: "${goal}"`;
+    
+    default:
+      // Generic continuation based on phase and time remaining
+      if (remainingMinutes > 10) {
+        return `Result received. You have ${remainingMinutes} minutes left. Continue being thorough with: "${goal}"`;
+      } else if (remainingMinutes > 5) {
+        return `${remainingMinutes} minutes remaining. Focus on completing key actions for: "${goal}"`;
+      } else {
+        return `Only ${remainingMinutes} minutes left. Wrap up essential tasks and document your work for: "${goal}"`;
+      }
+  }
+}
+
+/**
+ * Generate a continuation prompt when the AI hasn't called a tool
+ */
+function generateContinuationPrompt(goal, actions, remainingMinutes, phase) {
+  if (actions.length === 0) {
+    return `You haven't taken any actions yet. Call a tool to start working on: "${goal}"`;
+  }
+  
+  const recentActions = actions.slice(-3).map(a => a.summary).join(', ');
+  
+  if (phase === 'discovery') {
+    return `You've gathered some information (${recentActions}). Now analyze it further or take action. What's next for: "${goal}"?`;
+  } else if (phase === 'analysis') {
+    return `Analysis phase. Review documents, check details, verify information. You have ${remainingMinutes} minutes for: "${goal}"`;
+  } else if (phase === 'action') {
+    return `Time for action. Create documents, draft emails, schedule tasks. ${remainingMinutes} minutes remaining for: "${goal}"`;
+  } else {
+    return `Review phase. Document your findings and create any follow-up items. ${remainingMinutes} minutes left.`;
   }
 }
 
