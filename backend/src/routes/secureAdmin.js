@@ -1052,6 +1052,7 @@ router.put('/platform-settings', requireSecureAdmin, async (req, res) => {
     }
 
     const updated = [];
+    const warnings = [];
     
     for (const [key, value] of Object.entries(settingsToUpdate)) {
       // Skip masked values (don't overwrite with dots)
@@ -1065,6 +1066,15 @@ router.put('/platform-settings', requireSecureAdmin, async (req, res) => {
       // Debug log for secret values (show length and first few chars)
       if (isSecret && value) {
         console.log(`[Platform Settings] Saving ${key}: ${value.substring(0, 4)}... (${value.length} chars)`);
+        
+        // Check if Microsoft client secret looks like a Secret ID (UUID) instead of Secret Value
+        if (key === 'microsoft_client_secret') {
+          const looksLikeUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+          if (looksLikeUUID) {
+            console.warn(`[Platform Settings] WARNING: ${key} looks like a Secret ID (UUID), not the actual Secret Value!`);
+            warnings.push('Microsoft Client Secret looks like a Secret ID (UUID format), not the actual Secret Value. In Azure Portal, you need to copy the "Value" column, not the "Secret ID". The value is only shown once when you create the secret - you may need to create a new one.');
+          }
+        }
       }
       
       await query(`
@@ -1085,11 +1095,18 @@ router.put('/platform-settings', requireSecureAdmin, async (req, res) => {
 
     logAudit('UPDATE_PLATFORM_SETTINGS', `Updated settings: ${updated.join(', ')}`, req.ip);
 
-    res.json({ 
+    const response = { 
       success: true, 
       message: `Updated ${updated.length} settings`,
       updated 
-    });
+    };
+    
+    if (warnings.length > 0) {
+      response.warnings = warnings;
+      response.message += ` (with warnings)`;
+    }
+    
+    res.json(response);
   } catch (error) {
     console.error('Update platform settings error:', error);
     res.status(500).json({ error: 'Failed to update platform settings' });
@@ -1120,6 +1137,18 @@ router.post('/platform-settings/test/:provider', requireSecureAdmin, async (req,
           message: 'Microsoft credentials not configured. Please enter Client ID and Client Secret.' 
         });
       }
+      
+      // Check if the secret looks like a Secret ID (UUID) instead of the actual Secret Value
+      // UUID format: 8-4-4-4-12 hex characters (e.g., 8a11d57a-df9b-4600-8f9d-007f02268a43)
+      const secretLooksLikeUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(settings.client_secret);
+      if (secretLooksLikeUUID) {
+        return res.json({ 
+          success: false, 
+          message: 'ERROR: You entered the Secret ID instead of the Secret Value! In Azure Portal, go to App registrations > Your App > Certificates & secrets. The "Value" column contains the actual secret (shown only once when created). The "Secret ID" column is just for identification. You may need to create a new secret and copy the Value immediately.',
+          warning: 'secret_id_not_value'
+        });
+      }
+      
       // Just check if credentials are present - actual OAuth flow will validate them
       return res.json({ 
         success: true, 
