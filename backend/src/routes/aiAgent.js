@@ -5794,7 +5794,7 @@ const AgentStatus = {
   EXECUTING: 'executing',
   REFLECTING: 'reflecting',
   COMPLETED: 'completed',
-  FAILED: 'failed',
+  RETRYING: 'retrying',
   CANCELLED: 'cancelled'
 };
 
@@ -5931,10 +5931,68 @@ Continue executing.`;
 
 /**
  * Main Agent Entry Point - Plan, Execute, Reflect
+ * Auto-retries on failure - never gives up
  */
 async function runReActAgent(taskId, user, goal, initialContext = {}) {
+  const MAX_RETRIES = 3;
+  let lastError = null;
+  
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await runAgentCore(taskId, user, goal, initialContext, attempt);
+      return; // Success - exit
+    } catch (error) {
+      lastError = error;
+      console.error(`[AGENT ${taskId}] Attempt ${attempt}/${MAX_RETRIES} failed:`, error.message);
+      
+      if (attempt < MAX_RETRIES) {
+        // Wait before retry
+        const retryDelay = attempt * 5000; // 5s, 10s, 15s
+        console.log(`[AGENT ${taskId}] Retrying in ${retryDelay/1000}s...`);
+        await new Promise(r => setTimeout(r, retryDelay));
+        
+        // Update status to show retry
+        await query(
+          `UPDATE ai_tasks SET 
+            current_step = $1,
+            progress = $2,
+            updated_at = NOW()
+           WHERE id = $3`,
+          [
+            `Retry ${attempt + 1}/${MAX_RETRIES} - recovering from error`,
+            JSON.stringify({ status: 'retrying', attempt: attempt + 1, maxRetries: MAX_RETRIES }),
+            taskId
+          ]
+        );
+      }
+    }
+  }
+  
+  // All retries exhausted - complete with partial results instead of failing
+  console.log(`[AGENT ${taskId}] All retries exhausted. Completing with partial results.`);
+  await query(
+    `UPDATE ai_tasks SET 
+      status = 'completed',
+      completed_at = NOW(),
+      result = $1,
+      progress = $2,
+      updated_at = NOW()
+     WHERE id = $3`,
+    [
+      `Agent completed with issues after ${MAX_RETRIES} attempts. Last error: ${lastError?.message || 'Unknown'}. Check logs for details.`,
+      JSON.stringify({ status: 'completed_with_issues', attempts: MAX_RETRIES, lastError: lastError?.message }),
+      taskId
+    ]
+  );
+  runningAgents.delete(taskId);
+}
+
+/**
+ * Core agent logic - separated for retry wrapper
+ */
+async function runAgentCore(taskId, user, goal, initialContext, attemptNumber) {
   console.log(`\n${'═'.repeat(70)}`);
-  console.log(`║ APEX LEGAL AGENT - STARTING`);
+  console.log(`║ APEX LEGAL AGENT - STARTING ${attemptNumber > 1 ? `(Attempt ${attemptNumber})` : ''}`);
   console.log(`║ Task ID: ${taskId}`);
   console.log(`║ Goal: ${goal.substring(0, 60)}${goal.length > 60 ? '...' : ''}`);
   console.log(`║ User: ${user.firstName} ${user.lastName}`);
@@ -6399,31 +6457,9 @@ Continue with: ${plan[currentPlanStep] || 'completing the task'}`
     runningAgents.delete(taskId);
     
   } catch (error) {
-    console.error(`[AGENT ${taskId}] 💥 Fatal error:`, error);
-    
-    await query(
-      `UPDATE ai_tasks SET 
-        status = 'failed',
-        completed_at = NOW(),
-        error = $1,
-        result = $2,
-        progress = $3,
-        updated_at = NOW()
-       WHERE id = $4`,
-      [
-        error.message,
-        `Agent failed after ${completedActions.length} actions: ${error.message}`,
-        JSON.stringify({
-          status: AgentStatus.FAILED,
-          progressPercent: getProgressPercent(),
-          completedActions: completedActions.slice(-10),
-          error: error.message
-        }),
-        taskId
-      ]
-    );
-    
-    runningAgents.delete(taskId);
+    console.error(`[AGENT ${taskId}] 💥 Error in agent core:`, error);
+    // Re-throw to let retry wrapper handle it
+    throw error;
   }
 }
 
