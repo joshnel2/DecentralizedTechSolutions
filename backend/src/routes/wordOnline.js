@@ -202,11 +202,9 @@ router.get('/token/status', authenticate, async (req, res) => {
 // ============================================
 
 // Get Word Online edit URL for a document
-// Supports both Word Online (browser) and Desktop Word
 router.post('/documents/:documentId/open', authenticate, async (req, res) => {
   try {
     const { documentId } = req.params;
-    const { preferDesktop = false } = req.body; // User can prefer desktop Word
 
     // Get document info
     const doc = await query(
@@ -282,33 +280,11 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
             // Record session
             await startEditSession(documentId, req.user.id, req.user.firmId, uploadResult.id, uploadResult.webUrl);
 
-            // Build desktop Word URL using Office URI scheme
-            // Format: ms-word:ofe|u|<encoded-url>
-            const desktopWordUrl = `ms-word:ofe|u|${encodeURIComponent(uploadResult.webUrl)}`;
-
-            // If user prefers desktop, return that as primary
-            if (preferDesktop) {
-              return res.json({
-                editUrl: desktopWordUrl,
-                webUrl: uploadResult.webUrl,
-                graphItemId: uploadResult.id,
-                coAuthoring: false, // Desktop doesn't have real-time co-authoring indicator
-                isDesktop: true,
-                message: 'Opening in Microsoft Word desktop app...',
-                instructions: 'Save in Word (Ctrl+S) to sync changes back to Apex'
-              });
-            }
-
             return res.json({
               editUrl: uploadResult.webUrl,
-              desktopUrl: desktopWordUrl, // Also provide desktop option
               graphItemId: uploadResult.id,
               coAuthoring: true,
-              message: 'Document ready. Choose Word Online or Desktop Word.',
-              options: {
-                online: { url: uploadResult.webUrl, label: 'Edit in Browser (Word Online)' },
-                desktop: { url: desktopWordUrl, label: 'Edit in Desktop Word' }
-              }
+              message: 'Document uploaded to OneDrive. Opening in Word Online...'
             });
           }
         } catch (uploadError) {
@@ -337,125 +313,6 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Open Word Online error:', error);
     res.status(500).json({ error: 'Failed to open document' });
-  }
-});
-
-// Open document directly in Desktop Microsoft Word
-router.post('/documents/:documentId/open-desktop', authenticate, async (req, res) => {
-  try {
-    const { documentId } = req.params;
-
-    // Get document info
-    const doc = await query(
-      `SELECT d.*, dc.drive_type, dc.root_path
-       FROM documents d
-       LEFT JOIN drive_configurations dc ON d.drive_id = dc.id
-       WHERE d.id = $1 AND d.firm_id = $2`,
-      [documentId, req.user.firmId]
-    );
-
-    if (doc.rows.length === 0) {
-      return res.status(404).json({ error: 'Document not found' });
-    }
-
-    const document = doc.rows[0];
-
-    // Check if user has permission to edit
-    const canEdit = await checkDocumentAccess(documentId, req.user.id, req.user.firmId, req.user.role, 'edit');
-    if (!canEdit) {
-      return res.status(403).json({ error: 'You do not have permission to edit this document' });
-    }
-
-    // Check if it's a Word document
-    const fileName = document.original_name || document.name || '';
-    const isWordDoc = fileName.toLowerCase().endsWith('.docx') || 
-                      fileName.toLowerCase().endsWith('.doc') ||
-                      document.type?.includes('word');
-
-    if (!isWordDoc) {
-      return res.status(400).json({ 
-        error: 'This file type cannot be opened in Microsoft Word',
-        fileType: document.type,
-        fileName
-      });
-    }
-
-    // Get Microsoft integration
-    const msIntegration = await query(
-      `SELECT access_token FROM integrations 
-       WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
-      [req.user.firmId]
-    );
-
-    if (msIntegration.rows.length === 0) {
-      // No Microsoft connection - provide network drive path if available
-      return res.json({
-        desktopUrl: null,
-        networkPath: document.path ? `\\\\azure-path\\${document.path}` : null,
-        needsMicrosoftAuth: true,
-        message: 'Connect Microsoft in Integrations for seamless desktop editing, or use the mapped network drive.',
-        instructions: [
-          '1. Map your firm drive as a network drive (Settings → Apex Drive)',
-          '2. Open the file from the mapped drive in Word',
-          '3. Save normally - changes sync to Apex'
-        ]
-      });
-    }
-
-    const accessToken = msIntegration.rows[0].access_token;
-
-    // Upload to OneDrive for editing
-    try {
-      const uploadResult = await uploadToOneDriveForEditing(document, accessToken, req.user.firmId);
-      
-      if (uploadResult && uploadResult.webUrl) {
-        // Save graph item ID
-        await query(
-          `UPDATE documents SET graph_item_id = $1, word_online_url = $2 WHERE id = $3`,
-          [uploadResult.id, uploadResult.webUrl, documentId]
-        );
-
-        // Start edit session
-        await startEditSession(documentId, req.user.id, req.user.firmId, uploadResult.id, uploadResult.webUrl);
-
-        // Build desktop Word URL
-        const desktopUrl = `ms-word:ofe|u|${encodeURIComponent(uploadResult.webUrl)}`;
-
-        return res.json({
-          desktopUrl,
-          webUrl: uploadResult.webUrl,
-          graphItemId: uploadResult.id,
-          message: 'Click the link to open in Microsoft Word',
-          instructions: [
-            '1. Click "Open in Word" - your desktop Word will launch',
-            '2. Edit the document normally',
-            '3. Save (Ctrl+S) - changes auto-sync to Apex',
-            '4. Close Word when done'
-          ],
-          autoSync: true,
-          syncMethod: 'onedrive'
-        });
-      }
-    } catch (uploadError) {
-      console.error('Desktop Word - OneDrive upload failed:', uploadError.message);
-    }
-
-    // Fallback: provide download + re-upload instructions
-    res.json({
-      desktopUrl: null,
-      downloadUrl: `/api/documents/${documentId}/download`,
-      message: 'Could not set up auto-sync. Download, edit, and re-upload.',
-      instructions: [
-        '1. Download the document',
-        '2. Open in Word and edit',
-        '3. Upload the edited version back to Apex'
-      ],
-      autoSync: false
-    });
-
-  } catch (error) {
-    console.error('Open desktop Word error:', error);
-    res.status(500).json({ error: 'Failed to open in desktop Word' });
   }
 });
 

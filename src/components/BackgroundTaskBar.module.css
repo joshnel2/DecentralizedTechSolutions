@@ -26,17 +26,6 @@
   box-shadow: 0 8px 32px rgba(239, 68, 68, 0.3);
 }
 
-.taskBar.cancelled {
-  background: linear-gradient(135deg, #78350F 0%, #92400E 100%);
-  border-color: rgba(245, 158, 11, 0.4);
-  box-shadow: 0 8px 32px rgba(245, 158, 11, 0.3);
-}
-
-.taskBar.cancelled .icon {
-  background: rgba(245, 158, 11, 0.3);
-  color: #F59E0B;
-}
-
 @keyframes slideUp {
   from {
     opacity: 0;
@@ -237,48 +226,6 @@
 .viewProgressBtn:disabled {
   opacity: 0.7;
   cursor: wait;
-}
-
-/* Cancel Button */
-.cancelBtn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  background: rgba(239, 68, 68, 0.2);
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  border-radius: 8px;
-  color: #FCA5A5;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.cancelBtn:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.3);
-  border-color: rgba(239, 68, 68, 0.6);
-  color: #FEE2E2;
-}
-
-.cancelBtn:disabled {
-  opacity: 0.7;
-  cursor: wait;
-}
-
-/* Cancelled Progress Fill */
-.cancelledFill {
-  background: linear-gradient(90deg, #F59E0B 0%, #D97706 100%) !important;
-}
-
-.taskBar.cancelled .viewProgressBtn {
-  background: linear-gradient(135deg, #F59E0B, #D97706);
-}
-
-.taskBar.cancelled .viewProgressBtn:hover:not(:disabled) {
-  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
 }
 
 /* Summary Modal */

@@ -48,82 +48,6 @@ async function getCredential(dbKey, envKey, defaultValue = '') {
 }
 
 // ============================================
-// GENERIC TOKEN REFRESH HELPER
-// ============================================
-// Refreshes OAuth tokens for any provider and handles failures gracefully
-
-async function refreshTokenIfNeeded(integration, provider, refreshConfig) {
-  const { 
-    clientId, 
-    clientSecret, 
-    tokenUrl, 
-    grantType = 'refresh_token',
-    extraParams = {}
-  } = refreshConfig;
-
-  // Check if credentials are configured
-  if (!clientId || !clientSecret) {
-    console.error(`[${provider}] OAuth credentials not configured`);
-    await query(
-      `UPDATE integrations SET is_connected = false WHERE id = $1`,
-      [integration.id]
-    );
-    return { error: `${provider} credentials not configured. Please contact your administrator.` };
-  }
-
-  let accessToken = integration.access_token;
-
-  // Check if token needs refresh
-  if (integration.token_expires_at && new Date(integration.token_expires_at) < new Date()) {
-    console.log(`[${provider}] Token expired, refreshing...`);
-    
-    try {
-      const body = new URLSearchParams({
-        refresh_token: integration.refresh_token,
-        client_id: clientId,
-        client_secret: clientSecret,
-        grant_type: grantType,
-        ...extraParams
-      });
-
-      const refreshResponse = await fetch(tokenUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body,
-      });
-
-      const newTokens = await refreshResponse.json();
-      
-      if (newTokens.access_token) {
-        accessToken = newTokens.access_token;
-        await query(
-          `UPDATE integrations SET access_token = $1, refresh_token = COALESCE($2, refresh_token), token_expires_at = NOW() + INTERVAL '1 hour'
-           WHERE id = $3`,
-          [accessToken, newTokens.refresh_token, integration.id]
-        );
-        console.log(`[${provider}] Token refreshed successfully`);
-      } else {
-        console.error(`[${provider}] Token refresh failed:`, newTokens.error, newTokens.error_description);
-        await query(
-          `UPDATE integrations SET is_connected = false, access_token = NULL WHERE id = $1`,
-          [integration.id]
-        );
-        return { error: `${provider} session expired. Please reconnect your account.` };
-      }
-    } catch (refreshError) {
-      console.error(`[${provider}] Token refresh error:`, refreshError.message);
-      await query(
-        `UPDATE integrations SET is_connected = false, access_token = NULL WHERE id = $1`,
-        [integration.id]
-      );
-      return { error: `Connection to ${provider} failed. Please reconnect your account.` };
-    }
-  }
-
-  return { accessToken };
-}
-
-// ============================================
 // INTEGRATION SETTINGS
 // ============================================
 
@@ -375,29 +299,18 @@ router.post('/google/sync', authenticate, async (req, res) => {
     );
 
     if (integration.rows.length === 0) {
-      return res.status(400).json({ error: 'Google not connected', needsReconnect: true });
+      return res.status(400).json({ error: 'Google not connected' });
     }
 
     // Get credentials
     const GOOGLE_CLIENT_ID = await getCredential('google_client_id', 'GOOGLE_CLIENT_ID');
     const GOOGLE_CLIENT_SECRET = await getCredential('google_client_secret', 'GOOGLE_CLIENT_SECRET');
 
-    // Check if credentials are configured
-    if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-      console.error('[Google] OAuth credentials not configured');
-      await query(
-        `UPDATE integrations SET is_connected = false WHERE firm_id = $1 AND provider = 'google'`,
-        [req.user.firmId]
-      );
-      return res.status(401).json({ error: 'Google credentials not configured. Please contact your administrator.', needsReconnect: true });
-    }
-
     let accessToken = integration.rows[0].access_token;
     const refreshToken = integration.rows[0].refresh_token;
 
     // Check if token needs refresh
     if (new Date(integration.rows[0].token_expires_at) < new Date()) {
-      console.log('[Google] Token expired, refreshing...');
       const refreshResponse = await fetch('https://oauth2.googleapis.com/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -410,26 +323,13 @@ router.post('/google/sync', authenticate, async (req, res) => {
       });
 
       const newTokens = await refreshResponse.json();
-      
-      if (newTokens.access_token) {
-        accessToken = newTokens.access_token;
-        await query(
-          `UPDATE integrations SET access_token = $1, token_expires_at = NOW() + INTERVAL '1 hour'
-           WHERE firm_id = $2 AND provider = 'google'`,
-          [accessToken, req.user.firmId]
-        );
-        console.log('[Google] Token refreshed successfully');
-      } else {
-        console.error('[Google] Token refresh failed:', newTokens.error, newTokens.error_description);
-        await query(
-          `UPDATE integrations SET is_connected = false, access_token = NULL WHERE firm_id = $1 AND provider = 'google'`,
-          [req.user.firmId]
-        );
-        return res.status(401).json({ 
-          error: 'Google session expired. Please reconnect your Google account.', 
-          needsReconnect: true 
-        });
-      }
+      accessToken = newTokens.access_token;
+
+      await query(
+        `UPDATE integrations SET access_token = $1, token_expires_at = NOW() + INTERVAL '1 hour'
+         WHERE firm_id = $2 AND provider = 'google'`,
+        [accessToken, req.user.firmId]
+      );
     }
 
     // Fetch calendar events
@@ -634,7 +534,7 @@ router.post('/quickbooks/sync', authenticate, async (req, res) => {
     );
 
     if (integration.rows.length === 0) {
-      return res.status(400).json({ error: 'QuickBooks not connected', needsReconnect: true });
+      return res.status(400).json({ error: 'QuickBooks not connected' });
     }
 
     // Get credentials
@@ -642,28 +542,17 @@ router.post('/quickbooks/sync', authenticate, async (req, res) => {
     const QB_CLIENT_SECRET = await getCredential('quickbooks_client_secret', 'QUICKBOOKS_CLIENT_SECRET');
     const QB_ENVIRONMENT = await getCredential('quickbooks_environment', 'QUICKBOOKS_ENVIRONMENT', 'sandbox');
 
-    // Check if credentials are configured
-    if (!QB_CLIENT_ID || !QB_CLIENT_SECRET) {
-      console.error('[QuickBooks] OAuth credentials not configured');
-      await query(
-        `UPDATE integrations SET is_connected = false WHERE firm_id = $1 AND provider = 'quickbooks'`,
-        [req.user.firmId]
-      );
-      return res.status(401).json({ error: 'QuickBooks credentials not configured. Please contact your administrator.', needsReconnect: true });
-    }
-
     const { access_token, refresh_token, settings } = integration.rows[0];
     const { realmId } = settings || {};
 
     if (!realmId) {
-      return res.status(400).json({ error: 'QuickBooks realm ID missing. Please reconnect your QuickBooks account.', needsReconnect: true });
+      return res.status(400).json({ error: 'QuickBooks realm ID missing' });
     }
 
-    // Refresh token (QuickBooks tokens expire quickly - always refresh)
+    // Refresh token if needed (QuickBooks tokens expire quickly)
     let accessToken = access_token;
     const auth = Buffer.from(`${QB_CLIENT_ID}:${QB_CLIENT_SECRET}`).toString('base64');
     
-    console.log('[QuickBooks] Refreshing access token...');
     const refreshResponse = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
       method: 'POST',
       headers: {
@@ -684,18 +573,6 @@ router.post('/quickbooks/sync', authenticate, async (req, res) => {
          WHERE firm_id = $3 AND provider = 'quickbooks'`,
         [newTokens.access_token, newTokens.refresh_token || refresh_token, req.user.firmId]
       );
-      console.log('[QuickBooks] Token refreshed successfully');
-    } else {
-      console.error('[QuickBooks] Token refresh failed:', newTokens.error, newTokens.error_description);
-      // Mark as disconnected so user can reconnect
-      await query(
-        `UPDATE integrations SET is_connected = false, access_token = NULL WHERE firm_id = $1 AND provider = 'quickbooks'`,
-        [req.user.firmId]
-      );
-      return res.status(401).json({ 
-        error: 'QuickBooks session expired. Please reconnect your QuickBooks account.', 
-        needsReconnect: true 
-      });
     }
 
     const baseUrl = QB_ENVIRONMENT === 'production'
@@ -931,14 +808,38 @@ router.get('/outlook/emails', authenticate, async (req, res) => {
     );
 
     if (integration.rows.length === 0) {
-      return res.status(400).json({ error: 'Outlook not connected', needsReconnect: true });
+      return res.status(400).json({ error: 'Outlook not connected' });
     }
 
-    // Use the shared helper function for consistent token handling
-    const accessToken = await getValidOutlookToken(integration.rows[0]);
-    if (!accessToken || typeof accessToken === 'object') {
-      const errorMsg = typeof accessToken === 'object' ? accessToken.error : 'Session expired. Please reconnect Outlook.';
-      return res.status(401).json({ error: errorMsg, needsReconnect: true });
+    // Get credentials
+    const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
+    const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
+    const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
+
+    let accessToken = integration.rows[0].access_token;
+    const refreshToken = integration.rows[0].refresh_token;
+
+    // Refresh token if needed
+    if (new Date(integration.rows[0].token_expires_at) < new Date()) {
+      const refreshResponse = await fetch(`https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          refresh_token: refreshToken,
+          client_id: MS_CLIENT_ID,
+          client_secret: MS_CLIENT_SECRET,
+          grant_type: 'refresh_token',
+        }),
+      });
+
+      const newTokens = await refreshResponse.json();
+      accessToken = newTokens.access_token;
+
+      await query(
+        `UPDATE integrations SET access_token = $1, token_expires_at = NOW() + INTERVAL '1 hour'
+         WHERE firm_id = $2 AND provider = 'outlook'`,
+        [accessToken, req.user.firmId]
+      );
     }
 
     // Fetch recent emails from INBOX folder only (not sent items)
@@ -948,27 +849,6 @@ router.get('/outlook/emails', authenticate, async (req, res) => {
     );
 
     const emailsData = await emailsResponse.json();
-
-    // Check for API errors
-    if (!emailsResponse.ok || emailsData.error) {
-      console.error('[Outlook/emails] Graph API error:', emailsData.error || emailsResponse.status);
-      
-      // If it's an auth error, mark as disconnected so user knows to reconnect
-      if (emailsResponse.status === 401 || emailsData.error?.code === 'InvalidAuthenticationToken') {
-        await query(
-          `UPDATE integrations SET is_connected = false WHERE firm_id = $1 AND provider = 'outlook'`,
-          [req.user.firmId]
-        );
-        return res.status(401).json({ 
-          error: 'Your Microsoft 365 session has expired. Please reconnect your account.', 
-          needsReconnect: true 
-        });
-      }
-      
-      return res.status(500).json({ 
-        error: emailsData.error?.message || 'Failed to fetch emails from Microsoft 365. Please try again.' 
-      });
-    }
 
     const emails = emailsData.value || [];
     
@@ -1021,13 +901,9 @@ router.get('/outlook/emails', authenticate, async (req, res) => {
         subject: email.subject,
         from: email.from?.emailAddress?.address,
         fromName: email.from?.emailAddress?.name,
-        to: email.toRecipients?.map(r => r.emailAddress?.address).join(', '),
-        toName: email.toRecipients?.map(r => r.emailAddress?.name).join(', '),
         receivedAt: email.receivedDateTime,
         isRead: email.isRead,
         preview: email.bodyPreview,
-        hasAttachments: email.hasAttachments,
-        importance: email.importance,
       })),
     });
   } catch (error) {
@@ -1045,14 +921,40 @@ router.get('/outlook/drafts', authenticate, async (req, res) => {
     );
 
     if (integration.rows.length === 0) {
-      return res.status(400).json({ error: 'Outlook not connected', needsReconnect: true });
+      return res.status(400).json({ error: 'Outlook not connected' });
     }
 
-    // Use the shared helper function for consistent token handling
-    const accessToken = await getValidOutlookToken(integration.rows[0]);
-    if (!accessToken || typeof accessToken === 'object') {
-      const errorMsg = typeof accessToken === 'object' ? accessToken.error : 'Session expired. Please reconnect Outlook.';
-      return res.status(401).json({ error: errorMsg, needsReconnect: true });
+    // Get credentials
+    const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
+    const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
+    const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
+
+    let accessToken = integration.rows[0].access_token;
+    const refreshToken = integration.rows[0].refresh_token;
+
+    // Refresh token if needed
+    if (new Date(integration.rows[0].token_expires_at) < new Date()) {
+      const tokenUrl = `https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/token`;
+      const refreshResponse = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: MS_CLIENT_ID,
+          client_secret: MS_CLIENT_SECRET,
+          refresh_token: refreshToken,
+          grant_type: 'refresh_token',
+        }),
+      });
+
+      if (refreshResponse.ok) {
+        const tokens = await refreshResponse.json();
+        accessToken = tokens.access_token;
+        
+        await query(
+          `UPDATE integrations SET access_token = $1, token_expires_at = $2 WHERE id = $3`,
+          [tokens.access_token, new Date(Date.now() + tokens.expires_in * 1000), integration.rows[0].id]
+        );
+      }
     }
 
     // Get drafts from Microsoft Graph API
@@ -1102,9 +1004,8 @@ router.get('/outlook/sent', authenticate, async (req, res) => {
     }
 
     const accessToken = await getValidOutlookToken(integration.rows[0]);
-    if (!accessToken || typeof accessToken === 'object') {
-      const errorMsg = typeof accessToken === 'object' ? accessToken.error : 'Session expired. Please reconnect Outlook.';
-      return res.status(401).json({ error: errorMsg, needsReconnect: true });
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Token expired' });
     }
 
     const graphResponse = await fetch(
@@ -1148,9 +1049,8 @@ router.get('/outlook/email/:emailId/body', authenticate, async (req, res) => {
     }
 
     const accessToken = await getValidOutlookToken(integration.rows[0]);
-    if (!accessToken || typeof accessToken === 'object') {
-      const errorMsg = typeof accessToken === 'object' ? accessToken.error : 'Session expired. Please reconnect Outlook.';
-      return res.status(401).json({ error: errorMsg, needsReconnect: true });
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Token expired' });
     }
 
     const graphResponse = await fetch(
@@ -1189,9 +1089,8 @@ router.post('/outlook/send', authenticate, async (req, res) => {
     }
 
     const accessToken = await getValidOutlookToken(integration.rows[0]);
-    if (!accessToken || typeof accessToken === 'object') {
-      const errorMsg = typeof accessToken === 'object' ? accessToken.error : 'Session expired. Please reconnect Outlook.';
-      return res.status(401).json({ error: errorMsg, needsReconnect: true });
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Token expired' });
     }
 
     // Build email message
@@ -1287,9 +1186,8 @@ router.post('/outlook/drafts', authenticate, async (req, res) => {
     }
 
     const accessToken = await getValidOutlookToken(integration.rows[0]);
-    if (!accessToken || typeof accessToken === 'object') {
-      const errorMsg = typeof accessToken === 'object' ? accessToken.error : 'Session expired. Please reconnect Outlook.';
-      return res.status(401).json({ error: errorMsg, needsReconnect: true });
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Token expired' });
     }
 
     const message = {
@@ -1347,9 +1245,8 @@ router.delete('/outlook/email/:emailId', authenticate, async (req, res) => {
     }
 
     const accessToken = await getValidOutlookToken(integration.rows[0]);
-    if (!accessToken || typeof accessToken === 'object') {
-      const errorMsg = typeof accessToken === 'object' ? accessToken.error : 'Session expired. Please reconnect Outlook.';
-      return res.status(401).json({ error: errorMsg, needsReconnect: true });
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Token expired' });
     }
 
     // Move to deleted items
@@ -1390,9 +1287,8 @@ router.post('/outlook/email/:emailId/archive', authenticate, async (req, res) =>
     }
 
     const accessToken = await getValidOutlookToken(integration.rows[0]);
-    if (!accessToken || typeof accessToken === 'object') {
-      const errorMsg = typeof accessToken === 'object' ? accessToken.error : 'Session expired. Please reconnect Outlook.';
-      return res.status(401).json({ error: errorMsg, needsReconnect: true });
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Token expired' });
     }
 
     // Move to archive folder
@@ -1425,64 +1321,31 @@ async function getValidOutlookToken(integration) {
   const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
   const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
 
-  // Check if credentials are configured
-  if (!MS_CLIENT_ID || !MS_CLIENT_SECRET) {
-    console.error('[Outlook] OAuth credentials not configured - cannot refresh token');
-    // Mark as disconnected so user can reconfigure
-    await query(
-      `UPDATE integrations SET is_connected = false WHERE id = $1`,
-      [integration.id]
-    );
-    return { error: 'Microsoft 365 credentials not configured. Please contact your administrator.' };
-  }
-
   let accessToken = integration.access_token;
 
   if (new Date(integration.token_expires_at) < new Date()) {
-    console.log('[Outlook] Token expired, attempting refresh...');
     const tokenUrl = `https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/token`;
-    
-    try {
-      const refreshResponse = await fetch(tokenUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: MS_CLIENT_ID,
-          client_secret: MS_CLIENT_SECRET,
-          refresh_token: integration.refresh_token,
-          grant_type: 'refresh_token',
-        }),
-      });
+    const refreshResponse = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: MS_CLIENT_ID,
+        client_secret: MS_CLIENT_SECRET,
+        refresh_token: integration.refresh_token,
+        grant_type: 'refresh_token',
+      }),
+    });
 
-      if (refreshResponse.ok) {
-        const tokens = await refreshResponse.json();
-        accessToken = tokens.access_token;
-        
-        await query(
-          `UPDATE integrations SET access_token = $1, refresh_token = COALESCE($2, refresh_token), token_expires_at = $3 WHERE id = $4`,
-          [tokens.access_token, tokens.refresh_token, new Date(Date.now() + tokens.expires_in * 1000), integration.id]
-        );
-        console.log('[Outlook] Token refreshed successfully');
-      } else {
-        const errorData = await refreshResponse.json().catch(() => ({}));
-        console.error('[Outlook] Token refresh failed:', errorData.error, errorData.error_description);
-        
-        // Mark integration as disconnected so user can reconnect
-        await query(
-          `UPDATE integrations SET is_connected = false, access_token = NULL WHERE id = $1`,
-          [integration.id]
-        );
-        
-        return { error: 'Outlook session expired. Please reconnect your Microsoft 365 account.' };
-      }
-    } catch (refreshError) {
-      console.error('[Outlook] Token refresh error:', refreshError.message);
-      // Mark integration as disconnected
+    if (refreshResponse.ok) {
+      const tokens = await refreshResponse.json();
+      accessToken = tokens.access_token;
+      
       await query(
-        `UPDATE integrations SET is_connected = false, access_token = NULL WHERE id = $1`,
-        [integration.id]
+        `UPDATE integrations SET access_token = $1, token_expires_at = $2 WHERE id = $3`,
+        [tokens.access_token, new Date(Date.now() + tokens.expires_in * 1000), integration.id]
       );
-      return { error: 'Connection to Microsoft failed. Please reconnect your account.' };
+    } else {
+      return null;
     }
   }
 
@@ -1781,24 +1644,10 @@ router.post('/onedrive/sync', authenticate, async (req, res) => {
     );
 
     if (integration.rows.length === 0) {
-      return res.status(400).json({ error: 'OneDrive not connected', needsReconnect: true });
+      return res.status(400).json({ error: 'OneDrive not connected' });
     }
 
-    // Refresh token if needed
-    const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
-    const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
-    
-    const tokenResult = await refreshTokenIfNeeded(integration.rows[0], 'OneDrive', {
-      clientId: MS_CLIENT_ID,
-      clientSecret: MS_CLIENT_SECRET,
-      tokenUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
-    });
-
-    if (tokenResult.error) {
-      return res.status(401).json({ error: tokenResult.error, needsReconnect: true });
-    }
-
-    const accessToken = tokenResult.accessToken;
+    const accessToken = integration.rows[0].access_token;
     const syncSettings = integration.rows[0].settings || {};
 
     // Get files from OneDrive (including nested folders)
@@ -1999,24 +1848,10 @@ router.post('/googledrive/sync', authenticate, async (req, res) => {
     );
 
     if (integration.rows.length === 0) {
-      return res.status(400).json({ error: 'Google Drive not connected', needsReconnect: true });
+      return res.status(400).json({ error: 'Google Drive not connected' });
     }
 
-    // Refresh token if needed
-    const GOOGLE_CLIENT_ID = await getCredential('google_client_id', 'GOOGLE_CLIENT_ID');
-    const GOOGLE_CLIENT_SECRET = await getCredential('google_client_secret', 'GOOGLE_CLIENT_SECRET');
-    
-    const tokenResult = await refreshTokenIfNeeded(integration.rows[0], 'Google Drive', {
-      clientId: GOOGLE_CLIENT_ID,
-      clientSecret: GOOGLE_CLIENT_SECRET,
-      tokenUrl: 'https://oauth2.googleapis.com/token',
-    });
-
-    if (tokenResult.error) {
-      return res.status(401).json({ error: tokenResult.error, needsReconnect: true });
-    }
-
-    const accessToken = tokenResult.accessToken;
+    const accessToken = integration.rows[0].access_token;
     const syncSettings = integration.rows[0].settings || {};
 
     const filesResponse = await fetch('https://www.googleapis.com/drive/v3/files?pageSize=100&fields=files(id,name,mimeType,size,webViewLink)', {
@@ -2216,24 +2051,10 @@ router.post('/dropbox/sync', authenticate, async (req, res) => {
     );
 
     if (integration.rows.length === 0) {
-      return res.status(400).json({ error: 'Dropbox not connected', needsReconnect: true });
+      return res.status(400).json({ error: 'Dropbox not connected' });
     }
 
-    // Refresh token if needed
-    const DROPBOX_CLIENT_ID = await getCredential('dropbox_client_id', 'DROPBOX_CLIENT_ID');
-    const DROPBOX_CLIENT_SECRET = await getCredential('dropbox_client_secret', 'DROPBOX_CLIENT_SECRET');
-    
-    const tokenResult = await refreshTokenIfNeeded(integration.rows[0], 'Dropbox', {
-      clientId: DROPBOX_CLIENT_ID,
-      clientSecret: DROPBOX_CLIENT_SECRET,
-      tokenUrl: 'https://api.dropboxapi.com/oauth2/token',
-    });
-
-    if (tokenResult.error) {
-      return res.status(401).json({ error: tokenResult.error, needsReconnect: true });
-    }
-
-    const accessToken = tokenResult.accessToken;
+    const accessToken = integration.rows[0].access_token;
     const syncSettings = integration.rows[0].settings || {};
 
     const filesResponse = await fetch('https://api.dropboxapi.com/2/files/list_folder', {
@@ -2448,30 +2269,12 @@ router.post('/docusign/sync', authenticate, async (req, res) => {
     );
 
     if (integration.rows.length === 0) {
-      return res.status(400).json({ error: 'DocuSign not connected', needsReconnect: true });
+      return res.status(400).json({ error: 'DocuSign not connected' });
     }
 
-    const env = integration.rows[0].settings?.environment || 'demo';
-    const tokenBaseUrl = env === 'production' 
-      ? 'https://account.docusign.com' 
-      : 'https://account-d.docusign.com';
-    
-    // Refresh token if needed
-    const DOCUSIGN_CLIENT_ID = await getCredential('docusign_client_id', 'DOCUSIGN_CLIENT_ID');
-    const DOCUSIGN_CLIENT_SECRET = await getCredential('docusign_client_secret', 'DOCUSIGN_CLIENT_SECRET');
-    
-    const tokenResult = await refreshTokenIfNeeded(integration.rows[0], 'DocuSign', {
-      clientId: DOCUSIGN_CLIENT_ID,
-      clientSecret: DOCUSIGN_CLIENT_SECRET,
-      tokenUrl: `${tokenBaseUrl}/oauth/token`,
-    });
-
-    if (tokenResult.error) {
-      return res.status(401).json({ error: tokenResult.error, needsReconnect: true });
-    }
-
-    const accessToken = tokenResult.accessToken;
+    const accessToken = integration.rows[0].access_token;
     const accountId = integration.rows[0].settings?.account_id;
+    const env = integration.rows[0].settings?.environment || 'demo';
     
     const apiBase = env === 'production'
       ? 'https://na1.docusign.net'
@@ -2621,36 +2424,16 @@ router.post('/slack/sync', authenticate, async (req, res) => {
     );
 
     if (integration.rows.length === 0) {
-      return res.status(400).json({ error: 'Slack not connected', needsReconnect: true });
+      return res.status(400).json({ error: 'Slack not connected' });
     }
 
     const accessToken = integration.rows[0].access_token;
-    
-    if (!accessToken) {
-      await query(
-        `UPDATE integrations SET is_connected = false WHERE firm_id = $1 AND provider = 'slack'`,
-        [req.user.firmId]
-      );
-      return res.status(401).json({ error: 'Slack access token missing. Please reconnect.', needsReconnect: true });
-    }
 
     const channelsResponse = await fetch('https://slack.com/api/conversations.list?limit=20', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     const channelsData = await channelsResponse.json();
-    
-    // Check if Slack returned an error (token revoked, etc.)
-    if (!channelsData.ok) {
-      console.error('[Slack] API error:', channelsData.error);
-      if (channelsData.error === 'token_revoked' || channelsData.error === 'invalid_auth') {
-        await query(
-          `UPDATE integrations SET is_connected = false, access_token = NULL WHERE firm_id = $1 AND provider = 'slack'`,
-          [req.user.firmId]
-        );
-        return res.status(401).json({ error: 'Slack access revoked. Please reconnect your Slack workspace.', needsReconnect: true });
-      }
-    }
 
     await query(
       `UPDATE integrations SET last_sync_at = NOW() WHERE firm_id = $1 AND provider = 'slack'`,
@@ -2796,42 +2579,16 @@ router.post('/zoom/sync', authenticate, async (req, res) => {
     );
 
     if (integration.rows.length === 0) {
-      return res.status(400).json({ error: 'Zoom not connected', needsReconnect: true });
+      return res.status(400).json({ error: 'Zoom not connected' });
     }
 
-    // Refresh token if needed
-    const ZOOM_CLIENT_ID = await getCredential('zoom_client_id', 'ZOOM_CLIENT_ID');
-    const ZOOM_CLIENT_SECRET = await getCredential('zoom_client_secret', 'ZOOM_CLIENT_SECRET');
-    
-    const tokenResult = await refreshTokenIfNeeded(integration.rows[0], 'Zoom', {
-      clientId: ZOOM_CLIENT_ID,
-      clientSecret: ZOOM_CLIENT_SECRET,
-      tokenUrl: 'https://zoom.us/oauth/token',
-    });
-
-    if (tokenResult.error) {
-      return res.status(401).json({ error: tokenResult.error, needsReconnect: true });
-    }
-
-    const accessToken = tokenResult.accessToken;
+    const accessToken = integration.rows[0].access_token;
 
     const meetingsResponse = await fetch('https://api.zoom.us/v2/users/me/meetings?type=upcoming&page_size=20', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     const meetingsData = await meetingsResponse.json();
-    
-    // Check if Zoom returned an error
-    if (meetingsData.code && meetingsData.code !== 200) {
-      console.error('[Zoom] API error:', meetingsData.message);
-      if (meetingsData.code === 124 || meetingsData.code === 401) {
-        await query(
-          `UPDATE integrations SET is_connected = false, access_token = NULL WHERE firm_id = $1 AND provider = 'zoom'`,
-          [req.user.firmId]
-        );
-        return res.status(401).json({ error: 'Zoom access expired. Please reconnect your Zoom account.', needsReconnect: true });
-      }
-    }
 
     await query(
       `UPDATE integrations SET last_sync_at = NOW() WHERE firm_id = $1 AND provider = 'zoom'`,
@@ -2986,21 +2743,7 @@ router.post('/quicken/sync', authenticate, async (req, res) => {
     );
 
     if (integration.rows.length === 0) {
-      return res.status(400).json({ error: 'Quicken not connected', needsReconnect: true });
-    }
-
-    // Refresh token if needed (Quicken uses Intuit OAuth)
-    const QUICKEN_CLIENT_ID = await getCredential('quicken_client_id', 'QUICKEN_CLIENT_ID');
-    const QUICKEN_CLIENT_SECRET = await getCredential('quicken_client_secret', 'QUICKEN_CLIENT_SECRET');
-    
-    const tokenResult = await refreshTokenIfNeeded(integration.rows[0], 'Quicken', {
-      clientId: QUICKEN_CLIENT_ID,
-      clientSecret: QUICKEN_CLIENT_SECRET,
-      tokenUrl: 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer',
-    });
-
-    if (tokenResult.error) {
-      return res.status(401).json({ error: tokenResult.error, needsReconnect: true });
+      return res.status(400).json({ error: 'Quicken not connected' });
     }
 
     await query(

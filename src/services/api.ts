@@ -802,18 +802,6 @@ export const aiApi = {
       body: JSON.stringify({ rating }),
     });
   },
-  
-  async cancelTask(taskId: string) {
-    return fetchWithAuth(`/v1/agent/tasks/${taskId}/cancel`, {
-      method: 'POST',
-    });
-  },
-  
-  async deleteTask(taskId: string) {
-    return fetchWithAuth(`/v1/agent/tasks/${taskId}`, {
-      method: 'DELETE',
-    });
-  },
 
   async getSuggestions(page: string) {
     return fetchWithAuth(`/ai/suggestions?page=${page}`);

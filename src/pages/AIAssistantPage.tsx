@@ -6,7 +6,7 @@ import {
   Sparkles, Send, Plus, MessageSquare, Trash2, 
   MessageCircle, FileEdit, FileText, Paperclip, X,
   FileSearch, History, ChevronRight, Loader2, Image, Bot, Clock, CheckCircle, AlertCircle, Star,
-  Activity, Play, ArrowLeft, Zap, StopCircle, XCircle
+  Activity, Play, ArrowLeft, Zap
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -100,8 +100,6 @@ export function AIAssistantPage() {
   const [loadingAgentHistory, setLoadingAgentHistory] = useState(false)
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
   const [liveTaskProgress, setLiveTaskProgress] = useState<AgentTask | null>(null)
-  const [cancellingTaskId, setCancellingTaskId] = useState<string | null>(null)
-  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const lastUserMessageRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -256,55 +254,6 @@ export function AIAssistantPage() {
       ))
     } catch (error) {
       console.error('Error rating task:', error)
-    }
-  }
-
-  const handleCancelTask = async (taskId: string, e: React.MouseEvent) => {
-    e.stopPropagation() // Prevent expanding/collapsing the task
-    if (cancellingTaskId) return // Already cancelling something
-    
-    setCancellingTaskId(taskId)
-    try {
-      await aiApi.cancelTask(taskId)
-      // Update local state immediately
-      setAgentTasks(prev => prev.map(task => 
-        task.id === taskId ? { ...task, status: 'cancelled' } : task
-      ))
-      // Also update live progress if viewing this task
-      if (liveTaskProgress?.id === taskId) {
-        setLiveTaskProgress({ ...liveTaskProgress, status: 'cancelled' })
-      }
-      // Refresh the list
-      await loadAgentHistory()
-    } catch (error) {
-      console.error('Error cancelling task:', error)
-    } finally {
-      setCancellingTaskId(null)
-    }
-  }
-
-  const handleDeleteTask = async (taskId: string, e: React.MouseEvent) => {
-    e.stopPropagation() // Prevent expanding/collapsing the task
-    if (deletingTaskId) return // Already deleting something
-    
-    setDeletingTaskId(taskId)
-    try {
-      await aiApi.deleteTask(taskId)
-      // Remove from local state immediately
-      setAgentTasks(prev => prev.filter(task => task.id !== taskId))
-      // Clear selection if this was the selected task
-      if (selectedTask?.id === taskId) {
-        setSelectedTask(null)
-      }
-      if (liveTaskProgress?.id === taskId) {
-        setLiveTaskProgress(null)
-        setActiveTaskId(null)
-        navigate('/app/ai?showAgentHistory=true', { replace: true })
-      }
-    } catch (error) {
-      console.error('Error deleting task:', error)
-    } finally {
-      setDeletingTaskId(null)
     }
   }
 
@@ -503,11 +452,6 @@ export function AIAssistantPage() {
                           <CheckCircle size={20} />
                           <span>Task Complete</span>
                         </>
-                      ) : liveTaskProgress.status === 'cancelled' ? (
-                        <>
-                          <StopCircle size={20} />
-                          <span>Task Cancelled</span>
-                        </>
                       ) : (
                         <>
                           <AlertCircle size={20} />
@@ -515,67 +459,6 @@ export function AIAssistantPage() {
                         </>
                       )}
                     </div>
-                    {liveTaskProgress.status === 'running' && (
-                      <button 
-                        className={styles.stopAgentBtn}
-                        onClick={async (e) => {
-                          e.stopPropagation()
-                          setCancellingTaskId(liveTaskProgress.id)
-                          try {
-                            await aiApi.cancelTask(liveTaskProgress.id)
-                            setLiveTaskProgress({ ...liveTaskProgress, status: 'cancelled' })
-                            // Also update the task list
-                            setAgentTasks(prev => prev.map(task => 
-                              task.id === liveTaskProgress.id ? { ...task, status: 'cancelled' } : task
-                            ))
-                          } catch (e) {
-                            console.error('Failed to cancel:', e)
-                            // Still update UI to show cancelled
-                            setLiveTaskProgress({ ...liveTaskProgress, status: 'cancelled' })
-                          } finally {
-                            setCancellingTaskId(null)
-                          }
-                        }}
-                        disabled={cancellingTaskId === liveTaskProgress.id}
-                      >
-                        {cancellingTaskId === liveTaskProgress.id ? (
-                          <Loader2 size={16} className={styles.spinner} />
-                        ) : (
-                          <StopCircle size={16} />
-                        )}
-                        {cancellingTaskId === liveTaskProgress.id ? 'Cancelling...' : 'Stop Agent'}
-                      </button>
-                    )}
-                    {liveTaskProgress.status !== 'running' && (
-                      <button 
-                        className={styles.deleteProgressBtn}
-                        onClick={async (e) => {
-                          e.stopPropagation()
-                          setDeletingTaskId(liveTaskProgress.id)
-                          try {
-                            await aiApi.deleteTask(liveTaskProgress.id)
-                            // Remove from tasks list
-                            setAgentTasks(prev => prev.filter(task => task.id !== liveTaskProgress.id))
-                            // Go back to task list
-                            setLiveTaskProgress(null)
-                            setActiveTaskId(null)
-                            navigate('/app/ai?showAgentHistory=true', { replace: true })
-                          } catch (e) {
-                            console.error('Failed to delete:', e)
-                          } finally {
-                            setDeletingTaskId(null)
-                          }
-                        }}
-                        disabled={deletingTaskId === liveTaskProgress.id}
-                      >
-                        {deletingTaskId === liveTaskProgress.id ? (
-                          <Loader2 size={16} className={styles.spinner} />
-                        ) : (
-                          <Trash2 size={16} />
-                        )}
-                        Delete
-                      </button>
-                    )}
                     <div className={styles.liveProgressMeta}>
                       <span className={styles.liveProgressIterations}>
                         {liveTaskProgress.totalSteps 
@@ -822,38 +705,6 @@ export function AIAssistantPage() {
                                 ? 'Click to collapse' 
                                 : 'Click to view details'}
                           </span>
-                          <div className={styles.taskActions}>
-                            {task.status === 'running' && (
-                              <button
-                                className={styles.cancelTaskBtn}
-                                onClick={(e) => handleCancelTask(task.id, e)}
-                                disabled={cancellingTaskId === task.id}
-                                title="Cancel task"
-                              >
-                                {cancellingTaskId === task.id ? (
-                                  <Loader2 size={14} className={styles.spinner} />
-                                ) : (
-                                  <XCircle size={14} />
-                                )}
-                                Cancel
-                              </button>
-                            )}
-                            {task.status !== 'running' && (
-                              <button
-                                className={styles.deleteTaskBtn}
-                                onClick={(e) => handleDeleteTask(task.id, e)}
-                                disabled={deletingTaskId === task.id}
-                                title="Delete task"
-                              >
-                                {deletingTaskId === task.id ? (
-                                  <Loader2 size={14} className={styles.spinner} />
-                                ) : (
-                                  <Trash2 size={14} />
-                                )}
-                                Delete
-                              </button>
-                            )}
-                          </div>
                         </div>
                       </div>
                     ))}

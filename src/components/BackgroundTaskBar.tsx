@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bot, X, CheckCircle, AlertCircle, StopCircle, Loader2, ExternalLink } from 'lucide-react'
+import { Bot, X, CheckCircle, AlertCircle, FileText, Square, Loader2, ExternalLink } from 'lucide-react'
 import { aiApi } from '../services/api'
 import styles from './BackgroundTaskBar.module.css'
 
@@ -27,25 +27,11 @@ export function BackgroundTaskBar() {
   // Track consecutive errors
   const [errorCount, setErrorCount] = useState(0)
   
-  // Request notification permission and check for existing tasks on mount
+  // Request notification permission on mount
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission()
     }
-    
-    // Check if there's already a running task on page load
-    const checkExistingTask = async () => {
-      try {
-        const response = await aiApi.getActiveTask()
-        if (response.active && response.task) {
-          setActiveTask(response.task)
-          setPolling(true)
-        }
-      } catch (e) {
-        // Ignore errors on initial check
-      }
-    }
-    checkExistingTask()
   }, [])
   
   // Check task status
@@ -152,56 +138,14 @@ export function BackgroundTaskBar() {
   const handleDismiss = () => {
     setActiveTask(null)
     setPolling(false)
-    setCancelling(false)
-  }
-
-  const handleCancel = async () => {
-    if (!activeTask || cancelling || isComplete) return
-    
-    setCancelling(true)
-    try {
-      const response = await aiApi.cancelTask(activeTask.id)
-      console.log('Cancel response:', response)
-      
-      // Update local state to show cancelled immediately
-      setActiveTask({
-        ...activeTask,
-        status: 'cancelled',
-        currentStep: 'Cancelled by user'
-      })
-      setIsComplete(true)
-      setPolling(false)
-      setCancelling(false)
-      
-      // Notify user
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('Background Task Cancelled', {
-          body: `${activeTask.goal} - Progress saved`,
-          icon: '/favicon.svg'
-        })
-      }
-    } catch (error) {
-      console.error('Error cancelling task:', error)
-      // Even if API fails, show cancellation in UI since it might have worked
-      setActiveTask({
-        ...activeTask,
-        status: 'cancelled',
-        currentStep: 'Cancel requested'
-      })
-      setIsComplete(true)
-      setPolling(false)
-      setCancelling(false)
-    }
   }
 
   // Only render when there's an active task
   if (!activeTask) return null
-  
-  const isCancelled = activeTask.status === 'cancelled'
 
   return (
     <>
-      <div className={`${styles.taskBar} ${isComplete ? styles.complete : ''} ${isCancelled ? styles.cancelled : ''} ${hasError ? styles.error : ''}`}>
+      <div className={`${styles.taskBar} ${isComplete ? styles.complete : ''} ${hasError ? styles.error : ''}`}>
         <div className={styles.content}>
           {/* Clickable area - navigates to agent progress page */}
           <button 
@@ -210,9 +154,7 @@ export function BackgroundTaskBar() {
             title="Click to view agent progress"
           >
             <div className={styles.icon}>
-              {isCancelled ? (
-                <StopCircle size={20} />
-              ) : isComplete ? (
+              {isComplete ? (
                 <CheckCircle size={20} />
               ) : hasError ? (
                 <AlertCircle size={20} />
@@ -223,10 +165,10 @@ export function BackgroundTaskBar() {
             
             <div className={styles.info}>
               <div className={styles.title}>
-                {isCancelled ? '⏹ Task Cancelled (Progress Saved)' : isComplete ? '✓ Background Task Complete!' : hasError ? '⚠ Task Error' : 'Background Agent Working...'}
+                {isComplete ? '✓ Background Task Complete!' : hasError ? '⚠ Task Error' : 'Background Agent Working...'}
               </div>
               <div className={styles.goal}>{activeTask.goal}</div>
-              {!isComplete && !hasError && !isCancelled && activeTask.currentStep && (
+              {!isComplete && !hasError && activeTask.currentStep && (
                 <div className={styles.currentStep}>
                   {activeTask.totalSteps 
                     ? `Step ${activeTask.completedSteps || 0}/${activeTask.totalSteps}: ${activeTask.currentStep}`
@@ -239,28 +181,15 @@ export function BackgroundTaskBar() {
             <div className={styles.progress}>
               <div className={styles.progressBar}>
                 <div 
-                  className={`${styles.progressFill} ${isCancelled ? styles.cancelledFill : ''}`}
-                  style={{ width: `${isComplete && !isCancelled ? 100 : activeTask.progressPercent}%` }}
+                  className={styles.progressFill} 
+                  style={{ width: `${isComplete ? 100 : activeTask.progressPercent}%` }}
                 />
               </div>
               <div className={styles.progressText}>
-                {isCancelled ? `${activeTask.progressPercent}%` : isComplete ? '100%' : `${activeTask.progressPercent}%`}
+                {isComplete ? '100%' : `${activeTask.progressPercent}%`}
               </div>
             </div>
           </button>
-
-          {/* Cancel button - only visible while running */}
-          {!isComplete && !hasError && !isCancelled && (
-            <button 
-              onClick={handleCancel} 
-              className={styles.cancelBtn}
-              disabled={cancelling}
-              title="Cancel task (progress will be saved)"
-            >
-              {cancelling ? <Loader2 size={14} className={styles.spinning} /> : <StopCircle size={14} />}
-              {cancelling ? 'Cancelling...' : 'Cancel'}
-            </button>
-          )}
 
           {/* View Progress button - visible during and after task */}
           <button 
@@ -268,7 +197,7 @@ export function BackgroundTaskBar() {
             className={styles.viewProgressBtn}
           >
             <ExternalLink size={14} />
-            {isComplete || isCancelled ? 'View Summary' : 'View Progress'}
+            {isComplete ? 'View Summary' : 'View Progress'}
           </button>
 
           <button onClick={handleDismiss} className={styles.dismissBtn}>

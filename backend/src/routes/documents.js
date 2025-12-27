@@ -11,13 +11,9 @@ import { buildDocumentAccessFilter, canAccessDocument, requireDocumentAccess, FU
 import mammoth from 'mammoth';
 import { uploadFile, isAzureConfigured, downloadFile } from '../utils/azureStorage.js';
 
-// Use createRequire for CommonJS modules
+// Use createRequire for pdf-parse (CommonJS module that doesn't work with ESM import)
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-
-// PDF.js for rendering scanned PDFs to images
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { createCanvas } from 'canvas';
 
 let pdfParse = null;
 async function getPdfParse() {
@@ -36,7 +32,7 @@ async function getPdfParse() {
 const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
 const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
 const AZURE_VISION_DEPLOYMENT = process.env.AZURE_OPENAI_VISION_DEPLOYMENT || process.env.AZURE_OPENAI_DEPLOYMENT;
-const API_VERSION = '2024-12-01-preview'; // Latest API version
+const API_VERSION = '2024-02-15-preview';
 
 // Use Azure OpenAI Vision to extract text from images/scanned documents
 async function extractTextWithVision(imageBuffer, mimeType, fileName) {
@@ -92,72 +88,6 @@ async function extractTextWithVision(imageBuffer, mimeType, fileName) {
     return data.choices[0]?.message?.content || null;
   } catch (error) {
     console.error('Vision OCR error:', error);
-    return null;
-  }
-}
-
-// Convert PDF pages to images for OCR (used for scanned PDFs)
-async function extractTextFromScannedPdf(pdfBuffer, fileName, maxPages = 10) {
-  if (!AZURE_ENDPOINT || !AZURE_API_KEY || !AZURE_VISION_DEPLOYMENT) {
-    console.log('Azure OpenAI Vision not configured, cannot OCR scanned PDF');
-    return null;
-  }
-
-  try {
-    console.log(`[OCR] Converting scanned PDF "${fileName}" to images for OCR...`);
-    
-    // Load the PDF
-    const loadingTask = getDocument({ data: pdfBuffer, useSystemFonts: true });
-    const pdfDoc = await loadingTask.promise;
-    const numPages = Math.min(pdfDoc.numPages, maxPages);
-    
-    console.log(`[OCR] PDF has ${pdfDoc.numPages} pages, processing ${numPages}`);
-    
-    let allText = [];
-    
-    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-      try {
-        const page = await pdfDoc.getPage(pageNum);
-        const viewport = page.getViewport({ scale: 2.0 }); // Higher scale = better OCR
-        
-        // Create canvas
-        const canvas = createCanvas(viewport.width, viewport.height);
-        const context = canvas.getContext('2d');
-        
-        // Render page to canvas
-        await page.render({
-          canvasContext: context,
-          viewport: viewport
-        }).promise;
-        
-        // Convert canvas to PNG buffer
-        const imageBuffer = canvas.toBuffer('image/png');
-        
-        console.log(`[OCR] Page ${pageNum}: Rendered to ${imageBuffer.length} bytes, sending to Vision...`);
-        
-        // Send to Vision OCR
-        const pageText = await extractTextWithVision(imageBuffer, 'image/png', `${fileName}_page${pageNum}`);
-        
-        if (pageText && pageText.trim()) {
-          allText.push(`--- Page ${pageNum} ---\n${pageText}`);
-        }
-        
-      } catch (pageError) {
-        console.error(`[OCR] Error processing page ${pageNum}:`, pageError.message);
-      }
-    }
-    
-    if (allText.length === 0) {
-      return null;
-    }
-    
-    const result = allText.join('\n\n');
-    console.log(`[OCR] Successfully extracted ${result.length} characters from ${allText.length} pages`);
-    
-    return result;
-    
-  } catch (error) {
-    console.error('[OCR] Scanned PDF extraction error:', error);
     return null;
   }
 }
@@ -622,14 +552,9 @@ async function extractTextFromFile(filePath, originalName, mimeType = null) {
       // If PDF has no text (scanned), try OCR with Vision
       if (!textContent || textContent.trim().length < 50) {
         console.log(`PDF "${originalName}" appears to be scanned, attempting OCR...`);
-        // Convert PDF pages to images and run OCR
-        const ocrText = await extractTextFromScannedPdf(dataBuffer, originalName);
-        if (ocrText) {
-          textContent = ocrText;
-          console.log(`[OCR] Successfully extracted ${ocrText.length} chars from scanned PDF`);
-        } else {
-          textContent = `[Scanned PDF: ${originalName} - OCR could not extract text. Ensure Azure OpenAI Vision is configured.]`;
-        }
+        // For scanned PDFs, we'd need to convert to image first
+        // For now, mark as needing OCR - full implementation would use pdf2pic
+        textContent = `[Scanned PDF: ${originalName} - OCR extraction available for image files]`;
       }
     } else if (ext === '.docx') {
       const result = await mammoth.extractRawText({ path: filePath });

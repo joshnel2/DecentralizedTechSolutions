@@ -621,13 +621,6 @@ export function BillingPage() {
                     >
                       <Download size={16} />
                     </button>
-                    <button 
-                      className={styles.actionBtn}
-                      onClick={(e) => { e.stopPropagation(); handleEmailInvoice(invoice); }}
-                      title="Email Invoice"
-                    >
-                      <Mail size={16} />
-                    </button>
                     <div className={styles.menuWrapper} ref={openDropdownId === invoice.id ? dropdownRef : null}>
                       <button 
                         className={styles.actionBtn}
@@ -725,10 +718,6 @@ export function BillingPage() {
           onRecordPayment={() => {
             setSelectedInvoice(showInvoicePreview)
             setShowPaymentModal(true)
-            setShowInvoicePreview(null)
-          }}
-          onEmail={() => {
-            handleEmailInvoice(showInvoicePreview)
             setShowInvoicePreview(null)
           }}
           onDelete={async () => {
@@ -832,7 +821,7 @@ export function BillingPage() {
 }
 
 // Invoice Preview Modal
-function InvoicePreviewModal({ invoice, client, matter, firm, onClose, onDownload, onEdit, onRecordPayment, onEmail, onDelete }: {
+function InvoicePreviewModal({ invoice, client, matter, firm, onClose, onDownload, onEdit, onRecordPayment, onDelete }: {
   invoice: any
   client: any
   matter: any
@@ -841,7 +830,6 @@ function InvoicePreviewModal({ invoice, client, matter, firm, onClose, onDownloa
   onDownload: () => void
   onEdit: () => void
   onRecordPayment: () => void
-  onEmail: () => void
   onDelete: () => void
 }) {
   return (
@@ -957,10 +945,6 @@ function InvoicePreviewModal({ invoice, client, matter, firm, onClose, onDownloa
               Record Payment
             </button>
           )}
-          <button className={styles.secondaryBtn} onClick={onEmail}>
-            <Mail size={16} />
-            Email Invoice
-          </button>
           <button className={styles.primaryBtn} onClick={onDownload}>
             <Download size={16} />
             Download PDF
