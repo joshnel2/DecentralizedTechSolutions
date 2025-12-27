@@ -9890,6 +9890,7 @@ async function callAzureOpenAIWithTools(messages, tools) {
       messages,
       tools,
       tool_choice: 'auto',
+      parallel_tool_calls: false, // Force one tool at a time
       temperature: 0.7,
       max_tokens: 4000,
     }),
