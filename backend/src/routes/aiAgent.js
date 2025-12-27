@@ -8296,24 +8296,48 @@ async function searchEmails(args, user) {
 }
 
 async function draftEmail(args, user) {
-  const accessToken = await getOutlookAccessToken(user.firmId);
-  if (!accessToken) {
-    return { error: 'Outlook not connected. Please connect your Outlook account in Settings > Integrations.' };
-  }
-  
-  const { to, subject, body, cc, importance = 'normal' } = args;
-  
-  const emailPayload = {
-    subject,
-    body: {
-      contentType: 'HTML',
-      content: body.replace(/\n/g, '<br>')
-    },
-    toRecipients: to.split(',').map(email => ({
-      emailAddress: { address: email.trim() }
-    })),
-    importance
-  };
+  try {
+    const { to, subject, body, cc, importance = 'normal' } = args || {};
+    
+    // Validate required fields
+    if (!to) {
+      return { error: 'Recipient email address (to) is required to draft an email.' };
+    }
+    if (!subject) {
+      return { error: 'Email subject is required.' };
+    }
+    if (!body) {
+      return { error: 'Email body content is required.' };
+    }
+    
+    const accessToken = await getOutlookAccessToken(user.firmId);
+    if (!accessToken) {
+      // Still return the draft content even without Outlook - user can copy/paste
+      return { 
+        success: true,
+        email_draft: {
+          to,
+          subject,
+          body,
+          cc: cc || null
+        },
+        saved_to_outlook: false,
+        message: `Email draft prepared. To save to Outlook drafts, connect your Microsoft account in Settings > Integrations.`,
+        note: 'You can copy this draft and paste it into your email client.'
+      };
+    }
+    
+    const emailPayload = {
+      subject,
+      body: {
+        contentType: 'HTML',
+        content: body.replace(/\n/g, '<br>')
+      },
+      toRecipients: to.split(',').map(email => ({
+        emailAddress: { address: email.trim() }
+      })),
+      importance
+    };
   
   if (cc) {
     emailPayload.ccRecipients = cc.split(',').map(email => ({
@@ -8330,28 +8354,41 @@ async function draftEmail(args, user) {
     body: JSON.stringify(emailPayload)
   });
   
-  const result = await response.json();
-  
-  if (result.error) {
-    return { error: `Failed to create draft: ${result.error.message}` };
+    const result = await response.json();
+    
+    if (result.error) {
+      return { error: `Failed to create draft in Outlook: ${result.error.message}` };
+    }
+    
+    return {
+      success: true,
+      message: `Draft email created: "${subject}" to ${to}`,
+      draftId: result.id,
+      saved_to_outlook: true
+    };
+  } catch (error) {
+    console.error('draftEmail error:', error);
+    return { error: `Failed to draft email: ${error.message}` };
   }
-  
-  return {
-    success: true,
-    message: `Draft email created: "${subject}" to ${to}`,
-    draftId: result.id
-  };
 }
 
 async function draftEmailForMatter(args, user) {
-  const { matter_id, to, subject, body, email_type = 'general', cc, save_to_outlook = true, link_to_matter = true } = args;
-  
-  if (!matter_id) {
-    return { error: 'matter_id is required. Use search_matters to find the matter first.' };
-  }
-  
-  // Get matter details for context
-  const matterResult = await query(
+  try {
+    const { matter_id, to, subject, body, email_type = 'general', cc, save_to_outlook = true, link_to_matter = true } = args || {};
+    
+    // Validate required fields
+    if (!matter_id) {
+      return { error: 'matter_id is required. Use search_matters to find the matter first.' };
+    }
+    if (!subject) {
+      return { error: 'Email subject is required. Please specify what the email should be about.' };
+    }
+    if (!body) {
+      return { error: 'Email body content is required. Please specify what the email should say.' };
+    }
+    
+    // Get matter details for context
+    const matterResult = await query(
     `SELECT m.*, c.display_name as client_name, c.email as client_email
      FROM matters m
      LEFT JOIN clients c ON m.client_id = c.id
@@ -8487,11 +8524,15 @@ async function draftEmailForMatter(args, user) {
       ]
     );
     response.saved_to_documents = true;
-  } catch (docError) {
-    console.error('Error saving email draft as document:', docError);
+    } catch (docError) {
+      console.error('Error saving email draft as document:', docError);
+    }
+    
+    return response;
+  } catch (error) {
+    console.error('draftEmailForMatter error:', error);
+    return { error: `Failed to draft email: ${error.message}` };
   }
-  
-  return response;
 }
 
 // =============================================================================
