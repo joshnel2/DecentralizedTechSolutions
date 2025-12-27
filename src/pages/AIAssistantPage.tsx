@@ -6,7 +6,7 @@ import {
   Sparkles, Send, Plus, MessageSquare, Trash2, 
   MessageCircle, FileEdit, FileText, Paperclip, X,
   FileSearch, History, ChevronRight, Loader2, Image, Bot, Clock, CheckCircle, AlertCircle, Star,
-  Activity, Play, ArrowLeft, Zap
+  Activity, Play, ArrowLeft, Zap, StopCircle
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
