@@ -2,8 +2,15 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
-import { buildDocumentAccessFilter, FULL_ACCESS_ROLES } from '../middleware/documentAccess.js';
+import { buildDocumentAccessFilter, FULL_ACCESS_ROLES, canAccessDocument } from '../middleware/documentAccess.js';
 import { ensureDirectory, isAzureConfigured } from '../utils/azureStorage.js';
+import { 
+  uploadVersion as uploadVersionToBlob, 
+  downloadVersion as downloadVersionFromBlob,
+  rehydrateVersion,
+  isBlobConfigured,
+  listVersions as listBlobVersions
+} from '../utils/azureBlobStorage.js';
 import crypto from 'crypto';
 import path from 'path';
 
@@ -359,12 +366,30 @@ router.delete('/configurations/:id', authenticate, async (req, res) => {
 // ============================================
 
 // Get version history for a document
+// Cloud-native: Uses Clio-style permission inheritance but with efficient single-query checks
 router.get('/documents/:documentId/versions', authenticate, async (req, res) => {
   try {
-    // Verify document access
+    const documentId = req.params.documentId;
+    
+    // Check document access using Clio-style permission system
+    // This checks: admin role, uploader, owner, matter permissions, explicit permissions, group permissions
+    const access = await canAccessDocument(
+      req.user.id,
+      req.user.role,
+      documentId,
+      req.user.firmId,
+      'view'
+    );
+
+    if (!access.hasAccess) {
+      // Return 404 instead of 403 to avoid leaking document existence
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    // Get document name
     const docResult = await query(
       `SELECT id, name FROM documents WHERE id = $1 AND firm_id = $2`,
-      [req.params.documentId, req.user.firmId]
+      [documentId, req.user.firmId]
     );
 
     if (docResult.rows.length === 0) {
@@ -378,28 +403,56 @@ router.get('/documents/:documentId/versions', authenticate, async (req, res) => 
        LEFT JOIN users u ON dv.created_by = u.id
        WHERE dv.document_id = $1
        ORDER BY dv.version_number DESC`,
-      [req.params.documentId]
+      [documentId]
     );
 
+    // Get blob tier info if using Azure Blob storage
+    let blobTiers = {};
+    const useBlobStorage = await isBlobConfigured();
+    if (useBlobStorage) {
+      try {
+        const blobVersions = await listBlobVersions(req.user.firmId, documentId);
+        blobVersions.forEach(bv => {
+          blobTiers[bv.versionNumber] = {
+            tier: bv.tier,
+            archived: bv.tier === 'Archive',
+            rehydrating: bv.archiveStatus === 'rehydrate-pending-to-hot'
+          };
+        });
+      } catch (e) {
+        // Blob listing failed, just don't include tier info
+        console.log('[VERSIONS] Could not get blob tiers:', e.message);
+      }
+    }
+
     res.json({
-      documentId: req.params.documentId,
+      documentId,
       documentName: docResult.rows[0].name,
-      versions: result.rows.map(v => ({
-        id: v.id,
-        versionNumber: v.version_number,
-        versionLabel: v.version_label,
-        changeSummary: v.change_summary,
-        changeType: v.change_type,
-        wordCount: v.word_count,
-        characterCount: v.character_count,
-        wordsAdded: v.words_added,
-        wordsRemoved: v.words_removed,
-        fileSize: v.file_size,
-        createdBy: v.created_by,
-        createdByName: v.created_by_name,
-        createdAt: v.created_at,
-        source: v.source,
-      }))
+      accessReason: access.reason, // Helps debugging/auditing
+      versions: result.rows.map(v => {
+        const tierInfo = blobTiers[v.version_number] || {};
+        return {
+          id: v.id,
+          versionNumber: v.version_number,
+          versionLabel: v.version_label,
+          changeSummary: v.change_summary,
+          changeType: v.change_type,
+          wordCount: v.word_count,
+          characterCount: v.character_count,
+          wordsAdded: v.words_added,
+          wordsRemoved: v.words_removed,
+          fileSize: v.file_size,
+          createdBy: v.created_by,
+          createdByName: v.created_by_name,
+          createdAt: v.created_at,
+          source: v.source,
+          // Storage tier info (only for blob-stored versions)
+          storageType: v.storage_type || 'database',
+          tier: tierInfo.tier || (v.storage_type === 'azure_blob' ? 'Hot' : null),
+          archived: tierInfo.archived || false,
+          rehydrating: tierInfo.rehydrating || false
+        };
+      })
     });
   } catch (error) {
     console.error('Get versions error:', error);
@@ -408,13 +461,30 @@ router.get('/documents/:documentId/versions', authenticate, async (req, res) => 
 });
 
 // Get a specific version's content
+// Cloud-native: Fetches from Azure Blob if stored there, handles archive tier gracefully
 router.get('/documents/:documentId/versions/:versionId/content', authenticate, async (req, res) => {
   try {
+    const documentId = req.params.documentId;
+    const firmId = req.user.firmId;
+    
+    // Check document access - need 'view' permission to read version content
+    const access = await canAccessDocument(
+      req.user.id,
+      req.user.role,
+      documentId,
+      firmId,
+      'view'
+    );
+
+    if (!access.hasAccess) {
+      return res.status(404).json({ error: 'Version not found' });
+    }
+
     const result = await query(
       `SELECT dv.* FROM document_versions dv
        JOIN documents d ON dv.document_id = d.id
-       WHERE dv.id = $1 AND d.firm_id = $2`,
-      [req.params.versionId, req.user.firmId]
+       WHERE dv.id = $1 AND d.firm_id = $2 AND dv.document_id = $3`,
+      [req.params.versionId, firmId, documentId]
     );
 
     if (result.rows.length === 0) {
@@ -422,11 +492,76 @@ router.get('/documents/:documentId/versions/:versionId/content', authenticate, a
     }
 
     const v = result.rows[0];
+
+    // Check where content is stored
+    if (v.storage_type === 'azure_blob' && v.content_url) {
+      // Fetch from Azure Blob Storage
+      try {
+        const blobResult = await downloadVersionFromBlob(firmId, documentId, v.version_number);
+        
+        if (blobResult.needsRehydration) {
+          // Version is in archive tier - needs to be retrieved
+          return res.status(202).json({
+            id: v.id,
+            versionNumber: v.version_number,
+            contentHash: v.content_hash,
+            content: null,
+            archived: true,
+            rehydrationPending: blobResult.rehydrationPending || false,
+            message: blobResult.message,
+            tier: blobResult.tier,
+            // Provide action to initiate retrieval
+            rehydrateUrl: `/api/drive/documents/${documentId}/versions/${v.version_number}/rehydrate`
+          });
+        }
+
+        if (blobResult.notFound) {
+          // Blob missing but DB says it should be there - try DB fallback
+          if (v.content_text) {
+            return res.json({
+              id: v.id,
+              versionNumber: v.version_number,
+              content: v.content_text,
+              contentHash: v.content_hash,
+              tier: 'database_fallback'
+            });
+          }
+          return res.status(404).json({ error: 'Version content not found' });
+        }
+
+        // Successfully retrieved from blob
+        const content = blobResult.content.toString('utf-8');
+        return res.json({
+          id: v.id,
+          versionNumber: v.version_number,
+          content,
+          contentHash: v.content_hash,
+          tier: blobResult.tier,
+          size: blobResult.size
+        });
+      } catch (blobError) {
+        console.error('[VERSION] Blob download failed:', blobError.message);
+        // Fall back to database if available
+        if (v.content_text) {
+          return res.json({
+            id: v.id,
+            versionNumber: v.version_number,
+            content: v.content_text,
+            contentHash: v.content_hash,
+            tier: 'database_fallback'
+          });
+        }
+        throw blobError;
+      }
+    }
+
+    // Content is in database
     res.json({
       id: v.id,
       versionNumber: v.version_number,
       content: v.content_text,
       contentHash: v.content_hash,
+      tier: 'database'
     });
   } catch (error) {
     console.error('Get version content error:', error);
@@ -434,19 +569,72 @@ router.get('/documents/:documentId/versions/:versionId/content', authenticate, a
   }
 });
 
+// Initiate rehydration for an archived version
+router.post('/documents/:documentId/versions/:versionNumber/rehydrate', authenticate, async (req, res) => {
+  try {
+    const { documentId, versionNumber } = req.params;
+    const firmId = req.user.firmId;
+
+    // Check document access
+    const access = await canAccessDocument(
+      req.user.id,
+      req.user.role,
+      documentId,
+      firmId,
+      'view'
+    );
+
+    if (!access.hasAccess) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    // Initiate rehydration
+    const result = await rehydrateVersion(firmId, documentId, parseInt(versionNumber));
+
+    // Log activity
+    await query(
+      `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
+       VALUES ($1, $2, 'version_rehydrate', $3, $4, $5)`,
+      [
+        documentId,
+        firmId,
+        req.user.id,
+        `${req.user.firstName} ${req.user.lastName}`,
+        JSON.stringify({ versionNumber: parseInt(versionNumber) })
+      ]
+    );
+
+    // TODO: Create notification for when rehydration completes
+    // This would use Azure Event Grid or polling
+
+    res.json({
+      success: result.initiated,
+      message: result.message,
+      estimatedTime: '1-15 hours',
+      versionNumber: parseInt(versionNumber)
+    });
+  } catch (error) {
+    console.error('Rehydration error:', error);
+    res.status(500).json({ error: 'Failed to initiate version retrieval' });
+  }
+});
+
 // Create a new version (called on save)
+// Cloud-native: Stores content in Azure Blob (cheap, tiered), metadata in PostgreSQL (fast queries)
 router.post('/documents/:documentId/versions', authenticate, async (req, res) => {
   try {
     const { content, versionLabel, changeSummary, changeType = 'edit' } = req.body;
+    const documentId = req.params.documentId;
+    const firmId = req.user.firmId;
 
     if (!content) {
       return res.status(400).json({ error: 'Content is required' });
     }
 
-    // Verify document access
+    // Verify document access (outside transaction for early exit)
     const docResult = await query(
       `SELECT * FROM documents WHERE id = $1 AND firm_id = $2`,
-      [req.params.documentId, req.user.firmId]
+      [documentId, firmId]
     );
 
     if (docResult.rows.length === 0) {
@@ -458,14 +646,14 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
     // Calculate content hash
     const contentHash = crypto.createHash('sha256').update(content).digest('hex');
 
-    // Check if content actually changed
-    const latestVersion = await query(
+    // Check if content actually changed (outside transaction for early exit)
+    const latestVersionCheck = await query(
       `SELECT content_hash FROM document_versions 
        WHERE document_id = $1 ORDER BY version_number DESC LIMIT 1`,
-      [req.params.documentId]
+      [documentId]
     );
 
-    if (latestVersion.rows.length > 0 && latestVersion.rows[0].content_hash === contentHash) {
+    if (latestVersionCheck.rows.length > 0 && latestVersionCheck.rows[0].content_hash === contentHash) {
       return res.json({ 
         message: 'No changes detected',
         versionNumber: doc.version || 1,
@@ -473,98 +661,142 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
       });
     }
 
-    // Get next version number
-    const versionResult = await query(
-      `SELECT COALESCE(MAX(version_number), 0) + 1 as next_version 
-       FROM document_versions WHERE document_id = $1`,
-      [req.params.documentId]
-    );
-    const nextVersion = versionResult.rows[0].next_version;
-
     // Calculate word counts
     const words = content.trim().split(/\s+/).filter(w => w.length > 0);
     const wordCount = words.length;
     const characterCount = content.length;
 
-    // Calculate diff stats if previous version exists
-    let wordsAdded = wordCount;
-    let wordsRemoved = 0;
+    // Check if Azure Blob is configured for version storage
+    const useBlobStorage = await isBlobConfigured();
 
-    if (latestVersion.rows.length > 0) {
-      const prevContent = await query(
-        `SELECT content_text, word_count FROM document_versions 
+    // Use transaction for atomic version creation
+    const result = await withTransaction(async (client) => {
+      // Get next version number with lock to prevent race conditions
+      const versionResult = await client.query(
+        `SELECT COALESCE(MAX(version_number), 0) + 1 as next_version 
+         FROM document_versions WHERE document_id = $1
+         FOR UPDATE`,
+        [documentId]
+      );
+      const nextVersion = versionResult.rows[0].next_version;
+
+      // Calculate diff stats if previous version exists
+      let wordsAdded = wordCount;
+      let wordsRemoved = 0;
+
+      const prevContent = await client.query(
+        `SELECT word_count FROM document_versions 
          WHERE document_id = $1 ORDER BY version_number DESC LIMIT 1`,
-        [req.params.documentId]
+        [documentId]
       );
       if (prevContent.rows[0]?.word_count) {
         const diff = wordCount - prevContent.rows[0].word_count;
         wordsAdded = diff > 0 ? diff : 0;
         wordsRemoved = diff < 0 ? Math.abs(diff) : 0;
       }
-    }
 
-    // Create version
-    const result = await query(
-      `INSERT INTO document_versions (
-        document_id, firm_id, version_number, version_label,
-        content_text, content_hash, change_summary, change_type,
-        word_count, character_count, words_added, words_removed,
-        file_size, created_by, created_by_name
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-      RETURNING *`,
-      [
-        req.params.documentId,
-        req.user.firmId,
+      // Store version content
+      let contentUrl = null;
+      let storedInBlob = false;
+
+      if (useBlobStorage) {
+        // Upload to Azure Blob Storage (cheap, tiered)
+        try {
+          const blobResult = await uploadVersionToBlob(
+            firmId,
+            documentId,
+            nextVersion,
+            content,
+            {
+              createdBy: req.user.id,
+              changeType,
+              contentHash
+            }
+          );
+          contentUrl = blobResult.url;
+          storedInBlob = true;
+          console.log(`[VERSION] Stored v${nextVersion} in Azure Blob: ${blobResult.blobName}`);
+        } catch (blobError) {
+          console.error('[VERSION] Blob upload failed, falling back to DB:', blobError.message);
+          // Fall through to store in database
+        }
+      }
+
+      // Create version record
+      // If blob storage worked, don't store content_text (save DB space)
+      // If blob failed or not configured, store in content_text as fallback
+      const versionInsertResult = await client.query(
+        `INSERT INTO document_versions (
+          document_id, firm_id, version_number, version_label,
+          content_text, content_url, content_hash, change_summary, change_type,
+          word_count, character_count, words_added, words_removed,
+          file_size, storage_type, created_by, created_by_name
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        RETURNING *`,
+        [
+          documentId,
+          firmId,
+          nextVersion,
+          versionLabel || null,
+          storedInBlob ? null : content, // Only store in DB if blob failed
+          contentUrl, // URL to blob if stored there
+          contentHash,
+          changeSummary || null,
+          changeType,
+          wordCount,
+          characterCount,
+          wordsAdded,
+          wordsRemoved,
+          content.length,
+          storedInBlob ? 'azure_blob' : 'database', // Track where content is stored
+          req.user.id,
+          `${req.user.firstName} ${req.user.lastName}`
+        ]
+      );
+
+      // Update document - current version content stays in documents table (always hot)
+      await client.query(
+        `UPDATE documents SET 
+          version = $1, 
+          version_count = $1,
+          content_text = $2,
+          content_hash = $3,
+          size = $4,
+          updated_at = NOW()
+         WHERE id = $5`,
+        [nextVersion, content, contentHash, content.length, documentId]
+      );
+
+      // Log activity
+      await client.query(
+        `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
+         VALUES ($1, $2, 'version_create', $3, $4, $5)`,
+        [
+          documentId, 
+          firmId, 
+          req.user.id, 
+          `${req.user.firstName} ${req.user.lastName}`,
+          JSON.stringify({ versionNumber: nextVersion, changeType, storedInBlob })
+        ]
+      );
+
+      return {
+        version: versionInsertResult.rows[0],
         nextVersion,
-        versionLabel || null,
-        content,
-        contentHash,
-        changeSummary || null,
-        changeType,
-        wordCount,
-        characterCount,
         wordsAdded,
         wordsRemoved,
-        content.length,
-        req.user.id,
-        `${req.user.firstName} ${req.user.lastName}`
-      ]
-    );
+        storedInBlob
+      };
+    });
 
-    // Update document version count and content
-    await query(
-      `UPDATE documents SET 
-        version = $1, 
-        version_count = $1,
-        content_text = $2,
-        content_hash = $3,
-        size = $4,
-        updated_at = NOW()
-       WHERE id = $5`,
-      [nextVersion, content, contentHash, content.length, req.params.documentId]
-    );
-
-    // Log activity
-    await query(
-      `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
-       VALUES ($1, $2, 'version_create', $3, $4, $5)`,
-      [
-        req.params.documentId, 
-        req.user.firmId, 
-        req.user.id, 
-        `${req.user.firstName} ${req.user.lastName}`,
-        JSON.stringify({ versionNumber: nextVersion, changeType })
-      ]
-    );
-
-    const v = result.rows[0];
     res.status(201).json({
-      id: v.id,
-      versionNumber: v.version_number,
-      versionLabel: v.version_label,
-      createdAt: v.created_at,
-      wordsAdded,
-      wordsRemoved,
+      id: result.version.id,
+      versionNumber: result.version.version_number,
+      versionLabel: result.version.version_label,
+      createdAt: result.version.created_at,
+      wordsAdded: result.wordsAdded,
+      wordsRemoved: result.wordsRemoved,
+      storageType: result.storedInBlob ? 'azure_blob' : 'database'
     });
   } catch (error) {
     console.error('Create version error:', error);
@@ -575,7 +807,7 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
 // Restore a previous version
 router.post('/documents/:documentId/versions/:versionId/restore', authenticate, async (req, res) => {
   try {
-    // Get the version to restore
+    // Get the version to restore (outside transaction for early exit)
     const versionResult = await query(
       `SELECT dv.* FROM document_versions dv
        JOIN documents d ON dv.document_id = d.id
@@ -589,50 +821,70 @@ router.post('/documents/:documentId/versions/:versionId/restore', authenticate, 
 
     const versionToRestore = versionResult.rows[0];
 
-    // Create a new version with the restored content
-    const nextVersionResult = await query(
-      `SELECT COALESCE(MAX(version_number), 0) + 1 as next_version 
-       FROM document_versions WHERE document_id = $1`,
-      [req.params.documentId]
-    );
-    const nextVersion = nextVersionResult.rows[0].next_version;
+    // Use transaction for atomic restore operation
+    const result = await withTransaction(async (client) => {
+      // Get next version number with lock
+      const nextVersionResult = await client.query(
+        `SELECT COALESCE(MAX(version_number), 0) + 1 as next_version 
+         FROM document_versions WHERE document_id = $1
+         FOR UPDATE`,
+        [req.params.documentId]
+      );
+      const nextVersion = nextVersionResult.rows[0].next_version;
 
-    const result = await query(
-      `INSERT INTO document_versions (
-        document_id, firm_id, version_number, version_label,
-        content_text, content_hash, change_summary, change_type,
-        word_count, character_count, created_by, created_by_name
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'restore', $8, $9, $10, $11)
-      RETURNING *`,
-      [
-        req.params.documentId,
-        req.user.firmId,
-        nextVersion,
-        `Restored from v${versionToRestore.version_number}`,
-        versionToRestore.content_text,
-        versionToRestore.content_hash,
-        `Restored from version ${versionToRestore.version_number}`,
-        versionToRestore.word_count,
-        versionToRestore.character_count,
-        req.user.id,
-        `${req.user.firstName} ${req.user.lastName}`
-      ]
-    );
+      // Create a new version with the restored content
+      await client.query(
+        `INSERT INTO document_versions (
+          document_id, firm_id, version_number, version_label,
+          content_text, content_hash, change_summary, change_type,
+          word_count, character_count, created_by, created_by_name
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'restore', $8, $9, $10, $11)`,
+        [
+          req.params.documentId,
+          req.user.firmId,
+          nextVersion,
+          `Restored from v${versionToRestore.version_number}`,
+          versionToRestore.content_text,
+          versionToRestore.content_hash,
+          `Restored from version ${versionToRestore.version_number}`,
+          versionToRestore.word_count,
+          versionToRestore.character_count,
+          req.user.id,
+          `${req.user.firstName} ${req.user.lastName}`
+        ]
+      );
 
-    // Update document
-    await query(
-      `UPDATE documents SET 
-        version = $1, 
-        version_count = $1,
-        content_text = $2,
-        updated_at = NOW()
-       WHERE id = $3`,
-      [nextVersion, versionToRestore.content_text, req.params.documentId]
-    );
+      // Update document
+      await client.query(
+        `UPDATE documents SET 
+          version = $1, 
+          version_count = $1,
+          content_text = $2,
+          content_hash = $3,
+          updated_at = NOW()
+         WHERE id = $4`,
+        [nextVersion, versionToRestore.content_text, versionToRestore.content_hash, req.params.documentId]
+      );
+
+      // Log activity
+      await client.query(
+        `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
+         VALUES ($1, $2, 'version_restore', $3, $4, $5)`,
+        [
+          req.params.documentId, 
+          req.user.firmId, 
+          req.user.id, 
+          `${req.user.firstName} ${req.user.lastName}`,
+          JSON.stringify({ restoredFrom: versionToRestore.version_number, newVersion: nextVersion })
+        ]
+      );
+
+      return { nextVersion };
+    });
 
     res.json({
       message: 'Version restored successfully',
-      newVersionNumber: nextVersion,
+      newVersionNumber: result.nextVersion,
       restoredFromVersion: versionToRestore.version_number,
     });
   } catch (error) {
@@ -716,124 +968,158 @@ router.get('/documents/:documentId/compare', authenticate, async (req, res) => {
 // ============================================
 
 // Acquire lock on a document
+// Cloud-native approach: Uses atomic database operations to prevent race conditions
+// Better than Clio's approach which uses file-system locks that don't scale
 router.post('/documents/:documentId/lock', authenticate, async (req, res) => {
   try {
     const { lockType = 'edit', sessionId } = req.body;
+    const documentId = req.params.documentId;
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const userName = `${req.user.firstName} ${req.user.lastName}`;
+    const newSessionId = sessionId || uuidv4();
 
     // Check if document exists and is accessible
     const docResult = await query(
-      `SELECT id, name, current_editor_id, current_editor_name, lock_expires_at
-       FROM documents WHERE id = $1 AND firm_id = $2`,
-      [req.params.documentId, req.user.firmId]
+      `SELECT id, name FROM documents WHERE id = $1 AND firm_id = $2`,
+      [documentId, req.user.firmId]
     );
 
     if (docResult.rows.length === 0) {
       return res.status(404).json({ error: 'Document not found' });
     }
 
-    const doc = docResult.rows[0];
+    // Use a single atomic transaction to prevent race conditions
+    // This is more efficient than Clio's multi-step lock acquisition
+    const result = await withTransaction(async (client) => {
+      // First, expire any old locks and get current lock state in one query
+      // Use FOR UPDATE to lock the row and prevent concurrent modifications
+      await client.query(
+        `UPDATE document_locks SET 
+          is_active = false, 
+          released_at = NOW(),
+          release_reason = 'expired'
+         WHERE document_id = $1 AND is_active = true AND expires_at <= NOW()`,
+        [documentId]
+      );
 
-    // Check for existing active lock (that hasn't expired)
-    const existingLock = await query(
-      `SELECT dl.*, u.first_name || ' ' || u.last_name as locked_by_name
-       FROM document_locks dl
-       JOIN users u ON dl.locked_by = u.id
-       WHERE dl.document_id = $1 
-         AND dl.is_active = true 
-         AND dl.expires_at > NOW()`,
-      [req.params.documentId]
-    );
+      // Check for active lock with row lock to prevent race condition
+      const existingLock = await client.query(
+        `SELECT dl.*, u.first_name || ' ' || u.last_name as locked_by_name
+         FROM document_locks dl
+         JOIN users u ON dl.locked_by = u.id
+         WHERE dl.document_id = $1 
+           AND dl.is_active = true 
+           AND dl.expires_at > NOW()
+         FOR UPDATE`,
+        [documentId]
+      );
 
-    if (existingLock.rows.length > 0) {
-      const lock = existingLock.rows[0];
-      
-      // If the same user already has the lock, extend it
-      if (lock.locked_by === req.user.id) {
-        const newExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-        await query(
-          `UPDATE document_locks SET 
-            expires_at = $1, 
-            last_heartbeat = NOW(),
-            session_id = COALESCE($2, session_id)
-           WHERE id = $3`,
-          [newExpiry, sessionId, lock.id]
-        );
+      if (existingLock.rows.length > 0) {
+        const lock = existingLock.rows[0];
+        
+        // If the same user already has the lock, extend it
+        if (lock.locked_by === req.user.id) {
+          await client.query(
+            `UPDATE document_locks SET 
+              expires_at = $1, 
+              last_heartbeat = NOW(),
+              session_id = COALESCE($2, session_id)
+             WHERE id = $3`,
+            [expiresAt, sessionId, lock.id]
+          );
 
-        await query(
-          `UPDATE documents SET lock_expires_at = $1 WHERE id = $2`,
-          [newExpiry, req.params.documentId]
-        );
+          await client.query(
+            `UPDATE documents SET lock_expires_at = $1 WHERE id = $2`,
+            [expiresAt, documentId]
+          );
 
-        return res.json({
-          lockId: lock.id,
-          extended: true,
-          expiresAt: newExpiry,
-          message: 'Lock extended'
-        });
+          return {
+            success: true,
+            extended: true,
+            lockId: lock.id,
+            expiresAt
+          };
+        }
+
+        // Someone else has the lock - return conflict info
+        return {
+          success: false,
+          conflict: true,
+          lockedBy: lock.locked_by_name,
+          lockedAt: lock.locked_at,
+          expiresAt: lock.expires_at
+        };
       }
 
-      // Someone else has the lock
+      // No active lock - create new one atomically
+      const lockResult = await client.query(
+        `INSERT INTO document_locks (
+          document_id, firm_id, locked_by, locked_by_name,
+          lock_type, expires_at, session_id, client_info
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING *`,
+        [
+          documentId,
+          req.user.firmId,
+          req.user.id,
+          userName,
+          lockType,
+          expiresAt,
+          newSessionId,
+          req.headers['user-agent']
+        ]
+      );
+
+      // Update document with editor info
+      await client.query(
+        `UPDATE documents SET 
+          current_editor_id = $1,
+          current_editor_name = $2,
+          lock_expires_at = $3
+         WHERE id = $4`,
+        [req.user.id, userName, expiresAt, documentId]
+      );
+
+      // Log activity
+      await client.query(
+        `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
+         VALUES ($1, $2, 'lock', $3, $4, $5)`,
+        [documentId, req.user.firmId, req.user.id, userName, JSON.stringify({ lockType })]
+      );
+
+      return {
+        success: true,
+        extended: false,
+        lockId: lockResult.rows[0].id,
+        sessionId: lockResult.rows[0].session_id,
+        expiresAt
+      };
+    });
+
+    // Handle the transaction result
+    if (result.conflict) {
       return res.status(423).json({ 
         error: 'Document is locked',
-        lockedBy: lock.locked_by_name,
-        lockedAt: lock.locked_at,
-        expiresAt: lock.expires_at,
-        message: `This document is currently being edited by ${lock.locked_by_name}. Try again later or wait for the lock to expire.`
+        lockedBy: result.lockedBy,
+        lockedAt: result.lockedAt,
+        expiresAt: result.expiresAt,
+        message: `This document is currently being edited by ${result.lockedBy}. Try again later or wait for the lock to expire.`
       });
     }
 
-    // Release any expired locks first
-    await query(
-      `UPDATE document_locks SET 
-        is_active = false, 
-        released_at = NOW(),
-        release_reason = 'expired'
-       WHERE document_id = $1 AND is_active = true AND expires_at <= NOW()`,
-      [req.params.documentId]
-    );
-
-    // Create new lock
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-    const lockResult = await query(
-      `INSERT INTO document_locks (
-        document_id, firm_id, locked_by, locked_by_name,
-        lock_type, expires_at, session_id, client_info
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING *`,
-      [
-        req.params.documentId,
-        req.user.firmId,
-        req.user.id,
-        `${req.user.firstName} ${req.user.lastName}`,
-        lockType,
-        expiresAt,
-        sessionId || uuidv4(),
-        req.headers['user-agent']
-      ]
-    );
-
-    // Update document with editor info
-    await query(
-      `UPDATE documents SET 
-        current_editor_id = $1,
-        current_editor_name = $2,
-        lock_expires_at = $3
-       WHERE id = $4`,
-      [req.user.id, `${req.user.firstName} ${req.user.lastName}`, expiresAt, req.params.documentId]
-    );
-
-    // Log activity
-    await query(
-      `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
-       VALUES ($1, $2, 'lock', $3, $4, $5)`,
-      [req.params.documentId, req.user.firmId, req.user.id, `${req.user.firstName} ${req.user.lastName}`,
-       JSON.stringify({ lockType })]
-    );
+    if (result.extended) {
+      return res.json({
+        lockId: result.lockId,
+        extended: true,
+        expiresAt: result.expiresAt,
+        message: 'Lock extended'
+      });
+    }
 
     res.status(201).json({
-      lockId: lockResult.rows[0].id,
-      expiresAt: expiresAt,
-      sessionId: lockResult.rows[0].session_id,
+      lockId: result.lockId,
+      expiresAt: result.expiresAt,
+      sessionId: result.sessionId,
       message: 'Lock acquired successfully'
     });
   } catch (error) {

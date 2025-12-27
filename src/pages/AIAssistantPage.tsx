@@ -6,7 +6,7 @@ import {
   Sparkles, Send, Plus, MessageSquare, Trash2, 
   MessageCircle, FileEdit, FileText, Paperclip, X,
   FileSearch, History, ChevronRight, Loader2, Image, Bot, Clock, CheckCircle, AlertCircle, Star,
-  Activity, Play, ArrowLeft, Zap
+  Activity, Play, ArrowLeft, Zap, StopCircle
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -452,6 +452,11 @@ export function AIAssistantPage() {
                           <CheckCircle size={20} />
                           <span>Task Complete</span>
                         </>
+                      ) : liveTaskProgress.status === 'cancelled' ? (
+                        <>
+                          <StopCircle size={20} />
+                          <span>Task Cancelled</span>
+                        </>
                       ) : (
                         <>
                           <AlertCircle size={20} />
@@ -459,6 +464,22 @@ export function AIAssistantPage() {
                         </>
                       )}
                     </div>
+                    {liveTaskProgress.status === 'running' && (
+                      <button 
+                        className={styles.stopAgentBtn}
+                        onClick={async () => {
+                          try {
+                            await aiApi.cancelTask(liveTaskProgress.id)
+                            setLiveTaskProgress({ ...liveTaskProgress, status: 'cancelled' })
+                          } catch (e) {
+                            console.error('Failed to cancel:', e)
+                          }
+                        }}
+                      >
+                        <StopCircle size={16} />
+                        Stop Agent
+                      </button>
+                    )}
                     <div className={styles.liveProgressMeta}>
                       <span className={styles.liveProgressIterations}>
                         {liveTaskProgress.totalSteps 

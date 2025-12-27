@@ -10,6 +10,7 @@
     "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
+    "@azure/storage-blob": "^12.29.1",
     "clsx": "^2.0.0",
     "date-fns": "^2.30.0",
     "lucide-react": "^0.294.0",

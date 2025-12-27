@@ -71,6 +71,7 @@ router.get('/', authenticate, async (req, res) => {
       slack: null,
       zoom: null,
       quicken: null,
+      'apex-drive': null,
     };
 
     result.rows.forEach(row => {
@@ -86,6 +87,53 @@ router.get('/', authenticate, async (req, res) => {
         connectedAt: row.connected_at,
       };
     });
+
+    // Check if Apex Drive is configured (has a default drive configuration)
+    try {
+      const driveResult = await query(
+        `SELECT dc.*, 
+                (SELECT COUNT(*) FROM documents WHERE drive_id = dc.id) as doc_count
+         FROM drive_configurations dc
+         WHERE dc.firm_id = $1 AND dc.is_default = true
+         LIMIT 1`,
+        [req.user.firmId]
+      );
+      
+      if (driveResult.rows.length > 0) {
+        const drive = driveResult.rows[0];
+        integrations['apex-drive'] = {
+          id: drive.id,
+          provider: 'apex-drive',
+          isConnected: true,
+          accountName: drive.name,
+          lastSyncAt: drive.last_sync_at,
+          syncEnabled: drive.sync_enabled,
+          settings: {
+            syncDocuments: true,
+            autoVersionOnSave: drive.auto_version_on_save,
+            documentCount: parseInt(drive.doc_count) || 0,
+          },
+          connectedAt: drive.created_at,
+        };
+      } else {
+        // Check if Azure storage is configured at platform level
+        const azureSettings = await getPlatformSettings();
+        if (azureSettings.azure_storage_account_name && azureSettings.azure_storage_account_key) {
+          integrations['apex-drive'] = {
+            id: 'azure-configured',
+            provider: 'apex-drive',
+            isConnected: true,
+            accountName: 'Azure File Share (Ready)',
+            settings: {
+              syncDocuments: true,
+              azureConfigured: true,
+            },
+          };
+        }
+      }
+    } catch (driveError) {
+      console.log('Drive configurations table may not exist:', driveError.message);
+    }
 
     res.json({ integrations });
   } catch (error) {

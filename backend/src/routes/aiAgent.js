@@ -23,11 +23,11 @@ import crypto from 'crypto';
 
 const router = Router();
 
-// Azure OpenAI configuration
+// Azure OpenAI configuration (works with Azure AI Foundry deployed models)
 const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
 const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
 const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
-const API_VERSION = '2024-08-01-preview';
+const API_VERSION = '2024-12-01-preview'; // Latest API version for newer models
 
 // =============================================================================
 // TOOL DEFINITIONS - Complete set of user actions
@@ -758,6 +758,21 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "analyze_image",
+      description: "Analyze an image file to describe its contents. Use for photos, evidence images, property damage, accident scenes, etc. Can identify objects, text, people, scenes, and provide detailed descriptions.",
+      parameters: {
+        type: "object",
+        properties: {
+          document_id: { type: "string", description: "UUID of the image document" },
+          question: { type: "string", description: "Optional specific question about the image (e.g., 'What damage is visible?' or 'Describe the scene')" }
+        },
+        required: ["document_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "get_matter_documents_content",
       description: "Get a summary of all documents attached to a matter, including their content previews. Useful for understanding the full picture of a case.",
       parameters: {
@@ -923,6 +938,22 @@ const TOOLS = [
           new_name: { type: "string", description: "New name for the document" }
         },
         required: ["document_id", "new_name"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "share_document",
+      description: "Share a document with a specific user, granting them access to view or edit it.",
+      parameters: {
+        type: "object",
+        properties: {
+          document_id: { type: "string", description: "UUID of the document to share" },
+          user_id: { type: "string", description: "UUID of the user to share with. Use list_team_members to find users." },
+          permission_level: { type: "string", enum: ["view", "edit"], description: "Level of access: 'view' (read only) or 'edit' (can modify). Defaults to 'view'." }
+        },
+        required: ["document_id", "user_id"]
       }
     }
   },
@@ -1341,72 +1372,6 @@ const TOOLS = [
     }
   },
 
-  // ===================== EMAIL INTEGRATION (OUTLOOK) =====================
-  {
-    type: "function",
-    function: {
-      name: "get_emails",
-      description: "Get recent emails from the user's connected Outlook account. Requires Outlook integration to be connected.",
-      parameters: {
-        type: "object",
-        properties: {
-          limit: { type: "integer", description: "Number of emails to return (default 20, max 50)" },
-          search: { type: "string", description: "Search term to filter emails by subject or sender" },
-          unread_only: { type: "boolean", description: "Only return unread emails" }
-        },
-        required: []
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_email",
-      description: "Get the full content of a specific email by ID.",
-      parameters: {
-        type: "object",
-        properties: {
-          email_id: { type: "string", description: "The ID of the email to retrieve" }
-        },
-        required: ["email_id"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "send_email",
-      description: "Send an email from the user's connected Outlook account. Can attach documents from the firm's document library.",
-      parameters: {
-        type: "object",
-        properties: {
-          to: { type: "string", description: "Recipient email address(es), comma-separated for multiple" },
-          subject: { type: "string", description: "Email subject line" },
-          body: { type: "string", description: "Email body content (plain text or HTML)" },
-          cc: { type: "string", description: "CC recipients, comma-separated (optional)" },
-          matter_id: { type: "string", description: "Link this email to a matter (optional)" },
-          document_ids: { type: "array", items: { type: "string" }, description: "Array of document IDs to attach to the email (optional)" }
-        },
-        required: ["to", "subject", "body"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "reply_to_email",
-      description: "Reply to an existing email.",
-      parameters: {
-        type: "object",
-        properties: {
-          email_id: { type: "string", description: "The ID of the email to reply to" },
-          body: { type: "string", description: "Reply body content" },
-          reply_all: { type: "boolean", description: "Reply to all recipients (default false)" }
-        },
-        required: ["email_id", "body"]
-      }
-    }
-  },
   {
     type: "function",
     function: {
@@ -2031,6 +1996,7 @@ async function executeTool(toolName, args, user, req = null) {
       case 'list_documents': return await listDocuments(args, user);
       case 'get_document': return await getDocument(args, user);
       case 'read_document_content': return await readDocumentContent(args, user);
+      case 'analyze_image': return await analyzeImage(args, user);
       case 'get_matter_documents_content': return await getMatterDocumentsContent(args, user);
       case 'search_document_content': return await searchDocumentContent(args, user);
       case 'save_uploaded_document': return await saveUploadedDocument(args, user, req);
@@ -2040,6 +2006,7 @@ async function executeTool(toolName, args, user, req = null) {
       case 'delete_document': return await deleteDocument(args, user);
       case 'move_document': return await moveDocument(args, user);
       case 'rename_document': return await renameDocument(args, user);
+      case 'share_document': return await shareDocument(args, user);
       
       // Team
       case 'list_team_members': return await listTeamMembers(args, user);
@@ -2090,9 +2057,6 @@ async function executeTool(toolName, args, user, req = null) {
       // Integration Status
       case 'get_integrations_status': return await getIntegrationsStatus(args, user);
       
-      // Matter Emails
-      case 'get_matter_emails': return await getMatterEmails(args, user);
-      
       // Outlook Calendar Sync
       case 'create_outlook_event': return await createOutlookEvent(args, user);
       case 'sync_outlook_calendar': return await syncOutlookCalendar(args, user);
@@ -2110,6 +2074,7 @@ async function executeTool(toolName, args, user, req = null) {
       case 'get_matter_emails': return await getMatterEmails(args, user);
       case 'get_client_communications': return await getClientCommunications(args, user);
       case 'configure_auto_email_linking': return await configureAutoEmailLinking(args, user);
+      case 'check_email_integration': return await checkEmailIntegration(args, user);
       
       // Cloud Storage
       case 'list_cloud_files': return await listCloudFiles(args, user);
@@ -4393,6 +4358,132 @@ async function readDocumentContent(args, user) {
   };
 }
 
+async function analyzeImage(args, user) {
+  const { document_id, question } = args;
+  
+  if (!document_id) {
+    return { error: 'document_id is required' };
+  }
+  
+  // Get document info
+  const result = await query(
+    `SELECT d.id, d.name, d.type, d.path, d.azure_path, m.name as matter_name
+     FROM documents d
+     LEFT JOIN matters m ON d.matter_id = m.id
+     WHERE d.id = $1 AND d.firm_id = $2`,
+    [document_id, user.firmId]
+  );
+  
+  if (result.rows.length === 0) {
+    return { error: 'Document not found' };
+  }
+  
+  const doc = result.rows[0];
+  const ext = path.extname(doc.name).toLowerCase();
+  
+  // Check if it's an image
+  const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.tiff', '.bmp'];
+  if (!imageExtensions.includes(ext)) {
+    return { 
+      error: `This tool only works with image files. "${doc.name}" is a ${ext} file. Use read_document_content for text documents.`
+    };
+  }
+  
+  // Check Azure OpenAI Vision config
+  if (!AZURE_ENDPOINT || !AZURE_API_KEY) {
+    return { error: 'Azure OpenAI not configured for image analysis.' };
+  }
+  
+  try {
+    // Read the image file
+    let imageBuffer;
+    const filePath = doc.path || doc.azure_path;
+    
+    if (!filePath) {
+      return { error: 'Image file path not available.' };
+    }
+    
+    // Try to read from local path first
+    try {
+      imageBuffer = await fs.promises.readFile(filePath);
+    } catch (e) {
+      // If local read fails, try Azure
+      if (isAzureConfigured()) {
+        const { downloadFile } = await import('../utils/azureStorage.js');
+        imageBuffer = await downloadFile(user.firmId, doc.azure_path || doc.name);
+      } else {
+        return { error: 'Could not read image file.' };
+      }
+    }
+    
+    const base64Image = imageBuffer.toString('base64');
+    const mimeType = `image/${ext.replace('.', '').replace('jpg', 'jpeg')}`;
+    
+    // Build the prompt based on whether user has a specific question
+    const userPrompt = question 
+      ? `Analyze this image and answer: ${question}`
+      : 'Describe this image in detail. Include: what type of image it is, any text visible, objects/people present, setting/location, notable details, and anything that might be legally relevant (damage, evidence, conditions, etc.).';
+    
+    const url = `${AZURE_ENDPOINT}openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${API_VERSION}`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': AZURE_API_KEY,
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert image analyst for a law firm. Provide detailed, objective descriptions of images. Note any text, damage, conditions, or details that could be relevant to legal matters. Be specific and factual.'
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: userPrompt },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:${mimeType};base64,${base64Image}`,
+                  detail: 'high'
+                }
+              }
+            ]
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 2000,
+      }),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Azure Vision error:', errorText);
+      return { error: 'Failed to analyze image. Please try again.' };
+    }
+    
+    const data = await response.json();
+    const analysis = data.choices[0]?.message?.content;
+    
+    if (!analysis) {
+      return { error: 'No analysis returned from vision model.' };
+    }
+    
+    return {
+      id: doc.id,
+      name: doc.name,
+      matter: doc.matter_name,
+      analysis: analysis,
+      question: question || null
+    };
+    
+  } catch (error) {
+    console.error('Image analysis error:', error);
+    return { error: `Failed to analyze image: ${error.message}` };
+  }
+}
+
 async function getMatterDocumentsContent(args, user) {
   const { matter_id, include_content = true } = args;
   
@@ -5117,6 +5208,77 @@ async function renameDocument(args, user) {
   };
 }
 
+async function shareDocument(args, user) {
+  const { document_id, user_id, permission_level = 'view' } = args;
+  
+  if (!document_id) {
+    return { error: 'document_id is required' };
+  }
+  if (!user_id) {
+    return { error: 'user_id is required. Use list_team_members to find users.' };
+  }
+  
+  // Verify document exists and user has access
+  const docResult = await query(
+    'SELECT id, name, firm_id, owner_id FROM documents WHERE id = $1 AND firm_id = $2',
+    [document_id, user.firmId]
+  );
+  
+  if (docResult.rows.length === 0) {
+    return { error: 'Document not found' };
+  }
+  
+  const doc = docResult.rows[0];
+  
+  // Verify target user exists in same firm
+  const targetUser = await query(
+    'SELECT id, first_name, last_name, email FROM users WHERE id = $1 AND firm_id = $2',
+    [user_id, user.firmId]
+  );
+  
+  if (targetUser.rows.length === 0) {
+    return { error: 'User not found in your firm' };
+  }
+  
+  const target = targetUser.rows[0];
+  const targetName = `${target.first_name || ''} ${target.last_name || ''}`.trim() || target.email;
+  
+  // Check if permission already exists
+  const existingPerm = await query(
+    'SELECT id FROM document_permissions WHERE document_id = $1 AND user_id = $2',
+    [document_id, user_id]
+  );
+  
+  if (existingPerm.rows.length > 0) {
+    // Update existing permission
+    await query(
+      `UPDATE document_permissions 
+       SET permission_level = $1, updated_at = NOW() 
+       WHERE document_id = $2 AND user_id = $3`,
+      [permission_level, document_id, user_id]
+    );
+    
+    return {
+      success: true,
+      message: `Updated ${targetName}'s access to "${doc.name}" to ${permission_level}`,
+      data: { document_id, user_id, permission_level, user_name: targetName }
+    };
+  }
+  
+  // Create new permission
+  await query(
+    `INSERT INTO document_permissions (document_id, firm_id, user_id, permission_level, granted_by, created_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())`,
+    [document_id, user.firmId, user_id, permission_level, user.id]
+  );
+  
+  return {
+    success: true,
+    message: `Shared "${doc.name}" with ${targetName} (${permission_level} access)`,
+    data: { document_id, user_id, permission_level, user_name: targetName }
+  };
+}
+
 // =============================================================================
 // TEAM FUNCTIONS
 // =============================================================================
@@ -5522,12 +5684,30 @@ async function resumeIncompleteTasks() {
   }
 }
 
+// Track running tasks globally so we can cancel them
+const runningAgents = new Map(); // taskId -> { cancelled: boolean }
+
 async function startBackgroundTask(args, user) {
   const { goal, plan, estimated_steps, matter_id, client_id } = args;
   
   try {
+    // CHECK: Is there already a running task for this user?
+    const existingTask = await query(
+      `SELECT id, goal FROM ai_tasks WHERE user_id = $1 AND status = 'running' LIMIT 1`,
+      [user.id]
+    );
+    
+    if (existingTask.rows.length > 0) {
+      const existing = existingTask.rows[0];
+      console.log(`[AGENT] User ${user.id} already has running task ${existing.id}`);
+      return { 
+        error: `You already have a background task running: "${existing.goal}". Please wait for it to complete or cancel it first.`,
+        existingTaskId: existing.id,
+        existingGoal: existing.goal
+      };
+    }
+    
     // Create task in database
-    // 15 minutes with 2 second delays = ~450 max steps possible
     const result = await query(
       `INSERT INTO ai_tasks (firm_id, user_id, goal, status, plan, max_iterations, context)
        VALUES ($1, $2, $3, 'running', $4, $5, $6)
@@ -5537,23 +5717,26 @@ async function startBackgroundTask(args, user) {
         user.id, 
         goal, 
         JSON.stringify(plan || []),
-        Math.min((estimated_steps || 100) * 3, 450), // Allow up to 450 iterations (15 min / 2 sec)
+        500, // Max iterations for 15-minute session
         JSON.stringify({ matter_id, client_id })
       ]
     );
     
     const taskId = result.rows[0].id;
     
-    // Start background processing
-    processBackgroundTask(taskId, user, goal, plan);
+    // Register this agent as running
+    runningAgents.set(taskId, { cancelled: false, userId: user.id });
+    
+    // Start the ReAct agent loop (dynamic, not fixed plan)
+    runReActAgent(taskId, user, goal, { matter_id, client_id });
     
     return {
       status: 'started',
       task_id: taskId,
       message: `Background task started. I'll work on: ${goal}`,
       goal,
-      plan,
-      estimated_steps: estimated_steps || plan?.length || 10,
+      plan: plan || ['Working dynamically to achieve the goal...'],
+      estimated_steps: estimated_steps || 20,
       _background_task_started: true
     };
   } catch (error) {
@@ -5562,11 +5745,531 @@ async function startBackgroundTask(args, user) {
   }
 }
 
-// Background task processor
-// Helper function to add delay between background task steps
+// Export for use in cancel endpoint
+function cancelRunningAgent(taskId) {
+  const agent = runningAgents.get(taskId);
+  if (agent) {
+    agent.cancelled = true;
+    console.log(`[AGENT] Marked task ${taskId} for cancellation`);
+    return true;
+  }
+  return false;
+}
+
+// =============================================================================
+// REACT AGENT - Dynamic autonomous execution
+// =============================================================================
+
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+/**
+ * Background Agent - Runs for 15 minutes with separate prompts
+ * 
+ * The backend drives the conversation by sending prompts based on the initial task.
+ * Each prompt is a separate API call, but conversation history is maintained.
+ * One prompt at a time - waits for response before sending next.
+ */
+async function runReActAgent(taskId, user, goal, initialContext = {}) {
+  console.log(`[AGENT ${taskId}] ========================================`);
+  console.log(`[AGENT ${taskId}] Starting 15-minute background agent session`);
+  console.log(`[AGENT ${taskId}] Goal: ${goal}`);
+  console.log(`[AGENT ${taskId}] ========================================`);
+  
+  const startTime = Date.now();
+  const maxRuntime = 15 * 60 * 1000; // 15 minutes exactly
+  const PROMPT_DELAY_MS = 2000; // 2 seconds between prompts
+  const MAX_CONSECUTIVE_ERRORS = 10; // Don't exit on errors, just keep trying
+  
+  let promptCount = 0;
+  let actions = [];
+  let phase = 'discovery'; // Phases: discovery, analysis, action, review
+  let consecutiveErrors = 0;
+  
+  // Filter out tools that shouldn't be used in background mode
+  const AGENT_TOOLS = TOOLS.filter(t => {
+    const name = t.function.name;
+    return name !== 'task_complete' && 
+           name !== 'request_human_input' && 
+           name !== 'send_email' &&
+           name !== 'start_background_task';
+  });
+  
+  try {
+    await query(
+      `UPDATE ai_tasks SET status = 'running', started_at = NOW() WHERE id = $1`,
+      [taskId]
+    );
+    
+    // System prompt - sets up the AI's role and context
+    const systemPrompt = `You are an autonomous legal AI assistant. You are working on a background task for 15 minutes.
+
+TASK: ${goal}
+
+CONTEXT:
+${initialContext.matter_id ? `- Working on Matter ID: ${initialContext.matter_id}` : '- No specific matter (search if needed)'}
+${initialContext.client_id ? `- Working with Client ID: ${initialContext.client_id}` : ''}
+
+INSTRUCTIONS:
+- You will receive prompts from the system guiding your work
+- Execute ONE tool per response
+- Build on previous results - the conversation history is preserved
+- Be thorough - you have 15 minutes to complete this task
+- Document your findings and actions
+
+Available actions: search matters, review documents, log time, create tasks, draft emails, create notes, etc.`;
+
+    // Conversation history - maintained throughout the session
+    let conversationHistory = [
+      { role: 'system', content: systemPrompt }
+    ];
+    
+    // Break down the initial task into sub-tasks for the backend to prompt
+    const taskPrompts = generateTaskPrompts(goal, initialContext);
+    let currentTaskIndex = 0;
+    let consecutiveNoToolCalls = 0;
+    
+    // Send initial prompt based on the task
+    conversationHistory.push({
+      role: 'user',
+      content: taskPrompts[0] || `Let's begin working on: "${goal}"\n\nFirst, gather the information you need. What tool will you call?`
+    });
+    
+    // Main loop - runs for exactly 15 minutes
+    while (true) {
+      const elapsed = Date.now() - startTime;
+      const remainingMs = maxRuntime - elapsed;
+      const remainingMinutes = Math.ceil(remainingMs / 60000);
+      
+      // Check if time is up
+      if (elapsed >= maxRuntime) {
+        console.log(`[AGENT ${taskId}] 15 minutes reached. Ending session.`);
+        break;
+      }
+      
+      // Check if task was cancelled (fast in-memory check)
+      const agentState = runningAgents.get(taskId);
+      if (!agentState || agentState.cancelled) {
+        console.log(`[AGENT ${taskId}] Task was cancelled. Stopping immediately.`);
+        runningAgents.delete(taskId);
+        return; // Exit - status already set to cancelled by the cancel endpoint
+      }
+      
+      promptCount++;
+      const elapsedMinutes = Math.floor(elapsed / 60000);
+      const elapsedSeconds = Math.floor(elapsed / 1000);
+      
+      // Calculate progress percentage based on time elapsed (15 min = 100%)
+      // Cap at 95% while still running - 100% only when complete
+      const progressPercent = Math.min(Math.round((elapsed / maxRuntime) * 100), 95);
+      
+      console.log(`[AGENT ${taskId}] --- Prompt #${promptCount} (${elapsedMinutes}m elapsed, ${remainingMinutes}m remaining, ${progressPercent}%) ---`);
+      
+      // Update progress in database with progressPercent for the progress bar
+      await query(
+        `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
+        [promptCount, JSON.stringify({ 
+          promptCount,
+          phase,
+          actions: actions.slice(-10),
+          remainingMinutes,
+          elapsedSeconds,
+          progressPercent,  // This is what the frontend reads!
+          status: 'working'
+        }), taskId]
+      );
+      
+      // Send prompt to AI (one at a time)
+      let response;
+      try {
+        console.log(`[AGENT ${taskId}] Sending prompt to Azure AI...`);
+        response = await callAzureOpenAIWithTools(conversationHistory, AGENT_TOOLS);
+        console.log(`[AGENT ${taskId}] Received response (tool_calls: ${response.tool_calls?.length || 0})`);
+        consecutiveErrors = 0; // Reset error counter on success
+      } catch (apiError) {
+        consecutiveErrors++;
+        console.error(`[AGENT ${taskId}] API error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, apiError.message);
+        
+        // Update progress to show we're still working despite errors
+        await query(
+          `UPDATE ai_tasks SET current_step = $1, updated_at = NOW() WHERE id = $2`,
+          [`Retrying... (${consecutiveErrors} errors)`, taskId]
+        );
+        
+        // Wait longer on rate limit errors
+        if (apiError.message.includes('429') || apiError.message.includes('rate')) {
+          console.log(`[AGENT ${taskId}] Rate limited, waiting 10 seconds...`);
+          await delay(10000);
+        } else {
+          await delay(5000);
+        }
+        
+        // Don't exit on errors - keep trying until 15 minutes is up
+        // Only log a warning if we hit too many consecutive errors
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          console.warn(`[AGENT ${taskId}] ${consecutiveErrors} consecutive errors, but continuing...`);
+          // Reset and simplify the conversation to recover
+          conversationHistory = [
+            conversationHistory[0], // Keep system prompt
+            { role: 'user', content: `Continue working on: "${goal}". Call a tool.` }
+          ];
+          consecutiveErrors = 0;
+        }
+        continue;
+      }
+      
+      // Handle response
+      if (!response.tool_calls || response.tool_calls.length === 0) {
+        // No tool call - AI responded with text only
+        consecutiveNoToolCalls++;
+        console.log(`[AGENT ${taskId}] No tool call (${consecutiveNoToolCalls} consecutive)`);
+        
+        // Add AI's response to history
+        conversationHistory.push({ 
+          role: 'assistant', 
+          content: response.content || '' 
+        });
+        
+        // Backend sends next prompt to keep the agent working
+        if (consecutiveNoToolCalls >= 3) {
+          // Move to next task phase after 3 attempts
+          currentTaskIndex++;
+          consecutiveNoToolCalls = 0;
+          
+          if (currentTaskIndex < taskPrompts.length) {
+            conversationHistory.push({
+              role: 'user',
+              content: taskPrompts[currentTaskIndex]
+            });
+          } else {
+            // Cycle through phases to keep working
+            if (phase === 'discovery') phase = 'analysis';
+            else if (phase === 'analysis') phase = 'action';
+            else if (phase === 'action') phase = 'review';
+            else phase = 'discovery'; // Cycle back to discovery
+            
+            // Generate a continuation prompt based on what's been done
+            const nextPrompt = generateContinuationPrompt(goal, actions, remainingMinutes, phase);
+            conversationHistory.push({ role: 'user', content: nextPrompt });
+          }
+        } else {
+          // More forceful prompts to keep the agent working
+          const forcePrompts = [
+            `You must call a tool now. Continue working on: "${goal}"`,
+            `Call a tool to take the next action. You have ${remainingMinutes} minutes left for: "${goal}"`,
+            `Execute a tool now. Search for more information or take an action for: "${goal}"`,
+            `Keep working. Call search_matters, list_documents, create_note, or another tool for: "${goal}"`
+          ];
+          conversationHistory.push({
+            role: 'user',
+            content: forcePrompts[consecutiveNoToolCalls % forcePrompts.length]
+          });
+        }
+        
+        await delay(PROMPT_DELAY_MS);
+        continue;
+      }
+      
+      // Process ONE tool call (sequential, not parallel)
+      consecutiveNoToolCalls = 0;
+      const toolCall = response.tool_calls[0];
+      const functionName = toolCall.function.name;
+      let functionArgs;
+      try {
+        functionArgs = JSON.parse(toolCall.function.arguments);
+      } catch (e) {
+        functionArgs = {};
+      }
+      
+      console.log(`[AGENT ${taskId}] Executing: ${functionName}(${JSON.stringify(functionArgs).substring(0, 100)}...)`);
+      
+      // Execute the tool
+      const toolResult = await executeTool(functionName, functionArgs, user, null);
+      
+      // Build action summary
+      const actionSummary = toolResult.message || toolResult.summary || 
+        (toolResult.document ? `Created: ${toolResult.document.name}` : null) ||
+        (toolResult.matter ? `Found: ${toolResult.matter.name}` : null) ||
+        (toolResult.matters ? `Found ${toolResult.matters.length} matters` : null) ||
+        (toolResult.clients ? `Found ${toolResult.clients.length} clients` : null) ||
+        (toolResult.time_entry ? `Logged ${toolResult.time_entry.hours}h` : null) ||
+        (toolResult.event ? `Created event: ${toolResult.event.title}` : null) ||
+        (toolResult.task ? `Created task: ${toolResult.task.title}` : null) ||
+        `Executed ${functionName}`;
+      
+      actions.push({
+        prompt: promptCount,
+        tool: functionName,
+        args: functionArgs,
+        summary: actionSummary,
+        success: !toolResult.error,
+        timestamp: new Date().toISOString()
+      });
+      
+      console.log(`[AGENT ${taskId}] Result: ${actionSummary}`);
+      
+      // Update current step and progress in database
+      const currentProgressPercent = Math.min(Math.round(((Date.now() - startTime) / maxRuntime) * 100), 95);
+      await query(
+        `UPDATE ai_tasks SET current_step = $1, progress = $2 WHERE id = $3`,
+        [actionSummary, JSON.stringify({
+          promptCount,
+          phase,
+          actions: actions.slice(-10),
+          remainingMinutes: Math.ceil((maxRuntime - (Date.now() - startTime)) / 60000),
+          progressPercent: currentProgressPercent,
+          currentStep: actionSummary,
+          status: 'working'
+        }), taskId]
+      );
+      
+      // Add to conversation history
+      conversationHistory.push({
+        role: 'assistant',
+        content: response.content || null,
+        tool_calls: [toolCall]
+      });
+      
+      conversationHistory.push({
+        role: 'tool',
+        tool_call_id: toolCall.id,
+        content: JSON.stringify(toolResult)
+      });
+      
+      // Backend sends next prompt based on the result and task
+      const nextPrompt = generateNextPrompt(goal, functionName, toolResult, actions, remainingMinutes, phase);
+      conversationHistory.push({ role: 'user', content: nextPrompt });
+      
+      // Trim conversation history if getting too long (keep recent context)
+      if (conversationHistory.length > 60) {
+        // Keep system prompt + summary of early actions + recent messages
+        const systemMsg = conversationHistory[0];
+        const recentMessages = conversationHistory.slice(-50);
+        const actionsSummary = {
+          role: 'user',
+          content: `[Previous actions: ${actions.slice(0, -10).map(a => a.summary).join(', ')}]\n\nContinuing...`
+        };
+        conversationHistory = [systemMsg, actionsSummary, ...recentMessages];
+      }
+      
+      // Delay before next prompt
+      await delay(PROMPT_DELAY_MS);
+    }
+    
+    // Session complete - generate final summary
+    const elapsedMinutes = Math.round((Date.now() - startTime) / 60000);
+    const successfulActions = actions.filter(a => a.success).length;
+    
+    console.log(`[AGENT ${taskId}] ========================================`);
+    console.log(`[AGENT ${taskId}] Session complete`);
+    console.log(`[AGENT ${taskId}] Duration: ${elapsedMinutes} minutes`);
+    console.log(`[AGENT ${taskId}] Prompts sent: ${promptCount}`);
+    console.log(`[AGENT ${taskId}] Actions: ${successfulActions}/${actions.length} successful`);
+    console.log(`[AGENT ${taskId}] ========================================`);
+    
+    // Generate a summary using the AI
+    let summary = '';
+    try {
+      conversationHistory.push({
+        role: 'user',
+        content: `The 15-minute session is complete. Summarize what you accomplished for the task: "${goal}"\n\nProvide a brief summary of actions taken and any recommendations.`
+      });
+      
+      const summaryResponse = await callAzureOpenAIWithTools(conversationHistory, []);
+      summary = summaryResponse.content || '';
+    } catch (e) {
+      summary = `Completed ${successfulActions} actions in ${elapsedMinutes} minutes.`;
+    }
+    
+    await query(
+      `UPDATE ai_tasks SET status = 'completed', result = $1, summary = $2, progress = $3, completed_at = NOW() WHERE id = $4`,
+      [JSON.stringify({ 
+        actions,
+        totalPrompts: promptCount,
+        durationMinutes: elapsedMinutes,
+        successfulActions
+      }), summary, JSON.stringify({
+        promptCount,
+        phase: 'complete',
+        actions: actions.slice(-10),
+        progressPercent: 100,
+        currentStep: 'Complete',
+        status: 'completed',
+        durationMinutes: elapsedMinutes,
+        successfulActions
+      }), taskId]
+    );
+    
+    // Clean up - remove from running agents
+    runningAgents.delete(taskId);
+    console.log(`[AGENT ${taskId}] Cleaned up, task complete`);
+    
+  } catch (error) {
+    console.error(`[AGENT ${taskId}] Fatal error:`, error);
+    
+    // Clean up on error too
+    runningAgents.delete(taskId);
+    
+    await query(
+      `UPDATE ai_tasks SET status = 'failed', result = $1, error = $2, progress = $3, completed_at = NOW() WHERE id = $4`,
+      [JSON.stringify({ actions }), error.message, JSON.stringify({
+        promptCount,
+        phase: 'error',
+        actions: actions.slice(-10),
+        progressPercent: 0,
+        currentStep: 'Error: ' + error.message,
+        status: 'failed'
+      }), taskId]
+    );
+  }
+}
+
+/**
+ * Generate initial task prompts based on the goal
+ * These guide the AI through different phases of the task
+ */
+function generateTaskPrompts(goal, context) {
+  const goalLower = goal.toLowerCase();
+  const prompts = [];
+  
+  // Discovery phase prompts
+  if (context.matter_id) {
+    prompts.push(`Start by getting the details of the matter (ID: ${context.matter_id}). Call get_matter to understand what we're working with.`);
+  } else if (goalLower.includes('matter') || goalLower.includes('case')) {
+    prompts.push(`First, let's find the relevant matter. Use search_matters to locate it.`);
+  } else if (context.client_id) {
+    prompts.push(`Start by getting information about the client (ID: ${context.client_id}). Call get_client.`);
+  } else if (goalLower.includes('client')) {
+    prompts.push(`First, find the relevant client. Use list_clients or search.`);
+  } else {
+    prompts.push(`Let's start by gathering information. Search for any relevant matters, clients, or documents related to: "${goal}"`);
+  }
+  
+  // Analysis phase prompts
+  if (goalLower.includes('review') || goalLower.includes('analyze')) {
+    prompts.push(`Now review the documents associated with this matter. Use list_documents and read_document_content to analyze them.`);
+  }
+  
+  if (goalLower.includes('document') || goalLower.includes('draft') || goalLower.includes('prepare')) {
+    prompts.push(`Based on what you've found, what documents need to be created or reviewed? List them and start working.`);
+  }
+  
+  // Action phase prompts
+  if (goalLower.includes('email') || goalLower.includes('contact')) {
+    prompts.push(`Draft any necessary emails using draft_email_for_matter. Don't send - just create drafts.`);
+  }
+  
+  if (goalLower.includes('task') || goalLower.includes('todo') || goalLower.includes('follow')) {
+    prompts.push(`Create any necessary follow-up tasks using create_task.`);
+  }
+  
+  if (goalLower.includes('time') || goalLower.includes('billing')) {
+    prompts.push(`Review and log any time entries that should be recorded.`);
+  }
+  
+  // Always end with documentation
+  prompts.push(`Document your findings and any important notes about this work using create_note.`);
+  
+  return prompts;
+}
+
+/**
+ * Generate the next prompt based on what just happened
+ */
+function generateNextPrompt(goal, lastTool, lastResult, actions, remainingMinutes, phase) {
+  const actionCount = actions.length;
+  
+  // If there was an error, acknowledge and suggest alternative
+  if (lastResult.error) {
+    return `That action encountered an issue: ${lastResult.error}\n\nTry a different approach. What else can you do for: "${goal}"?`;
+  }
+  
+  // Context-aware follow-up based on what tool was just used
+  switch (lastTool) {
+    case 'get_matter':
+    case 'search_matters':
+      return `Good, you have the matter information. Now dig deeper - check the documents, review any linked emails, or look at recent activity. What's next?`;
+    
+    case 'get_client':
+    case 'list_clients':
+      return `You have client information. Now look at their matters, documents, or recent communications. Continue working on: "${goal}"`;
+    
+    case 'list_documents':
+      return `You found documents. Read the important ones to understand their contents. Use read_document_content on the most relevant ones.`;
+    
+    case 'read_document_content':
+      return `You've read the document content. Based on this information, what action should be taken for: "${goal}"? Continue working.`;
+    
+    case 'create_document':
+    case 'create_note':
+      return `Document created. What else needs to be done? You have ${remainingMinutes} minutes remaining for: "${goal}"`;
+    
+    case 'draft_email_for_matter':
+      return `Email drafted. Any other communications needed? Or move to the next part of: "${goal}"`;
+    
+    case 'create_task':
+    case 'create_event':
+      return `Task/event created. Continue with other actions needed for: "${goal}"`;
+    
+    case 'log_time':
+      return `Time logged. Continue with other work for: "${goal}"`;
+    
+    default:
+      // Generic continuation based on phase and time remaining
+      if (remainingMinutes > 10) {
+        return `Result received. You have ${remainingMinutes} minutes left. Continue being thorough with: "${goal}"`;
+      } else if (remainingMinutes > 5) {
+        return `${remainingMinutes} minutes remaining. Focus on completing key actions for: "${goal}"`;
+      } else {
+        return `Only ${remainingMinutes} minutes left. Wrap up essential tasks and document your work for: "${goal}"`;
+      }
+  }
+}
+
+/**
+ * Generate a continuation prompt when the AI hasn't called a tool
+ * These prompts keep the agent working for the full 15 minutes
+ */
+function generateContinuationPrompt(goal, actions, remainingMinutes, phase) {
+  if (actions.length === 0) {
+    return `You haven't taken any actions yet. Call a tool NOW to start working on: "${goal}"\n\nSuggested first steps:\n1. search_matters - find relevant cases\n2. list_clients - see who's involved\n3. get_firm_overview - understand current state`;
+  }
+  
+  const recentActions = actions.slice(-3).map(a => a.summary).join(', ');
+  const actionCount = actions.length;
+  
+  // Different prompts for different phases - all require tool calls
+  const phasePrompts = {
+    discovery: [
+      `You've done ${actionCount} actions so far (${recentActions}). Keep gathering information. Search for more related matters, documents, or client info for: "${goal}"`,
+      `Discovery phase: ${remainingMinutes} minutes left. Use list_documents, search_matters, or get_client to find more relevant information.`,
+      `Continue exploring. What else do you need to know about: "${goal}"? Call a search or get tool.`
+    ],
+    analysis: [
+      `Analysis phase: You have ${remainingMinutes} minutes. Read document contents, review matter details, check billing status for: "${goal}"`,
+      `Time to analyze. Use read_document_content on important files, or get_matter for detailed case info.`,
+      `${actionCount} actions completed. Now analyze what you've found. Call a tool to examine the data more closely.`
+    ],
+    action: [
+      `Action phase: ${remainingMinutes} minutes remaining. Create documents, draft emails, log time, or schedule tasks for: "${goal}"`,
+      `Time to act. Use create_document, draft_email_for_matter, create_task, or log_time to make progress.`,
+      `You've analyzed enough. Now take action. What needs to be created or scheduled for: "${goal}"?`
+    ],
+    review: [
+      `Review phase: ${remainingMinutes} minutes left. Document your findings with create_note. Create follow-up tasks. Check if anything was missed.`,
+      `Final review. Use create_note to summarize your work. Create any remaining tasks or events needed.`,
+      `Wrapping up: ${remainingMinutes} minutes remaining. Make sure everything is documented and follow-ups are scheduled for: "${goal}"`
+    ]
+  };
+  
+  const prompts = phasePrompts[phase] || phasePrompts.discovery;
+  return prompts[Math.floor(Math.random() * prompts.length)];
+}
+
+// =============================================================================
+// LEGACY Background task processor (kept for backwards compatibility)
+// =============================================================================
 
 async function processBackgroundTask(taskId, user, goal, plan, resumeCheckpoint = null) {
   console.log(`[BACKGROUND] ========================================`);
@@ -8296,24 +8999,48 @@ async function searchEmails(args, user) {
 }
 
 async function draftEmail(args, user) {
-  const accessToken = await getOutlookAccessToken(user.firmId);
-  if (!accessToken) {
-    return { error: 'Outlook not connected. Please connect your Outlook account in Settings > Integrations.' };
-  }
-  
-  const { to, subject, body, cc, importance = 'normal' } = args;
-  
-  const emailPayload = {
-    subject,
-    body: {
-      contentType: 'HTML',
-      content: body.replace(/\n/g, '<br>')
-    },
-    toRecipients: to.split(',').map(email => ({
-      emailAddress: { address: email.trim() }
-    })),
-    importance
-  };
+  try {
+    const { to, subject, body, cc, importance = 'normal' } = args || {};
+    
+    // Validate required fields
+    if (!to) {
+      return { error: 'Recipient email address (to) is required to draft an email.' };
+    }
+    if (!subject) {
+      return { error: 'Email subject is required.' };
+    }
+    if (!body) {
+      return { error: 'Email body content is required.' };
+    }
+    
+    const accessToken = await getOutlookAccessToken(user.firmId);
+    if (!accessToken) {
+      // Still return the draft content even without Outlook - user can copy/paste
+      return { 
+        success: true,
+        email_draft: {
+          to,
+          subject,
+          body,
+          cc: cc || null
+        },
+        saved_to_outlook: false,
+        message: `Email draft prepared. To save to Outlook drafts, connect your Microsoft account in Settings > Integrations.`,
+        note: 'You can copy this draft and paste it into your email client.'
+      };
+    }
+    
+    const emailPayload = {
+      subject,
+      body: {
+        contentType: 'HTML',
+        content: body.replace(/\n/g, '<br>')
+      },
+      toRecipients: to.split(',').map(email => ({
+        emailAddress: { address: email.trim() }
+      })),
+      importance
+    };
   
   if (cc) {
     emailPayload.ccRecipients = cc.split(',').map(email => ({
@@ -8330,28 +9057,41 @@ async function draftEmail(args, user) {
     body: JSON.stringify(emailPayload)
   });
   
-  const result = await response.json();
-  
-  if (result.error) {
-    return { error: `Failed to create draft: ${result.error.message}` };
+    const result = await response.json();
+    
+    if (result.error) {
+      return { error: `Failed to create draft in Outlook: ${result.error.message}` };
+    }
+    
+    return {
+      success: true,
+      message: `Draft email created: "${subject}" to ${to}`,
+      draftId: result.id,
+      saved_to_outlook: true
+    };
+  } catch (error) {
+    console.error('draftEmail error:', error);
+    return { error: `Failed to draft email: ${error.message}` };
   }
-  
-  return {
-    success: true,
-    message: `Draft email created: "${subject}" to ${to}`,
-    draftId: result.id
-  };
 }
 
 async function draftEmailForMatter(args, user) {
-  const { matter_id, to, subject, body, email_type = 'general', cc, save_to_outlook = true, link_to_matter = true } = args;
-  
-  if (!matter_id) {
-    return { error: 'matter_id is required. Use search_matters to find the matter first.' };
-  }
-  
-  // Get matter details for context
-  const matterResult = await query(
+  try {
+    const { matter_id, to, subject, body, email_type = 'general', cc, save_to_outlook = true, link_to_matter = true } = args || {};
+    
+    // Validate required fields
+    if (!matter_id) {
+      return { error: 'matter_id is required. Use search_matters to find the matter first.' };
+    }
+    if (!subject) {
+      return { error: 'Email subject is required. Please specify what the email should be about.' };
+    }
+    if (!body) {
+      return { error: 'Email body content is required. Please specify what the email should say.' };
+    }
+    
+    // Get matter details for context
+    const matterResult = await query(
     `SELECT m.*, c.display_name as client_name, c.email as client_email
      FROM matters m
      LEFT JOIN clients c ON m.client_id = c.id
@@ -8487,11 +9227,15 @@ async function draftEmailForMatter(args, user) {
       ]
     );
     response.saved_to_documents = true;
-  } catch (docError) {
-    console.error('Error saving email draft as document:', docError);
+    } catch (docError) {
+      console.error('Error saving email draft as document:', docError);
+    }
+    
+    return response;
+  } catch (error) {
+    console.error('draftEmailForMatter error:', error);
+    return { error: `Failed to draft email: ${error.message}` };
   }
-  
-  return response;
 }
 
 // =============================================================================
@@ -9030,537 +9774,36 @@ async function getQuickenAccounts(args, user) {
 // SYSTEM PROMPT
 // =============================================================================
 function getSystemPrompt() {
-  // Use timezone-aware date calculations to ensure "today" and "tomorrow"
-  // are correct for US Eastern time, regardless of server timezone
   const todayStr = getTodayInTimezone(DEFAULT_TIMEZONE);
   const tomorrowStr = getTomorrowInTimezone(DEFAULT_TIMEZONE);
   const currentTimeParts = getCurrentTimePartsInTimezone(DEFAULT_TIMEZONE);
   const currentTimeFormatted = `${String(currentTimeParts.hours).padStart(2, '0')}:${String(currentTimeParts.minutes).padStart(2, '0')}`;
   
-  return `You are an intelligent AI assistant for Apex Legal, a law firm management platform. You can both answer questions AND take actions on behalf of the user.
-
-## Your Capabilities
-You have access to tools for:
-
-### Data Management
-- **Time Entries**: Log time, view/edit/delete entries
-- **Matters**: Create, view, update, search, close, archive, reopen matters
-- **Clients**: Create, view, update, search, archive, reactivate clients
-- **Invoices**: Create, view, send invoices, record payments
-- **Tasks**: Create, view, update, complete tasks assigned to matters/clients/users
-- **Calendar**: Create, view, update, delete events and meetings
-- **Documents**: View, read, search, CREATE, and EDIT documents. You can draft contracts, letters, memos, notes, and make changes to existing documents.
-- **Expenses**: Create and view expenses
-- **Team**: View team members
-- **Reports**: Generate billing, productivity, time, and client reports
-- **Analytics**: View firm stats (admin only) and personal stats
-
-### Matter Permissions & Sharing
-- **get_matter_permissions**: See who has access to a matter
-- **share_matter**: Share a matter with a user or group
-- **remove_matter_permission**: Remove someone's access to a matter
-- **update_matter_visibility**: Change a matter between "firm_wide" and "restricted"
-
-### Email Integration (Outlook)
-- **get_emails**: Read recent emails from the user's connected Outlook inbox
-- **search_emails**: Search for emails by sender, subject, or content
-- **get_email**: Get full content of a specific email (use this to read/summarize an email)
-- **draft_email**: Create a draft email and save it in Outlook drafts (NOT sent)
-- **send_email**: Send an email immediately from the user's Outlook account
-- **reply_to_email**: Reply to an email (can save as draft or send immediately)
-- **link_email_to_matter**: Link an email to a matter for record keeping
-- **link_email_to_client**: Link an email to a client for record keeping
-- **get_matter_emails**: Get all emails linked to a specific matter
-- **get_client_communications**: Get all emails linked to a specific client
-- **configure_auto_email_linking**: Enable/disable automatic email linking to clients based on email address
-
-### Outlook Calendar Sync
-- **create_outlook_event**: Create an event in Outlook calendar from Apex
-- **sync_outlook_calendar**: Sync calendar events from Outlook to Apex
-
-### QuickBooks Integration
-- **get_quickbooks_status**: Check if QuickBooks is connected
-- **get_quickbooks_invoices**: Get invoices from QuickBooks
-- **get_quickbooks_customers**: Get customers from QuickBooks
-- **create_quickbooks_invoice**: Push an Apex invoice to QuickBooks
-- **sync_quickbooks**: Trigger a sync with QuickBooks
-- **get_quickbooks_balance**: Get account balances
-
-### Integration Status
-- **get_integrations_status**: Check status of all integrations and what data is synced
-
-## DATA SYNCHRONIZATION - IMPORTANT
-Integrations sync data directly into the site's pages:
-- **QuickBooks/Quicken → Billing**: When connected, invoices sync to the Billing page. Use list_invoices with source='quickbooks' to see synced invoices.
-- **Google/Outlook Calendar → Calendar**: Events sync to the Calendar page. Check calendar_events for synced events.
-- **OneDrive/Google Drive/Dropbox → Documents**: Files sync to the Documents page. Use list_documents with source='onedrive', 'googledrive', or 'dropbox' to see synced files.
-- **DocuSign → Documents**: Signed documents appear in the Documents page.
-
-When a user asks about their "invoices", "documents", or "calendar", this INCLUDES synced data from their integrations. You can filter by source if they only want data from a specific integration.
-
-### Document Reading & Search
-- **read_document_content**: Read the full text content of any document. Use this to review contracts, pleadings, letters, etc.
-- **get_matter_documents_content**: Get all documents for a matter with content previews. Great for case overviews.
-- **search_document_content**: Search for specific text across all documents. Find clauses, terms, parties, etc.
-- When you get matter details, document summaries and previews are included automatically.
-
-### Cloud Storage (OneDrive, Google Drive, Dropbox)
-- **list_cloud_files**: List files from connected cloud storage
-- **search_cloud_files**: Search for files in cloud storage
-- **get_cloud_file_info**: Get details about a specific file
-
-### DocuSign (E-Signatures)
-- **get_docusign_status**: Check DocuSign connection status
-- **get_docusign_envelopes**: Get documents sent for signature
-- **send_for_signature**: Send a document for electronic signature
-
-### Slack Integration
-- **get_slack_status**: Check Slack connection status
-- **get_slack_channels**: List available Slack channels
-- **send_slack_message**: Send a message to a Slack channel
-
-### Zoom Integration
-- **get_zoom_status**: Check Zoom connection status
-- **get_zoom_meetings**: Get upcoming Zoom meetings
-- **create_zoom_meeting**: Create a new Zoom meeting
-
-### Quicken Integration
-- **get_quicken_status**: Check Quicken connection status
-- **get_quicken_summary**: Get financial summary from Quicken
-- **get_quicken_transactions**: Get recent transactions
-- **get_quicken_accounts**: Get account balances
-
-### Matter Lifecycle Management
-- **close_matter**: Close a matter (optionally with resolution like 'Settled', 'Won', 'Lost', 'Dismissed')
-- **archive_matter**: Archive a closed matter to remove from active lists
-- **reopen_matter**: Reopen a closed or archived matter
-- **delete_matter**: Permanently delete a matter (only if no time entries, invoices, or documents)
-
-### Client Management
-- **archive_client**: Archive a client to remove from active lists (history preserved)
-- **reactivate_client**: Reactivate an archived client
-- **delete_client**: Permanently delete a client (only if no matters, invoices, or documents)
-- **add_client_note**: Add a note to a client record (general, preference, important, contact, billing)
-
-### Task Management
-- **create_task**: Create tasks/to-dos linked to matters, clients, or users
-- **list_tasks**: Get tasks with filters (status, matter, assignee, due date)
-- **complete_task**: Mark a task as complete
-- **update_task**: Update task details, priority, assignee, etc.
-- **delete_task**: Permanently delete a task
-
-### Invoice Management
-- **void_invoice**: Void/cancel an invoice (cannot void paid invoices)
-- **delete_invoice**: Permanently delete a draft invoice
-
-### Document Management
-- **delete_document**: Permanently delete a document
-- **move_document**: Move a document to a different matter or client
-- **rename_document**: Rename a document
-
-### Reports & Analytics
-- **generate_report**: Generate various reports:
-  - billing_summary: Total billed, collected, and outstanding amounts
-  - time_by_matter: Hours logged per matter
-  - time_by_user: Hours logged per team member
-  - outstanding_invoices: All unpaid invoices with aging
-  - matter_status: Overview of matters by status
-  - productivity: Overall firm productivity metrics
-  - client_summary: Client billing and matter overview
-
-### Navigation (Opening Pages & Records)
-- **navigate_to_page**: Open pages like matters, clients, calendar, billing, time tracking, etc.
-- **open_matter**: Open a specific matter (search first to get the ID)
-- **open_client**: Open a specific client (search first to get the ID)
-- **open_invoice**: Open a specific invoice
-- **open_new_time_entry**: Open the time entry form
-- **open_new_calendar_event**: Open the calendar event form
-
-## Guidelines
-1. When asked to OPEN, SHOW, GO TO, or PULL UP something:
-   - For pages (e.g., "show me my calendar"): use navigate_to_page
-   - For specific records (e.g., "open the Smith case"): search first to find the ID, then use open_matter/open_client/etc.
-2. When asked to DO something (create, log, add): use the appropriate action tool
-3. When asked a QUESTION: fetch data first, then answer naturally
-4. For time logging, ALWAYS search for the matter first if you don't have the ID
-5. Confirm actions with specific details (names, amounts, dates)
-6. Be concise and professional
-7. Never expose UUIDs - use names and numbers instead
-8. If you're unsure which matter/client the user means, ask for clarification
-
-## Destructive Operations - IMPORTANT
-For DELETE operations, be very careful:
-- **delete_matter**: Only works if matter has NO time entries, invoices, or documents. Suggest archive_matter instead.
-- **delete_client**: Only works if client has NO matters, invoices, or documents. Suggest archive_client instead.
-- **delete_document**: Permanently removes the document. Always confirm with the user first.
-- **delete_task**: Permanently removes the task.
-- **delete_invoice**: Only works on DRAFT invoices. For sent invoices, use void_invoice instead.
-- **void_invoice**: Cancels a sent invoice. Cannot void already-paid invoices.
-
-For document management:
-- **move_document**: Moves a document to a different matter or client
-- **rename_document**: Changes the document's name
-- **add_client_note**: Adds notes to a client record (not matter-specific)
-
-ALWAYS ask for confirmation before deleting anything unless the user explicitly says "delete" or "remove permanently".
-
-## Calendar Events - IMPORTANT
-When creating calendar events, use create_calendar_event. For start_time, you MUST provide an ISO 8601 datetime string.
-- Today is: ${todayStr} (current time: ${currentTimeFormatted} Eastern)
-- Tomorrow is: ${tomorrowStr}
-- For "tomorrow at 2pm", use: "${tomorrowStr}T14:00:00"
-- For "today at 3pm", use: "${todayStr}T15:00:00"
-- All times should be specified in Eastern time format (e.g., T14:00:00 for 2pm)
-
-## Matter Permissions System - HOW IT WORKS
-Apex Legal uses a Clio-like visibility system for matters:
-
-### Visibility Types
-- **firm_wide** (default): Everyone in the firm can see the matter
-- **restricted**: Only selected users and groups can access the matter
-
-### Who Always Has Access (regardless of visibility setting)
-1. **Owner, Admin, and Billing roles**: Can see ALL matters in the firm - no restrictions apply to them
-2. **Responsible Attorney**: The attorney assigned as responsible for the matter always has full access
-3. **Originating Attorney**: The attorney who originated the matter always has access (for credit tracking)
-4. **Assigned Users**: Users explicitly assigned to work on the matter (in matter_assignments)
-5. **Users with Permissions**: Users granted explicit permission (in matter_permissions)
-6. **Group Members**: Users in groups that have been granted permission to the matter
-
-### Permission Levels (for restricted matters)
-- **view**: Can see the matter and its basic information
-- **edit**: Can see and modify the matter
-- **admin**: Can see, modify, and manage permissions for the matter
-
-### Additional Permission Controls
-- **can_view_documents**: Whether the user can view documents attached to the matter
-- **can_view_notes**: Whether the user can view notes on the matter
-- **can_edit**: Whether the user can edit the matter details
-
-### Who Can Manage Permissions
-Only the following can change visibility or share a matter:
-- Owner, Admin, or Billing role users
-- The Responsible Attorney of the matter
-
-### How to Share a Matter
-1. If matter is "firm_wide", first change visibility to "restricted" (use update_matter_visibility)
-2. Add users or groups with share_matter tool
-3. Specify the permission level (view, edit, or admin)
-
-### Common Scenarios
-- "Share the Smith case with Sarah": Search for the matter, search for Sarah's user, then use share_matter
-- "Who can see the Johnson matter?": Use get_matter_permissions to see who has access
-- "Remove John from the case": Use remove_matter_permission
-- "Make a matter private/restricted": Use update_matter_visibility with visibility="restricted"
-- "Make a matter visible to everyone": Use update_matter_visibility with visibility="firm_wide"
-
-## Current User
-- Role: {{USER_ROLE}}
-- Firm data is isolated - you can only access this firm's data
-- Non-admins can only access matters they're assigned to
-
-## AI Attorney Vision
-As an AI assistant, you can perform virtually ANY action that a human attorney or paralegal could do in this system:
-
-### Case/Matter Lifecycle
-- Open new matters for clients
-- Close matters with resolution (Settled, Won, Lost, Dismissed)
-- Archive completed matters
-- Reopen matters if needed
-- Update matter details, status, priority
-
-### Client Management
-- Create and update client records
-- Archive inactive clients
-- Reactivate clients when needed
-- Link communications to clients
-
-### Billing & Financial
-- Create and send invoices
-- Record payments received
-- Generate billing reports
-- View outstanding balances
-- Access QuickBooks data when integrated
-
-### Time Management
-- Log time entries to matters
-- Edit time entries
-- View time by matter, user, or date range
-- Generate time reports
-
-### Task Management
-- Create tasks linked to matters/clients
-- Assign tasks to team members
-- Set priorities and due dates
-- Mark tasks complete
-
-### Calendar & Scheduling
-- Create meetings and events
-- Sync with Outlook/Google Calendar
-- View upcoming appointments
-
-### Documents
-- View documents from local storage and cloud integrations
-- Access synced files from OneDrive, Google Drive, Dropbox
-
-### Communications
-- Read and search emails (when Outlook connected)
-- Draft and send emails
-- Link emails to matters and clients
-- Auto-link incoming emails to clients
-
-### Reporting & Analytics
-- Generate billing summaries
-- Time tracking reports by matter/user
-- Outstanding invoice aging
-- Matter status overviews
-- Productivity metrics
-- Client revenue summaries
-
-### Team Collaboration
-- View team members
-- Share matters with team members
-- Manage matter permissions
-
-## Background Agent Mode - 15 MINUTE AUTONOMOUS SESSIONS
-
-When the user asks for a COMPLEX task, you MUST use \`start_background_task\` to run it in the background. The agent can work for up to **15 MINUTES** autonomously, so generate LOTS of tasks!
-
-### ALWAYS use start_background_task when user says:
-- "run a background agent" or "start background task"
-- "review this case/matter"
-- "prepare for trial"
-- "analyze all documents"
-- "audit" or "review" anything
-- "generate a report" (complex reports)
-- "research" anything
-- "draft" anything complex
-- "onboard" a client
-- "prepare for" anything
-- Any task that would benefit from thorough work
-
-### How to start a background task:
-1. Think about EVERYTHING that would be helpful
-2. Generate 20, 30, 40+ specific steps if needed
-3. Break each step into a SINGLE, ATOMIC action
-4. Be creative - what would a thorough attorney do?
-5. Call \`start_background_task\` with comprehensive plan
-
-### CRITICAL: Plan Steps Must Be Singular & Specific
-
-Each step in your plan should map to exactly ONE tool call. Be specific!
-
-❌ BAD PLAN (too vague):
-- "Review the case" 
-- "Create documents"
-- "Update records"
-
-✅ GOOD PLAN (specific, singular, COMPREHENSIVE):
-- Each step = one specific action
-- Include MANY steps - be thorough!
-- Think creatively about what would help
-
-### BE CREATIVE AND COMPREHENSIVE - GENERATE MANY TASKS!
-
-**The background agent can work for up to 15 MINUTES. Generate as many helpful tasks as possible!**
-
-Don't just do 10-15 tasks. Think BIG - generate 30, 40, 50+ tasks if they would be helpful. The agent has time to complete them all.
-
-### 🧠 THINK LIKE A SENIOR ATTORNEY
-
-Before generating your task list, put yourself in the mindset of a senior attorney who:
-- Has 15+ years of experience and knows ALL the details that matter
-- Is meticulous about documentation and leaves nothing to chance
-- Anticipates problems before they happen
-- Ensures every step is recorded for the file
-- Delegates effectively but verifies everything
-- Thinks about the case from multiple angles (client, opposing counsel, judge)
-
-Ask yourself:
-- "What would a partner at a top law firm want done here?"
-- "What would I need to know if I inherited this file tomorrow?"
-- "What could go wrong and how do I prevent it?"
-- "What would make the client feel well-served?"
-
-### 📝 MANDATORY: ALWAYS ADD MATTER NOTES
-
-**After EVERY substantive action, you MUST add a note to the matter documenting what you did.**
-
-This is non-negotiable. The matter file is the permanent record. Every action should be documented:
-- "Created engagement letter for client review"
-- "Drafted settlement demand - key terms: $50,000 over 12 months"
-- "Scheduled deposition for March 15, 2024 at 10:00 AM"
-- "Reviewed discovery responses - identified 3 issues requiring follow-up"
-
-Include "Add note documenting [action]" after every substantive step in your plan!
-
-### When a user asks for something, brainstorm EVERYTHING:
-- What information do I need to gather first?
-- What documents should I create (memos, letters, summaries, timelines)?
-- What emails should I draft (to client, opposing counsel, court, witnesses)?
-- What calendar events are needed (deadlines, meetings, follow-ups)?
-- What tasks/reminders should I set up for the team?
-- What notes should I record at EACH step? (REQUIRED!)
-- What analysis should I perform?
-- What follow-up actions are needed?
-- What research could be helpful?
-- What risks or issues should I flag?
-- What would a client expect from excellent legal service?
-
-### Example - User asks "review the Smith case":
-\`\`\`
-start_background_task({
-  goal: "Comprehensive review of the Smith v. Jones matter",
-  plan: [
-    "Search for the Smith matter",
-    "Get full matter details with all documents",
-    "Read the complaint document thoroughly",
-    "Add note: Reviewed complaint - summarize key allegations, parties, and relief sought",
-    "Read the answer document",
-    "Add note: Reviewed answer - summarize defenses, counterclaims, and contested facts",
-    "Read any motion documents",
-    "Add note: Reviewed motions - status of pending motions and upcoming deadlines",
-    "Read discovery requests sent to opposing party",
-    "Add note: Discovery sent - summarize what we requested and response status",
-    "Read discovery responses received",
-    "Add note: Discovery received - summarize key evidence and any deficiencies",
-    "Read any depositions or transcripts",
-    "Add note: Key testimony - summarize important admissions and disputed facts",
-    "Get all time entries and billing history",
-    "Add note: Billing status - total billed, collected, outstanding, and budget analysis",
-    "Get all linked emails and communications",
-    "Add note: Key communications - summarize important client and counsel correspondence",
-    "Identify all upcoming deadlines and court dates",
-    "Add note: Critical dates - list all deadlines with responsible parties",
-    "Create calendar event for each critical deadline",
-    "Draft comprehensive case status memo PDF with all findings",
-    "Add note: Created case status memo for attorney review",
-    "Draft case timeline document PDF showing key events",
-    "Add note: Created case timeline document",
-    "Draft witness list document with contact info and testimony summary",
-    "Add note: Created witness list for trial preparation",
-    "Draft exhibit list document with descriptions and relevance",
-    "Add note: Created exhibit list for discovery/trial",
-    "Draft case strategy memo with strengths, weaknesses, recommendations",
-    "Add note: Created strategy memo with case assessment",
-    "Create task for attorney to review all findings and documents",
-    "Create task for each follow-up action identified during review",
-    "Create task to update client on case status",
-    "Create task to address any discovery deficiencies",
-    "Schedule follow-up case review on calendar (30 days)",
-    "Draft status update email to client summarizing review",
-    "Add note: Completed comprehensive case review - summarize overall assessment",
-    "Draft internal team memo on case status and next steps",
-    "Add note: Case review complete - ready for attorney review"
-  ],
-  estimated_steps: 41
-})
-\`\`\`
-
-### Example - User asks "onboard new client Acme Corp":
-\`\`\`
-start_background_task({
-  goal: "Complete client onboarding for Acme Corp",
-  plan: [
-    "Create client record for Acme Corp with all contact details",
-    "Add client note: New client created - source of referral and initial contact info",
-    "Create the primary matter for Acme Corp",
-    "Add note: Matter created - describe scope and billing arrangement",
-    "Draft comprehensive engagement letter PDF with scope, fees, responsibilities",
-    "Add note: Engagement letter drafted - key terms and fee structure",
-    "Draft conflict check memo PDF documenting search results",
-    "Add note: Conflict check performed - results and clearance status",
-    "Draft professional welcome letter to client PDF",
-    "Add note: Welcome letter created for client",
-    "Draft welcome email to client with next steps",
-    "Add note: Welcome email drafted with onboarding instructions",
-    "Draft fee agreement PDF if separate from engagement",
-    "Add note: Fee agreement created with payment terms",
-    "Draft retainer request letter PDF",
-    "Add note: Retainer request prepared",
-    "Create task: Client to sign engagement letter (due in 5 days)",
-    "Create task: Client to sign fee agreement (due in 5 days)",
-    "Create task: Collect retainer payment (due in 10 days)",
-    "Create task: Obtain relevant client documents (due in 7 days)",
-    "Create task: Set up client billing preferences",
-    "Create task: Complete conflicts database entry",
-    "Create task: Organize client file structure",
-    "Create task: Verify client's authority to retain firm (if corporate)",
-    "Schedule kickoff call on calendar (within 5 business days)",
-    "Schedule 30-day check-in on calendar",
-    "Schedule 90-day relationship review on calendar",
-    "Draft kickoff meeting agenda PDF with discussion topics",
-    "Add note: Kickoff meeting scheduled with agenda",
-    "Draft client intake questionnaire PDF for additional info",
-    "Draft authorization/release forms PDF",
-    "Add client note: Key contacts and communication preferences",
-    "Add client note: Important dates and deadlines to track",
-    "Draft internal new client memo PDF for team",
-    "Add note: Internal memo created for team awareness",
-    "Create task: Review engagement letter before sending",
-    "Create task: Confirm conflicts clearance with partner",
-    "Create task: Add client to newsletter/update list",
-    "Draft initial matter assessment memo PDF",
-    "Add note: Onboarding complete - summary of all actions taken and next steps"
-  ],
-  estimated_steps: 40
-})
-\`\`\`
-
-### Think Like This For EVERY Request:
-
-**User says "draft a settlement agreement"** - Don't just draft the agreement! Also:
-- Review the matter to understand the dispute
-- Note key terms from prior negotiations
-- Draft the agreement with comprehensive terms
-- Add note documenting the draft and key provisions
-- Create task for attorney review
-- Create task to send to opposing counsel
-- Schedule follow-up for response
-- Draft cover email to opposing counsel
-- Add note summarizing settlement position
-
-**User says "prepare for tomorrow's hearing"** - Think of EVERYTHING:
-- Review all relevant pleadings
-- Compile list of arguments and authorities
-- Draft hearing outline/script
-- Note key points to make and anticipate opposing arguments
-- Create exhibit binder list
-- Check all deadlines and prerequisites
-- Draft proposed order if needed
-- Add notes on preparation status
-- Create morning-of checklist as tasks
-- Schedule post-hearing follow-up
-
-**THINK BIG! The agent has 15 minutes - use it all to deliver maximum value!**
-
-The user will see a progress bar with each step completing in real-time!
-
-## Quick Tasks (Foreground Mode)
-
-For SIMPLE tasks (1-3 actions), just do them directly:
-- Log time entry
-- Create a single event
-- Search for a matter
-- Get client info
-- Create a task
-
-### When to Use These Tools:
-- **start_background_task**: Complex multi-step tasks (5+ steps), reviews, audits, research, reports
-- **think_and_plan**: Quick planning for simpler multi-step work (2-4 steps)
-- **evaluate_progress**: During background tasks to check if on track
-- **request_human_input**: Uncertain decisions, need approval, missing information
-- **task_complete**: When goal is achieved or you've done all you can
-- **log_work**: To track significant actions or findings
-
-### Important Guidelines:
-- Use start_background_task for anything complex - users love seeing the progress bar!
-- For quick tasks, just execute directly without background mode
-- If user explicitly asks for "background" anything, ALWAYS use start_background_task
-- Don't be afraid to take multiple actions in sequence
-- If you hit a blocker, ask for human input rather than guessing
-
-Always act professionally, confirm important actions, and provide clear summaries of what was done.`;
+  return `You are an AI assistant for Apex Legal, a law firm management platform. You can answer questions AND take actions using your tools.
+
+## Context
+- Today: ${todayStr} (${currentTimeFormatted} Eastern)
+- Tomorrow: ${tomorrowStr}
+- User role: {{USER_ROLE}}
+- Firm data is isolated per firm
+
+## Key Rules
+1. Search for matter/client IDs before taking actions on them
+2. For calendar events, use ISO datetime (e.g., "${tomorrowStr}T14:00:00" for 2pm tomorrow)
+3. Confirm before deleting - suggest archive instead of delete when possible
+4. Never expose UUIDs - use names/numbers
+5. Be concise and professional
+
+## Background Tasks
+For complex requests (case reviews, onboarding, audits, "prepare for" anything), use \`start_background_task\` with a detailed plan of specific, atomic steps. The agent can run for 15 minutes - be thorough!
+
+## Matter Permissions
+- Matters can be "firm_wide" (everyone sees) or "restricted" (selected users only)
+- Admins, owners, and billing roles see all matters
+- Use share_matter to grant access, update_matter_visibility to change visibility
+
+## Integrations
+Connected integrations (Outlook, QuickBooks, OneDrive, etc.) sync data into Apex pages automatically. Check get_integrations_status for what's connected.`;
 }
 
 // =============================================================================
@@ -9659,6 +9902,76 @@ router.post('/tasks/:taskId/rate', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Error rating task:', error);
     res.status(500).json({ error: 'Failed to rate task' });
+  }
+});
+
+// Cancel a running task (keeps progress)
+router.post('/tasks/:taskId/cancel', authenticate, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    
+    // Get current task info
+    const taskResult = await query(
+      `SELECT id, status, goal, progress, iterations FROM ai_tasks 
+       WHERE id = $1 AND user_id = $2`,
+      [taskId, req.user.id]
+    );
+    
+    if (taskResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    const task = taskResult.rows[0];
+    
+    if (task.status !== 'running') {
+      return res.status(400).json({ error: 'Task is not running', status: task.status });
+    }
+    
+    // IMMEDIATELY signal the agent to stop (in-memory flag)
+    cancelRunningAgent(taskId);
+    
+    // Parse existing progress
+    let progress = task.progress;
+    if (typeof progress === 'string') {
+      try { progress = JSON.parse(progress); } catch (e) { progress = {}; }
+    }
+    
+    // Update task to cancelled status - keeps all progress
+    const result = await query(
+      `UPDATE ai_tasks SET 
+        status = 'cancelled',
+        completed_at = NOW(),
+        progress = $1,
+        summary = $2,
+        updated_at = NOW()
+       WHERE id = $3 AND user_id = $4
+       RETURNING id, status, goal`,
+      [
+        JSON.stringify({
+          ...progress,
+          status: 'cancelled',
+          cancelledAt: new Date().toISOString(),
+          progressPercent: progress.progressPercent || 0
+        }),
+        `Task cancelled by user after ${task.iterations || 0} actions. Progress has been saved.`,
+        taskId,
+        req.user.id
+      ]
+    );
+    
+    // Remove from running agents map
+    runningAgents.delete(taskId);
+    
+    console.log(`[AGENT] Task ${taskId} cancelled by user - agent will stop on next iteration`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Task cancelled. Progress has been saved.',
+      task: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error cancelling task:', error);
+    res.status(500).json({ error: 'Failed to cancel task' });
   }
 });
 
@@ -9813,15 +10126,15 @@ router.post('/chat', authenticate, async (req, res) => {
     if (forceBackground) {
       systemPrompt += `
 
-## IMPORTANT: BACKGROUND AGENT MODE IS ENABLED
-The user has enabled Background Agent mode. You MUST use the \`start_background_task\` tool for this request.
-Do NOT respond directly - instead, call start_background_task with:
-- goal: A clear description of what you'll accomplish
-- plan: An array of steps you'll take
-- estimated_steps: Number of actions needed
+## BACKGROUND AGENT MODE ENABLED
+You MUST call \`start_background_task\` for this request. 
 
-This will show a progress bar to the user while you work in the background.
-ALWAYS use start_background_task when this mode is enabled, even for simple tasks.`;
+Call it with:
+- goal: What you will accomplish (be specific)
+
+Example: start_background_task({ goal: "Review the Smith v. Jones case, analyze all documents, create a case summary memo, and set up follow-up tasks" })
+
+The agent will then work autonomously for up to 15 minutes, taking multiple actions to achieve the goal. DO NOT respond with text - call start_background_task immediately.`;
     }
 
     // If there's an uploaded document, add it to the context
@@ -9984,6 +10297,18 @@ Please analyze the document above and respond to the user's question.`;
 async function callAzureOpenAIWithTools(messages, tools) {
   const url = `${AZURE_ENDPOINT}openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${API_VERSION}`;
   
+  // Log config for debugging (without exposing full key)
+  console.log(`[AZURE AI] Calling: ${AZURE_DEPLOYMENT} at ${AZURE_ENDPOINT?.substring(0, 30)}...`);
+  
+  if (!AZURE_ENDPOINT || !AZURE_API_KEY || !AZURE_DEPLOYMENT) {
+    console.error('[AZURE AI] Missing config:', {
+      hasEndpoint: !!AZURE_ENDPOINT,
+      hasKey: !!AZURE_API_KEY,
+      hasDeployment: !!AZURE_DEPLOYMENT
+    });
+    throw new Error('Azure OpenAI not configured. Check AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT.');
+  }
+  
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -9994,19 +10319,36 @@ async function callAzureOpenAIWithTools(messages, tools) {
       messages,
       tools,
       tool_choice: 'auto',
+      parallel_tool_calls: false, // Force one tool at a time
       temperature: 0.7,
       max_tokens: 4000,
     }),
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    console.error('Azure OpenAI error:', error);
-    throw new Error(`Azure OpenAI API error: ${response.status}`);
+    const errorText = await response.text();
+    console.error(`[AZURE AI] Error ${response.status}:`, errorText);
+    console.error(`[AZURE AI] URL was: ${url}`);
+    
+    // Parse error for better message
+    let errorMessage = `Azure OpenAI API error: ${response.status}`;
+    try {
+      const errorJson = JSON.parse(errorText);
+      errorMessage = errorJson.error?.message || errorMessage;
+    } catch (e) {}
+    
+    throw new Error(errorMessage);
   }
 
   const data = await response.json();
+  
+  if (!data.choices || data.choices.length === 0) {
+    console.error('[AZURE AI] No choices in response:', JSON.stringify(data).substring(0, 500));
+    throw new Error('Azure OpenAI returned no response');
+  }
+  
   const choice = data.choices[0];
+  console.log(`[AZURE AI] Success - got response with ${choice.message.tool_calls?.length || 0} tool calls`);
   
   return {
     content: choice.message.content,

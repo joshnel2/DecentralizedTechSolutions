@@ -1,6 +1,10 @@
 import { Router } from 'express';
-import { query } from '../db/connection.js';
+import { query, withTransaction } from '../db/connection.js';
 import { authenticate } from '../middleware/auth.js';
+import { 
+  uploadVersion as uploadVersionToBlob, 
+  isBlobConfigured 
+} from '../utils/azureBlobStorage.js';
 
 const router = Router();
 
@@ -198,9 +202,11 @@ router.get('/token/status', authenticate, async (req, res) => {
 // ============================================
 
 // Get Word Online edit URL for a document
+// Supports both Word Online (browser) and Desktop Word
 router.post('/documents/:documentId/open', authenticate, async (req, res) => {
   try {
     const { documentId } = req.params;
+    const { preferDesktop = false } = req.body; // User can prefer desktop Word
 
     // Get document info
     const doc = await query(
@@ -276,11 +282,33 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
             // Record session
             await startEditSession(documentId, req.user.id, req.user.firmId, uploadResult.id, uploadResult.webUrl);
 
+            // Build desktop Word URL using Office URI scheme
+            // Format: ms-word:ofe|u|<encoded-url>
+            const desktopWordUrl = `ms-word:ofe|u|${encodeURIComponent(uploadResult.webUrl)}`;
+
+            // If user prefers desktop, return that as primary
+            if (preferDesktop) {
+              return res.json({
+                editUrl: desktopWordUrl,
+                webUrl: uploadResult.webUrl,
+                graphItemId: uploadResult.id,
+                coAuthoring: false, // Desktop doesn't have real-time co-authoring indicator
+                isDesktop: true,
+                message: 'Opening in Microsoft Word desktop app...',
+                instructions: 'Save in Word (Ctrl+S) to sync changes back to Apex'
+              });
+            }
+
             return res.json({
               editUrl: uploadResult.webUrl,
+              desktopUrl: desktopWordUrl, // Also provide desktop option
               graphItemId: uploadResult.id,
               coAuthoring: true,
-              message: 'Document uploaded to OneDrive. Opening in Word Online...'
+              message: 'Document ready. Choose Word Online or Desktop Word.',
+              options: {
+                online: { url: uploadResult.webUrl, label: 'Edit in Browser (Word Online)' },
+                desktop: { url: desktopWordUrl, label: 'Edit in Desktop Word' }
+              }
             });
           }
         } catch (uploadError) {
@@ -309,6 +337,125 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Open Word Online error:', error);
     res.status(500).json({ error: 'Failed to open document' });
+  }
+});
+
+// Open document directly in Desktop Microsoft Word
+router.post('/documents/:documentId/open-desktop', authenticate, async (req, res) => {
+  try {
+    const { documentId } = req.params;
+
+    // Get document info
+    const doc = await query(
+      `SELECT d.*, dc.drive_type, dc.root_path
+       FROM documents d
+       LEFT JOIN drive_configurations dc ON d.drive_id = dc.id
+       WHERE d.id = $1 AND d.firm_id = $2`,
+      [documentId, req.user.firmId]
+    );
+
+    if (doc.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const document = doc.rows[0];
+
+    // Check if user has permission to edit
+    const canEdit = await checkDocumentAccess(documentId, req.user.id, req.user.firmId, req.user.role, 'edit');
+    if (!canEdit) {
+      return res.status(403).json({ error: 'You do not have permission to edit this document' });
+    }
+
+    // Check if it's a Word document
+    const fileName = document.original_name || document.name || '';
+    const isWordDoc = fileName.toLowerCase().endsWith('.docx') || 
+                      fileName.toLowerCase().endsWith('.doc') ||
+                      document.type?.includes('word');
+
+    if (!isWordDoc) {
+      return res.status(400).json({ 
+        error: 'This file type cannot be opened in Microsoft Word',
+        fileType: document.type,
+        fileName
+      });
+    }
+
+    // Get Microsoft integration
+    const msIntegration = await query(
+      `SELECT access_token FROM integrations 
+       WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
+      [req.user.firmId]
+    );
+
+    if (msIntegration.rows.length === 0) {
+      // No Microsoft connection - provide network drive path if available
+      return res.json({
+        desktopUrl: null,
+        networkPath: document.path ? `\\\\azure-path\\${document.path}` : null,
+        needsMicrosoftAuth: true,
+        message: 'Connect Microsoft in Integrations for seamless desktop editing, or use the mapped network drive.',
+        instructions: [
+          '1. Map your firm drive as a network drive (Settings → Apex Drive)',
+          '2. Open the file from the mapped drive in Word',
+          '3. Save normally - changes sync to Apex'
+        ]
+      });
+    }
+
+    const accessToken = msIntegration.rows[0].access_token;
+
+    // Upload to OneDrive for editing
+    try {
+      const uploadResult = await uploadToOneDriveForEditing(document, accessToken, req.user.firmId);
+      
+      if (uploadResult && uploadResult.webUrl) {
+        // Save graph item ID
+        await query(
+          `UPDATE documents SET graph_item_id = $1, word_online_url = $2 WHERE id = $3`,
+          [uploadResult.id, uploadResult.webUrl, documentId]
+        );
+
+        // Start edit session
+        await startEditSession(documentId, req.user.id, req.user.firmId, uploadResult.id, uploadResult.webUrl);
+
+        // Build desktop Word URL
+        const desktopUrl = `ms-word:ofe|u|${encodeURIComponent(uploadResult.webUrl)}`;
+
+        return res.json({
+          desktopUrl,
+          webUrl: uploadResult.webUrl,
+          graphItemId: uploadResult.id,
+          message: 'Click the link to open in Microsoft Word',
+          instructions: [
+            '1. Click "Open in Word" - your desktop Word will launch',
+            '2. Edit the document normally',
+            '3. Save (Ctrl+S) - changes auto-sync to Apex',
+            '4. Close Word when done'
+          ],
+          autoSync: true,
+          syncMethod: 'onedrive'
+        });
+      }
+    } catch (uploadError) {
+      console.error('Desktop Word - OneDrive upload failed:', uploadError.message);
+    }
+
+    // Fallback: provide download + re-upload instructions
+    res.json({
+      desktopUrl: null,
+      downloadUrl: `/api/documents/${documentId}/download`,
+      message: 'Could not set up auto-sync. Download, edit, and re-upload.',
+      instructions: [
+        '1. Download the document',
+        '2. Open in Word and edit',
+        '3. Upload the edited version back to Apex'
+      ],
+      autoSync: false
+    });
+
+  } catch (error) {
+    console.error('Open desktop Word error:', error);
+    res.status(500).json({ error: 'Failed to open in desktop Word' });
   }
 });
 
@@ -988,7 +1135,60 @@ router.post('/documents/:documentId/share', authenticate, async (req, res) => {
       ]
     );
 
-    // TODO: Send notification to shared users
+    // Send notifications to shared users
+    try {
+      // Get document name for notification
+      const docInfo = await query(
+        `SELECT name, original_name FROM documents WHERE id = $1`,
+        [req.params.documentId]
+      );
+      const documentName = docInfo.rows[0]?.name || docInfo.rows[0]?.original_name || 'Document';
+      const sharerName = `${req.user.firstName} ${req.user.lastName}`.trim() || 'Someone';
+      
+      // Collect all user IDs to notify (direct users + group members)
+      const usersToNotify = new Set(userIds);
+      
+      // Get members of shared groups
+      if (groupIds.length > 0) {
+        const groupMembers = await query(
+          `SELECT DISTINCT user_id FROM user_groups WHERE group_id = ANY($1)`,
+          [groupIds]
+        );
+        groupMembers.rows.forEach(row => usersToNotify.add(row.user_id));
+      }
+      
+      // Remove the sharer from notifications (don't notify yourself)
+      usersToNotify.delete(req.user.id);
+      
+      // Create notifications for each user
+      const notificationPromises = Array.from(usersToNotify).map(userId =>
+        query(
+          `INSERT INTO notifications (
+            firm_id, user_id, type, title, message,
+            entity_type, entity_id, triggered_by, action_url
+          ) VALUES ($1, $2, 'document_shared', $3, $4, 'document', $5, $6, $7)`,
+          [
+            req.user.firmId,
+            userId,
+            `${sharerName} shared a document with you`,
+            message || `"${documentName}" has been shared with you${permissionLevel === 'edit' ? ' for editing' : ''}.`,
+            req.params.documentId,
+            req.user.id,
+            `/app/documents?preview=${req.params.documentId}`
+          ]
+        ).catch(err => {
+          // Notification table might not exist or other non-critical error
+          console.log(`[SHARE] Could not create notification for user ${userId}:`, err.message);
+          return null;
+        })
+      );
+      
+      await Promise.all(notificationPromises);
+      console.log(`[SHARE] Created ${usersToNotify.size} notification(s) for document ${req.params.documentId}`);
+    } catch (notifyError) {
+      // Don't fail the share operation if notifications fail
+      console.error('[SHARE] Error creating notifications:', notifyError.message);
+    }
 
     res.json({
       success: true,
@@ -1387,29 +1587,58 @@ router.post('/documents/:documentId/sync-from-online', authenticate, async (req,
       console.error('Text extraction error:', extractError);
     }
 
+    // Check if Azure Blob is configured for version storage
+    const useBlobStorage = await isBlobConfigured();
+    let contentUrl = null;
+    let storedInBlob = false;
+
+    if (useBlobStorage && textContent) {
+      try {
+        const blobResult = await uploadVersionToBlob(
+          req.user.firmId,
+          documentId,
+          nextVersion,
+          textContent,
+          {
+            createdBy: req.user.id,
+            changeType: 'edit',
+            source: 'word_online',
+            contentHash
+          }
+        );
+        contentUrl = blobResult.url;
+        storedInBlob = true;
+        console.log(`[WORD SYNC] Stored v${nextVersion} in Azure Blob`);
+      } catch (blobError) {
+        console.error('[WORD SYNC] Blob upload failed, storing in DB:', blobError.message);
+      }
+    }
+
     // Create new version
     await query(
       `INSERT INTO document_versions (
         document_id, firm_id, version_number, version_label,
-        content_text, content_hash, change_summary, change_type,
-        word_count, character_count, created_by, created_by_name, source
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'edit', $8, $9, $10, $11, 'word_online')`,
+        content_text, content_url, content_hash, change_summary, change_type,
+        word_count, character_count, storage_type, created_by, created_by_name, source
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'edit', $9, $10, $11, $12, $13, 'word_online')`,
       [
         documentId,
         req.user.firmId,
         nextVersion,
         `Synced from Word Online`,
-        textContent,
+        storedInBlob ? null : textContent, // Only store in DB if blob failed
+        contentUrl,
         contentHash,
         'Edited in Word Online',
         textContent.split(/\s+/).filter(w => w).length,
         textContent.length,
+        storedInBlob ? 'azure_blob' : 'database',
         req.user.id,
         `${req.user.firstName} ${req.user.lastName}`
       ]
     );
 
-    // Update document
+    // Update document - current version stays in documents table (always hot)
     await query(
       `UPDATE documents SET 
         version = $1,

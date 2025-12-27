@@ -598,6 +598,141 @@
   color: #db2777;
 }
 
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .container {
+    padding: 16px;
+  }
+
+  .header {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+  }
+
+  .header h3 {
+    font-size: 16px;
+  }
+
+  .visibilityToggle {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .visibilityOption {
+    padding: 12px;
+  }
+
+  .optionTitle {
+    font-size: 14px;
+  }
+
+  .optionDesc {
+    font-size: 12px;
+  }
+
+  .responsibleAttorney {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .userAvatar,
+  .groupAvatar {
+    width: 32px;
+    height: 32px;
+    font-size: 12px;
+  }
+
+  .permissionItem {
+    padding: 10px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .permInfo {
+    flex: 1 1 calc(100% - 60px);
+  }
+
+  .permActions {
+    width: 100%;
+    justify-content: flex-end;
+    margin-top: 4px;
+  }
+
+  .permName {
+    font-size: 14px;
+  }
+
+  .permMeta {
+    font-size: 12px;
+  }
+
+  /* Picker Modal */
+  .pickerOverlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .picker {
+    max-width: 100%;
+    max-height: 90vh;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .pickerHeader {
+    padding: 14px 16px;
+  }
+
+  .pickerTabs {
+    padding: 10px 16px;
+  }
+
+  .pickerTabs button {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  .searchBox {
+    padding: 10px 16px;
+  }
+
+  .pickerList {
+    padding: 8px;
+    max-height: 300px;
+  }
+
+  .pickerItem {
+    padding: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .container {
+    padding: 12px;
+  }
+
+  .section {
+    margin-bottom: 16px;
+  }
+
+  .permLevel {
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+
+  .roleBadge {
+    font-size: 10px;
+    padding: 3px 8px;
+  }
+
+  .picker {
+    max-height: 95vh;
+  }
+
+  .pickerList {
+    max-height: 250px;
+  }
+}
+
 /* Dark mode support */
 @media (prefers-color-scheme: dark) {
   .container {

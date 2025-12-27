@@ -802,6 +802,12 @@ export const aiApi = {
       body: JSON.stringify({ rating }),
     });
   },
+  
+  async cancelTask(taskId: string) {
+    return fetchWithAuth(`/v1/agent/tasks/${taskId}/cancel`, {
+      method: 'POST',
+    });
+  },
 
   async getSuggestions(page: string) {
     return fetchWithAuth(`/ai/suggestions?page=${page}`);
@@ -1424,6 +1430,13 @@ export const driveApi = {
 
   async restoreVersion(documentId: string, versionId: string) {
     return fetchWithAuth(`/drive/documents/${documentId}/versions/${versionId}/restore`, {
+      method: 'POST',
+    });
+  },
+
+  // Initiate retrieval of archived version
+  async rehydrateVersion(documentId: string, versionNumber: number) {
+    return fetchWithAuth(`/drive/documents/${documentId}/versions/${versionNumber}/rehydrate`, {
       method: 'POST',
     });
   },

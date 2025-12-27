@@ -251,6 +251,96 @@
   color: var(--text-muted, #9ca3af);
 }
 
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .editorOverlay {
+    padding: 0;
+  }
+
+  .editorContainer {
+    max-width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    border-radius: 0;
+  }
+
+  .editorHeader {
+    padding: 10px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .headerLeft h2 {
+    max-width: 150px;
+    font-size: 14px;
+  }
+
+  .headerCenter {
+    order: 3;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .lockStatus {
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+
+  .headerRight {
+    gap: 8px;
+  }
+
+  .lastSaved {
+    display: none;
+  }
+
+  .saveBtn {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+
+  .closeBtn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .textarea {
+    padding: 16px;
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+
+  .editorFooter {
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .footerLeft {
+    width: 100%;
+    justify-content: center;
+    gap: 12px;
+  }
+
+  .footerRight {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .headerLeft h2 {
+    max-width: 100px;
+  }
+
+  .saveBtn span {
+    display: none;
+  }
+
+  .stat {
+    font-size: 11px;
+  }
+}
+
 /* Dark mode support */
 @media (prefers-color-scheme: dark) {
   .editorContainer {
