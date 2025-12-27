@@ -774,7 +774,17 @@ router.get('/outlook/callback', async (req, res) => {
 
     if (tokens.error) {
       console.error('Microsoft token error:', tokens);
-      return res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?error=token_error`);
+      console.error('Microsoft token error details:', {
+        error: tokens.error,
+        description: tokens.error_description,
+        clientId: MS_CLIENT_ID ? 'configured' : 'missing',
+        clientSecret: MS_CLIENT_SECRET ? 'configured' : 'missing',
+        redirectUri: MS_REDIRECT_URI,
+        tenant: MS_TENANT
+      });
+      // Include error details in redirect for debugging
+      const errorMsg = encodeURIComponent(tokens.error_description || tokens.error || 'token_error');
+      return res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?error=${errorMsg}`);
     }
 
     // Get user info
