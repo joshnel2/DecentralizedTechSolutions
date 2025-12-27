@@ -5735,69 +5735,53 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
   console.log(`[REACT ${taskId}] Starting ReAct agent for goal: ${goal}`);
   
   const startTime = Date.now();
-  const maxRuntime = 15 * 60 * 1000; // 15 minutes - ALWAYS run full duration
-  const maxIterations = 500; // High limit - time is the real constraint
-  const STEP_DELAY_MS = 1500; // 1.5 seconds between steps
+  const maxRuntime = 15 * 60 * 1000; // 15 minutes
+  const maxIterations = 500;
+  const STEP_DELAY_MS = 2000; // 2 seconds between API calls
   
   let iteration = 0;
   let actions = [];
-  let completionSummaries = []; // Track when AI thinks it's "done" but we keep going
+  
+  // Filter out problematic tools - agent should just keep working
+  const AGENT_TOOLS = TOOLS.filter(t => {
+    const name = t.function.name;
+    // Remove tools that would stop or pause the agent
+    return name !== 'task_complete' && 
+           name !== 'request_human_input' && 
+           name !== 'send_email' &&
+           name !== 'start_background_task'; // Can't start another background task
+  });
   
   try {
-    // Update status to running
     await query(
       `UPDATE ai_tasks SET status = 'running', started_at = NOW() WHERE id = $1`,
       [taskId]
     );
     
-    // Build the ReAct system prompt
-    const baseSystemPrompt = getSystemPrompt()
-      .replace('{{USER_ROLE}}', user.role || 'staff')
-      .replace('{{USER_NAME}}', `${user.firstName || ''} ${user.lastName || ''}`);
-    
-    const reactPrompt = `
+    // Simple, focused system prompt
+    const systemPrompt = `You are an autonomous legal AI assistant working on a task.
 
-## AUTONOMOUS AGENT MODE - FULL 15 MINUTE SESSION
+GOAL: ${goal}
 
-You are an autonomous legal AI agent. You will work continuously for 15 minutes to maximize value.
+RULES:
+1. Call ONE tool at a time. Wait for the result before calling the next tool.
+2. Work step by step toward the goal.
+3. Use draft_email to draft emails (do not send).
+4. Add notes to matters to document your work.
+5. Keep working until you've done everything useful.
 
-### YOUR MISSION:
-${goal}
+${initialContext.matter_id ? `Matter ID: ${initialContext.matter_id}` : ''}
+${initialContext.client_id ? `Client ID: ${initialContext.client_id}` : ''}
 
-### EXECUTION RULES:
-1. **NEVER STOP EARLY** - Keep finding valuable work until time runs out
-2. **BE THOROUGH** - Review documents, create memos, set up tasks, draft communications
-3. **DOCUMENT EVERYTHING** - Add notes to matters after each action
-4. **DRAFT BUT DON'T SEND** - You can draft emails but NOT send them (use draft_email, not send_email)
-5. **MAKE DECISIONS** - Never ask for human input, make reasonable professional judgments
-6. **ADD VALUE** - After completing the main goal, look for related improvements
+Start by gathering information, then take action.`;
 
-### WORK APPROACH:
-- First: Gather information (search, read documents, get details)
-- Then: Take action (create documents, add notes, set tasks)
-- Next: Draft communications (emails to client, opposing counsel, etc.)
-- Finally: Set up follow-ups (calendar events, tasks, reminders)
-- Keep going: Look for more value to add!
-
-### TOOL CALLING:
-You MUST call a tool on every turn. Never respond with just text.
-If you think you're "done", look for more ways to help - there's always more to do!
-
-### PROHIBITED:
-- DO NOT call send_email (only draft_email is allowed)
-- DO NOT call request_human_input (make autonomous decisions)
-- DO NOT stop early - maximize the full 15 minutes`;
-
-    const systemPrompt = baseSystemPrompt + reactPrompt;
-    
-    // Initialize conversation
     let messages = [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: `## YOUR GOAL:\n${goal}\n\n${initialContext.matter_id ? `Context: Working on matter ID ${initialContext.matter_id}` : ''}${initialContext.client_id ? `\nClient ID: ${initialContext.client_id}` : ''}\n\nBegin working. Think about what you need to do first, then call the appropriate tool.` }
+      { role: 'user', content: `Begin working on: ${goal}\n\nCall a tool to start.` }
     ];
     
-    // Main ReAct loop
-    while (!completed && iteration < maxIterations) {
+    // Main ReAct loop - runs until timeout
+    while (iteration < maxIterations) {
       // Check timeout
       if ((Date.now() - startTime) > maxRuntime) {
         console.log(`[REACT ${taskId}] Timeout reached at iteration ${iteration}`);
@@ -5817,13 +5801,13 @@ If you think you're "done", look for more ways to help - there's always more to 
         }), taskId]
       );
       
-      // Call AI
+      // Call AI with filtered tools (no task_complete, send_email, etc.)
       let response;
       try {
-        response = await callAzureOpenAIWithTools(messages, TOOLS);
+        response = await callAzureOpenAIWithTools(messages, AGENT_TOOLS);
       } catch (apiError) {
         console.error(`[REACT ${taskId}] API error:`, apiError.message);
-        await delay(2000);
+        await delay(3000);
         continue;
       }
       
@@ -5831,94 +5815,64 @@ If you think you're "done", look for more ways to help - there's always more to 
       if (!response.tool_calls || response.tool_calls.length === 0) {
         console.log(`[REACT ${taskId}] No tool call, prompting again...`);
         messages.push({ role: 'assistant', content: response.content || '' });
-        messages.push({ role: 'user', content: 'You must call a tool. What action will you take next? Call ONE tool at a time.' });
-        await delay(500);
+        messages.push({ role: 'user', content: 'Call a tool to continue. What action will you take?' });
+        await delay(1000);
         continue;
       }
       
-      // Add assistant message with ALL tool calls
+      // Process ONLY THE FIRST tool call (one at a time)
+      const toolCall = response.tool_calls[0];
+      const functionName = toolCall.function.name;
+      let functionArgs;
+      try {
+        functionArgs = JSON.parse(toolCall.function.arguments);
+      } catch (e) {
+        functionArgs = {};
+      }
+      
+      console.log(`[REACT ${taskId}] Calling: ${functionName}`);
+      
+      // Execute the tool
+      const toolResult = await executeTool(functionName, functionArgs, user, null);
+      
+      // Build action summary
+      const actionSummary = toolResult.message || toolResult.summary || 
+        (toolResult.document ? `Created: ${toolResult.document.name}` : null) ||
+        (toolResult.matter ? `Found: ${toolResult.matter.name}` : null) ||
+        (toolResult.matters ? `Found ${toolResult.matters.length} matters` : null) ||
+        `Executed ${functionName}`;
+      
+      actions.push({
+        tool: functionName,
+        summary: actionSummary,
+        success: !toolResult.error,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Update current step display
+      await query(
+        `UPDATE ai_tasks SET current_step = $1 WHERE id = $2`,
+        [actionSummary, taskId]
+      );
+      
+      // Add assistant message with ONLY the one tool call we're responding to
       messages.push({
         role: 'assistant',
         content: response.content || null,
-        tool_calls: response.tool_calls
+        tool_calls: [toolCall]
       });
       
-      // Process ALL tool calls and add results
-      for (const toolCall of response.tool_calls) {
-        const functionName = toolCall.function.name;
-        let functionArgs;
-        try {
-          functionArgs = JSON.parse(toolCall.function.arguments);
-        } catch (e) {
-          functionArgs = {};
-        }
-        
-        console.log(`[REACT ${taskId}] Calling: ${functionName}`);
-        
-        let toolResult;
-        
-        // Handle task_complete - DON'T STOP, just log and keep going
-        if (functionName === 'task_complete') {
-          const summary = functionArgs.summary || 'Checkpoint reached';
-          completionSummaries.push({ summary, iteration, timestamp: new Date().toISOString() });
-          actions.push({ tool: 'task_complete', summary, timestamp: new Date().toISOString() });
-          console.log(`[REACT ${taskId}] Checkpoint: ${summary} - CONTINUING...`);
-          
-          await query(
-            `UPDATE ai_tasks SET progress = $1, current_step = $2 WHERE id = $3`,
-            [JSON.stringify({ iteration, actions: actions.slice(-10), checkpoints: completionSummaries }), 
-             `Checkpoint: ${summary} - looking for more value...`, taskId]
-          );
-          
-          toolResult = { acknowledged: true, message: 'Checkpoint noted. Keep looking for more value to add!' };
-        }
-        // Block request_human_input
-        else if (functionName === 'request_human_input') {
-          console.log(`[REACT ${taskId}] Blocked human input request`);
-          toolResult = { error: 'Human input not available. Make your best professional judgment and proceed.' };
-        }
-        // Block send_email
-        else if (functionName === 'send_email') {
-          console.log(`[REACT ${taskId}] Blocked send_email`);
-          toolResult = { error: 'Sending emails not allowed. Use draft_email instead.', suggestion: 'Call draft_email with the same parameters.' };
-        }
-        // Execute the tool normally
-        else {
-          toolResult = await executeTool(functionName, functionArgs, user, null);
-          
-          // Build action summary
-          const actionSummary = toolResult.message || toolResult.summary || 
-            (toolResult.document ? `Created: ${toolResult.document.name}` : null) ||
-            (toolResult.matter ? `Found: ${toolResult.matter.name}` : null) ||
-            (toolResult.matters ? `Found ${toolResult.matters.length} matters` : null) ||
-            `Executed ${functionName}`;
-          
-          actions.push({
-            tool: functionName,
-            summary: actionSummary,
-            success: !toolResult.error,
-            timestamp: new Date().toISOString()
-          });
-          
-          // Update current step display
-          await query(
-            `UPDATE ai_tasks SET current_step = $1 WHERE id = $2`,
-            [actionSummary, taskId]
-          );
-        }
-        
-        // Add tool result to conversation
-        messages.push({
-          role: 'tool',
-          tool_call_id: toolCall.id,
-          content: JSON.stringify(toolResult)
-        });
-      }
+      // Add tool result
+      messages.push({
+        role: 'tool',
+        tool_call_id: toolCall.id,
+        content: JSON.stringify(toolResult)
+      });
       
-      // Add continuation prompt after all tool calls processed
+      // Simple continuation prompt
       messages.push({
         role: 'user',
-        content: `Tool results received. Continue working toward the goal. What's your next action? Call ONE tool at a time.`
+        content: 'Result received. Continue working. Call one tool.'
       });
       
       // Trim conversation if too long (keep system + last 40 messages)
@@ -5931,16 +5885,13 @@ If you think you're "done", look for more ways to help - there's always more to 
     
     // Session complete - ran for full duration
     const elapsedMinutes = Math.round((Date.now() - startTime) / 60000);
-    const finalSummary = completionSummaries.length > 0 
-      ? completionSummaries.map(c => c.summary).join('; ')
-      : `Completed ${iteration} actions over ${elapsedMinutes} minutes`;
+    const finalSummary = `Completed ${actions.length} actions over ${elapsedMinutes} minutes`;
     
     await query(
       `UPDATE ai_tasks SET status = 'completed', result = $1, completed_at = NOW() WHERE id = $2`,
       [JSON.stringify({ 
         summary: finalSummary,
         actions,
-        checkpoints: completionSummaries,
         totalIterations: iteration,
         durationMinutes: elapsedMinutes
       }), taskId]
