@@ -888,6 +888,21 @@ router.get('/outlook/emails', authenticate, async (req, res) => {
       });
 
       const newTokens = await refreshResponse.json();
+      
+      // Check if refresh failed
+      if (newTokens.error || !newTokens.access_token) {
+        console.error('Outlook token refresh failed:', newTokens.error_description || newTokens.error);
+        // Mark as disconnected so user knows to reconnect
+        await query(
+          `UPDATE integrations SET is_connected = false WHERE firm_id = $1 AND provider = 'outlook'`,
+          [req.user.firmId]
+        );
+        return res.status(401).json({ 
+          error: 'Outlook session expired. Please reconnect your Outlook account in Settings > Integrations.',
+          needsReconnect: true
+        });
+      }
+      
       accessToken = newTokens.access_token;
 
       await query(
