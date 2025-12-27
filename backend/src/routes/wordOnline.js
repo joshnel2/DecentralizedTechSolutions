@@ -1,6 +1,10 @@
 import { Router } from 'express';
-import { query } from '../db/connection.js';
+import { query, withTransaction } from '../db/connection.js';
 import { authenticate } from '../middleware/auth.js';
+import { 
+  uploadVersion as uploadVersionToBlob, 
+  isBlobConfigured 
+} from '../utils/azureBlobStorage.js';
 
 const router = Router();
 
@@ -1440,29 +1444,58 @@ router.post('/documents/:documentId/sync-from-online', authenticate, async (req,
       console.error('Text extraction error:', extractError);
     }
 
+    // Check if Azure Blob is configured for version storage
+    const useBlobStorage = await isBlobConfigured();
+    let contentUrl = null;
+    let storedInBlob = false;
+
+    if (useBlobStorage && textContent) {
+      try {
+        const blobResult = await uploadVersionToBlob(
+          req.user.firmId,
+          documentId,
+          nextVersion,
+          textContent,
+          {
+            createdBy: req.user.id,
+            changeType: 'edit',
+            source: 'word_online',
+            contentHash
+          }
+        );
+        contentUrl = blobResult.url;
+        storedInBlob = true;
+        console.log(`[WORD SYNC] Stored v${nextVersion} in Azure Blob`);
+      } catch (blobError) {
+        console.error('[WORD SYNC] Blob upload failed, storing in DB:', blobError.message);
+      }
+    }
+
     // Create new version
     await query(
       `INSERT INTO document_versions (
         document_id, firm_id, version_number, version_label,
-        content_text, content_hash, change_summary, change_type,
-        word_count, character_count, created_by, created_by_name, source
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'edit', $8, $9, $10, $11, 'word_online')`,
+        content_text, content_url, content_hash, change_summary, change_type,
+        word_count, character_count, storage_type, created_by, created_by_name, source
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'edit', $9, $10, $11, $12, $13, 'word_online')`,
       [
         documentId,
         req.user.firmId,
         nextVersion,
         `Synced from Word Online`,
-        textContent,
+        storedInBlob ? null : textContent, // Only store in DB if blob failed
+        contentUrl,
         contentHash,
         'Edited in Word Online',
         textContent.split(/\s+/).filter(w => w).length,
         textContent.length,
+        storedInBlob ? 'azure_blob' : 'database',
         req.user.id,
         `${req.user.firstName} ${req.user.lastName}`
       ]
     );
 
-    // Update document
+    // Update document - current version stays in documents table (always hot)
     await query(
       `UPDATE documents SET 
         version = $1,

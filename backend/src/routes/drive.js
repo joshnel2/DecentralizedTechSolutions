@@ -4,6 +4,13 @@ import { query, withTransaction } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import { buildDocumentAccessFilter, FULL_ACCESS_ROLES, canAccessDocument } from '../middleware/documentAccess.js';
 import { ensureDirectory, isAzureConfigured } from '../utils/azureStorage.js';
+import { 
+  uploadVersion as uploadVersionToBlob, 
+  downloadVersion as downloadVersionFromBlob,
+  rehydrateVersion,
+  isBlobConfigured,
+  listVersions as listBlobVersions
+} from '../utils/azureBlobStorage.js';
 import crypto from 'crypto';
 import path from 'path';
 
@@ -399,26 +406,53 @@ router.get('/documents/:documentId/versions', authenticate, async (req, res) => 
       [documentId]
     );
 
+    // Get blob tier info if using Azure Blob storage
+    let blobTiers = {};
+    const useBlobStorage = await isBlobConfigured();
+    if (useBlobStorage) {
+      try {
+        const blobVersions = await listBlobVersions(req.user.firmId, documentId);
+        blobVersions.forEach(bv => {
+          blobTiers[bv.versionNumber] = {
+            tier: bv.tier,
+            archived: bv.tier === 'Archive',
+            rehydrating: bv.archiveStatus === 'rehydrate-pending-to-hot'
+          };
+        });
+      } catch (e) {
+        // Blob listing failed, just don't include tier info
+        console.log('[VERSIONS] Could not get blob tiers:', e.message);
+      }
+    }
+
     res.json({
       documentId,
       documentName: docResult.rows[0].name,
       accessReason: access.reason, // Helps debugging/auditing
-      versions: result.rows.map(v => ({
-        id: v.id,
-        versionNumber: v.version_number,
-        versionLabel: v.version_label,
-        changeSummary: v.change_summary,
-        changeType: v.change_type,
-        wordCount: v.word_count,
-        characterCount: v.character_count,
-        wordsAdded: v.words_added,
-        wordsRemoved: v.words_removed,
-        fileSize: v.file_size,
-        createdBy: v.created_by,
-        createdByName: v.created_by_name,
-        createdAt: v.created_at,
-        source: v.source,
-      }))
+      versions: result.rows.map(v => {
+        const tierInfo = blobTiers[v.version_number] || {};
+        return {
+          id: v.id,
+          versionNumber: v.version_number,
+          versionLabel: v.version_label,
+          changeSummary: v.change_summary,
+          changeType: v.change_type,
+          wordCount: v.word_count,
+          characterCount: v.character_count,
+          wordsAdded: v.words_added,
+          wordsRemoved: v.words_removed,
+          fileSize: v.file_size,
+          createdBy: v.created_by,
+          createdByName: v.created_by_name,
+          createdAt: v.created_at,
+          source: v.source,
+          // Storage tier info (only for blob-stored versions)
+          storageType: v.storage_type || 'database',
+          tier: tierInfo.tier || (v.storage_type === 'azure_blob' ? 'Hot' : null),
+          archived: tierInfo.archived || false,
+          rehydrating: tierInfo.rehydrating || false
+        };
+      })
     });
   } catch (error) {
     console.error('Get versions error:', error);
@@ -427,16 +461,18 @@ router.get('/documents/:documentId/versions', authenticate, async (req, res) => 
 });
 
 // Get a specific version's content
+// Cloud-native: Fetches from Azure Blob if stored there, handles archive tier gracefully
 router.get('/documents/:documentId/versions/:versionId/content', authenticate, async (req, res) => {
   try {
     const documentId = req.params.documentId;
+    const firmId = req.user.firmId;
     
     // Check document access - need 'view' permission to read version content
     const access = await canAccessDocument(
       req.user.id,
       req.user.role,
       documentId,
-      req.user.firmId,
+      firmId,
       'view'
     );
 
@@ -448,7 +484,7 @@ router.get('/documents/:documentId/versions/:versionId/content', authenticate, a
       `SELECT dv.* FROM document_versions dv
        JOIN documents d ON dv.document_id = d.id
        WHERE dv.id = $1 AND d.firm_id = $2 AND dv.document_id = $3`,
-      [req.params.versionId, req.user.firmId, documentId]
+      [req.params.versionId, firmId, documentId]
     );
 
     if (result.rows.length === 0) {
@@ -456,11 +492,76 @@ router.get('/documents/:documentId/versions/:versionId/content', authenticate, a
     }
 
     const v = result.rows[0];
+
+    // Check where content is stored
+    if (v.storage_type === 'azure_blob' && v.content_url) {
+      // Fetch from Azure Blob Storage
+      try {
+        const blobResult = await downloadVersionFromBlob(firmId, documentId, v.version_number);
+        
+        if (blobResult.needsRehydration) {
+          // Version is in archive tier - needs to be retrieved
+          return res.status(202).json({
+            id: v.id,
+            versionNumber: v.version_number,
+            contentHash: v.content_hash,
+            content: null,
+            archived: true,
+            rehydrationPending: blobResult.rehydrationPending || false,
+            message: blobResult.message,
+            tier: blobResult.tier,
+            // Provide action to initiate retrieval
+            rehydrateUrl: `/api/drive/documents/${documentId}/versions/${v.version_number}/rehydrate`
+          });
+        }
+
+        if (blobResult.notFound) {
+          // Blob missing but DB says it should be there - try DB fallback
+          if (v.content_text) {
+            return res.json({
+              id: v.id,
+              versionNumber: v.version_number,
+              content: v.content_text,
+              contentHash: v.content_hash,
+              tier: 'database_fallback'
+            });
+          }
+          return res.status(404).json({ error: 'Version content not found' });
+        }
+
+        // Successfully retrieved from blob
+        const content = blobResult.content.toString('utf-8');
+        return res.json({
+          id: v.id,
+          versionNumber: v.version_number,
+          content,
+          contentHash: v.content_hash,
+          tier: blobResult.tier,
+          size: blobResult.size
+        });
+      } catch (blobError) {
+        console.error('[VERSION] Blob download failed:', blobError.message);
+        // Fall back to database if available
+        if (v.content_text) {
+          return res.json({
+            id: v.id,
+            versionNumber: v.version_number,
+            content: v.content_text,
+            contentHash: v.content_hash,
+            tier: 'database_fallback'
+          });
+        }
+        throw blobError;
+      }
+    }
+
+    // Content is in database
     res.json({
       id: v.id,
       versionNumber: v.version_number,
       content: v.content_text,
       contentHash: v.content_hash,
+      tier: 'database'
     });
   } catch (error) {
     console.error('Get version content error:', error);
@@ -468,10 +569,63 @@ router.get('/documents/:documentId/versions/:versionId/content', authenticate, a
   }
 });
 
+// Initiate rehydration for an archived version
+router.post('/documents/:documentId/versions/:versionNumber/rehydrate', authenticate, async (req, res) => {
+  try {
+    const { documentId, versionNumber } = req.params;
+    const firmId = req.user.firmId;
+
+    // Check document access
+    const access = await canAccessDocument(
+      req.user.id,
+      req.user.role,
+      documentId,
+      firmId,
+      'view'
+    );
+
+    if (!access.hasAccess) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    // Initiate rehydration
+    const result = await rehydrateVersion(firmId, documentId, parseInt(versionNumber));
+
+    // Log activity
+    await query(
+      `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
+       VALUES ($1, $2, 'version_rehydrate', $3, $4, $5)`,
+      [
+        documentId,
+        firmId,
+        req.user.id,
+        `${req.user.firstName} ${req.user.lastName}`,
+        JSON.stringify({ versionNumber: parseInt(versionNumber) })
+      ]
+    );
+
+    // TODO: Create notification for when rehydration completes
+    // This would use Azure Event Grid or polling
+
+    res.json({
+      success: result.initiated,
+      message: result.message,
+      estimatedTime: '1-15 hours',
+      versionNumber: parseInt(versionNumber)
+    });
+  } catch (error) {
+    console.error('Rehydration error:', error);
+    res.status(500).json({ error: 'Failed to initiate version retrieval' });
+  }
+});
+
 // Create a new version (called on save)
+// Cloud-native: Stores content in Azure Blob (cheap, tiered), metadata in PostgreSQL (fast queries)
 router.post('/documents/:documentId/versions', authenticate, async (req, res) => {
   try {
     const { content, versionLabel, changeSummary, changeType = 'edit' } = req.body;
+    const documentId = req.params.documentId;
+    const firmId = req.user.firmId;
 
     if (!content) {
       return res.status(400).json({ error: 'Content is required' });
@@ -480,7 +634,7 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
     // Verify document access (outside transaction for early exit)
     const docResult = await query(
       `SELECT * FROM documents WHERE id = $1 AND firm_id = $2`,
-      [req.params.documentId, req.user.firmId]
+      [documentId, firmId]
     );
 
     if (docResult.rows.length === 0) {
@@ -496,7 +650,7 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
     const latestVersionCheck = await query(
       `SELECT content_hash FROM document_versions 
        WHERE document_id = $1 ORDER BY version_number DESC LIMIT 1`,
-      [req.params.documentId]
+      [documentId]
     );
 
     if (latestVersionCheck.rows.length > 0 && latestVersionCheck.rows[0].content_hash === contentHash) {
@@ -512,6 +666,9 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
     const wordCount = words.length;
     const characterCount = content.length;
 
+    // Check if Azure Blob is configured for version storage
+    const useBlobStorage = await isBlobConfigured();
+
     // Use transaction for atomic version creation
     const result = await withTransaction(async (client) => {
       // Get next version number with lock to prevent race conditions
@@ -519,7 +676,7 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
         `SELECT COALESCE(MAX(version_number), 0) + 1 as next_version 
          FROM document_versions WHERE document_id = $1
          FOR UPDATE`,
-        [req.params.documentId]
+        [documentId]
       );
       const nextVersion = versionResult.rows[0].next_version;
 
@@ -530,7 +687,7 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
       const prevContent = await client.query(
         `SELECT word_count FROM document_versions 
          WHERE document_id = $1 ORDER BY version_number DESC LIMIT 1`,
-        [req.params.documentId]
+        [documentId]
       );
       if (prevContent.rows[0]?.word_count) {
         const diff = wordCount - prevContent.rows[0].word_count;
@@ -538,21 +695,51 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
         wordsRemoved = diff < 0 ? Math.abs(diff) : 0;
       }
 
-      // Create version
+      // Store version content
+      let contentUrl = null;
+      let storedInBlob = false;
+
+      if (useBlobStorage) {
+        // Upload to Azure Blob Storage (cheap, tiered)
+        try {
+          const blobResult = await uploadVersionToBlob(
+            firmId,
+            documentId,
+            nextVersion,
+            content,
+            {
+              createdBy: req.user.id,
+              changeType,
+              contentHash
+            }
+          );
+          contentUrl = blobResult.url;
+          storedInBlob = true;
+          console.log(`[VERSION] Stored v${nextVersion} in Azure Blob: ${blobResult.blobName}`);
+        } catch (blobError) {
+          console.error('[VERSION] Blob upload failed, falling back to DB:', blobError.message);
+          // Fall through to store in database
+        }
+      }
+
+      // Create version record
+      // If blob storage worked, don't store content_text (save DB space)
+      // If blob failed or not configured, store in content_text as fallback
       const versionInsertResult = await client.query(
         `INSERT INTO document_versions (
           document_id, firm_id, version_number, version_label,
-          content_text, content_hash, change_summary, change_type,
+          content_text, content_url, content_hash, change_summary, change_type,
           word_count, character_count, words_added, words_removed,
-          file_size, created_by, created_by_name
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+          file_size, storage_type, created_by, created_by_name
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         RETURNING *`,
         [
-          req.params.documentId,
-          req.user.firmId,
+          documentId,
+          firmId,
           nextVersion,
           versionLabel || null,
-          content,
+          storedInBlob ? null : content, // Only store in DB if blob failed
+          contentUrl, // URL to blob if stored there
           contentHash,
           changeSummary || null,
           changeType,
@@ -561,12 +748,13 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
           wordsAdded,
           wordsRemoved,
           content.length,
+          storedInBlob ? 'azure_blob' : 'database', // Track where content is stored
           req.user.id,
           `${req.user.firstName} ${req.user.lastName}`
         ]
       );
 
-      // Update document version count and content
+      // Update document - current version content stays in documents table (always hot)
       await client.query(
         `UPDATE documents SET 
           version = $1, 
@@ -576,7 +764,7 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
           size = $4,
           updated_at = NOW()
          WHERE id = $5`,
-        [nextVersion, content, contentHash, content.length, req.params.documentId]
+        [nextVersion, content, contentHash, content.length, documentId]
       );
 
       // Log activity
@@ -584,11 +772,11 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
         `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
          VALUES ($1, $2, 'version_create', $3, $4, $5)`,
         [
-          req.params.documentId, 
-          req.user.firmId, 
+          documentId, 
+          firmId, 
           req.user.id, 
           `${req.user.firstName} ${req.user.lastName}`,
-          JSON.stringify({ versionNumber: nextVersion, changeType })
+          JSON.stringify({ versionNumber: nextVersion, changeType, storedInBlob })
         ]
       );
 
@@ -596,7 +784,8 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
         version: versionInsertResult.rows[0],
         nextVersion,
         wordsAdded,
-        wordsRemoved
+        wordsRemoved,
+        storedInBlob
       };
     });
 
@@ -607,6 +796,7 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
       createdAt: result.version.created_at,
       wordsAdded: result.wordsAdded,
       wordsRemoved: result.wordsRemoved,
+      storageType: result.storedInBlob ? 'azure_blob' : 'database'
     });
   } catch (error) {
     console.error('Create version error:', error);

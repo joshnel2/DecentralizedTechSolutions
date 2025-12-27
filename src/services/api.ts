@@ -1428,6 +1428,13 @@ export const driveApi = {
     });
   },
 
+  // Initiate retrieval of archived version
+  async rehydrateVersion(documentId: string, versionNumber: number) {
+    return fetchWithAuth(`/drive/documents/${documentId}/versions/${versionNumber}/rehydrate`, {
+      method: 'POST',
+    });
+  },
+
   // Document Comparison
   async compareVersions(documentId: string, version1: number, version2: number) {
     return fetchWithAuth(`/drive/documents/${documentId}/compare?version1=${version1}&version2=${version2}`);
