@@ -758,6 +758,21 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "analyze_image",
+      description: "Analyze an image file to describe its contents. Use for photos, evidence images, property damage, accident scenes, etc. Can identify objects, text, people, scenes, and provide detailed descriptions.",
+      parameters: {
+        type: "object",
+        properties: {
+          document_id: { type: "string", description: "UUID of the image document" },
+          question: { type: "string", description: "Optional specific question about the image (e.g., 'What damage is visible?' or 'Describe the scene')" }
+        },
+        required: ["document_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "get_matter_documents_content",
       description: "Get a summary of all documents attached to a matter, including their content previews. Useful for understanding the full picture of a case.",
       parameters: {
@@ -1965,6 +1980,7 @@ async function executeTool(toolName, args, user, req = null) {
       case 'list_documents': return await listDocuments(args, user);
       case 'get_document': return await getDocument(args, user);
       case 'read_document_content': return await readDocumentContent(args, user);
+      case 'analyze_image': return await analyzeImage(args, user);
       case 'get_matter_documents_content': return await getMatterDocumentsContent(args, user);
       case 'search_document_content': return await searchDocumentContent(args, user);
       case 'save_uploaded_document': return await saveUploadedDocument(args, user, req);
@@ -4323,6 +4339,132 @@ async function readDocumentContent(args, user) {
     content: null,
     note: 'Document content could not be extracted. The file may be a scanned image or unsupported format.'
   };
+}
+
+async function analyzeImage(args, user) {
+  const { document_id, question } = args;
+  
+  if (!document_id) {
+    return { error: 'document_id is required' };
+  }
+  
+  // Get document info
+  const result = await query(
+    `SELECT d.id, d.name, d.type, d.path, d.azure_path, m.name as matter_name
+     FROM documents d
+     LEFT JOIN matters m ON d.matter_id = m.id
+     WHERE d.id = $1 AND d.firm_id = $2`,
+    [document_id, user.firmId]
+  );
+  
+  if (result.rows.length === 0) {
+    return { error: 'Document not found' };
+  }
+  
+  const doc = result.rows[0];
+  const ext = path.extname(doc.name).toLowerCase();
+  
+  // Check if it's an image
+  const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.tiff', '.bmp'];
+  if (!imageExtensions.includes(ext)) {
+    return { 
+      error: `This tool only works with image files. "${doc.name}" is a ${ext} file. Use read_document_content for text documents.`
+    };
+  }
+  
+  // Check Azure OpenAI Vision config
+  if (!AZURE_ENDPOINT || !AZURE_API_KEY) {
+    return { error: 'Azure OpenAI not configured for image analysis.' };
+  }
+  
+  try {
+    // Read the image file
+    let imageBuffer;
+    const filePath = doc.path || doc.azure_path;
+    
+    if (!filePath) {
+      return { error: 'Image file path not available.' };
+    }
+    
+    // Try to read from local path first
+    try {
+      imageBuffer = await fs.promises.readFile(filePath);
+    } catch (e) {
+      // If local read fails, try Azure
+      if (isAzureConfigured()) {
+        const { downloadFile } = await import('../utils/azureStorage.js');
+        imageBuffer = await downloadFile(user.firmId, doc.azure_path || doc.name);
+      } else {
+        return { error: 'Could not read image file.' };
+      }
+    }
+    
+    const base64Image = imageBuffer.toString('base64');
+    const mimeType = `image/${ext.replace('.', '').replace('jpg', 'jpeg')}`;
+    
+    // Build the prompt based on whether user has a specific question
+    const userPrompt = question 
+      ? `Analyze this image and answer: ${question}`
+      : 'Describe this image in detail. Include: what type of image it is, any text visible, objects/people present, setting/location, notable details, and anything that might be legally relevant (damage, evidence, conditions, etc.).';
+    
+    const url = `${AZURE_ENDPOINT}openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${API_VERSION}`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': AZURE_API_KEY,
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert image analyst for a law firm. Provide detailed, objective descriptions of images. Note any text, damage, conditions, or details that could be relevant to legal matters. Be specific and factual.'
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: userPrompt },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:${mimeType};base64,${base64Image}`,
+                  detail: 'high'
+                }
+              }
+            ]
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 2000,
+      }),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Azure Vision error:', errorText);
+      return { error: 'Failed to analyze image. Please try again.' };
+    }
+    
+    const data = await response.json();
+    const analysis = data.choices[0]?.message?.content;
+    
+    if (!analysis) {
+      return { error: 'No analysis returned from vision model.' };
+    }
+    
+    return {
+      id: doc.id,
+      name: doc.name,
+      matter: doc.matter_name,
+      analysis: analysis,
+      question: question || null
+    };
+    
+  } catch (error) {
+    console.error('Image analysis error:', error);
+    return { error: `Failed to analyze image: ${error.message}` };
+  }
 }
 
 async function getMatterDocumentsContent(args, user) {
