@@ -5684,10 +5684,29 @@ async function resumeIncompleteTasks() {
   }
 }
 
+// Track running tasks globally so we can cancel them
+const runningAgents = new Map(); // taskId -> { cancelled: boolean }
+
 async function startBackgroundTask(args, user) {
   const { goal, plan, estimated_steps, matter_id, client_id } = args;
   
   try {
+    // CHECK: Is there already a running task for this user?
+    const existingTask = await query(
+      `SELECT id, goal FROM ai_tasks WHERE user_id = $1 AND status = 'running' LIMIT 1`,
+      [user.id]
+    );
+    
+    if (existingTask.rows.length > 0) {
+      const existing = existingTask.rows[0];
+      console.log(`[AGENT] User ${user.id} already has running task ${existing.id}`);
+      return { 
+        error: `You already have a background task running: "${existing.goal}". Please wait for it to complete or cancel it first.`,
+        existingTaskId: existing.id,
+        existingGoal: existing.goal
+      };
+    }
+    
     // Create task in database
     const result = await query(
       `INSERT INTO ai_tasks (firm_id, user_id, goal, status, plan, max_iterations, context)
@@ -5698,12 +5717,15 @@ async function startBackgroundTask(args, user) {
         user.id, 
         goal, 
         JSON.stringify(plan || []),
-        200, // Max iterations for ReAct loop
+        500, // Max iterations for 15-minute session
         JSON.stringify({ matter_id, client_id })
       ]
     );
     
     const taskId = result.rows[0].id;
+    
+    // Register this agent as running
+    runningAgents.set(taskId, { cancelled: false, userId: user.id });
     
     // Start the ReAct agent loop (dynamic, not fixed plan)
     runReActAgent(taskId, user, goal, { matter_id, client_id });
@@ -5721,6 +5743,17 @@ async function startBackgroundTask(args, user) {
     console.error('Error starting background task:', error);
     return { error: 'Failed to start background task: ' + error.message };
   }
+}
+
+// Export for use in cancel endpoint
+function cancelRunningAgent(taskId) {
+  const agent = runningAgents.get(taskId);
+  if (agent) {
+    agent.cancelled = true;
+    console.log(`[AGENT] Marked task ${taskId} for cancellation`);
+    return true;
+  }
+  return false;
 }
 
 // =============================================================================
@@ -5815,14 +5848,12 @@ Available actions: search matters, review documents, log time, create tasks, dra
         break;
       }
       
-      // Check if task was cancelled by user
-      const taskStatus = await query(
-        `SELECT status FROM ai_tasks WHERE id = $1`,
-        [taskId]
-      );
-      if (taskStatus.rows.length === 0 || taskStatus.rows[0].status === 'cancelled') {
-        console.log(`[AGENT ${taskId}] Task was cancelled by user. Stopping gracefully.`);
-        return; // Exit without updating status (already set to cancelled)
+      // Check if task was cancelled (fast in-memory check)
+      const agentState = runningAgents.get(taskId);
+      if (!agentState || agentState.cancelled) {
+        console.log(`[AGENT ${taskId}] Task was cancelled. Stopping immediately.`);
+        runningAgents.delete(taskId);
+        return; // Exit - status already set to cancelled by the cancel endpoint
       }
       
       promptCount++;
@@ -6070,11 +6101,26 @@ Available actions: search matters, review documents, log time, create tasks, dra
       }), taskId]
     );
     
+    // Clean up - remove from running agents
+    runningAgents.delete(taskId);
+    console.log(`[AGENT ${taskId}] Cleaned up, task complete`);
+    
   } catch (error) {
     console.error(`[AGENT ${taskId}] Fatal error:`, error);
+    
+    // Clean up on error too
+    runningAgents.delete(taskId);
+    
     await query(
-      `UPDATE ai_tasks SET status = 'failed', result = $1, error = $2, completed_at = NOW() WHERE id = $3`,
-      [JSON.stringify({ actions }), error.message, taskId]
+      `UPDATE ai_tasks SET status = 'failed', result = $1, error = $2, progress = $3, completed_at = NOW() WHERE id = $4`,
+      [JSON.stringify({ actions }), error.message, JSON.stringify({
+        promptCount,
+        phase: 'error',
+        actions: actions.slice(-10),
+        progressPercent: 0,
+        currentStep: 'Error: ' + error.message,
+        status: 'failed'
+      }), taskId]
     );
   }
 }
@@ -9881,6 +9927,9 @@ router.post('/tasks/:taskId/cancel', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Task is not running', status: task.status });
     }
     
+    // IMMEDIATELY signal the agent to stop (in-memory flag)
+    cancelRunningAgent(taskId);
+    
     // Parse existing progress
     let progress = task.progress;
     if (typeof progress === 'string') {
@@ -9910,7 +9959,10 @@ router.post('/tasks/:taskId/cancel', authenticate, async (req, res) => {
       ]
     );
     
-    console.log(`[AGENT] Task ${taskId} cancelled by user`);
+    // Remove from running agents map
+    runningAgents.delete(taskId);
+    
+    console.log(`[AGENT] Task ${taskId} cancelled by user - agent will stop on next iteration`);
     
     res.json({ 
       success: true, 
@@ -10177,6 +10229,18 @@ Please analyze the document above and respond to the user's question.`;
             plan: result.plan
           };
           console.log('Background task started:', result.task_id);
+        }
+        
+        // Check for errors from background task (e.g., already running)
+        if (functionName === 'start_background_task' && result.error) {
+          console.log('Background task error:', result.error);
+          return res.json({
+            response: result.error,
+            error: result.error,
+            existingTaskId: result.existingTaskId,
+            toolsUsed: false,
+            backgroundTaskStarted: false
+          });
         }
         
         if (result._needs_human_input) {

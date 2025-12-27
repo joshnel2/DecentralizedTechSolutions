@@ -27,11 +27,25 @@ export function BackgroundTaskBar() {
   // Track consecutive errors
   const [errorCount, setErrorCount] = useState(0)
   
-  // Request notification permission on mount
+  // Request notification permission and check for existing tasks on mount
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission()
     }
+    
+    // Check if there's already a running task on page load
+    const checkExistingTask = async () => {
+      try {
+        const response = await aiApi.getActiveTask()
+        if (response.active && response.task) {
+          setActiveTask(response.task)
+          setPolling(true)
+        }
+      } catch (e) {
+        // Ignore errors on initial check
+      }
+    }
+    checkExistingTask()
   }, [])
   
   // Check task status

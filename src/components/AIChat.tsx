@@ -242,10 +242,22 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         useBackgroundAgent // When ON, forces background agent with progress bar
       )
 
+      // Check if there's an error in the response (like already running task)
+      if (response.error) {
+        const errorMessage: Message = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: response.error,
+          timestamp: new Date(),
+        }
+        setMessages(prev => [...prev, errorMessage])
+        return
+      }
+
       const assistantMessage: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: response.response,
+        content: response.response || 'Task started.',
         timestamp: new Date(),
         toolsUsed: response.toolsUsed,
         backgroundTaskStarted: response.backgroundTaskStarted,
@@ -266,12 +278,12 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
       if (response.navigation) {
         setPendingNavigation(response.navigation)
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('AI chat error:', error)
       const errorMessage: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: "I'm sorry, I encountered an error. Please try again.",
+        content: error?.message || "I'm sorry, I encountered an error. Please try again.",
         timestamp: new Date(),
       }
       setMessages(prev => [...prev, errorMessage])
