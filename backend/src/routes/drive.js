@@ -443,7 +443,7 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
       return res.status(400).json({ error: 'Content is required' });
     }
 
-    // Verify document access
+    // Verify document access (outside transaction for early exit)
     const docResult = await query(
       `SELECT * FROM documents WHERE id = $1 AND firm_id = $2`,
       [req.params.documentId, req.user.firmId]
@@ -458,14 +458,14 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
     // Calculate content hash
     const contentHash = crypto.createHash('sha256').update(content).digest('hex');
 
-    // Check if content actually changed
-    const latestVersion = await query(
+    // Check if content actually changed (outside transaction for early exit)
+    const latestVersionCheck = await query(
       `SELECT content_hash FROM document_versions 
        WHERE document_id = $1 ORDER BY version_number DESC LIMIT 1`,
       [req.params.documentId]
     );
 
-    if (latestVersion.rows.length > 0 && latestVersion.rows[0].content_hash === contentHash) {
+    if (latestVersionCheck.rows.length > 0 && latestVersionCheck.rows[0].content_hash === contentHash) {
       return res.json({ 
         message: 'No changes detected',
         versionNumber: doc.version || 1,
@@ -473,26 +473,28 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
       });
     }
 
-    // Get next version number
-    const versionResult = await query(
-      `SELECT COALESCE(MAX(version_number), 0) + 1 as next_version 
-       FROM document_versions WHERE document_id = $1`,
-      [req.params.documentId]
-    );
-    const nextVersion = versionResult.rows[0].next_version;
-
     // Calculate word counts
     const words = content.trim().split(/\s+/).filter(w => w.length > 0);
     const wordCount = words.length;
     const characterCount = content.length;
 
-    // Calculate diff stats if previous version exists
-    let wordsAdded = wordCount;
-    let wordsRemoved = 0;
+    // Use transaction for atomic version creation
+    const result = await withTransaction(async (client) => {
+      // Get next version number with lock to prevent race conditions
+      const versionResult = await client.query(
+        `SELECT COALESCE(MAX(version_number), 0) + 1 as next_version 
+         FROM document_versions WHERE document_id = $1
+         FOR UPDATE`,
+        [req.params.documentId]
+      );
+      const nextVersion = versionResult.rows[0].next_version;
 
-    if (latestVersion.rows.length > 0) {
-      const prevContent = await query(
-        `SELECT content_text, word_count FROM document_versions 
+      // Calculate diff stats if previous version exists
+      let wordsAdded = wordCount;
+      let wordsRemoved = 0;
+
+      const prevContent = await client.query(
+        `SELECT word_count FROM document_versions 
          WHERE document_id = $1 ORDER BY version_number DESC LIMIT 1`,
         [req.params.documentId]
       );
@@ -501,70 +503,76 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
         wordsAdded = diff > 0 ? diff : 0;
         wordsRemoved = diff < 0 ? Math.abs(diff) : 0;
       }
-    }
 
-    // Create version
-    const result = await query(
-      `INSERT INTO document_versions (
-        document_id, firm_id, version_number, version_label,
-        content_text, content_hash, change_summary, change_type,
-        word_count, character_count, words_added, words_removed,
-        file_size, created_by, created_by_name
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-      RETURNING *`,
-      [
-        req.params.documentId,
-        req.user.firmId,
+      // Create version
+      const versionInsertResult = await client.query(
+        `INSERT INTO document_versions (
+          document_id, firm_id, version_number, version_label,
+          content_text, content_hash, change_summary, change_type,
+          word_count, character_count, words_added, words_removed,
+          file_size, created_by, created_by_name
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        RETURNING *`,
+        [
+          req.params.documentId,
+          req.user.firmId,
+          nextVersion,
+          versionLabel || null,
+          content,
+          contentHash,
+          changeSummary || null,
+          changeType,
+          wordCount,
+          characterCount,
+          wordsAdded,
+          wordsRemoved,
+          content.length,
+          req.user.id,
+          `${req.user.firstName} ${req.user.lastName}`
+        ]
+      );
+
+      // Update document version count and content
+      await client.query(
+        `UPDATE documents SET 
+          version = $1, 
+          version_count = $1,
+          content_text = $2,
+          content_hash = $3,
+          size = $4,
+          updated_at = NOW()
+         WHERE id = $5`,
+        [nextVersion, content, contentHash, content.length, req.params.documentId]
+      );
+
+      // Log activity
+      await client.query(
+        `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
+         VALUES ($1, $2, 'version_create', $3, $4, $5)`,
+        [
+          req.params.documentId, 
+          req.user.firmId, 
+          req.user.id, 
+          `${req.user.firstName} ${req.user.lastName}`,
+          JSON.stringify({ versionNumber: nextVersion, changeType })
+        ]
+      );
+
+      return {
+        version: versionInsertResult.rows[0],
         nextVersion,
-        versionLabel || null,
-        content,
-        contentHash,
-        changeSummary || null,
-        changeType,
-        wordCount,
-        characterCount,
         wordsAdded,
-        wordsRemoved,
-        content.length,
-        req.user.id,
-        `${req.user.firstName} ${req.user.lastName}`
-      ]
-    );
+        wordsRemoved
+      };
+    });
 
-    // Update document version count and content
-    await query(
-      `UPDATE documents SET 
-        version = $1, 
-        version_count = $1,
-        content_text = $2,
-        content_hash = $3,
-        size = $4,
-        updated_at = NOW()
-       WHERE id = $5`,
-      [nextVersion, content, contentHash, content.length, req.params.documentId]
-    );
-
-    // Log activity
-    await query(
-      `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
-       VALUES ($1, $2, 'version_create', $3, $4, $5)`,
-      [
-        req.params.documentId, 
-        req.user.firmId, 
-        req.user.id, 
-        `${req.user.firstName} ${req.user.lastName}`,
-        JSON.stringify({ versionNumber: nextVersion, changeType })
-      ]
-    );
-
-    const v = result.rows[0];
     res.status(201).json({
-      id: v.id,
-      versionNumber: v.version_number,
-      versionLabel: v.version_label,
-      createdAt: v.created_at,
-      wordsAdded,
-      wordsRemoved,
+      id: result.version.id,
+      versionNumber: result.version.version_number,
+      versionLabel: result.version.version_label,
+      createdAt: result.version.created_at,
+      wordsAdded: result.wordsAdded,
+      wordsRemoved: result.wordsRemoved,
     });
   } catch (error) {
     console.error('Create version error:', error);
@@ -575,7 +583,7 @@ router.post('/documents/:documentId/versions', authenticate, async (req, res) =>
 // Restore a previous version
 router.post('/documents/:documentId/versions/:versionId/restore', authenticate, async (req, res) => {
   try {
-    // Get the version to restore
+    // Get the version to restore (outside transaction for early exit)
     const versionResult = await query(
       `SELECT dv.* FROM document_versions dv
        JOIN documents d ON dv.document_id = d.id
@@ -589,50 +597,70 @@ router.post('/documents/:documentId/versions/:versionId/restore', authenticate, 
 
     const versionToRestore = versionResult.rows[0];
 
-    // Create a new version with the restored content
-    const nextVersionResult = await query(
-      `SELECT COALESCE(MAX(version_number), 0) + 1 as next_version 
-       FROM document_versions WHERE document_id = $1`,
-      [req.params.documentId]
-    );
-    const nextVersion = nextVersionResult.rows[0].next_version;
+    // Use transaction for atomic restore operation
+    const result = await withTransaction(async (client) => {
+      // Get next version number with lock
+      const nextVersionResult = await client.query(
+        `SELECT COALESCE(MAX(version_number), 0) + 1 as next_version 
+         FROM document_versions WHERE document_id = $1
+         FOR UPDATE`,
+        [req.params.documentId]
+      );
+      const nextVersion = nextVersionResult.rows[0].next_version;
 
-    const result = await query(
-      `INSERT INTO document_versions (
-        document_id, firm_id, version_number, version_label,
-        content_text, content_hash, change_summary, change_type,
-        word_count, character_count, created_by, created_by_name
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'restore', $8, $9, $10, $11)
-      RETURNING *`,
-      [
-        req.params.documentId,
-        req.user.firmId,
-        nextVersion,
-        `Restored from v${versionToRestore.version_number}`,
-        versionToRestore.content_text,
-        versionToRestore.content_hash,
-        `Restored from version ${versionToRestore.version_number}`,
-        versionToRestore.word_count,
-        versionToRestore.character_count,
-        req.user.id,
-        `${req.user.firstName} ${req.user.lastName}`
-      ]
-    );
+      // Create a new version with the restored content
+      await client.query(
+        `INSERT INTO document_versions (
+          document_id, firm_id, version_number, version_label,
+          content_text, content_hash, change_summary, change_type,
+          word_count, character_count, created_by, created_by_name
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'restore', $8, $9, $10, $11)`,
+        [
+          req.params.documentId,
+          req.user.firmId,
+          nextVersion,
+          `Restored from v${versionToRestore.version_number}`,
+          versionToRestore.content_text,
+          versionToRestore.content_hash,
+          `Restored from version ${versionToRestore.version_number}`,
+          versionToRestore.word_count,
+          versionToRestore.character_count,
+          req.user.id,
+          `${req.user.firstName} ${req.user.lastName}`
+        ]
+      );
 
-    // Update document
-    await query(
-      `UPDATE documents SET 
-        version = $1, 
-        version_count = $1,
-        content_text = $2,
-        updated_at = NOW()
-       WHERE id = $3`,
-      [nextVersion, versionToRestore.content_text, req.params.documentId]
-    );
+      // Update document
+      await client.query(
+        `UPDATE documents SET 
+          version = $1, 
+          version_count = $1,
+          content_text = $2,
+          content_hash = $3,
+          updated_at = NOW()
+         WHERE id = $4`,
+        [nextVersion, versionToRestore.content_text, versionToRestore.content_hash, req.params.documentId]
+      );
+
+      // Log activity
+      await client.query(
+        `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
+         VALUES ($1, $2, 'version_restore', $3, $4, $5)`,
+        [
+          req.params.documentId, 
+          req.user.firmId, 
+          req.user.id, 
+          `${req.user.firstName} ${req.user.lastName}`,
+          JSON.stringify({ restoredFrom: versionToRestore.version_number, newVersion: nextVersion })
+        ]
+      );
+
+      return { nextVersion };
+    });
 
     res.json({
       message: 'Version restored successfully',
-      newVersionNumber: nextVersion,
+      newVersionNumber: result.nextVersion,
       restoredFromVersion: versionToRestore.version_number,
     });
   } catch (error) {
