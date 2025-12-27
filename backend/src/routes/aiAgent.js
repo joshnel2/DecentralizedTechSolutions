@@ -941,6 +941,22 @@ const TOOLS = [
       }
     }
   },
+  {
+    type: "function",
+    function: {
+      name: "share_document",
+      description: "Share a document with a specific user, granting them access to view or edit it.",
+      parameters: {
+        type: "object",
+        properties: {
+          document_id: { type: "string", description: "UUID of the document to share" },
+          user_id: { type: "string", description: "UUID of the user to share with. Use list_team_members to find users." },
+          permission_level: { type: "string", enum: ["view", "edit"], description: "Level of access: 'view' (read only) or 'edit' (can modify). Defaults to 'view'." }
+        },
+        required: ["document_id", "user_id"]
+      }
+    }
+  },
 
   // ===================== TEAM =====================
   {
@@ -1990,6 +2006,7 @@ async function executeTool(toolName, args, user, req = null) {
       case 'delete_document': return await deleteDocument(args, user);
       case 'move_document': return await moveDocument(args, user);
       case 'rename_document': return await renameDocument(args, user);
+      case 'share_document': return await shareDocument(args, user);
       
       // Team
       case 'list_team_members': return await listTeamMembers(args, user);
@@ -5188,6 +5205,77 @@ async function renameDocument(args, user) {
     success: true,
     message: `Renamed document from "${oldName}" to "${new_name}"`,
     data: { document_id, old_name: oldName, new_name }
+  };
+}
+
+async function shareDocument(args, user) {
+  const { document_id, user_id, permission_level = 'view' } = args;
+  
+  if (!document_id) {
+    return { error: 'document_id is required' };
+  }
+  if (!user_id) {
+    return { error: 'user_id is required. Use list_team_members to find users.' };
+  }
+  
+  // Verify document exists and user has access
+  const docResult = await query(
+    'SELECT id, name, firm_id, owner_id FROM documents WHERE id = $1 AND firm_id = $2',
+    [document_id, user.firmId]
+  );
+  
+  if (docResult.rows.length === 0) {
+    return { error: 'Document not found' };
+  }
+  
+  const doc = docResult.rows[0];
+  
+  // Verify target user exists in same firm
+  const targetUser = await query(
+    'SELECT id, first_name, last_name, email FROM users WHERE id = $1 AND firm_id = $2',
+    [user_id, user.firmId]
+  );
+  
+  if (targetUser.rows.length === 0) {
+    return { error: 'User not found in your firm' };
+  }
+  
+  const target = targetUser.rows[0];
+  const targetName = `${target.first_name || ''} ${target.last_name || ''}`.trim() || target.email;
+  
+  // Check if permission already exists
+  const existingPerm = await query(
+    'SELECT id FROM document_permissions WHERE document_id = $1 AND user_id = $2',
+    [document_id, user_id]
+  );
+  
+  if (existingPerm.rows.length > 0) {
+    // Update existing permission
+    await query(
+      `UPDATE document_permissions 
+       SET permission_level = $1, updated_at = NOW() 
+       WHERE document_id = $2 AND user_id = $3`,
+      [permission_level, document_id, user_id]
+    );
+    
+    return {
+      success: true,
+      message: `Updated ${targetName}'s access to "${doc.name}" to ${permission_level}`,
+      data: { document_id, user_id, permission_level, user_name: targetName }
+    };
+  }
+  
+  // Create new permission
+  await query(
+    `INSERT INTO document_permissions (document_id, firm_id, user_id, permission_level, granted_by, created_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())`,
+    [document_id, user.firmId, user_id, permission_level, user.id]
+  );
+  
+  return {
+    success: true,
+    message: `Shared "${doc.name}" with ${targetName} (${permission_level} access)`,
+    data: { document_id, user_id, permission_level, user_name: targetName }
   };
 }
 
