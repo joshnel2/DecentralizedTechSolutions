@@ -5735,13 +5735,13 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
   console.log(`[REACT ${taskId}] Starting ReAct agent for goal: ${goal}`);
   
   const startTime = Date.now();
-  const maxRuntime = 15 * 60 * 1000; // 15 minutes
-  const maxIterations = 100;
+  const maxRuntime = 15 * 60 * 1000; // 15 minutes - ALWAYS run full duration
+  const maxIterations = 500; // High limit - time is the real constraint
   const STEP_DELAY_MS = 1500; // 1.5 seconds between steps
   
   let iteration = 0;
-  let completed = false;
   let actions = [];
+  let completionSummaries = []; // Track when AI thinks it's "done" but we keep going
   
   try {
     // Update status to running
@@ -5757,26 +5757,36 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
     
     const reactPrompt = `
 
-## AUTONOMOUS AGENT MODE
+## AUTONOMOUS AGENT MODE - FULL 15 MINUTE SESSION
 
-You are working autonomously to achieve a goal. Work step by step:
+You are an autonomous legal AI agent. You will work continuously for 15 minutes to maximize value.
 
-1. **THINK**: What do I need to do next to achieve the goal?
-2. **ACT**: Call the appropriate tool
-3. **OBSERVE**: The result will be provided
-4. **REPEAT**: Until the goal is complete
+### YOUR MISSION:
+${goal}
 
-### RULES:
-- Call ONE tool at a time
-- Use information from previous steps to inform your actions
-- When the goal is fully achieved, call \`task_complete\` with a summary
-- If you get stuck or need clarification, call \`request_human_input\`
-- Be thorough - create documents, notes, tasks, calendar events as needed
-- Always add notes to matters to document your work
+### EXECUTION RULES:
+1. **NEVER STOP EARLY** - Keep finding valuable work until time runs out
+2. **BE THOROUGH** - Review documents, create memos, set up tasks, draft communications
+3. **DOCUMENT EVERYTHING** - Add notes to matters after each action
+4. **DRAFT BUT DON'T SEND** - You can draft emails but NOT send them (use draft_email, not send_email)
+5. **MAKE DECISIONS** - Never ask for human input, make reasonable professional judgments
+6. **ADD VALUE** - After completing the main goal, look for related improvements
+
+### WORK APPROACH:
+- First: Gather information (search, read documents, get details)
+- Then: Take action (create documents, add notes, set tasks)
+- Next: Draft communications (emails to client, opposing counsel, etc.)
+- Finally: Set up follow-ups (calendar events, tasks, reminders)
+- Keep going: Look for more value to add!
 
 ### TOOL CALLING:
 You MUST call a tool on every turn. Never respond with just text.
-Think through what tool to use, then call it immediately.`;
+If you think you're "done", look for more ways to help - there's always more to do!
+
+### PROHIBITED:
+- DO NOT call send_email (only draft_email is allowed)
+- DO NOT call request_human_input (make autonomous decisions)
+- DO NOT stop early - maximize the full 15 minutes`;
 
     const systemPrompt = baseSystemPrompt + reactPrompt;
     
@@ -5838,29 +5848,57 @@ Think through what tool to use, then call it immediately.`;
       
       console.log(`[REACT ${taskId}] Calling: ${functionName}`);
       
-      // Check if task is complete
+      // Handle task_complete - DON'T STOP, just log and keep going
       if (functionName === 'task_complete') {
-        completed = true;
-        const summary = functionArgs.summary || 'Task completed successfully';
+        const summary = functionArgs.summary || 'Checkpoint reached';
+        completionSummaries.push({ summary, iteration, timestamp: new Date().toISOString() });
         actions.push({ tool: 'task_complete', summary, timestamp: new Date().toISOString() });
         
+        console.log(`[REACT ${taskId}] Checkpoint: ${summary} - CONTINUING...`);
+        
+        // Update progress but don't stop
         await query(
-          `UPDATE ai_tasks SET status = 'completed', result = $1, completed_at = NOW() WHERE id = $2`,
-          [JSON.stringify({ summary, actions }), taskId]
+          `UPDATE ai_tasks SET progress = $1, current_step = $2 WHERE id = $3`,
+          [JSON.stringify({ iteration, actions: actions.slice(-10), checkpoints: completionSummaries }), 
+           `Checkpoint: ${summary} - looking for more value...`, taskId]
         );
         
-        console.log(`[REACT ${taskId}] Task completed: ${summary}`);
-        break;
+        // Tell AI to keep going
+        messages.push({ role: 'assistant', content: null, tool_calls: [toolCall] });
+        messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ acknowledged: true, message: 'Checkpoint noted.' }) });
+        messages.push({ role: 'user', content: `Good progress! But we have more time. Look for additional ways to add value:\n- Any other documents to create?\n- Emails to draft?\n- Tasks or calendar events to set up?\n- Notes to add?\n- Related matters to check?\n\nKeep working!` });
+        
+        await delay(STEP_DELAY_MS);
+        continue;
       }
       
-      // Check if human input needed
+      // Block request_human_input - make autonomous decisions instead
       if (functionName === 'request_human_input') {
-        await query(
-          `UPDATE ai_tasks SET status = 'waiting_input', progress = $1 WHERE id = $2`,
-          [JSON.stringify({ question: functionArgs.question, actions }), taskId]
-        );
-        console.log(`[REACT ${taskId}] Waiting for human input: ${functionArgs.question}`);
-        break;
+        console.log(`[REACT ${taskId}] Blocked human input request - making autonomous decision`);
+        
+        messages.push({ role: 'assistant', content: null, tool_calls: [toolCall] });
+        messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ 
+          error: 'Human input not available in autonomous mode. Make your best professional judgment and proceed.' 
+        }) });
+        messages.push({ role: 'user', content: 'You are in autonomous mode. Make a reasonable professional decision and continue with your work. What action will you take?' });
+        
+        await delay(500);
+        continue;
+      }
+      
+      // Block send_email - only drafting allowed
+      if (functionName === 'send_email') {
+        console.log(`[REACT ${taskId}] Blocked send_email - redirecting to draft`);
+        
+        messages.push({ role: 'assistant', content: null, tool_calls: [toolCall] });
+        messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ 
+          error: 'Sending emails is not allowed in autonomous mode. Use draft_email instead to create a draft that the user can review and send.',
+          suggestion: 'Call draft_email with the same parameters to save this as a draft.'
+        }) });
+        messages.push({ role: 'user', content: 'Sending emails directly is not permitted. Please use draft_email to create a draft instead. The user will review and send it manually.' });
+        
+        await delay(500);
+        continue;
       }
       
       // Execute the tool
@@ -5904,23 +5942,32 @@ Think through what tool to use, then call it immediately.`;
         content: `Tool result received. Continue working toward the goal. What's your next action? Remember to call task_complete when the goal is fully achieved.`
       });
       
-      // Trim conversation if too long (keep system + last 30 messages)
-      if (messages.length > 35) {
-        messages = [messages[0], ...messages.slice(-30)];
+      // Trim conversation if too long (keep system + last 40 messages)
+      if (messages.length > 45) {
+        messages = [messages[0], ...messages.slice(-40)];
       }
       
       await delay(STEP_DELAY_MS);
     }
     
-    // If we exited without completing, mark as timed out
-    if (!completed) {
-      const status = iteration >= maxIterations ? 'max_iterations' : 'timeout';
-      await query(
-        `UPDATE ai_tasks SET status = $1, result = $2, completed_at = NOW() WHERE id = $3`,
-        [status, JSON.stringify({ actions, reason: status }), taskId]
-      );
-      console.log(`[REACT ${taskId}] Ended with status: ${status}`);
-    }
+    // Session complete - ran for full duration
+    const elapsedMinutes = Math.round((Date.now() - startTime) / 60000);
+    const finalSummary = completionSummaries.length > 0 
+      ? completionSummaries.map(c => c.summary).join('; ')
+      : `Completed ${iteration} actions over ${elapsedMinutes} minutes`;
+    
+    await query(
+      `UPDATE ai_tasks SET status = 'completed', result = $1, completed_at = NOW() WHERE id = $2`,
+      [JSON.stringify({ 
+        summary: finalSummary,
+        actions,
+        checkpoints: completionSummaries,
+        totalIterations: iteration,
+        durationMinutes: elapsedMinutes
+      }), taskId]
+    );
+    
+    console.log(`[REACT ${taskId}] Session complete: ${iteration} actions in ${elapsedMinutes} minutes`);
     
   } catch (error) {
     console.error(`[REACT ${taskId}] Fatal error:`, error);
