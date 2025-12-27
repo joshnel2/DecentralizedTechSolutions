@@ -44,9 +44,7 @@ export function clearPlatformSettingsCache() {
 
 async function getCredential(dbKey, envKey, defaultValue = '') {
   const settings = await getPlatformSettings();
-  const value = settings[dbKey] || process.env[envKey] || defaultValue;
-  // Trim whitespace - common issue when copy/pasting secrets
-  return typeof value === 'string' ? value.trim() : value;
+  return settings[dbKey] || process.env[envKey] || defaultValue;
 }
 
 // ============================================
@@ -105,11 +103,9 @@ router.get('/status', async (req, res) => {
         }
       },
       notes: {
-        '1_client_secret_length': 'Microsoft secrets are typically ~40 chars (random string), QuickBooks ~40 chars',
-        '2_uuid_warning': 'If client_secret_looks_like_uuid is TRUE, you entered the Secret ID instead of the Secret Value. Go to Azure Portal > App registrations > Certificates & secrets and copy the "Value" column (only shown once when created), NOT the "Secret ID".',
-        '3_is_secret_flag': 'If is_secret_flag is false/null, secrets may not be masked properly',
-        '4_secret_id_format': 'Secret IDs are UUIDs like: 8a11d57a-df9b-4600-8f9d-007f02268a43',
-        '5_secret_value_format': 'Secret Values look like: abC123~xYz789_RandomString...'
+        '1_client_secret_length': 'Microsoft secrets are typically ~40 chars, QuickBooks ~40 chars',
+        '2_uuid_warning': 'If client_secret_looks_like_uuid is TRUE, you may have entered the Secret ID instead of the Secret Value',
+        '3_is_secret_flag': 'If is_secret_flag is false/null, secrets may not be masked properly'
       }
     });
   } catch (error) {
@@ -791,13 +787,6 @@ function getApiBaseUrl(req) {
   return `${protocol}://${host}`;
 }
 
-// Helper to check if a string looks like a UUID (Secret ID instead of Secret Value)
-function looksLikeSecretId(secret) {
-  if (!secret) return false;
-  // UUID format: 8-4-4-4-12 hex characters (e.g., 8a11d57a-df9b-4600-8f9d-007f02268a43)
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(secret);
-}
-
 // Initiate Microsoft OAuth
 router.get('/outlook/connect', authenticate, async (req, res) => {
   try {
@@ -809,32 +798,12 @@ router.get('/outlook/connect', authenticate, async (req, res) => {
     const configuredRedirectUri = await getCredential('microsoft_redirect_uri', 'MICROSOFT_REDIRECT_URI', '');
     const MS_REDIRECT_URI = configuredRedirectUri || `${getApiBaseUrl(req)}/api/integrations/outlook/callback`;
 
-    // Debug logging - show what we're actually getting from the database
-    const secretLooksLikeUUID = looksLikeSecretId(MS_CLIENT_SECRET);
-    console.log('[Outlook Connect] Credentials check:', {
-      clientId: MS_CLIENT_ID ? `${MS_CLIENT_ID.substring(0, 8)}... (${MS_CLIENT_ID.length} chars)` : 'MISSING',
-      clientSecret: MS_CLIENT_SECRET ? `${MS_CLIENT_SECRET.substring(0, 4)}... (${MS_CLIENT_SECRET.length} chars)` : 'MISSING',
-      secretLooksLikeUUID,
-      tenant: MS_TENANT,
-      redirectUri: MS_REDIRECT_URI,
-      firmId: req.user.firmId
-    });
-
     if (!MS_CLIENT_ID) {
       return res.status(500).json({ error: 'Microsoft Client ID not configured. Go to Admin Portal and add Microsoft Client ID.' });
     }
     
     if (!MS_CLIENT_SECRET) {
       return res.status(500).json({ error: 'Microsoft Client Secret not configured. Go to Admin Portal and add Microsoft Client Secret.' });
-    }
-    
-    // Check if the secret looks like a Secret ID (UUID) instead of the actual Secret Value
-    if (secretLooksLikeUUID) {
-      console.error('[Outlook Connect] ERROR: Client secret looks like a Secret ID (UUID), not the actual Secret Value!');
-      return res.status(500).json({ 
-        error: 'Invalid Microsoft Client Secret configuration. You entered the Secret ID instead of the Secret Value. In Azure Portal, go to App registrations > Your App > Certificates & secrets, and copy the "Value" column (not the "Secret ID"). The value is only shown once when you first create the secret - you may need to create a new secret.',
-        details: 'The Secret ID is a UUID used only for identification. The Secret Value is the actual ~40 character secret string.'
-      });
     }
 
     const state = Buffer.from(JSON.stringify({
@@ -893,16 +862,6 @@ router.get('/outlook/callback', async (req, res) => {
     const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
     const { firmId, userId } = stateData;
 
-    // Debug log the credentials being used (safely)
-    console.log('[Outlook Callback] Token exchange attempt:', {
-      clientId: MS_CLIENT_ID ? `${MS_CLIENT_ID.substring(0, 8)}...` : 'MISSING',
-      clientSecretLength: MS_CLIENT_SECRET ? MS_CLIENT_SECRET.length : 0,
-      clientSecretPreview: MS_CLIENT_SECRET ? `${MS_CLIENT_SECRET.substring(0, 3)}...${MS_CLIENT_SECRET.substring(MS_CLIENT_SECRET.length - 3)}` : 'MISSING',
-      tenant: MS_TENANT,
-      redirectUri: MS_REDIRECT_URI,
-      firmId
-    });
-
     // Exchange code for tokens
     const tokenResponse = await fetch(`https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/token`, {
       method: 'POST',
@@ -919,23 +878,12 @@ router.get('/outlook/callback', async (req, res) => {
     const tokens = await tokenResponse.json();
 
     if (tokens.error) {
-      console.error('Microsoft token error:', tokens);
-      console.error('Microsoft token error details:', {
-        error: tokens.error,
-        description: tokens.error_description,
-        clientId: MS_CLIENT_ID ? `${MS_CLIENT_ID.substring(0, 8)}... (${MS_CLIENT_ID.length} chars)` : 'MISSING',
-        clientSecretLength: MS_CLIENT_SECRET ? MS_CLIENT_SECRET.length : 0,
-        clientSecretPreview: MS_CLIENT_SECRET ? `${MS_CLIENT_SECRET.substring(0, 3)}...${MS_CLIENT_SECRET.substring(MS_CLIENT_SECRET.length - 3)} (${MS_CLIENT_SECRET.length} chars)` : 'MISSING',
-        secretLooksLikeUUID: looksLikeSecretId(MS_CLIENT_SECRET),
-        redirectUri: MS_REDIRECT_URI,
-        tenant: MS_TENANT
-      });
+      console.error('Microsoft token error:', tokens.error, tokens.error_description);
       
-      // Check for the specific "invalid client secret" error (AADSTS7000215)
+      // Check for invalid client secret error (AADSTS7000215)
       let errorMsg;
       if (tokens.error_description && tokens.error_description.includes('AADSTS7000215')) {
-        errorMsg = 'Connection failed: Invalid client secret. This can happen if: (1) The secret has expired in Azure Portal, (2) The secret was deleted or rotated, (3) There are extra spaces or characters in the saved value. Please go to Azure Portal > App registrations > Certificates & secrets and create a new secret, then update it in the Admin Portal.';
-        console.error('[Outlook Callback] AADSTS7000215: Invalid client secret - may be expired, deleted, or incorrect');
+        errorMsg = 'Invalid client secret. The secret may have expired or been deleted. Create a new secret in Azure Portal > App registrations > Certificates & secrets, then update it in the Admin Portal.';
       } else {
         errorMsg = tokens.error_description || tokens.error || 'token_error';
       }
