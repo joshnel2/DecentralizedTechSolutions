@@ -5757,287 +5757,441 @@ function cancelRunningAgent(taskId) {
 }
 
 // =============================================================================
-// AUTONOMOUS LEGAL AGENT - ReAct Pattern with Azure OpenAI
+// AUTONOMOUS LEGAL AGENT - Plan-Execute-Reflect Pattern
 // =============================================================================
-// This agent uses the ReAct (Reason, Act, Observe) pattern:
-// 1. REASON: AI thinks about what to do next
-// 2. ACT: AI calls exactly ONE tool
-// 3. OBSERVE: AI receives the tool result
-// 4. REPEAT until goal is achieved or time runs out
+// This agent uses a sophisticated 3-phase approach:
+// 
+// PHASE 1: PLANNING
+//   - AI analyzes the goal and creates a step-by-step plan
+//   - Plan is stored and tracked for progress visualization
 //
-// Azure OpenAI Best Practices Applied:
-// - parallel_tool_calls: false (one tool at a time)
-// - tool_choice: "auto" (let AI decide)
-// - Clear system prompts with role definition
-// - Managed conversation history (trim when too long)
-// - Proper tool result formatting
+// PHASE 2: EXECUTION  
+//   - Agent executes plan steps one at a time
+//   - Each step: Think → Act (one tool) → Observe result
+//   - Progress updated in real-time to database
+//
+// PHASE 3: REFLECTION
+//   - After key actions, AI re-evaluates if plan needs adjustment
+//   - Can add/modify steps based on discoveries
+//   - Determines when goal is truly achieved
+//
+// Azure OpenAI Best Practices:
+// - parallel_tool_calls: false (sequential, one tool at a time)
+// - tool_choice: "auto" (let model decide which tool)
+// - Efficient token management (trim history, summarize context)
+// - Clear status tracking at each phase
 // =============================================================================
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Agent status types for UI display
+const AgentStatus = {
+  INITIALIZING: 'initializing',
+  PLANNING: 'planning',
+  THINKING: 'thinking',
+  EXECUTING: 'executing',
+  REFLECTING: 'reflecting',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled'
+};
+
 /**
- * Build the comprehensive system prompt for the autonomous legal agent
+ * Build the planning prompt - asks AI to create a step-by-step plan
  */
-function buildAgentSystemPrompt(goal, user, initialContext) {
+function buildPlanningPrompt(goal, user, context) {
+  const today = new Date();
+  const formattedDate = today.toLocaleDateString('en-US', { 
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
+  });
+
+  return `You are a senior legal AI assistant. Your task is to create an execution plan for the following goal.
+
+## GOAL
+${goal}
+
+## CONTEXT
+- User: ${user.firstName} ${user.lastName} (${user.role})
+- Date: ${formattedDate}
+${context.matter_id ? `- Matter ID: ${context.matter_id} (you should retrieve this matter's details)` : '- No specific matter provided'}
+${context.client_id ? `- Client ID: ${context.client_id} (you should retrieve this client's details)` : ''}
+
+## YOUR TASK
+Create a numbered step-by-step plan to accomplish this goal. Each step should be:
+1. Specific and actionable
+2. Achievable with the available tools
+3. Building toward the final goal
+
+## AVAILABLE TOOL CATEGORIES
+- **Discovery**: search_matters, get_matter, list_clients, get_client, list_documents, read_document_content
+- **Actions**: create_task, create_event, create_matter_note, create_invoice, log_time
+- **Documents**: draft_email_for_matter, generate_pdf_document
+- **Updates**: update_task, update_matter
+
+## OUTPUT FORMAT
+Respond with ONLY a JSON object in this exact format:
+{
+  "plan": [
+    "Step 1: Description of first step",
+    "Step 2: Description of second step",
+    "Step 3: Description of third step"
+  ],
+  "estimated_steps": 5,
+  "approach": "Brief description of your overall approach"
+}
+
+Keep the plan focused and achievable. Aim for 3-10 steps depending on complexity.`;
+}
+
+/**
+ * Build the execution system prompt for the agent
+ */
+function buildExecutionSystemPrompt(goal, plan, user, context) {
   const today = new Date();
   const formattedDate = today.toLocaleDateString('en-US', { 
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
   });
   const formattedTime = today.toLocaleTimeString('en-US', { 
-    hour: '2-digit', minute: '2-digit', timeZoneName: 'short' 
+    hour: '2-digit', minute: '2-digit' 
   });
 
-  return `You are an AUTONOMOUS LEGAL AI AGENT working for a law firm. You operate independently to complete tasks without human intervention.
+  const planText = plan.map((step, i) => `${i + 1}. ${step}`).join('\n');
+
+  return `You are an AUTONOMOUS LEGAL AI AGENT executing a planned task.
 
 ## YOUR IDENTITY
 - Name: Apex Legal Agent
-- Role: Autonomous Legal Assistant  
 - User: ${user.firstName} ${user.lastName} (${user.role})
-- Current Date/Time: ${formattedDate} at ${formattedTime}
+- Date/Time: ${formattedDate} at ${formattedTime}
 
 ## YOUR MISSION
 ${goal}
 
+## YOUR PLAN
+${planText}
+
 ## CONTEXT
-${initialContext.matter_id ? `• Working on Matter ID: ${initialContext.matter_id} - Start by calling get_matter to understand the case.` : '• No specific matter provided - Search for relevant matters if needed.'}
-${initialContext.client_id ? `• Working with Client ID: ${initialContext.client_id} - Start by calling get_client to understand the client.` : ''}
+${context.matter_id ? `• Matter ID: ${context.matter_id}` : '• No specific matter - search if needed'}
+${context.client_id ? `• Client ID: ${context.client_id}` : ''}
 
-## HOW YOU OPERATE (ReAct Pattern)
-You work in a continuous loop:
-1. **THINK**: Analyze your current situation and what you've learned
-2. **ACT**: Call exactly ONE tool to make progress
-3. **OBSERVE**: Learn from the tool result
-4. **REPEAT**: Continue until your mission is complete
+## EXECUTION RULES
+1. **ONE TOOL PER RESPONSE** - Call exactly ONE tool each time
+2. **FOLLOW THE PLAN** - Work through your plan steps systematically
+3. **ADAPT AS NEEDED** - If you discover new information, adjust your approach
+4. **DOCUMENT FINDINGS** - Create notes for important discoveries
+5. **USE EXACT IDs** - Always use UUIDs returned from previous tool calls
 
-## CRITICAL RULES
-1. **ONE TOOL PER RESPONSE** - You MUST call exactly one tool each time. Never skip tool calls.
-2. **BUILD PROGRESSIVELY** - Each action should build on previous results
-3. **BE THOROUGH** - You have up to 15 minutes. Use the time wisely.
-4. **DOCUMENT YOUR WORK** - Create notes, tasks, and updates as you go
-5. **STAY FOCUSED** - Every action should move toward completing your mission
+## TOOL TIPS
+- Use search_matters with flexible terms (names may not match exactly)
+- Use get_matter to get full details including documents and tasks
+- Use read_document_content to analyze document contents
+- Use create_matter_note to record findings
+- Use create_task for follow-up items
 
-## TOOL CATEGORIES
-- **Discovery**: search_matters, list_my_matters, get_matter, list_clients, get_client, list_documents, read_document_content
-- **Research**: get_calendar_events, get_my_time_entries, list_invoices, get_integrations_status
-- **Actions**: log_time, create_task, create_event, create_matter_note, create_client_note, create_invoice
-- **Documents**: upload_document, generate_pdf_document, draft_email_for_matter
-- **Management**: update_task, update_matter, close_matter
+## COMPLETION
+When you believe the goal is achieved:
+1. Ensure all key findings are documented
+2. Create any necessary follow-up tasks
+3. State "MISSION COMPLETE" in your response
 
-## YOUR APPROACH
-1. **Understand First**: Start by gathering information about the matter/client
-2. **Analyze**: Review documents, time entries, and existing notes
-3. **Take Action**: Create what's needed (notes, tasks, events, invoices)
-4. **Document**: Record your findings and actions
-5. **Verify**: Check your work when possible
-
-## IMPORTANT NOTES
-- All IDs are UUIDs - use exact IDs returned from searches
-- When searching, use flexible terms - exact names may not match
-- If one approach fails, try another (search by different terms)
-- Create notes to document important findings
-- Create tasks for any follow-up work needed
-
-NOW BEGIN. Call a tool to start working on your mission.`;
+NOW EXECUTE. Start with the first step of your plan.`;
 }
 
 /**
- * Autonomous Legal Agent - Runs up to 15 minutes using ReAct pattern
- * 
- * This agent uses Azure OpenAI with function calling to autonomously
- * complete legal tasks. It follows the ReAct pattern:
- * - Reason about the current state
- * - Take one action (tool call)
- * - Observe the result
- * - Repeat until complete
+ * Build the reflection prompt - asks AI to evaluate progress
+ */
+function buildReflectionPrompt(goal, plan, completedActions, currentStep) {
+  const actionsSummary = completedActions.slice(-5).map(a => 
+    `- ${a.tool}: ${a.summary}`
+  ).join('\n');
+
+  return `## REFLECTION CHECKPOINT
+
+You are ${currentStep}/${plan.length} steps through your plan.
+
+**Goal:** ${goal}
+
+**Recent Actions:**
+${actionsSummary}
+
+**Questions to consider:**
+1. Are you making progress toward the goal?
+2. Have you discovered anything that requires plan adjustment?
+3. Is the goal achieved, or do you need to continue?
+
+**Respond with ONE of these:**
+A) Call the next tool to continue execution
+B) If goal is complete, say "MISSION COMPLETE" and summarize results
+C) If stuck, try a different approach
+
+Continue executing.`;
+}
+
+/**
+ * Main Agent Entry Point - Plan, Execute, Reflect
  */
 async function runReActAgent(taskId, user, goal, initialContext = {}) {
-  console.log(`\n${'='.repeat(60)}`);
-  console.log(`[AGENT ${taskId}] AUTONOMOUS LEGAL AGENT STARTING`);
-  console.log(`[AGENT ${taskId}] Mission: ${goal}`);
-  console.log(`[AGENT ${taskId}] User: ${user.firstName} ${user.lastName}`);
-  console.log(`${'='.repeat(60)}\n`);
+  console.log(`\n${'═'.repeat(70)}`);
+  console.log(`║ APEX LEGAL AGENT - STARTING`);
+  console.log(`║ Task ID: ${taskId}`);
+  console.log(`║ Goal: ${goal.substring(0, 60)}${goal.length > 60 ? '...' : ''}`);
+  console.log(`║ User: ${user.firstName} ${user.lastName}`);
+  console.log(`${'═'.repeat(70)}\n`);
   
-  // Configuration
+  // ══════════════════════════════════════════════════════════════════════════
+  // CONFIGURATION
+  // ══════════════════════════════════════════════════════════════════════════
   const startTime = Date.now();
-  const MAX_RUNTIME_MS = 15 * 60 * 1000;  // 15 minutes max
-  const LOOP_DELAY_MS = 1000;              // 1 second between iterations
-  const RATE_LIMIT_DELAY_MS = 10000;       // 10 seconds on rate limit
-  const ERROR_DELAY_MS = 3000;             // 3 seconds on error
-  const MAX_ITERATIONS = 200;              // Safety limit
-  const MAX_HISTORY_LENGTH = 40;           // Trim history when too long
+  const MAX_RUNTIME_MS = 15 * 60 * 1000;     // 15 minutes max
+  const STEP_DELAY_MS = 500;                  // 0.5 second between steps
+  const RATE_LIMIT_DELAY_MS = 10000;          // 10 seconds on rate limit
+  const ERROR_DELAY_MS = 3000;                // 3 seconds on error
+  const MAX_ITERATIONS = 150;                 // Safety limit
+  const MAX_HISTORY_TOKENS = 50;              // Trim history at this many messages
+  const REFLECT_EVERY_N_STEPS = 5;            // Reflect every N successful actions
   
-  // State
-  let iteration = 0;
+  // ══════════════════════════════════════════════════════════════════════════
+  // STATE
+  // ══════════════════════════════════════════════════════════════════════════
+  let agentStatus = AgentStatus.INITIALIZING;
+  let plan = [];
+  let currentPlanStep = 0;
   let completedActions = [];
+  let iteration = 0;
   let consecutiveErrors = 0;
-  let consecutiveNoTools = 0;
   let goalAchieved = false;
+  let messages = [];
   
-  // Helper to check cancellation
+  // ══════════════════════════════════════════════════════════════════════════
+  // HELPERS
+  // ══════════════════════════════════════════════════════════════════════════
+  
   const isCancelled = () => {
     const state = runningAgents.get(taskId);
     return !state || state.cancelled;
   };
   
-  // Helper to update progress
-  const updateProgress = async (currentStep, additionalData = {}) => {
-    const elapsed = Date.now() - startTime;
-    const progressPercent = Math.min(Math.round((elapsed / MAX_RUNTIME_MS) * 100), goalAchieved ? 100 : 95);
-    
-    await query(
-      `UPDATE ai_tasks SET 
-        iterations = $1, 
-        progress = $2,
-        current_step = $3,
-        updated_at = NOW()
-       WHERE id = $4`,
-      [
-        iteration,
-        JSON.stringify({
-          iteration,
-          progressPercent,
-          currentStep,
-          completedActions: completedActions.slice(-10),
-          totalActions: completedActions.length,
-          elapsedSeconds: Math.floor(elapsed / 1000),
-          status: goalAchieved ? 'complete' : 'working',
-          ...additionalData
-        }),
-        currentStep,
-        taskId
-      ]
-    );
+  const getElapsed = () => Date.now() - startTime;
+  const getRemainingMs = () => MAX_RUNTIME_MS - getElapsed();
+  const getProgressPercent = () => {
+    if (goalAchieved) return 100;
+    // Progress based on: 20% planning + 80% execution
+    if (plan.length === 0) return Math.min(15, Math.round((getElapsed() / MAX_RUNTIME_MS) * 20));
+    const planProgress = Math.min(currentPlanStep / plan.length, 1);
+    return Math.min(95, Math.round(20 + planProgress * 75));
   };
   
-  // Filter tools for background mode (exclude dangerous/redundant ones)
+  const updateStatus = async (status, currentStep, additionalData = {}) => {
+    agentStatus = status;
+    const elapsed = getElapsed();
+    
+    try {
+      await query(
+        `UPDATE ai_tasks SET 
+          iterations = $1, 
+          progress = $2,
+          current_step = $3,
+          plan = $4,
+          updated_at = NOW()
+         WHERE id = $5`,
+        [
+          iteration,
+          JSON.stringify({
+            status: agentStatus,
+            progressPercent: getProgressPercent(),
+            currentStep,
+            planSteps: plan,
+            currentPlanStep,
+            totalPlanSteps: plan.length,
+            completedActions: completedActions.slice(-10),
+            totalActions: completedActions.length,
+            elapsedSeconds: Math.floor(elapsed / 1000),
+            remainingSeconds: Math.floor(getRemainingMs() / 1000),
+            ...additionalData
+          }),
+          currentStep,
+          JSON.stringify(plan),
+          taskId
+        ]
+      );
+    } catch (e) {
+      console.error(`[AGENT ${taskId}] Failed to update status:`, e.message);
+    }
+  };
+  
+  // Filter dangerous tools
   const AGENT_TOOLS = TOOLS.filter(t => {
-    const name = t.function?.name || t.name;
-    // Exclude tools that shouldn't be used autonomously
+    const name = t.function?.name;
     const excluded = [
-      'start_background_task',  // Can't start another background task
-      'request_human_input',    // Background mode is autonomous
-      'send_email',             // Too dangerous to send automatically
-      'delete_matter',          // Too dangerous
-      'delete_client',          // Too dangerous
-      'void_invoice',           // Too dangerous
-      'delete_time_entry'       // Could lose billable work
+      'start_background_task',
+      'request_human_input',
+      'send_email',
+      'delete_matter',
+      'delete_client',
+      'void_invoice',
+      'delete_time_entry'
     ];
-    return !excluded.includes(name);
+    return name && !excluded.includes(name);
   });
   
+  // ══════════════════════════════════════════════════════════════════════════
+  // MAIN EXECUTION
+  // ══════════════════════════════════════════════════════════════════════════
+  
   try {
-    // Check cancellation before starting
+    // Check cancellation
     if (isCancelled()) {
       console.log(`[AGENT ${taskId}] Cancelled before start`);
       return;
     }
     
-    // Initialize task status
+    // Initialize task
     await query(
-      `UPDATE ai_tasks SET 
-        status = 'running', 
-        started_at = NOW(),
-        updated_at = NOW()
-       WHERE id = $1`,
+      `UPDATE ai_tasks SET status = 'running', started_at = NOW(), updated_at = NOW() WHERE id = $1`,
       [taskId]
     );
     
-    await updateProgress('Initializing autonomous agent...', { phase: 'init' });
+    // ════════════════════════════════════════════════════════════════════════
+    // PHASE 1: PLANNING
+    // ════════════════════════════════════════════════════════════════════════
+    console.log(`[AGENT ${taskId}] ▶ PHASE 1: PLANNING`);
+    await updateStatus(AgentStatus.PLANNING, 'Creating execution plan...');
     
-    // Build the system prompt
-    const systemPrompt = buildAgentSystemPrompt(goal, user, initialContext);
+    const planningPrompt = buildPlanningPrompt(goal, user, initialContext);
     
-    // Initialize conversation with system prompt only
-    // The AI will decide what to do first based on the mission
-    let messages = [
-      { role: 'system', content: systemPrompt }
+    let planResponse;
+    try {
+      planResponse = await callAzureOpenAIWithTools(
+        [{ role: 'user', content: planningPrompt }],
+        [] // No tools during planning
+      );
+    } catch (error) {
+      console.error(`[AGENT ${taskId}] Planning failed:`, error.message);
+      // Create a default plan if planning fails
+      plan = [
+        'Gather relevant information',
+        'Analyze the situation',
+        'Take appropriate action',
+        'Document findings'
+      ];
+    }
+    
+    // Parse the plan from AI response
+    if (planResponse?.content) {
+      try {
+        // Try to extract JSON from response
+        const jsonMatch = planResponse.content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          plan = parsed.plan || [];
+          console.log(`[AGENT ${taskId}] Plan created with ${plan.length} steps`);
+          console.log(`[AGENT ${taskId}] Approach: ${parsed.approach || 'Not specified'}`);
+        }
+      } catch (e) {
+        // If JSON parsing fails, extract numbered list
+        const lines = planResponse.content.split('\n');
+        plan = lines
+          .filter(l => /^\d+[\.\):]/.test(l.trim()))
+          .map(l => l.replace(/^\d+[\.\):]\s*/, '').trim())
+          .filter(l => l.length > 0);
+      }
+    }
+    
+    // Ensure we have a plan
+    if (plan.length === 0) {
+      plan = [
+        `Search for information related to: ${goal}`,
+        'Analyze findings',
+        'Take necessary actions',
+        'Document results'
+      ];
+    }
+    
+    console.log(`[AGENT ${taskId}] 📋 Plan:`);
+    plan.forEach((step, i) => console.log(`[AGENT ${taskId}]    ${i + 1}. ${step}`));
+    
+    await updateStatus(AgentStatus.PLANNING, `Plan created: ${plan.length} steps`, { planCreated: true });
+    
+    // Check cancellation and time
+    if (isCancelled()) return;
+    if (getRemainingMs() < 60000) {
+      console.log(`[AGENT ${taskId}] Not enough time remaining after planning`);
+      goalAchieved = false;
+      throw new Error('Insufficient time after planning phase');
+    }
+    
+    // ════════════════════════════════════════════════════════════════════════
+    // PHASE 2: EXECUTION
+    // ════════════════════════════════════════════════════════════════════════
+    console.log(`\n[AGENT ${taskId}] ▶ PHASE 2: EXECUTION`);
+    
+    // Initialize conversation for execution
+    const executionSystemPrompt = buildExecutionSystemPrompt(goal, plan, user, initialContext);
+    messages = [
+      { role: 'system', content: executionSystemPrompt }
     ];
     
-    console.log(`[AGENT ${taskId}] System prompt length: ${systemPrompt.length} chars`);
-    console.log(`[AGENT ${taskId}] Tools available: ${AGENT_TOOLS.length}`);
-    console.log(`[AGENT ${taskId}] Starting autonomous loop...\n`);
-    
-    // ========================================
-    // MAIN AGENT LOOP
-    // ========================================
-    while (iteration < MAX_ITERATIONS) {
+    // Main execution loop
+    while (iteration < MAX_ITERATIONS && getRemainingMs() > 30000) {
       iteration++;
-      const elapsed = Date.now() - startTime;
-      const remainingMs = MAX_RUNTIME_MS - elapsed;
-      const remainingMins = Math.ceil(remainingMs / 60000);
-      
-      // Check time limit
-      if (elapsed >= MAX_RUNTIME_MS) {
-        console.log(`[AGENT ${taskId}] ⏰ Time limit reached (15 minutes)`);
-        break;
-      }
       
       // Check cancellation
       if (isCancelled()) {
-        console.log(`[AGENT ${taskId}] 🛑 Task cancelled by user`);
+        console.log(`[AGENT ${taskId}] 🛑 Cancelled by user`);
         runningAgents.delete(taskId);
         return;
       }
       
-      console.log(`[AGENT ${taskId}] ─── Iteration ${iteration} (${remainingMins}min remaining) ───`);
+      // Determine current step description
+      const stepDesc = currentPlanStep < plan.length 
+        ? `Step ${currentPlanStep + 1}/${plan.length}: ${plan[currentPlanStep].substring(0, 40)}...`
+        : `Completing task (${completedActions.length} actions done)`;
       
-      // Update progress
-      const stepDescription = completedActions.length > 0
-        ? `${completedActions[completedActions.length - 1].summary} (${completedActions.length} actions)`
-        : 'Analyzing mission...';
-      await updateProgress(stepDescription, { iteration });
+      console.log(`\n[AGENT ${taskId}] ── Iteration ${iteration} | ${stepDesc} ──`);
+      await updateStatus(AgentStatus.THINKING, stepDesc);
       
-      // ========================================
+      // ══════════════════════════════════════════════════════════════════════
       // CALL AZURE OPENAI
-      // ========================================
+      // ══════════════════════════════════════════════════════════════════════
       let response;
       try {
+        await updateStatus(AgentStatus.THINKING, 'Deciding next action...');
         response = await callAzureOpenAIWithTools(messages, AGENT_TOOLS);
         consecutiveErrors = 0;
       } catch (error) {
         consecutiveErrors++;
         console.error(`[AGENT ${taskId}] ❌ API Error (${consecutiveErrors}):`, error.message);
         
-        // Handle rate limiting
         if (error.message.includes('429') || error.message.includes('rate')) {
-          console.log(`[AGENT ${taskId}] 🚦 Rate limited, waiting ${RATE_LIMIT_DELAY_MS/1000}s...`);
           await delay(RATE_LIMIT_DELAY_MS);
         } else {
           await delay(ERROR_DELAY_MS);
         }
         
-        // Reset conversation if too many errors
+        // Reset on too many errors
         if (consecutiveErrors >= 5) {
-          console.log(`[AGENT ${taskId}] 🔄 Resetting conversation after ${consecutiveErrors} errors`);
+          console.log(`[AGENT ${taskId}] Resetting conversation...`);
           messages = [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: `Resume your mission: ${goal}\n\nYou've completed ${completedActions.length} actions so far. Continue by calling a tool.` }
+            { role: 'system', content: executionSystemPrompt },
+            { role: 'user', content: `Resume execution. You've completed ${completedActions.length} actions. Continue with step ${currentPlanStep + 1} of your plan.` }
           ];
           consecutiveErrors = 0;
         }
-        
-        if (isCancelled()) return;
         continue;
       }
       
       // Check cancellation after API call
       if (isCancelled()) {
-        console.log(`[AGENT ${taskId}] 🛑 Task cancelled after API call`);
         runningAgents.delete(taskId);
         return;
       }
       
-      // ========================================
-      // HANDLE RESPONSE
-      // ========================================
-      
-      // Case 1: AI made a tool call
+      // ══════════════════════════════════════════════════════════════════════
+      // HANDLE TOOL CALL
+      // ══════════════════════════════════════════════════════════════════════
       if (response.tool_calls && response.tool_calls.length > 0) {
-        consecutiveNoTools = 0;
-        
-        // Process only the FIRST tool call (one at a time)
         const toolCall = response.tool_calls[0];
         const functionName = toolCall.function.name;
         let functionArgs = {};
@@ -6045,13 +6199,13 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
         try {
           functionArgs = JSON.parse(toolCall.function.arguments || '{}');
         } catch (e) {
-          console.error(`[AGENT ${taskId}] Failed to parse args:`, toolCall.function.arguments);
+          console.error(`[AGENT ${taskId}] Failed to parse args`);
         }
         
-        console.log(`[AGENT ${taskId}] 🔧 Tool: ${functionName}`);
-        console.log(`[AGENT ${taskId}]    Args: ${JSON.stringify(functionArgs).substring(0, 100)}...`);
+        console.log(`[AGENT ${taskId}] 🔧 Executing: ${functionName}`);
+        await updateStatus(AgentStatus.EXECUTING, `Executing: ${functionName}`);
         
-        // Execute the tool
+        // Execute tool
         let toolResult;
         try {
           toolResult = await executeTool(functionName, functionArgs, user, null);
@@ -6059,13 +6213,14 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
           toolResult = { error: toolError.message };
         }
         
-        // Build action summary
+        // Build summary
         const actionSummary = buildActionSummary(functionName, functionArgs, toolResult);
-        console.log(`[AGENT ${taskId}] ✅ Result: ${actionSummary}`);
+        console.log(`[AGENT ${taskId}] ✅ ${actionSummary}`);
         
-        // Track completed action
+        // Track action
         completedActions.push({
           iteration,
+          planStep: currentPlanStep,
           tool: functionName,
           args: functionArgs,
           summary: actionSummary,
@@ -6073,180 +6228,197 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
           timestamp: new Date().toISOString()
         });
         
-        // Add assistant message with tool call to history
+        // Update plan progress heuristically
+        if (!toolResult.error) {
+          // Check if this action likely completed a plan step
+          const currentStepLower = (plan[currentPlanStep] || '').toLowerCase();
+          const toolLower = functionName.toLowerCase();
+          
+          if (
+            (currentStepLower.includes('search') && toolLower.includes('search')) ||
+            (currentStepLower.includes('get') && toolLower.includes('get')) ||
+            (currentStepLower.includes('read') && toolLower.includes('read')) ||
+            (currentStepLower.includes('create') && toolLower.includes('create')) ||
+            (currentStepLower.includes('draft') && toolLower.includes('draft')) ||
+            (currentStepLower.includes('log') && toolLower.includes('log')) ||
+            (currentStepLower.includes('document') && (toolLower.includes('note') || toolLower.includes('create')))
+          ) {
+            currentPlanStep = Math.min(currentPlanStep + 1, plan.length);
+          }
+        }
+        
+        // Add to conversation
         messages.push({
           role: 'assistant',
           content: response.content || null,
           tool_calls: [toolCall]
         });
-        
-        // Add tool result to history
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
-          content: JSON.stringify(toolResult)
+          content: JSON.stringify(toolResult).substring(0, 10000) // Limit tool result size
         });
         
-        // Check if goal might be achieved (based on action patterns)
+        // ════════════════════════════════════════════════════════════════════
+        // PHASE 3: REFLECTION (every N steps)
+        // ════════════════════════════════════════════════════════════════════
+        if (completedActions.length % REFLECT_EVERY_N_STEPS === 0) {
+          console.log(`[AGENT ${taskId}] 🔍 Reflection checkpoint`);
+          await updateStatus(AgentStatus.REFLECTING, 'Evaluating progress...');
+          
+          const reflectionPrompt = buildReflectionPrompt(goal, plan, completedActions, currentPlanStep);
+          messages.push({ role: 'user', content: reflectionPrompt });
+        }
+        
+        // Check for goal achievement
         if (detectGoalAchievement(goal, completedActions, toolResult)) {
-          console.log(`[AGENT ${taskId}] 🎯 Goal appears to be achieved!`);
+          console.log(`[AGENT ${taskId}] 🎯 Goal achievement detected!`);
           goalAchieved = true;
         }
         
       } else {
-        // Case 2: AI responded with text only (no tool call)
-        consecutiveNoTools++;
-        console.log(`[AGENT ${taskId}] 💬 Text response (no tool): ${(response.content || '').substring(0, 100)}...`);
+        // Text-only response
+        console.log(`[AGENT ${taskId}] 💬 ${(response.content || '').substring(0, 80)}...`);
         
-        // Add assistant's text response
         if (response.content) {
-          messages.push({
-            role: 'assistant',
-            content: response.content
-          });
+          messages.push({ role: 'assistant', content: response.content });
+          
+          // Check for completion signal
+          if (response.content.toUpperCase().includes('MISSION COMPLETE')) {
+            console.log(`[AGENT ${taskId}] 🎯 Agent declared mission complete`);
+            goalAchieved = true;
+          }
         }
         
-        // If AI keeps not calling tools, prompt it to continue
-        if (consecutiveNoTools >= 2) {
-          const nudgeMessage = completedActions.length > 0
-            ? `You've made good progress with ${completedActions.length} actions. What's the next step to complete your mission? Call a tool.`
-            : `Please start working on your mission by calling a tool. What information do you need first?`;
-          
+        // Nudge if no tool call
+        if (!goalAchieved) {
           messages.push({
             role: 'user',
-            content: nudgeMessage
+            content: `Continue executing your plan. Current step: ${plan[currentPlanStep] || 'Wrap up'}. Call a tool.`
           });
-          consecutiveNoTools = 0;
-        }
-        
-        // Check if AI thinks it's done
-        if (response.content && (
-          response.content.toLowerCase().includes('task is complete') ||
-          response.content.toLowerCase().includes('mission complete') ||
-          response.content.toLowerCase().includes('i have completed') ||
-          response.content.toLowerCase().includes('successfully completed')
-        )) {
-          console.log(`[AGENT ${taskId}] 🎯 AI declared mission complete`);
-          goalAchieved = true;
         }
       }
       
-      // ========================================
-      // MANAGE CONVERSATION HISTORY
-      // ========================================
-      if (messages.length > MAX_HISTORY_LENGTH) {
-        console.log(`[AGENT ${taskId}] 📝 Trimming conversation history...`);
+      // ══════════════════════════════════════════════════════════════════════
+      // CONVERSATION MANAGEMENT
+      // ══════════════════════════════════════════════════════════════════════
+      if (messages.length > MAX_HISTORY_TOKENS) {
+        console.log(`[AGENT ${taskId}] 📝 Compacting conversation history...`);
         
-        // Keep system prompt + summarize progress + keep recent messages
         const systemMsg = messages[0];
-        const recentMessages = messages.slice(-20);
+        const recentMessages = messages.slice(-25);
         
-        const progressSummary = {
+        const contextSummary = {
           role: 'user',
-          content: `[PROGRESS SUMMARY]\nYou've completed ${completedActions.length} actions:\n${
-            completedActions.slice(-5).map(a => `- ${a.summary}`).join('\n')
-          }\n\nContinue working toward your mission: ${goal}`
+          content: `[CONTEXT SUMMARY]
+Completed ${completedActions.length} actions. Current plan step: ${currentPlanStep + 1}/${plan.length}.
+Recent actions: ${completedActions.slice(-3).map(a => a.summary).join('; ')}
+Continue with: ${plan[currentPlanStep] || 'completing the task'}`
         };
         
-        messages = [systemMsg, progressSummary, ...recentMessages];
+        messages = [systemMsg, contextSummary, ...recentMessages];
       }
       
-      // ========================================
-      // CHECK IF DONE
-      // ========================================
-      if (goalAchieved && completedActions.length >= 3) {
-        // Give AI a chance to do any final wrap-up
-        if (iteration < MAX_ITERATIONS - 1) {
-          messages.push({
-            role: 'user',
-            content: 'If there are any final documentation steps (like creating a summary note), do them now. Otherwise, your mission is complete.'
+      // Check if done
+      if (goalAchieved && completedActions.length >= 2) {
+        // Allow one final wrap-up action
+        console.log(`[AGENT ${taskId}] Performing final wrap-up...`);
+        messages.push({
+          role: 'user',
+          content: 'Create a final summary note documenting what was accomplished, then confirm completion.'
+        });
+        
+        const wrapUpResponse = await callAzureOpenAIWithTools(messages, AGENT_TOOLS);
+        if (wrapUpResponse.tool_calls?.length > 0) {
+          const tc = wrapUpResponse.tool_calls[0];
+          const result = await executeTool(
+            tc.function.name,
+            JSON.parse(tc.function.arguments || '{}'),
+            user,
+            null
+          );
+          completedActions.push({
+            iteration: iteration + 1,
+            planStep: plan.length,
+            tool: tc.function.name,
+            summary: buildActionSummary(tc.function.name, {}, result),
+            success: !result.error,
+            timestamp: new Date().toISOString()
           });
-          
-          // One more iteration for wrap-up
-          const wrapUpResponse = await callAzureOpenAIWithTools(messages, AGENT_TOOLS);
-          
-          if (wrapUpResponse.tool_calls && wrapUpResponse.tool_calls.length > 0) {
-            const toolCall = wrapUpResponse.tool_calls[0];
-            const funcName = toolCall.function.name;
-            const funcArgs = JSON.parse(toolCall.function.arguments || '{}');
-            const result = await executeTool(funcName, funcArgs, user, null);
-            
-            completedActions.push({
-              iteration: iteration + 1,
-              tool: funcName,
-              args: funcArgs,
-              summary: buildActionSummary(funcName, funcArgs, result),
-              success: !result.error,
-              timestamp: new Date().toISOString()
-            });
-          }
         }
         break;
       }
       
-      // Small delay between iterations
-      await delay(LOOP_DELAY_MS);
+      await delay(STEP_DELAY_MS);
     }
     
-    // ========================================
-    // COMPLETE THE TASK
-    // ========================================
-    const elapsedMinutes = Math.round((Date.now() - startTime) / 60000);
+    // ════════════════════════════════════════════════════════════════════════
+    // COMPLETION
+    // ════════════════════════════════════════════════════════════════════════
+    const elapsedMinutes = Math.round(getElapsed() / 60000);
     const successfulActions = completedActions.filter(a => a.success).length;
     
-    // Generate summary
-    const summary = generateAgentSummary(goal, completedActions, goalAchieved, elapsedMinutes);
+    console.log(`\n${'═'.repeat(70)}`);
+    console.log(`║ MISSION ${goalAchieved ? 'COMPLETED ✅' : 'TIME LIMIT ⏱️'}`);
+    console.log(`║ Duration: ${elapsedMinutes} minutes`);
+    console.log(`║ Plan Progress: ${currentPlanStep}/${plan.length} steps`);
+    console.log(`║ Actions: ${successfulActions}/${completedActions.length} successful`);
+    console.log(`${'═'.repeat(70)}\n`);
     
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`[AGENT ${taskId}] MISSION ${goalAchieved ? 'COMPLETED' : 'ENDED'}`);
-    console.log(`[AGENT ${taskId}] Duration: ${elapsedMinutes} minutes`);
-    console.log(`[AGENT ${taskId}] Actions: ${successfulActions}/${completedActions.length} successful`);
-    console.log(`${'='.repeat(60)}\n`);
+    const summary = generateAgentSummary(goal, plan, completedActions, goalAchieved, elapsedMinutes);
     
-    // Update database with final status
     await query(
       `UPDATE ai_tasks SET 
         status = 'completed',
         completed_at = NOW(),
         result = $1,
         progress = $2,
+        plan = $3,
         updated_at = NOW()
-       WHERE id = $3`,
+       WHERE id = $4`,
       [
         summary,
         JSON.stringify({
-          iteration,
+          status: AgentStatus.COMPLETED,
           progressPercent: 100,
           currentStep: 'Complete',
+          planSteps: plan,
+          currentPlanStep: plan.length,
+          totalPlanSteps: plan.length,
           completedActions: completedActions.slice(-10),
           totalActions: completedActions.length,
           successfulActions,
           goalAchieved,
-          elapsedMinutes,
-          status: 'completed'
+          elapsedMinutes
         }),
+        JSON.stringify(plan),
         taskId
       ]
     );
     
-    // Clean up
     runningAgents.delete(taskId);
     
   } catch (error) {
     console.error(`[AGENT ${taskId}] 💥 Fatal error:`, error);
     
-    // Update database with error status
     await query(
       `UPDATE ai_tasks SET 
         status = 'failed',
         completed_at = NOW(),
         error = $1,
         result = $2,
+        progress = $3,
         updated_at = NOW()
-       WHERE id = $3`,
+       WHERE id = $4`,
       [
         error.message,
-        `Agent encountered an error after ${completedActions.length} actions: ${error.message}`,
+        `Agent failed after ${completedActions.length} actions: ${error.message}`,
+        JSON.stringify({
+          status: AgentStatus.FAILED,
+          progressPercent: getProgressPercent(),
+          completedActions: completedActions.slice(-10),
+          error: error.message
+        }),
         taskId
       ]
     );
@@ -6259,150 +6431,143 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
  * Build a human-readable summary of what a tool did
  */
 function buildActionSummary(functionName, args, result) {
-  if (result.error) {
-    return `Failed: ${result.error.substring(0, 50)}`;
+  if (result?.error) {
+    return `Failed: ${String(result.error).substring(0, 50)}`;
   }
   
-  // Generate summary based on tool type
   switch (functionName) {
     case 'get_matter':
-      return result.matter ? `Retrieved matter: ${result.matter.name}` : 'Retrieved matter details';
+      return result?.matter ? `Retrieved matter: ${result.matter.name}` : 'Retrieved matter';
     case 'get_client':
-      return result.client ? `Retrieved client: ${result.client.display_name}` : 'Retrieved client details';
+      return result?.client ? `Retrieved client: ${result.client.display_name}` : 'Retrieved client';
     case 'search_matters':
-      return `Found ${result.matters?.length || 0} matters`;
+      return `Found ${result?.matters?.length || 0} matters`;
     case 'list_clients':
-      return `Found ${result.clients?.length || 0} clients`;
+      return `Found ${result?.clients?.length || 0} clients`;
     case 'list_my_matters':
-      return `Listed ${result.matters?.length || 0} matters`;
+      return `Listed ${result?.matters?.length || 0} matters`;
     case 'list_documents':
-      return `Found ${result.documents?.length || 0} documents`;
+      return `Found ${result?.documents?.length || 0} documents`;
     case 'read_document_content':
-      return result.document ? `Read document: ${result.document.name}` : 'Read document content';
+      return result?.document ? `Read: ${result.document.name}` : 'Read document';
     case 'log_time':
-      return result.time_entry ? `Logged ${result.time_entry.hours}h for ${args.description?.substring(0, 30)}` : 'Logged time entry';
+      return result?.time_entry ? `Logged ${result.time_entry.hours}h` : 'Logged time';
     case 'create_task':
-      return result.task ? `Created task: ${result.task.name}` : 'Created task';
+      return result?.task ? `Created task: ${result.task.name}` : 'Created task';
     case 'create_event':
-      return result.event ? `Created event: ${result.event.title}` : 'Created calendar event';
+      return result?.event ? `Scheduled: ${result.event.title}` : 'Created event';
     case 'create_matter_note':
-      return 'Created matter note';
+    case 'add_matter_note':
+      return 'Added note to matter';
     case 'create_client_note':
-      return 'Created client note';
+    case 'add_client_note':
+      return 'Added note to client';
     case 'create_invoice':
-      return result.invoice ? `Created invoice #${result.invoice.number}` : 'Created invoice';
+      return result?.invoice ? `Invoice #${result.invoice.number}` : 'Created invoice';
     case 'draft_email_for_matter':
-      return `Drafted email: ${args.subject?.substring(0, 30) || 'for matter'}`;
+      return `Drafted email: ${args?.subject?.substring(0, 25) || 'for matter'}`;
     case 'generate_pdf_document':
-      return result.document ? `Generated PDF: ${result.document.name}` : 'Generated PDF document';
-    case 'get_calendar_events':
-      return `Retrieved ${result.events?.length || 0} calendar events`;
-    case 'get_my_time_entries':
-      return `Retrieved ${result.time_entries?.length || 0} time entries`;
-    case 'update_task':
-      return `Updated task`;
-    case 'update_matter':
-      return `Updated matter`;
+    case 'create_document':
+      return result?.document ? `Created: ${result.document.name}` : 'Created document';
     default:
-      return result.message || result.summary || `Executed ${functionName}`;
+      return result?.message || result?.summary || `Executed ${functionName}`;
   }
 }
 
 /**
- * Detect if the goal appears to be achieved based on actions taken
+ * Detect if the goal appears to be achieved based on actions
  */
 function detectGoalAchievement(goal, actions, lastResult) {
-  const goalLower = goal.toLowerCase();
-  const actionTypes = actions.map(a => a.tool);
+  if (!goal || actions.length < 2) return false;
   
-  // Check for specific goal patterns
-  if (goalLower.includes('summary') || goalLower.includes('summarize')) {
-    // Goal involves creating a summary - check if note was created
-    return actionTypes.includes('create_matter_note') || actionTypes.includes('create_client_note');
+  const goalLower = goal.toLowerCase();
+  const toolsUsed = actions.map(a => a.tool);
+  const successfulTools = actions.filter(a => a.success).map(a => a.tool);
+  
+  // Goal-specific detection
+  if (goalLower.includes('summary') || goalLower.includes('summarize') || goalLower.includes('review')) {
+    return successfulTools.some(t => t.includes('note')) && 
+           successfulTools.some(t => t.includes('get_') || t.includes('read'));
   }
   
   if (goalLower.includes('invoice') || goalLower.includes('bill')) {
-    return actionTypes.includes('create_invoice');
+    return successfulTools.includes('create_invoice');
   }
   
   if (goalLower.includes('schedule') || goalLower.includes('meeting') || goalLower.includes('calendar')) {
-    return actionTypes.includes('create_event');
+    return successfulTools.includes('create_event');
   }
   
-  if (goalLower.includes('task') && (goalLower.includes('create') || goalLower.includes('add'))) {
-    return actionTypes.includes('create_task');
-  }
-  
-  if (goalLower.includes('time') && goalLower.includes('log')) {
-    return actionTypes.includes('log_time');
+  if (goalLower.includes('task')) {
+    return successfulTools.includes('create_task');
   }
   
   if (goalLower.includes('email') || goalLower.includes('draft')) {
-    return actionTypes.includes('draft_email_for_matter') || actionTypes.includes('draft_email');
+    return successfulTools.some(t => t.includes('email') || t.includes('draft'));
   }
   
-  // For review/analyze tasks, check if they got info and created notes
-  if (goalLower.includes('review') || goalLower.includes('analyze')) {
-    const hasGatheredInfo = actionTypes.some(t => 
-      ['get_matter', 'get_client', 'list_documents', 'read_document_content'].includes(t)
-    );
-    const hasDocumented = actionTypes.some(t => 
-      ['create_matter_note', 'create_client_note', 'create_task'].includes(t)
-    );
-    return hasGatheredInfo && hasDocumented;
+  if (goalLower.includes('document')) {
+    return successfulTools.some(t => t.includes('document') || t.includes('pdf'));
   }
   
-  // Default: Check if meaningful work was done (at least 5 actions with some creation)
-  if (actions.length >= 5) {
-    const creationActions = actionTypes.filter(t => 
-      t.startsWith('create_') || t === 'log_time' || t === 'draft_email_for_matter'
+  // Generic: If 5+ successful actions with at least one creation
+  if (successfulTools.length >= 5) {
+    return successfulTools.some(t => 
+      t.startsWith('create_') || t.includes('note') || t === 'log_time' || t.includes('draft')
     );
-    return creationActions.length >= 1;
   }
   
   return false;
 }
 
 /**
- * Generate a summary of what the agent accomplished
+ * Generate comprehensive summary of agent execution
  */
-function generateAgentSummary(goal, actions, goalAchieved, elapsedMinutes) {
-  const successfulActions = actions.filter(a => a.success);
+function generateAgentSummary(goal, plan, actions, goalAchieved, elapsedMinutes) {
+  const successful = actions.filter(a => a.success);
+  const failed = actions.filter(a => !a.success);
   
-  let summary = `## Agent Mission Summary\n\n`;
-  summary += `**Goal:** ${goal}\n\n`;
-  summary += `**Status:** ${goalAchieved ? '✅ Completed' : '⏱️ Time limit reached'}\n`;
-  summary += `**Duration:** ${elapsedMinutes} minutes\n`;
-  summary += `**Actions Completed:** ${successfulActions.length}\n\n`;
+  let summary = `# Agent Execution Report\n\n`;
+  summary += `## Mission\n${goal}\n\n`;
+  summary += `## Status: ${goalAchieved ? '✅ COMPLETED' : '⏱️ TIME LIMIT REACHED'}\n\n`;
+  summary += `## Metrics\n`;
+  summary += `- Duration: ${elapsedMinutes} minutes\n`;
+  summary += `- Plan Steps: ${plan.length}\n`;
+  summary += `- Actions Executed: ${actions.length}\n`;
+  summary += `- Successful: ${successful.length}\n`;
+  summary += `- Failed: ${failed.length}\n\n`;
   
-  if (successfulActions.length > 0) {
-    summary += `### Actions Taken\n\n`;
-    
-    // Group actions by type
-    const actionsByType = {};
-    for (const action of successfulActions) {
-      const type = action.tool;
-      if (!actionsByType[type]) actionsByType[type] = [];
-      actionsByType[type].push(action);
-    }
-    
-    for (const [type, typeActions] of Object.entries(actionsByType)) {
-      summary += `**${type.replace(/_/g, ' ')}:** ${typeActions.length}\n`;
-      for (const action of typeActions.slice(0, 3)) {
-        summary += `  - ${action.summary}\n`;
-      }
-      if (typeActions.length > 3) {
-        summary += `  - ... and ${typeActions.length - 3} more\n`;
-      }
-    }
+  if (plan.length > 0) {
+    summary += `## Plan\n`;
+    plan.forEach((step, i) => {
+      summary += `${i + 1}. ${step}\n`;
+    });
+    summary += `\n`;
   }
   
-  const failedActions = actions.filter(a => !a.success);
-  if (failedActions.length > 0) {
-    summary += `\n### Issues Encountered\n`;
-    for (const action of failedActions.slice(0, 3)) {
-      summary += `- ${action.summary}\n`;
-    }
+  if (successful.length > 0) {
+    summary += `## Actions Completed\n`;
+    const byTool = {};
+    successful.forEach(a => {
+      if (!byTool[a.tool]) byTool[a.tool] = [];
+      byTool[a.tool].push(a.summary);
+    });
+    Object.entries(byTool).forEach(([tool, summaries]) => {
+      summary += `\n### ${tool.replace(/_/g, ' ')}\n`;
+      summaries.slice(0, 5).forEach(s => {
+        summary += `- ${s}\n`;
+      });
+      if (summaries.length > 5) {
+        summary += `- ... and ${summaries.length - 5} more\n`;
+      }
+    });
+  }
+  
+  if (failed.length > 0) {
+    summary += `\n## Issues Encountered\n`;
+    failed.slice(0, 5).forEach(a => {
+      summary += `- ${a.summary}\n`;
+    });
   }
   
   return summary;
