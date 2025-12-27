@@ -934,60 +934,11 @@ router.get('/outlook/emails', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Outlook not connected', needsReconnect: true });
     }
 
-    // Get credentials
-    const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
-    const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
-    const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
-
-    // Check if credentials are configured
-    if (!MS_CLIENT_ID || !MS_CLIENT_SECRET) {
-      console.error('[Outlook/emails] OAuth credentials not configured');
-      await query(
-        `UPDATE integrations SET is_connected = false WHERE firm_id = $1 AND provider = 'outlook'`,
-        [req.user.firmId]
-      );
-      return res.status(401).json({ error: 'Microsoft 365 credentials not configured. Please contact your administrator.', needsReconnect: true });
-    }
-
-    let accessToken = integration.rows[0].access_token;
-    const refreshToken = integration.rows[0].refresh_token;
-
-    // Refresh token if needed
-    if (new Date(integration.rows[0].token_expires_at) < new Date()) {
-      console.log('[Outlook/emails] Token expired, refreshing...');
-      const refreshResponse = await fetch(`https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          refresh_token: refreshToken,
-          client_id: MS_CLIENT_ID,
-          client_secret: MS_CLIENT_SECRET,
-          grant_type: 'refresh_token',
-        }),
-      });
-
-      const newTokens = await refreshResponse.json();
-      
-      if (newTokens.access_token) {
-        accessToken = newTokens.access_token;
-        await query(
-          `UPDATE integrations SET access_token = $1, refresh_token = COALESCE($2, refresh_token), token_expires_at = NOW() + INTERVAL '1 hour'
-           WHERE firm_id = $3 AND provider = 'outlook'`,
-          [accessToken, newTokens.refresh_token, req.user.firmId]
-        );
-        console.log('[Outlook/emails] Token refreshed successfully');
-      } else {
-        console.error('[Outlook/emails] Token refresh failed:', newTokens.error, newTokens.error_description);
-        // Mark as disconnected
-        await query(
-          `UPDATE integrations SET is_connected = false, access_token = NULL WHERE firm_id = $1 AND provider = 'outlook'`,
-          [req.user.firmId]
-        );
-        return res.status(401).json({ 
-          error: 'Outlook session expired. Please reconnect your Microsoft 365 account.', 
-          needsReconnect: true 
-        });
-      }
+    // Use the shared helper function for consistent token handling
+    const accessToken = await getValidOutlookToken(integration.rows[0]);
+    if (!accessToken || typeof accessToken === 'object') {
+      const errorMsg = typeof accessToken === 'object' ? accessToken.error : 'Session expired. Please reconnect Outlook.';
+      return res.status(401).json({ error: errorMsg, needsReconnect: true });
     }
 
     // Fetch recent emails from INBOX folder only (not sent items)
@@ -997,6 +948,27 @@ router.get('/outlook/emails', authenticate, async (req, res) => {
     );
 
     const emailsData = await emailsResponse.json();
+
+    // Check for API errors
+    if (!emailsResponse.ok || emailsData.error) {
+      console.error('[Outlook/emails] Graph API error:', emailsData.error || emailsResponse.status);
+      
+      // If it's an auth error, mark as disconnected so user knows to reconnect
+      if (emailsResponse.status === 401 || emailsData.error?.code === 'InvalidAuthenticationToken') {
+        await query(
+          `UPDATE integrations SET is_connected = false WHERE firm_id = $1 AND provider = 'outlook'`,
+          [req.user.firmId]
+        );
+        return res.status(401).json({ 
+          error: 'Your Microsoft 365 session has expired. Please reconnect your account.', 
+          needsReconnect: true 
+        });
+      }
+      
+      return res.status(500).json({ 
+        error: emailsData.error?.message || 'Failed to fetch emails from Microsoft 365. Please try again.' 
+      });
+    }
 
     const emails = emailsData.value || [];
     
@@ -1049,9 +1021,13 @@ router.get('/outlook/emails', authenticate, async (req, res) => {
         subject: email.subject,
         from: email.from?.emailAddress?.address,
         fromName: email.from?.emailAddress?.name,
+        to: email.toRecipients?.map(r => r.emailAddress?.address).join(', '),
+        toName: email.toRecipients?.map(r => r.emailAddress?.name).join(', '),
         receivedAt: email.receivedDateTime,
         isRead: email.isRead,
         preview: email.bodyPreview,
+        hasAttachments: email.hasAttachments,
+        importance: email.importance,
       })),
     });
   } catch (error) {
@@ -1072,60 +1048,11 @@ router.get('/outlook/drafts', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Outlook not connected', needsReconnect: true });
     }
 
-    // Get credentials
-    const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
-    const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
-    const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
-
-    // Check if credentials are configured
-    if (!MS_CLIENT_ID || !MS_CLIENT_SECRET) {
-      console.error('[Outlook/drafts] OAuth credentials not configured');
-      await query(
-        `UPDATE integrations SET is_connected = false WHERE firm_id = $1 AND provider = 'outlook'`,
-        [req.user.firmId]
-      );
-      return res.status(401).json({ error: 'Microsoft 365 credentials not configured. Please contact your administrator.', needsReconnect: true });
-    }
-
-    let accessToken = integration.rows[0].access_token;
-    const refreshToken = integration.rows[0].refresh_token;
-
-    // Refresh token if needed
-    if (new Date(integration.rows[0].token_expires_at) < new Date()) {
-      console.log('[Outlook/drafts] Token expired, refreshing...');
-      const tokenUrl = `https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/token`;
-      const refreshResponse = await fetch(tokenUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: MS_CLIENT_ID,
-          client_secret: MS_CLIENT_SECRET,
-          refresh_token: refreshToken,
-          grant_type: 'refresh_token',
-        }),
-      });
-
-      if (refreshResponse.ok) {
-        const tokens = await refreshResponse.json();
-        accessToken = tokens.access_token;
-        
-        await query(
-          `UPDATE integrations SET access_token = $1, refresh_token = COALESCE($2, refresh_token), token_expires_at = $3 WHERE id = $4`,
-          [tokens.access_token, tokens.refresh_token, new Date(Date.now() + tokens.expires_in * 1000), integration.rows[0].id]
-        );
-        console.log('[Outlook/drafts] Token refreshed successfully');
-      } else {
-        const errorData = await refreshResponse.json().catch(() => ({}));
-        console.error('[Outlook/drafts] Token refresh failed:', errorData.error, errorData.error_description);
-        await query(
-          `UPDATE integrations SET is_connected = false, access_token = NULL WHERE firm_id = $1 AND provider = 'outlook'`,
-          [req.user.firmId]
-        );
-        return res.status(401).json({ 
-          error: 'Outlook session expired. Please reconnect your Microsoft 365 account.', 
-          needsReconnect: true 
-        });
-      }
+    // Use the shared helper function for consistent token handling
+    const accessToken = await getValidOutlookToken(integration.rows[0]);
+    if (!accessToken || typeof accessToken === 'object') {
+      const errorMsg = typeof accessToken === 'object' ? accessToken.error : 'Session expired. Please reconnect Outlook.';
+      return res.status(401).json({ error: errorMsg, needsReconnect: true });
     }
 
     // Get drafts from Microsoft Graph API
