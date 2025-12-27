@@ -4,10 +4,10 @@ import {
   ArrowLeft, FileEdit, Inbox, Send, Reply, ReplyAll, 
   Forward, Trash2, Star, Paperclip, X, ChevronLeft,
   Settings, Archive, AlertCircle, Check, Loader2,
-  PenSquare, MoreVertical, Clock, Upload
+  PenSquare, MoreVertical, Clock
 } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { integrationsApi, mattersApi, clientsApi, userSettingsApi, documentsApi } from '../services/api'
+import { integrationsApi, mattersApi, clientsApi, userSettingsApi } from '../services/api'
 import styles from './OutlookIntegrationPage.module.css'
 
 interface Email {
@@ -88,12 +88,6 @@ export function OutlookIntegrationPage() {
   const [sending, setSending] = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
   
-  // Attachments
-  const [attachments, setAttachments] = useState<Array<{ id: string; name: string; size: number; type: 'file' | 'document' }>>([])
-  const [showAttachmentPicker, setShowAttachmentPicker] = useState(false)
-  const [documents, setDocuments] = useState<Array<{ id: string; name: string; size: number }>>([])
-  const attachmentInputRef = useRef<HTMLInputElement>(null)
-  
   // Signature
   const [signature, setSignature] = useState('')
   const [showSettings, setShowSettings] = useState(false)
@@ -108,62 +102,7 @@ export function OutlookIntegrationPage() {
     loadSentEmails()
     loadMattersAndClients()
     loadSignature()
-    loadDocuments()
   }, [])
-
-  const loadDocuments = async () => {
-    try {
-      const data = await documentsApi.getAll()
-      setDocuments((data.documents || []).map((d: any) => ({
-        id: d.id,
-        name: d.name || d.originalName,
-        size: d.size
-      })))
-    } catch (error) {
-      console.error('Failed to load documents:', error)
-    }
-  }
-
-  const handleFileAttachment = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files) return
-    
-    const newAttachments = Array.from(files).map(file => ({
-      id: `file-${Date.now()}-${Math.random()}`,
-      name: file.name,
-      size: file.size,
-      type: 'file' as const
-    }))
-    
-    setAttachments([...attachments, ...newAttachments])
-    if (attachmentInputRef.current) {
-      attachmentInputRef.current.value = ''
-    }
-  }
-
-  const handleDocumentAttachment = (doc: { id: string; name: string; size: number }) => {
-    // Check if already attached
-    if (attachments.some(a => a.id === doc.id)) return
-    
-    setAttachments([...attachments, {
-      id: doc.id,
-      name: doc.name,
-      size: doc.size,
-      type: 'document'
-    }])
-    setShowAttachmentPicker(false)
-  }
-
-  const removeAttachment = (id: string) => {
-    setAttachments(attachments.filter(a => a.id !== id))
-  }
-
-  const formatFileSize = (bytes: number) => {
-    if (!bytes) return '0 B'
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / 1024 / 1024).toFixed(2)} MB`
-  }
 
   // Handle emailId URL parameter to open a specific email
   useEffect(() => {
@@ -321,8 +260,6 @@ export function OutlookIntegrationPage() {
     setComposeCc('')
     setComposeSubject('')
     setComposeBody('')
-    setAttachments([])
-    setShowAttachmentPicker(false)
   }
 
   const sendEmail = async () => {
@@ -473,6 +410,9 @@ export function OutlookIntegrationPage() {
       {/* Sidebar */}
       <div className={styles.sidebar}>
         <div className={styles.sidebarHeader}>
+          <button className={styles.backBtn} onClick={() => navigate('/app/integrations')}>
+            <ArrowLeft size={18} />
+          </button>
           <div className={styles.logoSection}>
             <Mail size={24} />
             <span>Outlook</span>
@@ -720,77 +660,11 @@ export function OutlookIntegrationPage() {
               onChange={(e) => setComposeBody(e.target.value)}
             />
 
-            {/* Attachments List */}
-            {attachments.length > 0 && (
-              <div className={styles.attachmentsList}>
-                {attachments.map(att => (
-                  <div key={att.id} className={styles.attachmentItem}>
-                    <Paperclip size={14} />
-                    <span className={styles.attachmentName}>{att.name}</span>
-                    <span className={styles.attachmentSize}>({formatFileSize(att.size)})</span>
-                    <button onClick={() => removeAttachment(att.id)} className={styles.removeAttachment}>
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
             <div className={styles.composeFooter}>
               <div className={styles.composeTools}>
-                <div className={styles.attachmentDropdown}>
-                  <button 
-                    onClick={() => setShowAttachmentPicker(!showAttachmentPicker)}
-                    title="Attach file"
-                    className={styles.attachBtn}
-                  >
-                    <Paperclip size={18} />
-                    Attach
-                  </button>
-                  {showAttachmentPicker && (
-                    <div className={styles.attachmentMenu}>
-                      <button 
-                        onClick={() => {
-                          attachmentInputRef.current?.click()
-                          setShowAttachmentPicker(false)
-                        }}
-                        className={styles.attachmentOption}
-                      >
-                        <Upload size={16} />
-                        Upload from Computer
-                      </button>
-                      <div className={styles.attachmentDivider} />
-                      <div className={styles.attachmentDocuments}>
-                        <span className={styles.attachmentSectionLabel}>From Documents</span>
-                        {documents.length === 0 ? (
-                          <span className={styles.noDocuments}>No documents available</span>
-                        ) : (
-                          documents.slice(0, 10).map(doc => (
-                            <button 
-                              key={doc.id}
-                              onClick={() => handleDocumentAttachment(doc)}
-                              className={styles.attachmentDocOption}
-                              disabled={attachments.some(a => a.id === doc.id)}
-                            >
-                              <FileEdit size={14} />
-                              <span>{doc.name}</span>
-                              {attachments.some(a => a.id === doc.id) && (
-                                <Check size={14} className={styles.attachedCheck} />
-                              )}
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <input
-                  ref={attachmentInputRef}
-                  type="file"
-                  multiple
-                  style={{ display: 'none' }}
-                  onChange={handleFileAttachment}
-                />
+                <button title="Attach file">
+                  <Paperclip size={18} />
+                </button>
               </div>
               <button 
                 className={styles.sendBtn}
