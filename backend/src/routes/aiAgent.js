@@ -5757,7 +5757,20 @@ function cancelRunningAgent(taskId) {
 }
 
 // =============================================================================
-// REACT AGENT - Dynamic autonomous execution
+// AUTONOMOUS LEGAL AGENT - ReAct Pattern with Azure OpenAI
+// =============================================================================
+// This agent uses the ReAct (Reason, Act, Observe) pattern:
+// 1. REASON: AI thinks about what to do next
+// 2. ACT: AI calls exactly ONE tool
+// 3. OBSERVE: AI receives the tool result
+// 4. REPEAT until goal is achieved or time runs out
+//
+// Azure OpenAI Best Practices Applied:
+// - parallel_tool_calls: false (one tool at a time)
+// - tool_choice: "auto" (let AI decide)
+// - Clear system prompts with role definition
+// - Managed conversation history (trim when too long)
+// - Proper tool result formatting
 // =============================================================================
 
 function delay(ms) {
@@ -5765,564 +5778,634 @@ function delay(ms) {
 }
 
 /**
- * Background Agent - Runs for 15 minutes with separate prompts
+ * Build the comprehensive system prompt for the autonomous legal agent
+ */
+function buildAgentSystemPrompt(goal, user, initialContext) {
+  const today = new Date();
+  const formattedDate = today.toLocaleDateString('en-US', { 
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
+  });
+  const formattedTime = today.toLocaleTimeString('en-US', { 
+    hour: '2-digit', minute: '2-digit', timeZoneName: 'short' 
+  });
+
+  return `You are an AUTONOMOUS LEGAL AI AGENT working for a law firm. You operate independently to complete tasks without human intervention.
+
+## YOUR IDENTITY
+- Name: Apex Legal Agent
+- Role: Autonomous Legal Assistant  
+- User: ${user.firstName} ${user.lastName} (${user.role})
+- Current Date/Time: ${formattedDate} at ${formattedTime}
+
+## YOUR MISSION
+${goal}
+
+## CONTEXT
+${initialContext.matter_id ? `• Working on Matter ID: ${initialContext.matter_id} - Start by calling get_matter to understand the case.` : '• No specific matter provided - Search for relevant matters if needed.'}
+${initialContext.client_id ? `• Working with Client ID: ${initialContext.client_id} - Start by calling get_client to understand the client.` : ''}
+
+## HOW YOU OPERATE (ReAct Pattern)
+You work in a continuous loop:
+1. **THINK**: Analyze your current situation and what you've learned
+2. **ACT**: Call exactly ONE tool to make progress
+3. **OBSERVE**: Learn from the tool result
+4. **REPEAT**: Continue until your mission is complete
+
+## CRITICAL RULES
+1. **ONE TOOL PER RESPONSE** - You MUST call exactly one tool each time. Never skip tool calls.
+2. **BUILD PROGRESSIVELY** - Each action should build on previous results
+3. **BE THOROUGH** - You have up to 15 minutes. Use the time wisely.
+4. **DOCUMENT YOUR WORK** - Create notes, tasks, and updates as you go
+5. **STAY FOCUSED** - Every action should move toward completing your mission
+
+## TOOL CATEGORIES
+- **Discovery**: search_matters, list_my_matters, get_matter, list_clients, get_client, list_documents, read_document_content
+- **Research**: get_calendar_events, get_my_time_entries, list_invoices, get_integrations_status
+- **Actions**: log_time, create_task, create_event, create_matter_note, create_client_note, create_invoice
+- **Documents**: upload_document, generate_pdf_document, draft_email_for_matter
+- **Management**: update_task, update_matter, close_matter
+
+## YOUR APPROACH
+1. **Understand First**: Start by gathering information about the matter/client
+2. **Analyze**: Review documents, time entries, and existing notes
+3. **Take Action**: Create what's needed (notes, tasks, events, invoices)
+4. **Document**: Record your findings and actions
+5. **Verify**: Check your work when possible
+
+## IMPORTANT NOTES
+- All IDs are UUIDs - use exact IDs returned from searches
+- When searching, use flexible terms - exact names may not match
+- If one approach fails, try another (search by different terms)
+- Create notes to document important findings
+- Create tasks for any follow-up work needed
+
+NOW BEGIN. Call a tool to start working on your mission.`;
+}
+
+/**
+ * Autonomous Legal Agent - Runs up to 15 minutes using ReAct pattern
  * 
- * The backend drives the conversation by sending prompts based on the initial task.
- * Each prompt is a separate API call, but conversation history is maintained.
- * One prompt at a time - waits for response before sending next.
+ * This agent uses Azure OpenAI with function calling to autonomously
+ * complete legal tasks. It follows the ReAct pattern:
+ * - Reason about the current state
+ * - Take one action (tool call)
+ * - Observe the result
+ * - Repeat until complete
  */
 async function runReActAgent(taskId, user, goal, initialContext = {}) {
-  console.log(`[AGENT ${taskId}] ========================================`);
-  console.log(`[AGENT ${taskId}] Starting 15-minute background agent session`);
-  console.log(`[AGENT ${taskId}] Goal: ${goal}`);
-  console.log(`[AGENT ${taskId}] ========================================`);
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`[AGENT ${taskId}] AUTONOMOUS LEGAL AGENT STARTING`);
+  console.log(`[AGENT ${taskId}] Mission: ${goal}`);
+  console.log(`[AGENT ${taskId}] User: ${user.firstName} ${user.lastName}`);
+  console.log(`${'='.repeat(60)}\n`);
   
+  // Configuration
   const startTime = Date.now();
-  const maxRuntime = 15 * 60 * 1000; // 15 minutes exactly
-  const PROMPT_DELAY_MS = 2000; // 2 seconds between prompts
-  const MAX_CONSECUTIVE_ERRORS = 10; // Don't exit on errors, just keep trying
+  const MAX_RUNTIME_MS = 15 * 60 * 1000;  // 15 minutes max
+  const LOOP_DELAY_MS = 1000;              // 1 second between iterations
+  const RATE_LIMIT_DELAY_MS = 10000;       // 10 seconds on rate limit
+  const ERROR_DELAY_MS = 3000;             // 3 seconds on error
+  const MAX_ITERATIONS = 200;              // Safety limit
+  const MAX_HISTORY_LENGTH = 40;           // Trim history when too long
   
-  let promptCount = 0;
-  let actions = [];
-  let phase = 'discovery'; // Phases: discovery, analysis, action, review
+  // State
+  let iteration = 0;
+  let completedActions = [];
   let consecutiveErrors = 0;
+  let consecutiveNoTools = 0;
+  let goalAchieved = false;
   
-  // Helper to check if task was cancelled
+  // Helper to check cancellation
   const isCancelled = () => {
-    const agentState = runningAgents.get(taskId);
-    return !agentState || agentState.cancelled;
+    const state = runningAgents.get(taskId);
+    return !state || state.cancelled;
   };
   
-  // Filter out tools that shouldn't be used in background mode
+  // Helper to update progress
+  const updateProgress = async (currentStep, additionalData = {}) => {
+    const elapsed = Date.now() - startTime;
+    const progressPercent = Math.min(Math.round((elapsed / MAX_RUNTIME_MS) * 100), goalAchieved ? 100 : 95);
+    
+    await query(
+      `UPDATE ai_tasks SET 
+        iterations = $1, 
+        progress = $2,
+        current_step = $3,
+        updated_at = NOW()
+       WHERE id = $4`,
+      [
+        iteration,
+        JSON.stringify({
+          iteration,
+          progressPercent,
+          currentStep,
+          completedActions: completedActions.slice(-10),
+          totalActions: completedActions.length,
+          elapsedSeconds: Math.floor(elapsed / 1000),
+          status: goalAchieved ? 'complete' : 'working',
+          ...additionalData
+        }),
+        currentStep,
+        taskId
+      ]
+    );
+  };
+  
+  // Filter tools for background mode (exclude dangerous/redundant ones)
   const AGENT_TOOLS = TOOLS.filter(t => {
-    const name = t.function.name;
-    return name !== 'task_complete' && 
-           name !== 'request_human_input' && 
-           name !== 'send_email' &&
-           name !== 'start_background_task';
+    const name = t.function?.name || t.name;
+    // Exclude tools that shouldn't be used autonomously
+    const excluded = [
+      'start_background_task',  // Can't start another background task
+      'request_human_input',    // Background mode is autonomous
+      'send_email',             // Too dangerous to send automatically
+      'delete_matter',          // Too dangerous
+      'delete_client',          // Too dangerous
+      'void_invoice',           // Too dangerous
+      'delete_time_entry'       // Could lose billable work
+    ];
+    return !excluded.includes(name);
   });
   
   try {
-    // Check cancellation immediately before starting
+    // Check cancellation before starting
     if (isCancelled()) {
-      console.log(`[AGENT ${taskId}] Task was cancelled before starting. Exiting.`);
+      console.log(`[AGENT ${taskId}] Cancelled before start`);
       return;
     }
     
-    // Update status and progress immediately so UI shows task is starting
+    // Initialize task status
     await query(
       `UPDATE ai_tasks SET 
         status = 'running', 
         started_at = NOW(),
-        progress = $1,
         updated_at = NOW()
-       WHERE id = $2`,
-      [JSON.stringify({
-        promptCount: 0,
-        phase: 'starting',
-        actions: [],
-        progressPercent: 5,
-        currentStep: 'Initializing agent...',
-        status: 'starting'
-      }), taskId]
+       WHERE id = $1`,
+      [taskId]
     );
     
-    // System prompt - sets up the AI's role and context
-    const systemPrompt = `You are an autonomous legal AI assistant. You are working on a background task for 15 minutes.
-
-TASK: ${goal}
-
-CONTEXT:
-${initialContext.matter_id ? `- Working on Matter ID: ${initialContext.matter_id}` : '- No specific matter (search if needed)'}
-${initialContext.client_id ? `- Working with Client ID: ${initialContext.client_id}` : ''}
-
-INSTRUCTIONS:
-- You will receive prompts from the system guiding your work
-- Execute ONE tool per response
-- Build on previous results - the conversation history is preserved
-- Be thorough - you have 15 minutes to complete this task
-- Document your findings and actions
-
-Available actions: search matters, review documents, log time, create tasks, draft emails, create notes, etc.`;
-
-    // Conversation history - maintained throughout the session
-    let conversationHistory = [
+    await updateProgress('Initializing autonomous agent...', { phase: 'init' });
+    
+    // Build the system prompt
+    const systemPrompt = buildAgentSystemPrompt(goal, user, initialContext);
+    
+    // Initialize conversation with system prompt only
+    // The AI will decide what to do first based on the mission
+    let messages = [
       { role: 'system', content: systemPrompt }
     ];
     
-    // Break down the initial task into sub-tasks for the backend to prompt
-    const taskPrompts = generateTaskPrompts(goal, initialContext);
-    let currentTaskIndex = 0;
-    let consecutiveNoToolCalls = 0;
+    console.log(`[AGENT ${taskId}] System prompt length: ${systemPrompt.length} chars`);
+    console.log(`[AGENT ${taskId}] Tools available: ${AGENT_TOOLS.length}`);
+    console.log(`[AGENT ${taskId}] Starting autonomous loop...\n`);
     
-    // Send initial prompt based on the task
-    conversationHistory.push({
-      role: 'user',
-      content: taskPrompts[0] || `Let's begin working on: "${goal}"\n\nFirst, gather the information you need. What tool will you call?`
-    });
-    
-    // Main loop - runs for exactly 15 minutes
-    while (true) {
+    // ========================================
+    // MAIN AGENT LOOP
+    // ========================================
+    while (iteration < MAX_ITERATIONS) {
+      iteration++;
       const elapsed = Date.now() - startTime;
-      const remainingMs = maxRuntime - elapsed;
-      const remainingMinutes = Math.ceil(remainingMs / 60000);
+      const remainingMs = MAX_RUNTIME_MS - elapsed;
+      const remainingMins = Math.ceil(remainingMs / 60000);
       
-      // Check if time is up
-      if (elapsed >= maxRuntime) {
-        console.log(`[AGENT ${taskId}] 15 minutes reached. Ending session.`);
+      // Check time limit
+      if (elapsed >= MAX_RUNTIME_MS) {
+        console.log(`[AGENT ${taskId}] ⏰ Time limit reached (15 minutes)`);
         break;
       }
       
-      // Check if task was cancelled (fast in-memory check)
+      // Check cancellation
       if (isCancelled()) {
-        console.log(`[AGENT ${taskId}] Task was cancelled. Stopping immediately.`);
+        console.log(`[AGENT ${taskId}] 🛑 Task cancelled by user`);
         runningAgents.delete(taskId);
-        return; // Exit - status already set to cancelled by the cancel endpoint
+        return;
       }
       
-      promptCount++;
-      const elapsedMinutes = Math.floor(elapsed / 60000);
-      const elapsedSeconds = Math.floor(elapsed / 1000);
+      console.log(`[AGENT ${taskId}] ─── Iteration ${iteration} (${remainingMins}min remaining) ───`);
       
-      // Calculate progress percentage based on time elapsed (15 min = 100%)
-      // Cap at 95% while still running - 100% only when complete
-      const progressPercent = Math.min(Math.round((elapsed / maxRuntime) * 100), 95);
+      // Update progress
+      const stepDescription = completedActions.length > 0
+        ? `${completedActions[completedActions.length - 1].summary} (${completedActions.length} actions)`
+        : 'Analyzing mission...';
+      await updateProgress(stepDescription, { iteration });
       
-      console.log(`[AGENT ${taskId}] --- Prompt #${promptCount} (${elapsedMinutes}m elapsed, ${remainingMinutes}m remaining, ${progressPercent}%) ---`);
-      
-      // Determine current step description
-      const currentStepDesc = actions.length > 0 
-        ? `Working... (${actions.length} actions completed)`
-        : `Analyzing task: "${goal.substring(0, 50)}..."`;
-      
-      // Update progress in database with progressPercent for the progress bar
-      await query(
-        `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
-        [promptCount, JSON.stringify({ 
-          promptCount,
-          phase,
-          actions: actions.slice(-10),
-          remainingMinutes,
-          elapsedSeconds,
-          progressPercent,  // This is what the frontend reads!
-          currentStep: currentStepDesc,
-          status: 'working'
-        }), taskId]
-      );
-      
-      // Send prompt to AI (one at a time)
+      // ========================================
+      // CALL AZURE OPENAI
+      // ========================================
       let response;
       try {
-        console.log(`[AGENT ${taskId}] Sending prompt to Azure AI...`);
-        response = await callAzureOpenAIWithTools(conversationHistory, AGENT_TOOLS);
-        console.log(`[AGENT ${taskId}] Received response (tool_calls: ${response.tool_calls?.length || 0})`);
-        consecutiveErrors = 0; // Reset error counter on success
-      } catch (apiError) {
+        response = await callAzureOpenAIWithTools(messages, AGENT_TOOLS);
+        consecutiveErrors = 0;
+      } catch (error) {
         consecutiveErrors++;
-        console.error(`[AGENT ${taskId}] API error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, apiError.message);
+        console.error(`[AGENT ${taskId}] ❌ API Error (${consecutiveErrors}):`, error.message);
         
-        // Update progress to show we're still working despite errors
-        await query(
-          `UPDATE ai_tasks SET current_step = $1, updated_at = NOW() WHERE id = $2`,
-          [`Retrying... (${consecutiveErrors} errors)`, taskId]
-        );
-        
-        // Wait longer on rate limit errors
-        if (apiError.message.includes('429') || apiError.message.includes('rate')) {
-          console.log(`[AGENT ${taskId}] Rate limited, waiting 10 seconds...`);
-          await delay(10000);
+        // Handle rate limiting
+        if (error.message.includes('429') || error.message.includes('rate')) {
+          console.log(`[AGENT ${taskId}] 🚦 Rate limited, waiting ${RATE_LIMIT_DELAY_MS/1000}s...`);
+          await delay(RATE_LIMIT_DELAY_MS);
         } else {
-          await delay(5000);
+          await delay(ERROR_DELAY_MS);
         }
         
-        // Check cancellation after delay
-        if (isCancelled()) {
-          console.log(`[AGENT ${taskId}] Task was cancelled during error recovery. Stopping.`);
-          runningAgents.delete(taskId);
-          return;
-        }
-        
-        // Don't exit on errors - keep trying until 15 minutes is up
-        // Only log a warning if we hit too many consecutive errors
-        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-          console.warn(`[AGENT ${taskId}] ${consecutiveErrors} consecutive errors, but continuing...`);
-          // Reset and simplify the conversation to recover
-          conversationHistory = [
-            conversationHistory[0], // Keep system prompt
-            { role: 'user', content: `Continue working on: "${goal}". Call a tool.` }
+        // Reset conversation if too many errors
+        if (consecutiveErrors >= 5) {
+          console.log(`[AGENT ${taskId}] 🔄 Resetting conversation after ${consecutiveErrors} errors`);
+          messages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `Resume your mission: ${goal}\n\nYou've completed ${completedActions.length} actions so far. Continue by calling a tool.` }
           ];
           consecutiveErrors = 0;
         }
+        
+        if (isCancelled()) return;
         continue;
       }
       
-      // Check cancellation after receiving AI response
+      // Check cancellation after API call
       if (isCancelled()) {
-        console.log(`[AGENT ${taskId}] Task was cancelled after AI response. Stopping.`);
+        console.log(`[AGENT ${taskId}] 🛑 Task cancelled after API call`);
         runningAgents.delete(taskId);
         return;
       }
       
-      // Handle response
-      if (!response.tool_calls || response.tool_calls.length === 0) {
-        // No tool call - AI responded with text only
-        consecutiveNoToolCalls++;
-        console.log(`[AGENT ${taskId}] No tool call (${consecutiveNoToolCalls} consecutive)`);
+      // ========================================
+      // HANDLE RESPONSE
+      // ========================================
+      
+      // Case 1: AI made a tool call
+      if (response.tool_calls && response.tool_calls.length > 0) {
+        consecutiveNoTools = 0;
         
-        // Add AI's response to history
-        conversationHistory.push({ 
-          role: 'assistant', 
-          content: response.content || '' 
+        // Process only the FIRST tool call (one at a time)
+        const toolCall = response.tool_calls[0];
+        const functionName = toolCall.function.name;
+        let functionArgs = {};
+        
+        try {
+          functionArgs = JSON.parse(toolCall.function.arguments || '{}');
+        } catch (e) {
+          console.error(`[AGENT ${taskId}] Failed to parse args:`, toolCall.function.arguments);
+        }
+        
+        console.log(`[AGENT ${taskId}] 🔧 Tool: ${functionName}`);
+        console.log(`[AGENT ${taskId}]    Args: ${JSON.stringify(functionArgs).substring(0, 100)}...`);
+        
+        // Execute the tool
+        let toolResult;
+        try {
+          toolResult = await executeTool(functionName, functionArgs, user, null);
+        } catch (toolError) {
+          toolResult = { error: toolError.message };
+        }
+        
+        // Build action summary
+        const actionSummary = buildActionSummary(functionName, functionArgs, toolResult);
+        console.log(`[AGENT ${taskId}] ✅ Result: ${actionSummary}`);
+        
+        // Track completed action
+        completedActions.push({
+          iteration,
+          tool: functionName,
+          args: functionArgs,
+          summary: actionSummary,
+          success: !toolResult.error,
+          timestamp: new Date().toISOString()
         });
         
-        // Backend sends next prompt to keep the agent working
-        if (consecutiveNoToolCalls >= 3) {
-          // Move to next task phase after 3 attempts
-          currentTaskIndex++;
-          consecutiveNoToolCalls = 0;
-          
-          if (currentTaskIndex < taskPrompts.length) {
-            conversationHistory.push({
-              role: 'user',
-              content: taskPrompts[currentTaskIndex]
-            });
-          } else {
-            // Cycle through phases to keep working
-            if (phase === 'discovery') phase = 'analysis';
-            else if (phase === 'analysis') phase = 'action';
-            else if (phase === 'action') phase = 'review';
-            else phase = 'discovery'; // Cycle back to discovery
-            
-            // Generate a continuation prompt based on what's been done
-            const nextPrompt = generateContinuationPrompt(goal, actions, remainingMinutes, phase);
-            conversationHistory.push({ role: 'user', content: nextPrompt });
-          }
-        } else {
-          // More forceful prompts to keep the agent working
-          const forcePrompts = [
-            `You must call a tool now. Continue working on: "${goal}"`,
-            `Call a tool to take the next action. You have ${remainingMinutes} minutes left for: "${goal}"`,
-            `Execute a tool now. Search for more information or take an action for: "${goal}"`,
-            `Keep working. Call search_matters, list_documents, create_note, or another tool for: "${goal}"`
-          ];
-          conversationHistory.push({
-            role: 'user',
-            content: forcePrompts[consecutiveNoToolCalls % forcePrompts.length]
+        // Add assistant message with tool call to history
+        messages.push({
+          role: 'assistant',
+          content: response.content || null,
+          tool_calls: [toolCall]
+        });
+        
+        // Add tool result to history
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(toolResult)
+        });
+        
+        // Check if goal might be achieved (based on action patterns)
+        if (detectGoalAchievement(goal, completedActions, toolResult)) {
+          console.log(`[AGENT ${taskId}] 🎯 Goal appears to be achieved!`);
+          goalAchieved = true;
+        }
+        
+      } else {
+        // Case 2: AI responded with text only (no tool call)
+        consecutiveNoTools++;
+        console.log(`[AGENT ${taskId}] 💬 Text response (no tool): ${(response.content || '').substring(0, 100)}...`);
+        
+        // Add assistant's text response
+        if (response.content) {
+          messages.push({
+            role: 'assistant',
+            content: response.content
           });
         }
         
-        await delay(PROMPT_DELAY_MS);
-        continue;
+        // If AI keeps not calling tools, prompt it to continue
+        if (consecutiveNoTools >= 2) {
+          const nudgeMessage = completedActions.length > 0
+            ? `You've made good progress with ${completedActions.length} actions. What's the next step to complete your mission? Call a tool.`
+            : `Please start working on your mission by calling a tool. What information do you need first?`;
+          
+          messages.push({
+            role: 'user',
+            content: nudgeMessage
+          });
+          consecutiveNoTools = 0;
+        }
+        
+        // Check if AI thinks it's done
+        if (response.content && (
+          response.content.toLowerCase().includes('task is complete') ||
+          response.content.toLowerCase().includes('mission complete') ||
+          response.content.toLowerCase().includes('i have completed') ||
+          response.content.toLowerCase().includes('successfully completed')
+        )) {
+          console.log(`[AGENT ${taskId}] 🎯 AI declared mission complete`);
+          goalAchieved = true;
+        }
       }
       
-      // Process ONE tool call (sequential, not parallel)
-      consecutiveNoToolCalls = 0;
-      const toolCall = response.tool_calls[0];
-      const functionName = toolCall.function.name;
-      let functionArgs;
-      try {
-        functionArgs = JSON.parse(toolCall.function.arguments);
-      } catch (e) {
-        functionArgs = {};
-      }
-      
-      console.log(`[AGENT ${taskId}] Executing: ${functionName}(${JSON.stringify(functionArgs).substring(0, 100)}...)`);
-      
-      // Check cancellation before executing tool
-      if (isCancelled()) {
-        console.log(`[AGENT ${taskId}] Task was cancelled before tool execution. Stopping.`);
-        runningAgents.delete(taskId);
-        return;
-      }
-      
-      // Execute the tool
-      const toolResult = await executeTool(functionName, functionArgs, user, null);
-      
-      // Check cancellation after executing tool
-      if (isCancelled()) {
-        console.log(`[AGENT ${taskId}] Task was cancelled after tool execution. Stopping.`);
-        runningAgents.delete(taskId);
-        return;
-      }
-      
-      // Build action summary
-      const actionSummary = toolResult.message || toolResult.summary || 
-        (toolResult.document ? `Created: ${toolResult.document.name}` : null) ||
-        (toolResult.matter ? `Found: ${toolResult.matter.name}` : null) ||
-        (toolResult.matters ? `Found ${toolResult.matters.length} matters` : null) ||
-        (toolResult.clients ? `Found ${toolResult.clients.length} clients` : null) ||
-        (toolResult.time_entry ? `Logged ${toolResult.time_entry.hours}h` : null) ||
-        (toolResult.event ? `Created event: ${toolResult.event.title}` : null) ||
-        (toolResult.task ? `Created task: ${toolResult.task.title}` : null) ||
-        `Executed ${functionName}`;
-      
-      actions.push({
-        prompt: promptCount,
-        tool: functionName,
-        args: functionArgs,
-        summary: actionSummary,
-        success: !toolResult.error,
-        timestamp: new Date().toISOString()
-      });
-      
-      console.log(`[AGENT ${taskId}] Result: ${actionSummary}`);
-      
-      // Update current step and progress in database
-      const currentProgressPercent = Math.min(Math.round(((Date.now() - startTime) / maxRuntime) * 100), 95);
-      await query(
-        `UPDATE ai_tasks SET current_step = $1, progress = $2 WHERE id = $3`,
-        [actionSummary, JSON.stringify({
-          promptCount,
-          phase,
-          actions: actions.slice(-10),
-          remainingMinutes: Math.ceil((maxRuntime - (Date.now() - startTime)) / 60000),
-          progressPercent: currentProgressPercent,
-          currentStep: actionSummary,
-          status: 'working'
-        }), taskId]
-      );
-      
-      // Add to conversation history
-      conversationHistory.push({
-        role: 'assistant',
-        content: response.content || null,
-        tool_calls: [toolCall]
-      });
-      
-      conversationHistory.push({
-        role: 'tool',
-        tool_call_id: toolCall.id,
-        content: JSON.stringify(toolResult)
-      });
-      
-      // Backend sends next prompt based on the result and task
-      const nextPrompt = generateNextPrompt(goal, functionName, toolResult, actions, remainingMinutes, phase);
-      conversationHistory.push({ role: 'user', content: nextPrompt });
-      
-      // Trim conversation history if getting too long (keep recent context)
-      if (conversationHistory.length > 60) {
-        // Keep system prompt + summary of early actions + recent messages
-        const systemMsg = conversationHistory[0];
-        const recentMessages = conversationHistory.slice(-50);
-        const actionsSummary = {
+      // ========================================
+      // MANAGE CONVERSATION HISTORY
+      // ========================================
+      if (messages.length > MAX_HISTORY_LENGTH) {
+        console.log(`[AGENT ${taskId}] 📝 Trimming conversation history...`);
+        
+        // Keep system prompt + summarize progress + keep recent messages
+        const systemMsg = messages[0];
+        const recentMessages = messages.slice(-20);
+        
+        const progressSummary = {
           role: 'user',
-          content: `[Previous actions: ${actions.slice(0, -10).map(a => a.summary).join(', ')}]\n\nContinuing...`
+          content: `[PROGRESS SUMMARY]\nYou've completed ${completedActions.length} actions:\n${
+            completedActions.slice(-5).map(a => `- ${a.summary}`).join('\n')
+          }\n\nContinue working toward your mission: ${goal}`
         };
-        conversationHistory = [systemMsg, actionsSummary, ...recentMessages];
+        
+        messages = [systemMsg, progressSummary, ...recentMessages];
       }
       
-      // Delay before next prompt
-      await delay(PROMPT_DELAY_MS);
-    }
-    
-    // Session complete - generate final summary
-    const elapsedMinutes = Math.round((Date.now() - startTime) / 60000);
-    const successfulActions = actions.filter(a => a.success).length;
-    
-    console.log(`[AGENT ${taskId}] ========================================`);
-    console.log(`[AGENT ${taskId}] Session complete`);
-    console.log(`[AGENT ${taskId}] Duration: ${elapsedMinutes} minutes`);
-    console.log(`[AGENT ${taskId}] Prompts sent: ${promptCount}`);
-    console.log(`[AGENT ${taskId}] Actions: ${successfulActions}/${actions.length} successful`);
-    console.log(`[AGENT ${taskId}] ========================================`);
-    
-    // Generate a summary using the AI
-    let summary = '';
-    try {
-      conversationHistory.push({
-        role: 'user',
-        content: `The 15-minute session is complete. Summarize what you accomplished for the task: "${goal}"\n\nProvide a brief summary of actions taken and any recommendations.`
-      });
+      // ========================================
+      // CHECK IF DONE
+      // ========================================
+      if (goalAchieved && completedActions.length >= 3) {
+        // Give AI a chance to do any final wrap-up
+        if (iteration < MAX_ITERATIONS - 1) {
+          messages.push({
+            role: 'user',
+            content: 'If there are any final documentation steps (like creating a summary note), do them now. Otherwise, your mission is complete.'
+          });
+          
+          // One more iteration for wrap-up
+          const wrapUpResponse = await callAzureOpenAIWithTools(messages, AGENT_TOOLS);
+          
+          if (wrapUpResponse.tool_calls && wrapUpResponse.tool_calls.length > 0) {
+            const toolCall = wrapUpResponse.tool_calls[0];
+            const funcName = toolCall.function.name;
+            const funcArgs = JSON.parse(toolCall.function.arguments || '{}');
+            const result = await executeTool(funcName, funcArgs, user, null);
+            
+            completedActions.push({
+              iteration: iteration + 1,
+              tool: funcName,
+              args: funcArgs,
+              summary: buildActionSummary(funcName, funcArgs, result),
+              success: !result.error,
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+        break;
+      }
       
-      const summaryResponse = await callAzureOpenAIWithTools(conversationHistory, []);
-      summary = summaryResponse.content || '';
-    } catch (e) {
-      summary = `Completed ${successfulActions} actions in ${elapsedMinutes} minutes.`;
+      // Small delay between iterations
+      await delay(LOOP_DELAY_MS);
     }
     
+    // ========================================
+    // COMPLETE THE TASK
+    // ========================================
+    const elapsedMinutes = Math.round((Date.now() - startTime) / 60000);
+    const successfulActions = completedActions.filter(a => a.success).length;
+    
+    // Generate summary
+    const summary = generateAgentSummary(goal, completedActions, goalAchieved, elapsedMinutes);
+    
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`[AGENT ${taskId}] MISSION ${goalAchieved ? 'COMPLETED' : 'ENDED'}`);
+    console.log(`[AGENT ${taskId}] Duration: ${elapsedMinutes} minutes`);
+    console.log(`[AGENT ${taskId}] Actions: ${successfulActions}/${completedActions.length} successful`);
+    console.log(`${'='.repeat(60)}\n`);
+    
+    // Update database with final status
     await query(
-      `UPDATE ai_tasks SET status = 'completed', result = $1, summary = $2, progress = $3, completed_at = NOW() WHERE id = $4`,
-      [JSON.stringify({ 
-        actions,
-        totalPrompts: promptCount,
-        durationMinutes: elapsedMinutes,
-        successfulActions
-      }), summary, JSON.stringify({
-        promptCount,
-        phase: 'complete',
-        actions: actions.slice(-10),
-        progressPercent: 100,
-        currentStep: 'Complete',
-        status: 'completed',
-        durationMinutes: elapsedMinutes,
-        successfulActions
-      }), taskId]
+      `UPDATE ai_tasks SET 
+        status = 'completed',
+        completed_at = NOW(),
+        result = $1,
+        progress = $2,
+        updated_at = NOW()
+       WHERE id = $3`,
+      [
+        summary,
+        JSON.stringify({
+          iteration,
+          progressPercent: 100,
+          currentStep: 'Complete',
+          completedActions: completedActions.slice(-10),
+          totalActions: completedActions.length,
+          successfulActions,
+          goalAchieved,
+          elapsedMinutes,
+          status: 'completed'
+        }),
+        taskId
+      ]
     );
     
-    // Clean up - remove from running agents
+    // Clean up
     runningAgents.delete(taskId);
-    console.log(`[AGENT ${taskId}] Cleaned up, task complete`);
     
   } catch (error) {
-    console.error(`[AGENT ${taskId}] Fatal error:`, error);
+    console.error(`[AGENT ${taskId}] 💥 Fatal error:`, error);
     
-    // Clean up on error too
-    runningAgents.delete(taskId);
-    
+    // Update database with error status
     await query(
-      `UPDATE ai_tasks SET status = 'failed', result = $1, error = $2, progress = $3, completed_at = NOW() WHERE id = $4`,
-      [JSON.stringify({ actions }), error.message, JSON.stringify({
-        promptCount,
-        phase: 'error',
-        actions: actions.slice(-10),
-        progressPercent: 0,
-        currentStep: 'Error: ' + error.message,
-        status: 'failed'
-      }), taskId]
+      `UPDATE ai_tasks SET 
+        status = 'failed',
+        completed_at = NOW(),
+        error = $1,
+        result = $2,
+        updated_at = NOW()
+       WHERE id = $3`,
+      [
+        error.message,
+        `Agent encountered an error after ${completedActions.length} actions: ${error.message}`,
+        taskId
+      ]
     );
+    
+    runningAgents.delete(taskId);
   }
 }
 
 /**
- * Generate initial task prompts based on the goal
- * These guide the AI through different phases of the task
+ * Build a human-readable summary of what a tool did
  */
-function generateTaskPrompts(goal, context) {
-  const goalLower = goal.toLowerCase();
-  const prompts = [];
-  
-  // Discovery phase prompts
-  if (context.matter_id) {
-    prompts.push(`Start by getting the details of the matter (ID: ${context.matter_id}). Call get_matter to understand what we're working with.`);
-  } else if (goalLower.includes('matter') || goalLower.includes('case')) {
-    prompts.push(`First, let's find the relevant matter. Use search_matters to locate it.`);
-  } else if (context.client_id) {
-    prompts.push(`Start by getting information about the client (ID: ${context.client_id}). Call get_client.`);
-  } else if (goalLower.includes('client')) {
-    prompts.push(`First, find the relevant client. Use list_clients or search.`);
-  } else {
-    prompts.push(`Let's start by gathering information. Search for any relevant matters, clients, or documents related to: "${goal}"`);
+function buildActionSummary(functionName, args, result) {
+  if (result.error) {
+    return `Failed: ${result.error.substring(0, 50)}`;
   }
   
-  // Analysis phase prompts
-  if (goalLower.includes('review') || goalLower.includes('analyze')) {
-    prompts.push(`Now review the documents associated with this matter. Use list_documents and read_document_content to analyze them.`);
-  }
-  
-  if (goalLower.includes('document') || goalLower.includes('draft') || goalLower.includes('prepare')) {
-    prompts.push(`Based on what you've found, what documents need to be created or reviewed? List them and start working.`);
-  }
-  
-  // Action phase prompts
-  if (goalLower.includes('email') || goalLower.includes('contact')) {
-    prompts.push(`Draft any necessary emails using draft_email_for_matter. Don't send - just create drafts.`);
-  }
-  
-  if (goalLower.includes('task') || goalLower.includes('todo') || goalLower.includes('follow')) {
-    prompts.push(`Create any necessary follow-up tasks using create_task.`);
-  }
-  
-  if (goalLower.includes('time') || goalLower.includes('billing')) {
-    prompts.push(`Review and log any time entries that should be recorded.`);
-  }
-  
-  // Always end with documentation
-  prompts.push(`Document your findings and any important notes about this work using create_note.`);
-  
-  return prompts;
-}
-
-/**
- * Generate the next prompt based on what just happened
- */
-function generateNextPrompt(goal, lastTool, lastResult, actions, remainingMinutes, phase) {
-  const actionCount = actions.length;
-  
-  // If there was an error, acknowledge and suggest alternative
-  if (lastResult.error) {
-    return `That action encountered an issue: ${lastResult.error}\n\nTry a different approach. What else can you do for: "${goal}"?`;
-  }
-  
-  // Context-aware follow-up based on what tool was just used
-  switch (lastTool) {
+  // Generate summary based on tool type
+  switch (functionName) {
     case 'get_matter':
-    case 'search_matters':
-      return `Good, you have the matter information. Now dig deeper - check the documents, review any linked emails, or look at recent activity. What's next?`;
-    
+      return result.matter ? `Retrieved matter: ${result.matter.name}` : 'Retrieved matter details';
     case 'get_client':
+      return result.client ? `Retrieved client: ${result.client.display_name}` : 'Retrieved client details';
+    case 'search_matters':
+      return `Found ${result.matters?.length || 0} matters`;
     case 'list_clients':
-      return `You have client information. Now look at their matters, documents, or recent communications. Continue working on: "${goal}"`;
-    
+      return `Found ${result.clients?.length || 0} clients`;
+    case 'list_my_matters':
+      return `Listed ${result.matters?.length || 0} matters`;
     case 'list_documents':
-      return `You found documents. Read the important ones to understand their contents. Use read_document_content on the most relevant ones.`;
-    
+      return `Found ${result.documents?.length || 0} documents`;
     case 'read_document_content':
-      return `You've read the document content. Based on this information, what action should be taken for: "${goal}"? Continue working.`;
-    
-    case 'create_document':
-    case 'create_note':
-      return `Document created. What else needs to be done? You have ${remainingMinutes} minutes remaining for: "${goal}"`;
-    
-    case 'draft_email_for_matter':
-      return `Email drafted. Any other communications needed? Or move to the next part of: "${goal}"`;
-    
-    case 'create_task':
-    case 'create_event':
-      return `Task/event created. Continue with other actions needed for: "${goal}"`;
-    
+      return result.document ? `Read document: ${result.document.name}` : 'Read document content';
     case 'log_time':
-      return `Time logged. Continue with other work for: "${goal}"`;
-    
+      return result.time_entry ? `Logged ${result.time_entry.hours}h for ${args.description?.substring(0, 30)}` : 'Logged time entry';
+    case 'create_task':
+      return result.task ? `Created task: ${result.task.name}` : 'Created task';
+    case 'create_event':
+      return result.event ? `Created event: ${result.event.title}` : 'Created calendar event';
+    case 'create_matter_note':
+      return 'Created matter note';
+    case 'create_client_note':
+      return 'Created client note';
+    case 'create_invoice':
+      return result.invoice ? `Created invoice #${result.invoice.number}` : 'Created invoice';
+    case 'draft_email_for_matter':
+      return `Drafted email: ${args.subject?.substring(0, 30) || 'for matter'}`;
+    case 'generate_pdf_document':
+      return result.document ? `Generated PDF: ${result.document.name}` : 'Generated PDF document';
+    case 'get_calendar_events':
+      return `Retrieved ${result.events?.length || 0} calendar events`;
+    case 'get_my_time_entries':
+      return `Retrieved ${result.time_entries?.length || 0} time entries`;
+    case 'update_task':
+      return `Updated task`;
+    case 'update_matter':
+      return `Updated matter`;
     default:
-      // Generic continuation based on phase and time remaining
-      if (remainingMinutes > 10) {
-        return `Result received. You have ${remainingMinutes} minutes left. Continue being thorough with: "${goal}"`;
-      } else if (remainingMinutes > 5) {
-        return `${remainingMinutes} minutes remaining. Focus on completing key actions for: "${goal}"`;
-      } else {
-        return `Only ${remainingMinutes} minutes left. Wrap up essential tasks and document your work for: "${goal}"`;
-      }
+      return result.message || result.summary || `Executed ${functionName}`;
   }
 }
 
 /**
- * Generate a continuation prompt when the AI hasn't called a tool
- * These prompts keep the agent working for the full 15 minutes
+ * Detect if the goal appears to be achieved based on actions taken
  */
-function generateContinuationPrompt(goal, actions, remainingMinutes, phase) {
-  if (actions.length === 0) {
-    return `You haven't taken any actions yet. Call a tool NOW to start working on: "${goal}"\n\nSuggested first steps:\n1. search_matters - find relevant cases\n2. list_clients - see who's involved\n3. get_firm_overview - understand current state`;
+function detectGoalAchievement(goal, actions, lastResult) {
+  const goalLower = goal.toLowerCase();
+  const actionTypes = actions.map(a => a.tool);
+  
+  // Check for specific goal patterns
+  if (goalLower.includes('summary') || goalLower.includes('summarize')) {
+    // Goal involves creating a summary - check if note was created
+    return actionTypes.includes('create_matter_note') || actionTypes.includes('create_client_note');
   }
   
-  const recentActions = actions.slice(-3).map(a => a.summary).join(', ');
-  const actionCount = actions.length;
+  if (goalLower.includes('invoice') || goalLower.includes('bill')) {
+    return actionTypes.includes('create_invoice');
+  }
   
-  // Different prompts for different phases - all require tool calls
-  const phasePrompts = {
-    discovery: [
-      `You've done ${actionCount} actions so far (${recentActions}). Keep gathering information. Search for more related matters, documents, or client info for: "${goal}"`,
-      `Discovery phase: ${remainingMinutes} minutes left. Use list_documents, search_matters, or get_client to find more relevant information.`,
-      `Continue exploring. What else do you need to know about: "${goal}"? Call a search or get tool.`
-    ],
-    analysis: [
-      `Analysis phase: You have ${remainingMinutes} minutes. Read document contents, review matter details, check billing status for: "${goal}"`,
-      `Time to analyze. Use read_document_content on important files, or get_matter for detailed case info.`,
-      `${actionCount} actions completed. Now analyze what you've found. Call a tool to examine the data more closely.`
-    ],
-    action: [
-      `Action phase: ${remainingMinutes} minutes remaining. Create documents, draft emails, log time, or schedule tasks for: "${goal}"`,
-      `Time to act. Use create_document, draft_email_for_matter, create_task, or log_time to make progress.`,
-      `You've analyzed enough. Now take action. What needs to be created or scheduled for: "${goal}"?`
-    ],
-    review: [
-      `Review phase: ${remainingMinutes} minutes left. Document your findings with create_note. Create follow-up tasks. Check if anything was missed.`,
-      `Final review. Use create_note to summarize your work. Create any remaining tasks or events needed.`,
-      `Wrapping up: ${remainingMinutes} minutes remaining. Make sure everything is documented and follow-ups are scheduled for: "${goal}"`
-    ]
-  };
+  if (goalLower.includes('schedule') || goalLower.includes('meeting') || goalLower.includes('calendar')) {
+    return actionTypes.includes('create_event');
+  }
   
-  const prompts = phasePrompts[phase] || phasePrompts.discovery;
-  return prompts[Math.floor(Math.random() * prompts.length)];
+  if (goalLower.includes('task') && (goalLower.includes('create') || goalLower.includes('add'))) {
+    return actionTypes.includes('create_task');
+  }
+  
+  if (goalLower.includes('time') && goalLower.includes('log')) {
+    return actionTypes.includes('log_time');
+  }
+  
+  if (goalLower.includes('email') || goalLower.includes('draft')) {
+    return actionTypes.includes('draft_email_for_matter') || actionTypes.includes('draft_email');
+  }
+  
+  // For review/analyze tasks, check if they got info and created notes
+  if (goalLower.includes('review') || goalLower.includes('analyze')) {
+    const hasGatheredInfo = actionTypes.some(t => 
+      ['get_matter', 'get_client', 'list_documents', 'read_document_content'].includes(t)
+    );
+    const hasDocumented = actionTypes.some(t => 
+      ['create_matter_note', 'create_client_note', 'create_task'].includes(t)
+    );
+    return hasGatheredInfo && hasDocumented;
+  }
+  
+  // Default: Check if meaningful work was done (at least 5 actions with some creation)
+  if (actions.length >= 5) {
+    const creationActions = actionTypes.filter(t => 
+      t.startsWith('create_') || t === 'log_time' || t === 'draft_email_for_matter'
+    );
+    return creationActions.length >= 1;
+  }
+  
+  return false;
+}
+
+/**
+ * Generate a summary of what the agent accomplished
+ */
+function generateAgentSummary(goal, actions, goalAchieved, elapsedMinutes) {
+  const successfulActions = actions.filter(a => a.success);
+  
+  let summary = `## Agent Mission Summary\n\n`;
+  summary += `**Goal:** ${goal}\n\n`;
+  summary += `**Status:** ${goalAchieved ? '✅ Completed' : '⏱️ Time limit reached'}\n`;
+  summary += `**Duration:** ${elapsedMinutes} minutes\n`;
+  summary += `**Actions Completed:** ${successfulActions.length}\n\n`;
+  
+  if (successfulActions.length > 0) {
+    summary += `### Actions Taken\n\n`;
+    
+    // Group actions by type
+    const actionsByType = {};
+    for (const action of successfulActions) {
+      const type = action.tool;
+      if (!actionsByType[type]) actionsByType[type] = [];
+      actionsByType[type].push(action);
+    }
+    
+    for (const [type, typeActions] of Object.entries(actionsByType)) {
+      summary += `**${type.replace(/_/g, ' ')}:** ${typeActions.length}\n`;
+      for (const action of typeActions.slice(0, 3)) {
+        summary += `  - ${action.summary}\n`;
+      }
+      if (typeActions.length > 3) {
+        summary += `  - ... and ${typeActions.length - 3} more\n`;
+      }
+    }
+  }
+  
+  const failedActions = actions.filter(a => !a.success);
+  if (failedActions.length > 0) {
+    summary += `\n### Issues Encountered\n`;
+    for (const action of failedActions.slice(0, 3)) {
+      summary += `- ${action.summary}\n`;
+    }
+  }
+  
+  return summary;
 }
 
 // =============================================================================
@@ -10412,66 +10495,106 @@ Please analyze the document above and respond to the user's question.`;
   }
 });
 
+/**
+ * Call Azure OpenAI with function calling support
+ * Optimized for GPT-4o-mini with best practices:
+ * - parallel_tool_calls: false (sequential, one at a time)
+ * - tool_choice: "auto" (let model decide)
+ * - Lower temperature for more consistent behavior
+ * - Proper error handling for rate limits
+ */
 async function callAzureOpenAIWithTools(messages, tools) {
-  const url = `${AZURE_ENDPOINT}openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${API_VERSION}`;
-  
-  // Log config for debugging (without exposing full key)
-  console.log(`[AZURE AI] Calling: ${AZURE_DEPLOYMENT} at ${AZURE_ENDPOINT?.substring(0, 30)}...`);
+  // Ensure trailing slash is handled
+  const endpoint = AZURE_ENDPOINT?.endsWith('/') ? AZURE_ENDPOINT.slice(0, -1) : AZURE_ENDPOINT;
+  const url = `${endpoint}/openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${API_VERSION}`;
   
   if (!AZURE_ENDPOINT || !AZURE_API_KEY || !AZURE_DEPLOYMENT) {
-    console.error('[AZURE AI] Missing config:', {
+    console.error('[AZURE AI] Missing configuration:', {
       hasEndpoint: !!AZURE_ENDPOINT,
       hasKey: !!AZURE_API_KEY,
       hasDeployment: !!AZURE_DEPLOYMENT
     });
-    throw new Error('Azure OpenAI not configured. Check AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT.');
+    throw new Error('Azure OpenAI not configured. Set AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT.');
   }
   
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'api-key': AZURE_API_KEY,
-    },
-    body: JSON.stringify({
-      messages,
-      tools,
-      tool_choice: 'auto',
-      parallel_tool_calls: false, // Force one tool at a time
-      temperature: 0.7,
-      max_tokens: 4000,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`[AZURE AI] Error ${response.status}:`, errorText);
-    console.error(`[AZURE AI] URL was: ${url}`);
-    
-    // Parse error for better message
-    let errorMessage = `Azure OpenAI API error: ${response.status}`;
-    try {
-      const errorJson = JSON.parse(errorText);
-      errorMessage = errorJson.error?.message || errorMessage;
-    } catch (e) {}
-    
-    throw new Error(errorMessage);
-  }
-
-  const data = await response.json();
-  
-  if (!data.choices || data.choices.length === 0) {
-    console.error('[AZURE AI] No choices in response:', JSON.stringify(data).substring(0, 500));
-    throw new Error('Azure OpenAI returned no response');
-  }
-  
-  const choice = data.choices[0];
-  console.log(`[AZURE AI] Success - got response with ${choice.message.tool_calls?.length || 0} tool calls`);
-  
-  return {
-    content: choice.message.content,
-    tool_calls: choice.message.tool_calls
+  // Build request body optimized for GPT-4o-mini
+  const requestBody = {
+    messages,
+    temperature: 0.3,           // Lower = more consistent tool use
+    max_tokens: 4096,           // GPT-4o-mini supports up to 16k output
+    top_p: 0.95,                // Slightly constrained for better focus
+    frequency_penalty: 0,
+    presence_penalty: 0,
   };
+  
+  // Add tools if provided
+  if (tools && tools.length > 0) {
+    requestBody.tools = tools;
+    requestBody.tool_choice = 'auto';           // Let model decide
+    requestBody.parallel_tool_calls = false;     // ONE tool at a time (critical!)
+  }
+  
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': AZURE_API_KEY,
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    // Handle rate limiting specifically
+    if (response.status === 429) {
+      const retryAfter = response.headers.get('Retry-After') || '10';
+      throw new Error(`Rate limited (429). Retry after ${retryAfter}s`);
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorMessage = `Azure OpenAI error ${response.status}`;
+      
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorMessage = errorJson.error?.message || errorMessage;
+        
+        // Check for specific errors
+        if (errorJson.error?.code === 'context_length_exceeded') {
+          errorMessage = 'Context too long - conversation will be trimmed';
+        }
+      } catch (e) {
+        errorMessage = errorText.substring(0, 200);
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    
+    if (!data.choices || data.choices.length === 0) {
+      throw new Error('Azure OpenAI returned empty response');
+    }
+    
+    const choice = data.choices[0];
+    
+    // Log token usage if available
+    if (data.usage) {
+      console.log(`[AZURE AI] Tokens: ${data.usage.prompt_tokens} prompt + ${data.usage.completion_tokens} completion = ${data.usage.total_tokens} total`);
+    }
+    
+    return {
+      content: choice.message.content,
+      tool_calls: choice.message.tool_calls,
+      finish_reason: choice.finish_reason
+    };
+    
+  } catch (error) {
+    // Add context to error
+    if (error.message.includes('ENOTFOUND') || error.message.includes('ECONNREFUSED')) {
+      throw new Error(`Cannot reach Azure OpenAI endpoint: ${endpoint}`);
+    }
+    throw error;
+  }
 }
 
 // Named exports for server.js
