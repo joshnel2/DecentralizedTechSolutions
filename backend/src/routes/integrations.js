@@ -919,11 +919,10 @@ router.get('/outlook/callback', async (req, res) => {
       });
       
       // Check for the specific "invalid client secret" error (AADSTS7000215)
-      // This happens when someone enters the Secret ID instead of the Secret Value
       let errorMsg;
       if (tokens.error_description && tokens.error_description.includes('AADSTS7000215')) {
-        errorMsg = 'Invalid client secret provided. You entered the Secret ID instead of the Secret Value. In Azure Portal, go to Certificates & secrets and copy the "Value" (not Secret ID). You may need to create a new secret since the value is only shown once.';
-        console.error('[Outlook Callback] AADSTS7000215: Admin entered Secret ID instead of Secret Value!');
+        errorMsg = 'Connection failed: Invalid client secret. This can happen if: (1) The secret has expired in Azure Portal, (2) The secret was deleted or rotated, (3) There are extra spaces or characters in the saved value. Please go to Azure Portal > App registrations > Certificates & secrets and create a new secret, then update it in the Admin Portal.';
+        console.error('[Outlook Callback] AADSTS7000215: Invalid client secret - may be expired, deleted, or incorrect');
       } else {
         errorMsg = tokens.error_description || tokens.error || 'token_error';
       }
