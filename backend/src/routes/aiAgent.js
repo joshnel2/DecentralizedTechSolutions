@@ -5787,6 +5787,12 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
   let phase = 'discovery'; // Phases: discovery, analysis, action, review
   let consecutiveErrors = 0;
   
+  // Helper to check if task was cancelled
+  const isCancelled = () => {
+    const agentState = runningAgents.get(taskId);
+    return !agentState || agentState.cancelled;
+  };
+  
   // Filter out tools that shouldn't be used in background mode
   const AGENT_TOOLS = TOOLS.filter(t => {
     const name = t.function.name;
@@ -5797,9 +5803,28 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
   });
   
   try {
+    // Check cancellation immediately before starting
+    if (isCancelled()) {
+      console.log(`[AGENT ${taskId}] Task was cancelled before starting. Exiting.`);
+      return;
+    }
+    
+    // Update status and progress immediately so UI shows task is starting
     await query(
-      `UPDATE ai_tasks SET status = 'running', started_at = NOW() WHERE id = $1`,
-      [taskId]
+      `UPDATE ai_tasks SET 
+        status = 'running', 
+        started_at = NOW(),
+        progress = $1,
+        updated_at = NOW()
+       WHERE id = $2`,
+      [JSON.stringify({
+        promptCount: 0,
+        phase: 'starting',
+        actions: [],
+        progressPercent: 5,
+        currentStep: 'Initializing agent...',
+        status: 'starting'
+      }), taskId]
     );
     
     // System prompt - sets up the AI's role and context
@@ -5849,8 +5874,7 @@ Available actions: search matters, review documents, log time, create tasks, dra
       }
       
       // Check if task was cancelled (fast in-memory check)
-      const agentState = runningAgents.get(taskId);
-      if (!agentState || agentState.cancelled) {
+      if (isCancelled()) {
         console.log(`[AGENT ${taskId}] Task was cancelled. Stopping immediately.`);
         runningAgents.delete(taskId);
         return; // Exit - status already set to cancelled by the cancel endpoint
@@ -5866,6 +5890,11 @@ Available actions: search matters, review documents, log time, create tasks, dra
       
       console.log(`[AGENT ${taskId}] --- Prompt #${promptCount} (${elapsedMinutes}m elapsed, ${remainingMinutes}m remaining, ${progressPercent}%) ---`);
       
+      // Determine current step description
+      const currentStepDesc = actions.length > 0 
+        ? `Working... (${actions.length} actions completed)`
+        : `Analyzing task: "${goal.substring(0, 50)}..."`;
+      
       // Update progress in database with progressPercent for the progress bar
       await query(
         `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
@@ -5876,6 +5905,7 @@ Available actions: search matters, review documents, log time, create tasks, dra
           remainingMinutes,
           elapsedSeconds,
           progressPercent,  // This is what the frontend reads!
+          currentStep: currentStepDesc,
           status: 'working'
         }), taskId]
       );
@@ -5905,6 +5935,13 @@ Available actions: search matters, review documents, log time, create tasks, dra
           await delay(5000);
         }
         
+        // Check cancellation after delay
+        if (isCancelled()) {
+          console.log(`[AGENT ${taskId}] Task was cancelled during error recovery. Stopping.`);
+          runningAgents.delete(taskId);
+          return;
+        }
+        
         // Don't exit on errors - keep trying until 15 minutes is up
         // Only log a warning if we hit too many consecutive errors
         if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
@@ -5917,6 +5954,13 @@ Available actions: search matters, review documents, log time, create tasks, dra
           consecutiveErrors = 0;
         }
         continue;
+      }
+      
+      // Check cancellation after receiving AI response
+      if (isCancelled()) {
+        console.log(`[AGENT ${taskId}] Task was cancelled after AI response. Stopping.`);
+        runningAgents.delete(taskId);
+        return;
       }
       
       // Handle response
@@ -5984,8 +6028,22 @@ Available actions: search matters, review documents, log time, create tasks, dra
       
       console.log(`[AGENT ${taskId}] Executing: ${functionName}(${JSON.stringify(functionArgs).substring(0, 100)}...)`);
       
+      // Check cancellation before executing tool
+      if (isCancelled()) {
+        console.log(`[AGENT ${taskId}] Task was cancelled before tool execution. Stopping.`);
+        runningAgents.delete(taskId);
+        return;
+      }
+      
       // Execute the tool
       const toolResult = await executeTool(functionName, functionArgs, user, null);
+      
+      // Check cancellation after executing tool
+      if (isCancelled()) {
+        console.log(`[AGENT ${taskId}] Task was cancelled after tool execution. Stopping.`);
+        runningAgents.delete(taskId);
+        return;
+      }
       
       // Build action summary
       const actionSummary = toolResult.message || toolResult.summary || 
@@ -9923,7 +9981,8 @@ router.post('/tasks/:taskId/cancel', authenticate, async (req, res) => {
     
     const task = taskResult.rows[0];
     
-    if (task.status !== 'running') {
+    // Allow cancelling running OR stuck tasks (timeout, etc.)
+    if (task.status !== 'running' && task.status !== 'timeout') {
       return res.status(400).json({ error: 'Task is not running', status: task.status });
     }
     
@@ -9936,13 +9995,13 @@ router.post('/tasks/:taskId/cancel', authenticate, async (req, res) => {
       try { progress = JSON.parse(progress); } catch (e) { progress = {}; }
     }
     
-    // Update task to cancelled status - keeps all progress
+    // Update task to cancelled status IMMEDIATELY - don't wait for agent loop
     const result = await query(
       `UPDATE ai_tasks SET 
         status = 'cancelled',
         completed_at = NOW(),
         progress = $1,
-        summary = $2,
+        result = $2,
         updated_at = NOW()
        WHERE id = $3 AND user_id = $4
        RETURNING id, status, goal`,
@@ -9962,7 +10021,7 @@ router.post('/tasks/:taskId/cancel', authenticate, async (req, res) => {
     // Remove from running agents map
     runningAgents.delete(taskId);
     
-    console.log(`[AGENT] Task ${taskId} cancelled by user - agent will stop on next iteration`);
+    console.log(`[AGENT] Task ${taskId} cancelled by user - status updated to cancelled immediately`);
     
     res.json({ 
       success: true, 
@@ -9972,6 +10031,51 @@ router.post('/tasks/:taskId/cancel', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Error cancelling task:', error);
     res.status(500).json({ error: 'Failed to cancel task' });
+  }
+});
+
+// Delete a task (completed, cancelled, or failed tasks only)
+router.delete('/tasks/:taskId', authenticate, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    
+    // Check if task exists and belongs to user
+    const taskResult = await query(
+      `SELECT id, status, goal FROM ai_tasks 
+       WHERE id = $1 AND user_id = $2`,
+      [taskId, req.user.id]
+    );
+    
+    if (taskResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    const task = taskResult.rows[0];
+    
+    // Don't allow deleting running tasks - must cancel first
+    if (task.status === 'running') {
+      return res.status(400).json({ 
+        error: 'Cannot delete a running task. Cancel it first.',
+        status: task.status 
+      });
+    }
+    
+    // Delete the task
+    await query(
+      `DELETE FROM ai_tasks WHERE id = $1 AND user_id = $2`,
+      [taskId, req.user.id]
+    );
+    
+    console.log(`[AGENT] Task ${taskId} deleted by user`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Task deleted successfully.',
+      deletedTaskId: taskId
+    });
+  } catch (error) {
+    console.error('Error deleting task:', error);
+    res.status(500).json({ error: 'Failed to delete task' });
   }
 });
 
@@ -10036,7 +10140,7 @@ router.get('/tasks/:taskId', authenticate, async (req, res) => {
 router.get('/tasks/active/current', authenticate, async (req, res) => {
   try {
     const result = await query(
-      `SELECT id, goal, status, plan, progress, iterations, max_iterations, created_at, started_at
+      `SELECT id, goal, status, plan, progress, iterations, max_iterations, created_at, started_at, updated_at
        FROM ai_tasks 
        WHERE user_id = $1 AND status = 'running'
        ORDER BY created_at DESC 
@@ -10050,18 +10154,32 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
     
     const task = result.rows[0];
     
-    // Check if task has been running too long (2 hours) - mark as timed out
+    // Check if task has been running too long (20 minutes) - mark as timed out
     const startedAt = task.started_at ? new Date(task.started_at) : new Date(task.created_at);
     const runningTimeMs = Date.now() - startedAt.getTime();
-    const MAX_RUNNING_TIME = 2 * 60 * 60 * 1000; // 2 hours for long tasks
+    const MAX_RUNNING_TIME = 20 * 60 * 1000; // 20 minutes max (15 min + 5 min buffer)
     
-    if (runningTimeMs > MAX_RUNNING_TIME) {
-      // Mark task as timed out
+    // Also check if task hasn't been updated in a long time (stuck)
+    const lastUpdate = task.updated_at ? new Date(task.updated_at) : startedAt;
+    const timeSinceUpdate = Date.now() - lastUpdate.getTime();
+    const MAX_IDLE_TIME = 5 * 60 * 1000; // 5 minutes without update = stuck
+    
+    if (runningTimeMs > MAX_RUNNING_TIME || timeSinceUpdate > MAX_IDLE_TIME) {
+      // Mark task as timed out/stuck
+      const stuckReason = timeSinceUpdate > MAX_IDLE_TIME 
+        ? 'Task appears to be stuck (no updates for 5 minutes)'
+        : 'Task exceeded maximum runtime';
+      
       await query(
         `UPDATE ai_tasks SET status = 'timeout', completed_at = NOW(), 
-         error = 'Task completed after 15 minute session' WHERE id = $1`,
-        [task.id]
+         error = $1, result = 'Task was automatically stopped' WHERE id = $2`,
+        [stuckReason, task.id]
       );
+      
+      // Clean up from running agents
+      runningAgents.delete(task.id);
+      
+      console.log(`[AGENT] Task ${task.id} marked as timeout: ${stuckReason}`);
       return res.json({ active: false });
     }
     

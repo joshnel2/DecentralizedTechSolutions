@@ -507,10 +507,41 @@
   font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.stopAgentBtn:hover {
+.stopAgentBtn:hover:not(:disabled) {
   background: #DC2626;
+}
+
+.stopAgentBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.deleteProgressBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(107, 114, 128, 0.2);
+  border: none;
+  border-radius: 8px;
+  color: #9CA3AF;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.deleteProgressBtn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  color: #EF4444;
+}
+
+.deleteProgressBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 .liveProgressCard.completed .liveProgressStatus {
@@ -1079,7 +1110,9 @@
 }
 
 .taskCardFooter {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-top: 0.75rem;
 }
 
@@ -1088,6 +1121,54 @@
   color: var(--apex-subtle);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.taskActions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.cancelTaskBtn,
+.deleteTaskBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.375rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cancelTaskBtn {
+  background: rgba(239, 68, 68, 0.15);
+  color: #EF4444;
+}
+
+.cancelTaskBtn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+.cancelTaskBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.deleteTaskBtn {
+  background: rgba(107, 114, 128, 0.15);
+  color: #9CA3AF;
+}
+
+.deleteTaskBtn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  color: #EF4444;
+}
+
+.deleteTaskBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .poweredBy {

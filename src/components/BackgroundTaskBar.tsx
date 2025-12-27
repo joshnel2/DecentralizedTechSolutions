@@ -160,8 +160,10 @@ export function BackgroundTaskBar() {
     
     setCancelling(true)
     try {
-      await aiApi.cancelTask(activeTask.id)
-      // Update local state to show cancelled
+      const response = await aiApi.cancelTask(activeTask.id)
+      console.log('Cancel response:', response)
+      
+      // Update local state to show cancelled immediately
       setActiveTask({
         ...activeTask,
         status: 'cancelled',
@@ -169,6 +171,7 @@ export function BackgroundTaskBar() {
       })
       setIsComplete(true)
       setPolling(false)
+      setCancelling(false)
       
       // Notify user
       if ('Notification' in window && Notification.permission === 'granted') {
@@ -179,6 +182,14 @@ export function BackgroundTaskBar() {
       }
     } catch (error) {
       console.error('Error cancelling task:', error)
+      // Even if API fails, show cancellation in UI since it might have worked
+      setActiveTask({
+        ...activeTask,
+        status: 'cancelled',
+        currentStep: 'Cancel requested'
+      })
+      setIsComplete(true)
+      setPolling(false)
       setCancelling(false)
     }
   }

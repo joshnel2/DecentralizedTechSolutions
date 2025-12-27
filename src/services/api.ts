@@ -808,6 +808,12 @@ export const aiApi = {
       method: 'POST',
     });
   },
+  
+  async deleteTask(taskId: string) {
+    return fetchWithAuth(`/v1/agent/tasks/${taskId}`, {
+      method: 'DELETE',
+    });
+  },
 
   async getSuggestions(page: string) {
     return fetchWithAuth(`/ai/suggestions?page=${page}`);
