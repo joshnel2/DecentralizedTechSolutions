@@ -452,6 +452,11 @@ export function AIAssistantPage() {
                           <CheckCircle size={20} />
                           <span>Task Complete</span>
                         </>
+                      ) : liveTaskProgress.status === 'cancelled' ? (
+                        <>
+                          <StopCircle size={20} />
+                          <span>Task Cancelled</span>
+                        </>
                       ) : (
                         <>
                           <AlertCircle size={20} />
@@ -459,6 +464,22 @@ export function AIAssistantPage() {
                         </>
                       )}
                     </div>
+                    {liveTaskProgress.status === 'running' && (
+                      <button 
+                        className={styles.stopAgentBtn}
+                        onClick={async () => {
+                          try {
+                            await aiApi.cancelTask(liveTaskProgress.id)
+                            setLiveTaskProgress({ ...liveTaskProgress, status: 'cancelled' })
+                          } catch (e) {
+                            console.error('Failed to cancel:', e)
+                          }
+                        }}
+                      >
+                        <StopCircle size={16} />
+                        Stop Agent
+                      </button>
+                    )}
                     <div className={styles.liveProgressMeta}>
                       <span className={styles.liveProgressIterations}>
                         {liveTaskProgress.totalSteps 
