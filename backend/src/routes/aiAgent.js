@@ -5747,10 +5747,12 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
   const startTime = Date.now();
   const maxRuntime = 15 * 60 * 1000; // 15 minutes exactly
   const PROMPT_DELAY_MS = 2000; // 2 seconds between prompts
+  const MAX_CONSECUTIVE_ERRORS = 10; // Don't exit on errors, just keep trying
   
   let promptCount = 0;
   let actions = [];
   let phase = 'discovery'; // Phases: discovery, analysis, action, review
+  let consecutiveErrors = 0;
   
   // Filter out tools that shouldn't be used in background mode
   const AGENT_TOOLS = TOOLS.filter(t => {
@@ -5843,10 +5845,36 @@ Available actions: search matters, review documents, log time, create tasks, dra
         console.log(`[AGENT ${taskId}] Sending prompt to Azure AI...`);
         response = await callAzureOpenAIWithTools(conversationHistory, AGENT_TOOLS);
         console.log(`[AGENT ${taskId}] Received response (tool_calls: ${response.tool_calls?.length || 0})`);
+        consecutiveErrors = 0; // Reset error counter on success
       } catch (apiError) {
-        console.error(`[AGENT ${taskId}] API error:`, apiError.message);
-        // Wait and retry on error
-        await delay(5000);
+        consecutiveErrors++;
+        console.error(`[AGENT ${taskId}] API error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, apiError.message);
+        
+        // Update progress to show we're still working despite errors
+        await query(
+          `UPDATE ai_tasks SET current_step = $1, updated_at = NOW() WHERE id = $2`,
+          [`Retrying... (${consecutiveErrors} errors)`, taskId]
+        );
+        
+        // Wait longer on rate limit errors
+        if (apiError.message.includes('429') || apiError.message.includes('rate')) {
+          console.log(`[AGENT ${taskId}] Rate limited, waiting 10 seconds...`);
+          await delay(10000);
+        } else {
+          await delay(5000);
+        }
+        
+        // Don't exit on errors - keep trying until 15 minutes is up
+        // Only log a warning if we hit too many consecutive errors
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          console.warn(`[AGENT ${taskId}] ${consecutiveErrors} consecutive errors, but continuing...`);
+          // Reset and simplify the conversation to recover
+          conversationHistory = [
+            conversationHistory[0], // Keep system prompt
+            { role: 'user', content: `Continue working on: "${goal}". Call a tool.` }
+          ];
+          consecutiveErrors = 0;
+        }
         continue;
       }
       
@@ -5862,9 +5890,9 @@ Available actions: search matters, review documents, log time, create tasks, dra
           content: response.content || '' 
         });
         
-        // Backend sends next prompt based on task progress
+        // Backend sends next prompt to keep the agent working
         if (consecutiveNoToolCalls >= 3) {
-          // Move to next task phase
+          // Move to next task phase after 3 attempts
           currentTaskIndex++;
           consecutiveNoToolCalls = 0;
           
@@ -5874,20 +5902,27 @@ Available actions: search matters, review documents, log time, create tasks, dra
               content: taskPrompts[currentTaskIndex]
             });
           } else {
-            // Generate a continuation prompt based on what's been done
-            const nextPrompt = generateContinuationPrompt(goal, actions, remainingMinutes, phase);
-            conversationHistory.push({ role: 'user', content: nextPrompt });
-            
-            // Advance phase
+            // Cycle through phases to keep working
             if (phase === 'discovery') phase = 'analysis';
             else if (phase === 'analysis') phase = 'action';
             else if (phase === 'action') phase = 'review';
+            else phase = 'discovery'; // Cycle back to discovery
+            
+            // Generate a continuation prompt based on what's been done
+            const nextPrompt = generateContinuationPrompt(goal, actions, remainingMinutes, phase);
+            conversationHistory.push({ role: 'user', content: nextPrompt });
           }
         } else {
-          // Prompt to continue with a tool
+          // More forceful prompts to keep the agent working
+          const forcePrompts = [
+            `You must call a tool now. Continue working on: "${goal}"`,
+            `Call a tool to take the next action. You have ${remainingMinutes} minutes left for: "${goal}"`,
+            `Execute a tool now. Search for more information or take an action for: "${goal}"`,
+            `Keep working. Call search_matters, list_documents, create_note, or another tool for: "${goal}"`
+          ];
           conversationHistory.push({
             role: 'user',
-            content: `Please call a tool to continue. What's the next action for: "${goal}"?`
+            content: forcePrompts[consecutiveNoToolCalls % forcePrompts.length]
           });
         }
         
@@ -6138,23 +6173,42 @@ function generateNextPrompt(goal, lastTool, lastResult, actions, remainingMinute
 
 /**
  * Generate a continuation prompt when the AI hasn't called a tool
+ * These prompts keep the agent working for the full 15 minutes
  */
 function generateContinuationPrompt(goal, actions, remainingMinutes, phase) {
   if (actions.length === 0) {
-    return `You haven't taken any actions yet. Call a tool to start working on: "${goal}"`;
+    return `You haven't taken any actions yet. Call a tool NOW to start working on: "${goal}"\n\nSuggested first steps:\n1. search_matters - find relevant cases\n2. list_clients - see who's involved\n3. get_firm_overview - understand current state`;
   }
   
   const recentActions = actions.slice(-3).map(a => a.summary).join(', ');
+  const actionCount = actions.length;
   
-  if (phase === 'discovery') {
-    return `You've gathered some information (${recentActions}). Now analyze it further or take action. What's next for: "${goal}"?`;
-  } else if (phase === 'analysis') {
-    return `Analysis phase. Review documents, check details, verify information. You have ${remainingMinutes} minutes for: "${goal}"`;
-  } else if (phase === 'action') {
-    return `Time for action. Create documents, draft emails, schedule tasks. ${remainingMinutes} minutes remaining for: "${goal}"`;
-  } else {
-    return `Review phase. Document your findings and create any follow-up items. ${remainingMinutes} minutes left.`;
-  }
+  // Different prompts for different phases - all require tool calls
+  const phasePrompts = {
+    discovery: [
+      `You've done ${actionCount} actions so far (${recentActions}). Keep gathering information. Search for more related matters, documents, or client info for: "${goal}"`,
+      `Discovery phase: ${remainingMinutes} minutes left. Use list_documents, search_matters, or get_client to find more relevant information.`,
+      `Continue exploring. What else do you need to know about: "${goal}"? Call a search or get tool.`
+    ],
+    analysis: [
+      `Analysis phase: You have ${remainingMinutes} minutes. Read document contents, review matter details, check billing status for: "${goal}"`,
+      `Time to analyze. Use read_document_content on important files, or get_matter for detailed case info.`,
+      `${actionCount} actions completed. Now analyze what you've found. Call a tool to examine the data more closely.`
+    ],
+    action: [
+      `Action phase: ${remainingMinutes} minutes remaining. Create documents, draft emails, log time, or schedule tasks for: "${goal}"`,
+      `Time to act. Use create_document, draft_email_for_matter, create_task, or log_time to make progress.`,
+      `You've analyzed enough. Now take action. What needs to be created or scheduled for: "${goal}"?`
+    ],
+    review: [
+      `Review phase: ${remainingMinutes} minutes left. Document your findings with create_note. Create follow-up tasks. Check if anything was missed.`,
+      `Final review. Use create_note to summarize your work. Create any remaining tasks or events needed.`,
+      `Wrapping up: ${remainingMinutes} minutes remaining. Make sure everything is documented and follow-ups are scheduled for: "${goal}"`
+    ]
+  };
+  
+  const prompts = phasePrompts[phase] || phasePrompts.discovery;
+  return prompts[Math.floor(Math.random() * prompts.length)];
 }
 
 // =============================================================================
