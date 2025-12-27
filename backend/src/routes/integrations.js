@@ -898,6 +898,27 @@ router.get('/outlook/emails', authenticate, async (req, res) => {
 
     const emailsData = await emailsResponse.json();
 
+    // Check for API errors - this was missing and caused emails to not show!
+    if (!emailsResponse.ok || emailsData.error) {
+      console.error('[Outlook/emails] Graph API error:', emailsData.error || emailsResponse.status);
+      
+      // If it's an auth error, mark as disconnected so user knows to reconnect
+      if (emailsResponse.status === 401 || emailsData.error?.code === 'InvalidAuthenticationToken') {
+        await query(
+          `UPDATE integrations SET is_connected = false WHERE firm_id = $1 AND provider = 'outlook'`,
+          [req.user.firmId]
+        );
+        return res.status(401).json({ 
+          error: 'Your Microsoft 365 session has expired. Please reconnect your account.', 
+          needsReconnect: true 
+        });
+      }
+      
+      return res.status(500).json({ 
+        error: emailsData.error?.message || 'Failed to fetch emails from Microsoft 365. Please try again.' 
+      });
+    }
+
     const emails = emailsData.value || [];
     
     // Check for auto-linking setting
@@ -949,9 +970,13 @@ router.get('/outlook/emails', authenticate, async (req, res) => {
         subject: email.subject,
         from: email.from?.emailAddress?.address,
         fromName: email.from?.emailAddress?.name,
+        to: email.toRecipients?.map(r => r.emailAddress?.address).join(', '),
+        toName: email.toRecipients?.map(r => r.emailAddress?.name).join(', '),
         receivedAt: email.receivedDateTime,
         isRead: email.isRead,
         preview: email.bodyPreview,
+        hasAttachments: email.hasAttachments,
+        importance: email.importance,
       })),
     });
   } catch (error) {

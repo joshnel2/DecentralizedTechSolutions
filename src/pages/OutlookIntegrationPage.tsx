@@ -176,13 +176,26 @@ export function OutlookIntegrationPage() {
     }
   }, [emails, searchParams])
 
+  const [connectionError, setConnectionError] = useState<string | null>(null)
+  
   const loadEmails = async () => {
     try {
       setLoading(true)
+      setConnectionError(null)
       const data = await integrationsApi.getOutlookEmails()
       setEmails(data.emails || [])
     } catch (error: any) {
-      setNotification({ type: 'error', message: error.message || 'Failed to load emails' })
+      const errorMessage = error.message || 'Failed to load emails'
+      // Check if this is a connection/auth error that requires reconnecting
+      if (error.data?.needsReconnect || error.status === 401) {
+        setConnectionError(errorMessage)
+        setNotification({ 
+          type: 'error', 
+          message: 'Your Microsoft 365 session has expired. Please reconnect your account.' 
+        })
+      } else {
+        setNotification({ type: 'error', message: errorMessage })
+      }
     } finally {
       setLoading(false)
     }
