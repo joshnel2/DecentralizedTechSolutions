@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
-import { buildDocumentAccessFilter, FULL_ACCESS_ROLES } from '../middleware/documentAccess.js';
+import { buildDocumentAccessFilter, FULL_ACCESS_ROLES, canAccessDocument } from '../middleware/documentAccess.js';
 import { ensureDirectory, isAzureConfigured } from '../utils/azureStorage.js';
 import crypto from 'crypto';
 import path from 'path';
@@ -359,12 +359,30 @@ router.delete('/configurations/:id', authenticate, async (req, res) => {
 // ============================================
 
 // Get version history for a document
+// Cloud-native: Uses Clio-style permission inheritance but with efficient single-query checks
 router.get('/documents/:documentId/versions', authenticate, async (req, res) => {
   try {
-    // Verify document access
+    const documentId = req.params.documentId;
+    
+    // Check document access using Clio-style permission system
+    // This checks: admin role, uploader, owner, matter permissions, explicit permissions, group permissions
+    const access = await canAccessDocument(
+      req.user.id,
+      req.user.role,
+      documentId,
+      req.user.firmId,
+      'view'
+    );
+
+    if (!access.hasAccess) {
+      // Return 404 instead of 403 to avoid leaking document existence
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    // Get document name
     const docResult = await query(
       `SELECT id, name FROM documents WHERE id = $1 AND firm_id = $2`,
-      [req.params.documentId, req.user.firmId]
+      [documentId, req.user.firmId]
     );
 
     if (docResult.rows.length === 0) {
@@ -378,12 +396,13 @@ router.get('/documents/:documentId/versions', authenticate, async (req, res) => 
        LEFT JOIN users u ON dv.created_by = u.id
        WHERE dv.document_id = $1
        ORDER BY dv.version_number DESC`,
-      [req.params.documentId]
+      [documentId]
     );
 
     res.json({
-      documentId: req.params.documentId,
+      documentId,
       documentName: docResult.rows[0].name,
+      accessReason: access.reason, // Helps debugging/auditing
       versions: result.rows.map(v => ({
         id: v.id,
         versionNumber: v.version_number,
@@ -410,11 +429,26 @@ router.get('/documents/:documentId/versions', authenticate, async (req, res) => 
 // Get a specific version's content
 router.get('/documents/:documentId/versions/:versionId/content', authenticate, async (req, res) => {
   try {
+    const documentId = req.params.documentId;
+    
+    // Check document access - need 'view' permission to read version content
+    const access = await canAccessDocument(
+      req.user.id,
+      req.user.role,
+      documentId,
+      req.user.firmId,
+      'view'
+    );
+
+    if (!access.hasAccess) {
+      return res.status(404).json({ error: 'Version not found' });
+    }
+
     const result = await query(
       `SELECT dv.* FROM document_versions dv
        JOIN documents d ON dv.document_id = d.id
-       WHERE dv.id = $1 AND d.firm_id = $2`,
-      [req.params.versionId, req.user.firmId]
+       WHERE dv.id = $1 AND d.firm_id = $2 AND dv.document_id = $3`,
+      [req.params.versionId, req.user.firmId, documentId]
     );
 
     if (result.rows.length === 0) {
@@ -744,124 +778,158 @@ router.get('/documents/:documentId/compare', authenticate, async (req, res) => {
 // ============================================
 
 // Acquire lock on a document
+// Cloud-native approach: Uses atomic database operations to prevent race conditions
+// Better than Clio's approach which uses file-system locks that don't scale
 router.post('/documents/:documentId/lock', authenticate, async (req, res) => {
   try {
     const { lockType = 'edit', sessionId } = req.body;
+    const documentId = req.params.documentId;
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const userName = `${req.user.firstName} ${req.user.lastName}`;
+    const newSessionId = sessionId || uuidv4();
 
     // Check if document exists and is accessible
     const docResult = await query(
-      `SELECT id, name, current_editor_id, current_editor_name, lock_expires_at
-       FROM documents WHERE id = $1 AND firm_id = $2`,
-      [req.params.documentId, req.user.firmId]
+      `SELECT id, name FROM documents WHERE id = $1 AND firm_id = $2`,
+      [documentId, req.user.firmId]
     );
 
     if (docResult.rows.length === 0) {
       return res.status(404).json({ error: 'Document not found' });
     }
 
-    const doc = docResult.rows[0];
+    // Use a single atomic transaction to prevent race conditions
+    // This is more efficient than Clio's multi-step lock acquisition
+    const result = await withTransaction(async (client) => {
+      // First, expire any old locks and get current lock state in one query
+      // Use FOR UPDATE to lock the row and prevent concurrent modifications
+      await client.query(
+        `UPDATE document_locks SET 
+          is_active = false, 
+          released_at = NOW(),
+          release_reason = 'expired'
+         WHERE document_id = $1 AND is_active = true AND expires_at <= NOW()`,
+        [documentId]
+      );
 
-    // Check for existing active lock (that hasn't expired)
-    const existingLock = await query(
-      `SELECT dl.*, u.first_name || ' ' || u.last_name as locked_by_name
-       FROM document_locks dl
-       JOIN users u ON dl.locked_by = u.id
-       WHERE dl.document_id = $1 
-         AND dl.is_active = true 
-         AND dl.expires_at > NOW()`,
-      [req.params.documentId]
-    );
+      // Check for active lock with row lock to prevent race condition
+      const existingLock = await client.query(
+        `SELECT dl.*, u.first_name || ' ' || u.last_name as locked_by_name
+         FROM document_locks dl
+         JOIN users u ON dl.locked_by = u.id
+         WHERE dl.document_id = $1 
+           AND dl.is_active = true 
+           AND dl.expires_at > NOW()
+         FOR UPDATE`,
+        [documentId]
+      );
 
-    if (existingLock.rows.length > 0) {
-      const lock = existingLock.rows[0];
-      
-      // If the same user already has the lock, extend it
-      if (lock.locked_by === req.user.id) {
-        const newExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-        await query(
-          `UPDATE document_locks SET 
-            expires_at = $1, 
-            last_heartbeat = NOW(),
-            session_id = COALESCE($2, session_id)
-           WHERE id = $3`,
-          [newExpiry, sessionId, lock.id]
-        );
+      if (existingLock.rows.length > 0) {
+        const lock = existingLock.rows[0];
+        
+        // If the same user already has the lock, extend it
+        if (lock.locked_by === req.user.id) {
+          await client.query(
+            `UPDATE document_locks SET 
+              expires_at = $1, 
+              last_heartbeat = NOW(),
+              session_id = COALESCE($2, session_id)
+             WHERE id = $3`,
+            [expiresAt, sessionId, lock.id]
+          );
 
-        await query(
-          `UPDATE documents SET lock_expires_at = $1 WHERE id = $2`,
-          [newExpiry, req.params.documentId]
-        );
+          await client.query(
+            `UPDATE documents SET lock_expires_at = $1 WHERE id = $2`,
+            [expiresAt, documentId]
+          );
 
-        return res.json({
-          lockId: lock.id,
-          extended: true,
-          expiresAt: newExpiry,
-          message: 'Lock extended'
-        });
+          return {
+            success: true,
+            extended: true,
+            lockId: lock.id,
+            expiresAt
+          };
+        }
+
+        // Someone else has the lock - return conflict info
+        return {
+          success: false,
+          conflict: true,
+          lockedBy: lock.locked_by_name,
+          lockedAt: lock.locked_at,
+          expiresAt: lock.expires_at
+        };
       }
 
-      // Someone else has the lock
+      // No active lock - create new one atomically
+      const lockResult = await client.query(
+        `INSERT INTO document_locks (
+          document_id, firm_id, locked_by, locked_by_name,
+          lock_type, expires_at, session_id, client_info
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING *`,
+        [
+          documentId,
+          req.user.firmId,
+          req.user.id,
+          userName,
+          lockType,
+          expiresAt,
+          newSessionId,
+          req.headers['user-agent']
+        ]
+      );
+
+      // Update document with editor info
+      await client.query(
+        `UPDATE documents SET 
+          current_editor_id = $1,
+          current_editor_name = $2,
+          lock_expires_at = $3
+         WHERE id = $4`,
+        [req.user.id, userName, expiresAt, documentId]
+      );
+
+      // Log activity
+      await client.query(
+        `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
+         VALUES ($1, $2, 'lock', $3, $4, $5)`,
+        [documentId, req.user.firmId, req.user.id, userName, JSON.stringify({ lockType })]
+      );
+
+      return {
+        success: true,
+        extended: false,
+        lockId: lockResult.rows[0].id,
+        sessionId: lockResult.rows[0].session_id,
+        expiresAt
+      };
+    });
+
+    // Handle the transaction result
+    if (result.conflict) {
       return res.status(423).json({ 
         error: 'Document is locked',
-        lockedBy: lock.locked_by_name,
-        lockedAt: lock.locked_at,
-        expiresAt: lock.expires_at,
-        message: `This document is currently being edited by ${lock.locked_by_name}. Try again later or wait for the lock to expire.`
+        lockedBy: result.lockedBy,
+        lockedAt: result.lockedAt,
+        expiresAt: result.expiresAt,
+        message: `This document is currently being edited by ${result.lockedBy}. Try again later or wait for the lock to expire.`
       });
     }
 
-    // Release any expired locks first
-    await query(
-      `UPDATE document_locks SET 
-        is_active = false, 
-        released_at = NOW(),
-        release_reason = 'expired'
-       WHERE document_id = $1 AND is_active = true AND expires_at <= NOW()`,
-      [req.params.documentId]
-    );
-
-    // Create new lock
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-    const lockResult = await query(
-      `INSERT INTO document_locks (
-        document_id, firm_id, locked_by, locked_by_name,
-        lock_type, expires_at, session_id, client_info
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING *`,
-      [
-        req.params.documentId,
-        req.user.firmId,
-        req.user.id,
-        `${req.user.firstName} ${req.user.lastName}`,
-        lockType,
-        expiresAt,
-        sessionId || uuidv4(),
-        req.headers['user-agent']
-      ]
-    );
-
-    // Update document with editor info
-    await query(
-      `UPDATE documents SET 
-        current_editor_id = $1,
-        current_editor_name = $2,
-        lock_expires_at = $3
-       WHERE id = $4`,
-      [req.user.id, `${req.user.firstName} ${req.user.lastName}`, expiresAt, req.params.documentId]
-    );
-
-    // Log activity
-    await query(
-      `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
-       VALUES ($1, $2, 'lock', $3, $4, $5)`,
-      [req.params.documentId, req.user.firmId, req.user.id, `${req.user.firstName} ${req.user.lastName}`,
-       JSON.stringify({ lockType })]
-    );
+    if (result.extended) {
+      return res.json({
+        lockId: result.lockId,
+        extended: true,
+        expiresAt: result.expiresAt,
+        message: 'Lock extended'
+      });
+    }
 
     res.status(201).json({
-      lockId: lockResult.rows[0].id,
-      expiresAt: expiresAt,
-      sessionId: lockResult.rows[0].session_id,
+      lockId: result.lockId,
+      expiresAt: result.expiresAt,
+      sessionId: result.sessionId,
       message: 'Lock acquired successfully'
     });
   } catch (error) {
