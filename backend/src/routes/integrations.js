@@ -51,6 +51,25 @@ async function getCredential(dbKey, envKey, defaultValue = '') {
 // INTEGRATION SETTINGS
 // ============================================
 
+// Diagnostic endpoint - NO AUTH REQUIRED - to check if credentials are configured
+router.get('/status', async (req, res) => {
+  try {
+    const settings = await getPlatformSettings();
+    res.json({
+      configured: {
+        microsoft_client_id: !!settings.microsoft_client_id,
+        microsoft_client_secret: !!settings.microsoft_client_secret,
+        microsoft_redirect_uri: !!settings.microsoft_redirect_uri,
+        quickbooks_client_id: !!settings.quickbooks_client_id,
+        quickbooks_client_secret: !!settings.quickbooks_client_secret,
+      },
+      message: 'If all show true, credentials are loaded from database correctly'
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to check status: ' + error.message });
+  }
+});
+
 // Get all integrations for a firm
 router.get('/', authenticate, async (req, res) => {
   try {
