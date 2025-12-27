@@ -5831,115 +5831,94 @@ If you think you're "done", look for more ways to help - there's always more to 
       if (!response.tool_calls || response.tool_calls.length === 0) {
         console.log(`[REACT ${taskId}] No tool call, prompting again...`);
         messages.push({ role: 'assistant', content: response.content || '' });
-        messages.push({ role: 'user', content: 'You must call a tool. What action will you take next?' });
+        messages.push({ role: 'user', content: 'You must call a tool. What action will you take next? Call ONE tool at a time.' });
         await delay(500);
         continue;
       }
       
-      // Process the tool call
-      const toolCall = response.tool_calls[0];
-      const functionName = toolCall.function.name;
-      let functionArgs;
-      try {
-        functionArgs = JSON.parse(toolCall.function.arguments);
-      } catch (e) {
-        functionArgs = {};
-      }
-      
-      console.log(`[REACT ${taskId}] Calling: ${functionName}`);
-      
-      // Handle task_complete - DON'T STOP, just log and keep going
-      if (functionName === 'task_complete') {
-        const summary = functionArgs.summary || 'Checkpoint reached';
-        completionSummaries.push({ summary, iteration, timestamp: new Date().toISOString() });
-        actions.push({ tool: 'task_complete', summary, timestamp: new Date().toISOString() });
-        
-        console.log(`[REACT ${taskId}] Checkpoint: ${summary} - CONTINUING...`);
-        
-        // Update progress but don't stop
-        await query(
-          `UPDATE ai_tasks SET progress = $1, current_step = $2 WHERE id = $3`,
-          [JSON.stringify({ iteration, actions: actions.slice(-10), checkpoints: completionSummaries }), 
-           `Checkpoint: ${summary} - looking for more value...`, taskId]
-        );
-        
-        // Tell AI to keep going
-        messages.push({ role: 'assistant', content: null, tool_calls: [toolCall] });
-        messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ acknowledged: true, message: 'Checkpoint noted.' }) });
-        messages.push({ role: 'user', content: `Good progress! But we have more time. Look for additional ways to add value:\n- Any other documents to create?\n- Emails to draft?\n- Tasks or calendar events to set up?\n- Notes to add?\n- Related matters to check?\n\nKeep working!` });
-        
-        await delay(STEP_DELAY_MS);
-        continue;
-      }
-      
-      // Block request_human_input - make autonomous decisions instead
-      if (functionName === 'request_human_input') {
-        console.log(`[REACT ${taskId}] Blocked human input request - making autonomous decision`);
-        
-        messages.push({ role: 'assistant', content: null, tool_calls: [toolCall] });
-        messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ 
-          error: 'Human input not available in autonomous mode. Make your best professional judgment and proceed.' 
-        }) });
-        messages.push({ role: 'user', content: 'You are in autonomous mode. Make a reasonable professional decision and continue with your work. What action will you take?' });
-        
-        await delay(500);
-        continue;
-      }
-      
-      // Block send_email - only drafting allowed
-      if (functionName === 'send_email') {
-        console.log(`[REACT ${taskId}] Blocked send_email - redirecting to draft`);
-        
-        messages.push({ role: 'assistant', content: null, tool_calls: [toolCall] });
-        messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ 
-          error: 'Sending emails is not allowed in autonomous mode. Use draft_email instead to create a draft that the user can review and send.',
-          suggestion: 'Call draft_email with the same parameters to save this as a draft.'
-        }) });
-        messages.push({ role: 'user', content: 'Sending emails directly is not permitted. Please use draft_email to create a draft instead. The user will review and send it manually.' });
-        
-        await delay(500);
-        continue;
-      }
-      
-      // Execute the tool
-      const result = await executeTool(functionName, functionArgs, user, null);
-      
-      // Build action summary
-      const actionSummary = result.message || result.summary || 
-        (result.document ? `Created: ${result.document.name}` : null) ||
-        (result.matter ? `Found: ${result.matter.name}` : null) ||
-        (result.matters ? `Found ${result.matters.length} matters` : null) ||
-        `Executed ${functionName}`;
-      
-      actions.push({
-        tool: functionName,
-        summary: actionSummary,
-        success: !result.error,
-        timestamp: new Date().toISOString()
-      });
-      
-      // Update current step display
-      await query(
-        `UPDATE ai_tasks SET current_step = $1 WHERE id = $2`,
-        [actionSummary, taskId]
-      );
-      
-      // Add to conversation for context
+      // Add assistant message with ALL tool calls
       messages.push({
         role: 'assistant',
         content: response.content || null,
-        tool_calls: [toolCall]
-      });
-      messages.push({
-        role: 'tool',
-        tool_call_id: toolCall.id,
-        content: JSON.stringify(result)
+        tool_calls: response.tool_calls
       });
       
-      // Add continuation prompt
+      // Process ALL tool calls and add results
+      for (const toolCall of response.tool_calls) {
+        const functionName = toolCall.function.name;
+        let functionArgs;
+        try {
+          functionArgs = JSON.parse(toolCall.function.arguments);
+        } catch (e) {
+          functionArgs = {};
+        }
+        
+        console.log(`[REACT ${taskId}] Calling: ${functionName}`);
+        
+        let toolResult;
+        
+        // Handle task_complete - DON'T STOP, just log and keep going
+        if (functionName === 'task_complete') {
+          const summary = functionArgs.summary || 'Checkpoint reached';
+          completionSummaries.push({ summary, iteration, timestamp: new Date().toISOString() });
+          actions.push({ tool: 'task_complete', summary, timestamp: new Date().toISOString() });
+          console.log(`[REACT ${taskId}] Checkpoint: ${summary} - CONTINUING...`);
+          
+          await query(
+            `UPDATE ai_tasks SET progress = $1, current_step = $2 WHERE id = $3`,
+            [JSON.stringify({ iteration, actions: actions.slice(-10), checkpoints: completionSummaries }), 
+             `Checkpoint: ${summary} - looking for more value...`, taskId]
+          );
+          
+          toolResult = { acknowledged: true, message: 'Checkpoint noted. Keep looking for more value to add!' };
+        }
+        // Block request_human_input
+        else if (functionName === 'request_human_input') {
+          console.log(`[REACT ${taskId}] Blocked human input request`);
+          toolResult = { error: 'Human input not available. Make your best professional judgment and proceed.' };
+        }
+        // Block send_email
+        else if (functionName === 'send_email') {
+          console.log(`[REACT ${taskId}] Blocked send_email`);
+          toolResult = { error: 'Sending emails not allowed. Use draft_email instead.', suggestion: 'Call draft_email with the same parameters.' };
+        }
+        // Execute the tool normally
+        else {
+          toolResult = await executeTool(functionName, functionArgs, user, null);
+          
+          // Build action summary
+          const actionSummary = toolResult.message || toolResult.summary || 
+            (toolResult.document ? `Created: ${toolResult.document.name}` : null) ||
+            (toolResult.matter ? `Found: ${toolResult.matter.name}` : null) ||
+            (toolResult.matters ? `Found ${toolResult.matters.length} matters` : null) ||
+            `Executed ${functionName}`;
+          
+          actions.push({
+            tool: functionName,
+            summary: actionSummary,
+            success: !toolResult.error,
+            timestamp: new Date().toISOString()
+          });
+          
+          // Update current step display
+          await query(
+            `UPDATE ai_tasks SET current_step = $1 WHERE id = $2`,
+            [actionSummary, taskId]
+          );
+        }
+        
+        // Add tool result to conversation
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(toolResult)
+        });
+      }
+      
+      // Add continuation prompt after all tool calls processed
       messages.push({
         role: 'user',
-        content: `Tool result received. Continue working toward the goal. What's your next action? Remember to call task_complete when the goal is fully achieved.`
+        content: `Tool results received. Continue working toward the goal. What's your next action? Call ONE tool at a time.`
       });
       
       // Trim conversation if too long (keep system + last 40 messages)
