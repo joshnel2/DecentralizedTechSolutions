@@ -473,9 +473,6 @@ export function OutlookIntegrationPage() {
       {/* Sidebar */}
       <div className={styles.sidebar}>
         <div className={styles.sidebarHeader}>
-          <button className={styles.backBtn} onClick={() => navigate('/app/integrations')}>
-            <ArrowLeft size={18} />
-          </button>
           <div className={styles.logoSection}>
             <Mail size={24} />
             <span>Outlook</span>
