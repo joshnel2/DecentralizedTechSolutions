@@ -480,14 +480,28 @@ router.post('/google/sync', authenticate, async (req, res) => {
 // Initiate QuickBooks OAuth
 router.get('/quickbooks/connect', authenticate, async (req, res) => {
   const QB_CLIENT_ID = await getCredential('quickbooks_client_id', 'QUICKBOOKS_CLIENT_ID');
+  const QB_CLIENT_SECRET = await getCredential('quickbooks_client_secret', 'QUICKBOOKS_CLIENT_SECRET');
   const QB_ENVIRONMENT = await getCredential('quickbooks_environment', 'QUICKBOOKS_ENVIRONMENT', 'sandbox');
   
   // Auto-detect redirect URI if not explicitly configured
   const configuredRedirectUri = await getCredential('quickbooks_redirect_uri', 'QUICKBOOKS_REDIRECT_URI', '');
   const QB_REDIRECT_URI = configuredRedirectUri || `${getApiBaseUrl(req)}/api/integrations/quickbooks/callback`;
 
+  // Debug logging
+  console.log('[QuickBooks Connect] Credentials check:', {
+    clientId: QB_CLIENT_ID ? `${QB_CLIENT_ID.substring(0, 8)}... (${QB_CLIENT_ID.length} chars)` : 'MISSING',
+    clientSecret: QB_CLIENT_SECRET ? `${QB_CLIENT_SECRET.substring(0, 4)}... (${QB_CLIENT_SECRET.length} chars)` : 'MISSING',
+    environment: QB_ENVIRONMENT,
+    redirectUri: QB_REDIRECT_URI,
+    firmId: req.user.firmId
+  });
+
   if (!QB_CLIENT_ID) {
-    return res.status(500).json({ error: 'QuickBooks integration not configured. Please configure in Admin Portal.' });
+    return res.status(500).json({ error: 'QuickBooks Client ID not configured. Go to Admin Portal and add QuickBooks Client ID.' });
+  }
+  
+  if (!QB_CLIENT_SECRET) {
+    return res.status(500).json({ error: 'QuickBooks Client Secret not configured. Go to Admin Portal and add QuickBooks Client Secret.' });
   }
 
   const state = Buffer.from(JSON.stringify({
