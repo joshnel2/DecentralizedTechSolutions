@@ -7733,9 +7733,36 @@ async function updateMatterVisibility(args, user) {
 // EMAIL INTEGRATION FUNCTIONS (OUTLOOK)
 // =============================================================================
 
-const MS_TENANT = process.env.MICROSOFT_TENANT || 'common';
-const MS_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
-const MS_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
+// Helper to get platform settings from database (with caching)
+let platformSettingsCache = null;
+let platformSettingsCacheTime = 0;
+const PLATFORM_CACHE_TTL = 5000; // 5 seconds
+
+async function getPlatformSettings() {
+  const now = Date.now();
+  if (platformSettingsCache && (now - platformSettingsCacheTime) < PLATFORM_CACHE_TTL) {
+    return platformSettingsCache;
+  }
+  
+  try {
+    const result = await query('SELECT key, value FROM platform_settings');
+    const settings = {};
+    result.rows.forEach(row => {
+      settings[row.key] = row.value;
+    });
+    platformSettingsCache = settings;
+    platformSettingsCacheTime = now;
+    return settings;
+  } catch (error) {
+    console.log('Platform settings not available, using ENV variables');
+    return {};
+  }
+}
+
+async function getCredential(dbKey, envKey, defaultValue = '') {
+  const settings = await getPlatformSettings();
+  return settings[dbKey] || process.env[envKey] || defaultValue;
+}
 
 async function getOutlookAccessToken(firmId) {
   const integration = await query(
@@ -7752,6 +7779,16 @@ async function getOutlookAccessToken(firmId) {
   
   // Refresh if expired
   if (new Date(integration.rows[0].token_expires_at) < new Date()) {
+    // Get credentials from database first, then fall back to env vars
+    const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
+    const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
+    const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
+    
+    if (!MS_CLIENT_ID || !MS_CLIENT_SECRET) {
+      console.error('Microsoft OAuth credentials not configured');
+      return null;
+    }
+    
     const refreshResponse = await fetch(`https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -7771,6 +7808,7 @@ async function getOutlookAccessToken(firmId) {
         [accessToken, firmId]
       );
     } else {
+      console.error('Failed to refresh Outlook token:', newTokens.error_description || newTokens.error);
       return null;
     }
   }
@@ -8218,10 +8256,6 @@ async function checkEmailIntegration(args, user) {
 // QUICKBOOKS INTEGRATION FUNCTIONS
 // =============================================================================
 
-const QB_CLIENT_ID = process.env.QUICKBOOKS_CLIENT_ID;
-const QB_CLIENT_SECRET = process.env.QUICKBOOKS_CLIENT_SECRET;
-const QB_ENVIRONMENT = process.env.QUICKBOOKS_ENVIRONMENT || 'sandbox';
-
 async function getQuickBooksAccessToken(firmId) {
   const integration = await query(
     `SELECT * FROM integrations WHERE firm_id = $1 AND provider = 'quickbooks' AND is_connected = true`,
@@ -8236,6 +8270,15 @@ async function getQuickBooksAccessToken(firmId) {
   const realmId = settings?.realmId;
   
   if (!realmId) return null;
+  
+  // Get credentials from database first, then fall back to env vars
+  const QB_CLIENT_ID = await getCredential('quickbooks_client_id', 'QUICKBOOKS_CLIENT_ID');
+  const QB_CLIENT_SECRET = await getCredential('quickbooks_client_secret', 'QUICKBOOKS_CLIENT_SECRET');
+  
+  if (!QB_CLIENT_ID || !QB_CLIENT_SECRET) {
+    console.error('QuickBooks OAuth credentials not configured');
+    return null;
+  }
   
   // Always refresh QuickBooks tokens (they expire quickly)
   const auth = Buffer.from(`${QB_CLIENT_ID}:${QB_CLIENT_SECRET}`).toString('base64');
@@ -8260,10 +8303,12 @@ async function getQuickBooksAccessToken(firmId) {
     return { accessToken: newTokens.access_token, realmId };
   }
   
+  console.error('Failed to refresh QuickBooks token:', newTokens.error_description || newTokens.error);
   return { accessToken: access_token, realmId };
 }
 
-function getQBBaseUrl() {
+async function getQBBaseUrl() {
+  const QB_ENVIRONMENT = await getCredential('quickbooks_environment', 'QUICKBOOKS_ENVIRONMENT', 'sandbox');
   return QB_ENVIRONMENT === 'production'
     ? 'https://quickbooks.api.intuit.com'
     : 'https://sandbox-quickbooks.api.intuit.com';
@@ -8301,7 +8346,7 @@ async function getQuickBooksInvoices(args, user) {
   let queryStr = `SELECT * FROM Invoice ORDER BY TxnDate DESC MAXRESULTS ${limit}`;
   
   const response = await fetch(
-    `${getQBBaseUrl()}/v3/company/${tokens.realmId}/query?query=${encodeURIComponent(queryStr)}`,
+    `${await getQBBaseUrl()}/v3/company/${tokens.realmId}/query?query=${encodeURIComponent(queryStr)}`,
     {
       headers: {
         Authorization: `Bearer ${tokens.accessToken}`,
@@ -8344,7 +8389,7 @@ async function getQuickBooksCustomers(args, user) {
     : `SELECT * FROM Customer MAXRESULTS ${limit}`;
   
   const response = await fetch(
-    `${getQBBaseUrl()}/v3/company/${tokens.realmId}/query?query=${encodeURIComponent(queryStr)}`,
+    `${await getQBBaseUrl()}/v3/company/${tokens.realmId}/query?query=${encodeURIComponent(queryStr)}`,
     {
       headers: {
         Authorization: `Bearer ${tokens.accessToken}`,
@@ -8410,7 +8455,7 @@ async function createQuickBooksInvoice(args, user) {
   // Try to find or create a customer in QuickBooks
   // First, search for existing customer by name
   const customerSearchResponse = await fetch(
-    `${getQBBaseUrl()}/v3/company/${tokens.realmId}/query?query=${encodeURIComponent(`SELECT * FROM Customer WHERE DisplayName = '${invoice.client_name.replace(/'/g, "\\'")}'`)}`,
+    `${await getQBBaseUrl()}/v3/company/${tokens.realmId}/query?query=${encodeURIComponent(`SELECT * FROM Customer WHERE DisplayName = '${invoice.client_name.replace(/'/g, "\\'")}'`)}`,
     {
       headers: {
         Authorization: `Bearer ${tokens.accessToken}`,
@@ -8427,7 +8472,7 @@ async function createQuickBooksInvoice(args, user) {
   } else {
     // Create new customer in QuickBooks
     const createCustomerResponse = await fetch(
-      `${getQBBaseUrl()}/v3/company/${tokens.realmId}/customer`,
+      `${await getQBBaseUrl()}/v3/company/${tokens.realmId}/customer`,
       {
         method: 'POST',
         headers: {
@@ -8506,7 +8551,7 @@ async function createQuickBooksInvoice(args, user) {
   };
   
   const createInvoiceResponse = await fetch(
-    `${getQBBaseUrl()}/v3/company/${tokens.realmId}/invoice`,
+    `${await getQBBaseUrl()}/v3/company/${tokens.realmId}/invoice`,
     {
       method: 'POST',
       headers: {
@@ -8572,7 +8617,7 @@ async function syncQuickBooks(args, user) {
       try {
         // Get invoice from QuickBooks
         const response = await fetch(
-          `${getQBBaseUrl()}/v3/company/${tokens.realmId}/invoice/${invoice.external_id}`,
+          `${await getQBBaseUrl()}/v3/company/${tokens.realmId}/invoice/${invoice.external_id}`,
           {
             headers: {
               Authorization: `Bearer ${tokens.accessToken}`,
@@ -8613,7 +8658,7 @@ async function syncQuickBooks(args, user) {
     
     // 2. Import new customers from QuickBooks that don't exist in Apex
     const customersResponse = await fetch(
-      `${getQBBaseUrl()}/v3/company/${tokens.realmId}/query?query=${encodeURIComponent('SELECT * FROM Customer WHERE Active = true MAXRESULTS 100')}`,
+      `${await getQBBaseUrl()}/v3/company/${tokens.realmId}/query?query=${encodeURIComponent('SELECT * FROM Customer WHERE Active = true MAXRESULTS 100')}`,
       {
         headers: {
           Authorization: `Bearer ${tokens.accessToken}`,
@@ -8674,7 +8719,7 @@ async function getQuickBooksBalance(args, user) {
   
   // Get account balances
   const response = await fetch(
-    `${getQBBaseUrl()}/v3/company/${tokens.realmId}/query?query=${encodeURIComponent("SELECT * FROM Account WHERE AccountType = 'Bank'")}`,
+    `${await getQBBaseUrl()}/v3/company/${tokens.realmId}/query?query=${encodeURIComponent("SELECT * FROM Account WHERE AccountType = 'Bank'")}`,
     {
       headers: {
         Authorization: `Bearer ${tokens.accessToken}`,
