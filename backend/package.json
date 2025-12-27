@@ -11,6 +11,8 @@
     "db:seed": "node src/db/seed.js"
   },
   "dependencies": {
+    "@azure/ai-projects": "^2.0.0-beta.2",
+    "@azure/identity": "^4.13.0",
     "@azure/storage-blob": "^12.26.0",
     "@azure/storage-file-share": "^12.29.1",
     "archiver": "^7.0.1",

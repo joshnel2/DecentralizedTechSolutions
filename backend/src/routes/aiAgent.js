@@ -21,13 +21,23 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
+// Azure AI Foundry Agent Service
+import { 
+  isFoundryConfigured, 
+  startFoundryBackgroundTask, 
+  runFoundryAgent 
+} from '../services/azureFoundryAgent.js';
+
 const router = Router();
 
-// Azure OpenAI configuration
+// Azure OpenAI configuration (legacy - for standard completions)
 const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
 const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
 const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
 const API_VERSION = '2024-12-01-preview'; // Latest API version for newer models
+
+// Azure AI Foundry configuration (preferred for agents)
+const USE_FOUNDRY_AGENT = process.env.USE_FOUNDRY_AGENT === 'true' || isFoundryConfigured();
 
 // =============================================================================
 // TOOL DEFINITIONS - Complete set of user actions
@@ -5687,6 +5697,30 @@ async function resumeIncompleteTasks() {
 async function startBackgroundTask(args, user) {
   const { goal, plan, estimated_steps, matter_id, client_id } = args;
   
+  // Check if we should use Azure AI Foundry Agent
+  if (USE_FOUNDRY_AGENT && isFoundryConfigured()) {
+    console.log('[AGENT] Using Azure AI Foundry for background task');
+    try {
+      // Create a wrapper function that delegates to executeFunction
+      const executeFunctionWrapper = async (functionName, functionArgs, userContext) => {
+        return await executeFunction(functionName, functionArgs, userContext);
+      };
+      
+      return await startFoundryBackgroundTask(
+        goal, 
+        user, 
+        { matter_id, client_id },
+        executeFunctionWrapper
+      );
+    } catch (error) {
+      console.error('[FOUNDRY] Error starting Foundry task, falling back to ReAct:', error.message);
+      // Fall through to legacy ReAct agent
+    }
+  }
+  
+  // Legacy ReAct agent (fallback)
+  console.log('[AGENT] Using legacy ReAct agent for background task');
+  
   try {
     // Create task in database
     const result = await query(
@@ -9453,6 +9487,36 @@ Connected integrations (Outlook, QuickBooks, OneDrive, etc.) sync data into Apex
 // =============================================================================
 // BACKGROUND TASK STATUS ENDPOINTS
 // =============================================================================
+
+// Get agent configuration status (which backend is being used)
+router.get('/status', authenticate, async (req, res) => {
+  try {
+    const foundryConfigured = isFoundryConfigured();
+    const openAIConfigured = !!(AZURE_ENDPOINT && AZURE_API_KEY && AZURE_DEPLOYMENT);
+    
+    res.json({
+      agentBackend: USE_FOUNDRY_AGENT && foundryConfigured ? 'foundry' : 'openai',
+      foundry: {
+        configured: foundryConfigured,
+        endpoint: process.env.AZURE_AI_FOUNDRY_ENDPOINT ? '***configured***' : null,
+        deployment: process.env.AZURE_AI_FOUNDRY_DEPLOYMENT || null
+      },
+      openai: {
+        configured: openAIConfigured,
+        endpoint: AZURE_ENDPOINT ? '***configured***' : null,
+        deployment: AZURE_DEPLOYMENT || null
+      },
+      features: {
+        backgroundAgent: true,
+        maxRuntimeMinutes: 15,
+        functionCalling: true
+      }
+    });
+  } catch (error) {
+    console.error('Error getting agent status:', error);
+    res.status(500).json({ error: 'Failed to get agent status' });
+  }
+});
 
 // Get all active/recent tasks for the user (agent history)
 router.get('/tasks', authenticate, async (req, res) => {
