@@ -1054,18 +1054,21 @@ router.put('/platform-settings', requireSecureAdmin, async (req, res) => {
     const updated = [];
     const warnings = [];
     
-    for (const [key, value] of Object.entries(settingsToUpdate)) {
+    for (const [key, rawValue] of Object.entries(settingsToUpdate)) {
       // Skip masked values (don't overwrite with dots)
-      if (value === '••••••••') continue;
+      if (rawValue === '••••••••') continue;
       // Skip 'settings' key if it somehow got through
       if (key === 'settings') continue;
+      
+      // Trim whitespace from values - common issue when copy/pasting
+      const value = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
       
       // Determine if this is a secret field
       const isSecret = key.includes('_secret');
       
       // Debug log for secret values (show length and first few chars)
       if (isSecret && value) {
-        console.log(`[Platform Settings] Saving ${key}: ${value.substring(0, 4)}... (${value.length} chars)`);
+        console.log(`[Platform Settings] Saving ${key}: ${value.substring(0, 4)}... (${value.length} chars, trimmed from ${typeof rawValue === 'string' ? rawValue.length : 'N/A'})`);
         
         // Check if Microsoft client secret looks like a Secret ID (UUID) instead of Secret Value
         if (key === 'microsoft_client_secret') {

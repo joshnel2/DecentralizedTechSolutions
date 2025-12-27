@@ -44,7 +44,9 @@ export function clearPlatformSettingsCache() {
 
 async function getCredential(dbKey, envKey, defaultValue = '') {
   const settings = await getPlatformSettings();
-  return settings[dbKey] || process.env[envKey] || defaultValue;
+  const value = settings[dbKey] || process.env[envKey] || defaultValue;
+  // Trim whitespace - common issue when copy/pasting secrets
+  return typeof value === 'string' ? value.trim() : value;
 }
 
 // ============================================
@@ -891,6 +893,16 @@ router.get('/outlook/callback', async (req, res) => {
     const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
     const { firmId, userId } = stateData;
 
+    // Debug log the credentials being used (safely)
+    console.log('[Outlook Callback] Token exchange attempt:', {
+      clientId: MS_CLIENT_ID ? `${MS_CLIENT_ID.substring(0, 8)}...` : 'MISSING',
+      clientSecretLength: MS_CLIENT_SECRET ? MS_CLIENT_SECRET.length : 0,
+      clientSecretPreview: MS_CLIENT_SECRET ? `${MS_CLIENT_SECRET.substring(0, 3)}...${MS_CLIENT_SECRET.substring(MS_CLIENT_SECRET.length - 3)}` : 'MISSING',
+      tenant: MS_TENANT,
+      redirectUri: MS_REDIRECT_URI,
+      firmId
+    });
+
     // Exchange code for tokens
     const tokenResponse = await fetch(`https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/token`, {
       method: 'POST',
@@ -911,8 +923,9 @@ router.get('/outlook/callback', async (req, res) => {
       console.error('Microsoft token error details:', {
         error: tokens.error,
         description: tokens.error_description,
-        clientId: MS_CLIENT_ID ? 'configured' : 'missing',
-        clientSecret: MS_CLIENT_SECRET ? 'configured' : 'missing',
+        clientId: MS_CLIENT_ID ? `${MS_CLIENT_ID.substring(0, 8)}... (${MS_CLIENT_ID.length} chars)` : 'MISSING',
+        clientSecretLength: MS_CLIENT_SECRET ? MS_CLIENT_SECRET.length : 0,
+        clientSecretPreview: MS_CLIENT_SECRET ? `${MS_CLIENT_SECRET.substring(0, 3)}...${MS_CLIENT_SECRET.substring(MS_CLIENT_SECRET.length - 3)} (${MS_CLIENT_SECRET.length} chars)` : 'MISSING',
         secretLooksLikeUUID: looksLikeSecretId(MS_CLIENT_SECRET),
         redirectUri: MS_REDIRECT_URI,
         tenant: MS_TENANT
