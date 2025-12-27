@@ -953,9 +953,37 @@ router.get('/outlook/sent', authenticate, async (req, res) => {
       return res.json({ emails: [] });
     }
 
-    const accessToken = await getValidOutlookToken(integration.rows[0]);
-    if (!accessToken) {
-      return res.status(401).json({ error: 'Token expired' });
+    // Get credentials
+    const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
+    const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
+    const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
+
+    let accessToken = integration.rows[0].access_token;
+    const refreshToken = integration.rows[0].refresh_token;
+
+    // Refresh token if needed
+    if (new Date(integration.rows[0].token_expires_at) < new Date()) {
+      const tokenUrl = `https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/token`;
+      const refreshResponse = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: MS_CLIENT_ID,
+          client_secret: MS_CLIENT_SECRET,
+          refresh_token: refreshToken,
+          grant_type: 'refresh_token',
+        }),
+      });
+
+      if (refreshResponse.ok) {
+        const tokens = await refreshResponse.json();
+        accessToken = tokens.access_token;
+        
+        await query(
+          `UPDATE integrations SET access_token = $1, token_expires_at = $2 WHERE id = $3`,
+          [tokens.access_token, new Date(Date.now() + tokens.expires_in * 1000), integration.rows[0].id]
+        );
+      }
     }
 
     const graphResponse = await fetch(
@@ -998,9 +1026,37 @@ router.get('/outlook/email/:emailId/body', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Outlook not connected' });
     }
 
-    const accessToken = await getValidOutlookToken(integration.rows[0]);
-    if (!accessToken) {
-      return res.status(401).json({ error: 'Token expired' });
+    // Get credentials
+    const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
+    const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
+    const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
+
+    let accessToken = integration.rows[0].access_token;
+    const refreshToken = integration.rows[0].refresh_token;
+
+    // Refresh token if needed
+    if (new Date(integration.rows[0].token_expires_at) < new Date()) {
+      const tokenUrl = `https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/token`;
+      const refreshResponse = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: MS_CLIENT_ID,
+          client_secret: MS_CLIENT_SECRET,
+          refresh_token: refreshToken,
+          grant_type: 'refresh_token',
+        }),
+      });
+
+      if (refreshResponse.ok) {
+        const tokens = await refreshResponse.json();
+        accessToken = tokens.access_token;
+        
+        await query(
+          `UPDATE integrations SET access_token = $1, token_expires_at = $2 WHERE id = $3`,
+          [tokens.access_token, new Date(Date.now() + tokens.expires_in * 1000), integration.rows[0].id]
+        );
+      }
     }
 
     const graphResponse = await fetch(
