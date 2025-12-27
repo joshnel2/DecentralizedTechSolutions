@@ -699,44 +699,65 @@ function getApiBaseUrl(req) {
 
 // Initiate Microsoft OAuth
 router.get('/outlook/connect', authenticate, async (req, res) => {
-  const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
-  const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
-  
-  // Auto-detect redirect URI if not explicitly configured
-  const configuredRedirectUri = await getCredential('microsoft_redirect_uri', 'MICROSOFT_REDIRECT_URI', '');
-  const MS_REDIRECT_URI = configuredRedirectUri || `${getApiBaseUrl(req)}/api/integrations/outlook/callback`;
+  try {
+    const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
+    const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
+    const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
+    
+    // Auto-detect redirect URI if not explicitly configured
+    const configuredRedirectUri = await getCredential('microsoft_redirect_uri', 'MICROSOFT_REDIRECT_URI', '');
+    const MS_REDIRECT_URI = configuredRedirectUri || `${getApiBaseUrl(req)}/api/integrations/outlook/callback`;
 
-  if (!MS_CLIENT_ID) {
-    return res.status(500).json({ error: 'Microsoft integration not configured. Please configure in Admin Portal.' });
+    // Debug logging
+    console.log('[Outlook Connect] Credentials check:', {
+      clientId: MS_CLIENT_ID ? `${MS_CLIENT_ID.substring(0, 8)}...` : 'MISSING',
+      clientSecret: MS_CLIENT_SECRET ? 'configured' : 'MISSING',
+      tenant: MS_TENANT,
+      redirectUri: MS_REDIRECT_URI,
+      firmId: req.user.firmId
+    });
+
+    if (!MS_CLIENT_ID) {
+      return res.status(500).json({ error: 'Microsoft Client ID not configured. Go to Admin Portal and add Microsoft Client ID.' });
+    }
+    
+    if (!MS_CLIENT_SECRET) {
+      return res.status(500).json({ error: 'Microsoft Client Secret not configured. Go to Admin Portal and add Microsoft Client Secret.' });
+    }
+
+    const state = Buffer.from(JSON.stringify({
+      nonce: crypto.randomBytes(32).toString('hex'),
+      firmId: req.user.firmId,
+      userId: req.user.id,
+    })).toString('base64');
+
+    // Use basic scopes that don't require admin consent
+    // Files.ReadWrite.All and Sites.ReadWrite.All often require admin consent
+    const scopes = [
+      'openid',
+      'profile',
+      'email',
+      'offline_access',
+      'Mail.Read',
+      'Mail.Send',
+      'Calendars.ReadWrite',
+      'Files.ReadWrite',          // User's own files (no admin consent needed)
+    ].join(' ');
+
+    const authUrl = `https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/authorize?` +
+      `client_id=${MS_CLIENT_ID}` +
+      `&redirect_uri=${encodeURIComponent(MS_REDIRECT_URI)}` +
+      `&response_type=code` +
+      `&scope=${encodeURIComponent(scopes)}` +
+      `&response_mode=query` +
+      `&state=${state}`;
+
+    console.log('[Outlook Connect] Generated auth URL for firm:', req.user.firmId);
+    res.json({ authUrl });
+  } catch (error) {
+    console.error('[Outlook Connect] Error:', error);
+    res.status(500).json({ error: 'Failed to initialize Microsoft connection: ' + error.message });
   }
-
-  const state = Buffer.from(JSON.stringify({
-    nonce: crypto.randomBytes(32).toString('hex'),
-    firmId: req.user.firmId,
-    userId: req.user.id,
-  })).toString('base64');
-
-  const scopes = [
-    'openid',
-    'profile',
-    'email',
-    'offline_access',
-    'Mail.Read',
-    'Mail.Send',
-    'Calendars.ReadWrite',
-    'Files.ReadWrite.All',      // For Word Online editing
-    'Sites.ReadWrite.All',      // For SharePoint access
-  ].join(' ');
-
-  const authUrl = `https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/authorize?` +
-    `client_id=${MS_CLIENT_ID}` +
-    `&redirect_uri=${encodeURIComponent(MS_REDIRECT_URI)}` +
-    `&response_type=code` +
-    `&scope=${encodeURIComponent(scopes)}` +
-    `&response_mode=query` +
-    `&state=${state}`;
-
-  res.json({ authUrl });
 });
 
 // Microsoft OAuth callback
