@@ -1,8 +1,11 @@
 import { BlobServiceClient, StorageSharedKeyCredential } from '@azure/storage-blob';
+import { getAzureConfig, clearAzureConfigCache as clearFileShareCache } from './azureStorage.js';
 
 // ============================================
 // AZURE BLOB STORAGE FOR DOCUMENT VERSIONS
 // ============================================
+// 
+// Uses the SAME Azure credentials as Azure File Share (from admin portal /rx760819)
 // 
 // Architecture:
 // - Current documents: Azure File Share (SMB mount) - always HOT
@@ -18,55 +21,52 @@ import { BlobServiceClient, StorageSharedKeyCredential } from '@azure/storage-bl
 
 let blobConfig = null;
 
+// Default container name for versions
+const DEFAULT_CONTAINER = 'apex-versions';
+
 /**
  * Get Azure Blob Storage configuration
+ * Reuses the same credentials from admin portal (platform_settings)
  */
 export async function getBlobConfig() {
   if (blobConfig) return blobConfig;
   
-  // Try environment variables first
-  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
-  const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
-  const containerName = process.env.AZURE_BLOB_CONTAINER_NAME || 'apex-versions';
+  // Get config from the same source as Azure File Share (admin portal)
+  const azureConfig = await getAzureConfig();
   
-  if (accountName && accountKey) {
-    blobConfig = { accountName, accountKey, containerName };
+  if (azureConfig && azureConfig.accountName && azureConfig.accountKey) {
+    // Try to get blob-specific container name from platform settings
+    let containerName = DEFAULT_CONTAINER;
+    try {
+      const { query } = await import('../db/connection.js');
+      const result = await query(
+        `SELECT value FROM platform_settings WHERE key = 'azure_blob_container_name'`
+      );
+      if (result.rows.length > 0 && result.rows[0].value) {
+        containerName = result.rows[0].value;
+      }
+    } catch (err) {
+      // Use default container name
+    }
+    
+    blobConfig = {
+      accountName: azureConfig.accountName,
+      accountKey: azureConfig.accountKey,
+      containerName
+    };
     return blobConfig;
-  }
-  
-  // Try platform settings from database
-  try {
-    const { query } = await import('../db/connection.js');
-    const result = await query(
-      `SELECT key, value FROM platform_settings 
-       WHERE key IN ('azure_storage_account_name', 'azure_storage_account_key', 'azure_blob_container_name')`
-    );
-    
-    const settings = {};
-    for (const row of result.rows) {
-      settings[row.key] = row.value;
-    }
-    
-    if (settings.azure_storage_account_name && settings.azure_storage_account_key) {
-      blobConfig = {
-        accountName: settings.azure_storage_account_name,
-        accountKey: settings.azure_storage_account_key,
-        containerName: settings.azure_blob_container_name || 'apex-versions'
-      };
-      return blobConfig;
-    }
-  } catch (err) {
-    console.log('[AZURE BLOB] Could not load platform settings:', err.message);
   }
   
   return null;
 }
 
 /**
- * Clear cached config (call when settings change)
+ * Clear cached config (call when settings change in admin portal)
+ * Also clears the file share cache to keep them in sync
  */
 export function clearBlobConfigCache() {
   blobConfig = null;
+  clearFileShareCache(); // Keep both caches in sync
 }
 
 /**
