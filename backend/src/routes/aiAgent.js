@@ -5815,9 +5815,15 @@ Available actions: search matters, review documents, log time, create tasks, dra
       
       promptCount++;
       const elapsedMinutes = Math.floor(elapsed / 60000);
-      console.log(`[AGENT ${taskId}] --- Prompt #${promptCount} (${elapsedMinutes}m elapsed, ${remainingMinutes}m remaining) ---`);
+      const elapsedSeconds = Math.floor(elapsed / 1000);
       
-      // Update progress in database
+      // Calculate progress percentage based on time elapsed (15 min = 100%)
+      // Cap at 95% while still running - 100% only when complete
+      const progressPercent = Math.min(Math.round((elapsed / maxRuntime) * 100), 95);
+      
+      console.log(`[AGENT ${taskId}] --- Prompt #${promptCount} (${elapsedMinutes}m elapsed, ${remainingMinutes}m remaining, ${progressPercent}%) ---`);
+      
+      // Update progress in database with progressPercent for the progress bar
       await query(
         `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
         [promptCount, JSON.stringify({ 
@@ -5825,6 +5831,8 @@ Available actions: search matters, review documents, log time, create tasks, dra
           phase,
           actions: actions.slice(-10),
           remainingMinutes,
+          elapsedSeconds,
+          progressPercent,  // This is what the frontend reads!
           status: 'working'
         }), taskId]
       );
@@ -5925,10 +5933,19 @@ Available actions: search matters, review documents, log time, create tasks, dra
       
       console.log(`[AGENT ${taskId}] Result: ${actionSummary}`);
       
-      // Update current step in database
+      // Update current step and progress in database
+      const currentProgressPercent = Math.min(Math.round(((Date.now() - startTime) / maxRuntime) * 100), 95);
       await query(
-        `UPDATE ai_tasks SET current_step = $1 WHERE id = $2`,
-        [actionSummary, taskId]
+        `UPDATE ai_tasks SET current_step = $1, progress = $2 WHERE id = $3`,
+        [actionSummary, JSON.stringify({
+          promptCount,
+          phase,
+          actions: actions.slice(-10),
+          remainingMinutes: Math.ceil((maxRuntime - (Date.now() - startTime)) / 60000),
+          progressPercent: currentProgressPercent,
+          currentStep: actionSummary,
+          status: 'working'
+        }), taskId]
       );
       
       // Add to conversation history
@@ -5990,13 +6007,22 @@ Available actions: search matters, review documents, log time, create tasks, dra
     }
     
     await query(
-      `UPDATE ai_tasks SET status = 'completed', result = $1, summary = $2, completed_at = NOW() WHERE id = $3`,
+      `UPDATE ai_tasks SET status = 'completed', result = $1, summary = $2, progress = $3, completed_at = NOW() WHERE id = $4`,
       [JSON.stringify({ 
         actions,
         totalPrompts: promptCount,
         durationMinutes: elapsedMinutes,
         successfulActions
-      }), summary, taskId]
+      }), summary, JSON.stringify({
+        promptCount,
+        phase: 'complete',
+        actions: actions.slice(-10),
+        progressPercent: 100,
+        currentStep: 'Complete',
+        status: 'completed',
+        durationMinutes: elapsedMinutes,
+        successfulActions
+      }), taskId]
     );
     
   } catch (error) {
