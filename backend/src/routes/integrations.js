@@ -55,6 +55,14 @@ async function getCredential(dbKey, envKey, defaultValue = '') {
 router.get('/status', async (req, res) => {
   try {
     const settings = await getPlatformSettings();
+    
+    // Show partial values for debugging (first 8 chars + length)
+    const maskValue = (val) => {
+      if (!val) return 'EMPTY';
+      if (val.length < 10) return `${val.substring(0, 3)}... (${val.length} chars)`;
+      return `${val.substring(0, 8)}... (${val.length} chars)`;
+    };
+    
     res.json({
       configured: {
         microsoft_client_id: !!settings.microsoft_client_id,
@@ -63,7 +71,13 @@ router.get('/status', async (req, res) => {
         quickbooks_client_id: !!settings.quickbooks_client_id,
         quickbooks_client_secret: !!settings.quickbooks_client_secret,
       },
-      message: 'If all show true, credentials are loaded from database correctly'
+      debug: {
+        microsoft_client_id: maskValue(settings.microsoft_client_id),
+        microsoft_client_secret: maskValue(settings.microsoft_client_secret),
+        microsoft_redirect_uri: settings.microsoft_redirect_uri || 'EMPTY',
+        microsoft_tenant: settings.microsoft_tenant || 'common',
+      },
+      message: 'Check debug values - client_secret should be ~40 chars, NOT a UUID'
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to check status: ' + error.message });
