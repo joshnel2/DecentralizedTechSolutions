@@ -5685,7 +5685,230 @@ async function resumeIncompleteTasks() {
 }
 
 // Track running tasks globally so we can cancel them
-const runningAgents = new Map(); // taskId -> { cancelled: boolean }
+const runningAgents = new Map(); // taskId -> { cancelled: boolean, lastActivity: Date, retryState: {...} }
+
+// =============================================================================
+// RESILIENCE UTILITIES FOR BACKGROUND AGENT
+// =============================================================================
+
+/**
+ * Exponential backoff with jitter for retry logic
+ * @param {number} attempt - Current attempt number (0-indexed)
+ * @param {number} baseDelayMs - Base delay in milliseconds (default 1000)
+ * @param {number} maxDelayMs - Maximum delay cap (default 60000)
+ * @returns {number} - Delay in milliseconds
+ */
+function calculateBackoff(attempt, baseDelayMs = 1000, maxDelayMs = 60000) {
+  const exponentialDelay = Math.min(baseDelayMs * Math.pow(2, attempt), maxDelayMs);
+  // Add jitter: random 0-25% of the delay
+  const jitter = exponentialDelay * 0.25 * Math.random();
+  return Math.floor(exponentialDelay + jitter);
+}
+
+/**
+ * Classify error types for appropriate handling
+ * @param {Error} error - The error to classify
+ * @returns {Object} - Error classification with retry strategy
+ */
+function classifyError(error) {
+  const message = error.message?.toLowerCase() || '';
+  const status = error.status || error.statusCode;
+  
+  // Rate limiting errors - back off significantly
+  if (status === 429 || message.includes('429') || message.includes('rate') || message.includes('quota')) {
+    return {
+      type: 'rate_limit',
+      retryable: true,
+      backoffMultiplier: 3, // Longer backoff for rate limits
+      maxRetries: 15,
+      suggestedDelayMs: 15000
+    };
+  }
+  
+  // Transient server errors - retry with normal backoff
+  if (status >= 500 || message.includes('timeout') || message.includes('econnreset') || 
+      message.includes('socket') || message.includes('network') || message.includes('503') ||
+      message.includes('502') || message.includes('500') || message.includes('504')) {
+    return {
+      type: 'transient',
+      retryable: true,
+      backoffMultiplier: 1,
+      maxRetries: 10,
+      suggestedDelayMs: 3000
+    };
+  }
+  
+  // Content filter / moderation errors - skip and continue
+  if (message.includes('content_filter') || message.includes('content filter') || message.includes('moderation')) {
+    return {
+      type: 'content_filter',
+      retryable: false,
+      recoverable: true, // Can continue with different approach
+      suggestedDelayMs: 1000
+    };
+  }
+  
+  // Token limit errors - need to reduce context
+  if (message.includes('token') || message.includes('context_length') || message.includes('maximum context')) {
+    return {
+      type: 'token_limit',
+      retryable: true,
+      recoverable: true,
+      needsContextReduction: true,
+      suggestedDelayMs: 1000
+    };
+  }
+  
+  // Authentication errors - not retryable
+  if (status === 401 || status === 403 || message.includes('unauthorized') || message.includes('forbidden')) {
+    return {
+      type: 'auth',
+      retryable: false,
+      recoverable: false,
+      suggestedDelayMs: 0
+    };
+  }
+  
+  // Unknown errors - retry with caution
+  return {
+    type: 'unknown',
+    retryable: true,
+    backoffMultiplier: 2,
+    maxRetries: 5,
+    suggestedDelayMs: 5000
+  };
+}
+
+/**
+ * Smart context reducer - keeps essential info while reducing token count
+ * @param {Array} conversationHistory - Full conversation history
+ * @param {Object} context - Additional context about what's important
+ * @returns {Array} - Reduced conversation history
+ */
+function reduceConversationContext(conversationHistory, context = {}) {
+  if (conversationHistory.length < 20) return conversationHistory;
+  
+  const systemMsg = conversationHistory[0]; // Always keep system prompt
+  const recentMessages = conversationHistory.slice(-30); // Keep last 30 messages
+  
+  // Summarize early messages
+  const earlyMessages = conversationHistory.slice(1, -30);
+  const toolResults = earlyMessages.filter(m => m.role === 'tool');
+  const successfulTools = toolResults.filter(m => {
+    try {
+      const content = JSON.parse(m.content);
+      return !content.error;
+    } catch { return true; }
+  });
+  
+  // Create a summary of what was done
+  const actionsSummary = successfulTools.slice(0, 10).map(m => {
+    try {
+      const content = JSON.parse(m.content);
+      return content.message || content.summary || 'Action completed';
+    } catch { return 'Action completed'; }
+  }).join('; ');
+  
+  const summaryMessage = {
+    role: 'user',
+    content: `[CONTEXT SUMMARY - Earlier in this session you performed these actions: ${actionsSummary}]\n\nContinue working on the current task.`
+  };
+  
+  return [systemMsg, summaryMessage, ...recentMessages];
+}
+
+/**
+ * Save checkpoint for task resumption
+ * @param {string} taskId - Task ID
+ * @param {Object} checkpoint - Checkpoint data
+ */
+async function saveCheckpoint(taskId, checkpoint) {
+  try {
+    await query(
+      `UPDATE ai_tasks SET 
+        checkpoint = $1,
+        checkpoint_at = NOW(),
+        updated_at = NOW()
+       WHERE id = $2`,
+      [JSON.stringify(checkpoint), taskId]
+    );
+  } catch (error) {
+    console.error(`[AGENT ${taskId}] Failed to save checkpoint:`, error.message);
+  }
+}
+
+/**
+ * Load checkpoint for task resumption
+ * @param {string} taskId - Task ID
+ * @returns {Object|null} - Checkpoint data or null
+ */
+async function loadCheckpoint(taskId) {
+  try {
+    const result = await query(
+      `SELECT checkpoint FROM ai_tasks WHERE id = $1`,
+      [taskId]
+    );
+    if (result.rows[0]?.checkpoint) {
+      return typeof result.rows[0].checkpoint === 'string' 
+        ? JSON.parse(result.rows[0].checkpoint)
+        : result.rows[0].checkpoint;
+    }
+  } catch (error) {
+    console.error(`[AGENT ${taskId}] Failed to load checkpoint:`, error.message);
+  }
+  return null;
+}
+
+/**
+ * Detect if agent is stuck in a loop
+ * @param {Array} actions - Recent actions taken
+ * @param {number} threshold - Number of similar actions to consider stuck
+ * @returns {boolean}
+ */
+function detectStuckLoop(actions, threshold = 4) {
+  if (actions.length < threshold) return false;
+  
+  const recentActions = actions.slice(-threshold);
+  const toolNames = recentActions.map(a => a.tool);
+  const uniqueTools = new Set(toolNames);
+  
+  // If same tool called repeatedly with similar results, likely stuck
+  if (uniqueTools.size === 1) {
+    const results = recentActions.map(a => a.summary);
+    const uniqueResults = new Set(results);
+    if (uniqueResults.size <= 2) {
+      return true;
+    }
+  }
+  
+  // Check for alternating pattern (e.g., search -> no results -> search -> no results)
+  if (uniqueTools.size === 2 && recentActions.every((a, i) => a.tool === recentActions[i % 2].tool)) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Generate recovery prompt when stuck
+ * @param {string} goal - Original goal
+ * @param {Array} actions - Actions taken so far
+ * @param {string} stuckReason - Why we think it's stuck
+ * @returns {string} - Recovery prompt
+ */
+function generateRecoveryPrompt(goal, actions, stuckReason) {
+  const recentTools = [...new Set(actions.slice(-5).map(a => a.tool))].join(', ');
+  
+  const recoveryStrategies = [
+    `You seem to be stuck using ${recentTools} repeatedly. Try a COMPLETELY DIFFERENT approach for: "${goal}". What other tools could help?`,
+    `Let's change strategy. Instead of ${recentTools}, try: list_documents, create_note, or get_firm_overview to gather new information.`,
+    `The current approach isn't working. Step back and think: what's the SIMPLEST first action for: "${goal}"? Call that tool now.`,
+    `Reset and refocus. For the goal "${goal}", what's ONE concrete action you can take right now that's different from ${recentTools}?`,
+    `You've tried ${actions.length} actions. Document what you've learned so far with create_note, then try a new approach.`
+  ];
+  
+  return recoveryStrategies[Math.floor(Math.random() * recoveryStrategies.length)];
+}
 
 async function startBackgroundTask(args, user) {
   const { goal, plan, estimated_steps, matter_id, client_id } = args;
@@ -5767,25 +5990,52 @@ function delay(ms) {
 /**
  * Background Agent - Runs for 15 minutes with separate prompts
  * 
+ * RESILIENT DESIGN:
+ * - Exponential backoff with jitter for API errors
+ * - Error classification for smart retry strategies
+ * - Stuck loop detection and recovery
+ * - Periodic checkpointing for potential resumption
+ * - Smart context management to avoid token limits
+ * - Self-healing conversation resets
+ * 
  * The backend drives the conversation by sending prompts based on the initial task.
  * Each prompt is a separate API call, but conversation history is maintained.
  * One prompt at a time - waits for response before sending next.
  */
 async function runReActAgent(taskId, user, goal, initialContext = {}) {
   console.log(`[AGENT ${taskId}] ========================================`);
-  console.log(`[AGENT ${taskId}] Starting 15-minute background agent session`);
+  console.log(`[AGENT ${taskId}] Starting RESILIENT 15-minute background agent session`);
   console.log(`[AGENT ${taskId}] Goal: ${goal}`);
   console.log(`[AGENT ${taskId}] ========================================`);
   
   const startTime = Date.now();
   const maxRuntime = 15 * 60 * 1000; // 15 minutes exactly
   const PROMPT_DELAY_MS = 2000; // 2 seconds between prompts
-  const MAX_CONSECUTIVE_ERRORS = 10; // Don't exit on errors, just keep trying
+  const CHECKPOINT_INTERVAL = 30000; // Save checkpoint every 30 seconds
+  const HEALTH_CHECK_INTERVAL = 60000; // Health check every minute
   
   let promptCount = 0;
   let actions = [];
   let phase = 'discovery'; // Phases: discovery, analysis, action, review
-  let consecutiveErrors = 0;
+  let lastCheckpointTime = Date.now();
+  let lastHealthCheckTime = Date.now();
+  
+  // Resilience state tracking
+  let errorState = {
+    consecutiveErrors: 0,
+    totalErrors: 0,
+    lastErrorType: null,
+    retryAttempt: 0,
+    contextReductions: 0
+  };
+  
+  // Update the running agent state
+  runningAgents.set(taskId, { 
+    cancelled: false, 
+    userId: user.id, 
+    lastActivity: new Date(),
+    errorState
+  });
   
   // Filter out tools that shouldn't be used in background mode
   const AGENT_TOOLS = TOOLS.filter(t => {
@@ -5813,10 +6063,13 @@ ${initialContext.client_id ? `- Working with Client ID: ${initialContext.client_
 
 INSTRUCTIONS:
 - You will receive prompts from the system guiding your work
-- Execute ONE tool per response
+- Execute ONE tool per response - this is mandatory
 - Build on previous results - the conversation history is preserved
 - Be thorough - you have 15 minutes to complete this task
-- Document your findings and actions
+- If one approach doesn't work, try a different tool or strategy
+- Document your findings and actions with create_note
+
+IMPORTANT: You MUST call a tool in EVERY response. Text-only responses are not allowed.
 
 Available actions: search matters, review documents, log time, create tasks, draft emails, create notes, etc.`;
 
@@ -5836,7 +6089,7 @@ Available actions: search matters, review documents, log time, create tasks, dra
       content: taskPrompts[0] || `Let's begin working on: "${goal}"\n\nFirst, gather the information you need. What tool will you call?`
     });
     
-    // Main loop - runs for exactly 15 minutes
+    // Main loop - runs for exactly 15 minutes with resilient error handling
     while (true) {
       const elapsed = Date.now() - startTime;
       const remainingMs = maxRuntime - elapsed;
@@ -5844,7 +6097,7 @@ Available actions: search matters, review documents, log time, create tasks, dra
       
       // Check if time is up
       if (elapsed >= maxRuntime) {
-        console.log(`[AGENT ${taskId}] 15 minutes reached. Ending session.`);
+        console.log(`[AGENT ${taskId}] 15 minutes reached. Ending session gracefully.`);
         break;
       }
       
@@ -5854,6 +6107,36 @@ Available actions: search matters, review documents, log time, create tasks, dra
         console.log(`[AGENT ${taskId}] Task was cancelled. Stopping immediately.`);
         runningAgents.delete(taskId);
         return; // Exit - status already set to cancelled by the cancel endpoint
+      }
+      
+      // Update last activity timestamp
+      agentState.lastActivity = new Date();
+      
+      // Periodic health check
+      if (Date.now() - lastHealthCheckTime > HEALTH_CHECK_INTERVAL) {
+        lastHealthCheckTime = Date.now();
+        console.log(`[AGENT ${taskId}] Health check: ${actions.length} actions, ${errorState.totalErrors} total errors, phase: ${phase}`);
+        
+        // Check for stuck loop
+        if (detectStuckLoop(actions, 4)) {
+          console.log(`[AGENT ${taskId}] Stuck loop detected! Initiating recovery...`);
+          const recoveryPrompt = generateRecoveryPrompt(goal, actions, 'stuck_loop');
+          conversationHistory.push({ role: 'user', content: recoveryPrompt });
+          phase = 'recovery';
+        }
+      }
+      
+      // Periodic checkpoint save
+      if (Date.now() - lastCheckpointTime > CHECKPOINT_INTERVAL) {
+        lastCheckpointTime = Date.now();
+        await saveCheckpoint(taskId, {
+          promptCount,
+          phase,
+          actions: actions.slice(-20),
+          conversationHistoryLength: conversationHistory.length,
+          errorState,
+          timestamp: new Date().toISOString()
+        });
       }
       
       promptCount++;
@@ -5875,47 +6158,112 @@ Available actions: search matters, review documents, log time, create tasks, dra
           actions: actions.slice(-10),
           remainingMinutes,
           elapsedSeconds,
-          progressPercent,  // This is what the frontend reads!
+          progressPercent,
+          errorCount: errorState.totalErrors,
           status: 'working'
         }), taskId]
       );
       
-      // Send prompt to AI (one at a time)
+      // Send prompt to AI with resilient error handling
       let response;
-      try {
-        console.log(`[AGENT ${taskId}] Sending prompt to Azure AI...`);
-        response = await callAzureOpenAIWithTools(conversationHistory, AGENT_TOOLS);
-        console.log(`[AGENT ${taskId}] Received response (tool_calls: ${response.tool_calls?.length || 0})`);
-        consecutiveErrors = 0; // Reset error counter on success
-      } catch (apiError) {
-        consecutiveErrors++;
-        console.error(`[AGENT ${taskId}] API error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, apiError.message);
+      let retryCount = 0;
+      const maxRetries = 10;
+      
+      while (retryCount < maxRetries) {
+        try {
+          console.log(`[AGENT ${taskId}] Sending prompt to Azure AI... (attempt ${retryCount + 1})`);
+          response = await callAzureOpenAIWithTools(conversationHistory, AGENT_TOOLS);
+          console.log(`[AGENT ${taskId}] Received response (tool_calls: ${response.tool_calls?.length || 0})`);
+          
+          // Success! Reset error state
+          errorState.consecutiveErrors = 0;
+          errorState.retryAttempt = 0;
+          break;
+          
+        } catch (apiError) {
+          retryCount++;
+          errorState.consecutiveErrors++;
+          errorState.totalErrors++;
+          errorState.lastErrorType = apiError.message;
+          
+          // Classify the error for appropriate handling
+          const errorClass = classifyError(apiError);
+          console.error(`[AGENT ${taskId}] API error (${errorClass.type}, attempt ${retryCount}/${maxRetries}):`, apiError.message);
+          
+          // Update progress to show we're recovering
+          await query(
+            `UPDATE ai_tasks SET current_step = $1, updated_at = NOW() WHERE id = $2`,
+            [`Recovering from ${errorClass.type} error (attempt ${retryCount})...`, taskId]
+          );
+          
+          // Handle based on error type
+          if (!errorClass.retryable) {
+            console.error(`[AGENT ${taskId}] Non-retryable error, attempting recovery...`);
+            
+            if (errorClass.recoverable) {
+              // Try to recover by resetting context
+              conversationHistory = reduceConversationContext(conversationHistory, { goal });
+              errorState.contextReductions++;
+              console.log(`[AGENT ${taskId}] Context reduced for recovery (${errorState.contextReductions} times)`);
+            } else {
+              // Fatal error - can't continue
+              throw apiError;
+            }
+          }
+          
+          // Handle token limit errors specially
+          if (errorClass.needsContextReduction) {
+            console.log(`[AGENT ${taskId}] Token limit hit, reducing context...`);
+            conversationHistory = reduceConversationContext(conversationHistory, { goal });
+            errorState.contextReductions++;
+            retryCount--; // Don't count this as a normal retry
+          }
+          
+          // Calculate backoff delay
+          const backoffDelay = calculateBackoff(
+            retryCount - 1, 
+            errorClass.suggestedDelayMs || 2000,
+            60000
+          ) * (errorClass.backoffMultiplier || 1);
+          
+          console.log(`[AGENT ${taskId}] Waiting ${Math.round(backoffDelay/1000)}s before retry...`);
+          await delay(backoffDelay);
+          
+          // Check if we should continue (time check)
+          const currentElapsed = Date.now() - startTime;
+          if (currentElapsed >= maxRuntime - 30000) { // 30 seconds buffer
+            console.log(`[AGENT ${taskId}] Running out of time during retry, ending gracefully`);
+            break;
+          }
+        }
+      }
+      
+      // If all retries failed, try a conversation reset as last resort
+      if (!response && retryCount >= maxRetries) {
+        console.log(`[AGENT ${taskId}] All retries exhausted, performing full conversation reset...`);
         
-        // Update progress to show we're still working despite errors
-        await query(
-          `UPDATE ai_tasks SET current_step = $1, updated_at = NOW() WHERE id = $2`,
-          [`Retrying... (${consecutiveErrors} errors)`, taskId]
-        );
+        // Reset to minimal state
+        conversationHistory = [
+          conversationHistory[0], // Keep system prompt
+          { 
+            role: 'user', 
+            content: `[RECOVERY MODE] Previous actions summary: ${actions.slice(-5).map(a => a.summary).join('; ')}\n\nContinue working on: "${goal}". Call a simple tool like list_my_matters or get_firm_overview to start fresh.`
+          }
+        ];
+        errorState.consecutiveErrors = 0;
         
-        // Wait longer on rate limit errors
-        if (apiError.message.includes('429') || apiError.message.includes('rate')) {
-          console.log(`[AGENT ${taskId}] Rate limited, waiting 10 seconds...`);
+        // Try one more time with fresh context
+        try {
+          response = await callAzureOpenAIWithTools(conversationHistory, AGENT_TOOLS);
+        } catch (e) {
+          console.error(`[AGENT ${taskId}] Recovery attempt also failed, waiting and continuing...`);
           await delay(10000);
-        } else {
-          await delay(5000);
+          continue; // Skip this iteration and try again
         }
-        
-        // Don't exit on errors - keep trying until 15 minutes is up
-        // Only log a warning if we hit too many consecutive errors
-        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-          console.warn(`[AGENT ${taskId}] ${consecutiveErrors} consecutive errors, but continuing...`);
-          // Reset and simplify the conversation to recover
-          conversationHistory = [
-            conversationHistory[0], // Keep system prompt
-            { role: 'user', content: `Continue working on: "${goal}". Call a tool.` }
-          ];
-          consecutiveErrors = 0;
-        }
+      }
+      
+      if (!response) {
+        await delay(PROMPT_DELAY_MS);
         continue;
       }
       
@@ -5931,30 +6279,39 @@ Available actions: search matters, review documents, log time, create tasks, dra
           content: response.content || '' 
         });
         
-        // Backend sends next prompt to keep the agent working
-        if (consecutiveNoToolCalls >= 3) {
-          // Move to next task phase after 3 attempts
-          currentTaskIndex++;
+        // Escalating prompts to force tool usage
+        if (consecutiveNoToolCalls >= 5) {
+          // After 5 attempts, reset and try a different phase
           consecutiveNoToolCalls = 0;
+          currentTaskIndex++;
           
-          if (currentTaskIndex < taskPrompts.length) {
-            conversationHistory.push({
-              role: 'user',
-              content: taskPrompts[currentTaskIndex]
-            });
-          } else {
-            // Cycle through phases to keep working
-            if (phase === 'discovery') phase = 'analysis';
-            else if (phase === 'analysis') phase = 'action';
-            else if (phase === 'action') phase = 'review';
-            else phase = 'discovery'; // Cycle back to discovery
-            
-            // Generate a continuation prompt based on what's been done
-            const nextPrompt = generateContinuationPrompt(goal, actions, remainingMinutes, phase);
-            conversationHistory.push({ role: 'user', content: nextPrompt });
-          }
+          // Cycle through phases
+          const phases = ['discovery', 'analysis', 'action', 'review'];
+          const currentPhaseIndex = phases.indexOf(phase);
+          phase = phases[(currentPhaseIndex + 1) % phases.length];
+          
+          console.log(`[AGENT ${taskId}] Switching to ${phase} phase after no tool calls`);
+          
+          // Reset conversation with phase-specific guidance
+          const phasePrompts = {
+            discovery: `DISCOVERY PHASE: Call search_matters, list_clients, or get_firm_overview NOW. No more text responses.`,
+            analysis: `ANALYSIS PHASE: Call get_matter, read_document_content, or list_documents NOW. No more text responses.`,
+            action: `ACTION PHASE: Call create_note, create_task, or draft_email_for_matter NOW. No more text responses.`,
+            review: `REVIEW PHASE: Call add_matter_note to document progress, or create_task for follow-ups. Do it NOW.`
+          };
+          
+          conversationHistory.push({
+            role: 'user',
+            content: `${phasePrompts[phase]}\n\nGoal: ${goal}\n\nYou MUST call a tool in your next response.`
+          });
+        } else if (consecutiveNoToolCalls >= 3) {
+          // Stronger prompt after 3 attempts
+          conversationHistory.push({
+            role: 'user',
+            content: `WARNING: You have not called a tool in ${consecutiveNoToolCalls} responses. You MUST call a tool NOW.\n\nSimple tools you can call:\n- list_my_matters (no arguments needed)\n- get_firm_overview (no arguments needed)\n- list_clients (no arguments needed)\n\nCall one of these NOW for: "${goal}"`
+          });
         } else {
-          // More forceful prompts to keep the agent working
+          // Standard prompts
           const forcePrompts = [
             `You must call a tool now. Continue working on: "${goal}"`,
             `Call a tool to take the next action. You have ${remainingMinutes} minutes left for: "${goal}"`,
@@ -5984,8 +6341,14 @@ Available actions: search matters, review documents, log time, create tasks, dra
       
       console.log(`[AGENT ${taskId}] Executing: ${functionName}(${JSON.stringify(functionArgs).substring(0, 100)}...)`);
       
-      // Execute the tool
-      const toolResult = await executeTool(functionName, functionArgs, user, null);
+      // Execute the tool with error handling
+      let toolResult;
+      try {
+        toolResult = await executeTool(functionName, functionArgs, user, null);
+      } catch (toolError) {
+        console.error(`[AGENT ${taskId}] Tool execution error:`, toolError.message);
+        toolResult = { error: `Tool execution failed: ${toolError.message}` };
+      }
       
       // Build action summary
       const actionSummary = toolResult.message || toolResult.summary || 
@@ -5996,6 +6359,7 @@ Available actions: search matters, review documents, log time, create tasks, dra
         (toolResult.time_entry ? `Logged ${toolResult.time_entry.hours}h` : null) ||
         (toolResult.event ? `Created event: ${toolResult.event.title}` : null) ||
         (toolResult.task ? `Created task: ${toolResult.task.title}` : null) ||
+        (toolResult.error ? `Error: ${toolResult.error.substring(0, 50)}` : null) ||
         `Executed ${functionName}`;
       
       actions.push({
@@ -6020,6 +6384,7 @@ Available actions: search matters, review documents, log time, create tasks, dra
           remainingMinutes: Math.ceil((maxRuntime - (Date.now() - startTime)) / 60000),
           progressPercent: currentProgressPercent,
           currentStep: actionSummary,
+          errorCount: errorState.totalErrors,
           status: 'working'
         }), taskId]
       );
@@ -6037,20 +6402,22 @@ Available actions: search matters, review documents, log time, create tasks, dra
         content: JSON.stringify(toolResult)
       });
       
-      // Backend sends next prompt based on the result and task
-      const nextPrompt = generateNextPrompt(goal, functionName, toolResult, actions, remainingMinutes, phase);
-      conversationHistory.push({ role: 'user', content: nextPrompt });
+      // Check for stuck loop after each action
+      if (detectStuckLoop(actions, 4)) {
+        console.log(`[AGENT ${taskId}] Stuck loop detected after action, initiating recovery...`);
+        const recoveryPrompt = generateRecoveryPrompt(goal, actions, 'repeated_actions');
+        conversationHistory.push({ role: 'user', content: recoveryPrompt });
+      } else {
+        // Backend sends next prompt based on the result and task
+        const nextPrompt = generateNextPrompt(goal, functionName, toolResult, actions, remainingMinutes, phase);
+        conversationHistory.push({ role: 'user', content: nextPrompt });
+      }
       
-      // Trim conversation history if getting too long (keep recent context)
-      if (conversationHistory.length > 60) {
-        // Keep system prompt + summary of early actions + recent messages
-        const systemMsg = conversationHistory[0];
-        const recentMessages = conversationHistory.slice(-50);
-        const actionsSummary = {
-          role: 'user',
-          content: `[Previous actions: ${actions.slice(0, -10).map(a => a.summary).join(', ')}]\n\nContinuing...`
-        };
-        conversationHistory = [systemMsg, actionsSummary, ...recentMessages];
+      // Smart conversation history management
+      if (conversationHistory.length > 50) {
+        console.log(`[AGENT ${taskId}] Reducing conversation history (${conversationHistory.length} messages)`);
+        conversationHistory = reduceConversationContext(conversationHistory, { goal, actions });
+        console.log(`[AGENT ${taskId}] Reduced to ${conversationHistory.length} messages`);
       }
       
       // Delay before next prompt
@@ -6066,20 +6433,41 @@ Available actions: search matters, review documents, log time, create tasks, dra
     console.log(`[AGENT ${taskId}] Duration: ${elapsedMinutes} minutes`);
     console.log(`[AGENT ${taskId}] Prompts sent: ${promptCount}`);
     console.log(`[AGENT ${taskId}] Actions: ${successfulActions}/${actions.length} successful`);
+    console.log(`[AGENT ${taskId}] Total errors encountered: ${errorState.totalErrors}`);
+    console.log(`[AGENT ${taskId}] Context reductions: ${errorState.contextReductions}`);
     console.log(`[AGENT ${taskId}] ========================================`);
     
-    // Generate a summary using the AI
+    // Generate a summary using the AI (with retries)
     let summary = '';
-    try {
-      conversationHistory.push({
-        role: 'user',
-        content: `The 15-minute session is complete. Summarize what you accomplished for the task: "${goal}"\n\nProvide a brief summary of actions taken and any recommendations.`
-      });
-      
-      const summaryResponse = await callAzureOpenAIWithTools(conversationHistory, []);
-      summary = summaryResponse.content || '';
-    } catch (e) {
-      summary = `Completed ${successfulActions} actions in ${elapsedMinutes} minutes.`;
+    for (let summaryAttempt = 0; summaryAttempt < 3; summaryAttempt++) {
+      try {
+        // Use a fresh, minimal context for summary generation
+        const summaryMessages = [
+          { role: 'system', content: 'You are a legal assistant summarizing work completed.' },
+          { 
+            role: 'user', 
+            content: `Summarize this 15-minute background task session.
+
+GOAL: ${goal}
+
+ACTIONS COMPLETED (${successfulActions} successful out of ${actions.length}):
+${actions.map((a, i) => `${i + 1}. ${a.tool}: ${a.summary} ${a.success ? '✓' : '✗'}`).join('\n')}
+
+Provide a concise summary of what was accomplished and any recommendations.`
+          }
+        ];
+        
+        const summaryResponse = await callAzureOpenAIWithTools(summaryMessages, []);
+        summary = summaryResponse.content || '';
+        break;
+      } catch (e) {
+        console.log(`[AGENT ${taskId}] Summary generation attempt ${summaryAttempt + 1} failed:`, e.message);
+        if (summaryAttempt === 2) {
+          // Fallback summary
+          summary = `## Task Summary\n\nCompleted ${successfulActions} actions in ${elapsedMinutes} minutes for: "${goal}"\n\n### Actions taken:\n${actions.slice(0, 10).map(a => `- ${a.summary}`).join('\n')}${actions.length > 10 ? `\n- ... and ${actions.length - 10} more` : ''}`;
+        }
+        await delay(2000);
+      }
     }
     
     await query(
@@ -6088,7 +6476,9 @@ Available actions: search matters, review documents, log time, create tasks, dra
         actions,
         totalPrompts: promptCount,
         durationMinutes: elapsedMinutes,
-        successfulActions
+        successfulActions,
+        totalErrors: errorState.totalErrors,
+        contextReductions: errorState.contextReductions
       }), summary, JSON.stringify({
         promptCount,
         phase: 'complete',
@@ -6097,7 +6487,8 @@ Available actions: search matters, review documents, log time, create tasks, dra
         currentStep: 'Complete',
         status: 'completed',
         durationMinutes: elapsedMinutes,
-        successfulActions
+        successfulActions,
+        totalErrors: errorState.totalErrors
       }), taskId]
     );
     
@@ -6108,18 +6499,33 @@ Available actions: search matters, review documents, log time, create tasks, dra
   } catch (error) {
     console.error(`[AGENT ${taskId}] Fatal error:`, error);
     
-    // Clean up on error too
+    // Try to save what we can before failing
+    const elapsedMinutes = Math.round((Date.now() - startTime) / 60000);
+    const successfulActions = actions.filter(a => a.success).length;
+    
+    // Create a partial result summary
+    const partialSummary = `Task encountered an error after ${elapsedMinutes} minutes and ${promptCount} prompts. ${successfulActions} actions were completed successfully before the error.\n\nError: ${error.message}`;
+    
+    // Clean up
     runningAgents.delete(taskId);
     
     await query(
-      `UPDATE ai_tasks SET status = 'failed', result = $1, error = $2, progress = $3, completed_at = NOW() WHERE id = $4`,
-      [JSON.stringify({ actions }), error.message, JSON.stringify({
+      `UPDATE ai_tasks SET status = 'failed', result = $1, error = $2, summary = $3, progress = $4, completed_at = NOW() WHERE id = $5`,
+      [JSON.stringify({ 
+        actions,
+        totalPrompts: promptCount,
+        durationMinutes: elapsedMinutes,
+        successfulActions,
+        errorState
+      }), error.message, partialSummary, JSON.stringify({
         promptCount,
         phase: 'error',
         actions: actions.slice(-10),
-        progressPercent: 0,
+        progressPercent: Math.min(Math.round(((Date.now() - startTime) / (15 * 60 * 1000)) * 100), 95),
         currentStep: 'Error: ' + error.message,
-        status: 'failed'
+        status: 'failed',
+        successfulActions,
+        totalErrors: errorState.totalErrors
       }), taskId]
     );
   }
