@@ -6046,6 +6046,15 @@ async function runAgentCore(taskId, user, goal, initialContext, attemptNumber) {
     const elapsed = getElapsed();
     
     try {
+      // Build steps array from completedActions for frontend compatibility
+      const steps = completedActions.map(action => ({
+        iteration: action.iteration,
+        tool: action.tool,
+        status: action.success ? 'completed' : 'failed',
+        summary: action.summary,
+        timestamp: action.timestamp
+      }));
+      
       await query(
         `UPDATE ai_tasks SET 
           iterations = $1, 
@@ -6067,6 +6076,10 @@ async function runAgentCore(taskId, user, goal, initialContext, attemptNumber) {
             totalActions: completedActions.length,
             elapsedSeconds: Math.floor(elapsed / 1000),
             remainingSeconds: Math.floor(getRemainingMs() / 1000),
+            // Add fields expected by GET /tasks/:taskId endpoint
+            steps: steps,
+            completedSteps: currentPlanStep,
+            totalSteps: plan.length > 0 ? plan.length : 10,
             ...additionalData
           }),
           currentStep,
