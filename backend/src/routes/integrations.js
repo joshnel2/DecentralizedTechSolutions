@@ -323,6 +323,20 @@ router.post('/google/sync', authenticate, async (req, res) => {
       });
 
       const newTokens = await refreshResponse.json();
+      
+      // Check if refresh failed
+      if (newTokens.error || !newTokens.access_token) {
+        console.error('Google token refresh failed:', newTokens.error_description || newTokens.error);
+        await query(
+          `UPDATE integrations SET is_connected = false WHERE firm_id = $1 AND provider = 'google'`,
+          [req.user.firmId]
+        );
+        return res.status(401).json({ 
+          error: 'Google session expired. Please reconnect in Settings > Integrations.',
+          needsReconnect: true
+        });
+      }
+      
       accessToken = newTokens.access_token;
 
       await query(
@@ -1024,6 +1038,16 @@ router.get('/outlook/drafts', authenticate, async (req, res) => {
           `UPDATE integrations SET access_token = $1, token_expires_at = $2 WHERE id = $3`,
           [tokens.access_token, new Date(Date.now() + tokens.expires_in * 1000), integration.rows[0].id]
         );
+      } else {
+        console.error('Outlook token refresh failed in drafts route');
+        await query(
+          `UPDATE integrations SET is_connected = false WHERE firm_id = $1 AND provider = 'outlook'`,
+          [req.user.firmId]
+        );
+        return res.status(401).json({ 
+          error: 'Outlook session expired. Please reconnect in Settings > Integrations.',
+          needsReconnect: true
+        });
       }
     }
 
