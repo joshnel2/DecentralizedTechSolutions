@@ -445,8 +445,11 @@ router.get('/quickbooks/callback', async (req, res) => {
     // Get credentials
     const QB_CLIENT_ID = await getCredential('quickbooks_client_id', 'QUICKBOOKS_CLIENT_ID');
     const QB_CLIENT_SECRET = await getCredential('quickbooks_client_secret', 'QUICKBOOKS_CLIENT_SECRET');
-    const QB_REDIRECT_URI = await getCredential('quickbooks_redirect_uri', 'QUICKBOOKS_REDIRECT_URI', 'http://localhost:3001/api/integrations/quickbooks/callback');
     const QB_ENVIRONMENT = await getCredential('quickbooks_environment', 'QUICKBOOKS_ENVIRONMENT', 'sandbox');
+    
+    // Auto-detect redirect URI if not explicitly configured
+    const configuredQBRedirectUri = await getCredential('quickbooks_redirect_uri', 'QUICKBOOKS_REDIRECT_URI', '');
+    const QB_REDIRECT_URI = configuredQBRedirectUri || `${getApiBaseUrl(req)}/api/integrations/quickbooks/callback`;
 
     const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
     const { firmId, userId } = stateData;
