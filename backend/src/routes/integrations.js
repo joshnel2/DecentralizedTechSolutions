@@ -404,8 +404,11 @@ router.post('/google/sync', authenticate, async (req, res) => {
 // Initiate QuickBooks OAuth
 router.get('/quickbooks/connect', authenticate, async (req, res) => {
   const QB_CLIENT_ID = await getCredential('quickbooks_client_id', 'QUICKBOOKS_CLIENT_ID');
-  const QB_REDIRECT_URI = await getCredential('quickbooks_redirect_uri', 'QUICKBOOKS_REDIRECT_URI', 'http://localhost:3001/api/integrations/quickbooks/callback');
   const QB_ENVIRONMENT = await getCredential('quickbooks_environment', 'QUICKBOOKS_ENVIRONMENT', 'sandbox');
+  
+  // Auto-detect redirect URI if not explicitly configured
+  const configuredRedirectUri = await getCredential('quickbooks_redirect_uri', 'QUICKBOOKS_REDIRECT_URI', '');
+  const QB_REDIRECT_URI = configuredRedirectUri || `${getApiBaseUrl(req)}/api/integrations/quickbooks/callback`;
 
   if (!QB_CLIENT_ID) {
     return res.status(500).json({ error: 'QuickBooks integration not configured. Please configure in Admin Portal.' });
@@ -679,11 +682,26 @@ router.post('/quickbooks/sync', authenticate, async (req, res) => {
 // OUTLOOK/MICROSOFT INTEGRATION
 // ============================================
 
+// Helper to auto-detect the API base URL from the request
+function getApiBaseUrl(req) {
+  // Check for explicit configuration first
+  if (process.env.API_BASE_URL) {
+    return process.env.API_BASE_URL;
+  }
+  // Auto-detect from request
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  return `${protocol}://${host}`;
+}
+
 // Initiate Microsoft OAuth
 router.get('/outlook/connect', authenticate, async (req, res) => {
   const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
-  const MS_REDIRECT_URI = await getCredential('microsoft_redirect_uri', 'MICROSOFT_REDIRECT_URI', 'http://localhost:3001/api/integrations/outlook/callback');
   const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
+  
+  // Auto-detect redirect URI if not explicitly configured
+  const configuredRedirectUri = await getCredential('microsoft_redirect_uri', 'MICROSOFT_REDIRECT_URI', '');
+  const MS_REDIRECT_URI = configuredRedirectUri || `${getApiBaseUrl(req)}/api/integrations/outlook/callback`;
 
   if (!MS_CLIENT_ID) {
     return res.status(500).json({ error: 'Microsoft integration not configured. Please configure in Admin Portal.' });
@@ -730,8 +748,11 @@ router.get('/outlook/callback', async (req, res) => {
     // Get credentials
     const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
     const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
-    const MS_REDIRECT_URI = await getCredential('microsoft_redirect_uri', 'MICROSOFT_REDIRECT_URI', 'http://localhost:3001/api/integrations/outlook/callback');
     const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
+    
+    // Auto-detect redirect URI if not explicitly configured
+    const configuredRedirectUri = await getCredential('microsoft_redirect_uri', 'MICROSOFT_REDIRECT_URI', '');
+    const MS_REDIRECT_URI = configuredRedirectUri || `${getApiBaseUrl(req)}/api/integrations/outlook/callback`;
 
     const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
     const { firmId, userId } = stateData;
