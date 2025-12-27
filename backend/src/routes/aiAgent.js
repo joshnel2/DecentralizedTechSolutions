@@ -5818,48 +5818,6 @@ function reduceConversationContext(conversationHistory, context = {}) {
 }
 
 /**
- * Save checkpoint for task resumption
- * @param {string} taskId - Task ID
- * @param {Object} checkpoint - Checkpoint data
- */
-async function saveCheckpoint(taskId, checkpoint) {
-  try {
-    await query(
-      `UPDATE ai_tasks SET 
-        checkpoint = $1,
-        checkpoint_at = NOW(),
-        updated_at = NOW()
-       WHERE id = $2`,
-      [JSON.stringify(checkpoint), taskId]
-    );
-  } catch (error) {
-    console.error(`[AGENT ${taskId}] Failed to save checkpoint:`, error.message);
-  }
-}
-
-/**
- * Load checkpoint for task resumption
- * @param {string} taskId - Task ID
- * @returns {Object|null} - Checkpoint data or null
- */
-async function loadCheckpoint(taskId) {
-  try {
-    const result = await query(
-      `SELECT checkpoint FROM ai_tasks WHERE id = $1`,
-      [taskId]
-    );
-    if (result.rows[0]?.checkpoint) {
-      return typeof result.rows[0].checkpoint === 'string' 
-        ? JSON.parse(result.rows[0].checkpoint)
-        : result.rows[0].checkpoint;
-    }
-  } catch (error) {
-    console.error(`[AGENT ${taskId}] Failed to load checkpoint:`, error.message);
-  }
-  return null;
-}
-
-/**
  * Detect if agent is stuck in a loop
  * @param {Array} actions - Recent actions taken
  * @param {number} threshold - Number of similar actions to consider stuck
