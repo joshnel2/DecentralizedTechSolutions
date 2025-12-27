@@ -52,9 +52,11 @@ async function getCredential(dbKey, envKey, defaultValue = '') {
 // ============================================
 
 // Diagnostic endpoint - NO AUTH REQUIRED - to check if credentials are configured
+// This queries the DATABASE DIRECTLY, bypassing any caching
 router.get('/status', async (req, res) => {
   try {
-    const settings = await getPlatformSettings();
+    // Query database DIRECTLY to bypass any caching
+    const dbResult = await query(`SELECT key, value, is_secret FROM platform_settings WHERE key LIKE 'microsoft_%' OR key LIKE 'quickbooks_%'`);
     
     // Show partial values for debugging (first 8 chars + length)
     const maskValue = (val) => {
@@ -63,24 +65,51 @@ router.get('/status', async (req, res) => {
       return `${val.substring(0, 8)}... (${val.length} chars)`;
     };
     
+    // Build settings from direct DB query
+    const dbSettings = {};
+    dbResult.rows.forEach(row => {
+      dbSettings[row.key] = {
+        value: row.value,
+        is_secret: row.is_secret,
+        display: maskValue(row.value),
+        looksLikeUUID: row.value ? /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(row.value) : false
+      };
+    });
+    
     res.json({
+      source: 'DIRECT DATABASE QUERY - NO CACHE',
       configured: {
-        microsoft_client_id: !!settings.microsoft_client_id,
-        microsoft_client_secret: !!settings.microsoft_client_secret,
-        microsoft_redirect_uri: !!settings.microsoft_redirect_uri,
-        quickbooks_client_id: !!settings.quickbooks_client_id,
-        quickbooks_client_secret: !!settings.quickbooks_client_secret,
+        microsoft_client_id: !!dbSettings.microsoft_client_id?.value,
+        microsoft_client_secret: !!dbSettings.microsoft_client_secret?.value,
+        microsoft_redirect_uri: !!dbSettings.microsoft_redirect_uri?.value,
+        quickbooks_client_id: !!dbSettings.quickbooks_client_id?.value,
+        quickbooks_client_secret: !!dbSettings.quickbooks_client_secret?.value,
       },
       debug: {
-        microsoft_client_id: maskValue(settings.microsoft_client_id),
-        microsoft_client_secret: maskValue(settings.microsoft_client_secret),
-        microsoft_redirect_uri: settings.microsoft_redirect_uri || 'EMPTY',
-        microsoft_tenant: settings.microsoft_tenant || 'common',
+        microsoft: {
+          client_id: dbSettings.microsoft_client_id?.display || 'NOT IN DB',
+          client_secret: dbSettings.microsoft_client_secret?.display || 'NOT IN DB',
+          client_secret_looks_like_uuid: dbSettings.microsoft_client_secret?.looksLikeUUID || false,
+          client_secret_is_secret_flag: dbSettings.microsoft_client_secret?.is_secret,
+          redirect_uri: dbSettings.microsoft_redirect_uri?.value || 'NOT IN DB',
+          tenant: dbSettings.microsoft_tenant?.value || 'NOT IN DB',
+        },
+        quickbooks: {
+          client_id: dbSettings.quickbooks_client_id?.display || 'NOT IN DB',
+          client_secret: dbSettings.quickbooks_client_secret?.display || 'NOT IN DB',
+          client_secret_looks_like_uuid: dbSettings.quickbooks_client_secret?.looksLikeUUID || false,
+          environment: dbSettings.quickbooks_environment?.value || 'NOT IN DB',
+          redirect_uri: dbSettings.quickbooks_redirect_uri?.value || 'NOT IN DB',
+        }
       },
-      message: 'Check debug values - client_secret should be ~40 chars, NOT a UUID'
+      notes: {
+        '1_client_secret_length': 'Microsoft secrets are typically ~40 chars, QuickBooks ~40 chars',
+        '2_uuid_warning': 'If client_secret_looks_like_uuid is TRUE, you entered the Secret ID instead of the Secret Value',
+        '3_is_secret_flag': 'If is_secret_flag is false/null, secrets may not be masked properly'
+      }
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to check status: ' + error.message });
+    res.status(500).json({ error: 'Failed to check status: ' + error.message, stack: error.stack });
   }
 });
 
@@ -755,10 +784,11 @@ router.get('/outlook/connect', authenticate, async (req, res) => {
     const configuredRedirectUri = await getCredential('microsoft_redirect_uri', 'MICROSOFT_REDIRECT_URI', '');
     const MS_REDIRECT_URI = configuredRedirectUri || `${getApiBaseUrl(req)}/api/integrations/outlook/callback`;
 
-    // Debug logging
+    // Debug logging - show what we're actually getting from the database
     console.log('[Outlook Connect] Credentials check:', {
-      clientId: MS_CLIENT_ID ? `${MS_CLIENT_ID.substring(0, 8)}...` : 'MISSING',
-      clientSecret: MS_CLIENT_SECRET ? 'configured' : 'MISSING',
+      clientId: MS_CLIENT_ID ? `${MS_CLIENT_ID.substring(0, 8)}... (${MS_CLIENT_ID.length} chars)` : 'MISSING',
+      clientSecret: MS_CLIENT_SECRET ? `${MS_CLIENT_SECRET.substring(0, 4)}... (${MS_CLIENT_SECRET.length} chars)` : 'MISSING',
+      secretLooksLikeUUID: MS_CLIENT_SECRET ? /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(MS_CLIENT_SECRET) : false,
       tenant: MS_TENANT,
       redirectUri: MS_REDIRECT_URI,
       firmId: req.user.firmId

@@ -1059,11 +1059,19 @@ router.put('/platform-settings', requireSecureAdmin, async (req, res) => {
       // Skip 'settings' key if it somehow got through
       if (key === 'settings') continue;
       
+      // Determine if this is a secret field
+      const isSecret = key.includes('_secret');
+      
+      // Debug log for secret values (show length and first few chars)
+      if (isSecret && value) {
+        console.log(`[Platform Settings] Saving ${key}: ${value.substring(0, 4)}... (${value.length} chars)`);
+      }
+      
       await query(`
-        INSERT INTO platform_settings (key, value)
-        VALUES ($1, $2)
-        ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()
-      `, [key, value || '']);
+        INSERT INTO platform_settings (key, value, is_secret)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (key) DO UPDATE SET value = $2, is_secret = $3, updated_at = NOW()
+      `, [key, value || '', isSecret]);
       
       updated.push(key);
     }
