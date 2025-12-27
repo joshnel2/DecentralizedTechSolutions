@@ -6,7 +6,7 @@ import {
   Settings, Archive, AlertCircle, Check, Loader2,
   PenSquare, MoreVertical, Clock
 } from 'lucide-react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { integrationsApi, mattersApi, clientsApi, userSettingsApi } from '../services/api'
 import styles from './OutlookIntegrationPage.module.css'
 
@@ -56,7 +56,6 @@ type ComposeMode = 'new' | 'reply' | 'replyAll' | 'forward' | null
 
 export function OutlookIntegrationPage() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
   const composeBodyRef = useRef<HTMLTextAreaElement>(null)
   
   // State
@@ -103,17 +102,6 @@ export function OutlookIntegrationPage() {
     loadMattersAndClients()
     loadSignature()
   }, [])
-
-  // Handle emailId URL parameter to open a specific email
-  useEffect(() => {
-    const emailId = searchParams.get('emailId')
-    if (emailId && emails.length > 0) {
-      const email = emails.find(e => e.id === emailId)
-      if (email) {
-        loadEmailBody(email)
-      }
-    }
-  }, [emails, searchParams])
 
   const loadEmails = async () => {
     try {
@@ -633,6 +621,7 @@ export function OutlookIntegrationPage() {
                   type="text"
                   value={composeTo}
                   onChange={(e) => setComposeTo(e.target.value)}
+                  placeholder="recipient@example.com"
                 />
               </div>
               <div className={styles.composeField}>
@@ -641,6 +630,7 @@ export function OutlookIntegrationPage() {
                   type="text"
                   value={composeCc}
                   onChange={(e) => setComposeCc(e.target.value)}
+                  placeholder="cc@example.com"
                 />
               </div>
               <div className={styles.composeField}>
@@ -649,6 +639,7 @@ export function OutlookIntegrationPage() {
                   type="text"
                   value={composeSubject}
                   onChange={(e) => setComposeSubject(e.target.value)}
+                  placeholder="Subject"
                 />
               </div>
             </div>
@@ -658,6 +649,7 @@ export function OutlookIntegrationPage() {
               className={styles.composeBody}
               value={composeBody}
               onChange={(e) => setComposeBody(e.target.value)}
+              placeholder="Write your message..."
             />
 
             <div className={styles.composeFooter}>

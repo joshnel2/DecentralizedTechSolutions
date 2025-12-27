@@ -792,9 +792,9 @@ router.get('/outlook/emails', authenticate, async (req, res) => {
       );
     }
 
-    // Fetch recent emails from INBOX folder only (not sent items)
+    // Fetch recent emails
     const emailsResponse = await fetch(
-      'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=50&$orderby=receivedDateTime desc&$select=id,subject,from,toRecipients,receivedDateTime,isRead,bodyPreview,hasAttachments,importance',
+      'https://graph.microsoft.com/v1.0/me/messages?$top=20&$orderby=receivedDateTime desc',
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
 
@@ -953,37 +953,9 @@ router.get('/outlook/sent', authenticate, async (req, res) => {
       return res.json({ emails: [] });
     }
 
-    // Get credentials
-    const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
-    const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
-    const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
-
-    let accessToken = integration.rows[0].access_token;
-    const refreshToken = integration.rows[0].refresh_token;
-
-    // Refresh token if needed
-    if (new Date(integration.rows[0].token_expires_at) < new Date()) {
-      const tokenUrl = `https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/token`;
-      const refreshResponse = await fetch(tokenUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: MS_CLIENT_ID,
-          client_secret: MS_CLIENT_SECRET,
-          refresh_token: refreshToken,
-          grant_type: 'refresh_token',
-        }),
-      });
-
-      if (refreshResponse.ok) {
-        const tokens = await refreshResponse.json();
-        accessToken = tokens.access_token;
-        
-        await query(
-          `UPDATE integrations SET access_token = $1, token_expires_at = $2 WHERE id = $3`,
-          [tokens.access_token, new Date(Date.now() + tokens.expires_in * 1000), integration.rows[0].id]
-        );
-      }
+    const accessToken = await getValidOutlookToken(integration.rows[0]);
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Token expired' });
     }
 
     const graphResponse = await fetch(
@@ -1026,37 +998,9 @@ router.get('/outlook/email/:emailId/body', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Outlook not connected' });
     }
 
-    // Get credentials
-    const MS_CLIENT_ID = await getCredential('microsoft_client_id', 'MICROSOFT_CLIENT_ID');
-    const MS_CLIENT_SECRET = await getCredential('microsoft_client_secret', 'MICROSOFT_CLIENT_SECRET');
-    const MS_TENANT = await getCredential('microsoft_tenant', 'MICROSOFT_TENANT', 'common');
-
-    let accessToken = integration.rows[0].access_token;
-    const refreshToken = integration.rows[0].refresh_token;
-
-    // Refresh token if needed
-    if (new Date(integration.rows[0].token_expires_at) < new Date()) {
-      const tokenUrl = `https://login.microsoftonline.com/${MS_TENANT}/oauth2/v2.0/token`;
-      const refreshResponse = await fetch(tokenUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: MS_CLIENT_ID,
-          client_secret: MS_CLIENT_SECRET,
-          refresh_token: refreshToken,
-          grant_type: 'refresh_token',
-        }),
-      });
-
-      if (refreshResponse.ok) {
-        const tokens = await refreshResponse.json();
-        accessToken = tokens.access_token;
-        
-        await query(
-          `UPDATE integrations SET access_token = $1, token_expires_at = $2 WHERE id = $3`,
-          [tokens.access_token, new Date(Date.now() + tokens.expires_in * 1000), integration.rows[0].id]
-        );
-      }
+    const accessToken = await getValidOutlookToken(integration.rows[0]);
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Token expired' });
     }
 
     const graphResponse = await fetch(
@@ -1133,41 +1077,6 @@ router.post('/outlook/send', authenticate, async (req, res) => {
       const errorText = await graphResponse.text();
       console.error('Send email error:', errorText);
       return res.status(500).json({ error: 'Failed to send email' });
-    }
-
-    // Auto-link email to clients based on recipient email addresses
-    const recipientEmails = to.split(',').map(e => e.trim().toLowerCase());
-    
-    try {
-      // Find clients with matching email addresses
-      const clientsResult = await query(
-        `SELECT id, email, display_name FROM clients 
-         WHERE firm_id = $1 AND LOWER(email) = ANY($2)`,
-        [req.user.firmId, recipientEmails]
-      );
-
-      // Link the sent email to each matching client
-      for (const client of clientsResult.rows) {
-        await query(
-          `INSERT INTO email_links (
-            firm_id, email_id, email_provider, subject, from_address, 
-            client_id, linked_by, linked_at, received_at, notes
-          ) VALUES ($1, $2, 'outlook', $3, $4, $5, $6, NOW(), NOW(), $7)
-          ON CONFLICT DO NOTHING`,
-          [
-            req.user.firmId,
-            `sent-${Date.now()}`, // Generate a unique ID for sent emails
-            subject || '(No Subject)',
-            'You',
-            client.id,
-            req.user.id,
-            'Auto-linked: Email sent to client'
-          ]
-        );
-      }
-    } catch (linkError) {
-      console.error('Error auto-linking sent email to clients:', linkError);
-      // Don't fail the request, just log the error
     }
 
     res.json({ success: true, message: 'Email sent successfully' });
