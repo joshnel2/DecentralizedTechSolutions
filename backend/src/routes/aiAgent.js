@@ -10231,18 +10231,6 @@ Please analyze the document above and respond to the user's question.`;
           console.log('Background task started:', result.task_id);
         }
         
-        // Check for errors from background task (e.g., already running)
-        if (functionName === 'start_background_task' && result.error) {
-          console.log('Background task error:', result.error);
-          return res.json({
-            response: result.error,
-            error: result.error,
-            existingTaskId: result.existingTaskId,
-            toolsUsed: false,
-            backgroundTaskStarted: false
-          });
-        }
-        
         if (result._needs_human_input) {
           needsHumanInput = result;
           console.log('AI requesting human input:', result.question);
