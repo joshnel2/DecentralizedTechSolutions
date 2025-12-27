@@ -5765,11 +5765,15 @@ function delay(ms) {
 }
 
 /**
- * Background Agent - Runs for 15 minutes with separate prompts
+ * Background Agent - Runs for 15 minutes with focused execution
  * 
  * The backend drives the conversation by sending prompts based on the initial task.
  * Each prompt is a separate API call, but conversation history is maintained.
  * One prompt at a time - waits for response before sending next.
+ * 
+ * Progress is tracked based on:
+ * - Actions completed (primary metric)
+ * - Time elapsed (secondary metric for 15-minute tasks)
  */
 async function runReActAgent(taskId, user, goal, initialContext = {}) {
   console.log(`[AGENT ${taskId}] ========================================`);
@@ -5779,20 +5783,37 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
   
   const startTime = Date.now();
   const maxRuntime = 15 * 60 * 1000; // 15 minutes exactly
-  const PROMPT_DELAY_MS = 2000; // 2 seconds between prompts
+  const PROMPT_DELAY_MS = 1500; // 1.5 seconds between prompts (faster)
   const MAX_CONSECUTIVE_ERRORS = 10; // Don't exit on errors, just keep trying
+  
+  // Expected work for 15 minutes - typical agent does 30-60 substantive actions
+  const EXPECTED_ACTIONS = 40;
   
   let promptCount = 0;
   let actions = [];
+  let successfulActions = 0; // Track actions that actually did something
   let phase = 'discovery'; // Phases: discovery, analysis, action, review
   let consecutiveErrors = 0;
+  let lastActionType = null; // Track what we just did for smarter prompting
+  
+  // Track discovered context for smarter prompts
+  let discoveredContext = {
+    matters: [],
+    clients: [],
+    documents: [],
+    hasFoundMainTarget: false
+  };
   
   // Filter out tools that shouldn't be used in background mode
+  // - No sending emails (only drafts allowed via draft_email_for_matter)
+  // - No human intervention requests
+  // - No nested background tasks
   const AGENT_TOOLS = TOOLS.filter(t => {
     const name = t.function.name;
     return name !== 'task_complete' && 
            name !== 'request_human_input' && 
-           name !== 'send_email' &&
+           name !== 'send_email' &&           // No sending emails
+           name !== 'reply_to_email' &&       // No replying (could send)
            name !== 'start_background_task';
   });
   
@@ -5802,38 +5823,63 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
       [taskId]
     );
     
-    // System prompt - sets up the AI's role and context
-    const systemPrompt = `You are an autonomous legal AI assistant. You are working on a background task for 15 minutes.
+    // Enhanced system prompt - more focused and action-oriented
+    const systemPrompt = `You are an autonomous legal AI agent executing a background task. You have exactly 15 minutes.
 
-TASK: ${goal}
+## YOUR TASK
+${goal}
 
-CONTEXT:
-${initialContext.matter_id ? `- Working on Matter ID: ${initialContext.matter_id}` : '- No specific matter (search if needed)'}
-${initialContext.client_id ? `- Working with Client ID: ${initialContext.client_id}` : ''}
+## CONTEXT
+${initialContext.matter_id ? `- Working on Matter ID: ${initialContext.matter_id}` : '- No specific matter provided - search for relevant matters first'}
+${initialContext.client_id ? `- Client ID: ${initialContext.client_id}` : ''}
 
-INSTRUCTIONS:
-- You will receive prompts from the system guiding your work
-- Execute ONE tool per response
-- Build on previous results - the conversation history is preserved
-- Be thorough - you have 15 minutes to complete this task
-- Document your findings and actions
+## EXECUTION RULES (CRITICAL)
+1. CALL A TOOL ON EVERY RESPONSE - no text-only responses allowed
+2. Execute ONE tool per response - be precise and deliberate
+3. Build on previous results - use IDs and data from earlier tool calls
+4. Be thorough - create documents, notes, tasks, and calendar events as appropriate
+5. NEVER ask for clarification - make reasonable assumptions and proceed
+6. For emails: use draft_email_for_matter to create drafts (no sending)
 
-Available actions: search matters, review documents, log time, create tasks, draft emails, create notes, etc.`;
+## PHASES OF WORK
+- Discovery: Search and gather information (matters, clients, documents)
+- Analysis: Read documents, review data, understand the situation
+- Action: Create documents, draft emails, schedule tasks/events
+- Documentation: Add notes, create summaries, ensure everything is recorded
+
+## TOOL GUIDANCE
+- To find matters: search_matters, get_matter
+- To find clients: list_clients, get_client
+- To find documents: list_documents, get_matter_documents_content
+- To read documents: read_document_content
+- To create documents: create_document (creates PDF)
+- To draft emails: draft_email_for_matter (creates draft only, no sending)
+- To create tasks: create_task
+- To create events: create_calendar_event
+- To add notes: create_note, add_matter_note
+
+START WORKING NOW. Call a tool immediately.`;
 
     // Conversation history - maintained throughout the session
     let conversationHistory = [
       { role: 'system', content: systemPrompt }
     ];
     
-    // Break down the initial task into sub-tasks for the backend to prompt
-    const taskPrompts = generateTaskPrompts(goal, initialContext);
+    // Create initial task plan based on the goal
+    const initialPlan = generateSmartPlan(goal, initialContext);
     let currentTaskIndex = 0;
     let consecutiveNoToolCalls = 0;
     
-    // Send initial prompt based on the task
+    // Send initial prompt based on the task - more direct
+    const initialPrompt = initialContext.matter_id 
+      ? `Get the matter details for matter ID: ${initialContext.matter_id}. Call get_matter now.`
+      : initialContext.client_id
+        ? `Get client information for client ID: ${initialContext.client_id}. Call get_client now.`
+        : initialPlan[0] || `Start by searching for relevant matters. Call search_matters with a relevant search term from the goal: "${goal}"`;
+    
     conversationHistory.push({
       role: 'user',
-      content: taskPrompts[0] || `Let's begin working on: "${goal}"\n\nFirst, gather the information you need. What tool will you call?`
+      content: initialPrompt
     });
     
     // Main loop - runs for exactly 15 minutes
@@ -5841,6 +5887,7 @@ Available actions: search matters, review documents, log time, create tasks, dra
       const elapsed = Date.now() - startTime;
       const remainingMs = maxRuntime - elapsed;
       const remainingMinutes = Math.ceil(remainingMs / 60000);
+      const elapsedMinutes = Math.floor(elapsed / 60000);
       
       // Check if time is up
       if (elapsed >= maxRuntime) {
@@ -5857,27 +5904,47 @@ Available actions: search matters, review documents, log time, create tasks, dra
       }
       
       promptCount++;
-      const elapsedMinutes = Math.floor(elapsed / 60000);
-      const elapsedSeconds = Math.floor(elapsed / 1000);
       
-      // Calculate progress percentage based on time elapsed (15 min = 100%)
-      // Cap at 95% while still running - 100% only when complete
-      const progressPercent = Math.min(Math.round((elapsed / maxRuntime) * 100), 95);
+      // Calculate progress based on ACTIONS completed, not time
+      // - Base progress on successful actions vs expected
+      // - Also factor in time to ensure steady progress display
+      const actionProgress = Math.min((successfulActions / EXPECTED_ACTIONS) * 100, 85);
+      const timeProgress = (elapsed / maxRuntime) * 100;
+      // Blend: primarily action-based, with time ensuring minimum progress
+      const progressPercent = Math.min(Math.round(Math.max(actionProgress, timeProgress * 0.6)), 95);
       
-      console.log(`[AGENT ${taskId}] --- Prompt #${promptCount} (${elapsedMinutes}m elapsed, ${remainingMinutes}m remaining, ${progressPercent}%) ---`);
+      // Determine current phase based on actions and time
+      if (elapsedMinutes < 3) {
+        phase = 'discovery';
+      } else if (elapsedMinutes < 7) {
+        phase = 'analysis';
+      } else if (elapsedMinutes < 12) {
+        phase = 'action';
+      } else {
+        phase = 'review';
+      }
       
-      // Update progress in database with progressPercent for the progress bar
+      // Create descriptive current step for progress bar
+      const currentStep = getPhaseDescription(phase, successfulActions, lastActionType);
+      
+      console.log(`[AGENT ${taskId}] --- Prompt #${promptCount} | ${elapsedMinutes}m elapsed | ${successfulActions} actions | ${progressPercent}% | Phase: ${phase} ---`);
+      
+      // Update progress in database with all tracking info
       await query(
-        `UPDATE ai_tasks SET iterations = $1, progress = $2, updated_at = NOW() WHERE id = $3`,
+        `UPDATE ai_tasks SET iterations = $1, progress = $2, current_step = $3, updated_at = NOW() WHERE id = $4`,
         [promptCount, JSON.stringify({ 
           promptCount,
           phase,
+          successfulActions,
+          totalActions: actions.length,
           actions: actions.slice(-10),
           remainingMinutes,
-          elapsedSeconds,
-          progressPercent,  // This is what the frontend reads!
+          progressPercent,
+          currentStep,
+          completedSteps: successfulActions,
+          totalSteps: EXPECTED_ACTIONS,
           status: 'working'
-        }), taskId]
+        }), currentStep, taskId]
       );
       
       // Send prompt to AI (one at a time)
@@ -5931,42 +5998,19 @@ Available actions: search matters, review documents, log time, create tasks, dra
           content: response.content || '' 
         });
         
-        // Backend sends next prompt to keep the agent working
+        // Smart recovery prompts based on discovered context
+        let forcePrompt;
         if (consecutiveNoToolCalls >= 3) {
-          // Move to next task phase after 3 attempts
+          // After 3 failures, give a very specific next action
           currentTaskIndex++;
           consecutiveNoToolCalls = 0;
-          
-          if (currentTaskIndex < taskPrompts.length) {
-            conversationHistory.push({
-              role: 'user',
-              content: taskPrompts[currentTaskIndex]
-            });
-          } else {
-            // Cycle through phases to keep working
-            if (phase === 'discovery') phase = 'analysis';
-            else if (phase === 'analysis') phase = 'action';
-            else if (phase === 'action') phase = 'review';
-            else phase = 'discovery'; // Cycle back to discovery
-            
-            // Generate a continuation prompt based on what's been done
-            const nextPrompt = generateContinuationPrompt(goal, actions, remainingMinutes, phase);
-            conversationHistory.push({ role: 'user', content: nextPrompt });
-          }
+          forcePrompt = getSmartRecoveryPrompt(goal, phase, discoveredContext, actions, remainingMinutes);
         } else {
-          // More forceful prompts to keep the agent working
-          const forcePrompts = [
-            `You must call a tool now. Continue working on: "${goal}"`,
-            `Call a tool to take the next action. You have ${remainingMinutes} minutes left for: "${goal}"`,
-            `Execute a tool now. Search for more information or take an action for: "${goal}"`,
-            `Keep working. Call search_matters, list_documents, create_note, or another tool for: "${goal}"`
-          ];
-          conversationHistory.push({
-            role: 'user',
-            content: forcePrompts[consecutiveNoToolCalls % forcePrompts.length]
-          });
+          // Direct force prompts
+          forcePrompt = getForceToolPrompt(goal, phase, discoveredContext, consecutiveNoToolCalls, remainingMinutes);
         }
         
+        conversationHistory.push({ role: 'user', content: forcePrompt });
         await delay(PROMPT_DELAY_MS);
         continue;
       }
@@ -5982,10 +6026,21 @@ Available actions: search matters, review documents, log time, create tasks, dra
         functionArgs = {};
       }
       
+      lastActionType = functionName;
       console.log(`[AGENT ${taskId}] Executing: ${functionName}(${JSON.stringify(functionArgs).substring(0, 100)}...)`);
       
       // Execute the tool
       const toolResult = await executeTool(functionName, functionArgs, user, null);
+      
+      // Track if this was a successful, substantive action
+      const isSuccess = !toolResult.error;
+      const isSubstantive = isSubstantiveAction(functionName, toolResult);
+      if (isSuccess && isSubstantive) {
+        successfulActions++;
+      }
+      
+      // Update discovered context for smarter prompting
+      updateDiscoveredContext(discoveredContext, functionName, toolResult);
       
       // Build action summary
       const actionSummary = toolResult.message || toolResult.summary || 
@@ -5996,6 +6051,8 @@ Available actions: search matters, review documents, log time, create tasks, dra
         (toolResult.time_entry ? `Logged ${toolResult.time_entry.hours}h` : null) ||
         (toolResult.event ? `Created event: ${toolResult.event.title}` : null) ||
         (toolResult.task ? `Created task: ${toolResult.task.title}` : null) ||
+        (toolResult.note ? `Created note: ${toolResult.note.title || 'Note added'}` : null) ||
+        (toolResult.email_draft ? `Drafted email: ${toolResult.email_draft.subject}` : null) ||
         `Executed ${functionName}`;
       
       actions.push({
@@ -6003,22 +6060,31 @@ Available actions: search matters, review documents, log time, create tasks, dra
         tool: functionName,
         args: functionArgs,
         summary: actionSummary,
-        success: !toolResult.error,
+        success: isSuccess,
+        substantive: isSubstantive,
         timestamp: new Date().toISOString()
       });
       
-      console.log(`[AGENT ${taskId}] Result: ${actionSummary}`);
+      console.log(`[AGENT ${taskId}] Result: ${actionSummary} (substantive: ${isSubstantive})`);
+      
+      // Calculate progress based on actions (use elapsed time from now)
+      const currentElapsed = Date.now() - startTime;
+      const currentActionProgress = Math.min((successfulActions / EXPECTED_ACTIONS) * 100, 85);
+      const currentTimeProgress = (currentElapsed / maxRuntime) * 100;
+      const currentProgressPercent = Math.min(Math.round(Math.max(currentActionProgress, currentTimeProgress * 0.6)), 95);
       
       // Update current step and progress in database
-      const currentProgressPercent = Math.min(Math.round(((Date.now() - startTime) / maxRuntime) * 100), 95);
       await query(
         `UPDATE ai_tasks SET current_step = $1, progress = $2 WHERE id = $3`,
         [actionSummary, JSON.stringify({
           promptCount,
           phase,
+          successfulActions,
           actions: actions.slice(-10),
-          remainingMinutes: Math.ceil((maxRuntime - (Date.now() - startTime)) / 60000),
+          remainingMinutes: Math.ceil((maxRuntime - currentElapsed) / 60000),
           progressPercent: currentProgressPercent,
+          completedSteps: successfulActions,
+          totalSteps: EXPECTED_ACTIONS,
           currentStep: actionSummary,
           status: 'working'
         }), taskId]
@@ -6037,20 +6103,20 @@ Available actions: search matters, review documents, log time, create tasks, dra
         content: JSON.stringify(toolResult)
       });
       
-      // Backend sends next prompt based on the result and task
-      const nextPrompt = generateNextPrompt(goal, functionName, toolResult, actions, remainingMinutes, phase);
+      // Generate smart next prompt based on what just happened and context
+      const nextPrompt = generateSmartNextPrompt(goal, functionName, toolResult, discoveredContext, actions, remainingMinutes, phase);
       conversationHistory.push({ role: 'user', content: nextPrompt });
       
       // Trim conversation history if getting too long (keep recent context)
       if (conversationHistory.length > 60) {
-        // Keep system prompt + summary of early actions + recent messages
+        // Keep system prompt + context summary + recent messages
         const systemMsg = conversationHistory[0];
         const recentMessages = conversationHistory.slice(-50);
-        const actionsSummary = {
+        const contextSummary = {
           role: 'user',
-          content: `[Previous actions: ${actions.slice(0, -10).map(a => a.summary).join(', ')}]\n\nContinuing...`
+          content: `[CONTEXT: ${successfulActions} actions completed. Matters: ${discoveredContext.matters.map(m => m.name).slice(0, 3).join(', ')}. Documents: ${discoveredContext.documents.length}]\n\nContinue working on: "${goal}"`
         };
-        conversationHistory = [systemMsg, actionsSummary, ...recentMessages];
+        conversationHistory = [systemMsg, contextSummary, ...recentMessages];
       }
       
       // Delay before next prompt
@@ -6059,13 +6125,15 @@ Available actions: search matters, review documents, log time, create tasks, dra
     
     // Session complete - generate final summary
     const elapsedMinutes = Math.round((Date.now() - startTime) / 60000);
-    const successfulActions = actions.filter(a => a.success).length;
+    const totalSuccessfulActions = successfulActions; // Use the tracked counter
+    const substantiveActions = actions.filter(a => a.substantive).length;
     
     console.log(`[AGENT ${taskId}] ========================================`);
     console.log(`[AGENT ${taskId}] Session complete`);
     console.log(`[AGENT ${taskId}] Duration: ${elapsedMinutes} minutes`);
     console.log(`[AGENT ${taskId}] Prompts sent: ${promptCount}`);
-    console.log(`[AGENT ${taskId}] Actions: ${successfulActions}/${actions.length} successful`);
+    console.log(`[AGENT ${taskId}] Substantive actions: ${substantiveActions}`);
+    console.log(`[AGENT ${taskId}] Total actions: ${actions.length}`);
     console.log(`[AGENT ${taskId}] ========================================`);
     
     // Generate a summary using the AI
@@ -6079,7 +6147,7 @@ Available actions: search matters, review documents, log time, create tasks, dra
       const summaryResponse = await callAzureOpenAIWithTools(conversationHistory, []);
       summary = summaryResponse.content || '';
     } catch (e) {
-      summary = `Completed ${successfulActions} actions in ${elapsedMinutes} minutes.`;
+      summary = `Completed ${substantiveActions} substantive actions in ${elapsedMinutes} minutes for: ${goal}`;
     }
     
     await query(
@@ -6088,16 +6156,20 @@ Available actions: search matters, review documents, log time, create tasks, dra
         actions,
         totalPrompts: promptCount,
         durationMinutes: elapsedMinutes,
-        successfulActions
+        successfulActions: totalSuccessfulActions,
+        substantiveActions,
+        discoveredContext
       }), summary, JSON.stringify({
         promptCount,
         phase: 'complete',
         actions: actions.slice(-10),
         progressPercent: 100,
-        currentStep: 'Complete',
+        completedSteps: substantiveActions,
+        totalSteps: EXPECTED_ACTIONS,
+        currentStep: 'Task Complete',
         status: 'completed',
         durationMinutes: elapsedMinutes,
-        successfulActions
+        successfulActions: totalSuccessfulActions
       }), taskId]
     );
     
@@ -6265,6 +6337,313 @@ function generateContinuationPrompt(goal, actions, remainingMinutes, phase) {
   
   const prompts = phasePrompts[phase] || phasePrompts.discovery;
   return prompts[Math.floor(Math.random() * prompts.length)];
+}
+
+// =============================================================================
+// ENHANCED HELPER FUNCTIONS FOR BACKGROUND AGENT
+// =============================================================================
+
+/**
+ * Generate a smart plan based on the goal
+ */
+function generateSmartPlan(goal, context) {
+  const goalLower = goal.toLowerCase();
+  const steps = [];
+  
+  // Always start with discovery
+  if (context.matter_id) {
+    steps.push(`Get complete details for matter ID: ${context.matter_id}. Call get_matter.`);
+  } else if (context.client_id) {
+    steps.push(`Get client details for client ID: ${context.client_id}. Call get_client.`);
+  } else if (goalLower.includes('matter') || goalLower.includes('case')) {
+    steps.push('Search for relevant matters using search_matters.');
+  } else if (goalLower.includes('client')) {
+    steps.push('Find relevant clients using list_clients.');
+  } else {
+    steps.push('Start by searching for matters related to the task using search_matters.');
+  }
+  
+  // Add more steps based on keywords
+  if (goalLower.includes('document') || goalLower.includes('review') || goalLower.includes('analyze')) {
+    steps.push('List all documents for the matter using list_documents.');
+    steps.push('Read the content of key documents using read_document_content.');
+  }
+  
+  if (goalLower.includes('draft') || goalLower.includes('create') || goalLower.includes('prepare')) {
+    steps.push('Create necessary documents using create_document.');
+  }
+  
+  if (goalLower.includes('email') || goalLower.includes('contact')) {
+    steps.push('Draft any necessary emails using draft_email_for_matter.');
+  }
+  
+  if (goalLower.includes('task') || goalLower.includes('follow')) {
+    steps.push('Create follow-up tasks using create_task.');
+  }
+  
+  if (goalLower.includes('meeting') || goalLower.includes('schedule') || goalLower.includes('calendar')) {
+    steps.push('Schedule events using create_calendar_event.');
+  }
+  
+  // Always end with documentation
+  steps.push('Document your findings and actions using create_note or add_matter_note.');
+  
+  return steps;
+}
+
+/**
+ * Get descriptive text for the current phase
+ */
+function getPhaseDescription(phase, actionsCompleted, lastAction) {
+  const phaseDescriptions = {
+    discovery: 'Gathering information...',
+    analysis: 'Analyzing data...',
+    action: 'Taking actions...',
+    review: 'Reviewing and documenting...'
+  };
+  
+  let description = phaseDescriptions[phase] || 'Working...';
+  
+  // Add more context if we have it
+  if (lastAction) {
+    const actionDescriptions = {
+      'search_matters': 'Searching matters...',
+      'get_matter': 'Reviewing matter details...',
+      'get_client': 'Reviewing client info...',
+      'list_documents': 'Finding documents...',
+      'read_document_content': 'Reading document...',
+      'create_document': 'Creating document...',
+      'draft_email_for_matter': 'Drafting email...',
+      'create_task': 'Creating tasks...',
+      'create_calendar_event': 'Scheduling event...',
+      'create_note': 'Adding notes...',
+      'add_matter_note': 'Documenting progress...'
+    };
+    description = actionDescriptions[lastAction] || description;
+  }
+  
+  return `${description} (${actionsCompleted} actions)`;
+}
+
+/**
+ * Check if an action is substantive (counts toward progress)
+ */
+function isSubstantiveAction(functionName, result) {
+  // Ignore failed actions
+  if (result.error) return false;
+  
+  // Data retrieval actions count as substantive
+  const retrievalActions = [
+    'search_matters', 'get_matter', 'get_client', 'list_clients',
+    'list_documents', 'read_document_content', 'get_matter_documents_content',
+    'list_invoices', 'get_invoice', 'list_tasks', 'get_calendar_events'
+  ];
+  if (retrievalActions.includes(functionName)) {
+    // Only count if we actually got data
+    const hasData = result.matter || result.matters?.length > 0 || 
+                    result.client || result.clients?.length > 0 ||
+                    result.documents?.length > 0 || result.content ||
+                    result.invoices?.length > 0 || result.events?.length > 0;
+    return hasData;
+  }
+  
+  // Creation actions are always substantive
+  const creationActions = [
+    'create_document', 'create_note', 'add_matter_note', 'create_task',
+    'create_calendar_event', 'draft_email_for_matter', 'log_time',
+    'create_matter', 'create_client', 'create_invoice'
+  ];
+  return creationActions.includes(functionName);
+}
+
+/**
+ * Update discovered context based on tool results
+ */
+function updateDiscoveredContext(context, functionName, result) {
+  if (result.error) return;
+  
+  // Track discovered matters
+  if (result.matter) {
+    if (!context.matters.find(m => m.id === result.matter.id)) {
+      context.matters.push({
+        id: result.matter.id,
+        name: result.matter.name,
+        client_id: result.matter.client_id
+      });
+      context.hasFoundMainTarget = true;
+    }
+  }
+  if (result.matters) {
+    result.matters.forEach(m => {
+      if (!context.matters.find(x => x.id === m.id)) {
+        context.matters.push({ id: m.id, name: m.name, client_id: m.client_id });
+      }
+    });
+    if (result.matters.length > 0) context.hasFoundMainTarget = true;
+  }
+  
+  // Track discovered clients
+  if (result.client) {
+    if (!context.clients.find(c => c.id === result.client.id)) {
+      context.clients.push({
+        id: result.client.id,
+        name: result.client.display_name || result.client.name
+      });
+    }
+  }
+  if (result.clients) {
+    result.clients.forEach(c => {
+      if (!context.clients.find(x => x.id === c.id)) {
+        context.clients.push({ id: c.id, name: c.display_name || c.name });
+      }
+    });
+  }
+  
+  // Track discovered documents
+  if (result.documents) {
+    result.documents.forEach(d => {
+      if (!context.documents.find(x => x.id === d.id)) {
+        context.documents.push({ id: d.id, name: d.name });
+      }
+    });
+  }
+}
+
+/**
+ * Generate smart recovery prompt when agent is stuck
+ */
+function getSmartRecoveryPrompt(goal, phase, context, actions, remainingMinutes) {
+  // Give very specific direction based on what we've discovered
+  if (!context.hasFoundMainTarget) {
+    // Haven't found the main subject yet
+    return `You need to find the relevant data. Call search_matters with a search term from the goal: "${goal}". Execute a tool NOW.`;
+  }
+  
+  // We have discovered data - direct to next logical action
+  if (context.matters.length > 0) {
+    const matter = context.matters[0];
+    
+    if (context.documents.length === 0 && phase !== 'review') {
+      return `Get documents for matter "${matter.name}". Call list_documents with matter_id: "${matter.id}"`;
+    }
+    
+    if (phase === 'action' || phase === 'review') {
+      return `Create something useful for "${goal}". Options:
+1. create_document - Create a document/memo
+2. draft_email_for_matter - Draft an email (matter_id: ${matter.id})
+3. create_task - Create a follow-up task
+4. create_note - Add notes about your findings
+
+Call one of these tools NOW.`;
+    }
+    
+    return `Continue working on matter "${matter.name}". You have ${remainingMinutes} minutes. Call a tool to make progress on: "${goal}"`;
+  }
+  
+  // Fallback
+  return `You have ${remainingMinutes} minutes remaining. Call a tool to continue working on: "${goal}"`;
+}
+
+/**
+ * Generate force tool prompt for when agent isn't calling tools
+ */
+function getForceToolPrompt(goal, phase, context, attemptNum, remainingMinutes) {
+  const forcePrompts = [
+    `EXECUTE A TOOL NOW. You must call a function. Continue working on: "${goal}"`,
+    `CALL A TOOL IMMEDIATELY. No text responses - only tool calls. Goal: "${goal}"`,
+    `USE A TOOL. Suggested: ${getSuggestedToolsForPhase(phase, context)}. Goal: "${goal}"`,
+    `TOOL REQUIRED. You have ${remainingMinutes} minutes left. Execute: ${getSuggestedToolsForPhase(phase, context)}`
+  ];
+  
+  return forcePrompts[attemptNum % forcePrompts.length];
+}
+
+/**
+ * Get suggested tools based on current phase
+ */
+function getSuggestedToolsForPhase(phase, context) {
+  if (phase === 'discovery') {
+    return 'search_matters, list_clients, get_matter';
+  } else if (phase === 'analysis') {
+    if (context.matters.length > 0) {
+      return `list_documents(matter_id="${context.matters[0].id}"), read_document_content`;
+    }
+    return 'list_documents, read_document_content, get_matter_documents_content';
+  } else if (phase === 'action') {
+    return 'create_document, draft_email_for_matter, create_task, create_calendar_event';
+  } else {
+    return 'create_note, add_matter_note, create_task';
+  }
+}
+
+/**
+ * Generate smart next prompt based on what just happened
+ */
+function generateSmartNextPrompt(goal, lastTool, lastResult, context, actions, remainingMinutes, phase) {
+  // If there was an error, acknowledge and redirect
+  if (lastResult.error) {
+    return `That action had an issue: ${lastResult.error}\n\nTry a different approach. What else can help with: "${goal}"? Call a tool.`;
+  }
+  
+  // Specific guidance based on what tool was used
+  switch (lastTool) {
+    case 'search_matters':
+      if (lastResult.matters?.length > 0) {
+        const matter = lastResult.matters[0];
+        return `Found matter "${matter.name}". Now get full details. Call get_matter with matter_id: "${matter.id}"`;
+      }
+      return `No matters found with that search. Try a different search term or list_clients to find relevant data for: "${goal}"`;
+    
+    case 'get_matter':
+      if (context.documents.length === 0) {
+        return `Good, you have the matter details. Now find documents. Call list_documents with matter_id: "${lastResult.matter?.id}"`;
+      }
+      return `Matter details retrieved. Review documents or start taking action. What's next for: "${goal}"?`;
+    
+    case 'get_client':
+      return `Client info retrieved. Now find their matters or documents. Call search_matters with client_id or list_documents.`;
+    
+    case 'list_documents':
+      if (lastResult.documents?.length > 0) {
+        const doc = lastResult.documents[0];
+        return `Found ${lastResult.documents.length} documents. Read the most important one. Call read_document_content with document_id: "${doc.id}"`;
+      }
+      return `No documents found. Move on to creating content or taking other actions for: "${goal}"`;
+    
+    case 'read_document_content':
+      if (remainingMinutes > 8) {
+        return `Document reviewed. Continue analyzing or start taking action. ${context.documents.length > 1 ? 'Read another document or ' : ''}create documents/tasks as needed for: "${goal}"`;
+      }
+      return `Document reviewed. Time to take action. Create documents, draft emails, or schedule tasks for: "${goal}"`;
+    
+    case 'create_document':
+      return `Document created. What else? Draft an email, create tasks, or add notes. Continue with: "${goal}"`;
+    
+    case 'draft_email_for_matter':
+      return `Email drafted (saved as draft, not sent). Create tasks, schedule events, or add notes. Continue with: "${goal}"`;
+    
+    case 'create_task':
+      return `Task created. Add more tasks, schedule calendar events, or document your work for: "${goal}"`;
+    
+    case 'create_calendar_event':
+      return `Event scheduled. Create more events, tasks, or notes as needed for: "${goal}"`;
+    
+    case 'create_note':
+    case 'add_matter_note':
+      return `Notes added. ${remainingMinutes > 3 ? 'Continue with more actions' : 'Wrap up remaining items'} for: "${goal}"`;
+    
+    default:
+      // Phase-appropriate prompts
+      if (phase === 'discovery') {
+        return `Continue gathering information. You have ${remainingMinutes} minutes for: "${goal}". Call a search or get tool.`;
+      } else if (phase === 'analysis') {
+        return `Continue analyzing. Read more documents or review data. ${remainingMinutes} minutes remaining for: "${goal}"`;
+      } else if (phase === 'action') {
+        return `Keep taking action. Create documents, draft emails, schedule tasks. ${remainingMinutes} minutes for: "${goal}"`;
+      } else {
+        return `Finishing up. Document your work and create any final tasks. ${remainingMinutes} minutes left for: "${goal}"`;
+      }
+  }
 }
 
 // =============================================================================

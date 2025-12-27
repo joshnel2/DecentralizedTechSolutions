@@ -26,12 +26,22 @@ interface AgentTask {
   created_at: string
   completed_at: string | null
   rating: number | null
-  progress?: { steps: ProgressStep[]; progressPercent?: number; totalSteps?: number; completedSteps?: number; currentStep?: string }
+  progress?: { 
+    steps?: ProgressStep[]
+    progressPercent?: number
+    totalSteps?: number
+    completedSteps?: number
+    currentStep?: string
+    successfulActions?: number
+    phase?: string
+  }
   plan?: string[]
   progressPercent?: number
   totalSteps?: number
   completedSteps?: number
   currentStep?: string
+  successfulActions?: number
+  phase?: string
 }
 
 interface ProgressStep {
@@ -482,10 +492,13 @@ export function AIAssistantPage() {
                     )}
                     <div className={styles.liveProgressMeta}>
                       <span className={styles.liveProgressIterations}>
-                        {liveTaskProgress.totalSteps 
-                          ? `Step ${liveTaskProgress.completedSteps || 0} of ${liveTaskProgress.totalSteps}`
-                          : `${liveTaskProgress.iterations || 0} steps completed`
+                        {liveTaskProgress.progress?.successfulActions !== undefined
+                          ? `${liveTaskProgress.progress.successfulActions} actions completed`
+                          : liveTaskProgress.totalSteps 
+                            ? `Step ${liveTaskProgress.completedSteps || 0} of ${liveTaskProgress.totalSteps}`
+                            : `${liveTaskProgress.iterations || 0} steps completed`
                         }
+                        {liveTaskProgress.progress?.phase && ` • ${liveTaskProgress.progress.phase}`}
                       </span>
                     </div>
                   </div>
@@ -670,9 +683,11 @@ export function AIAssistantPage() {
                             </span>
                           )}
                           <span className={styles.taskIterations}>
-                            {task.totalSteps 
-                              ? `${task.completedSteps || task.iterations}/${task.totalSteps} steps`
-                              : `${task.iterations} ${task.iterations === 1 ? 'step' : 'steps'}`
+                            {task.progress?.successfulActions !== undefined
+                              ? `${task.progress.successfulActions} actions`
+                              : task.totalSteps 
+                                ? `${task.completedSteps || task.iterations}/${task.totalSteps} steps`
+                                : `${task.iterations} ${task.iterations === 1 ? 'step' : 'steps'}`
                             }
                           </span>
                         </div>
