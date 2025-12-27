@@ -5815,6 +5815,16 @@ Available actions: search matters, review documents, log time, create tasks, dra
         break;
       }
       
+      // Check if task was cancelled by user
+      const taskStatus = await query(
+        `SELECT status FROM ai_tasks WHERE id = $1`,
+        [taskId]
+      );
+      if (taskStatus.rows.length === 0 || taskStatus.rows[0].status === 'cancelled') {
+        console.log(`[AGENT ${taskId}] Task was cancelled by user. Stopping gracefully.`);
+        return; // Exit without updating status (already set to cancelled)
+      }
+      
       promptCount++;
       const elapsedMinutes = Math.floor(elapsed / 60000);
       const elapsedSeconds = Math.floor(elapsed / 1000);
@@ -9846,6 +9856,70 @@ router.post('/tasks/:taskId/rate', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Error rating task:', error);
     res.status(500).json({ error: 'Failed to rate task' });
+  }
+});
+
+// Cancel a running task (keeps progress)
+router.post('/tasks/:taskId/cancel', authenticate, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    
+    // Get current task info
+    const taskResult = await query(
+      `SELECT id, status, goal, progress, iterations FROM ai_tasks 
+       WHERE id = $1 AND user_id = $2`,
+      [taskId, req.user.id]
+    );
+    
+    if (taskResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    const task = taskResult.rows[0];
+    
+    if (task.status !== 'running') {
+      return res.status(400).json({ error: 'Task is not running', status: task.status });
+    }
+    
+    // Parse existing progress
+    let progress = task.progress;
+    if (typeof progress === 'string') {
+      try { progress = JSON.parse(progress); } catch (e) { progress = {}; }
+    }
+    
+    // Update task to cancelled status - keeps all progress
+    const result = await query(
+      `UPDATE ai_tasks SET 
+        status = 'cancelled',
+        completed_at = NOW(),
+        progress = $1,
+        summary = $2,
+        updated_at = NOW()
+       WHERE id = $3 AND user_id = $4
+       RETURNING id, status, goal`,
+      [
+        JSON.stringify({
+          ...progress,
+          status: 'cancelled',
+          cancelledAt: new Date().toISOString(),
+          progressPercent: progress.progressPercent || 0
+        }),
+        `Task cancelled by user after ${task.iterations || 0} actions. Progress has been saved.`,
+        taskId,
+        req.user.id
+      ]
+    );
+    
+    console.log(`[AGENT] Task ${taskId} cancelled by user`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Task cancelled. Progress has been saved.',
+      task: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error cancelling task:', error);
+    res.status(500).json({ error: 'Failed to cancel task' });
   }
 });
 
