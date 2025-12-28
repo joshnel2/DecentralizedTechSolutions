@@ -3,7 +3,7 @@ import { useAuthStore } from '../stores/authStore'
 import { integrationsApi } from '../services/api'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
-  Link2, Calendar, Cloud, FileSignature,
+  Link2, Calendar, Cloud,
   Calculator, MessageSquare, Shield, CheckCircle2,
   RefreshCw, AlertTriangle,
   Lock, Globe, Zap, AlertCircle, ArrowLeft, HardDrive, FileText, Users
@@ -31,7 +31,7 @@ interface IntegrationConfig {
   id: string
   name: string
   description: string
-  category: 'calendar' | 'email' | 'storage' | 'accounting' | 'esign' | 'communication'
+  category: 'calendar' | 'email' | 'storage' | 'accounting' | 'communication'
   icon: string
   provider?: string // Backend provider key
   features: string[]
@@ -119,18 +119,6 @@ const integrationConfigs: IntegrationConfig[] = [
     syncOptions: { documents: true }
   },
   
-  // E-Signature
-  { 
-    id: 'docusign', 
-    name: 'DocuSign', 
-    description: 'Send documents for electronic signature with audit trails.', 
-    category: 'esign', 
-    icon: '✍️',
-    provider: 'docusign',
-    features: ['E-signatures', 'Templates', 'Audit trail'],
-    syncOptions: { documents: true }
-  },
-  
   // Communication
   { 
     id: 'slack', 
@@ -150,18 +138,6 @@ const integrationConfigs: IntegrationConfig[] = [
     provider: 'zoom',
     features: ['Meeting scheduling', 'Calendar sync', 'One-click join'],
     syncOptions: { calendar: true }
-  },
-
-  // Accounting
-  { 
-    id: 'quicken', 
-    name: 'Quicken', 
-    description: 'Connect Quicken for personal finance and accounting data.', 
-    category: 'accounting', 
-    icon: '💰',
-    provider: 'quicken',
-    features: ['Financial tracking', 'Transaction sync', 'Reports'],
-    syncOptions: { billing: true }
   }
 ]
 
@@ -169,7 +145,6 @@ const categoryLabels: Record<string, { label: string; icon: any }> = {
   calendar: { label: 'Calendar & Email', icon: Calendar },
   storage: { label: 'Cloud Storage', icon: Cloud },
   accounting: { label: 'Accounting', icon: Calculator },
-  esign: { label: 'E-Signature', icon: FileSignature },
   communication: { label: 'Communication', icon: MessageSquare }
 }
 
@@ -183,10 +158,8 @@ export function IntegrationsPage() {
     outlook: null,
     googledrive: null,
     dropbox: null,
-    docusign: null,
     slack: null,
     zoom: null,
-    quicken: null,
     'apex-drive': null,
   })
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
@@ -257,17 +230,11 @@ export function IntegrationsPage() {
         case 'dropbox':
           response = await integrationsApi.connectDropbox()
           break
-        case 'docusign':
-          response = await integrationsApi.connectDocuSign()
-          break
         case 'slack':
           response = await integrationsApi.connectSlack()
           break
         case 'zoom':
           response = await integrationsApi.connectZoom()
-          break
-        case 'quicken':
-          response = await integrationsApi.connectQuicken()
           break
         case 'file-storage':
           // File storage doesn't need OAuth - just navigate to the page
@@ -314,17 +281,11 @@ export function IntegrationsPage() {
         case 'dropbox':
           await integrationsApi.disconnectDropbox()
           break
-        case 'docusign':
-          await integrationsApi.disconnectDocuSign()
-          break
         case 'slack':
           await integrationsApi.disconnectSlack()
           break
         case 'zoom':
           await integrationsApi.disconnectZoom()
-          break
-        case 'quicken':
-          await integrationsApi.disconnectQuicken()
           break
       }
       setNotification({ type: 'success', message: `Disconnected ${provider}` })
@@ -354,17 +315,11 @@ export function IntegrationsPage() {
         case 'dropbox':
           result = await integrationsApi.syncDropbox()
           break
-        case 'docusign':
-          result = await integrationsApi.syncDocuSign()
-          break
         case 'slack':
           result = await integrationsApi.syncSlack()
           break
         case 'zoom':
           result = await integrationsApi.syncZoom()
-          break
-        case 'quicken':
-          result = await integrationsApi.syncQuicken()
           break
         case 'apex-drive':
           // Sync through the drive system
