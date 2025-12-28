@@ -2774,7 +2774,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           try {
             // Fetch bills with comprehensive financial data
             const bills = await clioGetAll(accessToken, '/bills.json', {
-              fields: 'id,number,issued_at,due_at,sent_at,paid_at,total,balance,sub_total,services_total,expenses_total,credits_total,discount,tax_rate,tax_total,state,notes,memo,matters{id,display_number},client{id,name}'
+              fields: 'id,number,issued_at,due_at,total,balance,state,matters{id,display_number},client{id,name}'
             }, (count) => updateProgress('bills', 'running', count));
             
             for (const b of bills) {
@@ -2865,7 +2865,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           try {
             // Fetch calendar entries with type and recurrence info
             const events = await clioGetAll(accessToken, '/calendar_entries.json', {
-              fields: 'id,summary,description,start_at,end_at,all_day,location,matter{id},attendees{id,name,email,type},calendar_entry_type{id,name},recurrence_rule,reminders{minutes,method},permission'
+              fields: 'id,summary,description,start_at,end_at,all_day,location,matter,attendees'
             }, (count) => updateProgress('calendar', 'running', count));
             
             for (const e of events) {
