@@ -741,24 +741,38 @@ export default function SecureAdminDashboard() {
   }
 
   const handleDeleteFirm = async (firmId: string) => {
-    if (!confirm('Are you sure you want to delete this firm? This action cannot be undone.')) return
+    // Find the firm name for display
+    const firmToDelete = firms.find(f => f.id === firmId)
+    const firmName = firmToDelete?.name || 'this firm'
+    
+    if (!confirm(`Are you sure you want to delete "${firmName}"? This will permanently delete ALL data including users, matters, clients, documents, time entries, and invoices.`)) return
+    
+    if (!confirm(`FINAL WARNING: Deleting "${firmName}" CANNOT be undone. Type OK to proceed.`)) return
+    
+    showNotification('success', `Deleting "${firmName}" and all associated data...`)
     
     try {
+      console.log(`[DELETE FIRM] Attempting to delete firm ${firmId}`)
       const res = await fetch(`${API_URL}/secure-admin/firms/${firmId}`, {
         method: 'DELETE',
         headers: getAuthHeaders()
       })
 
+      console.log(`[DELETE FIRM] Response status: ${res.status}`)
+      
       if (res.ok) {
+        const result = await res.json()
+        console.log('[DELETE FIRM] Success:', result)
         await loadData()
-        showNotification('success', 'Firm deleted successfully')
+        showNotification('success', `Successfully deleted "${firmName}" and all ${result.deleted?.users || 0} users, ${result.deleted?.matters || 0} matters, ${result.deleted?.documents || 0} documents`)
       } else {
         const error = await res.json()
+        console.error('[DELETE FIRM] Error response:', error)
         showNotification('error', error.error || 'Failed to delete firm')
       }
-    } catch (error) {
-      console.error('Failed to delete firm:', error)
-      showNotification('error', 'Failed to delete firm')
+    } catch (error: any) {
+      console.error('[DELETE FIRM] Exception:', error)
+      showNotification('error', `Failed to delete firm: ${error.message || 'Unknown error'}`)
     }
   }
 

@@ -871,11 +871,36 @@ export function AdminPortalPage() {
     if (!confirm('Are you sure you want to delete this firm? This will delete all users, matters, clients, and data associated with this firm.')) {
       return
     }
+    if (!confirm('FINAL WARNING: This action CANNOT be undone. All firm data will be permanently deleted. Continue?')) {
+      return
+    }
+    
+    setLoading(true)
+    setError(null)
+    
     try {
+      // Try secure admin endpoint first (for secure admin users)
+      try {
+        const result = await fetchSecureAdmin(`/firms/${id}`, { method: 'DELETE' })
+        console.log('[DELETE FIRM] Secure admin delete result:', result)
+        alert(`Successfully deleted firm and all associated data!`)
+        await loadData()
+        return
+      } catch (secureErr: any) {
+        console.log('[DELETE FIRM] Secure admin failed, trying regular admin:', secureErr.message)
+      }
+      
+      // Fall back to regular admin endpoint
       await adminApi.deleteFirm(id)
-      loadData()
+      alert('Firm deleted successfully!')
+      await loadData()
     } catch (err: any) {
-      alert(err.message || 'Failed to delete firm')
+      console.error('[DELETE FIRM] Error:', err)
+      const errorMessage = err.message || err.error || 'Failed to delete firm'
+      setError(errorMessage)
+      alert(`Failed to delete firm: ${errorMessage}`)
+    } finally {
+      setLoading(false)
     }
   }
 
