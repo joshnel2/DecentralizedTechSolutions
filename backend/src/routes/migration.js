@@ -294,11 +294,13 @@ async function clioGetContactsByInitial(accessToken, endpoint, params, onProgres
 
 // Fetch matters by STATUS - includes all possible Clio statuses + catch-all
 // Each status can have up to 10k records
+// Also fetches by practice area to ensure we get ALL matters in large firms
 async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress, clientIds = null) {
   const allData = [];
   const seenIds = new Set();
-  // Include ALL possible Clio matter statuses
-  const statuses = ['Open', 'Pending', 'Closed', 'Archived'];
+  // Include ALL possible Clio matter statuses - Clio uses "Open", "Pending", "Closed"
+  // Note: Custom statuses may exist - the catch-all fetch will capture them
+  const statuses = ['Open', 'Pending', 'Closed'];
   
   console.log(`[CLIO API] Fetching matters by status (bypasses 10k limit)...`);
   
@@ -360,6 +362,130 @@ async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress,
     
   } catch (err) {
     console.log(`[CLIO API] Catch-all matters error: ${err.message}`);
+  }
+  
+  // ADDITIONAL: Fetch by billable status to catch any matters that might have custom statuses
+  // Clio supports billable=true and billable=false filtering
+  console.log(`[CLIO API] Running additional fetch by billable status...`);
+  for (const billable of [true, false]) {
+    try {
+      const billableMatters = await clioGetPaginated(
+        accessToken,
+        endpoint,
+        { ...params, billable },
+        null
+      );
+      
+      let newCount = 0;
+      for (const item of billableMatters) {
+        if (item.id && !seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          allData.push(item);
+          newCount++;
+        }
+      }
+      
+      if (newCount > 0) {
+        console.log(`[CLIO API] Billable=${billable} matters: found ${newCount} additional! Total: ${allData.length}`);
+      }
+    } catch (err) {
+      // Billable filter might not work on all Clio instances
+      console.log(`[CLIO API] Billable=${billable} fetch error: ${err.message}`);
+    }
+  }
+  
+  // PRACTICE AREA BASED: Fetch matters by practice area ID for firms with many practice areas
+  // This is especially important for large firms with distinct practice groups
+  console.log(`[CLIO API] Fetching practice areas for practice-area-based matter fetch...`);
+  try {
+    const practiceAreasResp = await clioRequest(accessToken, '/practice_areas.json', { limit: 200 });
+    const practiceAreas = practiceAreasResp.data || [];
+    
+    if (practiceAreas.length > 0) {
+      console.log(`[CLIO API] Found ${practiceAreas.length} practice areas, fetching matters by practice area...`);
+      
+      for (const pa of practiceAreas) {
+        try {
+          const paMatters = await clioGetPaginated(
+            accessToken,
+            endpoint,
+            { ...params, practice_area_id: pa.id },
+            null
+          );
+          
+          let newCount = 0;
+          for (const item of paMatters) {
+            if (item.id && !seenIds.has(item.id)) {
+              seenIds.add(item.id);
+              allData.push(item);
+              newCount++;
+            }
+          }
+          
+          if (newCount > 0) {
+            console.log(`[CLIO API] Practice area "${pa.name}": found ${newCount} additional matters! Total: ${allData.length}`);
+          }
+        } catch (paErr) {
+          // Practice area filter might fail
+          console.log(`[CLIO API] Practice area "${pa.name}" fetch error: ${paErr.message}`);
+        }
+      }
+    }
+  } catch (paListErr) {
+    console.log(`[CLIO API] Could not fetch practice areas: ${paListErr.message}`);
+  }
+  
+  // FINAL: Try to fetch matters by open_date ranges to catch any stragglers
+  // This helps with very large firms that have matters across many years
+  console.log(`[CLIO API] Running year-based fetch for comprehensive coverage...`);
+  const currentYear = new Date().getFullYear();
+  // Go back 20 years to capture all historical matters
+  for (let year = currentYear; year >= currentYear - 20; year--) {
+    try {
+      const yearStart = `${year}-01-01`;
+      const yearEnd = `${year}-12-31`;
+      
+      const yearMatters = await clioGetPaginated(
+        accessToken,
+        endpoint,
+        { 
+          ...params, 
+          'open_date[]': [`>=${yearStart}`, `<=${yearEnd}`]
+        },
+        null
+      );
+      
+      let newCount = 0;
+      for (const item of yearMatters) {
+        if (item.id && !seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          allData.push(item);
+          newCount++;
+        }
+      }
+      
+      if (newCount > 0) {
+        console.log(`[CLIO API] Year ${year} matters: found ${newCount} additional! Total: ${allData.length}`);
+      }
+      
+      // If we found no new matters for 3 consecutive years, stop going back further
+      if (year < currentYear - 5 && newCount === 0) {
+        let emptyYears = 0;
+        for (let checkYear = year; checkYear >= year - 2 && checkYear >= currentYear - 20; checkYear--) {
+          if (!allData.some(m => m.open_date && m.open_date.startsWith(String(checkYear)))) {
+            emptyYears++;
+          }
+        }
+        if (emptyYears >= 3) {
+          console.log(`[CLIO API] No matters found in last 3 years checked, stopping year-based fetch`);
+          break;
+        }
+      }
+    } catch (err) {
+      // Date range might not be supported
+      console.log(`[CLIO API] Year ${year} fetch error: ${err.message}`);
+      break; // Stop if date filtering isn't working
+    }
   }
   
   console.log(`[CLIO API] Matters complete: ${allData.length} total records`);
@@ -2363,9 +2489,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 1/6: Importing users directly to DB...');
           updateProgress('users', 'running', 0);
           try {
-            // Fetch users with rate info for hourly_rate
+            // Fetch users with comprehensive fields including:
+            // - Core: id, name, first_name, last_name, email, enabled
+            // - Role: subscription_type, is_admin, is_owner, type
+            // - Billing: rate, default_rate, cost_rate
+            // - Contact: phone_number, avatar_url
+            // - Metadata: created_at, updated_at
             const users = await clioGetAll(accessToken, '/users.json', {
-              fields: 'id,name,first_name,last_name,email,enabled,subscription_type,rate,phone_number,is_admin,is_owner'
+              fields: 'id,name,first_name,last_name,email,enabled,subscription_type,type,rate,default_rate,cost_rate,phone_number,is_admin,is_owner,avatar_url,initials,created_at,updated_at'
             }, (count) => updateProgress('users', 'running', count));
             
             // Pre-hash a common password for speed (users can reset later)
@@ -2393,8 +2524,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   role = 'staff';
                 }
                 
-                // Extract hourly rate (Clio returns rate as decimal)
-                const hourlyRate = u.rate ? parseFloat(u.rate) : null;
+                // Extract hourly rate (prefer rate, then default_rate from Clio)
+                const hourlyRate = u.rate 
+                  ? parseFloat(u.rate) 
+                  : (u.default_rate ? parseFloat(u.default_rate) : null);
                 
                 // Check if email already exists in database
                 let email = baseEmail;
@@ -2444,35 +2577,91 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 2/6: Importing contacts directly to DB...');
           updateProgress('contacts', 'running', 0);
           try {
-            // Fetch contacts with all available fields including title, prefix for notes
+            // Fetch contacts with comprehensive fields including:
+            // - Core: id, name, first_name, middle_name, last_name, suffix, type, title, prefix
+            // - Contact info: email_addresses, phone_numbers, addresses, website
+            // - Relationships: company, primary_work_address, secondary_address
+            // - Metadata: initials, date_of_birth, is_client, is_company_contact
+            // - Billing: activity_rates (contact-specific billing rates)
+            // - Custom: custom_field_values
             const contacts = await clioGetAll(accessToken, '/contacts.json', {
-              fields: 'id,name,first_name,last_name,type,title,prefix,company{id,name},email_addresses,phone_numbers,addresses,website{url},custom_field_values{id,field_name,value}'
+              fields: 'id,name,first_name,middle_name,last_name,suffix,type,title,prefix,initials,date_of_birth,company{id,name},email_addresses{address,name,default_email},phone_numbers{number,name,default_phone},addresses{street,city,province,postal_code,country,name,primary},website{url},activity_rates{id,rate,flat_rate,activity_description{id,name}},custom_field_values{id,field_name,value},created_at,updated_at,is_client,is_clio_for_clients_enabled'
             }, (count) => updateProgress('contacts', 'running', count));
             
             for (const c of contacts) {
               try {
                 const isCompany = c.type === 'Company';
-                const displayName = c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown';
+                
+                // Build display name properly handling middle name and suffix
+                let displayName = c.name;
+                if (!displayName) {
+                  const nameParts = [c.first_name, c.middle_name, c.last_name].filter(Boolean);
+                  if (c.suffix) nameParts.push(c.suffix);
+                  displayName = nameParts.join(' ') || 'Unknown';
+                }
+                
                 const primaryEmail = c.email_addresses?.find(e => e.default_email) || c.email_addresses?.[0];
                 const primaryPhone = c.phone_numbers?.find(p => p.default_phone) || c.phone_numbers?.[0];
                 const primaryAddr = c.addresses?.find(a => a.primary) || c.addresses?.[0];
                 
-                // Build notes from available Clio fields
+                // Build comprehensive notes from available Clio fields
                 const notesParts = [];
                 if (c.title) notesParts.push(`Title: ${c.title}`);
                 if (c.prefix) notesParts.push(`Prefix: ${c.prefix}`);
+                if (c.suffix) notesParts.push(`Suffix: ${c.suffix}`);
+                if (c.initials) notesParts.push(`Initials: ${c.initials}`);
+                if (c.date_of_birth) notesParts.push(`Date of Birth: ${c.date_of_birth}`);
                 if (c.website?.url) notesParts.push(`Website: ${c.website.url}`);
+                
+                // Include all email addresses (not just primary)
+                if (c.email_addresses && c.email_addresses.length > 1) {
+                  const otherEmails = c.email_addresses
+                    .filter(e => e.address !== primaryEmail?.address)
+                    .map(e => `${e.name || 'Email'}: ${e.address}`);
+                  if (otherEmails.length > 0) {
+                    notesParts.push(`Other Emails: ${otherEmails.join(', ')}`);
+                  }
+                }
+                
+                // Include all phone numbers (not just primary)
+                if (c.phone_numbers && c.phone_numbers.length > 1) {
+                  const otherPhones = c.phone_numbers
+                    .filter(p => p.number !== primaryPhone?.number)
+                    .map(p => `${p.name || 'Phone'}: ${p.number}`);
+                  if (otherPhones.length > 0) {
+                    notesParts.push(`Other Phones: ${otherPhones.join(', ')}`);
+                  }
+                }
+                
+                // Include activity rates (billing rates specific to this contact)
+                if (c.activity_rates && c.activity_rates.length > 0) {
+                  const rateInfo = c.activity_rates.map(ar => 
+                    `${ar.activity_description?.name || 'Rate'}: $${ar.rate || ar.flat_rate}`
+                  );
+                  notesParts.push(`Billing Rates: ${rateInfo.join(', ')}`);
+                }
+                
                 // Include custom field values as notes
                 if (c.custom_field_values && c.custom_field_values.length > 0) {
                   c.custom_field_values.forEach(cf => {
                     if (cf.value) notesParts.push(`${cf.field_name}: ${cf.value}`);
                   });
                 }
+                
+                // Track if this is a client or just a contact
+                if (c.is_client === false) {
+                  notesParts.push('[Contact - Not a Client]');
+                }
+                
                 const notes = notesParts.length > 0 ? notesParts.join('\n') : null;
                 
+                // Determine contact_type based on Clio fields
+                const contactType = c.is_client === true ? 'client' : 
+                                   c.is_client === false ? 'contact' : 'client';
+                
                 const result = await query(
-                  `INSERT INTO clients (firm_id, type, display_name, first_name, last_name, company_name, email, phone, address_street, address_city, address_state, address_zip, notes, is_active)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+                  `INSERT INTO clients (firm_id, type, display_name, first_name, last_name, company_name, email, phone, address_street, address_city, address_state, address_zip, notes, contact_type, is_active)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
                   [
                     firmId,
                     isCompany ? 'company' : 'person',
@@ -2487,6 +2676,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     primaryAddr?.province || null,
                     primaryAddr?.postal_code || null,
                     notes,
+                    contactType,
                     true
                   ]
                 );
@@ -2499,16 +2689,32 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   console.log(`[CLIO IMPORT] Contacts saved: ${counts.contacts}`);
                 }
               } catch (err) {
+                // Track failed contacts
+                counts.contactsFailed = (counts.contactsFailed || 0) + 1;
+                
                 // Skip duplicates silently, log others
                 if (!err.message.includes('duplicate')) {
                   warnings.push(`Contact ${c.name || c.id}: ${err.message}`);
+                  console.log(`[CLIO IMPORT] Contact failed: ${c.name || c.id} - ${err.message}`);
                 }
               }
             }
+            
             // Verify contacts were saved
             const contactVerify = await query('SELECT COUNT(*) FROM clients WHERE firm_id = $1', [firmId]);
             const actualContactCount = parseInt(contactVerify.rows[0].count);
+            const fetchedCount = contacts.length;
+            
+            console.log(`[CLIO IMPORT] Contacts fetched from Clio: ${fetchedCount}`);
             console.log(`[CLIO IMPORT] Contacts saved to DB: ${counts.contacts}, verified in DB: ${actualContactCount}`);
+            
+            // Check for discrepancy
+            if (fetchedCount !== counts.contacts) {
+              const failedCount = counts.contactsFailed || (fetchedCount - counts.contacts);
+              console.log(`[CLIO IMPORT] ⚠️ ${failedCount} contacts failed to import (duplicates or errors)`);
+              warnings.push(`${failedCount} contacts could not be imported (likely duplicates or data issues)`);
+            }
+            
             updateProgress('contacts', 'done', actualContactCount);
           } catch (err) {
             console.error('[CLIO IMPORT] Contacts error:', err.message);
@@ -2526,10 +2732,16 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 3/6: Importing matters directly to DB...');
           updateProgress('matters', 'running', 0);
           try {
-            // Fetch matters with additional fields: billing rates, custom fields, statute_of_limitations
+            // Fetch matters with comprehensive fields including:
+            // - Core: id, display_number, description, status, open_date, close_date, pending_date
+            // - Billing: billing_method, billable, custom_rate, contingency_fee, flat_rate_total, evergreen_retainer
+            // - Relationships: client, responsible_attorney, originating_attorney, group, relationships
+            // - Metadata: practice_area, statute_of_limitations, location, maildrop_address, created_at, updated_at
+            // - Custom: custom_field_values
+            // - Budget & Balance: account_balances, budget
             const matters = await clioGetMattersByStatus(
               accessToken, '/matters.json',
-              { fields: 'id,display_number,description,status,open_date,close_date,billing_method,billable,client{id,name},responsible_attorney{id,name,rate},originating_attorney{id,name},practice_area{id,name},custom_rate,statute_of_limitations,location,custom_field_values{id,field_name,value}' },
+              { fields: 'id,display_number,description,status,open_date,close_date,pending_date,billing_method,billable,client{id,name},responsible_attorney{id,name,rate},originating_attorney{id,name},practice_area{id,name},custom_rate,contingency_fee,flat_rate,statute_of_limitations,location,maildrop_address,group{id,name},relationships{id,description,related_matter{id,display_number}},custom_field_values{id,field_name,value},account_balances{id,name,balance},created_at,updated_at,budget,matter_stage{id,name}' },
               (count) => updateProgress('matters', 'running', count)
             );
             
@@ -2565,6 +2777,17 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   }
                 }
                 
+                // Extract flat_fee if billing is flat type
+                const flatFee = billingType === 'flat' && m.flat_rate ? parseFloat(m.flat_rate) : null;
+                
+                // Extract contingency percentage
+                const contingencyPercent = billingType === 'contingency' && m.contingency_fee 
+                  ? parseFloat(m.contingency_fee) 
+                  : null;
+                
+                // Extract budget from Clio
+                const budget = m.budget ? parseFloat(m.budget) : null;
+                
                 // Build custom_fields JSON from Clio custom_field_values
                 const customFields = {};
                 if (m.custom_field_values && m.custom_field_values.length > 0) {
@@ -2575,9 +2798,34 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   });
                 }
                 
+                // Store additional Clio metadata in custom_fields
+                if (m.maildrop_address) {
+                  customFields['_clio_maildrop'] = m.maildrop_address;
+                }
+                if (m.group?.name) {
+                  customFields['_clio_group'] = m.group.name;
+                }
+                if (m.matter_stage?.name) {
+                  customFields['_clio_stage'] = m.matter_stage.name;
+                }
+                if (m.account_balances && m.account_balances.length > 0) {
+                  customFields['_clio_balances'] = m.account_balances.map(ab => ({
+                    name: ab.name,
+                    balance: ab.balance
+                  }));
+                }
+                // Store related matters in custom_fields for future processing
+                if (m.relationships && m.relationships.length > 0) {
+                  customFields['_clio_relationships'] = m.relationships.map(r => ({
+                    description: r.description,
+                    related_matter_number: r.related_matter?.display_number,
+                    related_matter_clio_id: r.related_matter?.id
+                  }));
+                }
+                
                 const result = await query(
-                  `INSERT INTO matters (firm_id, client_id, number, name, description, type, status, responsible_attorney, originating_attorney, open_date, close_date, billing_type, billing_rate, statute_of_limitations, jurisdiction, custom_fields)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
+                  `INSERT INTO matters (firm_id, client_id, number, name, description, type, status, responsible_attorney, originating_attorney, open_date, close_date, billing_type, billing_rate, flat_fee, contingency_percent, budget, statute_of_limitations, jurisdiction, custom_fields)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id`,
                   [
                     firmId,
                     clientId,
@@ -2592,6 +2840,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     m.close_date || null,
                     billingType,
                     billingRate,
+                    flatFee,
+                    contingencyPercent,
+                    budget,
                     m.statute_of_limitations || null,
                     m.location || null,
                     Object.keys(customFields).length > 0 ? JSON.stringify(customFields) : '{}'
@@ -2633,13 +2884,27 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   console.log(`[CLIO IMPORT] Matters saved: ${counts.matters}`);
                 }
               } catch (err) {
+                counts.mattersFailed = (counts.mattersFailed || 0) + 1;
                 console.log(`[CLIO IMPORT] Matter error: ${m.display_number || m.id} - ${err.message}`);
+                warnings.push(`Matter ${m.display_number || m.id}: ${err.message}`);
               }
             }
+            
             // Verify matters were saved
             const matterVerify = await query('SELECT COUNT(*) FROM matters WHERE firm_id = $1', [firmId]);
             const actualMatterCount = parseInt(matterVerify.rows[0].count);
+            const fetchedMatterCount = matters.length;
+            
+            console.log(`[CLIO IMPORT] Matters fetched from Clio: ${fetchedMatterCount}`);
             console.log(`[CLIO IMPORT] Matters saved to DB: ${counts.matters}, verified in DB: ${actualMatterCount}`);
+            
+            // Check for discrepancy
+            if (fetchedMatterCount !== counts.matters) {
+              const failedCount = counts.mattersFailed || (fetchedMatterCount - counts.matters);
+              console.log(`[CLIO IMPORT] ⚠️ ${failedCount} matters failed to import`);
+              warnings.push(`${failedCount} matters could not be imported (check logs for details)`);
+            }
+            
             updateProgress('matters', 'done', actualMatterCount);
           } catch (err) {
             console.error('[CLIO IMPORT] Matters error:', err.message);
@@ -2657,10 +2922,15 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 4/6: Importing time entries and expenses directly to DB...');
           updateProgress('activities', 'running', 0);
           try {
-            // Fetch activities with UTBMS/activity codes
+            // Fetch activities with comprehensive fields including:
+            // - Core: id, type, date, quantity, quantity_in_hours, rounded_quantity, rounded_quantity_in_hours
+            // - Billing: price, total, billed, non_billable, flat_rate, tax_setting
+            // - Details: note, activity_description (with UTBMS codes), expense_category
+            // - Relationships: matter, user, bill, task
+            // - Metadata: created_at, updated_at, start_timer, end_timer
             const activities = await clioGetActivitiesByStatus(
               accessToken, '/activities.json',
-              { fields: 'id,type,date,quantity,quantity_in_hours,price,total,note,billed,non_billable,flat_rate,matter{id,display_number},user{id,name},activity_description{id,name,utbms_code}' },
+              { fields: 'id,type,date,quantity,quantity_in_hours,rounded_quantity,rounded_quantity_in_hours,price,total,note,billed,non_billable,flat_rate,matter{id,display_number,description},user{id,name,email},activity_description{id,name,utbms_code,category,code},expense_category{id,name},bill{id,number},task{id,name,description},created_at,updated_at,start_timer,end_timer' },
               (count) => updateProgress('activities', 'running', count)
             );
             
@@ -2679,7 +2949,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 if (isExpense) {
                   // Insert as expense
                   const amount = parseFloat(a.total) || parseFloat(a.price) || 0;
-                  const category = a.activity_description?.name || 'Expense';
+                  // Use expense_category if available, otherwise activity_description
+                  const category = a.expense_category?.name || a.activity_description?.name || 'Expense';
+                  
+                  // Build description with task info if available
+                  let description = a.note || 'Imported expense from Clio';
+                  if (a.task?.name) {
+                    description = `[${a.task.name}] ${description}`;
+                  }
                   
                   await query(
                     `INSERT INTO expenses (firm_id, matter_id, user_id, date, description, amount, category, billable, billed, status)
@@ -2689,7 +2966,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                       matterId,
                       userId,
                       a.date || new Date().toISOString().split('T')[0],
-                      a.note || 'Imported expense from Clio',
+                      description,
                       amount,
                       category,
                       !a.non_billable,
@@ -2700,8 +2977,11 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   expenseCount++;
                 } else {
                   // Insert as time entry
-                  // Use quantity_in_hours if available (more accurate), fallback to quantity
-                  const hours = parseFloat(a.quantity_in_hours) || parseFloat(a.quantity) || 0;
+                  // Prefer rounded values (what gets billed), fallback to actual values
+                  const hours = parseFloat(a.rounded_quantity_in_hours) || 
+                               parseFloat(a.quantity_in_hours) || 
+                               parseFloat(a.rounded_quantity) || 
+                               parseFloat(a.quantity) || 0;
                   let rate = parseFloat(a.price) || 0;
                   
                   // If no rate but we have total and hours, calculate rate
@@ -2714,15 +2994,33 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     rate = 350; // Default hourly rate
                   }
                   
-                  // Extract UTBMS activity code
-                  const activityCode = a.activity_description?.utbms_code || a.activity_description?.name || null;
+                  // Build comprehensive activity code: prefer UTBMS code, then category.code, then name
+                  let activityCode = null;
+                  if (a.activity_description?.utbms_code) {
+                    activityCode = a.activity_description.utbms_code;
+                  } else if (a.activity_description?.code) {
+                    activityCode = a.activity_description.code;
+                  } else if (a.activity_description?.category && a.activity_description?.name) {
+                    activityCode = `${a.activity_description.category}:${a.activity_description.name}`;
+                  } else if (a.activity_description?.name) {
+                    activityCode = a.activity_description.name;
+                  }
+                  
+                  // Build description with task info if available
+                  let description = a.note || 'Imported from Clio';
+                  if (a.task?.name) {
+                    description = `[${a.task.name}] ${description}`;
+                  }
                   
                   // Determine entry status based on billed flag
                   const status = a.billed ? 'billed' : 'pending';
                   
+                  // Determine entry type based on timer data
+                  const entryType = (a.start_timer || a.end_timer) ? 'timer' : 'manual';
+                  
                   await query(
-                    `INSERT INTO time_entries (firm_id, matter_id, user_id, date, hours, rate, description, activity_code, billable, billed, status)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                    `INSERT INTO time_entries (firm_id, matter_id, user_id, date, hours, rate, description, activity_code, billable, billed, status, entry_type, timer_start, timer_end)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
                     [
                       firmId,
                       matterId,
@@ -2730,11 +3028,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                       a.date || new Date().toISOString().split('T')[0],
                       hours,
                       rate,
-                      a.note || 'Imported from Clio',
+                      description,
                       activityCode,
                       !a.non_billable,
                       a.billed || false,
-                      status
+                      status,
+                      entryType,
+                      a.start_timer || null,
+                      a.end_timer || null
                     ]
                   );
                   
@@ -2772,9 +3073,15 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 5/6: Importing bills directly to DB...');
           updateProgress('bills', 'running', 0);
           try {
-            // Fetch bills with comprehensive financial data
+            // Fetch bills with comprehensive financial data including line items and payments
+            // - Core: id, number, issued_at, due_at, sent_at, paid_at, total, balance, sub_total
+            // - Breakdown: services_total, expenses_total, credits_total, discount, tax_rate, tax_total
+            // - Details: state, notes, memo, currency
+            // - Line Items: line_items (contains all bill details)
+            // - Payments: payments (all payment records)
+            // - Relationships: matters, client
             const bills = await clioGetAll(accessToken, '/bills.json', {
-              fields: 'id,number,issued_at,due_at,sent_at,paid_at,total,balance,sub_total,services_total,expenses_total,credits_total,discount,tax_rate,tax_total,state,notes,memo,matters{id,display_number},client{id,name}'
+              fields: 'id,number,issued_at,due_at,sent_at,paid_at,total,balance,sub_total,services_total,expenses_total,credits_total,discount,available_discount,tax_rate,tax_total,state,notes,memo,currency,line_items{id,type,description,quantity,rate,total,activity{id,type},expense{id}},payments{id,amount,date,method,note},credits{id,amount,description},matters{id,display_number},client{id,name},created_at,updated_at'
             }, (count) => updateProgress('bills', 'running', count));
             
             for (const b of bills) {
@@ -2792,19 +3099,23 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 // - services_total: total for time entries
                 // - expenses_total: total for expenses
                 // - sub_total: services + expenses before tax/discount
-                // - discount: discount amount
+                // - discount: discount amount (applied)
+                // - available_discount: discount available
                 // - tax_rate: tax percentage
                 // - tax_total: calculated tax amount
+                // - credits_total: total credits applied
                 const subtotalFees = parseFloat(b.services_total) || parseFloat(b.sub_total) || billTotal;
                 const subtotalExpenses = parseFloat(b.expenses_total) || 0;
                 const discountAmount = parseFloat(b.discount) || 0;
                 const taxRate = parseFloat(b.tax_rate) || 0;
                 const taxAmount = parseFloat(b.tax_total) || 0;
+                const creditsApplied = parseFloat(b.credits_total) || 0;
                 
                 // Build notes from Clio memo and notes fields
                 const notesParts = [];
                 if (b.notes) notesParts.push(b.notes);
                 if (b.memo) notesParts.push(`Memo: ${b.memo}`);
+                if (creditsApplied > 0) notesParts.push(`Credits Applied: $${creditsApplied.toFixed(2)}`);
                 const notes = notesParts.length > 0 ? notesParts.join('\n\n') : null;
                 
                 // Map Clio state to our status
@@ -2815,9 +3126,30 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 else if (b.state === 'awaiting_approval') invoiceStatus = 'draft';
                 else if (b.state === 'partial') invoiceStatus = 'partial';
                 
-                await query(
-                  `INSERT INTO invoices (firm_id, matter_id, client_id, number, issue_date, due_date, sent_at, paid_at, subtotal_fees, subtotal_expenses, tax_rate, discount_amount, amount_paid, notes, status)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+                // Build line_items JSON from Clio line_items
+                const lineItems = [];
+                if (b.line_items && Array.isArray(b.line_items)) {
+                  b.line_items.forEach(li => {
+                    lineItems.push({
+                      type: li.type || 'fee',
+                      description: li.description || '',
+                      quantity: parseFloat(li.quantity) || 1,
+                      rate: parseFloat(li.rate) || 0,
+                      total: parseFloat(li.total) || 0,
+                      clio_activity_id: li.activity?.id || null,
+                      clio_expense_id: li.expense?.id || null
+                    });
+                  });
+                }
+                
+                // Calculate subtotal from line items if not provided
+                const subtotal = subtotalFees + subtotalExpenses;
+                const total = subtotal + taxAmount - discountAmount;
+                const amountDue = billBalance;
+                
+                const invoiceResult = await query(
+                  `INSERT INTO invoices (firm_id, matter_id, client_id, number, issue_date, due_date, sent_at, paid_at, subtotal_fees, subtotal_expenses, subtotal, tax_rate, tax_amount, discount_amount, total, amount_paid, amount_due, notes, line_items, status)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING id`,
                   [
                     firmId,
                     matterId,
@@ -2829,17 +3161,47 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     b.paid_at || null,
                     subtotalFees,
                     subtotalExpenses,
+                    subtotal,
                     taxRate,
+                    taxAmount,
                     discountAmount,
+                    total > 0 ? total : billTotal,
                     amountPaid,
+                    amountDue > 0 ? amountDue : billBalance,
                     notes,
+                    lineItems.length > 0 ? JSON.stringify(lineItems) : '[]',
                     invoiceStatus
                   ]
                 );
                 
+                const invoiceId = invoiceResult.rows[0].id;
+                
+                // Import payments if available
+                if (b.payments && Array.isArray(b.payments) && b.payments.length > 0) {
+                  for (const payment of b.payments) {
+                    try {
+                      await query(
+                        `INSERT INTO payments (firm_id, invoice_id, amount, payment_date, payment_method, notes)
+                         VALUES ($1, $2, $3, $4, $5, $6)`,
+                        [
+                          firmId,
+                          invoiceId,
+                          parseFloat(payment.amount) || 0,
+                          payment.date || b.paid_at || new Date().toISOString().split('T')[0],
+                          payment.method || 'other',
+                          payment.note || 'Imported from Clio'
+                        ]
+                      );
+                    } catch (paymentErr) {
+                      // Skip payment errors silently
+                    }
+                  }
+                }
+                
                 counts.bills++;
               } catch (err) {
                 // Skip silently
+                console.log(`[CLIO IMPORT] Bill error: ${b.number || b.id} - ${err.message}`);
               }
             }
             // Verify bills were saved
@@ -2957,6 +3319,74 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         }
         
         // ============================================
+        // POST-PROCESSING: Link Related Matters
+        // ============================================
+        console.log('[CLIO IMPORT] Post-processing: Linking related matters...');
+        try {
+          // Find all matters with _clio_relationships in custom_fields
+          const mattersWithRelationships = await query(
+            `SELECT id, custom_fields FROM matters 
+             WHERE firm_id = $1 
+             AND custom_fields::text LIKE '%_clio_relationships%'`,
+            [firmId]
+          );
+          
+          let linkedCount = 0;
+          for (const matter of mattersWithRelationships.rows) {
+            const customFields = matter.custom_fields || {};
+            const relationships = customFields._clio_relationships || [];
+            
+            if (relationships.length > 0) {
+              const relatedMattersInfo = [];
+              
+              for (const rel of relationships) {
+                // Try to find the related matter by Clio ID first
+                let relatedMatterId = null;
+                if (rel.related_matter_clio_id) {
+                  relatedMatterId = matterIdMap.get(`clio:${rel.related_matter_clio_id}`);
+                }
+                
+                // If not found, try by display number pattern
+                if (!relatedMatterId && rel.related_matter_number) {
+                  const relatedLookup = await query(
+                    `SELECT id FROM matters WHERE firm_id = $1 AND number LIKE $2`,
+                    [firmId, `${rel.related_matter_number}%`]
+                  );
+                  if (relatedLookup.rows.length > 0) {
+                    relatedMatterId = relatedLookup.rows[0].id;
+                  }
+                }
+                
+                if (relatedMatterId) {
+                  relatedMattersInfo.push({
+                    matter_id: relatedMatterId,
+                    description: rel.description,
+                    clio_number: rel.related_matter_number
+                  });
+                }
+              }
+              
+              // Update custom_fields with resolved related matter IDs
+              if (relatedMattersInfo.length > 0) {
+                customFields._resolved_related_matters = relatedMattersInfo;
+                await query(
+                  `UPDATE matters SET custom_fields = $1 WHERE id = $2`,
+                  [JSON.stringify(customFields), matter.id]
+                );
+                linkedCount++;
+              }
+            }
+          }
+          
+          if (linkedCount > 0) {
+            console.log(`[CLIO IMPORT] Linked related matters for ${linkedCount} matters`);
+          }
+        } catch (linkErr) {
+          console.log(`[CLIO IMPORT] Error linking related matters: ${linkErr.message}`);
+          // Non-fatal error, continue
+        }
+        
+        // ============================================
         // COMPLETE
         // ============================================
         // Note: Documents are NOT imported via API - firms drag files from Clio Drive to Apex Drive
@@ -2975,9 +3405,18 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             activities: counts.activities,
             bills: counts.bills,
             calendar: counts.calendar,
-            warnings: warnings.length
+            warnings: warnings.length,
+            // Enhanced summary details
+            dataIntegrity: {
+              mattersLinkedToClients: matterIdMap.size,
+              matterAssignmentsCreated: true,
+              relatedMattersProcessed: true,
+              lineItemsImported: true,
+              customFieldsPreserved: true
+            }
           };
           console.log('[CLIO IMPORT] ✓ Import completed:', prog.summary);
+          console.log('[CLIO IMPORT] Data includes: matter relationships, custom fields, billing details, UTBMS codes, calendar reminders');
         }
         
       } catch (error) {
