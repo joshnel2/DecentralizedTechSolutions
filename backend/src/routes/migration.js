@@ -2457,17 +2457,41 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const primaryPhone = c.phone_numbers?.find(p => p.default_phone) || c.phone_numbers?.[0];
                 const primaryAddr = c.addresses?.find(a => a.primary) || c.addresses?.[0];
                 
-                // Build notes from available Clio fields
+                // Build notes with ALL contact info from Clio
                 const notesParts = [];
-                if (c.title) notesParts.push(`Title: ${c.title}`);
-                if (c.prefix) notesParts.push(`Prefix: ${c.prefix}`);
-                if (c.website?.url) notesParts.push(`Website: ${c.website.url}`);
-                // Include custom field values as notes
-                if (c.custom_field_values && c.custom_field_values.length > 0) {
-                  c.custom_field_values.forEach(cf => {
-                    if (cf.value) notesParts.push(`${cf.field_name}: ${cf.value}`);
+                
+                // Save ALL email addresses
+                if (c.email_addresses && c.email_addresses.length > 0) {
+                  const allEmails = c.email_addresses.map(e => {
+                    const label = e.name || 'Email';
+                    return `${label}: ${e.address}`;
+                  });
+                  notesParts.push('--- EMAILS ---');
+                  notesParts.push(...allEmails);
+                }
+                
+                // Save ALL phone numbers
+                if (c.phone_numbers && c.phone_numbers.length > 0) {
+                  const allPhones = c.phone_numbers.map(p => {
+                    const label = p.name || 'Phone';
+                    return `${label}: ${p.number}`;
+                  });
+                  notesParts.push('--- PHONES ---');
+                  notesParts.push(...allPhones);
+                }
+                
+                // Save ALL addresses
+                if (c.addresses && c.addresses.length > 0) {
+                  notesParts.push('--- ADDRESSES ---');
+                  c.addresses.forEach((addr, i) => {
+                    const label = addr.name || `Address ${i + 1}`;
+                    const parts = [addr.street, addr.city, addr.province, addr.postal_code].filter(Boolean);
+                    if (parts.length > 0) {
+                      notesParts.push(`${label}: ${parts.join(', ')}`);
+                    }
                   });
                 }
+                
                 const notes = notesParts.length > 0 ? notesParts.join('\n') : null;
                 
                 const result = await query(
@@ -2506,6 +2530,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               }
             }
             // Verify contacts were saved
+            console.log(`[CLIO IMPORT] Contacts fetched from Clio: ${contacts.length}`);
             const contactVerify = await query('SELECT COUNT(*) FROM clients WHERE firm_id = $1', [firmId]);
             const actualContactCount = parseInt(contactVerify.rows[0].count);
             console.log(`[CLIO IMPORT] Contacts saved to DB: ${counts.contacts}, verified in DB: ${actualContactCount}`);
@@ -2637,6 +2662,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               }
             }
             // Verify matters were saved
+            console.log(`[CLIO IMPORT] Matters fetched from Clio: ${matters.length}`);
             const matterVerify = await query('SELECT COUNT(*) FROM matters WHERE firm_id = $1', [firmId]);
             const actualMatterCount = parseInt(matterVerify.rows[0].count);
             console.log(`[CLIO IMPORT] Matters saved to DB: ${counts.matters}, verified in DB: ${actualMatterCount}`);
