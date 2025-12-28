@@ -4,6 +4,13 @@ import { Bot, X, CheckCircle, AlertCircle, StopCircle, Loader2, ExternalLink } f
 import { aiApi } from '../services/api'
 import styles from './BackgroundTaskBar.module.css'
 
+interface SubTaskProgress {
+  index: number
+  task: string
+  status: 'pending' | 'in_progress' | 'completed'
+  actionsCompleted: number
+}
+
 interface ActiveTask {
   id: string
   goal: string
@@ -14,6 +21,11 @@ interface ActiveTask {
   completedSteps?: number
   currentStep: string
   result?: string
+  // Sub-task tracking
+  currentSubTask?: number
+  totalSubTasks?: number
+  subTasks?: string[]
+  subTaskProgress?: SubTaskProgress[]
 }
 
 export function BackgroundTaskBar() {
@@ -212,15 +224,18 @@ export function BackgroundTaskBar() {
             
             <div className={styles.info}>
               <div className={styles.title}>
-                {isCancelled ? '⏹ Task Cancelled (Progress Saved)' : isComplete ? '✓ Background Task Complete!' : hasError ? '⚠ Task Error' : 'Background Agent Working...'}
+                {isCancelled ? '⏹ Task Cancelled (Progress Saved)' : isComplete ? '✓ Background Task Complete!' : hasError ? '⚠ Task Error' : (
+                  activeTask.totalSubTasks && activeTask.totalSubTasks > 0 
+                    ? `Background Agent Working... (Task ${(activeTask.currentSubTask || 0) + 1}/${activeTask.totalSubTasks})`
+                    : 'Background Agent Working...'
+                )}
               </div>
               <div className={styles.goal}>{activeTask.goal}</div>
-              {!isComplete && !hasError && !isCancelled && activeTask.currentStep && (
+              {!isComplete && !hasError && !isCancelled && (
                 <div className={styles.currentStep}>
-                  {activeTask.totalSteps 
-                    ? `Step ${activeTask.completedSteps || 0}/${activeTask.totalSteps}: ${activeTask.currentStep}`
-                    : `${activeTask.currentStep}`
-                  }
+                  {activeTask.subTasks && activeTask.currentSubTask !== undefined && activeTask.subTasks[activeTask.currentSubTask]
+                    ? activeTask.subTasks[activeTask.currentSubTask]
+                    : activeTask.currentStep || 'Working...'}
                 </div>
               )}
             </div>

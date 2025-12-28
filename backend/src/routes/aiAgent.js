@@ -5946,6 +5946,73 @@ function delay(ms) {
 }
 
 /**
+ * Generate default sub-tasks based on the goal when AI planning fails
+ * These are reasonable default work items for legal tasks
+ */
+function generateDefaultSubTasks(goal, context) {
+  const goalLower = goal.toLowerCase();
+  const subTasks = [];
+  
+  // Discovery sub-tasks
+  if (context.matter_id) {
+    subTasks.push(`Get comprehensive details for the specified matter`);
+    subTasks.push(`Review all documents attached to this matter`);
+  } else if (goalLower.includes('matter') || goalLower.includes('case')) {
+    subTasks.push(`Search for the relevant matter by name or keywords`);
+    subTasks.push(`Get full matter details including documents and history`);
+  } else if (context.client_id) {
+    subTasks.push(`Get comprehensive information about the specified client`);
+    subTasks.push(`List all matters associated with this client`);
+  } else if (goalLower.includes('client')) {
+    subTasks.push(`Search for the relevant client`);
+    subTasks.push(`Get client details and associated matters`);
+  } else {
+    subTasks.push(`Search for relevant matters and clients related to the goal`);
+    subTasks.push(`Gather information about the firm's current state`);
+  }
+  
+  // Analysis sub-tasks
+  if (goalLower.includes('review') || goalLower.includes('analyze') || goalLower.includes('audit')) {
+    subTasks.push(`Analyze key documents for important information`);
+    subTasks.push(`Identify any issues or items needing attention`);
+  }
+  
+  if (goalLower.includes('document') || goalLower.includes('draft') || goalLower.includes('prepare')) {
+    subTasks.push(`Create or prepare necessary documents`);
+  }
+  
+  // Action sub-tasks
+  if (goalLower.includes('email') || goalLower.includes('contact') || goalLower.includes('communicate')) {
+    subTasks.push(`Draft any necessary communications (emails)`);
+  }
+  
+  if (goalLower.includes('task') || goalLower.includes('todo') || goalLower.includes('follow')) {
+    subTasks.push(`Create follow-up tasks for outstanding items`);
+  }
+  
+  if (goalLower.includes('meeting') || goalLower.includes('schedule') || goalLower.includes('calendar')) {
+    subTasks.push(`Schedule any necessary meetings or events`);
+  }
+  
+  if (goalLower.includes('time') || goalLower.includes('billing') || goalLower.includes('invoice')) {
+    subTasks.push(`Review and log time entries as appropriate`);
+  }
+  
+  // Always include documentation
+  subTasks.push(`Document findings and create summary notes`);
+  subTasks.push(`Create any remaining follow-up tasks`);
+  subTasks.push(`Final review and completion of work`);
+  
+  // Ensure we have at least 5 sub-tasks
+  while (subTasks.length < 5) {
+    subTasks.splice(subTasks.length - 1, 0, `Continue working on: ${goal}`);
+  }
+  
+  // Cap at 10 sub-tasks
+  return subTasks.slice(0, 10);
+}
+
+/**
  * Background Agent - Runs for 15 minutes with separate prompts
  * 
  * RESILIENT DESIGN:
@@ -5974,9 +6041,14 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
   
   let promptCount = 0;
   let actions = [];
-  let phase = 'discovery'; // Phases: discovery, analysis, action, review
+  let phase = 'planning'; // Phases: planning, discovery, analysis, action, review
   let lastCheckpointTime = Date.now();
   let lastHealthCheckTime = Date.now();
+  
+  // Sub-task tracking for autonomous planning
+  let subTasks = [];
+  let currentSubTaskIndex = 0;
+  let subTaskProgress = {};
   
   // Resilience state tracking
   let errorState = {
@@ -6010,10 +6082,124 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
       [taskId]
     );
     
+    // =========================================================================
+    // PHASE 1: PLANNING - AI generates sub-tasks for broad goals
+    // =========================================================================
+    console.log(`[AGENT ${taskId}] Starting PLANNING phase - generating sub-tasks...`);
+    
+    await query(
+      `UPDATE ai_tasks SET current_step = $1, progress = $2 WHERE id = $3`,
+      ['Planning: Analyzing your request and creating a work plan...', JSON.stringify({
+        phase: 'planning',
+        progressPercent: 2,
+        currentStep: 'Planning: Analyzing your request...',
+        subTasks: [],
+        currentSubTask: 0,
+        status: 'planning'
+      }), taskId]
+    );
+    
+    // Ask AI to generate sub-tasks for the goal
+    const planningSystemPrompt = `You are a legal AI assistant planning a 15-minute autonomous work session.
+
+Your job is to break down the user's goal into 5-10 specific, actionable sub-tasks that you can complete in 15 minutes.
+
+Each sub-task should be:
+- Specific and actionable (e.g., "Search for the Smith matter" not "Review case")
+- Achievable with the available tools
+- In logical order
+
+Available tools you can use:
+- search_matters, get_matter, list_my_matters - Find and examine cases
+- list_clients, get_client - Find and examine clients
+- list_documents, read_document_content - Review documents
+- create_document, create_note - Create documentation
+- create_task, create_event - Schedule work
+- draft_email_for_matter - Draft (not send) emails
+- log_time - Record time spent
+
+RESPOND WITH ONLY A JSON ARRAY of sub-task descriptions. Example:
+["Search for the relevant matter by name", "Get full details of the matter including documents", "Review the key documents in the matter", "Create a summary note with findings", "Create follow-up tasks for next steps"]
+
+Do not include any other text. Just the JSON array.`;
+
+    const planningMessages = [
+      { role: 'system', content: planningSystemPrompt },
+      { role: 'user', content: `Create a detailed work plan for this goal: "${goal}"\n\n${initialContext.matter_id ? `Working on Matter ID: ${initialContext.matter_id}` : ''}${initialContext.client_id ? `\nWorking with Client ID: ${initialContext.client_id}` : ''}` }
+    ];
+    
+    try {
+      const planningResponse = await callAzureOpenAIWithTools(planningMessages, []);
+      const planContent = planningResponse.content || '';
+      
+      // Try to parse the JSON array of sub-tasks
+      try {
+        // Find JSON array in the response
+        const jsonMatch = planContent.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          subTasks = JSON.parse(jsonMatch[0]);
+          console.log(`[AGENT ${taskId}] Generated ${subTasks.length} sub-tasks:`);
+          subTasks.forEach((task, i) => console.log(`[AGENT ${taskId}]   ${i + 1}. ${task}`));
+        }
+      } catch (parseError) {
+        console.log(`[AGENT ${taskId}] Could not parse sub-tasks from response, using default plan`);
+      }
+    } catch (planError) {
+      console.log(`[AGENT ${taskId}] Planning phase failed, using default plan:`, planError.message);
+    }
+    
+    // If no sub-tasks were generated, create default ones based on the goal
+    if (subTasks.length === 0) {
+      subTasks = generateDefaultSubTasks(goal, initialContext);
+      console.log(`[AGENT ${taskId}] Using ${subTasks.length} default sub-tasks`);
+    }
+    
+    // Ensure we have at least a few sub-tasks
+    if (subTasks.length < 3) {
+      subTasks = [
+        'Gather information about the relevant matters and clients',
+        'Analyze documents and data related to the goal',
+        'Create documentation and notes on findings',
+        'Set up follow-up tasks and schedule any needed events',
+        'Review and finalize all work completed'
+      ];
+    }
+    
+    // Update database with the generated sub-tasks
+    await query(
+      `UPDATE ai_tasks SET plan = $1, current_step = $2, progress = $3 WHERE id = $4`,
+      [JSON.stringify(subTasks), `Starting: ${subTasks[0]}`, JSON.stringify({
+        phase: 'discovery',
+        progressPercent: 5,
+        currentStep: `Starting: ${subTasks[0]}`,
+        subTasks: subTasks,
+        currentSubTask: 0,
+        totalSubTasks: subTasks.length,
+        subTaskProgress: subTasks.map((task, i) => ({ 
+          index: i, 
+          task, 
+          status: i === 0 ? 'in_progress' : 'pending',
+          actionsCompleted: 0
+        })),
+        status: 'working'
+      }), taskId]
+    );
+    
+    phase = 'discovery';
+    
+    // =========================================================================
+    // PHASE 2+: EXECUTION - Work through sub-tasks
+    // =========================================================================
+    
     // System prompt - sets up the AI's role and context
     const systemPrompt = `You are an AUTONOMOUS legal AI assistant running a background task for 15 minutes. You work completely independently - NO human intervention.
 
-TASK: ${goal}
+OVERALL GOAL: ${goal}
+
+YOUR WORK PLAN (${subTasks.length} sub-tasks):
+${subTasks.map((task, i) => `${i + 1}. ${task}`).join('\n')}
+
+CURRENT SUB-TASK: 1. ${subTasks[0]}
 
 CONTEXT:
 ${initialContext.matter_id ? `- Working on Matter ID: ${initialContext.matter_id}` : '- No specific matter (search if needed)'}
@@ -6026,6 +6212,7 @@ CRITICAL RULES:
 4. If something fails, try a different approach - do NOT stop
 5. Keep working for the full 15 minutes - be thorough and comprehensive
 6. Document everything with create_note
+7. When you complete a sub-task, move to the next one in the plan
 
 AVAILABLE ACTIONS:
 - Search/get matters and clients
@@ -6035,7 +6222,7 @@ AVAILABLE ACTIONS:
 - Add notes to matters
 - Log time entries
 
-START WORKING IMMEDIATELY. Call a tool now.`;
+START WORKING ON SUB-TASK 1 IMMEDIATELY. Call a tool now.`;
 
     // Conversation history - maintained throughout the session
     let conversationHistory = [
@@ -6047,10 +6234,10 @@ START WORKING IMMEDIATELY. Call a tool now.`;
     let currentTaskIndex = 0;
     let consecutiveNoToolCalls = 0;
     
-    // Send initial prompt based on the task
+    // Send initial prompt based on the first sub-task
     conversationHistory.push({
       role: 'user',
-      content: taskPrompts[0] || `Let's begin working on: "${goal}"\n\nFirst, gather the information you need. What tool will you call?`
+      content: `Begin working on Sub-Task 1: "${subTasks[0]}"\n\nWhat tool will you call first?`
     });
     
     // Main loop - runs for exactly 15 minutes with resilient error handling
@@ -6332,22 +6519,80 @@ START WORKING IMMEDIATELY. Call a tool now.`;
         args: functionArgs,
         summary: actionSummary,
         success: !toolResult.error,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        subTaskIndex: currentSubTaskIndex
       });
       
       console.log(`[AGENT ${taskId}] Result: ${actionSummary}`);
       
-      // Update current step and progress in database
-      const currentProgressPercent = Math.min(Math.round(((Date.now() - startTime) / maxRuntime) * 100), 95);
+      // Track actions per sub-task
+      if (!subTaskProgress[currentSubTaskIndex]) {
+        subTaskProgress[currentSubTaskIndex] = { actions: 0, completed: false };
+      }
+      subTaskProgress[currentSubTaskIndex].actions++;
+      
+      // Check if we should advance to the next sub-task
+      // Advance after every 3-5 successful actions or after completing a significant action
+      const actionsOnCurrentSubTask = subTaskProgress[currentSubTaskIndex].actions;
+      const significantActions = ['create_document', 'create_note', 'create_task', 'create_event', 'log_time', 'draft_email_for_matter'];
+      const isSignificantAction = significantActions.includes(functionName) && !toolResult.error;
+      
+      // Time-based sub-task advancement: divide 15 min into chunks based on sub-task count
+      const elapsedMs = Date.now() - startTime;
+      const timePerSubTask = maxRuntime / subTasks.length;
+      const expectedSubTaskByTime = Math.floor(elapsedMs / timePerSubTask);
+      
+      // Advance to next sub-task if:
+      // 1. We've done 5+ actions on this sub-task, OR
+      // 2. We've done a significant action after 3+ actions, OR  
+      // 3. Time says we should be on a later sub-task
+      const shouldAdvanceSubTask = (
+        (actionsOnCurrentSubTask >= 5) ||
+        (isSignificantAction && actionsOnCurrentSubTask >= 3) ||
+        (expectedSubTaskByTime > currentSubTaskIndex && actionsOnCurrentSubTask >= 2)
+      ) && currentSubTaskIndex < subTasks.length - 1;
+      
+      if (shouldAdvanceSubTask) {
+        subTaskProgress[currentSubTaskIndex].completed = true;
+        currentSubTaskIndex++;
+        console.log(`[AGENT ${taskId}] Advanced to Sub-Task ${currentSubTaskIndex + 1}: ${subTasks[currentSubTaskIndex]}`);
+        
+        // Notify AI of the sub-task change
+        conversationHistory.push({
+          role: 'user',
+          content: `Great progress! You've completed Sub-Task ${currentSubTaskIndex}: "${subTasks[currentSubTaskIndex - 1]}".\n\nNow working on Sub-Task ${currentSubTaskIndex + 1} of ${subTasks.length}: "${subTasks[currentSubTaskIndex]}"\n\nContinue working. What tool will you call next?`
+        });
+      }
+      
+      // Calculate progress: blend of time-based (70%) and sub-task-based (30%)
+      const timeProgress = Math.min((elapsedMs / maxRuntime) * 100, 95);
+      const subTaskProgress_pct = Math.min((currentSubTaskIndex / subTasks.length) * 100, 95);
+      const blendedProgress = Math.round((timeProgress * 0.7) + (subTaskProgress_pct * 0.3));
+      const currentProgressPercent = Math.min(blendedProgress, 95);
+      
+      // Build sub-task status array for frontend
+      const subTaskStatusArray = subTasks.map((task, i) => ({
+        index: i,
+        task: task,
+        status: i < currentSubTaskIndex ? 'completed' : (i === currentSubTaskIndex ? 'in_progress' : 'pending'),
+        actionsCompleted: subTaskProgress[i]?.actions || 0
+      }));
+      
+      const currentSubTaskLabel = `Task ${currentSubTaskIndex + 1}/${subTasks.length}: ${subTasks[currentSubTaskIndex]}`;
+      
       await query(
         `UPDATE ai_tasks SET current_step = $1, progress = $2 WHERE id = $3`,
-        [actionSummary, JSON.stringify({
+        [currentSubTaskLabel, JSON.stringify({
           promptCount,
           phase,
           actions: actions.slice(-10),
-          remainingMinutes: Math.ceil((maxRuntime - (Date.now() - startTime)) / 60000),
+          remainingMinutes: Math.ceil((maxRuntime - elapsedMs) / 60000),
           progressPercent: currentProgressPercent,
           currentStep: actionSummary,
+          currentSubTask: currentSubTaskIndex,
+          totalSubTasks: subTasks.length,
+          subTasks: subTasks,
+          subTaskProgress: subTaskStatusArray,
           errorCount: errorState.totalErrors,
           status: 'working'
         }), taskId]
@@ -6371,9 +6616,9 @@ START WORKING IMMEDIATELY. Call a tool now.`;
         console.log(`[AGENT ${taskId}] Stuck loop detected after action, initiating recovery...`);
         const recoveryPrompt = generateRecoveryPrompt(goal, actions, 'repeated_actions');
         conversationHistory.push({ role: 'user', content: recoveryPrompt });
-      } else {
-        // Backend sends next prompt based on the result and task
-        const nextPrompt = generateNextPrompt(goal, functionName, toolResult, actions, remainingMinutes, phase);
+      } else if (!shouldAdvanceSubTask) {
+        // Backend sends next prompt based on the result and task (only if we didn't already send a sub-task advancement prompt)
+        const nextPrompt = generateNextPrompt(goal, functionName, toolResult, actions, remainingMinutes, phase, currentSubTaskIndex, subTasks.length);
         conversationHistory.push({ role: 'user', content: nextPrompt });
       }
       
@@ -6391,15 +6636,27 @@ START WORKING IMMEDIATELY. Call a tool now.`;
     // Session complete - generate final summary
     const elapsedMinutes = Math.round((Date.now() - startTime) / 60000);
     const successfulActions = actions.filter(a => a.success).length;
+    const completedSubTasks = Object.values(subTaskProgress).filter(p => p.completed).length + (currentSubTaskIndex > 0 ? 0 : 0);
+    // Count how many sub-tasks were worked on (at least partially)
+    const subTasksWorkedOn = Math.min(currentSubTaskIndex + 1, subTasks.length);
     
     console.log(`[AGENT ${taskId}] ========================================`);
     console.log(`[AGENT ${taskId}] Session complete`);
     console.log(`[AGENT ${taskId}] Duration: ${elapsedMinutes} minutes`);
     console.log(`[AGENT ${taskId}] Prompts sent: ${promptCount}`);
     console.log(`[AGENT ${taskId}] Actions: ${successfulActions}/${actions.length} successful`);
+    console.log(`[AGENT ${taskId}] Sub-tasks worked on: ${subTasksWorkedOn}/${subTasks.length}`);
     console.log(`[AGENT ${taskId}] Total errors encountered: ${errorState.totalErrors}`);
     console.log(`[AGENT ${taskId}] Context reductions: ${errorState.contextReductions}`);
     console.log(`[AGENT ${taskId}] ========================================`);
+    
+    // Build sub-task completion summary
+    const subTaskSummary = subTasks.map((task, i) => {
+      const progress = subTaskProgress[i];
+      const status = i < currentSubTaskIndex ? '✅' : (i === currentSubTaskIndex ? '🔄' : '⏳');
+      const actionCount = progress?.actions || 0;
+      return `${status} ${i + 1}. ${task} (${actionCount} actions)`;
+    }).join('\n');
     
     // Generate a summary using the AI (with retries)
     let summary = '';
@@ -6414,10 +6671,14 @@ START WORKING IMMEDIATELY. Call a tool now.`;
 
 GOAL: ${goal}
 
-ACTIONS COMPLETED (${successfulActions} successful out of ${actions.length}):
-${actions.map((a, i) => `${i + 1}. ${a.tool}: ${a.summary} ${a.success ? '✓' : '✗'}`).join('\n')}
+SUB-TASKS PLANNED (${subTasksWorkedOn}/${subTasks.length} completed):
+${subTaskSummary}
 
-Provide a concise summary of what was accomplished and any recommendations.`
+ACTIONS COMPLETED (${successfulActions} successful out of ${actions.length}):
+${actions.slice(-20).map((a, i) => `${i + 1}. ${a.tool}: ${a.summary} ${a.success ? '✓' : '✗'}`).join('\n')}
+${actions.length > 20 ? `... and ${actions.length - 20} more actions` : ''}
+
+Provide a concise summary of what was accomplished, progress on each sub-task, and any recommendations.`
           }
         ];
         
@@ -6428,11 +6689,19 @@ Provide a concise summary of what was accomplished and any recommendations.`
         console.log(`[AGENT ${taskId}] Summary generation attempt ${summaryAttempt + 1} failed:`, e.message);
         if (summaryAttempt === 2) {
           // Fallback summary
-          summary = `## Task Summary\n\nCompleted ${successfulActions} actions in ${elapsedMinutes} minutes for: "${goal}"\n\n### Actions taken:\n${actions.slice(0, 10).map(a => `- ${a.summary}`).join('\n')}${actions.length > 10 ? `\n- ... and ${actions.length - 10} more` : ''}`;
+          summary = `## Task Summary\n\nCompleted ${successfulActions} actions in ${elapsedMinutes} minutes for: "${goal}"\n\n### Sub-Tasks (${subTasksWorkedOn}/${subTasks.length}):\n${subTaskSummary}\n\n### Recent Actions:\n${actions.slice(-10).map(a => `- ${a.summary}`).join('\n')}`;
         }
         await delay(2000);
       }
     }
+    
+    // Build final sub-task status
+    const finalSubTaskStatus = subTasks.map((task, i) => ({
+      index: i,
+      task: task,
+      status: i < currentSubTaskIndex ? 'completed' : (i === currentSubTaskIndex ? 'in_progress' : 'pending'),
+      actionsCompleted: subTaskProgress[i]?.actions || 0
+    }));
     
     await query(
       `UPDATE ai_tasks SET status = 'completed', result = $1, summary = $2, progress = $3, completed_at = NOW() WHERE id = $4`,
@@ -6441,6 +6710,8 @@ Provide a concise summary of what was accomplished and any recommendations.`
         totalPrompts: promptCount,
         durationMinutes: elapsedMinutes,
         successfulActions,
+        subTasksCompleted: subTasksWorkedOn,
+        totalSubTasks: subTasks.length,
         totalErrors: errorState.totalErrors,
         contextReductions: errorState.contextReductions
       }), summary, JSON.stringify({
@@ -6449,6 +6720,10 @@ Provide a concise summary of what was accomplished and any recommendations.`
         actions: actions.slice(-10),
         progressPercent: 100,
         currentStep: 'Complete',
+        currentSubTask: subTasksWorkedOn - 1,
+        totalSubTasks: subTasks.length,
+        subTasks: subTasks,
+        subTaskProgress: finalSubTaskStatus,
         status: 'completed',
         durationMinutes: elapsedMinutes,
         successfulActions,
@@ -6546,53 +6821,60 @@ function generateTaskPrompts(goal, context) {
 
 /**
  * Generate the next prompt based on what just happened
+ * Now includes sub-task context for better guidance
  */
-function generateNextPrompt(goal, lastTool, lastResult, actions, remainingMinutes, phase) {
+function generateNextPrompt(goal, lastTool, lastResult, actions, remainingMinutes, phase, currentSubTask = null, totalSubTasks = null) {
   const actionCount = actions.length;
+  
+  // Build sub-task context if available
+  let subTaskContext = '';
+  if (currentSubTask !== null && totalSubTasks !== null) {
+    subTaskContext = ` (Working on sub-task ${currentSubTask + 1}/${totalSubTasks})`;
+  }
   
   // If there was an error, acknowledge and suggest alternative
   if (lastResult.error) {
-    return `That action encountered an issue: ${lastResult.error}\n\nTry a different approach. What else can you do for: "${goal}"?`;
+    return `That action encountered an issue: ${lastResult.error}\n\nTry a different approach. What else can you do for: "${goal}"?${subTaskContext}`;
   }
   
   // Context-aware follow-up based on what tool was just used
   switch (lastTool) {
     case 'get_matter':
     case 'search_matters':
-      return `Good, you have the matter information. Now dig deeper - check the documents, review any linked emails, or look at recent activity. What's next?`;
+      return `Good, you have the matter information. Now dig deeper - check the documents, review any linked emails, or look at recent activity. What's next?${subTaskContext}`;
     
     case 'get_client':
     case 'list_clients':
-      return `You have client information. Now look at their matters, documents, or recent communications. Continue working on: "${goal}"`;
+      return `You have client information. Now look at their matters, documents, or recent communications. Continue working.${subTaskContext}`;
     
     case 'list_documents':
-      return `You found documents. Read the important ones to understand their contents. Use read_document_content on the most relevant ones.`;
+      return `You found documents. Read the important ones to understand their contents. Use read_document_content on the most relevant ones.${subTaskContext}`;
     
     case 'read_document_content':
-      return `You've read the document content. Based on this information, what action should be taken for: "${goal}"? Continue working.`;
+      return `You've read the document content. Based on this information, what action should be taken? Continue working.${subTaskContext}`;
     
     case 'create_document':
     case 'create_note':
-      return `Document created. What else needs to be done? You have ${remainingMinutes} minutes remaining for: "${goal}"`;
+      return `Document created. What else needs to be done? You have ${remainingMinutes} minutes remaining.${subTaskContext}`;
     
     case 'draft_email_for_matter':
-      return `Email drafted. Any other communications needed? Or move to the next part of: "${goal}"`;
+      return `Email drafted. Any other communications needed? Or move to the next part of your work.${subTaskContext}`;
     
     case 'create_task':
     case 'create_event':
-      return `Task/event created. Continue with other actions needed for: "${goal}"`;
+      return `Task/event created. Continue with other actions needed.${subTaskContext}`;
     
     case 'log_time':
-      return `Time logged. Continue with other work for: "${goal}"`;
+      return `Time logged. Continue with other work.${subTaskContext}`;
     
     default:
       // Generic continuation based on phase and time remaining
       if (remainingMinutes > 10) {
-        return `Result received. You have ${remainingMinutes} minutes left. Continue being thorough with: "${goal}"`;
+        return `Result received. You have ${remainingMinutes} minutes left. Continue being thorough.${subTaskContext}`;
       } else if (remainingMinutes > 5) {
-        return `${remainingMinutes} minutes remaining. Focus on completing key actions for: "${goal}"`;
+        return `${remainingMinutes} minutes remaining. Focus on completing key actions.${subTaskContext}`;
       } else {
-        return `Only ${remainingMinutes} minutes left. Wrap up essential tasks and document your work for: "${goal}"`;
+        return `Only ${remainingMinutes} minutes left. Wrap up essential tasks and document your work.${subTaskContext}`;
       }
   }
 }
@@ -10507,6 +10789,12 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
     // Get the current step info from progress data or task
     const currentStep = progress?.currentStep || task.current_step || 'Working...';
     
+    // Extract sub-task information from progress
+    const currentSubTask = progress?.currentSubTask ?? 0;
+    const totalSubTasks = progress?.totalSubTasks ?? 0;
+    const subTasks = progress?.subTasks ?? [];
+    const subTaskProgress = progress?.subTaskProgress ?? [];
+    
     res.json({ 
       active: true,
       task: {
@@ -10517,7 +10805,12 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
         iterations: task.iterations,
         totalSteps,
         completedSteps,
-        currentStep
+        currentStep,
+        // Sub-task tracking for the progress bar
+        currentSubTask,
+        totalSubTasks,
+        subTasks,
+        subTaskProgress
       }
     });
   } catch (error) {
