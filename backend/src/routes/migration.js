@@ -2705,7 +2705,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 if (isExpense) {
                   // Insert as expense
                   const amount = parseFloat(a.total) || parseFloat(a.price) || 0;
-                  const category = a.activity_description?.name || 'Expense';
+                  const category = 'Expense'; // Category not fetched from Clio
                   
                   await query(
                     `INSERT INTO expenses (firm_id, matter_id, user_id, date, description, amount, category, billable, billed, status)
@@ -2726,8 +2726,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   expenseCount++;
                 } else {
                   // Insert as time entry
-                  // Use quantity_in_hours if available (more accurate), fallback to quantity
-                  const hours = parseFloat(a.quantity_in_hours) || parseFloat(a.quantity) || 0;
+                  const hours = parseFloat(a.quantity) || 0;
                   let rate = parseFloat(a.price) || 0;
                   
                   // If no rate but we have total and hours, calculate rate
@@ -2739,9 +2738,6 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   if (rate === 0) {
                     rate = 350; // Default hourly rate
                   }
-                  
-                  // Extract UTBMS activity code
-                  const activityCode = a.activity_description?.utbms_code || a.activity_description?.name || null;
                   
                   // Determine entry status based on billed flag
                   const status = a.billed ? 'billed' : 'pending';
@@ -2757,7 +2753,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                       hours,
                       rate,
                       a.note || 'Imported from Clio',
-                      activityCode,
+                      null, // activity_code not fetched
                       !a.non_billable,
                       a.billed || false,
                       status
@@ -2775,6 +2771,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               }
             }
             // Verify time entries and expenses were saved
+            console.log(`[CLIO IMPORT] Activities fetched from Clio: ${activities.length}`);
             const activityVerify = await query('SELECT COUNT(*) FROM time_entries WHERE firm_id = $1', [firmId]);
             const expenseVerify = await query('SELECT COUNT(*) FROM expenses WHERE firm_id = $1', [firmId]);
             const actualActivityCount = parseInt(activityVerify.rows[0].count);
@@ -2809,29 +2806,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const matterId = firstMatter?.id ? matterIdMap.get(`clio:${firstMatter.id}`) : null;
                 const clientId = b.client?.id ? contactIdMap.get(`clio:${b.client.id}`) : null;
                 
-                // Parse all Clio financial fields
+                // Parse Clio financial fields (only using what's fetched)
                 const billTotal = parseFloat(b.total) || 0;
                 const billBalance = parseFloat(b.balance) || 0;
                 const amountPaid = billTotal - billBalance;
-                
-                // Clio provides:
-                // - services_total: total for time entries
-                // - expenses_total: total for expenses
-                // - sub_total: services + expenses before tax/discount
-                // - discount: discount amount
-                // - tax_rate: tax percentage
-                // - tax_total: calculated tax amount
-                const subtotalFees = parseFloat(b.services_total) || parseFloat(b.sub_total) || billTotal;
-                const subtotalExpenses = parseFloat(b.expenses_total) || 0;
-                const discountAmount = parseFloat(b.discount) || 0;
-                const taxRate = parseFloat(b.tax_rate) || 0;
-                const taxAmount = parseFloat(b.tax_total) || 0;
-                
-                // Build notes from Clio memo and notes fields
-                const notesParts = [];
-                if (b.notes) notesParts.push(b.notes);
-                if (b.memo) notesParts.push(`Memo: ${b.memo}`);
-                const notes = notesParts.length > 0 ? notesParts.join('\n\n') : null;
                 
                 // Map Clio state to our status
                 let invoiceStatus = 'draft';
@@ -2842,8 +2820,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 else if (b.state === 'partial') invoiceStatus = 'partial';
                 
                 await query(
-                  `INSERT INTO invoices (firm_id, matter_id, client_id, number, issue_date, due_date, sent_at, paid_at, subtotal_fees, subtotal_expenses, tax_rate, discount_amount, amount_paid, notes, status)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+                  `INSERT INTO invoices (firm_id, matter_id, client_id, number, issue_date, due_date, subtotal_fees, amount_paid, status)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
                   [
                     firmId,
                     matterId,
@@ -2851,14 +2829,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     `${b.number || 'INV'}-${b.id}`, // Append ID to ensure unique
                     b.issued_at || new Date().toISOString().split('T')[0],
                     b.due_at || null,
-                    b.sent_at || null,
-                    b.paid_at || null,
-                    subtotalFees,
-                    subtotalExpenses,
-                    taxRate,
-                    discountAmount,
+                    billTotal, // Use total as subtotal_fees
                     amountPaid,
-                    notes,
                     invoiceStatus
                   ]
                 );
@@ -2869,6 +2841,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               }
             }
             // Verify bills were saved
+            console.log(`[CLIO IMPORT] Bills fetched from Clio: ${bills.length}`);
             const billVerify = await query('SELECT COUNT(*) FROM invoices WHERE firm_id = $1', [firmId]);
             const actualBillCount = parseInt(billVerify.rows[0].count);
             console.log(`[CLIO IMPORT] Bills saved to DB: ${counts.bills}, verified in DB: ${actualBillCount}`);
