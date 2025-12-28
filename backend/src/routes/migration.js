@@ -2357,72 +2357,94 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // STEP 1: IMPORT USERS (direct to DB)
         // ============================================
         if (!includeUsers) {
-          console.log('[CLIO IMPORT] Step 1/6: SKIPPING users');
+          console.log('[CLIO IMPORT] Step 1/7: SKIPPING users');
           updateProgress('users', 'skipped', 0);
         } else {
-          console.log('[CLIO IMPORT] Step 1/6: Importing users directly to DB...');
+          console.log('[CLIO IMPORT] Step 1/7: Importing users directly to DB...');
           updateProgress('users', 'running', 0);
           try {
-            // Fetch users
+            // Fetch users - rate is valid Clio field for hourly rate
             const users = await clioGetAll(accessToken, '/users.json', {
-              fields: 'id,name,first_name,last_name,email,enabled,subscription_type'
+              fields: 'id,name,first_name,last_name,email,enabled,subscription_type,rate'
             }, (count) => updateProgress('users', 'running', count));
             
-            // Pre-hash a common password for speed (users can reset later)
-            const defaultPassword = 'ClioImport2024!';
-            const defaultPasswordHash = await bcrypt.hash(defaultPassword, 10);
+            console.log(`[CLIO IMPORT] Users fetched from Clio: ${users.length}`);
             
             for (const u of users) {
               try {
-                // Use real email first, only add suffix if duplicate exists
+                // Use real email - only change if duplicate within SAME FIRM
                 const baseEmail = (u.email || `user${u.id}@import.clio`).toLowerCase();
                 const firstName = u.first_name || u.name?.split(' ')[0] || 'User';
                 const lastName = u.last_name || u.name?.split(' ').slice(1).join(' ') || '';
                 
                 // Map Clio subscription_type to Apex role
+                // Valid Apex roles: owner, admin, attorney, paralegal, staff, billing, readonly
                 let role = 'attorney';
-                if (u.is_owner || u.subscription_type === 'Owner') {
+                const subType = (u.subscription_type || '').toLowerCase();
+                if (subType === 'owner') {
                   role = 'owner';
-                } else if (u.is_admin || u.subscription_type === 'Admin') {
+                } else if (subType === 'admin' || subType === 'administrator') {
                   role = 'admin';
-                } else if (u.subscription_type === 'Attorney' || u.subscription_type === 'User') {
+                } else if (subType === 'attorney' || subType === 'user' || subType === 'lawyer') {
                   role = 'attorney';
-                } else if (u.subscription_type === 'Paralegal') {
+                } else if (subType === 'paralegal' || subType === 'legal assistant') {
                   role = 'paralegal';
-                } else if (u.subscription_type === 'Staff' || u.subscription_type === 'Associate') {
+                } else if (subType === 'staff' || subType === 'associate' || subType === 'secretary') {
                   role = 'staff';
+                } else if (subType === 'billing' || subType === 'accountant') {
+                  role = 'billing';
+                } else if (subType === 'readonly' || subType === 'viewer') {
+                  role = 'readonly';
                 }
                 
-                // Extract hourly rate (Clio returns rate as decimal)
+                // Extract hourly rate from Clio (rate field)
                 const hourlyRate = u.rate ? parseFloat(u.rate) : null;
                 
-                // Check if email already exists in database
+                // Check if email already exists WITHIN THIS FIRM ONLY (not globally!)
                 let email = baseEmail;
                 const existingUser = await query(
-                  'SELECT id FROM users WHERE LOWER(email) = LOWER($1)',
-                  [baseEmail]
+                  'SELECT id FROM users WHERE firm_id = $1 AND LOWER(email) = LOWER($2)',
+                  [firmId, baseEmail]
                 );
                 
                 if (existingUser.rows.length > 0) {
-                  // Email exists, add Clio ID suffix to make unique
+                  // Email exists in THIS firm already, add Clio ID suffix
                   const [localPart, domain] = baseEmail.split('@');
                   email = `${localPart}+clio${u.id}@${domain}`;
-                  console.log(`[CLIO IMPORT] Email ${baseEmail} exists, using ${email}`);
+                  console.log(`[CLIO IMPORT] Email ${baseEmail} exists in this firm, using ${email}`);
+                }
+                
+                // Generate random password for each user (they can reset via forgot password)
+                const randomPassword = crypto.randomBytes(16).toString('hex') + '!Aa1';
+                const passwordHash = await bcrypt.hash(randomPassword, 10);
+                
+                // Check if email exists GLOBALLY (different firm) - if so, we still insert but need unique email
+                const globalDuplicate = await query(
+                  'SELECT id, firm_id FROM users WHERE LOWER(email) = LOWER($1)',
+                  [email]
+                );
+                
+                if (globalDuplicate.rows.length > 0) {
+                  // Email already exists globally - make it unique with clio ID
+                  const [localPart, domain] = email.split('@');
+                  email = `${localPart}+clio${u.id}@${domain}`;
+                  console.log(`[CLIO IMPORT] Email exists globally, using unique: ${email}`);
                 }
                 
                 const result = await query(
                   `INSERT INTO users (firm_id, email, password_hash, first_name, last_name, role, hourly_rate, phone, is_active)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-                  [firmId, email, defaultPasswordHash, firstName, lastName, role, hourlyRate, u.phone_number || null, u.enabled !== false]
+                  [firmId, email, passwordHash, firstName, lastName, role, hourlyRate, null, u.enabled !== false]
                 );
                 
                 userIdMap.set(`clio:${u.id}`, result.rows[0].id);
                 counts.users++;
+                console.log(`[CLIO IMPORT] User imported: ${email} (role: ${role}, rate: ${hourlyRate || 'none'})`);
               } catch (err) {
                 console.log(`[CLIO IMPORT] User error: ${u.email || u.id} - ${err.message}`);
               }
             }
-            console.log('[CLIO IMPORT] Note: All users have password "ClioImport2024!" - they should reset it');
+            console.log('[CLIO IMPORT] Note: Each user has a random password - they should use "Forgot Password" to reset');
             // Verify users were saved
             const userVerify = await query('SELECT COUNT(*) FROM users WHERE firm_id = $1', [firmId]);
             const actualUserCount = parseInt(userVerify.rows[0].count);
@@ -2438,10 +2460,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // STEP 2: IMPORT CONTACTS (direct to DB)
         // ============================================
         if (!includeContacts) {
-          console.log('[CLIO IMPORT] Step 2/6: SKIPPING contacts');
+          console.log('[CLIO IMPORT] Step 2/7: SKIPPING contacts');
           updateProgress('contacts', 'skipped', 0);
         } else {
-          console.log('[CLIO IMPORT] Step 2/6: Importing contacts directly to DB...');
+          console.log('[CLIO IMPORT] Step 2/7: Importing contacts directly to DB...');
           updateProgress('contacts', 'running', 0);
           try {
             // Fetch contacts
@@ -2545,10 +2567,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // STEP 3: IMPORT MATTERS (direct to DB)
         // ============================================
         if (!includeMatters) {
-          console.log('[CLIO IMPORT] Step 3/6: SKIPPING matters');
+          console.log('[CLIO IMPORT] Step 3/7: SKIPPING matters');
           updateProgress('matters', 'skipped', 0);
         } else {
-          console.log('[CLIO IMPORT] Step 3/6: Importing matters directly to DB...');
+          console.log('[CLIO IMPORT] Step 3/7: Importing matters directly to DB...');
           updateProgress('matters', 'running', 0);
           try {
             // Fetch matters
@@ -2677,27 +2699,34 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // STEP 4: IMPORT TIME ENTRIES (direct to DB)
         // ============================================
         if (!includeActivities) {
-          console.log('[CLIO IMPORT] Step 4/6: SKIPPING activities');
+          console.log('[CLIO IMPORT] Step 4/7: SKIPPING activities');
           updateProgress('activities', 'skipped', 0);
         } else {
-          console.log('[CLIO IMPORT] Step 4/6: Importing time entries and expenses directly to DB...');
+          console.log('[CLIO IMPORT] Step 4/7: Importing time entries and expenses directly to DB...');
           updateProgress('activities', 'running', 0);
           try {
-            // Fetch activities
+            // Fetch activities - include quantity_in_hours for accurate hours, activity_description for codes
             const activities = await clioGetActivitiesByStatus(
               accessToken, '/activities.json',
-              { fields: 'id,type,date,quantity,price,total,note,billed,non_billable,matter{id,display_number},user{id,name}' },
+              { fields: 'id,type,date,quantity,quantity_in_hours,price,total,note,billed,non_billable,matter{id,display_number},user{id,name},activity_description{id,name}' },
               (count) => updateProgress('activities', 'running', count)
             );
             
+            console.log(`[CLIO IMPORT] Activities fetched from Clio: ${activities.length}`);
+            
             let expenseCount = 0;
+            let skippedNoMatter = 0;
             
             for (const a of activities) {
               try {
                 const matterId = a.matter?.id ? matterIdMap.get(`clio:${a.matter.id}`) : null;
                 const userId = a.user?.id ? userIdMap.get(`clio:${a.user.id}`) : null;
                 
-                if (!matterId) continue; // Skip entries without linked matter
+                // DON'T skip entries without matter - save them with null matter_id
+                if (!matterId) {
+                  skippedNoMatter++;
+                  // We'll still save them, just with null matter_id
+                }
                 
                 // Clio has TimeEntry and ExpenseEntry types
                 const isExpense = a.type === 'ExpenseEntry';
@@ -2705,14 +2734,15 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 if (isExpense) {
                   // Insert as expense
                   const amount = parseFloat(a.total) || parseFloat(a.price) || 0;
-                  const category = 'Expense'; // Category not fetched from Clio
+                  // Use activity_description name as category if available
+                  const category = a.activity_description?.name || 'Expense';
                   
                   await query(
                     `INSERT INTO expenses (firm_id, matter_id, user_id, date, description, amount, category, billable, billed, status)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
                     [
                       firmId,
-                      matterId,
+                      matterId, // Can be null - we allow orphaned expenses
                       userId,
                       a.date || new Date().toISOString().split('T')[0],
                       a.note || 'Imported expense from Clio',
@@ -2726,7 +2756,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   expenseCount++;
                 } else {
                   // Insert as time entry
-                  const hours = parseFloat(a.quantity) || 0;
+                  // Prefer quantity_in_hours (already in hours) over quantity (which may be in different units)
+                  const hours = parseFloat(a.quantity_in_hours) || parseFloat(a.quantity) || 0;
                   let rate = parseFloat(a.price) || 0;
                   
                   // If no rate but we have total and hours, calculate rate
@@ -2742,18 +2773,21 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   // Determine entry status based on billed flag
                   const status = a.billed ? 'billed' : 'pending';
                   
+                  // Get activity code from activity_description.name
+                  const activityCode = a.activity_description?.name || null;
+                  
                   await query(
                     `INSERT INTO time_entries (firm_id, matter_id, user_id, date, hours, rate, description, activity_code, billable, billed, status)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
                     [
                       firmId,
-                      matterId,
+                      matterId, // Can be null - we allow orphaned time entries
                       userId,
                       a.date || new Date().toISOString().split('T')[0],
                       hours,
                       rate,
                       a.note || 'Imported from Clio',
-                      null, // activity_code not fetched
+                      activityCode,
                       !a.non_billable,
                       a.billed || false,
                       status
@@ -2767,9 +2801,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   console.log(`[CLIO IMPORT] Activities saved: ${counts.activities} time entries, ${expenseCount} expenses`);
                 }
               } catch (err) {
-                // Skip silently - time entries often have issues
+                console.log(`[CLIO IMPORT] Activity error: ${a.id} - ${err.message}`);
               }
             }
+            console.log(`[CLIO IMPORT] Activities without matter (still saved): ${skippedNoMatter}`);
             // Verify time entries and expenses were saved
             console.log(`[CLIO IMPORT] Activities fetched from Clio: ${activities.length}`);
             const activityVerify = await query('SELECT COUNT(*) FROM time_entries WHERE firm_id = $1', [firmId]);
@@ -2789,10 +2824,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // STEP 5: IMPORT BILLS (direct to DB)
         // ============================================
         if (!includeBills) {
-          console.log('[CLIO IMPORT] Step 5/6: SKIPPING bills');
+          console.log('[CLIO IMPORT] Step 5/7: SKIPPING bills');
           updateProgress('bills', 'skipped', 0);
         } else {
-          console.log('[CLIO IMPORT] Step 5/6: Importing bills directly to DB...');
+          console.log('[CLIO IMPORT] Step 5/7: Importing bills directly to DB...');
           updateProgress('bills', 'running', 0);
           try {
             // Fetch bills with comprehensive financial data
@@ -2856,10 +2891,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // STEP 6: IMPORT CALENDAR (direct to DB)
         // ============================================
         if (!includeCalendar) {
-          console.log('[CLIO IMPORT] Step 6/6: SKIPPING calendar');
+          console.log('[CLIO IMPORT] Step 6/7: SKIPPING calendar');
           updateProgress('calendar', 'skipped', 0);
         } else {
-          console.log('[CLIO IMPORT] Step 6/6: Importing calendar directly to DB...');
+          console.log('[CLIO IMPORT] Step 6/7: Importing calendar directly to DB...');
           updateProgress('calendar', 'running', 0);
           try {
             // Fetch calendar entries with type and recurrence info
@@ -2956,6 +2991,95 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         }
         
         // ============================================
+        // STEP 7: IMPORT NOTES (direct to DB)
+        // ============================================
+        // Clio notes are attached to matters or contacts - we save them to custom_fields or notes field
+        console.log('[CLIO IMPORT] Step 7/7: Importing notes...');
+        let notesCount = 0;
+        try {
+          // Fetch notes from Clio - notes are attached to matters or contacts
+          const notes = await clioGetPaginated(accessToken, '/notes.json', {
+            fields: 'id,subject,detail,date,matter{id},contact{id},created_at'
+          }, null);
+          
+          console.log(`[CLIO IMPORT] Notes fetched from Clio: ${notes.length}`);
+          
+          // Group notes by matter and contact
+          const matterNotes = new Map(); // matterClioId -> array of notes
+          const contactNotes = new Map(); // contactClioId -> array of notes
+          
+          for (const note of notes) {
+            const noteText = `[${note.date || note.created_at?.split('T')[0] || 'No date'}] ${note.subject || 'Note'}: ${note.detail || ''}`;
+            
+            if (note.matter?.id) {
+              const matterId = `clio:${note.matter.id}`;
+              if (!matterNotes.has(matterId)) {
+                matterNotes.set(matterId, []);
+              }
+              matterNotes.get(matterId).push(noteText);
+            }
+            
+            if (note.contact?.id) {
+              const contactId = `clio:${note.contact.id}`;
+              if (!contactNotes.has(contactId)) {
+                contactNotes.set(contactId, []);
+              }
+              contactNotes.get(contactId).push(noteText);
+            }
+            notesCount++;
+          }
+          
+          // Update matters with their notes (stored in custom_fields JSON)
+          for (const [clioMatterId, notesList] of matterNotes) {
+            const apexMatterId = matterIdMap.get(clioMatterId);
+            if (apexMatterId) {
+              try {
+                // Get existing custom_fields and merge notes
+                const existing = await query('SELECT custom_fields FROM matters WHERE id = $1', [apexMatterId]);
+                const customFields = existing.rows[0]?.custom_fields || {};
+                customFields.clio_notes = notesList;
+                
+                await query(
+                  'UPDATE matters SET custom_fields = $1 WHERE id = $2',
+                  [JSON.stringify(customFields), apexMatterId]
+                );
+              } catch (err) {
+                // Skip silently
+              }
+            }
+          }
+          
+          // Update contacts with their notes (appended to notes TEXT field)
+          for (const [clioContactId, notesList] of contactNotes) {
+            const apexClientId = contactIdMap.get(clioContactId);
+            if (apexClientId) {
+              try {
+                // Get existing notes and append
+                const existing = await query('SELECT notes FROM clients WHERE id = $1', [apexClientId]);
+                let existingNotes = existing.rows[0]?.notes || '';
+                
+                if (existingNotes && !existingNotes.endsWith('\n')) {
+                  existingNotes += '\n';
+                }
+                existingNotes += '\n--- CLIO NOTES ---\n' + notesList.join('\n');
+                
+                await query(
+                  'UPDATE clients SET notes = $1 WHERE id = $2',
+                  [existingNotes, apexClientId]
+                );
+              } catch (err) {
+                // Skip silently
+              }
+            }
+          }
+          
+          console.log(`[CLIO IMPORT] Notes processed: ${notesCount} (matters: ${matterNotes.size}, contacts: ${contactNotes.size})`);
+        } catch (err) {
+          console.log(`[CLIO IMPORT] Notes error (non-fatal): ${err.message}`);
+          // Notes are optional - don't fail the import
+        }
+        
+        // ============================================
         // COMPLETE
         // ============================================
         // Note: Documents are NOT imported via API - firms drag files from Clio Drive to Apex Drive
@@ -2974,6 +3098,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             activities: counts.activities,
             bills: counts.bills,
             calendar: counts.calendar,
+            notes: notesCount,
             warnings: warnings.length
           };
           console.log('[CLIO IMPORT] ✓ Import completed:', prog.summary);
