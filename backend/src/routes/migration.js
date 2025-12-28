@@ -2363,9 +2363,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 1/6: Importing users directly to DB...');
           updateProgress('users', 'running', 0);
           try {
-            // Fetch users with rate info for hourly_rate
+            // Fetch users
             const users = await clioGetAll(accessToken, '/users.json', {
-              fields: 'id,name,first_name,last_name,email,enabled,subscription_type,rate,phone_number,is_admin,is_owner'
+              fields: 'id,name,first_name,last_name,email,enabled,subscription_type'
             }, (count) => updateProgress('users', 'running', count));
             
             // Pre-hash a common password for speed (users can reset later)
@@ -2444,9 +2444,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 2/6: Importing contacts directly to DB...');
           updateProgress('contacts', 'running', 0);
           try {
-            // Fetch contacts with all available fields including title, prefix for notes
+            // Fetch contacts
             const contacts = await clioGetAll(accessToken, '/contacts.json', {
-              fields: 'id,name,first_name,last_name,type,title,prefix,company{id,name},email_addresses,phone_numbers,addresses,website{url},custom_field_values{id,field_name,value}'
+              fields: 'id,name,first_name,last_name,type,company{id,name},email_addresses,phone_numbers,addresses'
             }, (count) => updateProgress('contacts', 'running', count));
             
             for (const c of contacts) {
@@ -2526,10 +2526,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 3/6: Importing matters directly to DB...');
           updateProgress('matters', 'running', 0);
           try {
-            // Fetch matters with additional fields: billing rates, custom fields, statute_of_limitations
+            // Fetch matters
             const matters = await clioGetMattersByStatus(
               accessToken, '/matters.json',
-              { fields: 'id,display_number,description,status,open_date,close_date,billing_method,billable,client{id,name},responsible_attorney{id,name,rate},originating_attorney{id,name},practice_area{id,name},custom_rate,statute_of_limitations,location,custom_field_values{id,field_name,value}' },
+              { fields: 'id,display_number,description,status,open_date,close_date,billing_method,client{id,name},responsible_attorney{id,name},originating_attorney{id,name},practice_area{id,name}' },
               (count) => updateProgress('matters', 'running', count)
             );
             
@@ -2657,10 +2657,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 4/6: Importing time entries and expenses directly to DB...');
           updateProgress('activities', 'running', 0);
           try {
-            // Fetch activities with UTBMS/activity codes
+            // Fetch activities
             const activities = await clioGetActivitiesByStatus(
               accessToken, '/activities.json',
-              { fields: 'id,type,date,quantity,quantity_in_hours,price,total,note,billed,non_billable,flat_rate,matter{id,display_number},user{id,name},activity_description{id,name,utbms_code}' },
+              { fields: 'id,type,date,quantity,price,total,note,billed,non_billable,matter{id,display_number},user{id,name}' },
               (count) => updateProgress('activities', 'running', count)
             );
             
