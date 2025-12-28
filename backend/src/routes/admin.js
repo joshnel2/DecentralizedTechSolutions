@@ -144,22 +144,146 @@ router.put('/firms/:id', authenticate, requirePlatformAdmin, async (req, res) =>
   }
 });
 
-// Delete a firm
+// Delete a firm and ALL associated data
 router.delete('/firms/:id', authenticate, requirePlatformAdmin, async (req, res) => {
   try {
-    const result = await query(
-      'DELETE FROM firms WHERE id = $1 RETURNING id',
-      [req.params.id]
-    );
+    const firmId = req.params.id;
+    
+    // Get firm info before deletion
+    const firm = await query('SELECT name FROM firms WHERE id = $1', [firmId]);
+    if (firm.rows.length === 0) {
+      return res.status(404).json({ error: 'Firm not found' });
+    }
+    
+    const firmName = firm.rows[0].name;
+    
+    // Get counts of what will be deleted (for logging)
+    const counts = await query(`
+      SELECT 
+        (SELECT COUNT(*) FROM users WHERE firm_id = $1) as users,
+        (SELECT COUNT(*) FROM clients WHERE firm_id = $1) as clients,
+        (SELECT COUNT(*) FROM matters WHERE firm_id = $1) as matters,
+        (SELECT COUNT(*) FROM time_entries WHERE firm_id = $1) as time_entries,
+        (SELECT COUNT(*) FROM invoices WHERE firm_id = $1) as invoices,
+        (SELECT COUNT(*) FROM calendar_events WHERE firm_id = $1) as calendar_events,
+        (SELECT COUNT(*) FROM documents WHERE firm_id = $1) as documents
+    `, [firmId]);
+    
+    const deleteCounts = counts.rows[0];
+    console.log(`[DELETE FIRM] Starting deletion of "${firmName}" with:`, deleteCounts);
+    
+    // Helper function to safely delete from a table (ignores if table doesn't exist)
+    const safeDelete = async (sql, params) => {
+      try {
+        await query(sql, params);
+      } catch (err) {
+        // Ignore "relation does not exist" errors (table might not exist if migration wasn't run)
+        if (err.code !== '42P01') {
+          console.warn(`[DELETE FIRM] Warning during deletion: ${err.message}`);
+        }
+      }
+    };
+
+    // Explicitly delete all related data in correct order (deepest dependencies first)
+    // This ensures complete cleanup even if CASCADE doesn't work for some reason
+    
+    // 1. Delete document-related tables first (deepest level)
+    await safeDelete('DELETE FROM word_online_sessions WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM document_permissions WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM document_activities WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM document_versions WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM document_locks WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM folder_permissions WHERE firm_id = $1', [firmId]);
+    
+    // 2. Delete sync queue and drive configurations
+    await safeDelete('DELETE FROM document_sync_queue WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM drive_configurations WHERE firm_id = $1', [firmId]);
+    
+    // 3. Delete sharing groups and related tables
+    await safeDelete(`DELETE FROM sharing_group_hidden_items WHERE sharing_group_id IN 
+                 (SELECT id FROM sharing_groups WHERE firm_id = $1)`, [firmId]);
+    await safeDelete(`DELETE FROM sharing_group_members WHERE sharing_group_id IN 
+                 (SELECT id FROM sharing_groups WHERE firm_id = $1)`, [firmId]);
+    await safeDelete('DELETE FROM sharing_groups WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM user_sharing_preferences WHERE firm_id = $1', [firmId]);
+    
+    // 4. Delete matter-related tables
+    await safeDelete('DELETE FROM matter_permissions WHERE matter_id IN (SELECT id FROM matters WHERE firm_id = $1)', [firmId]);
+    await safeDelete('DELETE FROM matter_assignments WHERE matter_id IN (SELECT id FROM matters WHERE firm_id = $1)', [firmId]);
+    await safeDelete('DELETE FROM matter_notes WHERE firm_id = $1', [firmId]);
+    
+    // 5. Delete billing-related tables
+    await safeDelete('DELETE FROM payments WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM trust_transactions WHERE trust_account_id IN (SELECT id FROM trust_accounts WHERE firm_id = $1)', [firmId]);
+    await safeDelete('DELETE FROM trust_accounts WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM expenses WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM time_entries WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM invoices WHERE firm_id = $1', [firmId]);
+    
+    // 6. Delete calendar events and email links
+    await safeDelete('DELETE FROM calendar_events WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM email_links WHERE firm_id = $1', [firmId]);
+    
+    // 7. Delete documents
+    await safeDelete('DELETE FROM documents WHERE firm_id = $1', [firmId]);
+    
+    // 8. Delete matters and clients
+    await safeDelete('DELETE FROM matters WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM clients WHERE firm_id = $1', [firmId]);
+    
+    // 9. Delete AI tasks
+    await safeDelete('DELETE FROM ai_tasks WHERE firm_id = $1', [firmId]);
+    
+    // 10. Delete user-related tables
+    await safeDelete('DELETE FROM user_document_preferences WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM notification_preferences WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM notifications WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM password_reset_tokens WHERE user_id IN (SELECT id FROM users WHERE firm_id = $1)', [firmId]);
+    await safeDelete('DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE firm_id = $1)', [firmId]);
+    await safeDelete('DELETE FROM user_groups WHERE user_id IN (SELECT id FROM users WHERE firm_id = $1)', [firmId]);
+    
+    // 11. Delete integrations
+    await safeDelete('DELETE FROM integrations WHERE firm_id = $1', [firmId]);
+    
+    // 12. Delete groups
+    await safeDelete('DELETE FROM groups WHERE firm_id = $1', [firmId]);
+    
+    // 13. Delete invitations and API keys
+    await safeDelete('DELETE FROM invitations WHERE firm_id = $1', [firmId]);
+    await safeDelete('DELETE FROM api_keys WHERE firm_id = $1', [firmId]);
+    
+    // 14. Delete audit logs
+    await safeDelete('DELETE FROM audit_logs WHERE firm_id = $1', [firmId]);
+    
+    // 15. Delete users
+    await safeDelete('DELETE FROM users WHERE firm_id = $1', [firmId]);
+    
+    // 16. Finally delete the firm itself
+    const result = await query('DELETE FROM firms WHERE id = $1 RETURNING id', [firmId]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Firm not found' });
     }
 
-    res.json({ message: 'Firm deleted successfully' });
+    console.log(`[DELETE FIRM] Successfully deleted "${firmName}" and all associated data`);
+
+    res.json({ 
+      message: 'Firm and all associated data deleted successfully',
+      deleted: {
+        firm: firmName,
+        users: parseInt(deleteCounts.users),
+        clients: parseInt(deleteCounts.clients),
+        matters: parseInt(deleteCounts.matters),
+        timeEntries: parseInt(deleteCounts.time_entries),
+        invoices: parseInt(deleteCounts.invoices),
+        calendarEvents: parseInt(deleteCounts.calendar_events),
+        documents: parseInt(deleteCounts.documents)
+      }
+    });
   } catch (error) {
     console.error('Delete firm error:', error);
-    res.status(500).json({ error: 'Failed to delete firm' });
+    console.error('Delete firm error stack:', error.stack);
+    res.status(500).json({ error: `Failed to delete firm: ${error.message}` });
   }
 });
 
