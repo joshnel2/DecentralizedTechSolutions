@@ -2689,16 +2689,32 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   console.log(`[CLIO IMPORT] Contacts saved: ${counts.contacts}`);
                 }
               } catch (err) {
+                // Track failed contacts
+                counts.contactsFailed = (counts.contactsFailed || 0) + 1;
+                
                 // Skip duplicates silently, log others
                 if (!err.message.includes('duplicate')) {
                   warnings.push(`Contact ${c.name || c.id}: ${err.message}`);
+                  console.log(`[CLIO IMPORT] Contact failed: ${c.name || c.id} - ${err.message}`);
                 }
               }
             }
+            
             // Verify contacts were saved
             const contactVerify = await query('SELECT COUNT(*) FROM clients WHERE firm_id = $1', [firmId]);
             const actualContactCount = parseInt(contactVerify.rows[0].count);
+            const fetchedCount = contacts.length;
+            
+            console.log(`[CLIO IMPORT] Contacts fetched from Clio: ${fetchedCount}`);
             console.log(`[CLIO IMPORT] Contacts saved to DB: ${counts.contacts}, verified in DB: ${actualContactCount}`);
+            
+            // Check for discrepancy
+            if (fetchedCount !== counts.contacts) {
+              const failedCount = counts.contactsFailed || (fetchedCount - counts.contacts);
+              console.log(`[CLIO IMPORT] ⚠️ ${failedCount} contacts failed to import (duplicates or errors)`);
+              warnings.push(`${failedCount} contacts could not be imported (likely duplicates or data issues)`);
+            }
+            
             updateProgress('contacts', 'done', actualContactCount);
           } catch (err) {
             console.error('[CLIO IMPORT] Contacts error:', err.message);
@@ -2868,13 +2884,27 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   console.log(`[CLIO IMPORT] Matters saved: ${counts.matters}`);
                 }
               } catch (err) {
+                counts.mattersFailed = (counts.mattersFailed || 0) + 1;
                 console.log(`[CLIO IMPORT] Matter error: ${m.display_number || m.id} - ${err.message}`);
+                warnings.push(`Matter ${m.display_number || m.id}: ${err.message}`);
               }
             }
+            
             // Verify matters were saved
             const matterVerify = await query('SELECT COUNT(*) FROM matters WHERE firm_id = $1', [firmId]);
             const actualMatterCount = parseInt(matterVerify.rows[0].count);
+            const fetchedMatterCount = matters.length;
+            
+            console.log(`[CLIO IMPORT] Matters fetched from Clio: ${fetchedMatterCount}`);
             console.log(`[CLIO IMPORT] Matters saved to DB: ${counts.matters}, verified in DB: ${actualMatterCount}`);
+            
+            // Check for discrepancy
+            if (fetchedMatterCount !== counts.matters) {
+              const failedCount = counts.mattersFailed || (fetchedMatterCount - counts.matters);
+              console.log(`[CLIO IMPORT] ⚠️ ${failedCount} matters failed to import`);
+              warnings.push(`${failedCount} matters could not be imported (check logs for details)`);
+            }
+            
             updateProgress('matters', 'done', actualMatterCount);
           } catch (err) {
             console.error('[CLIO IMPORT] Matters error:', err.message);
