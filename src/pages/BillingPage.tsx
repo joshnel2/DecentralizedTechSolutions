@@ -298,11 +298,33 @@ export function BillingPage() {
       return date >= lastMonthStart && date <= lastMonthEnd
     })
 
-    const totalBilled = invoices.reduce((sum, i) => sum + i.total, 0)
+    // Calculate from invoices
+    const invoiceTotalBilled = invoices.reduce((sum, i) => sum + i.total, 0)
     const totalPaid = invoices.reduce((sum, i) => sum + i.amountPaid, 0)
-    const thisMonthBilled = thisMonth.reduce((sum, i) => sum + i.total, 0)
+    const invoiceThisMonthBilled = thisMonth.reduce((sum, i) => sum + i.total, 0)
     const thisMonthCollected = thisMonth.reduce((sum, i) => sum + i.amountPaid, 0)
-    const lastMonthBilled = lastMonth.reduce((sum, i) => sum + i.total, 0)
+    const invoiceLastMonthBilled = lastMonth.reduce((sum, i) => sum + i.total, 0)
+    
+    // Also calculate from billed time entries (for migrated data that may not have invoice links)
+    const billedTimeEntries = timeEntries.filter(t => t.billed)
+    const timeEntryTotalBilled = billedTimeEntries.reduce((sum, t) => sum + (t.amount || t.hours * t.rate), 0)
+    const timeEntryThisMonth = billedTimeEntries.filter(t => {
+      const date = parseISO(t.date)
+      return date >= startOfMonth(now) && date <= endOfMonth(now)
+    })
+    const timeEntryLastMonth = billedTimeEntries.filter(t => {
+      const date = parseISO(t.date)
+      const lastMonthStart = startOfMonth(subMonths(now, 1))
+      const lastMonthEnd = endOfMonth(subMonths(now, 1))
+      return date >= lastMonthStart && date <= lastMonthEnd
+    })
+    const timeEntryThisMonthBilled = timeEntryThisMonth.reduce((sum, t) => sum + (t.amount || t.hours * t.rate), 0)
+    const timeEntryLastMonthBilled = timeEntryLastMonth.reduce((sum, t) => sum + (t.amount || t.hours * t.rate), 0)
+    
+    // Use invoice data if available, otherwise fall back to time entry data
+    const totalBilled = invoiceTotalBilled > 0 ? invoiceTotalBilled : timeEntryTotalBilled
+    const thisMonthBilled = invoiceThisMonthBilled > 0 ? invoiceThisMonthBilled : timeEntryThisMonthBilled
+    const lastMonthBilled = invoiceLastMonthBilled > 0 ? invoiceLastMonthBilled : timeEntryLastMonthBilled
     
     const outstanding = invoices
       .filter(i => i.status === 'sent' || i.status === 'overdue' || i.status === 'partial')
