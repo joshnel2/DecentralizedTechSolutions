@@ -680,14 +680,49 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
       // Continue without text - not critical
     }
 
-    // Build folder path for Azure
+    // Build Clio-style folder path for Azure
+    // Structure: Matters/{ClientName}/{MatterNumber} - {MatterName}/{ResponsibleAttorney}/
     let folderPath = 'documents';
     if (matterId) {
-      // Get matter name for folder structure
-      const matterResult = await query('SELECT name FROM matters WHERE id = $1', [matterId]);
+      // Get matter details including client and responsible attorney
+      const matterResult = await query(`
+        SELECT 
+          m.name as matter_name,
+          m.number as matter_number,
+          c.display_name as client_name,
+          u.first_name as attorney_first,
+          u.last_name as attorney_last
+        FROM matters m
+        LEFT JOIN clients c ON m.client_id = c.id
+        LEFT JOIN users u ON m.responsible_attorney_id = u.id
+        WHERE m.id = $1
+      `, [matterId]);
+      
       if (matterResult.rows.length > 0) {
-        const matterName = matterResult.rows[0].name.replace(/[^a-zA-Z0-9 ]/g, '_');
-        folderPath = `matters/${matterName}`;
+        const row = matterResult.rows[0];
+        const sanitize = (str) => (str || '').replace(/[^a-zA-Z0-9 -]/g, '_').trim();
+        
+        // Build hierarchical folder path like Clio
+        const clientName = sanitize(row.client_name) || 'No Client';
+        const matterNumber = sanitize(row.matter_number) || '';
+        const matterName = sanitize(row.matter_name) || 'Untitled Matter';
+        const attorneyName = row.attorney_first && row.attorney_last 
+          ? sanitize(`${row.attorney_first} ${row.attorney_last}`)
+          : '';
+        
+        // Format: Matters/ClientName/MatterNumber - MatterName/AttorneyName
+        let matterFolder = matterNumber ? `${matterNumber} - ${matterName}` : matterName;
+        folderPath = `Matters/${clientName}/${matterFolder}`;
+        if (attorneyName) {
+          folderPath += `/${attorneyName}`;
+        }
+      }
+    } else if (clientId) {
+      // Client document without matter
+      const clientResult = await query('SELECT display_name FROM clients WHERE id = $1', [clientId]);
+      if (clientResult.rows.length > 0) {
+        const clientName = (clientResult.rows[0].display_name || 'Unknown').replace(/[^a-zA-Z0-9 -]/g, '_');
+        folderPath = `Clients/${clientName}`;
       }
     }
     const azurePath = `${folderPath}/${req.file.originalname}`;
