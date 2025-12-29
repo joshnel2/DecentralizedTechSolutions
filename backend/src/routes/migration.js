@@ -366,68 +366,55 @@ async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress,
   return allData;
 }
 
-// Fetch activities by STATUS + YEAR/MONTH from the start
-// Each status + month combination has its own 10k limit = unlimited total
+// Fetch activities by STATUS - includes all statuses + catch-all
+// Each status can have up to 10k records
 async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgress, matterIds = null) {
   const allData = [];
   const seenIds = new Set();
   const statuses = ['billed', 'unbilled', 'non_billable'];
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().getMonth() + 1;
   
-  console.log(`[CLIO API] Fetching activities by status + month (guarantees all records)...`);
+  console.log(`[CLIO API] Fetching activities by status (bypasses 10k limit)...`);
   
-  // Always fetch by status + year/month to guarantee we get everything
   for (const status of statuses) {
-    console.log(`[CLIO API] Fetching ${status} activities by month...`);
+    console.log(`[CLIO API] Fetching ${status} activities...`);
     
-    for (let year = 2010; year <= currentYear; year++) {
-      const maxMonth = (year === currentYear) ? currentMonth : 12;
+    try {
+      const statusActivities = await clioGetPaginated(
+        accessToken,
+        endpoint,
+        { ...params, status },
+        (count) => {
+          if (onProgress) onProgress(allData.length + count);
+        }
+      );
       
-      for (let month = 1; month <= maxMonth; month++) {
-        const monthStr = String(month).padStart(2, '0');
-        const lastDay = new Date(year, month, 0).getDate();
-        const startDate = `${year}-${monthStr}-01`;
-        const endDate = `${year}-${monthStr}-${lastDay}`;
-        
-        try {
-          const monthData = await clioGetPaginated(
-            accessToken,
-            endpoint,
-            { ...params, status, 'date[]': [`>=${startDate}`, `<=${endDate}`] },
-            null
-          );
-          
-          let newCount = 0;
-          for (const item of monthData) {
-            if (item.id && !seenIds.has(item.id)) {
-              seenIds.add(item.id);
-              allData.push(item);
-              newCount++;
-            }
-          }
-          
-          if (newCount > 0) {
-            console.log(`[CLIO API] ${status} ${year}-${monthStr}: +${newCount}, total ${allData.length}`);
-          }
-          if (onProgress) onProgress(allData.length);
-        } catch (monthErr) {
-          // Skip months with errors silently
+      let newCount = 0;
+      for (const item of statusActivities) {
+        if (item.id && !seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          allData.push(item);
+          newCount++;
         }
       }
+      
+      console.log(`[CLIO API] ${status} activities: ${newCount} records, total ${allData.length}`);
+      if (onProgress) onProgress(allData.length);
+      
+    } catch (err) {
+      console.log(`[CLIO API] Error fetching ${status} activities: ${err.message}`);
     }
-    
-    console.log(`[CLIO API] ${status} activities complete: ${allData.length} total`);
   }
   
-  // CATCH-ALL: Fetch without status filter to catch any missed
-  console.log(`[CLIO API] Running catch-all fetch for activities...`);
+  // CATCH-ALL: Fetch activities WITHOUT status filter to catch any with null/other status
+  console.log(`[CLIO API] Running catch-all fetch for activities without status filter...`);
   try {
     const catchAllActivities = await clioGetPaginated(
       accessToken,
       endpoint,
       { ...params },
-      null
+      (count) => {
+        if (onProgress) onProgress(allData.length + count);
+      }
     );
     
     let newCount = 0;
@@ -440,12 +427,12 @@ async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgre
     }
     
     if (newCount > 0) {
-      console.log(`[CLIO API] Catch-all: found ${newCount} additional! Total: ${allData.length}`);
+      console.log(`[CLIO API] Catch-all activities: found ${newCount} additional! Total: ${allData.length}`);
     }
     if (onProgress) onProgress(allData.length);
     
   } catch (err) {
-    console.log(`[CLIO API] Catch-all error: ${err.message}`);
+    console.log(`[CLIO API] Catch-all activities error: ${err.message}`);
   }
   
   console.log(`[CLIO API] Activities complete: ${allData.length} total records`);
@@ -2772,10 +2759,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const matterId = a.matter?.id ? matterIdMap.get(`clio:${a.matter.id}`) : null;
                 const userId = a.user?.id ? userIdMap.get(`clio:${a.user.id}`) : null;
                 
-                // DON'T skip entries without matter - save them with null matter_id
                 if (!matterId) {
                   skippedNoMatter++;
-                  // We'll still save them, just with null matter_id
+                  continue; // Skip entries without linked matter
                 }
                 
                 // Clio has TimeEntry and ExpenseEntry types
@@ -2792,7 +2778,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
                     [
                       firmId,
-                      matterId, // Can be null - we allow orphaned expenses
+                      matterId,
                       userId,
                       a.date || new Date().toISOString().split('T')[0],
                       a.note || 'Imported expense from Clio',
@@ -2831,7 +2817,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
                     [
                       firmId,
-                      matterId, // Can be null - we allow orphaned time entries
+                      matterId,
                       userId,
                       a.date || new Date().toISOString().split('T')[0],
                       hours,
