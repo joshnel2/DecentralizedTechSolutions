@@ -2306,6 +2306,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         const counts = { users: 0, contacts: 0, matters: 0, activities: 0, bills: 0, calendar: 0 };
         const warnings = [];
         
+        // Store user credentials for display on portal
+        const userCredentials = [];
+        
         // ID maps for linking
         const userIdMap = new Map();
         const contactIdMap = new Map();
@@ -2370,10 +2373,18 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             
             console.log(`[CLIO IMPORT] Users fetched from Clio: ${users.length}`);
             
+            let skippedNoEmail = 0;
+            
             for (const u of users) {
               try {
-                // Use real email - only change if duplicate within SAME FIRM
-                const baseEmail = (u.email || `user${u.id}@import.clio`).toLowerCase();
+                // SKIP users without a real email - don't create fake emails
+                if (!u.email || !u.email.includes('@') || u.email.includes('@import.clio')) {
+                  console.log(`[CLIO IMPORT] Skipping user ${u.name || u.id} - no valid email`);
+                  skippedNoEmail++;
+                  continue;
+                }
+                
+                const baseEmail = u.email.toLowerCase();
                 const firstName = u.first_name || u.name?.split(' ')[0] || 'User';
                 const lastName = u.last_name || u.name?.split(' ').slice(1).join(' ') || '';
                 
@@ -2414,8 +2425,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   console.log(`[CLIO IMPORT] Email ${baseEmail} exists in this firm, using ${email}`);
                 }
                 
-                // Generate random password for each user (they can reset via forgot password)
-                const randomPassword = crypto.randomBytes(16).toString('hex') + '!Aa1';
+                // Generate random password for each user
+                const randomPassword = crypto.randomBytes(8).toString('hex') + '!Aa1';
                 const passwordHash = await bcrypt.hash(randomPassword, 10);
                 
                 // Check if email exists GLOBALLY (different firm) - if so, we still insert but need unique email
@@ -2439,12 +2450,24 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 
                 userIdMap.set(`clio:${u.id}`, result.rows[0].id);
                 counts.users++;
+                
+                // Store credentials for display on portal
+                userCredentials.push({
+                  email: email,
+                  firstName: firstName,
+                  lastName: lastName,
+                  name: `${firstName} ${lastName}`.trim(),
+                  password: randomPassword,
+                  role: role
+                });
+                
                 console.log(`[CLIO IMPORT] User imported: ${email} (role: ${role}, rate: ${hourlyRate || 'none'})`);
               } catch (err) {
                 console.log(`[CLIO IMPORT] User error: ${u.email || u.id} - ${err.message}`);
               }
             }
-            console.log('[CLIO IMPORT] Note: Each user has a random password - they should use "Forgot Password" to reset');
+            console.log(`[CLIO IMPORT] Users skipped (no valid email): ${skippedNoEmail}`);
+            console.log('[CLIO IMPORT] Note: Passwords stored for display on portal');
             // Verify users were saved
             const userVerify = await query('SELECT COUNT(*) FROM users WHERE firm_id = $1', [firmId]);
             const actualUserCount = parseInt(userVerify.rows[0].count);
@@ -3099,9 +3122,11 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             bills: counts.bills,
             calendar: counts.calendar,
             notes: notesCount,
-            warnings: warnings.length
+            warnings: warnings.length,
+            userCredentials: userCredentials // Store credentials for portal display
           };
           console.log('[CLIO IMPORT] ✓ Import completed:', prog.summary);
+          console.log(`[CLIO IMPORT] User credentials stored: ${userCredentials.length}`);
         }
         
       } catch (error) {

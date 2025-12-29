@@ -225,7 +225,18 @@ export default function SecureAdminDashboard() {
   const [clioProgress, setClioProgress] = useState<{
     status: string;
     steps?: Record<string, { status: string; count: number }>;
-    summary?: Record<string, number>;
+    summary?: {
+      users?: number;
+      contacts?: number;
+      matters?: number;
+      activities?: number;
+      bills?: number;
+      calendar?: number;
+      calendar_entries?: number;
+      notes?: number;
+      warnings?: number;
+      userCredentials?: { email: string; firstName: string; lastName: string; name: string; password: string; role: string }[];
+    };
   } | null>(null)
   
   // Check for Clio OAuth callback on mount
@@ -2474,17 +2485,91 @@ export default function SecureAdminDashboard() {
                                     ))}
                                   </div>
                                   {clioProgress.status === 'completed' && clioProgress.summary && (
-                                    <div className={styles.clioSummary}>
-                                      <CheckCircle2 size={24} />
-                                      <div>
-                                        <strong>Import Complete!</strong>
-                                        <p>
-                                          {clioProgress.summary.users} users, {clioProgress.summary.contacts} contacts, 
-                                          {clioProgress.summary.matters} matters, {clioProgress.summary.activities} time entries,
-                                          {clioProgress.summary.bills} bills, {clioProgress.summary.calendar_entries} calendar events
-                                        </p>
+                                    <>
+                                      <div className={styles.clioSummary}>
+                                        <CheckCircle2 size={24} />
+                                        <div>
+                                          <strong>Import Complete!</strong>
+                                          <p>
+                                            {clioProgress.summary.users} users, {clioProgress.summary.contacts} contacts, 
+                                            {clioProgress.summary.matters} matters, {clioProgress.summary.activities} time entries,
+                                            {clioProgress.summary.bills} bills, {clioProgress.summary.calendar_entries || clioProgress.summary.calendar} calendar events
+                                          </p>
+                                        </div>
                                       </div>
-                                    </div>
+                                      
+                                      {/* User Credentials Section */}
+                                      {Array.isArray(clioProgress.summary.userCredentials) && clioProgress.summary.userCredentials.length > 0 && (
+                                        <div className={styles.credentialsSection} style={{ marginTop: '1rem' }}>
+                                          <div className={styles.credentialsHeader}>
+                                            <Key size={20} />
+                                            <h4>User Login Credentials</h4>
+                                            <button 
+                                              onClick={() => {
+                                                const creds = clioProgress.summary?.userCredentials as { email: string; firstName: string; name: string; password: string; role: string }[]
+                                                const credText = creds.map(u => 
+                                                  `${u.name} (${u.role})\nEmail: ${u.email}\nPassword: ${u.password}\n`
+                                                ).join('\n---\n')
+                                                copyToClipboard(credText)
+                                              }}
+                                              className={styles.copyAllBtn}
+                                            >
+                                              <Copy size={14} />
+                                              Copy All
+                                            </button>
+                                          </div>
+                                          <p className={styles.credentialsNote}>
+                                            ⚠️ Save these passwords now! They cannot be retrieved later.
+                                          </p>
+                                          <div className={styles.credentialsList}>
+                                            {(clioProgress.summary.userCredentials as { email: string; firstName: string; lastName: string; name: string; password: string; role: string }[]).map((cred, idx) => (
+                                              <div key={idx} className={styles.credentialCard}>
+                                                <div className={styles.credentialName}>
+                                                  <span>{cred.name}</span>
+                                                  <span className={styles.credentialRole}>{cred.role}</span>
+                                                </div>
+                                                <div className={styles.credentialDetails}>
+                                                  <div className={styles.credentialRow}>
+                                                    <Mail size={14} />
+                                                    <span>{cred.email}</span>
+                                                    <button onClick={() => copyToClipboard(cred.email)} title="Copy email">
+                                                      <Copy size={12} />
+                                                    </button>
+                                                  </div>
+                                                  <div className={styles.credentialRow}>
+                                                    <Key size={14} />
+                                                    <code>{cred.password}</code>
+                                                    <button onClick={() => copyToClipboard(cred.password)} title="Copy password">
+                                                      <Copy size={12} />
+                                                    </button>
+                                                  </div>
+                                                  <div className={styles.credentialRow} style={{ marginTop: '0.5rem' }}>
+                                                    <button 
+                                                      onClick={() => {
+                                                        const welcomeEmail = `Dear ${cred.firstName},
+
+\tWelcome to Strapped AI! Your login details are below. Get comfortable with your Apex AI, and navigate to the integrations page to link your email account and your calendar. If you have any questions feel free to reach out to us at admin@strappedai.com.
+
+Username: ${cred.email}
+Password: ${cred.password}`
+                                                        copyToClipboard(welcomeEmail)
+                                                        showNotification('success', 'Welcome email copied to clipboard!')
+                                                      }}
+                                                      className={styles.secondaryBtn}
+                                                      style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                                                      title="Copy welcome email"
+                                                    >
+                                                      <Mail size={12} />
+                                                      Copy Welcome Email
+                                                    </button>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </>
                                   )}
                                 </div>
                               )}
