@@ -366,8 +366,8 @@ async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress,
   return allData;
 }
 
-// Fetch activities by STATUS + YEAR/MONTH - handles large datasets
-// Each status + month combination has its own 10k limit
+// Fetch activities by STATUS + YEAR/MONTH from the start
+// Each status + month combination has its own 10k limit = unlimited total
 async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgress, matterIds = null) {
   const allData = [];
   const seenIds = new Set();
@@ -375,90 +375,59 @@ async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgre
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
   
-  console.log(`[CLIO API] Fetching activities by status + date range (bypasses 10k limit)...`);
+  console.log(`[CLIO API] Fetching activities by status + month (guarantees all records)...`);
   
-  // First try fetching by status only (works if < 10k per status)
+  // Always fetch by status + year/month to guarantee we get everything
   for (const status of statuses) {
-    console.log(`[CLIO API] Fetching ${status} activities...`);
+    console.log(`[CLIO API] Fetching ${status} activities by month...`);
     
-    try {
-      const statusActivities = await clioGetPaginated(
-        accessToken,
-        endpoint,
-        { ...params, status },
-        (count) => {
-          if (onProgress) onProgress(allData.length + count);
-        }
-      );
+    for (let year = 2010; year <= currentYear; year++) {
+      const maxMonth = (year === currentYear) ? currentMonth : 12;
       
-      let newCount = 0;
-      for (const item of statusActivities) {
-        if (item.id && !seenIds.has(item.id)) {
-          seenIds.add(item.id);
-          allData.push(item);
-          newCount++;
-        }
-      }
-      
-      console.log(`[CLIO API] ${status} activities: ${newCount} records, total ${allData.length}`);
-      if (onProgress) onProgress(allData.length);
-      
-    } catch (err) {
-      // If we hit 10k limit, try fetching by year/month
-      if (err.message.includes('10k') || err.message.includes('out of bounds')) {
-        console.log(`[CLIO API] ${status} hit 10k limit, fetching by year/month...`);
+      for (let month = 1; month <= maxMonth; month++) {
+        const monthStr = String(month).padStart(2, '0');
+        const lastDay = new Date(year, month, 0).getDate();
+        const startDate = `${year}-${monthStr}-01`;
+        const endDate = `${year}-${monthStr}-${lastDay}`;
         
-        for (let year = 2015; year <= currentYear; year++) {
-          const maxMonth = (year === currentYear) ? currentMonth : 12;
+        try {
+          const monthData = await clioGetPaginated(
+            accessToken,
+            endpoint,
+            { ...params, status, 'date[]': [`>=${startDate}`, `<=${endDate}`] },
+            null
+          );
           
-          for (let month = 1; month <= maxMonth; month++) {
-            const monthStr = String(month).padStart(2, '0');
-            const lastDay = new Date(year, month, 0).getDate();
-            const startDate = `${year}-${monthStr}-01`;
-            const endDate = `${year}-${monthStr}-${lastDay}`;
-            
-            try {
-              const monthData = await clioGetPaginated(
-                accessToken,
-                endpoint,
-                { ...params, status, 'date[]': [`>=${startDate}`, `<=${endDate}`] },
-                null
-              );
-              
-              let newCount = 0;
-              for (const item of monthData) {
-                if (item.id && !seenIds.has(item.id)) {
-                  seenIds.add(item.id);
-                  allData.push(item);
-                  newCount++;
-                }
-              }
-              
-              if (newCount > 0) {
-                console.log(`[CLIO API] ${status} ${year}-${monthStr}: ${newCount} new, total ${allData.length}`);
-              }
-              if (onProgress) onProgress(allData.length);
-            } catch (monthErr) {
-              // Skip months with errors
+          let newCount = 0;
+          for (const item of monthData) {
+            if (item.id && !seenIds.has(item.id)) {
+              seenIds.add(item.id);
+              allData.push(item);
+              newCount++;
             }
           }
+          
+          if (newCount > 0) {
+            console.log(`[CLIO API] ${status} ${year}-${monthStr}: +${newCount}, total ${allData.length}`);
+          }
+          if (onProgress) onProgress(allData.length);
+        } catch (monthErr) {
+          // Skip months with errors silently
         }
-      } else {
-        console.log(`[CLIO API] Error fetching ${status} activities: ${err.message}`);
       }
     }
+    
+    console.log(`[CLIO API] ${status} activities complete: ${allData.length} total`);
   }
   
-  // CATCH-ALL: Fetch activities WITHOUT status filter to catch any with null/other status
-  console.log(`[CLIO API] Running catch-all fetch for activities without status filter...`);
+  // CATCH-ALL: Fetch without status filter to catch any missed
+  console.log(`[CLIO API] Running catch-all fetch for activities...`);
   try {
     const catchAllActivities = await clioGetPaginated(
       accessToken,
       endpoint,
       { ...params },
-      (count) => {
-        if (onProgress) onProgress(allData.length + count);
-      }
+      null
     );
     
     let newCount = 0;
@@ -471,12 +440,12 @@ async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgre
     }
     
     if (newCount > 0) {
-      console.log(`[CLIO API] Catch-all activities: found ${newCount} additional! Total: ${allData.length}`);
+      console.log(`[CLIO API] Catch-all: found ${newCount} additional! Total: ${allData.length}`);
     }
     if (onProgress) onProgress(allData.length);
     
   } catch (err) {
-    console.log(`[CLIO API] Catch-all activities error: ${err.message}`);
+    console.log(`[CLIO API] Catch-all error: ${err.message}`);
   }
   
   console.log(`[CLIO API] Activities complete: ${allData.length} total records`);
