@@ -2379,9 +2379,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 1/7: Importing users directly to DB...');
           updateProgress('users', 'running', 0);
           try {
-            // Fetch users - rate is valid Clio field for hourly rate
+            // Fetch users - use proven working fields
             const users = await clioGetAll(accessToken, '/users.json', {
-              fields: 'id,name,first_name,last_name,email,enabled,subscription_type,rate'
+              fields: 'id,name,first_name,last_name,email,enabled,subscription_type'
             }, (count) => updateProgress('users', 'running', count));
             
             console.log(`[CLIO IMPORT] Users fetched from Clio: ${users.length}`);
@@ -2508,10 +2508,17 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               fields: 'id,name,first_name,last_name,type,company{id,name},email_addresses,phone_numbers,addresses'
             }, (count) => updateProgress('contacts', 'running', count));
             
-            // Log sample to debug what Clio returns
+            // Log samples to debug what Clio returns for email/phone
             if (contacts.length > 0) {
-              const sample = contacts[0];
-              console.log(`[CLIO IMPORT] Sample contact: name=${sample.name}, emails=${JSON.stringify(sample.email_addresses)}, phones=${JSON.stringify(sample.phone_numbers)}`);
+              console.log(`[CLIO IMPORT] First 3 contacts with email/phone data:`);
+              for (let i = 0; i < Math.min(3, contacts.length); i++) {
+                const c = contacts[i];
+                console.log(`[CLIO IMPORT]   Contact ${i+1}: name="${c.name}", emails=${JSON.stringify(c.email_addresses)}, phones=${JSON.stringify(c.phone_numbers)}`);
+              }
+              // Also count how many have email/phone
+              const withEmail = contacts.filter(c => c.email_addresses && c.email_addresses.length > 0).length;
+              const withPhone = contacts.filter(c => c.phone_numbers && c.phone_numbers.length > 0).length;
+              console.log(`[CLIO IMPORT] Contacts with email: ${withEmail}/${contacts.length}, with phone: ${withPhone}/${contacts.length}`);
             }
             
             for (const c of contacts) {
@@ -2748,10 +2755,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 4/7: Importing time entries and expenses directly to DB...');
           updateProgress('activities', 'running', 0);
           try {
-            // Fetch activities - include quantity_in_hours for accurate hours, activity_description for codes
+            // Fetch activities - use proven working fields
             const activities = await clioGetActivitiesByStatus(
               accessToken, '/activities.json',
-              { fields: 'id,type,date,quantity,quantity_in_hours,price,total,note,billed,non_billable,matter{id,display_number},user{id,name},activity_description{id,name}' },
+              { fields: 'id,type,date,quantity,price,total,note,billed,non_billable,matter{id,display_number},user{id,name}' },
               (count) => updateProgress('activities', 'running', count)
             );
             
