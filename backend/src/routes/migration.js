@@ -2743,9 +2743,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           updateProgress('activities', 'running', 0);
           try {
             // Fetch activities - use proven working fields
+            // Fetch activities with all needed fields (verified against Clio OpenAPI spec)
             const activities = await clioGetActivitiesByStatus(
               accessToken, '/activities.json',
-              { fields: 'id,type,date,quantity,price,total,note,billed,non_billable,matter{id,display_number},user{id,name}' },
+              { fields: 'id,type,date,quantity,quantity_in_hours,price,total,note,billed,non_billable,matter{id,display_number},user{id,name},activity_description{id,name}' },
               (count) => updateProgress('activities', 'running', count)
             );
             
