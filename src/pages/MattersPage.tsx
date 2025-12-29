@@ -24,10 +24,14 @@ const statusOptions = [
   { value: 'archived', label: 'Archived' }
 ]
 
-const viewOptions = [
-  { value: 'my', label: 'My Matters' },
-  { value: 'all', label: 'All Matters' }
-]
+// View options - "All Matters" only available to admins
+const getViewOptions = (isAdmin: boolean) => {
+  const options = [{ value: 'my', label: 'My Matters' }]
+  if (isAdmin) {
+    options.push({ value: 'all', label: 'All Matters' })
+  }
+  return options
+}
 
 export function MattersPage() {
   const { matters, clients, addMatter, fetchMatters, fetchClients, updateMatter, deleteMatter, matterTypes } = useDataStore()
@@ -242,9 +246,9 @@ export function MattersPage() {
 
       {/* Filters */}
       <div className={styles.filters}>
-        {/* View Toggle - My Matters vs All Matters */}
+        {/* View Toggle - My Matters vs All Matters (All Matters only for admins) */}
         <div className={styles.viewToggle}>
-          {viewOptions.map(opt => (
+          {getViewOptions(isAdmin).map(opt => (
             <button
               key={opt.value}
               className={clsx(styles.viewToggleBtn, viewFilter === opt.value && styles.active)}

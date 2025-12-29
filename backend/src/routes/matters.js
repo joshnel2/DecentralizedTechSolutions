@@ -27,9 +27,13 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
   try {
     const { 
       search, status, type, clientId, assignedTo, priority, visibility,
-      view = 'my', // 'my' = only my matters, 'all' = all matters I can see
+      view: requestedView = 'my', // 'my' = only my matters, 'all' = all matters I can see
       limit = 1000000, offset = 0  // No limit
     } = req.query;
+    
+    // Only admins/owners can view "all" matters - everyone else forced to "my"
+    const isAdmin = req.user.role === 'owner' || req.user.role === 'admin';
+    const view = (requestedView === 'all' && !isAdmin) ? 'my' : requestedView;
     
     // Check if originating_attorney column exists
     const hasOrigAtty = await checkOriginatingAttorneyColumn();
