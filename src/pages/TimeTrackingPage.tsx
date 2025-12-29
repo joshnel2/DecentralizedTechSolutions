@@ -239,7 +239,7 @@ export function TimeTrackingPage() {
   const toggleBilledStatus = async (entry: any) => {
     try {
       await updateTimeEntry(entry.id, { billed: !entry.billed })
-      await fetchTimeEntries({ limit: 500 })
+      await fetchTimeEntries({})
     } catch (error) {
       console.error('Failed to toggle billed status:', error)
       alert('Failed to update billing status. Please try again.')
@@ -847,7 +847,7 @@ export function TimeTrackingPage() {
             try {
               await addTimeEntry(data)
               setShowNewModal(false)
-              await fetchTimeEntries({ limit: 500 })
+              await fetchTimeEntries({})
             } catch (error) {
               console.error('Failed to create time entry:', error)
               alert('Failed to create time entry. Please try again.')
@@ -875,7 +875,7 @@ export function TimeTrackingPage() {
               }
               
               // Refresh data
-              await fetchTimeEntries({ limit: 500 })
+              await fetchTimeEntries({})
               await fetchInvoices()
               
               // Clear selection and close modal
@@ -902,7 +902,7 @@ export function TimeTrackingPage() {
             try {
               await updateTimeEntry(editingEntry.id, data)
               setEditingEntry(null)
-              await fetchTimeEntries({ limit: 500 })
+              await fetchTimeEntries({})
             } catch (error) {
               console.error('Failed to update time entry:', error)
               alert('Failed to update time entry. Please try again.')
@@ -925,7 +925,7 @@ export function TimeTrackingPage() {
               await addTimeEntry(data)
               setShowSaveTimerModal(false)
               discardTimer()
-              await fetchTimeEntries({ limit: 500 })
+              await fetchTimeEntries({})
             } catch (error) {
               console.error('Failed to save time entry:', error)
               alert('Failed to save time entry. Please try again.')
