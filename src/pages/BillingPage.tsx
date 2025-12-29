@@ -40,7 +40,7 @@ export function BillingPage() {
     fetchInvoices({ view: effectiveView })
     fetchClients({ view: effectiveView })
     fetchMatters({ view: effectiveView })
-    fetchTimeEntries({ limit: 500 })
+    fetchTimeEntries({})
   }, [viewFilter, canViewAllBilling])
   
   const [searchQuery, setSearchQuery] = useState('')

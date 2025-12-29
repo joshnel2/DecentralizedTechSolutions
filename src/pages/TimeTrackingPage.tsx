@@ -24,7 +24,7 @@ export function TimeTrackingPage() {
   // Fetch data from API on mount
   // Request a higher limit to ensure older time entries are available for invoicing
   useEffect(() => {
-    fetchTimeEntries({ limit: 500 })
+    fetchTimeEntries({})
     fetchMatters()
     fetchClients()
   }, [fetchTimeEntries, fetchMatters, fetchClients])
@@ -104,7 +104,7 @@ export function TimeTrackingPage() {
   const recentEntries = useMemo(() => {
     return [...timeEntries]
       .filter(e => parseAsLocalDate(e.date) >= sevenDaysAgo)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())  // Sort by entry date, most recent first
   }, [timeEntries, sevenDaysAgo])
 
   // Filtered recent entries based on search and filters
@@ -151,7 +151,7 @@ export function TimeTrackingPage() {
   const olderEntries = useMemo(() => {
     return [...timeEntries]
       .filter(e => parseAsLocalDate(e.date) < sevenDaysAgo)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())  // Sort by entry date, most recent first
   }, [timeEntries, sevenDaysAgo])
 
   // Filtered older entries based on search and filters
