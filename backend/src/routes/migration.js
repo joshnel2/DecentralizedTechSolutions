@@ -2411,36 +2411,36 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 // Extract hourly rate from Clio (rate field)
                 const hourlyRate = u.rate ? parseFloat(u.rate) : null;
                 
-                // Check if email already exists WITHIN THIS FIRM ONLY (not globally!)
+                // Check if user already exists WITHIN THIS FIRM - skip if so
                 let email = baseEmail;
-                const existingUser = await query(
+                const existingInFirm = await query(
                   'SELECT id FROM users WHERE firm_id = $1 AND LOWER(email) = LOWER($2)',
                   [firmId, baseEmail]
                 );
                 
-                if (existingUser.rows.length > 0) {
-                  // Email exists in THIS firm already, add Clio ID suffix
-                  const [localPart, domain] = baseEmail.split('@');
-                  email = `${localPart}+clio${u.id}@${domain}`;
-                  console.log(`[CLIO IMPORT] Email ${baseEmail} exists in this firm, using ${email}`);
+                if (existingInFirm.rows.length > 0) {
+                  // User already exists in this firm - use existing, don't create duplicate
+                  userIdMap.set(`clio:${u.id}`, existingInFirm.rows[0].id);
+                  console.log(`[CLIO IMPORT] User ${baseEmail} already exists in firm, skipping (using existing ID)`);
+                  continue;
                 }
                 
-                // Generate random password for each user
-                const randomPassword = crypto.randomBytes(8).toString('hex') + '!Aa1';
-                const passwordHash = await bcrypt.hash(randomPassword, 10);
-                
-                // Check if email exists GLOBALLY (different firm) - if so, we still insert but need unique email
+                // Check if email exists GLOBALLY (different firm) - if so, make unique
                 const globalDuplicate = await query(
                   'SELECT id, firm_id FROM users WHERE LOWER(email) = LOWER($1)',
-                  [email]
+                  [baseEmail]
                 );
                 
                 if (globalDuplicate.rows.length > 0) {
-                  // Email already exists globally - make it unique with clio ID
-                  const [localPart, domain] = email.split('@');
+                  // Email already exists in different firm - make unique with clio ID
+                  const [localPart, domain] = baseEmail.split('@');
                   email = `${localPart}+clio${u.id}@${domain}`;
-                  console.log(`[CLIO IMPORT] Email exists globally, using unique: ${email}`);
+                  console.log(`[CLIO IMPORT] Email ${baseEmail} exists globally, using unique: ${email}`);
                 }
+                
+                // Generate random password for NEW user
+                const randomPassword = crypto.randomBytes(8).toString('hex') + '!Aa1';
+                const passwordHash = await bcrypt.hash(randomPassword, 10);
                 
                 const result = await query(
                   `INSERT INTO users (firm_id, email, password_hash, first_name, last_name, role, hourly_rate, phone, is_active)
@@ -2467,7 +2467,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               }
             }
             console.log(`[CLIO IMPORT] Users skipped (no valid email): ${skippedNoEmail}`);
-            console.log('[CLIO IMPORT] Note: Passwords stored for display on portal');
+            console.log(`[CLIO IMPORT] NEW users created with passwords: ${userCredentials.length}`);
+            if (userCredentials.length > 0) {
+              console.log(`[CLIO IMPORT] First credential: ${userCredentials[0].email}`);
+            }
             // Verify users were saved
             const userVerify = await query('SELECT COUNT(*) FROM users WHERE firm_id = $1', [firmId]);
             const actualUserCount = parseInt(userVerify.rows[0].count);
