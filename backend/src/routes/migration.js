@@ -366,15 +366,18 @@ async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress,
   return allData;
 }
 
-// Fetch activities by STATUS - includes all statuses + catch-all
-// Each status can have up to 10k records
+// Fetch activities by STATUS + YEAR/MONTH - handles large datasets
+// Each status + month combination has its own 10k limit
 async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgress, matterIds = null) {
   const allData = [];
   const seenIds = new Set();
   const statuses = ['billed', 'unbilled', 'non_billable'];
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
   
-  console.log(`[CLIO API] Fetching activities by status (bypasses 10k limit)...`);
+  console.log(`[CLIO API] Fetching activities by status + date range (bypasses 10k limit)...`);
   
+  // First try fetching by status only (works if < 10k per status)
   for (const status of statuses) {
     console.log(`[CLIO API] Fetching ${status} activities...`);
     
@@ -401,7 +404,48 @@ async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgre
       if (onProgress) onProgress(allData.length);
       
     } catch (err) {
-      console.log(`[CLIO API] Error fetching ${status} activities: ${err.message}`);
+      // If we hit 10k limit, try fetching by year/month
+      if (err.message.includes('10k') || err.message.includes('out of bounds')) {
+        console.log(`[CLIO API] ${status} hit 10k limit, fetching by year/month...`);
+        
+        for (let year = 2015; year <= currentYear; year++) {
+          const maxMonth = (year === currentYear) ? currentMonth : 12;
+          
+          for (let month = 1; month <= maxMonth; month++) {
+            const monthStr = String(month).padStart(2, '0');
+            const lastDay = new Date(year, month, 0).getDate();
+            const startDate = `${year}-${monthStr}-01`;
+            const endDate = `${year}-${monthStr}-${lastDay}`;
+            
+            try {
+              const monthData = await clioGetPaginated(
+                accessToken,
+                endpoint,
+                { ...params, status, 'date[]': [`>=${startDate}`, `<=${endDate}`] },
+                null
+              );
+              
+              let newCount = 0;
+              for (const item of monthData) {
+                if (item.id && !seenIds.has(item.id)) {
+                  seenIds.add(item.id);
+                  allData.push(item);
+                  newCount++;
+                }
+              }
+              
+              if (newCount > 0) {
+                console.log(`[CLIO API] ${status} ${year}-${monthStr}: ${newCount} new, total ${allData.length}`);
+              }
+              if (onProgress) onProgress(allData.length);
+            } catch (monthErr) {
+              // Skip months with errors
+            }
+          }
+        }
+      } else {
+        console.log(`[CLIO API] Error fetching ${status} activities: ${err.message}`);
+      }
     }
   }
   
