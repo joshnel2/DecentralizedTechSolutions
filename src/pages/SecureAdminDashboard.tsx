@@ -1295,6 +1295,9 @@ export default function SecureAdminDashboard() {
         })
         const progress = await res.json()
         console.log('[CLIO] Progress update:', progress)
+        if (progress.summary?.userCredentials) {
+          console.log('[CLIO] User credentials found:', progress.summary.userCredentials.length)
+        }
         setClioProgress(progress)
         
         if (progress.status === 'completed') {
