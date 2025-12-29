@@ -77,7 +77,7 @@ export function MattersPage() {
       .then(data => setAttorneys(data.attorneys || []))
       .catch(err => console.log('Could not fetch attorneys:', err))
   }, [viewFilter])
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('active')  // Default to active matters
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
   const [showTypesManager, setShowTypesManager] = useState(false)
