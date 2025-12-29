@@ -2502,10 +2502,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 2/7: Importing contacts directly to DB...');
           updateProgress('contacts', 'running', 0);
           try {
-            // Fetch contacts with explicit sub-fields for nested objects
-            // email_addresses, phone_numbers, addresses need sub-fields specified to get data
+            // Fetch contacts - Clio returns full array data for email_addresses, phone_numbers, addresses
+            // (sub-fields syntax only works for single objects like company{id,name}, not arrays)
             const contacts = await clioGetAll(accessToken, '/contacts.json', {
-              fields: 'id,name,first_name,last_name,type,company{id,name},email_addresses{address,name,default_email},phone_numbers{number,name,default_phone},addresses{street,city,province,postal_code,name,primary}'
+              fields: 'id,name,first_name,last_name,type,company{id,name},email_addresses,phone_numbers,addresses'
             }, (count) => updateProgress('contacts', 'running', count));
             
             // Log sample to debug what Clio returns
