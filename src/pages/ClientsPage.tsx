@@ -108,7 +108,12 @@ export function ClientsPage() {
         (typeFilter === 'individual' && client.type === 'person') ||
         (typeFilter === 'organization' && client.type === 'company')
       return matchesSearch && matchesStatus && matchesType
-    }).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+    }).sort((a, b) => {
+      // Sort alphabetically by display name
+      const nameA = (a.name || a.displayName || '').toLowerCase()
+      const nameB = (b.name || b.displayName || '').toLowerCase()
+      return nameA.localeCompare(nameB)
+    })
   }, [clients, searchQuery, statusFilter, typeFilter])
 
   const getMatterCount = (clientId: string) => {
@@ -189,7 +194,6 @@ export function ClientsPage() {
               <th>Type</th>
               <th>Status</th>
               <th>Matters</th>
-              <th>Created</th>
               <th></th>
             </tr>
           </thead>
@@ -226,9 +230,6 @@ export function ClientsPage() {
                   </span>
                 </td>
                 <td>{getMatterCount(client.id)}</td>
-                <td className={styles.dateCell}>
-                  {format(parseISO(client.createdAt), 'MMM d, yyyy')}
-                </td>
                 <td>
                   <div className={styles.menuWrapper} ref={openDropdownId === client.id ? dropdownRef : null}>
                     <button 
