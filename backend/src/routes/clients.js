@@ -10,7 +10,7 @@ const FULL_ACCESS_ROLES = ['owner', 'admin', 'billing'];
 // Get all clients
 router.get('/', authenticate, requirePermission('clients:view'), async (req, res) => {
   try {
-    const { search, type, isActive, view = 'my', limit = 100, offset = 0 } = req.query;
+    const { search, type, isActive, view = 'my', limit = 10000, offset = 0 } = req.query;  // No practical limit
     
     let sql = `
       SELECT c.*, 

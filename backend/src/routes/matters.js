@@ -28,7 +28,7 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
     const { 
       search, status, type, clientId, assignedTo, priority, visibility,
       view = 'my', // 'my' = only my matters, 'all' = all matters I can see
-      limit = 100, offset = 0 
+      limit = 10000, offset = 0  // No practical limit - show all matters
     } = req.query;
     
     // Check if originating_attorney column exists
