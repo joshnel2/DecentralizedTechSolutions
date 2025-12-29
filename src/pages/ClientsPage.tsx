@@ -1,20 +1,34 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
+import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
-import { Plus, Search, Users, Building2, User, MoreVertical, Sparkles, Eye, Edit2, Trash2, Archive } from 'lucide-react'
+import { Plus, Search, Users, Building2, User, MoreVertical, Sparkles, Eye, Edit2, Trash2, Archive, Briefcase } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './ListPages.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 
+// View options - "All Clients" only available to admins
+const getViewOptions = (isAdmin: boolean) => {
+  const options = [{ value: 'my', label: 'My Clients' }]
+  if (isAdmin) {
+    options.push({ value: 'all', label: 'All Clients' })
+  }
+  return options
+}
+
 export function ClientsPage() {
   const { clients, matters, addClient, updateClient, deleteClient, fetchClients, fetchMatters } = useDataStore()
+  const { user } = useAuthStore()
   const { openChat } = useAIChat()
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState('')
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const [viewFilter, setViewFilter] = useState<'my' | 'all'>('my')
+  
+  const isAdmin = user?.role === 'owner' || user?.role === 'admin'
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -27,11 +41,11 @@ export function ClientsPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Fetch data when component mounts - always show user's own clients only
+  // Fetch data when component mounts or view filter changes
   useEffect(() => {
-    fetchClients({ view: 'my' })
+    fetchClients({ view: viewFilter })
     fetchMatters({ view: 'my' })
-  }, [])
+  }, [viewFilter])
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
@@ -124,8 +138,8 @@ export function ClientsPage() {
     <div className={styles.page}>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <h1>My Clients</h1>
-          <span className={styles.count}>{clients.length} clients</span>
+          <h1>{viewFilter === 'my' ? 'My Clients' : 'All Clients'}</h1>
+          <span className={styles.count}>{filteredClients.length} {viewFilter === 'my' ? 'assigned to you' : 'total'}</span>
         </div>
         <div className={styles.headerActions}>
           <button 
@@ -153,6 +167,20 @@ export function ClientsPage() {
       </div>
 
       <div className={styles.filters}>
+        {/* View Toggle - My Clients vs All Clients (All Clients only for admins) */}
+        <div className={styles.viewToggle}>
+          {getViewOptions(isAdmin).map(opt => (
+            <button
+              key={opt.value}
+              className={clsx(styles.viewToggleBtn, viewFilter === opt.value && styles.active)}
+              onClick={() => setViewFilter(opt.value as 'my' | 'all')}
+            >
+              {opt.value === 'my' ? <Users size={14} /> : <Briefcase size={14} />}
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
         <div className={styles.searchBox}>
           <Search size={18} />
           <input

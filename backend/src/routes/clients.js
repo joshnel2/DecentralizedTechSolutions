@@ -10,7 +10,11 @@ const FULL_ACCESS_ROLES = ['owner', 'admin', 'billing'];
 // Get all clients
 router.get('/', authenticate, requirePermission('clients:view'), async (req, res) => {
   try {
-    const { search, type, isActive, view = 'my', limit = 1000000, offset = 0 } = req.query;  // No limit
+    const { search, type, isActive, view: requestedView = 'my', limit = 1000000, offset = 0 } = req.query;  // No limit
+    
+    // Only admins/owners can view "all" clients - everyone else forced to "my"
+    const isAdmin = req.user.role === 'owner' || req.user.role === 'admin';
+    const view = (requestedView === 'all' && !isAdmin) ? 'my' : requestedView;
     
     let sql = `
       SELECT c.*, 
