@@ -744,13 +744,13 @@ const parseDateTime = (dateTimeStr) => {
 
 /**
  * Extract primary email from Clio email_addresses array
- * Clio format: [{address: "email@example.com", name: "Work", default_email: true}]
+ * Clio format: [{address: "email@example.com", name: "Work", primary: true}]
  */
 const extractEmail = (emailAddresses, fallbackEmail) => {
   if (fallbackEmail && typeof fallbackEmail === 'string') return fallbackEmail;
   if (!emailAddresses || !Array.isArray(emailAddresses)) return null;
   
-  const defaultEmail = emailAddresses.find(e => e.default_email);
+  const defaultEmail = emailAddresses.find(e => e.primary);
   if (defaultEmail) return defaultEmail.address;
   if (emailAddresses.length > 0) return emailAddresses[0].address;
   return null;
@@ -758,13 +758,13 @@ const extractEmail = (emailAddresses, fallbackEmail) => {
 
 /**
  * Extract primary phone from Clio phone_numbers array
- * Clio format: [{number: "555-123-4567", name: "Mobile", default_phone: true}]
+ * Clio format: [{number: "555-123-4567", name: "Mobile", primary: true}]
  */
 const extractPhone = (phoneNumbers, fallbackPhone) => {
   if (fallbackPhone && typeof fallbackPhone === 'string') return fallbackPhone;
   if (!phoneNumbers || !Array.isArray(phoneNumbers)) return null;
   
-  const defaultPhone = phoneNumbers.find(p => p.default_phone);
+  const defaultPhone = phoneNumbers.find(p => p.primary);
   if (defaultPhone) return defaultPhone.number;
   if (phoneNumbers.length > 0) return phoneNumbers[0].number;
   return null;
@@ -2512,8 +2512,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               try {
                 const isCompany = c.type === 'Company';
                 const displayName = c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown';
-                const primaryEmail = c.email_addresses?.find(e => e.default_email) || c.email_addresses?.[0];
-                const primaryPhone = c.phone_numbers?.find(p => p.default_phone) || c.phone_numbers?.[0];
+                const primaryEmail = c.email_addresses?.find(e => e.primary) || c.email_addresses?.[0];
+                const primaryPhone = c.phone_numbers?.find(p => p.primary) || c.phone_numbers?.[0];
                 const primaryAddr = c.addresses?.find(a => a.primary) || c.addresses?.[0];
                 
                 // Build notes with ALL contact info from Clio
