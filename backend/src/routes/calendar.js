@@ -7,7 +7,7 @@ const router = Router();
 // Get events
 router.get('/', authenticate, requirePermission('calendar:view'), async (req, res) => {
   try {
-    const { startDate, endDate, matterId, type, limit = 10000, offset = 0 } = req.query;  // No practical limit
+    const { startDate, endDate, matterId, type, limit = 1000000, offset = 0 } = req.query;  // No limit
     
     // Check if user is admin/owner - they see all firm events
     const isAdmin = ['owner', 'admin'].includes(req.user.role);

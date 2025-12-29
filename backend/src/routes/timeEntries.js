@@ -10,7 +10,7 @@ router.get('/', authenticate, requirePermission('billing:view'), async (req, res
   try {
     const { 
       matterId, userId, startDate, endDate, billable, billed, status,
-      limit = 10000, offset = 0  // No practical limit
+      limit = 1000000, offset = 0  // No limit
     } = req.query;
     
     // Check if user is admin/owner - they see all firm data

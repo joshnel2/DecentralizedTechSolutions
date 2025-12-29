@@ -11,7 +11,7 @@ const FULL_ACCESS_ROLES = ['owner', 'admin', 'billing'];
 // Get invoices
 router.get('/', authenticate, requirePermission('billing:view'), async (req, res) => {
   try {
-    const { clientId, matterId, status, view = 'my', limit = 10000, offset = 0 } = req.query;  // No practical limit
+    const { clientId, matterId, status, view = 'my', limit = 1000000, offset = 0 } = req.query;  // No limit
     
     // Enforce role-based access: only privileged roles can view all invoices
     // Other roles are forced to 'my' view regardless of what they request
