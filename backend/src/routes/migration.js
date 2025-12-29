@@ -2497,6 +2497,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             
             // Log samples to debug what Clio returns for email/phone
             if (contacts.length > 0) {
+              // Log RAW first contact to see exactly what Clio returns
+              console.log(`[CLIO IMPORT] RAW first contact from Clio API:`);
+              console.log(JSON.stringify(contacts[0], null, 2));
+              
               console.log(`[CLIO IMPORT] First 3 contacts with email/phone data:`);
               for (let i = 0; i < Math.min(3, contacts.length); i++) {
                 const c = contacts[i];
