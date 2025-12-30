@@ -224,7 +224,7 @@ export default function SecureAdminDashboard() {
   
   const [clioProgress, setClioProgress] = useState<{
     status: string;
-    steps?: Record<string, { status: string; count: number }>;
+    steps?: Record<string, { status: string; count: number; error?: string }>;
     summary?: {
       users?: number;
       contacts?: number;
@@ -234,9 +234,11 @@ export default function SecureAdminDashboard() {
       calendar?: number;
       calendar_entries?: number;
       notes?: number;
-      warnings?: number;
+      warnings?: string[];
       userCredentials?: { email: string; firstName: string; lastName: string; name: string; password: string; role: string }[];
     };
+    logs?: string[];
+    error?: string;
   } | null>(null)
   
   // Check for Clio OAuth callback on mount
@@ -1379,6 +1381,46 @@ export default function SecureAdminDashboard() {
     showNotification('success', 'Copied to clipboard')
   }
 
+  // Generate random password
+  const generateRandomPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%'
+    let password = ''
+    for (let i = 0; i < 12; i++) {
+      password += chars.charAt(Math.floor(Math.random() * chars.length))
+    }
+    return password
+  }
+
+  // Reset password and copy credentials for a user
+  const resetPasswordAndCopy = async (user: User) => {
+    const newPass = generateRandomPassword()
+    
+    try {
+      const res = await fetch(`${API_URL}/secure-admin/account-tools/reset-password`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ userId: user.id, newPassword: newPass })
+      })
+
+      if (res.ok) {
+        const welcomeMessage = `Dear ${user.first_name},
+
+\tWelcome to Strapped AI! Your login details are below. Get comfortable with your Apex AI, and navigate to the integrations page to link your email account and your calendar. If you have any questions feel free to reach out to us at admin@strappedai.com.
+
+Username: ${user.email}
+Password: ${newPass}`
+        
+        await navigator.clipboard.writeText(welcomeMessage)
+        showNotification('success', `Password reset for ${user.email}. Welcome email copied to clipboard!`)
+      } else {
+        const data = await res.json()
+        showNotification('error', data.error || 'Failed to reset password')
+      }
+    } catch (error) {
+      showNotification('error', 'Failed to reset password')
+    }
+  }
+
   return (
     <div className={styles.container}>
       {/* Notification Toast */}
@@ -2170,6 +2212,14 @@ export default function SecureAdminDashboard() {
                                 <ExternalLink size={14} />
                               </button>
                               <button 
+                                onClick={() => resetPasswordAndCopy(user)}
+                                className={styles.viewBtn}
+                                title="Reset password & copy welcome email"
+                                style={{ background: '#8B5CF6' }}
+                              >
+                                <Key size={14} />
+                              </button>
+                              <button 
                                 onClick={() => { setEditingUser(user); setShowUserModal(true) }}
                                 className={styles.editBtn}
                                 title="Edit user"
@@ -2479,7 +2529,9 @@ export default function SecureAdminDashboard() {
                                           ) : info.status === 'running' ? (
                                             <><RefreshCw size={16} className={styles.spinner} /> {info.count}...</>
                                           ) : info.status === 'error' ? (
-                                            <><XCircle size={16} /> Error</>
+                                            <><XCircle size={16} /> Error: {info.error || 'Unknown'}</>
+                                          ) : info.status === 'skipped' ? (
+                                            <><X size={16} /> Skipped</>
                                           ) : (
                                             <><Clock size={16} /> Pending</>
                                           )}
@@ -2487,18 +2539,47 @@ export default function SecureAdminDashboard() {
                                       </div>
                                     ))}
                                   </div>
+                                  
+                                  {/* Migration Logs */}
+                                  {clioProgress.logs && clioProgress.logs.length > 0 && (
+                                    <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#1a1a2e', borderRadius: '8px', maxHeight: '200px', overflow: 'auto' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                                        <strong style={{ fontSize: '0.875rem', color: '#888' }}>Migration Log</strong>
+                                        <button 
+                                          onClick={() => copyToClipboard(clioProgress.logs?.join('\n') || '')}
+                                          style={{ background: 'none', border: 'none', color: '#8B5CF6', cursor: 'pointer', fontSize: '0.75rem' }}
+                                        >
+                                          <Copy size={12} /> Copy
+                                        </button>
+                                      </div>
+                                      <pre style={{ fontSize: '0.75rem', color: '#ccc', margin: 0, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                                        {clioProgress.logs.slice(-20).join('\n')}
+                                      </pre>
+                                    </div>
+                                  )}
                                   {clioProgress.status === 'completed' && clioProgress.summary && (
                                     <>
-                                      <div className={styles.clioSummary}>
-                                        <CheckCircle2 size={24} />
+                                      <div className={styles.clioSummary} style={{ background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)', padding: '1.5rem', borderRadius: '12px', marginBottom: '1rem' }}>
+                                        <CheckCircle2 size={32} />
                                         <div>
-                                          <strong>Import Complete!</strong>
-                                          <p>
-                                            {clioProgress.summary.users} users, {clioProgress.summary.contacts} contacts, 
+                                          <strong style={{ fontSize: '1.25rem' }}>🎉 Migration Complete!</strong>
+                                          <p style={{ marginTop: '0.5rem', opacity: 0.9 }}>
+                                            Successfully imported: {clioProgress.summary.users} users, {clioProgress.summary.contacts} contacts, 
                                             {clioProgress.summary.matters} matters, {clioProgress.summary.activities} time entries,
                                             {clioProgress.summary.bills} bills, {clioProgress.summary.calendar_entries || clioProgress.summary.calendar} calendar events
                                           </p>
                                         </div>
+                                      </div>
+                                      
+                                      {/* Start New Migration Button */}
+                                      <div style={{ marginBottom: '1rem', textAlign: 'right' }}>
+                                        <button 
+                                          onClick={disconnectClio}
+                                          className={styles.secondaryBtn}
+                                          style={{ marginRight: '0.5rem' }}
+                                        >
+                                          <Plus size={16} /> Start New Migration
+                                        </button>
                                       </div>
                                       
                                       {/* User Credentials Section */}
