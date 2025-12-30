@@ -467,15 +467,15 @@ export function AIAssistantPage() {
                     {liveTaskProgress.status === 'running' && (
                       <button 
                         className={styles.stopAgentBtn}
-                        onClick={async () => {
-                          // Immediately update UI - don't wait for API
-                          setLiveTaskProgress({ ...liveTaskProgress, status: 'cancelled' })
-                          try {
-                            await aiApi.cancelTask(liveTaskProgress.id)
-                          } catch (e) {
+                        onClick={() => {
+                          const taskId = liveTaskProgress.id
+                          // Immediately clear UI - don't wait for API
+                          setLiveTaskProgress(null)
+                          setActiveTaskId(null)
+                          // Fire API call in background
+                          aiApi.cancelTask(taskId).catch((e) => {
                             console.error('Failed to cancel:', e)
-                            // Keep UI in cancelled state even if API fails
-                          }
+                          })
                         }}
                       >
                         <StopCircle size={16} />

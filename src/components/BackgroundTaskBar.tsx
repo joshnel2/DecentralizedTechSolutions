@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bot, X, CheckCircle, AlertCircle, StopCircle, Loader2, ExternalLink } from 'lucide-react'
+import { Bot, X, CheckCircle, AlertCircle, StopCircle, ExternalLink } from 'lucide-react'
 import { aiApi } from '../services/api'
 import styles from './BackgroundTaskBar.module.css'
 
@@ -34,7 +34,6 @@ export function BackgroundTaskBar() {
   const [isComplete, setIsComplete] = useState(false)
   const [hasError, setHasError] = useState(false)
   const [polling, setPolling] = useState(false)
-  const [cancelling, setCancelling] = useState(false)
 
   // Track consecutive errors
   const [errorCount, setErrorCount] = useState(0)
@@ -164,65 +163,27 @@ export function BackgroundTaskBar() {
   const handleDismiss = () => {
     setActiveTask(null)
     setPolling(false)
-    setCancelling(false)
     setIsComplete(false)
     setHasError(false)
     setErrorCount(0)
   }
 
-  const handleCancel = async () => {
-    if (!activeTask || cancelling || isComplete) return
+  const handleCancel = () => {
+    if (!activeTask) return
     
-    setCancelling(true)
+    const taskId = activeTask.id
     
-    // IMMEDIATELY stop polling and update UI - don't wait for API
+    // IMMEDIATELY clear everything - no waiting
+    setActiveTask(null)
     setPolling(false)
-    setActiveTask({
-      ...activeTask,
-      status: 'cancelled',
-      currentStep: 'Cancelling...'
-    })
+    setIsComplete(false)
+    setHasError(false)
+    setErrorCount(0)
     
-    try {
-      await aiApi.cancelTask(activeTask.id)
-      // Update to show successfully cancelled
-      setActiveTask(prev => prev ? {
-        ...prev,
-        status: 'cancelled',
-        currentStep: 'Cancelled by user'
-      } : null)
-      setIsComplete(true)
-      
-      // Notify user
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('Background Task Cancelled', {
-          body: `${activeTask.goal} - Progress saved`,
-          icon: '/favicon.svg'
-        })
-      }
-    } catch (error) {
+    // Fire API call in background - don't wait for it
+    aiApi.cancelTask(taskId).catch((error) => {
       console.error('Error cancelling task:', error)
-      // Even if API fails, keep UI in cancelled state - user wanted to stop
-      // This prevents the loading loop from continuing
-      setActiveTask(prev => prev ? {
-        ...prev,
-        status: 'cancelled',
-        currentStep: 'Cancelled (cleanup pending)'
-      } : null)
-      setIsComplete(true)
-    } finally {
-      setCancelling(false)
-    }
-  }
-
-  // Force stop - immediately clears everything without waiting for API
-  const handleForceStop = () => {
-    // Try to cancel on backend but don't wait
-    if (activeTask) {
-      aiApi.cancelTask(activeTask.id).catch(() => {})
-    }
-    // Immediately clear UI
-    handleDismiss()
+    })
   }
 
   // Only render when there's an active task
@@ -283,16 +244,15 @@ export function BackgroundTaskBar() {
             </div>
           </button>
 
-          {/* Cancel button - only visible while running */}
+          {/* Stop button - only visible while running */}
           {!isComplete && !hasError && !isCancelled && (
             <button 
               onClick={handleCancel} 
               className={styles.cancelBtn}
-              disabled={cancelling}
-              title="Cancel task (progress will be saved)"
+              title="Stop task immediately"
             >
-              {cancelling ? <Loader2 size={14} className={styles.spinning} /> : <StopCircle size={14} />}
-              {cancelling ? 'Stopping...' : 'Stop'}
+              <StopCircle size={14} />
+              Stop
             </button>
           )}
 
@@ -305,11 +265,11 @@ export function BackgroundTaskBar() {
             {isComplete || isCancelled ? 'View Summary' : 'View Progress'}
           </button>
 
-          {/* Dismiss button - now acts as force stop when task is running */}
+          {/* Dismiss/Stop button - immediately clears the bar */}
           <button 
-            onClick={isComplete || isCancelled ? handleDismiss : handleForceStop} 
+            onClick={isComplete || isCancelled ? handleDismiss : handleCancel} 
             className={styles.dismissBtn}
-            title={isComplete || isCancelled ? 'Dismiss' : 'Force stop and dismiss'}
+            title={isComplete || isCancelled ? 'Dismiss' : 'Stop and dismiss'}
           >
             <X size={16} />
           </button>
