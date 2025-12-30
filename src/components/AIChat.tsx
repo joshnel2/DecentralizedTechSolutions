@@ -234,32 +234,22 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         } : {})
       }
       
-      // Choose endpoint based on background agent toggle
-      if (useBackgroundAgent) {
-        // Use AI Agent with function calling (can take actions, run background tasks)
-        response = await aiApi.agentChat(
-          text || `Analyze and summarize this document: ${currentFile?.name}`, 
-          conversationHistory, 
-          fileContext,
-          true // Force background agent mode
-        )
-      } else {
-        // Use simple chat endpoint (no function calling, just conversation)
-        response = await aiApi.chat(
-          text || `Analyze and summarize this document: ${currentFile?.name}`,
-          currentPage,
-          { ...mergedContext, ...fileContext },
-          conversationHistory
-        )
-      }
+      // Always use AI Agent with function calling (can take actions!)
+      // The useBackgroundAgent flag enables long-running background tasks with progress bar
+      response = await aiApi.agentChat(
+        text || `Analyze and summarize this document: ${currentFile?.name}`, 
+        conversationHistory, 
+        fileContext,
+        useBackgroundAgent // When ON, enables background tasks with progress bar
+      )
 
       const assistantMessage: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
         content: response.response,
         timestamp: new Date(),
-        toolsUsed: response.toolsUsed || false,
-        backgroundTaskStarted: response.backgroundTaskStarted || false,
+        toolsUsed: response.toolsUsed,
+        backgroundTaskStarted: response.backgroundTaskStarted,
         backgroundTask: response.backgroundTask,
         navigation: response.navigation,
       }
