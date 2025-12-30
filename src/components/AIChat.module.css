@@ -154,54 +154,6 @@
   background: rgba(16, 185, 129, 0.25);
 }
 
-.toggleWrapper {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.toggleLabel {
-  font-size: 11px;
-  color: #64748B;
-  font-weight: 500;
-}
-
-.toggleSwitch {
-  width: 36px;
-  height: 20px;
-  background: rgba(255, 255, 255, 0.15);
-  border: none;
-  border-radius: 10px;
-  cursor: pointer;
-  position: relative;
-  transition: all 0.2s;
-}
-
-.toggleSwitch:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.toggleSwitch.toggleOn {
-  background: #A855F7;
-}
-
-.toggleKnob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  background: white;
-  border-radius: 50%;
-  transition: all 0.2s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-}
-
-.toggleSwitch.toggleOn .toggleKnob {
-  left: 18px;
-}
-
 .actionTaken {
   display: inline-flex;
   align-items: center;
@@ -621,22 +573,6 @@
   color: #F59E0B;
   font-size: 12px;
   margin-bottom: 8px;
-}
-
-.backgroundAgentDeployed {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  background: rgba(147, 51, 234, 0.2);
-  border: 1px solid rgba(147, 51, 234, 0.4);
-  border-radius: 6px;
-  color: #A855F7;
-  font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 8px;
-  animation: pulse 2s infinite;
-  transform: none;
 }
 
 /* Scrollbar styling */
