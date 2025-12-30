@@ -2583,11 +2583,11 @@ Password: ${newPass}`
                                       </div>
                                       
                                       {/* User Credentials Section */}
-                                      {Array.isArray(clioProgress.summary.userCredentials) && clioProgress.summary.userCredentials.length > 0 && (
-                                        <div className={styles.credentialsSection} style={{ marginTop: '1rem' }}>
+                                      {Array.isArray(clioProgress.summary.userCredentials) && clioProgress.summary.userCredentials.length > 0 ? (
+                                        <div className={styles.credentialsSection} style={{ marginTop: '1rem', border: '2px solid #F59E0B', background: 'rgba(245, 158, 11, 0.1)' }}>
                                           <div className={styles.credentialsHeader}>
                                             <Key size={20} />
-                                            <h4>User Login Credentials</h4>
+                                            <h4>🔐 User Login Credentials ({clioProgress.summary.userCredentials.length} users)</h4>
                                             <button 
                                               onClick={() => {
                                                 const creds = clioProgress.summary?.userCredentials as { email: string; firstName: string; name: string; password: string; role: string }[]
@@ -2602,8 +2602,8 @@ Password: ${newPass}`
                                               Copy All
                                             </button>
                                           </div>
-                                          <p className={styles.credentialsNote}>
-                                            ⚠️ Save these passwords now! They cannot be retrieved later.
+                                          <p className={styles.credentialsNote} style={{ background: '#FEF3C7', color: '#92400E', padding: '0.75rem', borderRadius: '8px', fontWeight: 600 }}>
+                                            ⚠️ IMPORTANT: Save these passwords now! They cannot be retrieved later.
                                           </p>
                                           <div className={styles.credentialsList}>
                                             {(clioProgress.summary.userCredentials as { email: string; firstName: string; lastName: string; name: string; password: string; role: string }[]).map((cred, idx) => (
@@ -2651,6 +2651,16 @@ Password: ${cred.password}`
                                               </div>
                                             ))}
                                           </div>
+                                        </div>
+                                      ) : (
+                                        <div style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(100, 100, 100, 0.1)', borderRadius: '8px' }}>
+                                          <p style={{ color: '#888', margin: 0 }}>
+                                            ℹ️ No new user accounts were created. Users may have been skipped due to missing email addresses, 
+                                            or imported to an existing firm where accounts already existed.
+                                          </p>
+                                          <p style={{ color: '#888', marginTop: '0.5rem', fontSize: '0.875rem' }}>
+                                            To reset a user's password, go to the <strong>Users</strong> tab and click the 🔑 key icon next to any user.
+                                          </p>
                                         </div>
                                       )}
                                     </>
