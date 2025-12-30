@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bot, X, CheckCircle, AlertCircle, StopCircle, Loader2, ExternalLink } from 'lucide-react'
 import { aiApi } from '../services/api'
+import { featureFlags } from '../config/featureFlags'
 import styles from './BackgroundTaskBar.module.css'
 
 interface SubTaskProgress {
@@ -39,8 +40,15 @@ export function BackgroundTaskBar() {
   // Track consecutive errors
   const [errorCount, setErrorCount] = useState(0)
   
+  // Check if background agent feature is enabled
+  const isFeatureEnabled = featureFlags.BACKGROUND_AGENT_ENABLED
+  
   // Request notification permission and check for existing tasks on mount
+  // Only runs if feature is enabled
   useEffect(() => {
+    // Skip if feature is disabled
+    if (!isFeatureEnabled) return
+    
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission()
     }
@@ -58,7 +66,7 @@ export function BackgroundTaskBar() {
       }
     }
     checkExistingTask()
-  }, [])
+  }, [isFeatureEnabled])
   
   // Check task status
   const checkActiveTask = useCallback(async () => {
