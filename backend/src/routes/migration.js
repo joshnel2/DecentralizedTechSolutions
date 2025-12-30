@@ -2710,10 +2710,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 2/7: Importing contacts directly to DB...');
           updateProgress('contacts', 'running', 0);
           try {
-            // Fetch contacts - use primary_email_address, primary_phone_number, primary_address
-            // These are the correct Clio API v4 field names for inline contact info
+            // Fetch contacts - try ALL possible field syntaxes for email/phone
+            // Clio API is inconsistent - some accounts need arrays, some need primary_ fields
             const contacts = await clioGetAll(accessToken, '/contacts.json', {
-              fields: 'id,name,first_name,last_name,type,company{id,name},primary_email_address,primary_phone_number,primary_address'
+              fields: 'id,name,first_name,last_name,type,company{id,name},primary_email_address{address,name},primary_phone_number{number,name},primary_address{street,city,province,postal_code},email_addresses{address,name,primary},phone_numbers{number,name,primary},addresses{street,city,province,postal_code,primary}'
             }, (count) => updateProgress('contacts', 'running', count));
             
             // Log samples to debug what Clio returns for email/phone
@@ -2727,9 +2727,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const c = contacts[i];
                 console.log(`[CLIO IMPORT]   Contact ${i+1}: name="${c.name}", email=${JSON.stringify(c.primary_email_address)}, phone=${JSON.stringify(c.primary_phone_number)}`);
               }
-              // Also count how many have email/phone using correct field names
-              const withEmail = contacts.filter(c => c.primary_email_address?.address).length;
-              const withPhone = contacts.filter(c => c.primary_phone_number?.number).length;
+              // Also count how many have email/phone - check both field syntaxes
+              const withEmail = contacts.filter(c => c.primary_email_address?.address || c.email_addresses?.[0]?.address).length;
+              const withPhone = contacts.filter(c => c.primary_phone_number?.number || c.phone_numbers?.[0]?.number).length;
               console.log(`[CLIO IMPORT] Contacts with email: ${withEmail}/${contacts.length}, with phone: ${withPhone}/${contacts.length}`);
               addLog(`Fetched ${contacts.length} contacts from Clio (${withEmail} with email, ${withPhone} with phone)`);
             }
@@ -2739,10 +2739,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const isCompany = c.type === 'Company';
                 const displayName = c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown';
                 
-                // Use correct Clio API v4 field names: primary_email_address, primary_phone_number, primary_address
-                const primaryEmail = c.primary_email_address;
-                const primaryPhone = c.primary_phone_number;
-                const primaryAddr = c.primary_address;
+                // Try both Clio field syntaxes: primary_* fields OR *_arrays
+                const primaryEmail = c.primary_email_address || c.email_addresses?.find(e => e.primary) || c.email_addresses?.[0];
+                const primaryPhone = c.primary_phone_number || c.phone_numbers?.find(p => p.primary) || c.phone_numbers?.[0];
+                const primaryAddr = c.primary_address || c.addresses?.find(a => a.primary) || c.addresses?.[0];
                 
                 // Build notes with contact info from Clio
                 const notesParts = [];
