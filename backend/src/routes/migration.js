@@ -2239,16 +2239,43 @@ router.get('/clio/diagnose/:connectionId', requireSecureAdmin, async (req, res) 
       errors: []
     };
     
-    // 1. FETCH SAMPLE CONTACTS (first 5)
+    // 1. FETCH SAMPLE CONTACTS - Try multiple field syntaxes to find what works
     try {
-      console.log('[CLIO DIAGNOSE] Fetching sample contacts...');
-      const contactsResponse = await clioRequest(accessToken, '/contacts.json', {
-        fields: 'id,name,first_name,last_name,type,company,primary_email_address,primary_phone_number,primary_address,created_at,updated_at',
-        limit: 5
-      });
+      console.log('[CLIO DIAGNOSE] Fetching sample contacts with different field syntaxes...');
       
-      results.contacts.raw = contactsResponse.data || [];
-      results.contacts.totalAvailable = contactsResponse.meta?.paging?.records || 'unknown';
+      // Try syntax 1: Simple field names
+      const response1 = await clioRequest(accessToken, '/contacts.json', {
+        fields: 'id,name,primary_email_address,primary_phone_number',
+        limit: 3
+      });
+      results.contacts.syntax1_simple = {
+        fields: 'primary_email_address,primary_phone_number',
+        sample: response1.data?.[0] || null
+      };
+      
+      // Try syntax 2: Nested field syntax
+      const response2 = await clioRequest(accessToken, '/contacts.json', {
+        fields: 'id,name,primary_email_address{address,name},primary_phone_number{number,name}',
+        limit: 3
+      });
+      results.contacts.syntax2_nested = {
+        fields: 'primary_email_address{address,name},primary_phone_number{number,name}',
+        sample: response2.data?.[0] || null
+      };
+      
+      // Try syntax 3: email_addresses array (the old way)
+      const response3 = await clioRequest(accessToken, '/contacts.json', {
+        fields: 'id,name,email_addresses,phone_numbers',
+        limit: 3
+      });
+      results.contacts.syntax3_arrays = {
+        fields: 'email_addresses,phone_numbers',
+        sample: response3.data?.[0] || null
+      };
+      
+      // Use response1 for main analysis
+      results.contacts.raw = response1.data || [];
+      results.contacts.totalAvailable = response1.meta?.paging?.records || 'unknown';
       
       // Analyze what fields are present
       const contactAnalysis = {
@@ -2258,23 +2285,42 @@ router.get('/clio/diagnose/:connectionId', requireSecureAdmin, async (req, res) 
         withAddresses: 0,
         fieldsPresent: new Set(),
         sampleEmailFormat: null,
-        samplePhoneFormat: null
+        samplePhoneFormat: null,
+        recommendation: ''
       };
+      
+      // Check which syntax returned data
+      const s1 = results.contacts.syntax1_simple?.sample;
+      const s2 = results.contacts.syntax2_nested?.sample;
+      const s3 = results.contacts.syntax3_arrays?.sample;
+      
+      if (s1?.primary_email_address?.address) {
+        contactAnalysis.recommendation = 'Use: primary_email_address (simple syntax works)';
+      } else if (s2?.primary_email_address?.address) {
+        contactAnalysis.recommendation = 'Use: primary_email_address{address,name} (nested syntax required)';
+      } else if (s3?.email_addresses?.length > 0) {
+        contactAnalysis.recommendation = 'Use: email_addresses array (old syntax works)';
+      } else {
+        contactAnalysis.recommendation = 'NONE of the syntaxes returned email data - check API permissions';
+      }
       
       for (const c of results.contacts.raw) {
         Object.keys(c).forEach(k => contactAnalysis.fieldsPresent.add(k));
         
-        // Use correct Clio API v4 field names
-        if (c.primary_email_address?.address) {
+        // Check all possible field names
+        const hasEmail = c.primary_email_address?.address || c.email_addresses?.[0]?.address;
+        const hasPhone = c.primary_phone_number?.number || c.phone_numbers?.[0]?.number;
+        
+        if (hasEmail) {
           contactAnalysis.withEmailAddresses++;
           if (!contactAnalysis.sampleEmailFormat) {
-            contactAnalysis.sampleEmailFormat = c.primary_email_address;
+            contactAnalysis.sampleEmailFormat = c.primary_email_address || c.email_addresses?.[0];
           }
         }
-        if (c.primary_phone_number?.number) {
+        if (hasPhone) {
           contactAnalysis.withPhoneNumbers++;
           if (!contactAnalysis.samplePhoneFormat) {
-            contactAnalysis.samplePhoneFormat = c.primary_phone_number;
+            contactAnalysis.samplePhoneFormat = c.primary_phone_number || c.phone_numbers?.[0];
           }
         }
         if (c.primary_address?.street || c.primary_address?.city) {
