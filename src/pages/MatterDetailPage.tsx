@@ -92,7 +92,8 @@ export function MatterDetailPage() {
   const [loadingContacts, setLoadingContacts] = useState(true)
   const [showShareModal, setShowShareModal] = useState(false)
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false)
-  const { user } = useAuthStore()
+  const { user, hasPermission } = useAuthStore()
+  const canDeleteMatters = hasPermission('matters:delete')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   
@@ -794,14 +795,18 @@ Only analyze documents actually associated with this matter.`
                       Archive / Close
                     </button>
                   )}
-                  <div className={styles.dropdownDivider} />
-                  <button 
-                    className={clsx(styles.dropdownItem, styles.danger)}
-                    onClick={handleDeleteMatter}
-                  >
-                    <Trash2 size={14} />
-                    Delete Matter
-                  </button>
+                  {canDeleteMatters && (
+                    <>
+                      <div className={styles.dropdownDivider} />
+                      <button 
+                        className={clsx(styles.dropdownItem, styles.danger)}
+                        onClick={handleDeleteMatter}
+                      >
+                        <Trash2 size={14} />
+                        Delete Matter
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
