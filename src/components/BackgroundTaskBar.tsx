@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bot, X, CheckCircle, AlertCircle, StopCircle, Loader2, ExternalLink } from 'lucide-react'
 import { aiApi } from '../services/api'
-import { featureFlags } from '../config/featureFlags'
 import styles from './BackgroundTaskBar.module.css'
 
 interface SubTaskProgress {
@@ -40,15 +39,8 @@ export function BackgroundTaskBar() {
   // Track consecutive errors
   const [errorCount, setErrorCount] = useState(0)
   
-  // Check if background agent feature is enabled
-  const isFeatureEnabled = featureFlags.BACKGROUND_AGENT_ENABLED
-  
   // Request notification permission and check for existing tasks on mount
-  // Only runs if feature is enabled
   useEffect(() => {
-    // Skip if feature is disabled
-    if (!isFeatureEnabled) return
-    
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission()
     }
@@ -66,7 +58,7 @@ export function BackgroundTaskBar() {
       }
     }
     checkExistingTask()
-  }, [isFeatureEnabled])
+  }, [])
   
   // Check task status
   const checkActiveTask = useCallback(async () => {
@@ -173,22 +165,33 @@ export function BackgroundTaskBar() {
     setActiveTask(null)
     setPolling(false)
     setCancelling(false)
+    setIsComplete(false)
+    setHasError(false)
+    setErrorCount(0)
   }
 
   const handleCancel = async () => {
     if (!activeTask || cancelling || isComplete) return
     
     setCancelling(true)
+    
+    // IMMEDIATELY stop polling and update UI - don't wait for API
+    setPolling(false)
+    setActiveTask({
+      ...activeTask,
+      status: 'cancelled',
+      currentStep: 'Cancelling...'
+    })
+    
     try {
       await aiApi.cancelTask(activeTask.id)
-      // Update local state to show cancelled
-      setActiveTask({
-        ...activeTask,
+      // Update to show successfully cancelled
+      setActiveTask(prev => prev ? {
+        ...prev,
         status: 'cancelled',
         currentStep: 'Cancelled by user'
-      })
+      } : null)
       setIsComplete(true)
-      setPolling(false)
       
       // Notify user
       if ('Notification' in window && Notification.permission === 'granted') {
@@ -199,8 +202,27 @@ export function BackgroundTaskBar() {
       }
     } catch (error) {
       console.error('Error cancelling task:', error)
+      // Even if API fails, keep UI in cancelled state - user wanted to stop
+      // This prevents the loading loop from continuing
+      setActiveTask(prev => prev ? {
+        ...prev,
+        status: 'cancelled',
+        currentStep: 'Cancelled (cleanup pending)'
+      } : null)
+      setIsComplete(true)
+    } finally {
       setCancelling(false)
     }
+  }
+
+  // Force stop - immediately clears everything without waiting for API
+  const handleForceStop = () => {
+    // Try to cancel on backend but don't wait
+    if (activeTask) {
+      aiApi.cancelTask(activeTask.id).catch(() => {})
+    }
+    // Immediately clear UI
+    handleDismiss()
   }
 
   // Only render when there's an active task
@@ -270,7 +292,7 @@ export function BackgroundTaskBar() {
               title="Cancel task (progress will be saved)"
             >
               {cancelling ? <Loader2 size={14} className={styles.spinning} /> : <StopCircle size={14} />}
-              {cancelling ? 'Cancelling...' : 'Cancel'}
+              {cancelling ? 'Stopping...' : 'Stop'}
             </button>
           )}
 
@@ -283,7 +305,12 @@ export function BackgroundTaskBar() {
             {isComplete || isCancelled ? 'View Summary' : 'View Progress'}
           </button>
 
-          <button onClick={handleDismiss} className={styles.dismissBtn}>
+          {/* Dismiss button - now acts as force stop when task is running */}
+          <button 
+            onClick={isComplete || isCancelled ? handleDismiss : handleForceStop} 
+            className={styles.dismissBtn}
+            title={isComplete || isCancelled ? 'Dismiss' : 'Force stop and dismiss'}
+          >
             <X size={16} />
           </button>
         </div>
