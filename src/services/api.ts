@@ -777,35 +777,10 @@ export const aiApi = {
   },
 
   // New AI Agent endpoint (with function calling - can take actions!)
-  async agentChat(message: string, conversationHistory?: { role: string; content: string }[], fileContext?: Record<string, any>, forceBackground?: boolean) {
+  async agentChat(message: string, conversationHistory?: { role: string; content: string }[], fileContext?: Record<string, any>) {
     return fetchWithAuth('/v1/agent/chat', {
       method: 'POST',
-      body: JSON.stringify({ message, conversationHistory, fileContext, forceBackground }),
-    });
-  },
-  
-  async getActiveTask() {
-    return fetchWithAuth('/v1/agent/tasks/active/current');
-  },
-  
-  async getTask(taskId: string) {
-    return fetchWithAuth(`/v1/agent/tasks/${taskId}`);
-  },
-  
-  async getTasks() {
-    return fetchWithAuth('/v1/agent/tasks');
-  },
-  
-  async rateTask(taskId: string, rating: number) {
-    return fetchWithAuth(`/v1/agent/tasks/${taskId}/rate`, {
-      method: 'POST',
-      body: JSON.stringify({ rating }),
-    });
-  },
-  
-  async cancelTask(taskId: string) {
-    return fetchWithAuth(`/v1/agent/tasks/${taskId}/cancel`, {
-      method: 'POST',
+      body: JSON.stringify({ message, conversationHistory, fileContext }),
     });
   },
 
