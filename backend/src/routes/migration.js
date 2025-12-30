@@ -2216,6 +2216,160 @@ router.post('/clio/connect', requireSecureAdmin, async (req, res) => {
   }
 });
 
+// ============================================
+// CLIO DIAGNOSTIC ENDPOINT - Shows raw API responses
+// ============================================
+router.get('/clio/diagnose/:connectionId', requireSecureAdmin, async (req, res) => {
+  try {
+    const { connectionId } = req.params;
+    
+    if (!clioConnections.has(connectionId)) {
+      return res.status(400).json({ success: false, error: 'Connection not found. Please reconnect to Clio.' });
+    }
+    
+    const connection = clioConnections.get(connectionId);
+    const accessToken = connection.accessToken;
+    
+    const results = {
+      timestamp: new Date().toISOString(),
+      connectionId,
+      contacts: { raw: [], analysis: {} },
+      activities: { raw: [], analysis: {} },
+      bills: { raw: [], analysis: {} },
+      errors: []
+    };
+    
+    // 1. FETCH SAMPLE CONTACTS (first 5)
+    try {
+      console.log('[CLIO DIAGNOSE] Fetching sample contacts...');
+      const contactsResponse = await clioRequest(accessToken, '/contacts.json', {
+        fields: 'id,name,first_name,last_name,type,company,email_addresses,phone_numbers,addresses,created_at,updated_at',
+        limit: 5
+      });
+      
+      results.contacts.raw = contactsResponse.data || [];
+      results.contacts.totalAvailable = contactsResponse.meta?.paging?.records || 'unknown';
+      
+      // Analyze what fields are present
+      const contactAnalysis = {
+        count: results.contacts.raw.length,
+        withEmailAddresses: 0,
+        withPhoneNumbers: 0,
+        withAddresses: 0,
+        fieldsPresent: new Set(),
+        sampleEmailFormat: null,
+        samplePhoneFormat: null
+      };
+      
+      for (const c of results.contacts.raw) {
+        Object.keys(c).forEach(k => contactAnalysis.fieldsPresent.add(k));
+        
+        if (c.email_addresses && Array.isArray(c.email_addresses) && c.email_addresses.length > 0) {
+          contactAnalysis.withEmailAddresses++;
+          if (!contactAnalysis.sampleEmailFormat) {
+            contactAnalysis.sampleEmailFormat = c.email_addresses[0];
+          }
+        }
+        if (c.phone_numbers && Array.isArray(c.phone_numbers) && c.phone_numbers.length > 0) {
+          contactAnalysis.withPhoneNumbers++;
+          if (!contactAnalysis.samplePhoneFormat) {
+            contactAnalysis.samplePhoneFormat = c.phone_numbers[0];
+          }
+        }
+        if (c.addresses && Array.isArray(c.addresses) && c.addresses.length > 0) {
+          contactAnalysis.withAddresses++;
+        }
+      }
+      contactAnalysis.fieldsPresent = Array.from(contactAnalysis.fieldsPresent);
+      results.contacts.analysis = contactAnalysis;
+      
+    } catch (err) {
+      results.errors.push({ type: 'contacts', message: err.message });
+    }
+    
+    // 2. FETCH SAMPLE ACTIVITIES/TIME ENTRIES (first 5)
+    try {
+      console.log('[CLIO DIAGNOSE] Fetching sample activities...');
+      const activitiesResponse = await clioRequest(accessToken, '/activities.json', {
+        fields: 'id,type,date,quantity,price,total,note,matter,user,activity_description,billed,flat_rate,contingency_fee',
+        limit: 5
+      });
+      
+      results.activities.raw = activitiesResponse.data || [];
+      results.activities.totalAvailable = activitiesResponse.meta?.paging?.records || 'unknown';
+      
+      // Analyze
+      const activityAnalysis = {
+        count: results.activities.raw.length,
+        types: {},
+        fieldsPresent: new Set()
+      };
+      
+      for (const a of results.activities.raw) {
+        Object.keys(a).forEach(k => activityAnalysis.fieldsPresent.add(k));
+        activityAnalysis.types[a.type] = (activityAnalysis.types[a.type] || 0) + 1;
+      }
+      activityAnalysis.fieldsPresent = Array.from(activityAnalysis.fieldsPresent);
+      results.activities.analysis = activityAnalysis;
+      
+    } catch (err) {
+      results.errors.push({ type: 'activities', message: err.message });
+    }
+    
+    // 3. FETCH SAMPLE BILLS (first 5)
+    try {
+      console.log('[CLIO DIAGNOSE] Fetching sample bills...');
+      const billsResponse = await clioRequest(accessToken, '/bills.json', {
+        fields: 'id,number,issued_at,due_at,state,total,balance,matter,client,user',
+        limit: 5
+      });
+      
+      results.bills.raw = billsResponse.data || [];
+      results.bills.totalAvailable = billsResponse.meta?.paging?.records || 'unknown';
+      
+      // Analyze
+      const billAnalysis = {
+        count: results.bills.raw.length,
+        states: {},
+        fieldsPresent: new Set()
+      };
+      
+      for (const b of results.bills.raw) {
+        Object.keys(b).forEach(k => billAnalysis.fieldsPresent.add(k));
+        billAnalysis.states[b.state] = (billAnalysis.states[b.state] || 0) + 1;
+      }
+      billAnalysis.fieldsPresent = Array.from(billAnalysis.fieldsPresent);
+      results.bills.analysis = billAnalysis;
+      
+    } catch (err) {
+      results.errors.push({ type: 'bills', message: err.message });
+    }
+    
+    // 4. Also check what the API token has access to
+    try {
+      console.log('[CLIO DIAGNOSE] Checking API permissions...');
+      const whoami = await clioRequest(accessToken, '/users/who_am_i.json', {
+        fields: 'id,name,email,subscription_type,account'
+      });
+      results.apiUser = whoami.data;
+    } catch (err) {
+      results.errors.push({ type: 'whoami', message: err.message });
+    }
+    
+    console.log('[CLIO DIAGNOSE] Complete. Results:', JSON.stringify(results, null, 2));
+    
+    res.json({
+      success: true,
+      message: 'Diagnostic complete - see raw Clio API responses below',
+      results
+    });
+    
+  } catch (error) {
+    console.error('[CLIO DIAGNOSE] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // In-memory progress tracking (data saves to DB immediately, this is just for UI updates)
 const migrationProgress = new Map();
 
