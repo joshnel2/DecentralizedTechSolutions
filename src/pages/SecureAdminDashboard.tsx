@@ -1347,6 +1347,7 @@ export default function SecureAdminDashboard() {
   }
   
   const disconnectClio = async () => {
+    console.log('[CLIO] Disconnecting and resetting migration state...')
     if (clioConnectionId) {
       try {
         await fetch(`${API_URL}/migration/clio/disconnect`, {
@@ -1358,11 +1359,28 @@ export default function SecureAdminDashboard() {
         // Ignore
       }
     }
+    // Reset all Clio-related state
     setClioConnectionId(null)
     setClioUser(null)
     setClioClientId('')
     setClioClientSecret('')
     setClioProgress(null)
+    setClioImporting(false)
+    setUseExistingFirm(false)
+    setSelectedExistingFirmId('')
+    setMigrationInputs(prev => ({ ...prev, firmName: '' }))
+    
+    // Clear URL params if any
+    const url = new URL(window.location.href)
+    if (url.searchParams.has('clio_connected') || url.searchParams.has('clio_error')) {
+      url.searchParams.delete('clio_connected')
+      url.searchParams.delete('clio_error')
+      url.searchParams.delete('firm')
+      window.history.replaceState({}, '', url.pathname)
+    }
+    
+    showNotification('success', 'Migration reset. You can now start a new migration.')
+    console.log('[CLIO] Migration state reset complete')
   }
 
   const filteredFirms = firms.filter(f => 
@@ -2308,15 +2326,28 @@ Password: ${newPass}`
                       {/* Clio API Mode */}
                       {migrationMode === 'clio' ? (
                         <div className={styles.aiTransformSection}>
-                          <div className={styles.aiHeader}>
-                            <Zap size={24} />
-                            <div>
-                              <h4>Connect to Clio API (Recommended)</h4>
-                              <p>
-                                Direct API connection pulls all your data automatically with intact relationships.
-                                No CSV exports needed - just connect and import.
-                              </p>
+                          <div className={styles.aiHeader} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div style={{ display: 'flex', gap: '0.75rem' }}>
+                              <Zap size={24} />
+                              <div>
+                                <h4>Connect to Clio API (Recommended)</h4>
+                                <p>
+                                  Direct API connection pulls all your data automatically with intact relationships.
+                                  No CSV exports needed - just connect and import.
+                                </p>
+                              </div>
                             </div>
+                            {/* Reset button - always visible */}
+                            {(clioConnectionId || clioProgress) && (
+                              <button 
+                                onClick={disconnectClio}
+                                className={styles.secondaryBtn}
+                                style={{ padding: '0.5rem 1rem', fontSize: '0.875rem' }}
+                              >
+                                <RefreshCw size={16} />
+                                Reset & Start New
+                              </button>
+                            )}
                           </div>
 
                           {/* Clio Connection */}
