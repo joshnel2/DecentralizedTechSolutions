@@ -150,7 +150,7 @@ export default function SecureAdminDashboard() {
   const [showUserModal, setShowUserModal] = useState(false)
   const [editingFirm, setEditingFirm] = useState<Firm | null>(null)
   const [editingUser, setEditingUser] = useState<User | null>(null)
-  const [sessionTimeout, setSessionTimeout] = useState(1800) // 30 minutes in seconds
+  const [sessionTimeout, setSessionTimeout] = useState(14400) // 4 hours in seconds
   const [detailedStats, setDetailedStats] = useState<DetailedStats | null>(null)
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const navigate = useNavigate()
@@ -239,7 +239,25 @@ export default function SecureAdminDashboard() {
     };
     logs?: string[];
     error?: string;
-  } | null>(null)
+  } | null>(() => {
+    // Load migration history from sessionStorage on mount
+    const saved = sessionStorage.getItem('clio_migration_progress')
+    if (saved) {
+      try {
+        return JSON.parse(saved)
+      } catch {
+        return null
+      }
+    }
+    return null
+  })
+  
+  // Persist migration progress to sessionStorage
+  useEffect(() => {
+    if (clioProgress) {
+      sessionStorage.setItem('clio_migration_progress', JSON.stringify(clioProgress))
+    }
+  }, [clioProgress])
   
   // Check for Clio OAuth callback on mount
   useEffect(() => {
@@ -385,7 +403,7 @@ export default function SecureAdminDashboard() {
 
   // Reset timeout on activity
   useEffect(() => {
-    const resetTimeout = () => setSessionTimeout(1800)
+    const resetTimeout = () => setSessionTimeout(14400) // 4 hours
     window.addEventListener('mousemove', resetTimeout)
     window.addEventListener('keypress', resetTimeout)
     return () => {
@@ -1373,6 +1391,7 @@ export default function SecureAdminDashboard() {
     // Clear sessionStorage for Clio-related settings
     sessionStorage.removeItem('clio_useExistingFirm')
     sessionStorage.removeItem('clio_existingFirmId')
+    sessionStorage.removeItem('clio_migration_progress')
     
     // Clear URL params if any
     const url = new URL(window.location.href)
