@@ -1370,6 +1370,10 @@ export default function SecureAdminDashboard() {
     setSelectedExistingFirmId('')
     setMigrationInputs(prev => ({ ...prev, firmName: '' }))
     
+    // Clear sessionStorage for Clio-related settings
+    sessionStorage.removeItem('clio_useExistingFirm')
+    sessionStorage.removeItem('clio_existingFirmId')
+    
     // Clear URL params if any
     const url = new URL(window.location.href)
     if (url.searchParams.has('clio_connected') || url.searchParams.has('clio_error')) {
