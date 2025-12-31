@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Bot, Mail } from 'lucide-react'
+import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Mail } from 'lucide-react'
 import { aiApi, documentsApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import styles from './AIChat.module.css'
@@ -30,8 +30,6 @@ interface Message {
   content: string
   timestamp: Date
   toolsUsed?: boolean  // Indicates if AI took an action
-  backgroundTaskStarted?: boolean  // Indicates if background task was started
-  backgroundTask?: { taskId: string; goal: string }
   navigation?: NavigationInfo  // Navigation command from AI
   attachedFile?: { name: string; type: string }  // File that was attached
 }
@@ -79,7 +77,6 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const [isLoading, setIsLoading] = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [showSuggestions, setShowSuggestions] = useState(true)
-  const [useBackgroundAgent, setUseBackgroundAgent] = useState(false) // Background agent toggle - OFF by default
   const [pendingNavigation, setPendingNavigation] = useState<NavigationInfo | null>(null)
   const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -87,13 +84,6 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const lastUserMessageRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  // Reset background agent toggle to OFF when chat is closed
-  useEffect(() => {
-    if (!isOpen) {
-      setUseBackgroundAgent(false)
-    }
-  }, [isOpen])
 
   const currentPage = getPageFromPath(location.pathname)
   const pathContext = getContextFromPath(location.pathname)
@@ -234,12 +224,11 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         } : {})
       }
       
-      // Use AI Agent with function calling
+      // Always use AI Agent with function calling (can take actions!)
       response = await aiApi.agentChat(
         text || `Analyze and summarize this document: ${currentFile?.name}`, 
         conversationHistory, 
-        fileContext,
-        useBackgroundAgent // When ON, forces background agent with progress bar
+        fileContext
       )
 
       const assistantMessage: Message = {
@@ -248,19 +237,10 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         content: response.response,
         timestamp: new Date(),
         toolsUsed: response.toolsUsed,
-        backgroundTaskStarted: response.backgroundTaskStarted,
-        backgroundTask: response.backgroundTask,
         navigation: response.navigation,
       }
 
       setMessages(prev => [...prev, assistantMessage])
-      
-      // If background task started, trigger global progress bar
-      if (response.backgroundTaskStarted) {
-        window.dispatchEvent(new CustomEvent('backgroundTaskStarted', { 
-          detail: response.backgroundTask 
-        }));
-      }
       
       // If there's a navigation command, set it as pending so user can click to navigate
       if (response.navigation) {
@@ -329,18 +309,6 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           <span className={styles.contextPage}>
             {chatContext?.label || currentPage.replace('-', ' ')}
           </span>
-          <div className={styles.toggleWrapper}>
-            <span className={styles.toggleLabel}>Background Agent</span>
-            <button 
-              className={`${styles.toggleSwitch} ${useBackgroundAgent ? styles.toggleOn : ''}`}
-              onClick={() => setUseBackgroundAgent(!useBackgroundAgent)}
-              title={useBackgroundAgent ? "Background Agent: ON" : "Background Agent: OFF"}
-              role="switch"
-              aria-checked={useBackgroundAgent}
-            >
-              <span className={styles.toggleKnob} />
-            </button>
-          </div>
         </div>
 
         {/* Messages */}
@@ -363,7 +331,6 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
                 {mergedContext.emailDraft 
                   ? "I can see your draft. Ask me to improve it, make it more professional, check for errors, or suggest a better subject line."
                   : "I can answer questions and take actions like logging time, creating events, and more."}
-                {useBackgroundAgent && " Background Agent is ON - I'll run tasks with a progress bar."}
               </p>
               
               {suggestions.length > 0 && (
@@ -409,12 +376,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
                             <span>{message.attachedFile.name}</span>
                           </div>
                         )}
-                        {message.backgroundTaskStarted && (
-                          <div className={styles.backgroundAgentDeployed}>
-                            <Zap size={12} /> Background Agent Deployed
-                          </div>
-                        )}
-                        {message.toolsUsed && !message.backgroundTaskStarted && (
+                        {message.toolsUsed && (
                           <div className={styles.actionTaken}>
                             <Zap size={12} /> Action taken
                           </div>

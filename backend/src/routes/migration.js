@@ -2216,6 +2216,207 @@ router.post('/clio/connect', requireSecureAdmin, async (req, res) => {
   }
 });
 
+// ============================================
+// CLIO DIAGNOSTIC ENDPOINT - Shows raw API responses
+// ============================================
+router.get('/clio/diagnose/:connectionId', requireSecureAdmin, async (req, res) => {
+  try {
+    const { connectionId } = req.params;
+    
+    if (!clioConnections.has(connectionId)) {
+      return res.status(400).json({ success: false, error: 'Connection not found. Please reconnect to Clio.' });
+    }
+    
+    const connection = clioConnections.get(connectionId);
+    const accessToken = connection.accessToken;
+    
+    const results = {
+      timestamp: new Date().toISOString(),
+      connectionId,
+      contacts: { raw: [], analysis: {} },
+      activities: { raw: [], analysis: {} },
+      bills: { raw: [], analysis: {} },
+      errors: []
+    };
+    
+    // 1. FETCH SAMPLE CONTACTS - Try multiple field syntaxes to find what works
+    try {
+      console.log('[CLIO DIAGNOSE] Fetching sample contacts with different field syntaxes...');
+      
+      // Try syntax 1: Simple field names
+      const response1 = await clioRequest(accessToken, '/contacts.json', {
+        fields: 'id,name,primary_email_address,primary_phone_number',
+        limit: 3
+      });
+      results.contacts.syntax1_simple = {
+        fields: 'primary_email_address,primary_phone_number',
+        sample: response1.data?.[0] || null
+      };
+      
+      // Try syntax 2: Nested field syntax
+      const response2 = await clioRequest(accessToken, '/contacts.json', {
+        fields: 'id,name,primary_email_address{address,name},primary_phone_number{number,name}',
+        limit: 3
+      });
+      results.contacts.syntax2_nested = {
+        fields: 'primary_email_address{address,name},primary_phone_number{number,name}',
+        sample: response2.data?.[0] || null
+      };
+      
+      // Try syntax 3: email_addresses array (the old way)
+      const response3 = await clioRequest(accessToken, '/contacts.json', {
+        fields: 'id,name,email_addresses,phone_numbers',
+        limit: 3
+      });
+      results.contacts.syntax3_arrays = {
+        fields: 'email_addresses,phone_numbers',
+        sample: response3.data?.[0] || null
+      };
+      
+      // Use response1 for main analysis
+      results.contacts.raw = response1.data || [];
+      results.contacts.totalAvailable = response1.meta?.paging?.records || 'unknown';
+      
+      // Analyze what fields are present
+      const contactAnalysis = {
+        count: results.contacts.raw.length,
+        withEmailAddresses: 0,
+        withPhoneNumbers: 0,
+        withAddresses: 0,
+        fieldsPresent: new Set(),
+        sampleEmailFormat: null,
+        samplePhoneFormat: null,
+        recommendation: ''
+      };
+      
+      // Check which syntax returned data
+      const s1 = results.contacts.syntax1_simple?.sample;
+      const s2 = results.contacts.syntax2_nested?.sample;
+      const s3 = results.contacts.syntax3_arrays?.sample;
+      
+      if (s1?.primary_email_address?.address) {
+        contactAnalysis.recommendation = 'Use: primary_email_address (simple syntax works)';
+      } else if (s2?.primary_email_address?.address) {
+        contactAnalysis.recommendation = 'Use: primary_email_address{address,name} (nested syntax required)';
+      } else if (s3?.email_addresses?.length > 0) {
+        contactAnalysis.recommendation = 'Use: email_addresses array (old syntax works)';
+      } else {
+        contactAnalysis.recommendation = 'NONE of the syntaxes returned email data - check API permissions';
+      }
+      
+      for (const c of results.contacts.raw) {
+        Object.keys(c).forEach(k => contactAnalysis.fieldsPresent.add(k));
+        
+        // Check all possible field names
+        const hasEmail = c.primary_email_address?.address || c.email_addresses?.[0]?.address;
+        const hasPhone = c.primary_phone_number?.number || c.phone_numbers?.[0]?.number;
+        
+        if (hasEmail) {
+          contactAnalysis.withEmailAddresses++;
+          if (!contactAnalysis.sampleEmailFormat) {
+            contactAnalysis.sampleEmailFormat = c.primary_email_address || c.email_addresses?.[0];
+          }
+        }
+        if (hasPhone) {
+          contactAnalysis.withPhoneNumbers++;
+          if (!contactAnalysis.samplePhoneFormat) {
+            contactAnalysis.samplePhoneFormat = c.primary_phone_number || c.phone_numbers?.[0];
+          }
+        }
+        if (c.primary_address?.street || c.primary_address?.city) {
+          contactAnalysis.withAddresses++;
+        }
+      }
+      contactAnalysis.fieldsPresent = Array.from(contactAnalysis.fieldsPresent);
+      results.contacts.analysis = contactAnalysis;
+      
+    } catch (err) {
+      results.errors.push({ type: 'contacts', message: err.message });
+    }
+    
+    // 2. FETCH SAMPLE ACTIVITIES/TIME ENTRIES (first 5)
+    try {
+      console.log('[CLIO DIAGNOSE] Fetching sample activities...');
+      const activitiesResponse = await clioRequest(accessToken, '/activities.json', {
+        fields: 'id,type,date,quantity,price,total,note,matter,user,activity_description,billed,flat_rate,contingency_fee',
+        limit: 5
+      });
+      
+      results.activities.raw = activitiesResponse.data || [];
+      results.activities.totalAvailable = activitiesResponse.meta?.paging?.records || 'unknown';
+      
+      // Analyze
+      const activityAnalysis = {
+        count: results.activities.raw.length,
+        types: {},
+        fieldsPresent: new Set()
+      };
+      
+      for (const a of results.activities.raw) {
+        Object.keys(a).forEach(k => activityAnalysis.fieldsPresent.add(k));
+        activityAnalysis.types[a.type] = (activityAnalysis.types[a.type] || 0) + 1;
+      }
+      activityAnalysis.fieldsPresent = Array.from(activityAnalysis.fieldsPresent);
+      results.activities.analysis = activityAnalysis;
+      
+    } catch (err) {
+      results.errors.push({ type: 'activities', message: err.message });
+    }
+    
+    // 3. FETCH SAMPLE BILLS (first 5)
+    try {
+      console.log('[CLIO DIAGNOSE] Fetching sample bills...');
+      const billsResponse = await clioRequest(accessToken, '/bills.json', {
+        fields: 'id,number,issued_at,due_at,state,total,balance,matter,client,user',
+        limit: 5
+      });
+      
+      results.bills.raw = billsResponse.data || [];
+      results.bills.totalAvailable = billsResponse.meta?.paging?.records || 'unknown';
+      
+      // Analyze
+      const billAnalysis = {
+        count: results.bills.raw.length,
+        states: {},
+        fieldsPresent: new Set()
+      };
+      
+      for (const b of results.bills.raw) {
+        Object.keys(b).forEach(k => billAnalysis.fieldsPresent.add(k));
+        billAnalysis.states[b.state] = (billAnalysis.states[b.state] || 0) + 1;
+      }
+      billAnalysis.fieldsPresent = Array.from(billAnalysis.fieldsPresent);
+      results.bills.analysis = billAnalysis;
+      
+    } catch (err) {
+      results.errors.push({ type: 'bills', message: err.message });
+    }
+    
+    // 4. Also check what the API token has access to
+    try {
+      console.log('[CLIO DIAGNOSE] Checking API permissions...');
+      const whoami = await clioRequest(accessToken, '/users/who_am_i.json', {
+        fields: 'id,name,email,subscription_type,account'
+      });
+      results.apiUser = whoami.data;
+    } catch (err) {
+      results.errors.push({ type: 'whoami', message: err.message });
+    }
+    
+    console.log('[CLIO DIAGNOSE] Complete. Results:', JSON.stringify(results, null, 2));
+    
+    res.json({
+      success: true,
+      message: 'Diagnostic complete - see raw Clio API responses below',
+      results
+    });
+    
+  } catch (error) {
+    console.error('[CLIO DIAGNOSE] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // In-memory progress tracking (data saves to DB immediately, this is just for UI updates)
 const migrationProgress = new Map();
 
@@ -2281,6 +2482,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
       startedAt: new Date(),
       connectionId: connectionId,
       importOptions,
+      logs: [],
       steps: {
         users: { status: 'pending', count: 0 },
         contacts: { status: 'pending', count: 0 },
@@ -2320,7 +2522,25 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             prog.steps[step] = { status, count };
             if (errorMsg) prog.steps[step].error = errorMsg;
             prog.lastUpdate = new Date();
+            
+            // Add to logs array (keep last 50 entries)
+            const logEntry = `[${new Date().toLocaleTimeString()}] ${step}: ${status} (${count} records)${errorMsg ? ` - ${errorMsg}` : ''}`;
+            prog.logs = prog.logs || [];
+            prog.logs.push(logEntry);
+            if (prog.logs.length > 50) prog.logs.shift();
+            
             console.log(`[CLIO IMPORT] Progress: ${step} = ${status} (${count} records)`);
+          }
+        };
+        
+        const addLog = (message) => {
+          const prog = migrationProgress.get(connectionId);
+          if (prog) {
+            const logEntry = `[${new Date().toLocaleTimeString()}] ${message}`;
+            prog.logs = prog.logs || [];
+            prog.logs.push(logEntry);
+            if (prog.logs.length > 50) prog.logs.shift();
+            console.log(`[CLIO IMPORT] ${message}`);
           }
         };
         
@@ -2372,6 +2592,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             }, (count) => updateProgress('users', 'running', count));
             
             console.log(`[CLIO IMPORT] Users fetched from Clio: ${users.length}`);
+            addLog(`Fetched ${users.length} users from Clio`);
             
             let skippedNoEmail = 0;
             
@@ -2489,10 +2710,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 2/7: Importing contacts directly to DB...');
           updateProgress('contacts', 'running', 0);
           try {
-            // Fetch contacts - Clio returns full array data for email_addresses, phone_numbers, addresses
-            // (sub-fields syntax only works for single objects like company{id,name}, not arrays)
+            // Fetch contacts - try ALL possible field syntaxes for email/phone
+            // Clio API is inconsistent - some accounts need arrays, some need primary_ fields
             const contacts = await clioGetAll(accessToken, '/contacts.json', {
-              fields: 'id,name,first_name,last_name,type,company{id,name},email_addresses,phone_numbers,addresses'
+              fields: 'id,name,first_name,last_name,type,company{id,name},primary_email_address{address,name},primary_phone_number{number,name},primary_address{street,city,province,postal_code},email_addresses{address,name,primary},phone_numbers{number,name,primary},addresses{street,city,province,postal_code,primary}'
             }, (count) => updateProgress('contacts', 'running', count));
             
             // Log samples to debug what Clio returns for email/phone
@@ -2504,12 +2725,13 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               console.log(`[CLIO IMPORT] First 3 contacts with email/phone data:`);
               for (let i = 0; i < Math.min(3, contacts.length); i++) {
                 const c = contacts[i];
-                console.log(`[CLIO IMPORT]   Contact ${i+1}: name="${c.name}", emails=${JSON.stringify(c.email_addresses)}, phones=${JSON.stringify(c.phone_numbers)}`);
+                console.log(`[CLIO IMPORT]   Contact ${i+1}: name="${c.name}", email=${JSON.stringify(c.primary_email_address)}, phone=${JSON.stringify(c.primary_phone_number)}`);
               }
-              // Also count how many have email/phone
-              const withEmail = contacts.filter(c => c.email_addresses && c.email_addresses.length > 0).length;
-              const withPhone = contacts.filter(c => c.phone_numbers && c.phone_numbers.length > 0).length;
+              // Also count how many have email/phone - check both field syntaxes
+              const withEmail = contacts.filter(c => c.primary_email_address?.address || c.email_addresses?.[0]?.address).length;
+              const withPhone = contacts.filter(c => c.primary_phone_number?.number || c.phone_numbers?.[0]?.number).length;
               console.log(`[CLIO IMPORT] Contacts with email: ${withEmail}/${contacts.length}, with phone: ${withPhone}/${contacts.length}`);
+              addLog(`Fetched ${contacts.length} contacts from Clio (${withEmail} with email, ${withPhone} with phone)`);
             }
             
             // Track how many contacts have email/phone saved
@@ -2520,18 +2742,22 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               try {
                 const isCompany = c.type === 'Company';
                 const displayName = c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown';
-                const primaryEmail = c.email_addresses?.find(e => e.primary) || c.email_addresses?.[0];
-                const primaryPhone = c.phone_numbers?.find(p => p.primary) || c.phone_numbers?.[0];
-                const primaryAddr = c.addresses?.find(a => a.primary) || c.addresses?.[0];
+                
+                // Try both Clio field syntaxes: primary_* fields OR *_arrays
+                const primaryEmail = c.primary_email_address || c.email_addresses?.find(e => e.primary) || c.email_addresses?.[0];
+                const primaryPhone = c.primary_phone_number || c.phone_numbers?.find(p => p.primary) || c.phone_numbers?.[0];
+                const primaryAddr = c.primary_address || c.addresses?.find(a => a.primary) || c.addresses?.[0];
                 
                 // Log first 5 contacts with details about what we're saving
                 if (counts.contacts < 5) {
                   console.log(`[CLIO IMPORT] Contact ${counts.contacts + 1} SAVE DETAILS:`);
                   console.log(`[CLIO IMPORT]   Name: "${displayName}"`);
                   console.log(`[CLIO IMPORT]   Raw email_addresses: ${JSON.stringify(c.email_addresses)}`);
+                  console.log(`[CLIO IMPORT]   Raw primary_email_address: ${JSON.stringify(c.primary_email_address)}`);
                   console.log(`[CLIO IMPORT]   Primary email found: ${JSON.stringify(primaryEmail)}`);
                   console.log(`[CLIO IMPORT]   Email to save: "${primaryEmail?.address || 'NULL'}"`);
                   console.log(`[CLIO IMPORT]   Raw phone_numbers: ${JSON.stringify(c.phone_numbers)}`);
+                  console.log(`[CLIO IMPORT]   Raw primary_phone_number: ${JSON.stringify(c.primary_phone_number)}`);
                   console.log(`[CLIO IMPORT]   Primary phone found: ${JSON.stringify(primaryPhone)}`);
                   console.log(`[CLIO IMPORT]   Phone to save: "${primaryPhone?.number || 'NULL'}"`);
                 }
@@ -2540,42 +2766,31 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 if (primaryEmail?.address) savedWithEmail++;
                 if (primaryPhone?.number) savedWithPhone++;
                 
-                // Build notes with ALL contact info from Clio
+                // Build notes with contact info from Clio
                 const notesParts = [];
                 
-                // Save ALL email addresses
-                if (c.email_addresses && c.email_addresses.length > 0) {
-                  const allEmails = c.email_addresses.map(e => {
-                    const label = e.name || 'Email';
-                    return `${label}: ${e.address}`;
-                  });
-                  notesParts.push('--- EMAILS ---');
-                  notesParts.push(...allEmails);
+                // Save email if present
+                if (primaryEmail?.address) {
+                  const label = primaryEmail.name || 'Email';
+                  notesParts.push(`${label}: ${primaryEmail.address}`);
                 }
                 
-                // Save ALL phone numbers
-                if (c.phone_numbers && c.phone_numbers.length > 0) {
-                  const allPhones = c.phone_numbers.map(p => {
-                    const label = p.name || 'Phone';
-                    return `${label}: ${p.number}`;
-                  });
-                  notesParts.push('--- PHONES ---');
-                  notesParts.push(...allPhones);
+                // Save phone if present
+                if (primaryPhone?.number) {
+                  const label = primaryPhone.name || 'Phone';
+                  notesParts.push(`${label}: ${primaryPhone.number}`);
                 }
                 
-                // Save ALL addresses
-                if (c.addresses && c.addresses.length > 0) {
-                  notesParts.push('--- ADDRESSES ---');
-                  c.addresses.forEach((addr, i) => {
-                    const label = addr.name || `Address ${i + 1}`;
-                    const parts = [addr.street, addr.city, addr.province, addr.postal_code].filter(Boolean);
-                    if (parts.length > 0) {
-                      notesParts.push(`${label}: ${parts.join(', ')}`);
-                    }
-                  });
+                // Save address if present
+                if (primaryAddr) {
+                  const addrParts = [primaryAddr.street, primaryAddr.city, primaryAddr.province, primaryAddr.postal_code].filter(Boolean);
+                  if (addrParts.length > 0) {
+                    const label = primaryAddr.name || 'Address';
+                    notesParts.push(`${label}: ${addrParts.join(', ')}`);
+                  }
                 }
                 
-                const notes = notesParts.length > 0 ? notesParts.join('\n') : null;
+                const notes = notesParts.length > 0 ? `--- FROM CLIO ---\n${notesParts.join('\n')}` : null;
                 
                 const result = await query(
                   `INSERT INTO clients (firm_id, type, display_name, first_name, last_name, company_name, email, phone, address_street, address_city, address_state, address_zip, notes, is_active)

@@ -35,7 +35,7 @@ const getViewOptions = (isAdmin: boolean) => {
 
 export function MattersPage() {
   const { matters, clients, addMatter, fetchMatters, fetchClients, updateMatter, deleteMatter, matterTypes } = useDataStore()
-  const { user } = useAuthStore()
+  const { user, hasPermission } = useAuthStore()
   const { openChat } = useAIChat()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -47,6 +47,7 @@ export function MattersPage() {
   const [viewFilter, setViewFilter] = useState<'my' | 'all'>('my') // Default to "My Matters"
 
   const isAdmin = user?.role === 'owner' || user?.role === 'admin'
+  const canDeleteMatters = hasPermission('matters:delete')
 
   // Generate type options from the store's matterTypes
   const typeOptions = useMemo(() => {
@@ -445,14 +446,18 @@ export function MattersPage() {
                             Archive / Close
                           </button>
                         )}
-                        <div className={styles.dropdownDivider} />
-                        <button 
-                          className={clsx(styles.dropdownItem, styles.danger)}
-                          onClick={() => openConfirmModal(matter.id, matter.name, 'delete')}
-                        >
-                          <Trash2 size={14} />
-                          Delete Matter
-                        </button>
+                        {canDeleteMatters && (
+                          <>
+                            <div className={styles.dropdownDivider} />
+                            <button 
+                              className={clsx(styles.dropdownItem, styles.danger)}
+                              onClick={() => openConfirmModal(matter.id, matter.name, 'delete')}
+                            >
+                              <Trash2 size={14} />
+                              Delete Matter
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

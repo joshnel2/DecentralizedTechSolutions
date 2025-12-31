@@ -10610,7 +10610,7 @@ router.post('/tasks/:taskId/rate', authenticate, async (req, res) => {
   }
 });
 
-// Cancel a running task (keeps progress)
+// Cancel a task (keeps progress) - works on running or stuck tasks
 router.post('/tasks/:taskId/cancel', authenticate, async (req, res) => {
   try {
     const { taskId } = req.params;
@@ -10628,8 +10628,13 @@ router.post('/tasks/:taskId/cancel', authenticate, async (req, res) => {
     
     const task = taskResult.rows[0];
     
-    if (task.status !== 'running') {
-      return res.status(400).json({ error: 'Task is not running', status: task.status });
+    // Allow cancelling tasks that are running, pending, or stuck
+    // Only reject if already completed, cancelled, or failed
+    if (['completed', 'cancelled', 'failed'].includes(task.status)) {
+      return res.status(400).json({ 
+        error: 'Task is already finished', 
+        status: task.status 
+      });
     }
     
     // IMMEDIATELY signal the agent to stop (in-memory flag)
@@ -10755,18 +10760,21 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
     
     const task = result.rows[0];
     
-    // Check if task has been running too long (2 hours) - mark as timed out
+    // Check if task has been running too long (15 minutes) - mark as timed out
+    // This prevents stuck tasks from blocking the UI indefinitely
     const startedAt = task.started_at ? new Date(task.started_at) : new Date(task.created_at);
     const runningTimeMs = Date.now() - startedAt.getTime();
-    const MAX_RUNNING_TIME = 2 * 60 * 60 * 1000; // 2 hours for long tasks
+    const MAX_RUNNING_TIME = 15 * 60 * 1000; // 15 minutes max
     
     if (runningTimeMs > MAX_RUNNING_TIME) {
       // Mark task as timed out
       await query(
         `UPDATE ai_tasks SET status = 'timeout', completed_at = NOW(), 
-         error = 'Task completed after 15 minute session' WHERE id = $1`,
+         error = 'Task timed out after 15 minutes. It may have completed partially.' WHERE id = $1`,
         [task.id]
       );
+      // Also remove from running agents map in case it's still there
+      runningAgents.delete(task.id);
       return res.json({ active: false });
     }
     
