@@ -2596,7 +2596,7 @@ Password: ${newPass}`
                                   
                                   {/* Migration Logs */}
                                   {clioProgress.logs && clioProgress.logs.length > 0 && (
-                                    <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#1a1a2e', borderRadius: '8px', maxHeight: '200px', overflow: 'auto' }}>
+                                    <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#1a1a2e', borderRadius: '8px', maxHeight: '400px', overflow: 'auto' }}>
                                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                                         <strong style={{ fontSize: '0.875rem', color: '#888' }}>Migration Log</strong>
                                         <button 
@@ -2607,7 +2607,7 @@ Password: ${newPass}`
                                         </button>
                                       </div>
                                       <pre style={{ fontSize: '0.75rem', color: '#ccc', margin: 0, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-                                        {clioProgress.logs.slice(-50).join('\n')}
+                                        {clioProgress.logs.slice(-200).join('\n')}
                                       </pre>
                                     </div>
                                   )}

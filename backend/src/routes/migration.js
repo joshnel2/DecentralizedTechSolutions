@@ -2523,11 +2523,11 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             if (errorMsg) prog.steps[step].error = errorMsg;
             prog.lastUpdate = new Date();
             
-            // Add to logs array (keep last 50 entries)
+            // Add to logs array (keep last 200 entries to preserve debug info)
             const logEntry = `[${new Date().toLocaleTimeString()}] ${step}: ${status} (${count} records)${errorMsg ? ` - ${errorMsg}` : ''}`;
             prog.logs = prog.logs || [];
             prog.logs.push(logEntry);
-            if (prog.logs.length > 50) prog.logs.shift();
+            if (prog.logs.length > 200) prog.logs.shift();
             
             console.log(`[CLIO IMPORT] Progress: ${step} = ${status} (${count} records)`);
           }
@@ -2539,7 +2539,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             const logEntry = `[${new Date().toLocaleTimeString()}] ${message}`;
             prog.logs = prog.logs || [];
             prog.logs.push(logEntry);
-            if (prog.logs.length > 50) prog.logs.shift();
+            // Keep last 200 entries (increased from 50) to preserve debug info
+            if (prog.logs.length > 200) prog.logs.shift();
             console.log(`[CLIO IMPORT] ${message}`);
           }
         };
@@ -2730,6 +2731,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               const firstContactFields = Object.keys(firstContact).join(', ');
               addLog(`DEBUG: First contact fields: ${firstContactFields}`);
               
+              // ADD RAW FIRST CONTACT TO FRONTEND LOGS (critical for debugging)
+              addLog(`DEBUG RAW CONTACT: ${JSON.stringify(firstContact)}`);
+              
               // Check if email/phone fields exist at all
               const hasEmailField = 'email_addresses' in firstContact || 'primary_email_address' in firstContact;
               const hasPhoneField = 'phone_numbers' in firstContact || 'primary_phone_number' in firstContact;
@@ -2738,27 +2742,39 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               // Show sample email/phone data from first contact
               if (firstContact.email_addresses) {
                 addLog(`DEBUG: email_addresses = ${JSON.stringify(firstContact.email_addresses)}`);
+              } else {
+                addLog(`DEBUG: email_addresses = NOT PRESENT in API response`);
               }
               if (firstContact.primary_email_address) {
                 addLog(`DEBUG: primary_email_address = ${JSON.stringify(firstContact.primary_email_address)}`);
+              } else {
+                addLog(`DEBUG: primary_email_address = NOT PRESENT in API response`);
               }
               if (firstContact.phone_numbers) {
                 addLog(`DEBUG: phone_numbers = ${JSON.stringify(firstContact.phone_numbers)}`);
+              } else {
+                addLog(`DEBUG: phone_numbers = NOT PRESENT in API response`);
               }
               if (firstContact.primary_phone_number) {
                 addLog(`DEBUG: primary_phone_number = ${JSON.stringify(firstContact.primary_phone_number)}`);
+              } else {
+                addLog(`DEBUG: primary_phone_number = NOT PRESENT in API response`);
               }
               
-              console.log(`[CLIO IMPORT] First 3 contacts with email/phone data:`);
+              // ADD FIRST 3 CONTACTS TO FRONTEND LOGS (critical for debugging)
+              addLog(`DEBUG: First 3 contacts with email/phone data:`);
               for (let i = 0; i < Math.min(3, contacts.length); i++) {
                 const c = contacts[i];
+                const emailVal = c.primary_email_address?.address || c.email_addresses?.[0]?.address || 'NULL';
+                const phoneVal = c.primary_phone_number?.number || c.phone_numbers?.[0]?.number || 'NULL';
+                addLog(`  Contact ${i+1}: "${c.name}" | email: ${emailVal} | phone: ${phoneVal}`);
                 console.log(`[CLIO IMPORT]   Contact ${i+1}: name="${c.name}", email=${JSON.stringify(c.primary_email_address)}, phone=${JSON.stringify(c.primary_phone_number)}`);
               }
               // Also count how many have email/phone - check both field syntaxes
               const withEmail = contacts.filter(c => c.primary_email_address?.address || c.email_addresses?.[0]?.address).length;
               const withPhone = contacts.filter(c => c.primary_phone_number?.number || c.phone_numbers?.[0]?.number).length;
               console.log(`[CLIO IMPORT] Contacts with email: ${withEmail}/${contacts.length}, with phone: ${withPhone}/${contacts.length}`);
-              addLog(`Contacts from Clio: ${contacts.length} total, ${withEmail} with email, ${withPhone} with phone`);
+              addLog(`SUMMARY: ${contacts.length} total contacts, ${withEmail} with email (${((withEmail/contacts.length)*100).toFixed(1)}%), ${withPhone} with phone (${((withPhone/contacts.length)*100).toFixed(1)}%)`);
             }
             
             // Track how many contacts have email/phone saved
@@ -2775,7 +2791,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const primaryPhone = c.primary_phone_number || c.phone_numbers?.find(p => p.primary) || c.phone_numbers?.[0];
                 const primaryAddr = c.primary_address || c.addresses?.find(a => a.primary) || c.addresses?.[0];
                 
-                // Log first 5 contacts with details about what we're saving
+                // Log first 5 contacts with details about what we're saving (to BOTH console AND frontend)
                 if (counts.contacts < 5) {
                   console.log(`[CLIO IMPORT] Contact ${counts.contacts + 1} SAVE DETAILS:`);
                   console.log(`[CLIO IMPORT]   Name: "${displayName}"`);
@@ -2787,6 +2803,15 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   console.log(`[CLIO IMPORT]   Raw primary_phone_number: ${JSON.stringify(c.primary_phone_number)}`);
                   console.log(`[CLIO IMPORT]   Primary phone found: ${JSON.stringify(primaryPhone)}`);
                   console.log(`[CLIO IMPORT]   Phone to save: "${primaryPhone?.number || 'NULL'}"`);
+                  
+                  // ADD TO FRONTEND LOGS - Critical for debugging email/phone issues
+                  addLog(`SAVING Contact #${counts.contacts + 1}: "${displayName}"`);
+                  addLog(`  → email_addresses from API: ${JSON.stringify(c.email_addresses) || 'undefined'}`);
+                  addLog(`  → primary_email_address from API: ${JSON.stringify(c.primary_email_address) || 'undefined'}`);
+                  addLog(`  → SAVING email: "${primaryEmail?.address || 'NULL'}"`);
+                  addLog(`  → phone_numbers from API: ${JSON.stringify(c.phone_numbers) || 'undefined'}`);
+                  addLog(`  → primary_phone_number from API: ${JSON.stringify(c.primary_phone_number) || 'undefined'}`);
+                  addLog(`  → SAVING phone: "${primaryPhone?.number || 'NULL'}"`);
                 }
                 
                 // Track what we're saving
