@@ -16,22 +16,29 @@ const clioConnections = new Map();
 // Helper to make Clio API requests with better error handling
 async function clioRequest(accessToken, endpoint, params = {}, retryCount = 0) {
   const MAX_RETRIES = 3;
-  const url = new URL(`${CLIO_API_BASE}${endpoint}`);
+  
+  // Build query string manually - searchParams.append encodes commas as %2C which breaks Clio's fields parameter
+  const queryParts = [];
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined) {
-      // Handle array parameters (e.g., open_date[]=['>=2020-01-01', '<=2020-12-31'])
       if (Array.isArray(value)) {
-        value.forEach(v => url.searchParams.append(key, v));
+        value.forEach(v => queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(v)}`));
+      } else if (key === 'fields') {
+        // Don't encode the fields value - Clio needs raw commas
+        queryParts.push(`fields=${value}`);
       } else {
-        url.searchParams.append(key, value);
+        queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
       }
     }
   });
   
+  const url = `${CLIO_API_BASE}${endpoint}${queryParts.length ? '?' + queryParts.join('&') : ''}`;
+  
   console.log(`[CLIO API] GET ${endpoint} with params:`, params);
+  console.log(`[CLIO API] Full URL: ${url}`);
   
   try {
-    const response = await fetch(url.toString(), {
+    const response = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
