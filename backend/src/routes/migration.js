@@ -2722,6 +2722,30 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               console.log(`[CLIO IMPORT] RAW first contact from Clio API:`);
               console.log(JSON.stringify(contacts[0], null, 2));
               
+              // Log to frontend what fields exist on first contact
+              const firstContact = contacts[0];
+              const firstContactFields = Object.keys(firstContact).join(', ');
+              addLog(`DEBUG: First contact fields: ${firstContactFields}`);
+              
+              // Check if email/phone fields exist at all
+              const hasEmailField = 'email_addresses' in firstContact || 'primary_email_address' in firstContact;
+              const hasPhoneField = 'phone_numbers' in firstContact || 'primary_phone_number' in firstContact;
+              addLog(`DEBUG: Has email field: ${hasEmailField}, Has phone field: ${hasPhoneField}`);
+              
+              // Show sample email/phone data from first contact
+              if (firstContact.email_addresses) {
+                addLog(`DEBUG: email_addresses = ${JSON.stringify(firstContact.email_addresses)}`);
+              }
+              if (firstContact.primary_email_address) {
+                addLog(`DEBUG: primary_email_address = ${JSON.stringify(firstContact.primary_email_address)}`);
+              }
+              if (firstContact.phone_numbers) {
+                addLog(`DEBUG: phone_numbers = ${JSON.stringify(firstContact.phone_numbers)}`);
+              }
+              if (firstContact.primary_phone_number) {
+                addLog(`DEBUG: primary_phone_number = ${JSON.stringify(firstContact.primary_phone_number)}`);
+              }
+              
               console.log(`[CLIO IMPORT] First 3 contacts with email/phone data:`);
               for (let i = 0; i < Math.min(3, contacts.length); i++) {
                 const c = contacts[i];
@@ -2731,7 +2755,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               const withEmail = contacts.filter(c => c.primary_email_address?.address || c.email_addresses?.[0]?.address).length;
               const withPhone = contacts.filter(c => c.primary_phone_number?.number || c.phone_numbers?.[0]?.number).length;
               console.log(`[CLIO IMPORT] Contacts with email: ${withEmail}/${contacts.length}, with phone: ${withPhone}/${contacts.length}`);
-              addLog(`Fetched ${contacts.length} contacts from Clio (${withEmail} with email, ${withPhone} with phone)`);
+              addLog(`Contacts from Clio: ${contacts.length} total, ${withEmail} with email, ${withPhone} with phone`);
             }
             
             // Track how many contacts have email/phone saved
@@ -2831,6 +2855,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             console.log(`[CLIO IMPORT] Contacts fetched from Clio: ${contacts.length}`);
             console.log(`[CLIO IMPORT] Contacts saved with email: ${savedWithEmail}/${counts.contacts}`);
             console.log(`[CLIO IMPORT] Contacts saved with phone: ${savedWithPhone}/${counts.contacts}`);
+            addLog(`RESULT: Saved ${counts.contacts} contacts - ${savedWithEmail} with email, ${savedWithPhone} with phone`);
             
             // Verify in database
             const contactVerify = await query('SELECT COUNT(*) FROM clients WHERE firm_id = $1', [firmId]);
@@ -2838,6 +2863,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             const contactsWithEmailInDb = await query('SELECT COUNT(*) FROM clients WHERE firm_id = $1 AND email IS NOT NULL AND email != \'\'', [firmId]);
             const contactsWithPhoneInDb = await query('SELECT COUNT(*) FROM clients WHERE firm_id = $1 AND phone IS NOT NULL AND phone != \'\'', [firmId]);
             console.log(`[CLIO IMPORT] Contacts in DB: ${actualContactCount}, with email: ${contactsWithEmailInDb.rows[0].count}, with phone: ${contactsWithPhoneInDb.rows[0].count}`);
+            addLog(`DB VERIFY: ${actualContactCount} contacts, ${contactsWithEmailInDb.rows[0].count} with email, ${contactsWithPhoneInDb.rows[0].count} with phone`);
             updateProgress('contacts', 'done', actualContactCount);
           } catch (err) {
             console.error('[CLIO IMPORT] Contacts error:', err.message);
