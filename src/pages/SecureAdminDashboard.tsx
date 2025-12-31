@@ -2607,7 +2607,7 @@ Password: ${newPass}`
                                         </button>
                                       </div>
                                       <pre style={{ fontSize: '0.75rem', color: '#ccc', margin: 0, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-                                        {clioProgress.logs.slice(-20).join('\n')}
+                                        {clioProgress.logs.slice(-50).join('\n')}
                                       </pre>
                                     </div>
                                   )}

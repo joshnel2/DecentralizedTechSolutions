@@ -2708,6 +2708,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           updateProgress('contacts', 'skipped', 0);
         } else {
           console.log('[CLIO IMPORT] Step 2/7: Importing contacts directly to DB...');
+          addLog('Starting contacts import from Clio...');
           updateProgress('contacts', 'running', 0);
           try {
             // Fetch contacts - try ALL possible field syntaxes for email/phone
@@ -2715,6 +2716,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             const contacts = await clioGetAll(accessToken, '/contacts.json', {
               fields: 'id,name,first_name,last_name,type,company{id,name},primary_email_address{address,name},primary_phone_number{number,name},primary_address{street,city,province,postal_code},email_addresses{address,name,primary},phone_numbers{number,name,primary},addresses{street,city,province,postal_code,primary}'
             }, (count) => updateProgress('contacts', 'running', count));
+            
+            addLog(`Fetched ${contacts.length} contacts from Clio API. Analyzing email/phone data...`);
             
             // Log samples to debug what Clio returns for email/phone
             if (contacts.length > 0) {
