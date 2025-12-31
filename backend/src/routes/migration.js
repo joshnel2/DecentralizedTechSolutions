@@ -2512,6 +2512,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               console.log(`[CLIO IMPORT] Contacts with email: ${withEmail}/${contacts.length}, with phone: ${withPhone}/${contacts.length}`);
             }
             
+            // Track how many contacts have email/phone saved
+            let savedWithEmail = 0;
+            let savedWithPhone = 0;
+            
             for (const c of contacts) {
               try {
                 const isCompany = c.type === 'Company';
@@ -2519,6 +2523,22 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const primaryEmail = c.email_addresses?.find(e => e.primary) || c.email_addresses?.[0];
                 const primaryPhone = c.phone_numbers?.find(p => p.primary) || c.phone_numbers?.[0];
                 const primaryAddr = c.addresses?.find(a => a.primary) || c.addresses?.[0];
+                
+                // Log first 5 contacts with details about what we're saving
+                if (counts.contacts < 5) {
+                  console.log(`[CLIO IMPORT] Contact ${counts.contacts + 1} SAVE DETAILS:`);
+                  console.log(`[CLIO IMPORT]   Name: "${displayName}"`);
+                  console.log(`[CLIO IMPORT]   Raw email_addresses: ${JSON.stringify(c.email_addresses)}`);
+                  console.log(`[CLIO IMPORT]   Primary email found: ${JSON.stringify(primaryEmail)}`);
+                  console.log(`[CLIO IMPORT]   Email to save: "${primaryEmail?.address || 'NULL'}"`);
+                  console.log(`[CLIO IMPORT]   Raw phone_numbers: ${JSON.stringify(c.phone_numbers)}`);
+                  console.log(`[CLIO IMPORT]   Primary phone found: ${JSON.stringify(primaryPhone)}`);
+                  console.log(`[CLIO IMPORT]   Phone to save: "${primaryPhone?.number || 'NULL'}"`);
+                }
+                
+                // Track what we're saving
+                if (primaryEmail?.address) savedWithEmail++;
+                if (primaryPhone?.number) savedWithPhone++;
                 
                 // Build notes with ALL contact info from Clio
                 const notesParts = [];
@@ -2594,9 +2614,15 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             }
             // Verify contacts were saved
             console.log(`[CLIO IMPORT] Contacts fetched from Clio: ${contacts.length}`);
+            console.log(`[CLIO IMPORT] Contacts saved with email: ${savedWithEmail}/${counts.contacts}`);
+            console.log(`[CLIO IMPORT] Contacts saved with phone: ${savedWithPhone}/${counts.contacts}`);
+            
+            // Verify in database
             const contactVerify = await query('SELECT COUNT(*) FROM clients WHERE firm_id = $1', [firmId]);
             const actualContactCount = parseInt(contactVerify.rows[0].count);
-            console.log(`[CLIO IMPORT] Contacts saved to DB: ${counts.contacts}, verified in DB: ${actualContactCount}`);
+            const contactsWithEmailInDb = await query('SELECT COUNT(*) FROM clients WHERE firm_id = $1 AND email IS NOT NULL AND email != \'\'', [firmId]);
+            const contactsWithPhoneInDb = await query('SELECT COUNT(*) FROM clients WHERE firm_id = $1 AND phone IS NOT NULL AND phone != \'\'', [firmId]);
+            console.log(`[CLIO IMPORT] Contacts in DB: ${actualContactCount}, with email: ${contactsWithEmailInDb.rows[0].count}, with phone: ${contactsWithPhoneInDb.rows[0].count}`);
             updateProgress('contacts', 'done', actualContactCount);
           } catch (err) {
             console.error('[CLIO IMPORT] Contacts error:', err.message);
@@ -2756,8 +2782,29 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             
             console.log(`[CLIO IMPORT] Activities fetched from Clio: ${activities.length}`);
             
+            // Log RAW first activity to see exactly what Clio returns
+            if (activities.length > 0) {
+              console.log(`[CLIO IMPORT] RAW first activity from Clio API:`);
+              console.log(JSON.stringify(activities[0], null, 2));
+              
+              // Log first 5 activities summary
+              console.log(`[CLIO IMPORT] First 5 activities summary:`);
+              for (let i = 0; i < Math.min(5, activities.length); i++) {
+                const a = activities[i];
+                console.log(`[CLIO IMPORT]   Activity ${i+1}: type=${a.type}, date=${a.date}, quantity=${a.quantity}, quantity_in_hours=${a.quantity_in_hours}, price=${a.price}, total=${a.total}, billed=${a.billed}, matter_id=${a.matter?.id}, user=${a.user?.name}`);
+              }
+              
+              // Count by type and status
+              const timeEntries = activities.filter(a => a.type === 'TimeEntry').length;
+              const expenses = activities.filter(a => a.type === 'ExpenseEntry').length;
+              const billed = activities.filter(a => a.billed).length;
+              const withMatter = activities.filter(a => a.matter?.id).length;
+              console.log(`[CLIO IMPORT] Activity breakdown: ${timeEntries} time entries, ${expenses} expenses, ${billed} billed, ${withMatter} with matter`);
+            }
+            
             let expenseCount = 0;
             let skippedNoMatter = 0;
+            let savedTimeEntries = 0;
             
             for (const a of activities) {
               try {
@@ -2836,6 +2883,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   );
                   
                   counts.activities++;
+                  savedTimeEntries++;
                 }
                 
                 if ((counts.activities + expenseCount) % 1000 === 0) {
@@ -2845,7 +2893,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 console.log(`[CLIO IMPORT] Activity error: ${a.id} - ${err.message}`);
               }
             }
-            console.log(`[CLIO IMPORT] Activities without matter (still saved): ${skippedNoMatter}`);
+            console.log(`[CLIO IMPORT] Activities without matter (skipped): ${skippedNoMatter}`);
             // Verify time entries and expenses were saved
             console.log(`[CLIO IMPORT] Activities fetched from Clio: ${activities.length}`);
             const activityVerify = await query('SELECT COUNT(*) FROM time_entries WHERE firm_id = $1', [firmId]);
@@ -2875,6 +2923,35 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             const bills = await clioGetAll(accessToken, '/bills.json', {
               fields: 'id,number,issued_at,due_at,total,balance,state,matters{id,display_number},client{id,name}'
             }, (count) => updateProgress('bills', 'running', count));
+            
+            console.log(`[CLIO IMPORT] Bills fetched from Clio: ${bills.length}`);
+            
+            // Log RAW first bill to see exactly what Clio returns
+            if (bills.length > 0) {
+              console.log(`[CLIO IMPORT] RAW first bill from Clio API:`);
+              console.log(JSON.stringify(bills[0], null, 2));
+              
+              // Log first 5 bills summary
+              console.log(`[CLIO IMPORT] First 5 bills summary:`);
+              for (let i = 0; i < Math.min(5, bills.length); i++) {
+                const b = bills[i];
+                console.log(`[CLIO IMPORT]   Bill ${i+1}: number=${b.number}, state=${b.state}, total=${b.total}, balance=${b.balance}, issued_at=${b.issued_at}, matters=${b.matters?.length || 0}, client=${b.client?.name}`);
+              }
+              
+              // Count by state
+              const byState = {};
+              bills.forEach(b => {
+                byState[b.state] = (byState[b.state] || 0) + 1;
+              });
+              console.log(`[CLIO IMPORT] Bills by state:`, byState);
+              
+              // Calculate totals
+              const totalAmount = bills.reduce((sum, b) => sum + (parseFloat(b.total) || 0), 0);
+              const totalBalance = bills.reduce((sum, b) => sum + (parseFloat(b.balance) || 0), 0);
+              console.log(`[CLIO IMPORT] Bills total amount: $${totalAmount.toFixed(2)}, outstanding: $${totalBalance.toFixed(2)}`);
+            }
+            
+            let skippedBills = 0;
             
             for (const b of bills) {
               try {
@@ -2913,14 +2990,31 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 
                 counts.bills++;
               } catch (err) {
-                // Skip silently
+                skippedBills++;
+                if (skippedBills <= 5) {
+                  console.log(`[CLIO IMPORT] Bill error: ${b.number || b.id} - ${err.message}`);
+                }
               }
             }
+            
             // Verify bills were saved
-            console.log(`[CLIO IMPORT] Bills fetched from Clio: ${bills.length}`);
             const billVerify = await query('SELECT COUNT(*) FROM invoices WHERE firm_id = $1', [firmId]);
             const actualBillCount = parseInt(billVerify.rows[0].count);
-            console.log(`[CLIO IMPORT] Bills saved to DB: ${counts.bills}, verified in DB: ${actualBillCount}`);
+            
+            // Get billing summary from DB
+            const billingSummary = await query(`
+              SELECT 
+                COUNT(*) as total,
+                SUM(subtotal_fees) as total_billed,
+                SUM(amount_paid) as total_paid,
+                COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_count,
+                COUNT(CASE WHEN status = 'sent' THEN 1 END) as sent_count
+              FROM invoices WHERE firm_id = $1
+            `, [firmId]);
+            
+            console.log(`[CLIO IMPORT] Bills saved to DB: ${counts.bills}, skipped: ${skippedBills}`);
+            console.log(`[CLIO IMPORT] Bills verified in DB: ${actualBillCount}`);
+            console.log(`[CLIO IMPORT] Billing summary in DB: total=$${billingSummary.rows[0].total_billed || 0}, paid=$${billingSummary.rows[0].total_paid || 0}, paid_count=${billingSummary.rows[0].paid_count}, sent_count=${billingSummary.rows[0].sent_count}`);
             updateProgress('bills', 'done', actualBillCount);
           } catch (err) {
             console.error('[CLIO IMPORT] Bills error:', err.message);
