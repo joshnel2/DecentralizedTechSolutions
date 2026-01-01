@@ -142,10 +142,10 @@ router.get('/firm-summary', authenticate, requireRole('owner', 'admin', 'partner
       query(`
         SELECT 
           COUNT(*) as total_invoices,
-          COALESCE(SUM(total), 0) as total_invoiced,
+          COALESCE(SUM(subtotal_fees), 0) as total_invoiced,
           COALESCE(SUM(amount_paid), 0) as total_collected,
-          COALESCE(SUM(amount_due), 0) as total_outstanding,
-          COALESCE(SUM(amount_due) FILTER (WHERE status = 'overdue'), 0) as total_overdue,
+          COALESCE(SUM(subtotal_fees - amount_paid), 0) as total_outstanding,
+          COALESCE(SUM(subtotal_fees - amount_paid) FILTER (WHERE status = 'overdue'), 0) as total_overdue,
           COUNT(*) FILTER (WHERE status = 'draft') as draft_count,
           COUNT(*) FILTER (WHERE status = 'sent') as sent_count,
           COUNT(*) FILTER (WHERE status = 'paid') as paid_count,
@@ -361,8 +361,8 @@ router.get('/kpis', authenticate, requireRole('owner', 'admin', 'partner', 'bill
 
       query(`
         SELECT 
-          COALESCE(SUM(amount_due), 0) as outstanding,
-          COALESCE(SUM(amount_due) FILTER (WHERE status = 'overdue'), 0) as overdue
+          COALESCE(SUM(subtotal_fees - amount_paid), 0) as outstanding,
+          COALESCE(SUM(subtotal_fees - amount_paid) FILTER (WHERE status = 'overdue'), 0) as overdue
         FROM invoices WHERE firm_id = $1
       `, [firmId])
     ]);

@@ -373,55 +373,68 @@ async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress,
   return allData;
 }
 
-// Fetch activities by STATUS - includes all statuses + catch-all
-// Each status can have up to 10k records
+// Fetch activities by STATUS + YEAR - chunked to avoid 10k limit
 async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgress, matterIds = null) {
   const allData = [];
   const seenIds = new Set();
   const statuses = ['billed', 'unbilled', 'non_billable'];
+  const currentYear = new Date().getFullYear();
   
-  console.log(`[CLIO API] Fetching activities by status (bypasses 10k limit)...`);
+  console.log(`[CLIO API] Fetching activities by status + year (to bypass 10k limit)...`);
   
-  for (const status of statuses) {
-    console.log(`[CLIO API] Fetching ${status} activities...`);
+  // Iterate through years (2008 is Clio launch, start safely at 2000)
+  for (let year = 2000; year <= currentYear; year++) {
+    const startDate = `${year}-01-01`;
+    const endDate = `${year}-12-31`;
     
-    try {
-      const statusActivities = await clioGetPaginated(
-        accessToken,
-        endpoint,
-        { ...params, status },
-        (count) => {
-          if (onProgress) onProgress(allData.length + count);
-        }
-      );
+    for (const status of statuses) {
+      console.log(`[CLIO API] Fetching ${status} activities for ${year}...`);
       
-      let newCount = 0;
-      for (const item of statusActivities) {
-        if (item.id && !seenIds.has(item.id)) {
-          seenIds.add(item.id);
-          allData.push(item);
-          newCount++;
+      try {
+        const batchActivities = await clioGetPaginated(
+          accessToken,
+          endpoint,
+          { 
+            ...params, 
+            status,
+            'date[]': [`>=${startDate}`, `<=${endDate}`]
+          },
+          (count) => {
+            // Only update progress, don't recount total
+          }
+        );
+        
+        let newCount = 0;
+        for (const item of batchActivities) {
+          if (item.id && !seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            allData.push(item);
+            newCount++;
+          }
         }
+        
+        if (newCount > 0) {
+          console.log(`[CLIO API] ${status} activities for ${year}: ${newCount} new records`);
+          if (onProgress) onProgress(allData.length);
+        }
+        
+      } catch (err) {
+        console.log(`[CLIO API] Error fetching ${status} activities for ${year}: ${err.message}`);
       }
-      
-      console.log(`[CLIO API] ${status} activities: ${newCount} records, total ${allData.length}`);
-      if (onProgress) onProgress(allData.length);
-      
-    } catch (err) {
-      console.log(`[CLIO API] Error fetching ${status} activities: ${err.message}`);
     }
   }
   
-  // CATCH-ALL: Fetch activities WITHOUT status filter to catch any with null/other status
-  console.log(`[CLIO API] Running catch-all fetch for activities without status filter...`);
+  // CATCH-ALL: Fetch recent activities (last 30 days) WITHOUT filters to catch any oddities
+  console.log(`[CLIO API] Running catch-all fetch for recent activities...`);
   try {
     const catchAllActivities = await clioGetPaginated(
       accessToken,
       endpoint,
-      { ...params },
-      (count) => {
-        if (onProgress) onProgress(allData.length + count);
-      }
+      { 
+        ...params,
+        'updated_at[]': `>=${new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()}`
+      },
+      null
     );
     
     let newCount = 0;
@@ -435,8 +448,8 @@ async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgre
     
     if (newCount > 0) {
       console.log(`[CLIO API] Catch-all activities: found ${newCount} additional! Total: ${allData.length}`);
+      if (onProgress) onProgress(allData.length);
     }
-    if (onProgress) onProgress(allData.length);
     
   } catch (err) {
     console.log(`[CLIO API] Catch-all activities error: ${err.message}`);
