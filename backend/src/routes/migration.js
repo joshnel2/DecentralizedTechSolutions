@@ -2723,7 +2723,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             // Also need to handle nested fields for email_addresses and phone_numbers which some API versions use
             // The format email_addresses{address,primary,name} asks for those specific fields on the nested objects
             const contacts = await clioGetAll(accessToken, '/contacts.json', {
-              fields: 'id,name,first_name,last_name,type,company{name},email_addresses{address,primary,name,default_email},phone_numbers{number,primary,name,default_number},primary_email_address{address,primary,name},primary_phone_number{number,primary,name},addresses{street,city,province,postal_code,country,primary,name},primary_address{street,city,province,postal_code,country,primary,name}'
+              fields: 'id,name,first_name,last_name,type,company{name},email_addresses{address,primary,name,default_email,value},phone_numbers{number,primary,name,default_number,value},primary_email_address{address,primary,name,value},primary_phone_number{number,primary,name,value},addresses{street,city,province,postal_code,country,primary,name},primary_address{street,city,province,postal_code,country,primary,name}'
             }, (count) => updateProgress('contacts', 'running', count));
             
             addLog(`Fetched ${contacts.length} contacts from Clio API. Analyzing email/phone data...`);
@@ -2782,26 +2782,48 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 // Try both Clio field syntaxes: primary_* fields OR *_arrays
                 // Also handle the case where email_addresses might be an array of objects but the 'address' property is at the top level of the object
                 
-                // Helper to safely get email
+                // Helper to safely get email - try ALL possible fields
                 let primaryEmail = null;
-                if (c.primary_email_address?.address) {
+                // 1. Direct object
+                if (c.primary_email_address) {
                     primaryEmail = c.primary_email_address;
-                } else if (Array.isArray(c.email_addresses) && c.email_addresses.length > 0) {
-                    // Try to find one marked primary, or default_email, or just the first one
+                }
+                // 2. Scan array
+                else if (Array.isArray(c.email_addresses) && c.email_addresses.length > 0) {
                     primaryEmail = c.email_addresses.find(e => e.primary) || 
                                   c.email_addresses.find(e => e.default_email) || 
+                                  c.email_addresses.find(e => e.name === 'Work') ||
+                                  c.email_addresses.find(e => e.name === 'Other') ||
                                   c.email_addresses[0];
                 }
+                
+                // Normalize email object - sometimes it's {address: '...'} and sometimes {value: '...'}
+                if (primaryEmail) {
+                    if (!primaryEmail.address && primaryEmail.value) {
+                        primaryEmail.address = primaryEmail.value;
+                    }
+                }
 
-                // Helper to safely get phone
+                // Helper to safely get phone - try ALL possible fields
                 let primaryPhone = null;
-                if (c.primary_phone_number?.number) {
+                // 1. Direct object
+                if (c.primary_phone_number) {
                     primaryPhone = c.primary_phone_number;
-                } else if (Array.isArray(c.phone_numbers) && c.phone_numbers.length > 0) {
-                    // Try to find one marked primary, or default_number, or just the first one
+                }
+                // 2. Scan array
+                else if (Array.isArray(c.phone_numbers) && c.phone_numbers.length > 0) {
                     primaryPhone = c.phone_numbers.find(p => p.primary) || 
                                   c.phone_numbers.find(p => p.default_number) || 
+                                  c.phone_numbers.find(p => p.name === 'Work') ||
+                                  c.phone_numbers.find(p => p.name === 'Mobile') ||
                                   c.phone_numbers[0];
+                }
+                
+                // Normalize phone object - sometimes it's {number: '...'} and sometimes {value: '...'}
+                if (primaryPhone) {
+                    if (!primaryPhone.number && primaryPhone.value) {
+                        primaryPhone.number = primaryPhone.value;
+                    }
                 }
 
                 const primaryAddr = 
