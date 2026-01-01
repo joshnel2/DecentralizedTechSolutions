@@ -2720,8 +2720,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           try {
             // Fetch contacts - try ALL possible field syntaxes for email/phone
             // Clio API is inconsistent - some accounts need arrays, some need primary_ fields
+            // Also need to handle nested fields for email_addresses and phone_numbers which some API versions use
+            // The format email_addresses{address,primary,name} asks for those specific fields on the nested objects
             const contacts = await clioGetAll(accessToken, '/contacts.json', {
-              fields: 'id,name,first_name,last_name,type,email_addresses{address,primary,name},phone_numbers{number,primary,name},primary_email_address{address,primary,name},primary_phone_number{number,primary,name},addresses{street,city,province,postal_code,country,primary,name},primary_address{street,city,province,postal_code,country,primary,name}'
+              fields: 'id,name,first_name,last_name,type,company{name},email_addresses{address,primary,name},phone_numbers{number,primary,name},primary_email_address{address,primary,name},primary_phone_number{number,primary,name},addresses{street,city,province,postal_code,country,primary,name},primary_address{street,city,province,postal_code,country,primary,name}'
             }, (count) => updateProgress('contacts', 'running', count));
             
             addLog(`Fetched ${contacts.length} contacts from Clio API. Analyzing email/phone data...`);
@@ -2778,9 +2780,30 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const displayName = c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown';
                 
                 // Try both Clio field syntaxes: primary_* fields OR *_arrays
-                const primaryEmail = c.primary_email_address || c.email_addresses?.find(e => e.primary) || c.email_addresses?.[0];
-                const primaryPhone = c.primary_phone_number || c.phone_numbers?.find(p => p.primary) || c.phone_numbers?.[0];
-                const primaryAddr = c.primary_address || c.addresses?.find(a => a.primary) || c.addresses?.[0];
+                // Also handle the case where email_addresses might be an array of objects but the 'address' property is at the top level of the object
+                const primaryEmail = 
+                  // Option 1: Direct primary field
+                  c.primary_email_address || 
+                  // Option 2: Find primary in array
+                  (Array.isArray(c.email_addresses) ? c.email_addresses.find(e => e.primary) : null) || 
+                  // Option 3: First in array
+                  (Array.isArray(c.email_addresses) ? c.email_addresses[0] : null);
+
+                const primaryPhone = 
+                  // Option 1: Direct primary field
+                  c.primary_phone_number || 
+                  // Option 2: Find primary in array
+                  (Array.isArray(c.phone_numbers) ? c.phone_numbers.find(p => p.primary) : null) || 
+                  // Option 3: First in array
+                  (Array.isArray(c.phone_numbers) ? c.phone_numbers[0] : null);
+
+                const primaryAddr = 
+                  // Option 1: Direct primary field
+                  c.primary_address || 
+                  // Option 2: Find primary in array
+                  (Array.isArray(c.addresses) ? c.addresses.find(a => a.primary) : null) || 
+                  // Option 3: First in array
+                  (Array.isArray(c.addresses) ? c.addresses[0] : null);
                 
                 // Log first 5 contacts with details about what we're saving
                 if (counts.contacts < 5) {
