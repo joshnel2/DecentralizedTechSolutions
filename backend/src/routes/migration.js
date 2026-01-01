@@ -2723,7 +2723,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             // Also need to handle nested fields for email_addresses and phone_numbers which some API versions use
             // The format email_addresses{address,primary,name} asks for those specific fields on the nested objects
             const contacts = await clioGetAll(accessToken, '/contacts.json', {
-              fields: 'id,name,first_name,last_name,type,company{name},email_addresses{address,primary,name},phone_numbers{number,primary,name},primary_email_address{address,primary,name},primary_phone_number{number,primary,name},addresses{street,city,province,postal_code,country,primary,name},primary_address{street,city,province,postal_code,country,primary,name}'
+              fields: 'id,name,first_name,last_name,type,company{name},email_addresses{address,primary,name,default_email},phone_numbers{number,primary,name,default_number},primary_email_address{address,primary,name},primary_phone_number{number,primary,name},addresses{street,city,province,postal_code,country,primary,name},primary_address{street,city,province,postal_code,country,primary,name}'
             }, (count) => updateProgress('contacts', 'running', count));
             
             addLog(`Fetched ${contacts.length} contacts from Clio API. Analyzing email/phone data...`);
@@ -2781,21 +2781,28 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 
                 // Try both Clio field syntaxes: primary_* fields OR *_arrays
                 // Also handle the case where email_addresses might be an array of objects but the 'address' property is at the top level of the object
-                const primaryEmail = 
-                  // Option 1: Direct primary field
-                  c.primary_email_address || 
-                  // Option 2: Find primary in array
-                  (Array.isArray(c.email_addresses) ? c.email_addresses.find(e => e.primary) : null) || 
-                  // Option 3: First in array
-                  (Array.isArray(c.email_addresses) ? c.email_addresses[0] : null);
+                
+                // Helper to safely get email
+                let primaryEmail = null;
+                if (c.primary_email_address?.address) {
+                    primaryEmail = c.primary_email_address;
+                } else if (Array.isArray(c.email_addresses) && c.email_addresses.length > 0) {
+                    // Try to find one marked primary, or default_email, or just the first one
+                    primaryEmail = c.email_addresses.find(e => e.primary) || 
+                                  c.email_addresses.find(e => e.default_email) || 
+                                  c.email_addresses[0];
+                }
 
-                const primaryPhone = 
-                  // Option 1: Direct primary field
-                  c.primary_phone_number || 
-                  // Option 2: Find primary in array
-                  (Array.isArray(c.phone_numbers) ? c.phone_numbers.find(p => p.primary) : null) || 
-                  // Option 3: First in array
-                  (Array.isArray(c.phone_numbers) ? c.phone_numbers[0] : null);
+                // Helper to safely get phone
+                let primaryPhone = null;
+                if (c.primary_phone_number?.number) {
+                    primaryPhone = c.primary_phone_number;
+                } else if (Array.isArray(c.phone_numbers) && c.phone_numbers.length > 0) {
+                    // Try to find one marked primary, or default_number, or just the first one
+                    primaryPhone = c.phone_numbers.find(p => p.primary) || 
+                                  c.phone_numbers.find(p => p.default_number) || 
+                                  c.phone_numbers[0];
+                }
 
                 const primaryAddr = 
                   // Option 1: Direct primary field
