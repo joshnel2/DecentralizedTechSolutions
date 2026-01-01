@@ -2721,7 +2721,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             // Fetch contacts - try ALL possible field syntaxes for email/phone
             // Clio API is inconsistent - some accounts need arrays, some need primary_ fields
             const contacts = await clioGetAll(accessToken, '/contacts.json', {
-              fields: 'id,name,first_name,last_name,type,email_addresses{address,primary},phone_numbers{number,primary}'
+              fields: 'id,name,first_name,last_name,type,email_addresses{address,primary,name},phone_numbers{number,primary,name},primary_email_address{address,primary,name},primary_phone_number{number,primary,name},addresses{street,city,province,postal_code,country,primary,name},primary_address{street,city,province,postal_code,country,primary,name}'
             }, (count) => updateProgress('contacts', 'running', count));
             
             addLog(`Fetched ${contacts.length} contacts from Clio API. Analyzing email/phone data...`);
