@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
@@ -7,7 +7,7 @@ import { teamApi } from '../services/api'
 import { 
   Plus, Search, Filter, ChevronDown, Briefcase, 
   MoreVertical, Sparkles, Calendar, DollarSign, Users, X,
-  Edit2, Archive, CheckCircle2, Trash2, Eye, XCircle, FileText, Settings
+  Edit2, Archive, CheckCircle2, Trash2, Eye, XCircle, FileText, Settings, Loader2
 } from 'lucide-react'
 import { MatterTypesManager } from '../components/MatterTypesManager'
 import { format, parseISO } from 'date-fns'
@@ -34,7 +34,7 @@ const getViewOptions = (isAdmin: boolean) => {
 }
 
 export function MattersPage() {
-  const { matters, clients, addMatter, fetchMatters, fetchClients, updateMatter, deleteMatter, matterTypes } = useDataStore()
+  const { matters, clients, addMatter, fetchMatters, fetchClients, updateMatter, deleteMatter, matterTypes, loadMoreMatters, mattersHasMore, mattersTotal, isLoading, isLoadingMore } = useDataStore()
   const { user, hasPermission } = useAuthStore()
   const { openChat } = useAIChat()
   const navigate = useNavigate()
@@ -43,6 +43,7 @@ export function MattersPage() {
   const [attorneys, setAttorneys] = useState<any[]>([])
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const tableContainerRef = useRef<HTMLDivElement>(null)
   const [prefilledClientId, setPrefilledClientId] = useState<string | null>(null)
   const [viewFilter, setViewFilter] = useState<'my' | 'all'>('my') // Default to "My Matters"
 
@@ -78,6 +79,27 @@ export function MattersPage() {
       .then(data => setAttorneys(data.attorneys || []))
       .catch(err => console.log('Could not fetch attorneys:', err))
   }, [viewFilter])
+
+  // Infinite scroll handler
+  const handleScroll = useCallback(() => {
+    const container = tableContainerRef.current
+    if (!container || isLoadingMore || !mattersHasMore) return
+    
+    const { scrollTop, scrollHeight, clientHeight } = container
+    // Load more when user is within 200px of the bottom
+    if (scrollHeight - scrollTop - clientHeight < 200) {
+      loadMoreMatters(viewFilter)
+    }
+  }, [isLoadingMore, mattersHasMore, loadMoreMatters, viewFilter])
+
+  // Attach scroll listener
+  useEffect(() => {
+    const container = tableContainerRef.current
+    if (!container) return
+    
+    container.addEventListener('scroll', handleScroll)
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [handleScroll])
   const [statusFilter, setStatusFilter] = useState('active')  // Default to active matters
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
@@ -218,7 +240,12 @@ export function MattersPage() {
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <h1>{viewFilter === 'my' ? 'My Matters' : 'All Matters'}</h1>
-          <span className={styles.count}>{matters.length} {viewFilter === 'my' ? 'assigned to you' : 'total'}</span>
+          <span className={styles.count}>
+            {matters.length === mattersTotal 
+              ? `${matters.length} ${viewFilter === 'my' ? 'assigned to you' : 'total'}`
+              : `${matters.length} of ${mattersTotal} loaded`
+            }
+          </span>
         </div>
         <div className={styles.headerActions}>
           <button 
@@ -301,7 +328,7 @@ export function MattersPage() {
       </div>
 
       {/* Table */}
-      <div className={styles.tableContainer}>
+      <div className={styles.tableContainer} ref={tableContainerRef}>
         <table className={styles.table}>
           <thead>
             <tr>
@@ -467,11 +494,33 @@ export function MattersPage() {
           </tbody>
         </table>
 
-        {filteredMatters.length === 0 && (
+        {/* Loading more indicator */}
+        {isLoadingMore && (
+          <div className={styles.loadingMore}>
+            <Loader2 size={20} className={styles.spinner} />
+            <span>Loading more matters...</span>
+          </div>
+        )}
+
+        {/* Load more hint when there's more data */}
+        {mattersHasMore && !isLoadingMore && filteredMatters.length > 0 && (
+          <div className={styles.loadMoreHint}>
+            Showing {matters.length} of {mattersTotal} matters • Scroll for more
+          </div>
+        )}
+
+        {filteredMatters.length === 0 && !isLoading && (
           <div className={styles.emptyState}>
             <Briefcase size={48} />
             <h3>No matters found</h3>
             <p>Try adjusting your search or filters</p>
+          </div>
+        )}
+
+        {isLoading && matters.length === 0 && (
+          <div className={styles.loadingState}>
+            <Loader2 size={32} className={styles.spinner} />
+            <span>Loading matters...</span>
           </div>
         )}
       </div>

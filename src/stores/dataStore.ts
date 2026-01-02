@@ -53,13 +53,22 @@ interface DataState {
   notifications: Notification[]
   matterTypes: MatterTypeConfig[]
   
+  // Pagination state
+  clientsTotal: number
+  clientsHasMore: boolean
+  mattersTotal: number
+  mattersHasMore: boolean
+  
   // Loading states
   isLoading: boolean
+  isLoadingMore: boolean
   error: string | null
   
   // Fetch actions
-  fetchClients: (params?: { view?: 'my' | 'all' }) => Promise<void>
-  fetchMatters: (params?: { view?: 'my' | 'all' }) => Promise<void>
+  fetchClients: (params?: { view?: 'my' | 'all'; reset?: boolean }) => Promise<void>
+  fetchMatters: (params?: { view?: 'my' | 'all'; reset?: boolean }) => Promise<void>
+  loadMoreClients: (view?: 'my' | 'all') => Promise<void>
+  loadMoreMatters: (view?: 'my' | 'all') => Promise<void>
   fetchTimeEntries: (params?: { matterId?: string; limit?: number; offset?: number }) => Promise<void>
   fetchInvoices: (params?: { view?: 'my' | 'all' }) => Promise<void>
   fetchEvents: (params?: { startDate?: string; endDate?: string }) => Promise<void>
@@ -119,6 +128,8 @@ interface DataState {
   clearAll: () => void
 }
 
+const PAGE_SIZE = 50;
+
 export const useDataStore = create<DataState>()(
     (set, get) => ({
   clients: [],
@@ -132,30 +143,100 @@ export const useDataStore = create<DataState>()(
   groups: [],
   notifications: [],
   matterTypes: defaultMatterTypes,
+  clientsTotal: 0,
+  clientsHasMore: false,
+  mattersTotal: 0,
+  mattersHasMore: false,
   isLoading: false,
+  isLoadingMore: false,
   error: null,
 
-  // Fetch clients from API
-  fetchClients: async (params?: { view?: 'my' | 'all' }) => {
+  // Fetch clients from API (with pagination)
+  fetchClients: async (params?: { view?: 'my' | 'all'; reset?: boolean }) => {
+    const reset = params?.reset !== false; // Default to reset
     set({ isLoading: true, error: null })
     try {
-      const response = await clientsApi.getAll({ view: params?.view || 'my' })
-      set({ clients: response.clients, isLoading: false })
+      const response = await clientsApi.getAll({ 
+        view: params?.view || 'my',
+        limit: PAGE_SIZE,
+        offset: 0
+      })
+      set({ 
+        clients: response.clients, 
+        clientsTotal: response.total,
+        clientsHasMore: response.clients.length >= PAGE_SIZE && response.offset + response.clients.length < response.total,
+        isLoading: false 
+      })
     } catch (error) {
       console.error('Failed to fetch clients:', error)
       set({ error: 'Failed to fetch clients', isLoading: false })
     }
   },
 
-  // Fetch matters from API
-  fetchMatters: async (params?: { view?: 'my' | 'all' }) => {
+  // Load more clients (pagination)
+  loadMoreClients: async (view?: 'my' | 'all') => {
+    const { clients, clientsHasMore, isLoadingMore } = get()
+    if (!clientsHasMore || isLoadingMore) return
+    
+    set({ isLoadingMore: true })
+    try {
+      const response = await clientsApi.getAll({ 
+        view: view || 'my',
+        limit: PAGE_SIZE,
+        offset: clients.length
+      })
+      set({ 
+        clients: [...clients, ...response.clients],
+        clientsHasMore: response.clients.length >= PAGE_SIZE && clients.length + response.clients.length < response.total,
+        isLoadingMore: false 
+      })
+    } catch (error) {
+      console.error('Failed to load more clients:', error)
+      set({ isLoadingMore: false })
+    }
+  },
+
+  // Fetch matters from API (with pagination)
+  fetchMatters: async (params?: { view?: 'my' | 'all'; reset?: boolean }) => {
     set({ isLoading: true, error: null })
     try {
-      const response = await mattersApi.getAll({ view: params?.view || 'my' })
-      set({ matters: response.matters, isLoading: false })
+      const response = await mattersApi.getAll({ 
+        view: params?.view || 'my',
+        limit: PAGE_SIZE,
+        offset: 0
+      })
+      set({ 
+        matters: response.matters, 
+        mattersTotal: response.total,
+        mattersHasMore: response.matters.length >= PAGE_SIZE && response.offset + response.matters.length < response.total,
+        isLoading: false 
+      })
     } catch (error) {
       console.error('Failed to fetch matters:', error)
       set({ error: 'Failed to fetch matters', isLoading: false })
+    }
+  },
+
+  // Load more matters (pagination)
+  loadMoreMatters: async (view?: 'my' | 'all') => {
+    const { matters, mattersHasMore, isLoadingMore } = get()
+    if (!mattersHasMore || isLoadingMore) return
+    
+    set({ isLoadingMore: true })
+    try {
+      const response = await mattersApi.getAll({ 
+        view: view || 'my',
+        limit: PAGE_SIZE,
+        offset: matters.length
+      })
+      set({ 
+        matters: [...matters, ...response.matters],
+        mattersHasMore: response.matters.length >= PAGE_SIZE && matters.length + response.matters.length < response.total,
+        isLoadingMore: false 
+      })
+    } catch (error) {
+      console.error('Failed to load more matters:', error)
+      set({ isLoadingMore: false })
     }
   },
 
@@ -456,6 +537,10 @@ export const useDataStore = create<DataState>()(
       groups: [],
       notifications: [],
       matterTypes: defaultMatterTypes,
+      clientsTotal: 0,
+      clientsHasMore: false,
+      mattersTotal: 0,
+      mattersHasMore: false,
     })
   },
 })

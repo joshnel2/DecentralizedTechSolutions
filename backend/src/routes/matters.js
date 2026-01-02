@@ -28,7 +28,7 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
     const { 
       search, status, type, clientId, assignedTo, priority, visibility,
       view: requestedView = 'my', // 'my' = only my matters, 'all' = all matters I can see
-      limit = 1000000, offset = 0  // No limit
+      limit = 50, offset = 0  // Paginated - load 50 at a time for performance
     } = req.query;
     
     // Only admins/owners can view "all" matters - everyone else forced to "my"

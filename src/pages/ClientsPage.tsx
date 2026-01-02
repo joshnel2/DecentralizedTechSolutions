@@ -1,9 +1,9 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
-import { Plus, Search, Users, Building2, User, MoreVertical, Sparkles, Eye, Edit2, Trash2, Archive, Briefcase } from 'lucide-react'
+import { Plus, Search, Users, Building2, User, MoreVertical, Sparkles, Eye, Edit2, Trash2, Archive, Briefcase, Loader2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './ListPages.module.css'
@@ -19,13 +19,14 @@ const getViewOptions = (isAdmin: boolean) => {
 }
 
 export function ClientsPage() {
-  const { clients, matters, addClient, updateClient, deleteClient, fetchClients, fetchMatters } = useDataStore()
+  const { clients, matters, addClient, updateClient, deleteClient, fetchClients, fetchMatters, loadMoreClients, clientsHasMore, clientsTotal, isLoading, isLoadingMore } = useDataStore()
   const { user } = useAuthStore()
   const { openChat } = useAIChat()
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState('')
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const tableContainerRef = useRef<HTMLDivElement>(null)
   const [viewFilter, setViewFilter] = useState<'my' | 'all'>('my')
   
   const isAdmin = user?.role === 'owner' || user?.role === 'admin'
@@ -46,6 +47,27 @@ export function ClientsPage() {
     fetchClients({ view: viewFilter })
     fetchMatters({ view: 'my' })
   }, [viewFilter])
+
+  // Infinite scroll handler
+  const handleScroll = useCallback(() => {
+    const container = tableContainerRef.current
+    if (!container || isLoadingMore || !clientsHasMore) return
+    
+    const { scrollTop, scrollHeight, clientHeight } = container
+    // Load more when user is within 200px of the bottom
+    if (scrollHeight - scrollTop - clientHeight < 200) {
+      loadMoreClients(viewFilter)
+    }
+  }, [isLoadingMore, clientsHasMore, loadMoreClients, viewFilter])
+
+  // Attach scroll listener
+  useEffect(() => {
+    const container = tableContainerRef.current
+    if (!container) return
+    
+    container.addEventListener('scroll', handleScroll)
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [handleScroll])
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
@@ -139,7 +161,12 @@ export function ClientsPage() {
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <h1>{viewFilter === 'my' ? 'My Clients' : 'All Clients'}</h1>
-          <span className={styles.count}>{filteredClients.length} {viewFilter === 'my' ? 'assigned to you' : 'total'}</span>
+          <span className={styles.count}>
+            {filteredClients.length === clientsTotal 
+              ? `${filteredClients.length} ${viewFilter === 'my' ? 'assigned to you' : 'total'}`
+              : `${clients.length} of ${clientsTotal} loaded`
+            }
+          </span>
         </div>
         <div className={styles.headerActions}>
           <button 
@@ -213,7 +240,7 @@ export function ClientsPage() {
         </select>
       </div>
 
-      <div className={styles.tableContainer}>
+      <div className={styles.tableContainer} ref={tableContainerRef}>
         <table className={styles.table}>
           <thead>
             <tr>
@@ -318,11 +345,33 @@ export function ClientsPage() {
           </tbody>
         </table>
 
-        {filteredClients.length === 0 && (
+        {/* Loading more indicator */}
+        {isLoadingMore && (
+          <div className={styles.loadingMore}>
+            <Loader2 size={20} className={styles.spinner} />
+            <span>Loading more clients...</span>
+          </div>
+        )}
+
+        {/* Load more hint when there's more data */}
+        {clientsHasMore && !isLoadingMore && filteredClients.length > 0 && (
+          <div className={styles.loadMoreHint}>
+            Showing {clients.length} of {clientsTotal} clients • Scroll for more
+          </div>
+        )}
+
+        {filteredClients.length === 0 && !isLoading && (
           <div className={styles.emptyState}>
             <Users size={48} />
             <h3>No clients found</h3>
             <p>Try adjusting your search or filters</p>
+          </div>
+        )}
+
+        {isLoading && clients.length === 0 && (
+          <div className={styles.loadingState}>
+            <Loader2 size={32} className={styles.spinner} />
+            <span>Loading clients...</span>
           </div>
         )}
       </div>
