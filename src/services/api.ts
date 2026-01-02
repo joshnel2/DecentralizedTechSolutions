@@ -175,14 +175,12 @@ export const authApi = {
 // ============================================
 
 export const clientsApi = {
-  async getAll(params?: { search?: string; type?: string; isActive?: boolean; view?: 'my' | 'all'; limit?: number; offset?: number }) {
+  async getAll(params?: { search?: string; type?: string; isActive?: boolean; view?: 'my' | 'all' }) {
     const query = new URLSearchParams();
     if (params?.search) query.set('search', params.search);
     if (params?.type) query.set('type', params.type);
     if (params?.isActive !== undefined) query.set('isActive', String(params.isActive));
     if (params?.view) query.set('view', params.view);
-    if (params?.limit !== undefined) query.set('limit', String(params.limit));
-    if (params?.offset !== undefined) query.set('offset', String(params.offset));
     
     return fetchWithAuth(`/clients?${query}`);
   },
@@ -222,8 +220,6 @@ export const mattersApi = {
     clientId?: string;
     priority?: string;
     view?: 'my' | 'all'; // 'my' = my matters only, 'all' = all matters I can see
-    limit?: number;
-    offset?: number;
   }) {
     const query = new URLSearchParams();
     if (params?.search) query.set('search', params.search);
@@ -232,8 +228,6 @@ export const mattersApi = {
     if (params?.clientId) query.set('clientId', params.clientId);
     if (params?.priority) query.set('priority', params.priority);
     if (params?.view) query.set('view', params.view);
-    if (params?.limit !== undefined) query.set('limit', String(params.limit));
-    if (params?.offset !== undefined) query.set('offset', String(params.offset));
     
     return fetchWithAuth(`/matters?${query}`);
   },

@@ -221,8 +221,7 @@
   background: var(--apex-deep);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: var(--radius-lg);
-  overflow: auto;
-  max-height: calc(100vh - 220px);
+  overflow: visible;
 }
 
 .tableContainer .table {
@@ -244,9 +243,6 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  position: sticky;
-  top: 0;
-  z-index: 10;
 }
 
 .table td {
@@ -567,48 +563,6 @@
   z-index: 1000;
   overflow: hidden;
   animation: dropdownFadeIn 0.15s ease;
-}
-
-/* Loading States */
-.loadingMore {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-sm);
-  padding: var(--space-lg);
-  color: var(--apex-text);
-  font-size: 0.875rem;
-}
-
-.loadMoreHint {
-  text-align: center;
-  padding: var(--space-md) var(--space-lg);
-  color: var(--apex-subtle);
-  font-size: 0.8125rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.loadingState {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-md);
-  padding: var(--space-3xl);
-  color: var(--apex-text);
-}
-
-.spinner {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* Empty State */
