@@ -19,7 +19,7 @@ const getViewOptions = (isAdmin: boolean) => {
 }
 
 export function ClientsPage() {
-  const { clients, matters, addClient, updateClient, deleteClient, fetchClients, fetchMatters } = useDataStore()
+  const { clients, matters, addClient, updateClient, deleteClient, fetchClients, fetchMatters, loading, totalClients } = useDataStore()
   const { user } = useAuthStore()
   const { openChat } = useAIChat()
   const navigate = useNavigate()
@@ -27,25 +27,44 @@ export function ClientsPage() {
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const [viewFilter, setViewFilter] = useState<'my' | 'all'>('my')
+  const [page, setPage] = useState(0)
+  const [rowsPerPage] = useState(50)
   
   const isAdmin = user?.role === 'owner' || user?.role === 'admin'
 
-  // Close dropdown when clicking outside
+  // Fetch data when component mounts or view filter/page/filters changes
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setOpenDropdownId(null)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
-  // Fetch data when component mounts or view filter changes
-  useEffect(() => {
-    fetchClients({ view: viewFilter })
+    fetchClients({ 
+      view: viewFilter, 
+      search: searchQuery,
+      type: typeFilter !== 'all' ? (typeFilter === 'organization' ? 'company' : 'person') : undefined,
+      isActive: statusFilter !== 'all' ? (statusFilter === 'active') : undefined,
+      limit: rowsPerPage,
+      offset: page * rowsPerPage
+    })
     fetchMatters({ view: 'my' })
-  }, [viewFilter])
+  }, [viewFilter, page, rowsPerPage, statusFilter, typeFilter]) // Removed searchQuery to avoid non-debounced fetches
+
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(0)
+  }, [statusFilter, typeFilter, viewFilter])
+
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setPage(0) // Reset to first page on search
+      fetchClients({ 
+        view: viewFilter, 
+        search: searchQuery,
+        type: typeFilter !== 'all' ? (typeFilter === 'organization' ? 'company' : 'person') : undefined,
+        isActive: statusFilter !== 'all' ? (statusFilter === 'active') : undefined,
+        limit: rowsPerPage,
+        offset: 0
+      })
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
@@ -111,24 +130,9 @@ export function ClientsPage() {
   }
 
   const filteredClients = useMemo(() => {
-    return clients.filter(client => {
-      const clientName = client.name || client.displayName || ''
-      const matchesSearch = 
-        clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (client.email?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
-      const clientStatus = client.isActive !== false ? 'active' : 'inactive'
-      const matchesStatus = statusFilter === 'all' || clientStatus === statusFilter
-      const matchesType = typeFilter === 'all' || 
-        (typeFilter === 'individual' && client.type === 'person') ||
-        (typeFilter === 'organization' && client.type === 'company')
-      return matchesSearch && matchesStatus && matchesType
-    }).sort((a, b) => {
-      // Sort alphabetically by display name
-      const nameA = (a.name || a.displayName || '').toLowerCase()
-      const nameB = (b.name || b.displayName || '').toLowerCase()
-      return nameA.localeCompare(nameB)
-    })
-  }, [clients, searchQuery, statusFilter, typeFilter])
+    // Clients are already filtered by the backend
+    return clients;
+  }, [clients])
 
   const getMatterCount = (clientId: string) => {
     return matters.filter(m => m.clientId === clientId).length

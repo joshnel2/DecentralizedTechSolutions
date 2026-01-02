@@ -42,6 +42,7 @@ const defaultMatterTypes: MatterTypeConfig[] = [
 interface DataState {
   // Data
   clients: Client[]
+  totalClients: number // Added for pagination
   matters: Matter[]
   timeEntries: TimeEntry[]
   expenses: Expense[]
@@ -58,7 +59,7 @@ interface DataState {
   error: string | null
   
   // Fetch actions
-  fetchClients: (params?: { view?: 'my' | 'all' }) => Promise<void>
+  fetchClients: (params?: { view?: 'my' | 'all'; search?: string; type?: string; isActive?: boolean; limit?: number; offset?: number }) => Promise<void>
   fetchMatters: (params?: { view?: 'my' | 'all' }) => Promise<void>
   fetchTimeEntries: (params?: { matterId?: string; limit?: number; offset?: number }) => Promise<void>
   fetchInvoices: (params?: { view?: 'my' | 'all' }) => Promise<void>
@@ -122,6 +123,7 @@ interface DataState {
 export const useDataStore = create<DataState>()(
     (set, get) => ({
   clients: [],
+  totalClients: 0,
   matters: [],
   timeEntries: [],
   expenses: [],
@@ -136,11 +138,11 @@ export const useDataStore = create<DataState>()(
   error: null,
 
   // Fetch clients from API
-  fetchClients: async (params?: { view?: 'my' | 'all' }) => {
+  fetchClients: async (params) => {
     set({ isLoading: true, error: null })
     try {
-      const response = await clientsApi.getAll({ view: params?.view || 'my' })
-      set({ clients: response.clients, isLoading: false })
+      const response = await clientsApi.getAll(params)
+      set({ clients: response.clients, totalClients: response.total || response.clients.length, isLoading: false })
     } catch (error) {
       console.error('Failed to fetch clients:', error)
       set({ error: 'Failed to fetch clients', isLoading: false })

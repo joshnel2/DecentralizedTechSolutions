@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { query } from '../db/connection.js';
 
 const router = Router();
@@ -2747,6 +2749,17 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               console.log(`[CLIO IMPORT] RAW first contact from Clio API:`);
               console.log(JSON.stringify(contacts[0], null, 2));
               
+              // DEBUG: Write first 5 contacts to a file for inspection
+              try {
+                const debugPath = path.join(process.cwd(), '..', 'clio_contacts_debug.json');
+                const debugData = JSON.stringify(contacts.slice(0, 5), null, 2);
+                fs.writeFileSync(debugPath, debugData);
+                console.log(`[CLIO IMPORT] Wrote first 5 contacts to ${debugPath}`);
+                addLog(`DEBUG: Saved raw data for first 5 contacts to workspace for inspection.`);
+              } catch (err) {
+                console.error('[CLIO IMPORT] Failed to write debug file:', err);
+              }
+
               // Log to frontend what fields exist on first contact
               const firstContact = contacts[0];
               const firstContactFields = Object.keys(firstContact).join(', ');
