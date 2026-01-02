@@ -1,13 +1,17 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { Plus, Search, Users, Building2, User, MoreVertical, Sparkles, Eye, Edit2, Trash2, Archive, Briefcase } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './ListPages.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+
+// Threshold for enabling virtual scrolling (for performance with large lists)
+const VIRTUAL_SCROLL_THRESHOLD = 100
 
 // View options - "All Clients" only available to admins
 const getViewOptions = (isAdmin: boolean) => {
@@ -130,9 +134,21 @@ export function ClientsPage() {
     })
   }, [clients, searchQuery, statusFilter, typeFilter])
 
-  const getMatterCount = (clientId: string) => {
+  // Virtual scrolling for large lists
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+  const useVirtualScrolling = filteredClients.length > VIRTUAL_SCROLL_THRESHOLD
+  
+  const rowVirtualizer = useVirtualizer({
+    count: filteredClients.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: () => 64, // Approximate row height
+    overscan: 10, // Render extra rows for smooth scrolling
+    enabled: useVirtualScrolling
+  })
+
+  const getMatterCount = useCallback((clientId: string) => {
     return matters.filter(m => m.clientId === clientId).length
-  }
+  }, [matters])
 
   return (
     <div className={styles.page}>
@@ -213,9 +229,18 @@ export function ClientsPage() {
         </select>
       </div>
 
-      <div className={styles.tableContainer}>
+      <div 
+        className={styles.tableContainer}
+        ref={tableContainerRef}
+        style={useVirtualScrolling ? { height: 'calc(100vh - 280px)', overflow: 'auto' } : undefined}
+      >
+        {useVirtualScrolling && (
+          <div className={styles.virtualScrollIndicator}>
+            ⚡ Virtual scrolling enabled ({filteredClients.length.toLocaleString()} clients)
+          </div>
+        )}
         <table className={styles.table}>
-          <thead>
+          <thead style={useVirtualScrolling ? { position: 'sticky', top: 0, zIndex: 10, background: 'var(--apex-deep)' } : undefined}>
             <tr>
               <th>Client</th>
               <th>Contact</th>
@@ -225,11 +250,22 @@ export function ClientsPage() {
               <th></th>
             </tr>
           </thead>
-          <tbody>
-            {filteredClients.map(client => {
+          <tbody style={useVirtualScrolling ? { height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' } : undefined}>
+            {(useVirtualScrolling ? rowVirtualizer.getVirtualItems() : filteredClients.map((c, i) => ({ index: i, start: 0, size: 64 }))).map(virtualRow => {
+              const client = filteredClients[virtualRow.index]
               const clientStatus = client.isActive ? 'active' : 'inactive'
               return (
-              <tr key={client.id}>
+              <tr 
+                key={client.id}
+                style={useVirtualScrolling ? {
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: `${virtualRow.size}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
+                } : undefined}
+              >
                 <td>
                   <Link to={`/app/clients/${client.id}`} className={styles.nameCell}>
                     <div className={styles.icon}>

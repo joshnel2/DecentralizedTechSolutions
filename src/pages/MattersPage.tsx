@@ -1,9 +1,10 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { teamApi } from '../services/api'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { 
   Plus, Search, Filter, ChevronDown, Briefcase, 
   MoreVertical, Sparkles, Calendar, DollarSign, Users, X,
@@ -14,6 +15,9 @@ import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './ListPages.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+
+// Threshold for enabling virtual scrolling (for performance with large lists)
+const VIRTUAL_SCROLL_THRESHOLD = 100
 
 const statusOptions = [
   { value: 'all', label: 'All Statuses' },
@@ -208,9 +212,21 @@ export function MattersPage() {
     }).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
   }, [matters, searchQuery, statusFilter, typeFilter])
 
-  const getClientName = (clientId: string) => {
+  // Virtual scrolling for large lists
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+  const useVirtualScrolling = filteredMatters.length > VIRTUAL_SCROLL_THRESHOLD
+  
+  const rowVirtualizer = useVirtualizer({
+    count: filteredMatters.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: () => 64, // Approximate row height
+    overscan: 10, // Render extra rows for smooth scrolling
+    enabled: useVirtualScrolling
+  })
+
+  const getClientName = useCallback((clientId: string) => {
     return clients.find(c => c.id === clientId)?.name || 'Unknown Client'
-  }
+  }, [clients])
 
   return (
     <div className={styles.page}>
@@ -301,9 +317,18 @@ export function MattersPage() {
       </div>
 
       {/* Table */}
-      <div className={styles.tableContainer}>
+      <div 
+        className={styles.tableContainer} 
+        ref={tableContainerRef}
+        style={useVirtualScrolling ? { height: 'calc(100vh - 280px)', overflow: 'auto' } : undefined}
+      >
+        {useVirtualScrolling && (
+          <div className={styles.virtualScrollIndicator}>
+            ⚡ Virtual scrolling enabled ({filteredMatters.length.toLocaleString()} matters)
+          </div>
+        )}
         <table className={styles.table}>
-          <thead>
+          <thead style={useVirtualScrolling ? { position: 'sticky', top: 0, zIndex: 10, background: 'var(--apex-deep)' } : undefined}>
             <tr>
               <th>Matter</th>
               <th>Client</th>
@@ -315,9 +340,21 @@ export function MattersPage() {
               <th></th>
             </tr>
           </thead>
-          <tbody>
-            {filteredMatters.map(matter => (
-              <tr key={matter.id}>
+          <tbody style={useVirtualScrolling ? { height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' } : undefined}>
+            {(useVirtualScrolling ? rowVirtualizer.getVirtualItems() : filteredMatters.map((m, i) => ({ index: i, start: 0, size: 64 }))).map(virtualRow => {
+              const matter = filteredMatters[virtualRow.index]
+              return (
+              <tr 
+                key={matter.id}
+                style={useVirtualScrolling ? {
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: `${virtualRow.size}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
+                } : undefined}
+              >
                 <td>
                   <Link to={`/app/matters/${matter.id}`} className={styles.nameCell}>
                     <div className={styles.icon}>
@@ -463,7 +500,8 @@ export function MattersPage() {
                   </div>
                 </td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
 

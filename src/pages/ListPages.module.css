@@ -565,6 +565,21 @@
   animation: dropdownFadeIn 0.15s ease;
 }
 
+/* Virtual Scroll Indicator */
+.virtualScrollIndicator {
+  padding: 8px 16px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius-md);
+  color: #10B981;
+  font-size: 0.75rem;
+  font-weight: 500;
+  margin-bottom: var(--space-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* Empty State */
 .emptyState {
   padding: var(--space-3xl);
