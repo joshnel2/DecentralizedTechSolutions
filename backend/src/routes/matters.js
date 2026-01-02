@@ -41,28 +41,23 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
     // Build visibility filter based on user role
     const visibilityFilter = buildVisibilityFilter(req.user.id, req.user.role, req.user.firmId, 1);
     
+    // OPTIMIZED: Removed slow array_agg JOIN - assigned_to not needed in list view
+    // Use subqueries for attorney names to avoid GROUP BY overhead
     let sql = hasOrigAtty ? `
       SELECT m.*,
              c.display_name as client_name,
-             u.first_name || ' ' || u.last_name as responsible_attorney_name,
-             ou.first_name || ' ' || ou.last_name as originating_attorney_name,
-             array_agg(DISTINCT ma.user_id) FILTER (WHERE ma.user_id IS NOT NULL) as assigned_to
+             (SELECT first_name || ' ' || last_name FROM users WHERE id = m.responsible_attorney) as responsible_attorney_name,
+             (SELECT first_name || ' ' || last_name FROM users WHERE id = m.originating_attorney) as originating_attorney_name
       FROM matters m
       LEFT JOIN clients c ON m.client_id = c.id
-      LEFT JOIN users u ON m.responsible_attorney = u.id
-      LEFT JOIN users ou ON m.originating_attorney = ou.id
-      LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
       WHERE ${visibilityFilter.clause}
     ` : `
       SELECT m.*,
              c.display_name as client_name,
-             u.first_name || ' ' || u.last_name as responsible_attorney_name,
-             NULL as originating_attorney_name,
-             array_agg(DISTINCT ma.user_id) FILTER (WHERE ma.user_id IS NOT NULL) as assigned_to
+             (SELECT first_name || ' ' || last_name FROM users WHERE id = m.responsible_attorney) as responsible_attorney_name,
+             NULL as originating_attorney_name
       FROM matters m
       LEFT JOIN clients c ON m.client_id = c.id
-      LEFT JOIN users u ON m.responsible_attorney = u.id
-      LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
       WHERE ${visibilityFilter.clause}
     `;
     const params = [...visibilityFilter.params];
@@ -124,13 +119,8 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
       paramIndex++;
     }
 
-    sql += hasOrigAtty 
-      ? ` GROUP BY m.id, c.display_name, u.first_name, u.last_name, ou.first_name, ou.last_name
-             ORDER BY m.created_at DESC 
-             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`
-      : ` GROUP BY m.id, c.display_name, u.first_name, u.last_name
-             ORDER BY m.created_at DESC 
-             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    // No GROUP BY needed - query is now much faster
+    sql += ` ORDER BY m.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(parseInt(limit), parseInt(offset));
 
     // Run both queries in parallel for speed
@@ -151,7 +141,7 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
         status: m.status,
         priority: m.priority,
         visibility: m.visibility || 'firm_wide',
-        assignedTo: m.assigned_to || [],
+        assignedTo: [], // Not fetched in list view for performance - get from detail view
         responsibleAttorney: m.responsible_attorney,
         responsibleAttorneyName: m.responsible_attorney_name,
         originatingAttorney: m.originating_attorney,

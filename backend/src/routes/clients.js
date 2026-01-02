@@ -16,14 +16,10 @@ router.get('/', authenticate, requirePermission('clients:view'), async (req, res
     const isAdmin = req.user.role === 'owner' || req.user.role === 'admin';
     const view = (requestedView === 'all' && !isAdmin) ? 'my' : requestedView;
     
-    // OPTIMIZED: Use a lateral join subquery for matter_count - much faster than GROUP BY
+    // OPTIMIZED: Skip matter_count in list view - fetched on detail page if needed
     let sql = `
-      SELECT c.*, 
-             COALESCE(mc.cnt, 0) as matter_count
+      SELECT c.*
       FROM clients c
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*) as cnt FROM matters WHERE client_id = c.id
-      ) mc ON true
       WHERE c.firm_id = $1
     `;
     const params = [req.user.firmId];
@@ -93,7 +89,7 @@ router.get('/', authenticate, requirePermission('clients:view'), async (req, res
         contactType: c.contact_type,
         isActive: c.is_active,
         matterIds: [], // Skip loading matter IDs in list view - fetch on detail page if needed
-        matterCount: parseInt(c.matter_count) || 0,
+        matterCount: 0, // Skip in list view for performance - fetch on detail page
         createdAt: c.created_at,
         updatedAt: c.updated_at,
       })),
