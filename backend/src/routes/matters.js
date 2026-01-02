@@ -28,12 +28,11 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
     const { 
       search, status, type, clientId, assignedTo, priority, visibility,
       view: requestedView = 'my', // 'my' = only my matters, 'all' = all matters I can see
-      limit: rawLimit = 100, offset = 0  // Default to 100 for performance
+      limit: rawLimit = 500, offset = 0
     } = req.query;
     
-    // Cap limit to prevent loading too much data at once
-    // Allow 'all' as a special value to load everything (with caution)
-    const limit = rawLimit === 'all' ? 10000 : Math.min(parseInt(rawLimit) || 100, 1000);
+    // Allow loading all data - frontend uses virtual scrolling for performance
+    const limit = rawLimit === 'all' ? 100000 : parseInt(rawLimit) || 500;
     
     // Only admins/owners can view "all" matters - everyone else forced to "my"
     const isAdmin = req.user.role === 'owner' || req.user.role === 'admin';
