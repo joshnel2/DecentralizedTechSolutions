@@ -1685,6 +1685,37 @@ export const wordOnlineApi = {
 };
 
 // ============================================
+// ANALYTICS API - Dashboard Analytics
+// ============================================
+
+export const analyticsApi = {
+  // Individual attorney dashboard analytics
+  async getMyDashboard(timePeriod: string = 'current_month') {
+    return fetchWithAuth(`/analytics/my-dashboard?time_period=${timePeriod}`);
+  },
+
+  // Firm-wide dashboard analytics (admin/owner only)
+  async getFirmDashboard(timePeriod: string = 'current_month') {
+    return fetchWithAuth(`/analytics/firm-dashboard?time_period=${timePeriod}`);
+  },
+
+  // Firm summary (legacy endpoint)
+  async getFirmSummary(timePeriod: string = 'current_month') {
+    return fetchWithAuth(`/analytics/firm-summary?time_period=${timePeriod}`);
+  },
+
+  // Quick stats for widgets
+  async getQuickStats() {
+    return fetchWithAuth('/analytics/quick-stats');
+  },
+
+  // KPIs for quick dashboards
+  async getKpis() {
+    return fetchWithAuth('/analytics/kpis');
+  },
+};
+
+// ============================================
 // ADMIN API (Platform Admin Only)
 // ============================================
 
@@ -1758,6 +1789,7 @@ export default {
   userSettings: userSettingsApi,
   integrations: integrationsApi,
   admin: adminApi,
+  analytics: analyticsApi,
   billingData: billingDataApi,
   documentTemplates: documentTemplatesApi,
   timer: timerApi,

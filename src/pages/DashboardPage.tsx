@@ -1,23 +1,88 @@
-import { useMemo, useEffect, useState } from 'react'
+import { useMemo, useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { useTimer, formatElapsedTime, secondsToHours } from '../contexts/TimerContext'
+import { analyticsApi } from '../services/api'
 import { 
   Briefcase, Users, Clock, DollarSign, Calendar, TrendingUp,
   AlertCircle, ArrowRight, Sparkles, FileText, CheckCircle2,
-  Play, Pause, StopCircle, X, Save
+  Play, Pause, StopCircle, X, Save, Target, Percent, ArrowUpRight, ArrowDownRight
 } from 'lucide-react'
 import { format, isAfter, parseISO, startOfMonth, endOfMonth } from 'date-fns'
 import { parseAsLocalDate } from '../utils/dateUtils'
 import { 
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell
 } from 'recharts'
 import styles from './DashboardPage.module.css'
 
 const COLORS = ['#F59E0B', '#3B82F6', '#10B981', '#8B5CF6', '#EF4444']
+
+// Analytics data type
+interface DashboardAnalytics {
+  summary: {
+    total_hours: number;
+    billable_hours: number;
+    non_billable_hours: number;
+    total_amount: number;
+    billable_amount: number;
+    billed_amount: number;
+    unbilled_amount: number;
+    entry_count: number;
+    days_with_entries: number;
+  };
+  productivity: {
+    utilization_rate: number;
+    realization_rate: number;
+    effective_hourly_rate: number;
+    standard_rate: number;
+  };
+  targets: {
+    monthly_target_hours: number;
+    current_progress_percent: number;
+    hours_remaining: number;
+    on_track: boolean;
+  };
+  comparison: {
+    firm_avg_billable_hours: number;
+    vs_avg_percent: number;
+    rank_estimate: string;
+  };
+  unbilled: {
+    hours: number;
+    amount: number;
+    entries: number;
+    oldest_date: string;
+  };
+  monthly_trend: Array<{
+    month: string;
+    total_hours: number;
+    billable_hours: number;
+    billable_amount: number;
+  }>;
+  daily_activity: Array<{
+    date: string;
+    hours: number;
+    amount: number;
+  }>;
+  matters_workload: Array<{
+    id: string;
+    name: string;
+    number: string;
+    client_name: string;
+    total_hours: number;
+    total_amount: number;
+  }>;
+  top_clients: Array<{
+    id: string;
+    name: string;
+    total_hours: number;
+    total_amount: number;
+    matter_count: number;
+  }>;
+}
 
 export function DashboardPage() {
   const { user } = useAuthStore()
@@ -29,6 +94,11 @@ export function DashboardPage() {
   const [selectedMatterId, setSelectedMatterId] = useState('')
   const [selectedClientId, setSelectedClientId] = useState('')
   const [showSaveTimerModal, setShowSaveTimerModal] = useState(false)
+  
+  // Analytics state - fetched from backend for accurate data including migrations
+  const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(true)
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null)
 
   // Filter matters based on selected client
   const filteredMatters = useMemo(() => {
@@ -53,6 +123,23 @@ export function DashboardPage() {
     setShowSaveTimerModal(true)
   }
 
+  // Fetch analytics from backend - includes ALL data (migrated entries, etc.)
+  const fetchAnalytics = useCallback(async () => {
+    try {
+      setAnalyticsLoading(true)
+      setAnalyticsError(null)
+      const response = await analyticsApi.getMyDashboard('current_month')
+      if (response.success) {
+        setAnalytics(response.data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch analytics:', error)
+      setAnalyticsError('Failed to load analytics')
+    } finally {
+      setAnalyticsLoading(false)
+    }
+  }, [])
+
   // Fetch all data when component mounts
   useEffect(() => {
     fetchClients()
@@ -60,9 +147,45 @@ export function DashboardPage() {
     fetchTimeEntries({ limit: 500 })
     fetchInvoices()
     fetchEvents({})
-  }, [])
+    fetchAnalytics()
+  }, [fetchAnalytics])
 
+  // Use analytics data if available, otherwise fallback to local store
   const stats = useMemo(() => {
+    // If we have backend analytics, use those (includes migrated data)
+    if (analytics) {
+      const activeMatters = matters.filter(m => m.status === 'active').length
+      const totalClients = clients.filter(c => c.isActive).length
+      
+      const outstandingAmount = invoices
+        .filter(i => i.status === 'sent' || i.status === 'overdue')
+        .reduce((sum, i) => sum + (i.total - i.amountPaid), 0)
+
+      const now = new Date()
+      const upcomingDeadlines = events.filter(e => {
+        const eventDate = parseISO(e.startTime)
+        return isAfter(eventDate, now) && e.type === 'deadline'
+      }).length
+
+      return {
+        activeMatters,
+        totalClients,
+        billableHours: analytics.summary.billable_hours,
+        monthlyRevenue: analytics.summary.billable_amount,
+        outstandingAmount,
+        upcomingDeadlines,
+        // Additional analytics-powered stats
+        utilizationRate: analytics.productivity.utilization_rate,
+        effectiveRate: analytics.productivity.effective_hourly_rate,
+        targetProgress: analytics.targets.current_progress_percent,
+        unbilledAmount: analytics.unbilled.amount,
+        hoursRemaining: analytics.targets.hours_remaining,
+        vsAverage: analytics.comparison.vs_avg_percent,
+        rankEstimate: analytics.comparison.rank_estimate
+      }
+    }
+
+    // Fallback to local store calculations
     const now = new Date()
     const monthStart = startOfMonth(now)
     const monthEnd = endOfMonth(now)
@@ -92,9 +215,16 @@ export function DashboardPage() {
       billableHours,
       monthlyRevenue,
       outstandingAmount,
-      upcomingDeadlines
+      upcomingDeadlines,
+      utilizationRate: 0,
+      effectiveRate: 0,
+      targetProgress: 0,
+      unbilledAmount: 0,
+      hoursRemaining: 0,
+      vsAverage: 0,
+      rankEstimate: ''
     }
-  }, [matters, clients, timeEntries, invoices, events])
+  }, [matters, clients, timeEntries, invoices, events, analytics])
 
   const recentMatters = useMemo(() => {
     return [...matters]
@@ -121,12 +251,22 @@ export function DashboardPage() {
       .slice(0, 5)
   }, [matters])
 
+  // Use analytics trend data if available, otherwise compute from local store
   const revenueData = useMemo(() => {
+    // If we have analytics trend data, use it (12 months from backend)
+    if (analytics?.monthly_trend && analytics.monthly_trend.length > 0) {
+      return analytics.monthly_trend.map(m => ({
+        month: format(new Date(m.month), 'MMM'),
+        revenue: Math.round(m.billable_amount),
+        hours: Math.round(m.billable_hours)
+      })).reverse().slice(-12)
+    }
+
+    // Fallback to local store calculations
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     const currentYear = new Date().getFullYear()
     
     return months.map((month, i) => {
-      // Filter time entries for this month
       const monthEntries = timeEntries.filter(t => {
         const date = parseAsLocalDate(t.date)
         return date.getMonth() === i && date.getFullYear() === currentYear
@@ -137,7 +277,7 @@ export function DashboardPage() {
       
       return { month, revenue: Math.round(revenue), hours: Math.round(hours) }
     })
-  }, [timeEntries])
+  }, [timeEntries, analytics])
   
   // Calculate real growth percentage
   const revenueGrowth = useMemo(() => {
@@ -188,6 +328,89 @@ export function DashboardPage() {
       {/* Stats Grid */}
       <section className={styles.statsGrid}>
         <div className={styles.statCard}>
+          <div className={styles.statIcon} style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10B981' }}>
+            <Clock size={22} />
+          </div>
+          <div className={styles.statContent}>
+            <span className={styles.statValue}>{stats.billableHours.toFixed(1)}</span>
+            <span className={styles.statLabel}>Billable Hours (MTD)</span>
+            {analytics && (
+              <span className={styles.statSubtext}>
+                {stats.hoursRemaining.toFixed(1)}h to target
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className={styles.statCard}>
+          <div className={styles.statIcon} style={{ background: 'rgba(139, 92, 246, 0.1)', color: '#8B5CF6' }}>
+            <DollarSign size={22} />
+          </div>
+          <div className={styles.statContent}>
+            <span className={styles.statValue}>${(stats.monthlyRevenue / 1000).toFixed(1)}k</span>
+            <span className={styles.statLabel}>Billable Revenue (MTD)</span>
+          </div>
+        </div>
+
+        {analytics && (
+          <div className={styles.statCard}>
+            <div className={styles.statIcon} style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3B82F6' }}>
+              <Target size={22} />
+            </div>
+            <div className={styles.statContent}>
+              <span className={styles.statValue}>{stats.targetProgress.toFixed(0)}%</span>
+              <span className={styles.statLabel}>Monthly Target</span>
+              <span className={styles.statSubtext}>
+                {stats.targetProgress >= 100 ? '✓ Goal reached' : `${(160 - stats.billableHours).toFixed(0)}h remaining`}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {analytics && (
+          <div className={styles.statCard}>
+            <div className={styles.statIcon} style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#F59E0B' }}>
+              <Percent size={22} />
+            </div>
+            <div className={styles.statContent}>
+              <span className={styles.statValue}>{stats.utilizationRate.toFixed(0)}%</span>
+              <span className={styles.statLabel}>Utilization Rate</span>
+              <span className={styles.statSubtext}>
+                Billable / Total hours
+              </span>
+            </div>
+          </div>
+        )}
+
+        {analytics && (
+          <div className={styles.statCard}>
+            <div className={styles.statIcon} style={{ background: stats.vsAverage >= 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: stats.vsAverage >= 0 ? '#10B981' : '#EF4444' }}>
+              <TrendingUp size={22} style={{ transform: stats.vsAverage < 0 ? 'rotate(180deg)' : 'none' }} />
+            </div>
+            <div className={styles.statContent}>
+              <span className={styles.statValue}>
+                {stats.vsAverage >= 0 ? '+' : ''}{stats.vsAverage.toFixed(0)}%
+              </span>
+              <span className={styles.statLabel}>vs Firm Average</span>
+              <span className={styles.statSubtext}>{stats.rankEstimate}</span>
+            </div>
+          </div>
+        )}
+
+        {analytics && stats.unbilledAmount > 0 && (
+          <div className={styles.statCard}>
+            <div className={styles.statIcon} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#EF4444' }}>
+              <AlertCircle size={22} />
+            </div>
+            <div className={styles.statContent}>
+              <span className={styles.statValue}>${(stats.unbilledAmount / 1000).toFixed(1)}k</span>
+              <span className={styles.statLabel}>Unbilled Time</span>
+              <span className={styles.statSubtext}>Ready to invoice</span>
+            </div>
+          </div>
+        )}
+
+        <div className={styles.statCard}>
           <div className={styles.statIcon} style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#F59E0B' }}>
             <Briefcase size={22} />
           </div>
@@ -204,36 +427,6 @@ export function DashboardPage() {
           <div className={styles.statContent}>
             <span className={styles.statValue}>{stats.totalClients}</span>
             <span className={styles.statLabel}>Active Clients</span>
-          </div>
-        </div>
-
-        <div className={styles.statCard}>
-          <div className={styles.statIcon} style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10B981' }}>
-            <Clock size={22} />
-          </div>
-          <div className={styles.statContent}>
-            <span className={styles.statValue}>{stats.billableHours.toFixed(1)}</span>
-            <span className={styles.statLabel}>Billable Hours (MTD)</span>
-          </div>
-        </div>
-
-        <div className={styles.statCard}>
-          <div className={styles.statIcon} style={{ background: 'rgba(139, 92, 246, 0.1)', color: '#8B5CF6' }}>
-            <DollarSign size={22} />
-          </div>
-          <div className={styles.statContent}>
-            <span className={styles.statValue}>${(stats.monthlyRevenue / 1000).toFixed(1)}k</span>
-            <span className={styles.statLabel}>Revenue (MTD)</span>
-          </div>
-        </div>
-
-        <div className={styles.statCard}>
-          <div className={styles.statIcon} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#EF4444' }}>
-            <AlertCircle size={22} />
-          </div>
-          <div className={styles.statContent}>
-            <span className={styles.statValue}>${(stats.outstandingAmount / 1000).toFixed(1)}k</span>
-            <span className={styles.statLabel}>Outstanding</span>
           </div>
         </div>
 

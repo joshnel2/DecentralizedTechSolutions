@@ -50,7 +50,7 @@
 /* Stats Grid */
 .statsGrid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: var(--space-lg);
 }
 
@@ -95,6 +95,13 @@
 .statLabel {
   font-size: 0.75rem;
   color: var(--apex-text);
+  margin-top: 2px;
+}
+
+.statSubtext {
+  font-size: 0.6875rem;
+  color: var(--apex-text);
+  opacity: 0.7;
   margin-top: 2px;
 }
 
