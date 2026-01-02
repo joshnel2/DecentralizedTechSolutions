@@ -133,12 +133,11 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
              LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(parseInt(limit), parseInt(offset));
 
-    const result = await query(sql, params);
-
-    const countResult = await query(
-      'SELECT COUNT(*) FROM matters WHERE firm_id = $1',
-      [req.user.firmId]
-    );
+    // Run both queries in parallel for speed
+    const [result, countResult] = await Promise.all([
+      query(sql, params),
+      query('SELECT COUNT(*) FROM matters WHERE firm_id = $1', [req.user.firmId])
+    ]);
 
     res.json({
       matters: result.rows.map(m => ({

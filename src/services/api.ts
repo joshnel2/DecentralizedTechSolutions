@@ -1742,6 +1742,27 @@ export const adminApi = {
   },
 };
 
+// ============================================
+// ANALYTICS API
+// ============================================
+
+export const analyticsApi = {
+  // Get comprehensive firm dashboard data
+  async getFirmDashboard(timePeriod: string = 'current_month') {
+    return fetchWithAuth(`/analytics/firm-dashboard?time_period=${timePeriod}`);
+  },
+
+  // Get firm summary
+  async getFirmSummary(timePeriod: string = 'current_month') {
+    return fetchWithAuth(`/analytics/firm-summary?time_period=${timePeriod}`);
+  },
+
+  // Get quick KPIs
+  async getKpis() {
+    return fetchWithAuth('/analytics/kpis');
+  },
+};
+
 // Export all APIs
 export default {
   auth: authApi,
@@ -1765,4 +1786,5 @@ export default {
   driveSync: driveSyncApi,
   documentPermissions: documentPermissionsApi,
   wordOnline: wordOnlineApi,
+  analytics: analyticsApi,
 };

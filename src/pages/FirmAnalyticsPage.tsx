@@ -1,26 +1,62 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
+import { analyticsApi } from '../services/api'
 import { 
   TrendingUp, DollarSign, Clock, Users,
   Download, Briefcase, CreditCard,
-  ArrowUpRight, ArrowDownRight, AlertTriangle, Target, Percent
+  ArrowUpRight, ArrowDownRight, AlertTriangle, Target, Percent, RefreshCw, BarChart3
 } from 'lucide-react'
 import { format, parseISO, startOfMonth, endOfMonth, subMonths, isWithinInterval } from 'date-fns'
 import { parseAsLocalDate } from '../utils/dateUtils'
-import { AreaChart, Area, PieChart as RechartsPie, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { AreaChart, Area, PieChart as RechartsPie, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, BarChart, Bar } from 'recharts'
 import { AIButton } from '../components/AIButton'
 import styles from './FirmAnalyticsPage.module.css'
 
 const COLORS = ['#D4AF37', '#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#EF4444']
+
+// Time period mapping for backend API
+const TIME_PERIOD_MAP: Record<string, string> = {
+  'thisMonth': 'current_month',
+  'lastMonth': 'last_month',
+  'last3Months': 'last_quarter',
+  'last6Months': 'last_6_months',
+  'thisYear': 'year_to_date',
+  'allTime': 'all_time'
+}
 
 export function FirmAnalyticsPage() {
   const { timeEntries, invoices, matters, clients } = useDataStore()
   const { user } = useAuthStore()
   const [dateRange, setDateRange] = useState('thisMonth')
   const [selectedTab, setSelectedTab] = useState('overview')
+  
+  // Backend analytics state
+  const [analytics, setAnalytics] = useState<any>(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(true)
 
-  // Calculate date range
+  // Fetch analytics from backend
+  const fetchAnalytics = useCallback(async () => {
+    try {
+      setAnalyticsLoading(true)
+      const timePeriod = TIME_PERIOD_MAP[dateRange] || 'current_month'
+      const response = await analyticsApi.getFirmDashboard(timePeriod)
+      if (response.success) {
+        setAnalytics(response.data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch firm analytics:', error)
+    } finally {
+      setAnalyticsLoading(false)
+    }
+  }, [dateRange])
+
+  // Fetch on mount and when date range changes
+  useEffect(() => {
+    fetchAnalytics()
+  }, [fetchAnalytics])
+
+  // Calculate date range for local fallback
   const dateFilter = useMemo(() => {
     const now = new Date()
     switch (dateRange) {
@@ -39,8 +75,20 @@ export function FirmAnalyticsPage() {
     }
   }, [dateRange])
 
-  // Revenue metrics
+  // Revenue metrics - use backend data if available
   const revenueMetrics = useMemo(() => {
+    if (analytics) {
+      return {
+        totalInvoiced: analytics.invoices.total_invoiced,
+        totalCollected: analytics.invoices.total_collected,
+        outstanding: analytics.invoices.total_outstanding,
+        overdue: analytics.invoices.total_overdue,
+        growthRate: analytics.changes.revenue_change_percent,
+        collectionRate: analytics.invoices.collection_rate
+      }
+    }
+
+    // Fallback to local data
     const filteredInvoices = invoices.filter(inv => {
       const date = parseISO(inv.issueDate)
       return isWithinInterval(date, dateFilter)
@@ -50,16 +98,26 @@ export function FirmAnalyticsPage() {
     const totalCollected = filteredInvoices.reduce((sum, inv) => sum + inv.amountPaid, 0)
     const outstanding = totalInvoiced - totalCollected
     const overdue = filteredInvoices.filter(inv => inv.status === 'overdue').reduce((sum, inv) => sum + (inv.total - inv.amountPaid), 0)
-
-    // Simulated previous period for comparison
     const prevPeriodInvoiced = totalInvoiced * 0.85
     const growthRate = prevPeriodInvoiced > 0 ? ((totalInvoiced - prevPeriodInvoiced) / prevPeriodInvoiced) * 100 : 0
 
-    return { totalInvoiced, totalCollected, outstanding, overdue, growthRate }
-  }, [invoices, dateFilter])
+    return { totalInvoiced, totalCollected, outstanding, overdue, growthRate, collectionRate: 0 }
+  }, [invoices, dateFilter, analytics])
 
-  // Billable hours metrics
+  // Billable hours metrics - use backend data if available
   const hoursMetrics = useMemo(() => {
+    if (analytics) {
+      return {
+        totalHours: analytics.summary.total_hours,
+        billableHours: analytics.summary.billable_hours,
+        billedAmount: analytics.summary.billable_amount,
+        utilizationRate: analytics.productivity.utilization_rate,
+        unbilledHours: analytics.summary.unbilled_hours,
+        unbilledAmount: analytics.summary.unbilled_amount
+      }
+    }
+
+    // Fallback to local data
     const filteredEntries = timeEntries.filter(entry => {
       const date = parseAsLocalDate(entry.date)
       return isWithinInterval(date, dateFilter)
@@ -70,31 +128,49 @@ export function FirmAnalyticsPage() {
     const billedAmount = filteredEntries.filter(e => e.billable).reduce((sum, e) => sum + e.amount, 0)
     const utilizationRate = totalHours > 0 ? (billableHours / totalHours) * 100 : 0
 
-    return { totalHours, billableHours, billedAmount, utilizationRate }
-  }, [timeEntries, dateFilter])
+    return { totalHours, billableHours, billedAmount, utilizationRate, unbilledHours: 0, unbilledAmount: 0 }
+  }, [timeEntries, dateFilter, analytics])
 
-  // Additional metrics
+  // Additional metrics - use backend data if available
   const additionalMetrics = useMemo(() => {
+    if (analytics) {
+      return {
+        activeMatters: analytics.matters.active,
+        avgMatterValue: analytics.matters.total > 0 ? revenueMetrics.totalInvoiced / analytics.matters.total : 0,
+        realizationRate: hoursMetrics.billedAmount > 0 ? (revenueMetrics.totalCollected / hoursMetrics.billedAmount) * 100 : 0,
+        effectiveRate: hoursMetrics.billableHours > 0 ? revenueMetrics.totalCollected / hoursMetrics.billableHours : 0,
+        totalMatters: analytics.matters.total,
+        totalClients: analytics.clients.total
+      }
+    }
+
+    // Fallback
     const activeMatters = matters.filter(m => m.status === 'active').length
-    const avgMatterValue = matters.length > 0 
-      ? revenueMetrics.totalInvoiced / matters.length 
-      : 0
-    
-    // Realization rate: collected / billed amount
-    const realizationRate = hoursMetrics.billedAmount > 0 
-      ? (revenueMetrics.totalCollected / hoursMetrics.billedAmount) * 100 
-      : 0
-    
-    // Effective hourly rate: collected / billable hours
-    const effectiveRate = hoursMetrics.billableHours > 0 
-      ? revenueMetrics.totalCollected / hoursMetrics.billableHours 
-      : 0
+    const avgMatterValue = matters.length > 0 ? revenueMetrics.totalInvoiced / matters.length : 0
+    const realizationRate = hoursMetrics.billedAmount > 0 ? (revenueMetrics.totalCollected / hoursMetrics.billedAmount) * 100 : 0
+    const effectiveRate = hoursMetrics.billableHours > 0 ? revenueMetrics.totalCollected / hoursMetrics.billableHours : 0
 
-    return { activeMatters, avgMatterValue, realizationRate, effectiveRate }
-  }, [matters, revenueMetrics, hoursMetrics])
+    return { activeMatters, avgMatterValue, realizationRate, effectiveRate, totalMatters: matters.length, totalClients: clients.length }
+  }, [matters, clients, revenueMetrics, hoursMetrics, analytics])
 
-  // Revenue by practice area
+  // Team productivity from backend
+  const teamProductivity = useMemo(() => {
+    if (analytics?.team_productivity) {
+      return analytics.team_productivity.filter((t: any) => t.total_hours > 0)
+    }
+    return []
+  }, [analytics])
+
+  // Revenue by practice area - use backend data if available
   const revenueByPracticeArea = useMemo(() => {
+    if (analytics?.revenue_by_practice_area) {
+      return analytics.revenue_by_practice_area.map((r: any) => ({
+        name: (r.type || 'unassigned').replace(/_/g, ' '),
+        value: r.total_amount
+      }))
+    }
+
+    // Fallback to local data
     const practiceRevenue: Record<string, number> = {}
     
     timeEntries.forEach(entry => {
@@ -114,7 +190,18 @@ export function FirmAnalyticsPage() {
   }, [timeEntries, matters, dateFilter])
 
   // Monthly revenue trend (last 6 months)
+  // Monthly revenue trend - use backend data if available
   const revenueTrend = useMemo(() => {
+    if (analytics?.monthly_trend && analytics.monthly_trend.length > 0) {
+      return analytics.monthly_trend.map((m: any) => ({
+        month: format(new Date(m.month), 'MMM'),
+        invoiced: Math.round(m.billable_amount),
+        collected: Math.round(m.total_amount),
+        hours: Math.round(m.billable_hours)
+      }))
+    }
+
+    // Fallback to local data
     const months = []
     for (let i = 5; i >= 0; i--) {
       const monthStart = startOfMonth(subMonths(new Date(), i))
@@ -131,11 +218,12 @@ export function FirmAnalyticsPage() {
       months.push({
         month: format(monthStart, 'MMM'),
         invoiced,
-        collected
+        collected,
+        hours: 0
       })
     }
     return months
-  }, [invoices])
+  }, [invoices, analytics])
 
   // Export function
   const exportReport = () => {
@@ -167,11 +255,11 @@ export function FirmAnalyticsPage() {
       `Realization Rate,${additionalMetrics.realizationRate.toFixed(1)}%`,
       '',
       'REVENUE BY PRACTICE AREA',
-      ...revenueByPracticeArea.map(p => `${p.name},$${p.value.toLocaleString()}`),
+      ...revenueByPracticeArea.map((p: { name: string; value: number }) => `${p.name},$${p.value.toLocaleString()}`),
       '',
       'MONTHLY TREND',
       'Month,Invoiced,Collected',
-      ...revenueTrend.map(m => `${m.month},$${m.invoiced.toLocaleString()},$${m.collected.toLocaleString()}`)
+      ...revenueTrend.map((m: { month: string; invoiced: number; collected: number }) => `${m.month},$${m.invoiced.toLocaleString()},$${m.collected.toLocaleString()}`)
     ]
     
     const csv = lines.join('\n')
@@ -201,9 +289,22 @@ export function FirmAnalyticsPage() {
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <h1>Firm Analytics</h1>
-          <p>Revenue, productivity, and team performance insights</p>
+          <p>
+            {analyticsLoading ? 'Loading firm data...' : 
+             analytics ? 'Comprehensive firm-wide analytics' :
+             'Revenue, productivity, and team performance insights'}
+          </p>
         </div>
         <div className={styles.headerActions}>
+          <button 
+            className={styles.exportBtn} 
+            onClick={fetchAnalytics}
+            disabled={analyticsLoading}
+            style={{ marginRight: '8px' }}
+          >
+            <RefreshCw size={18} className={analyticsLoading ? styles.spinning : ''} />
+            {analyticsLoading ? 'Loading...' : 'Refresh'}
+          </button>
           <select 
             className={styles.dateFilter}
             value={dateRange}
@@ -213,7 +314,8 @@ export function FirmAnalyticsPage() {
             <option value="lastMonth">Last Month</option>
             <option value="last3Months">Last 3 Months</option>
             <option value="last6Months">Last 6 Months</option>
-            <option value="thisYear">This Year</option>
+            <option value="thisYear">Year to Date</option>
+            <option value="allTime">All Time</option>
           </select>
           <AIButton 
             context="Firm Analytics"
@@ -234,7 +336,7 @@ export function FirmAnalyticsPage() {
 
       {/* Tabs */}
       <div className={styles.tabs}>
-        {['overview', 'revenue', 'matters'].map(tab => (
+        {['overview', 'revenue', 'team', 'matters'].map(tab => (
           <button
             key={tab}
             className={`${styles.tab} ${selectedTab === tab ? styles.active : ''}`}
@@ -416,7 +518,7 @@ export function FirmAnalyticsPage() {
                       label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                       labelLine={false}
                     >
-                      {revenueByPracticeArea.map((entry, index) => (
+                      {revenueByPracticeArea.map((_entry: any, index: number) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
@@ -498,13 +600,146 @@ export function FirmAnalyticsPage() {
         </div>
       )}
 
+      {selectedTab === 'team' && (
+        <div className={styles.mattersTab}>
+          {teamProductivity.length > 0 ? (
+            <>
+              <div className={styles.matterStats}>
+                <div className={styles.matterStatCard}>
+                  <Users size={24} />
+                  <div>
+                    <span className={styles.matterStatValue}>{teamProductivity.length}</span>
+                    <span className={styles.matterStatLabel}>Active Team Members</span>
+                  </div>
+                </div>
+                <div className={styles.matterStatCard}>
+                  <Clock size={24} />
+                  <div>
+                    <span className={styles.matterStatValue}>
+                      {teamProductivity.reduce((sum: number, t: any) => sum + t.billable_hours, 0).toFixed(1)}h
+                    </span>
+                    <span className={styles.matterStatLabel}>Total Billable Hours</span>
+                  </div>
+                </div>
+                <div className={styles.matterStatCard}>
+                  <DollarSign size={24} />
+                  <div>
+                    <span className={styles.matterStatValue}>
+                      ${(teamProductivity.reduce((sum: number, t: any) => sum + t.billable_amount, 0) / 1000).toFixed(1)}k
+                    </span>
+                    <span className={styles.matterStatLabel}>Total Billable Revenue</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className={styles.tableCard}>
+                <div className={styles.tableHeader}>
+                  <h3>Team Productivity Rankings</h3>
+                  <AIButton context="Team Productivity" variant="icon" size="sm" />
+                </div>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>Team Member</th>
+                      <th>Role</th>
+                      <th>Billable Hours</th>
+                      <th>Utilization</th>
+                      <th>Revenue</th>
+                      <th>Effective Rate</th>
+                      <th>Matters</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {teamProductivity.map((member: any, index: number) => (
+                      <tr key={member.id}>
+                        <td>
+                          <div className={styles.matterCell}>
+                            <span className={styles.matterName}>
+                              {index === 0 && '🥇 '}
+                              {index === 1 && '🥈 '}
+                              {index === 2 && '🥉 '}
+                              {member.name}
+                            </span>
+                          </div>
+                        </td>
+                        <td>{member.role}</td>
+                        <td>{member.billable_hours.toFixed(1)}h</td>
+                        <td>
+                          <span 
+                            className={`${styles.statusBadge} ${member.utilization_rate >= 80 ? styles.active : member.utilization_rate >= 60 ? styles.pending : styles.closed}`}
+                          >
+                            {member.utilization_rate.toFixed(0)}%
+                          </span>
+                        </td>
+                        <td className={styles.revenue}>${member.billable_amount.toLocaleString()}</td>
+                        <td>
+                          ${member.billable_hours > 0 
+                            ? (member.billable_amount / member.billable_hours).toFixed(0) 
+                            : 0}/hr
+                        </td>
+                        <td>{member.matter_count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Team Hours Chart */}
+              <div className={styles.chartsRow}>
+                <div className={styles.chartCard} style={{ flex: 1 }}>
+                  <div className={styles.chartHeader}>
+                    <h3>Billable Hours by Team Member</h3>
+                  </div>
+                  <div className={styles.chartBody}>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={teamProductivity.slice(0, 10)} layout="vertical">
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)" />
+                        <XAxis type="number" stroke="var(--text-tertiary)" fontSize={12} />
+                        <YAxis 
+                          type="category" 
+                          dataKey="name" 
+                          stroke="var(--text-tertiary)" 
+                          fontSize={12} 
+                          width={120}
+                          tick={{ fill: 'var(--text-secondary)' }}
+                        />
+                        <Tooltip 
+                          contentStyle={{ 
+                            background: 'var(--bg-secondary)', 
+                            border: '1px solid var(--border-primary)',
+                            borderRadius: '8px'
+                          }}
+                          formatter={(value: number) => [`${value.toFixed(1)}h`, 'Hours']}
+                        />
+                        <Bar dataKey="billable_hours" fill="#D4AF37" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : analyticsLoading ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-secondary)' }}>
+              <RefreshCw size={32} className={styles.spinning} style={{ marginBottom: '16px' }} />
+              <p>Loading team productivity data...</p>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-secondary)' }}>
+              <Users size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
+              <h3>No Team Data Available</h3>
+              <p>Team productivity data will appear here once time entries are recorded.</p>
+            </div>
+          )}
+        </div>
+      )}
+
       {selectedTab === 'matters' && (
         <div className={styles.mattersTab}>
           <div className={styles.matterStats}>
             <div className={styles.matterStatCard}>
               <Briefcase size={24} />
               <div>
-                <span className={styles.matterStatValue}>{matters.length}</span>
+                <span className={styles.matterStatValue}>{analytics?.matters?.total || matters.length}</span>
                 <span className={styles.matterStatLabel}>Total Matters</span>
               </div>
             </div>

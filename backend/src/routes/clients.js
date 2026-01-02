@@ -7,7 +7,7 @@ const router = Router();
 // Roles that see all clients
 const FULL_ACCESS_ROLES = ['owner', 'admin', 'billing'];
 
-// Get all clients
+// Get all clients - OPTIMIZED: Uses subquery for matter counts instead of slow JOIN + GROUP BY
 router.get('/', authenticate, requirePermission('clients:view'), async (req, res) => {
   try {
     const { search, type, isActive, view: requestedView = 'my', limit = 1000000, offset = 0 } = req.query;
@@ -16,19 +16,20 @@ router.get('/', authenticate, requirePermission('clients:view'), async (req, res
     const isAdmin = req.user.role === 'owner' || req.user.role === 'admin';
     const view = (requestedView === 'all' && !isAdmin) ? 'my' : requestedView;
     
+    // OPTIMIZED: Use a lateral join subquery for matter_count - much faster than GROUP BY
     let sql = `
       SELECT c.*, 
-             array_agg(DISTINCT m.id) FILTER (WHERE m.id IS NOT NULL) as matter_ids,
-             COUNT(DISTINCT m.id) as matter_count
+             COALESCE(mc.cnt, 0) as matter_count
       FROM clients c
-      LEFT JOIN matters m ON m.client_id = c.id
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*) as cnt FROM matters WHERE client_id = c.id
+      ) mc ON true
       WHERE c.firm_id = $1
     `;
     const params = [req.user.firmId];
     let paramIndex = 2;
 
     // "My Clients" filter - only show clients user created or has matters with
-    // Admins/owners/billing always see all when they choose "all", but default is still "my"
     if (view === 'my') {
       sql += ` AND (
         c.created_by = $${paramIndex}
@@ -63,16 +64,14 @@ router.get('/', authenticate, requirePermission('clients:view'), async (req, res
       paramIndex++;
     }
 
-    sql += ` GROUP BY c.id ORDER BY c.display_name LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    sql += ` ORDER BY c.display_name LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(parseInt(limit), parseInt(offset));
 
-    const result = await query(sql, params);
-
-    // Get total count
-    const countResult = await query(
-      'SELECT COUNT(*) FROM clients WHERE firm_id = $1',
-      [req.user.firmId]
-    );
+    // Run both queries in parallel for speed
+    const [result, countResult] = await Promise.all([
+      query(sql, params),
+      query('SELECT COUNT(*) FROM clients WHERE firm_id = $1', [req.user.firmId])
+    ]);
 
     res.json({
       clients: result.rows.map(c => ({
@@ -93,7 +92,7 @@ router.get('/', authenticate, requirePermission('clients:view'), async (req, res
         tags: c.tags,
         contactType: c.contact_type,
         isActive: c.is_active,
-        matterIds: c.matter_ids || [],
+        matterIds: [], // Skip loading matter IDs in list view - fetch on detail page if needed
         matterCount: parseInt(c.matter_count) || 0,
         createdAt: c.created_at,
         updatedAt: c.updated_at,

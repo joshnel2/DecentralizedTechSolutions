@@ -331,6 +331,396 @@ router.get('/firm-summary', authenticate, requireRole('owner', 'admin', 'partner
 });
 
 /**
+ * Comprehensive Firm Dashboard Analytics
+ * 
+ * GET /api/v1/analytics/firm-dashboard
+ * 
+ * Returns all firm-wide data for the analytics dashboard including:
+ * - Time entries summary (billable hours, amounts, utilization)
+ * - Invoice stats (collected, outstanding, overdue)
+ * - Matter and client counts
+ * - Team productivity rankings
+ * - Monthly trends
+ * - Revenue by practice area
+ * - Top matters and clients
+ */
+router.get('/firm-dashboard', authenticate, requireRole('owner', 'admin', 'partner', 'billing'), async (req, res) => {
+  try {
+    const { time_period = 'current_month' } = req.query;
+    const firmId = req.user.firmId;
+
+    // Build date filter based on time_period
+    let dateFilter, prevDateFilter;
+    switch (time_period) {
+      case 'last_month':
+        dateFilter = `date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND date < DATE_TRUNC('month', CURRENT_DATE)`;
+        prevDateFilter = `date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '2 months') AND date < DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')`;
+        break;
+      case 'last_quarter':
+        dateFilter = `date >= CURRENT_DATE - INTERVAL '3 months'`;
+        prevDateFilter = `date >= CURRENT_DATE - INTERVAL '6 months' AND date < CURRENT_DATE - INTERVAL '3 months'`;
+        break;
+      case 'last_6_months':
+        dateFilter = `date >= CURRENT_DATE - INTERVAL '6 months'`;
+        prevDateFilter = `date >= CURRENT_DATE - INTERVAL '12 months' AND date < CURRENT_DATE - INTERVAL '6 months'`;
+        break;
+      case 'year_to_date':
+        dateFilter = `date >= DATE_TRUNC('year', CURRENT_DATE)`;
+        prevDateFilter = `date >= DATE_TRUNC('year', CURRENT_DATE - INTERVAL '1 year') AND date < DATE_TRUNC('year', CURRENT_DATE)`;
+        break;
+      case 'all_time':
+        dateFilter = '1=1';
+        prevDateFilter = '1=0'; // No previous period for all time
+        break;
+      case 'current_month':
+      default:
+        dateFilter = `date >= DATE_TRUNC('month', CURRENT_DATE)`;
+        prevDateFilter = `date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND date < DATE_TRUNC('month', CURRENT_DATE)`;
+        break;
+    }
+
+    // Execute all queries in parallel for maximum speed
+    const [
+      summary,
+      prevSummary,
+      invoiceStats,
+      matterStats,
+      clientStats,
+      teamProductivity,
+      monthlyTrend,
+      revenueByType,
+      topMatters,
+      topClients,
+      collectionAging
+    ] = await Promise.all([
+      // Current period summary
+      query(`
+        SELECT 
+          COALESCE(SUM(hours), 0) as total_hours,
+          COALESCE(SUM(hours) FILTER (WHERE billable = true), 0) as billable_hours,
+          COALESCE(SUM(amount), 0) as total_amount,
+          COALESCE(SUM(amount) FILTER (WHERE billable = true), 0) as billable_amount,
+          COALESCE(SUM(amount) FILTER (WHERE billed = true), 0) as billed_amount,
+          COALESCE(SUM(hours) FILTER (WHERE billable = true AND billed = false), 0) as unbilled_hours,
+          COALESCE(SUM(amount) FILTER (WHERE billable = true AND billed = false), 0) as unbilled_amount,
+          COUNT(*) as entry_count,
+          COUNT(DISTINCT user_id) as active_billers,
+          COUNT(DISTINCT matter_id) as active_matters
+        FROM time_entries WHERE firm_id = $1 AND ${dateFilter}
+      `, [firmId]),
+
+      // Previous period summary for comparison
+      query(`
+        SELECT 
+          COALESCE(SUM(hours), 0) as total_hours,
+          COALESCE(SUM(amount), 0) as total_amount
+        FROM time_entries WHERE firm_id = $1 AND ${prevDateFilter}
+      `, [firmId]),
+
+      // Invoice statistics
+      query(`
+        SELECT 
+          COUNT(*) as total,
+          COALESCE(SUM(subtotal_fees), 0) as total_invoiced,
+          COALESCE(SUM(amount_paid), 0) as total_collected,
+          COALESCE(SUM(subtotal_fees - amount_paid) FILTER (WHERE status != 'paid'), 0) as total_outstanding,
+          COALESCE(SUM(subtotal_fees - amount_paid) FILTER (WHERE status = 'overdue'), 0) as total_overdue,
+          COUNT(*) FILTER (WHERE status = 'draft') as draft,
+          COUNT(*) FILTER (WHERE status = 'sent') as sent,
+          COUNT(*) FILTER (WHERE status = 'paid') as paid,
+          COUNT(*) FILTER (WHERE status = 'overdue') as overdue,
+          COUNT(*) FILTER (WHERE status = 'partial') as partial,
+          COALESCE(AVG(subtotal_fees), 0) as avg_invoice_amount,
+          COALESCE(AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 86400) FILTER (WHERE status = 'paid'), 0) as avg_days_to_pay
+        FROM invoices WHERE firm_id = $1
+      `, [firmId]),
+
+      // Matter statistics
+      query(`
+        SELECT 
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE status = 'active') as active,
+          COUNT(*) FILTER (WHERE status = 'pending') as pending,
+          COUNT(*) FILTER (WHERE status LIKE 'closed%') as closed,
+          COUNT(*) FILTER (WHERE status = 'on_hold') as on_hold,
+          COUNT(*) FILTER (WHERE priority = 'urgent') as urgent,
+          COUNT(*) FILTER (WHERE priority = 'high') as high_priority,
+          COUNT(*) FILTER (WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE)) as new_this_month,
+          COUNT(*) FILTER (WHERE created_at >= DATE_TRUNC('year', CURRENT_DATE)) as new_this_year
+        FROM matters WHERE firm_id = $1
+      `, [firmId]),
+
+      // Client statistics
+      query(`
+        SELECT 
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE is_active = true) as active,
+          COUNT(*) FILTER (WHERE type = 'person') as individuals,
+          COUNT(*) FILTER (WHERE type = 'company') as companies,
+          COUNT(*) FILTER (WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE)) as new_this_month
+        FROM clients WHERE firm_id = $1
+      `, [firmId]),
+
+      // Team productivity - individual performance
+      query(`
+        SELECT 
+          u.id, u.first_name || ' ' || u.last_name as name, u.role, u.hourly_rate,
+          COALESCE(SUM(te.hours), 0) as total_hours,
+          COALESCE(SUM(te.hours) FILTER (WHERE te.billable = true), 0) as billable_hours,
+          COALESCE(SUM(te.amount), 0) as total_amount,
+          COALESCE(SUM(te.amount) FILTER (WHERE te.billable = true), 0) as billable_amount,
+          COUNT(te.id) as entry_count,
+          COUNT(DISTINCT te.matter_id) as matter_count,
+          MAX(te.created_at) as last_activity
+        FROM users u
+        LEFT JOIN time_entries te ON te.user_id = u.id AND te.firm_id = $1 AND te.${dateFilter.replace(/date/g, 'te.date')}
+        WHERE u.firm_id = $1 AND u.is_active = true
+        GROUP BY u.id, u.first_name, u.last_name, u.role, u.hourly_rate
+        ORDER BY billable_hours DESC
+      `, [firmId]),
+
+      // Monthly trend (last 12 months)
+      query(`
+        SELECT 
+          DATE_TRUNC('month', date) as month,
+          COALESCE(SUM(hours), 0) as total_hours,
+          COALESCE(SUM(hours) FILTER (WHERE billable = true), 0) as billable_hours,
+          COALESCE(SUM(amount), 0) as total_amount,
+          COALESCE(SUM(amount) FILTER (WHERE billable = true), 0) as billable_amount,
+          COUNT(DISTINCT user_id) as active_users,
+          COUNT(*) as entry_count
+        FROM time_entries
+        WHERE firm_id = $1 AND date >= CURRENT_DATE - INTERVAL '12 months'
+        GROUP BY DATE_TRUNC('month', date)
+        ORDER BY month ASC
+      `, [firmId]),
+
+      // Revenue by practice area/matter type
+      query(`
+        SELECT 
+          COALESCE(m.type, 'unassigned') as type,
+          COALESCE(SUM(te.hours), 0) as total_hours,
+          COALESCE(SUM(te.amount), 0) as total_amount,
+          COUNT(DISTINCT m.id) as matter_count
+        FROM time_entries te
+        LEFT JOIN matters m ON te.matter_id = m.id
+        WHERE te.firm_id = $1 AND te.${dateFilter.replace(/date/g, 'te.date')}
+        GROUP BY m.type
+        ORDER BY total_amount DESC
+      `, [firmId]),
+
+      // Top matters by revenue
+      query(`
+        SELECT 
+          m.id, m.name, m.number, m.status, m.type,
+          c.display_name as client_name,
+          COALESCE(SUM(te.hours), 0) as total_hours,
+          COALESCE(SUM(te.amount), 0) as total_amount
+        FROM matters m
+        LEFT JOIN clients c ON m.client_id = c.id
+        LEFT JOIN time_entries te ON te.matter_id = m.id AND te.${dateFilter.replace(/date/g, 'te.date')}
+        WHERE m.firm_id = $1
+        GROUP BY m.id, m.name, m.number, m.status, m.type, c.display_name
+        HAVING COALESCE(SUM(te.amount), 0) > 0
+        ORDER BY total_amount DESC
+        LIMIT 10
+      `, [firmId]),
+
+      // Top clients by revenue
+      query(`
+        SELECT 
+          c.id, c.display_name as name, c.type,
+          COUNT(DISTINCT m.id) as matter_count,
+          COALESCE(SUM(te.hours), 0) as total_hours,
+          COALESCE(SUM(te.amount), 0) as total_amount
+        FROM clients c
+        LEFT JOIN matters m ON m.client_id = c.id
+        LEFT JOIN time_entries te ON te.matter_id = m.id AND te.${dateFilter.replace(/date/g, 'te.date')}
+        WHERE c.firm_id = $1
+        GROUP BY c.id, c.display_name, c.type
+        HAVING COALESCE(SUM(te.amount), 0) > 0
+        ORDER BY total_amount DESC
+        LIMIT 10
+      `, [firmId]),
+
+      // Collection aging buckets
+      query(`
+        SELECT 
+          CASE 
+            WHEN due_date >= CURRENT_DATE THEN 'Current'
+            WHEN due_date >= CURRENT_DATE - INTERVAL '30 days' THEN '1-30 days'
+            WHEN due_date >= CURRENT_DATE - INTERVAL '60 days' THEN '31-60 days'
+            WHEN due_date >= CURRENT_DATE - INTERVAL '90 days' THEN '61-90 days'
+            ELSE '90+ days'
+          END as bucket,
+          COUNT(*) as invoice_count,
+          COALESCE(SUM(subtotal_fees - amount_paid), 0) as outstanding_amount
+        FROM invoices 
+        WHERE firm_id = $1 AND status NOT IN ('paid', 'draft')
+        GROUP BY bucket
+        ORDER BY 
+          CASE bucket 
+            WHEN 'Current' THEN 1 
+            WHEN '1-30 days' THEN 2 
+            WHEN '31-60 days' THEN 3 
+            WHEN '61-90 days' THEN 4 
+            ELSE 5 
+          END
+      `, [firmId])
+    ]);
+
+    // Calculate derived metrics
+    const s = summary.rows[0];
+    const ps = prevSummary.rows[0];
+    const inv = invoiceStats.rows[0];
+    const mat = matterStats.rows[0];
+    const cli = clientStats.rows[0];
+
+    // Calculate utilization rate (assuming 8 hours/day target)
+    const activeUsers = teamProductivity.rows.filter(t => parseFloat(t.total_hours) > 0).length;
+    const expectedHours = activeUsers * 8 * 22; // 22 working days/month
+    const utilizationRate = expectedHours > 0 ? (parseFloat(s.billable_hours) / expectedHours * 100) : 0;
+
+    // Calculate period changes
+    const hoursChange = parseFloat(ps.total_hours) > 0 
+      ? ((parseFloat(s.total_hours) - parseFloat(ps.total_hours)) / parseFloat(ps.total_hours) * 100) 
+      : 0;
+    const revenueChange = parseFloat(ps.total_amount) > 0 
+      ? ((parseFloat(s.total_amount) - parseFloat(ps.total_amount)) / parseFloat(ps.total_amount) * 100) 
+      : 0;
+
+    // Calculate collection rate
+    const collectionRate = parseFloat(inv.total_invoiced) > 0 
+      ? (parseFloat(inv.total_collected) / parseFloat(inv.total_invoiced) * 100) 
+      : 0;
+
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          total_hours: parseFloat(s.total_hours),
+          billable_hours: parseFloat(s.billable_hours),
+          total_amount: parseFloat(s.total_amount),
+          billable_amount: parseFloat(s.billable_amount),
+          billed_amount: parseFloat(s.billed_amount),
+          unbilled_hours: parseFloat(s.unbilled_hours),
+          unbilled_amount: parseFloat(s.unbilled_amount),
+          entry_count: parseInt(s.entry_count),
+          active_billers: parseInt(s.active_billers),
+          active_matters: parseInt(s.active_matters)
+        },
+        changes: {
+          hours_change_percent: Math.round(hoursChange * 10) / 10,
+          revenue_change_percent: Math.round(revenueChange * 10) / 10,
+          hours_trend: hoursChange >= 0 ? 'up' : 'down',
+          revenue_trend: revenueChange >= 0 ? 'up' : 'down'
+        },
+        productivity: {
+          utilization_rate: Math.round(utilizationRate * 10) / 10
+        },
+        invoices: {
+          total: parseInt(inv.total),
+          total_invoiced: parseFloat(inv.total_invoiced),
+          total_collected: parseFloat(inv.total_collected),
+          total_outstanding: parseFloat(inv.total_outstanding),
+          total_overdue: parseFloat(inv.total_overdue),
+          collection_rate: Math.round(collectionRate * 10) / 10,
+          avg_invoice_amount: parseFloat(inv.avg_invoice_amount),
+          avg_days_to_pay: Math.round(parseFloat(inv.avg_days_to_pay)),
+          by_status: {
+            draft: parseInt(inv.draft),
+            sent: parseInt(inv.sent),
+            paid: parseInt(inv.paid),
+            overdue: parseInt(inv.overdue),
+            partial: parseInt(inv.partial)
+          }
+        },
+        collection_aging: collectionAging.rows.map(r => ({
+          bucket: r.bucket,
+          invoice_count: parseInt(r.invoice_count),
+          outstanding_amount: parseFloat(r.outstanding_amount)
+        })),
+        matters: {
+          total: parseInt(mat.total),
+          active: parseInt(mat.active),
+          pending: parseInt(mat.pending),
+          closed: parseInt(mat.closed),
+          on_hold: parseInt(mat.on_hold),
+          urgent: parseInt(mat.urgent),
+          high_priority: parseInt(mat.high_priority),
+          new_this_month: parseInt(mat.new_this_month),
+          new_this_year: parseInt(mat.new_this_year)
+        },
+        clients: {
+          total: parseInt(cli.total),
+          active: parseInt(cli.active),
+          individuals: parseInt(cli.individuals),
+          companies: parseInt(cli.companies),
+          new_this_month: parseInt(cli.new_this_month)
+        },
+        team_productivity: teamProductivity.rows.map(t => ({
+          id: t.id,
+          name: t.name,
+          role: t.role,
+          hourly_rate: parseFloat(t.hourly_rate) || 0,
+          total_hours: parseFloat(t.total_hours),
+          billable_hours: parseFloat(t.billable_hours),
+          utilization_rate: parseFloat(t.total_hours) > 0 
+            ? Math.round((parseFloat(t.billable_hours) / parseFloat(t.total_hours)) * 100) 
+            : 0,
+          total_amount: parseFloat(t.total_amount),
+          billable_amount: parseFloat(t.billable_amount),
+          entry_count: parseInt(t.entry_count),
+          matter_count: parseInt(t.matter_count),
+          last_activity: t.last_activity
+        })),
+        monthly_trend: monthlyTrend.rows.map(m => ({
+          month: m.month,
+          total_hours: parseFloat(m.total_hours),
+          billable_hours: parseFloat(m.billable_hours),
+          total_amount: parseFloat(m.total_amount),
+          billable_amount: parseFloat(m.billable_amount),
+          active_users: parseInt(m.active_users),
+          entry_count: parseInt(m.entry_count)
+        })),
+        revenue_by_practice_area: revenueByType.rows.map(r => ({
+          type: r.type,
+          total_hours: parseFloat(r.total_hours),
+          total_amount: parseFloat(r.total_amount),
+          matter_count: parseInt(r.matter_count)
+        })),
+        top_matters: topMatters.rows.map(m => ({
+          id: m.id,
+          name: m.name,
+          number: m.number,
+          status: m.status,
+          type: m.type,
+          client_name: m.client_name,
+          total_hours: parseFloat(m.total_hours),
+          total_amount: parseFloat(m.total_amount)
+        })),
+        top_clients: topClients.rows.map(c => ({
+          id: c.id,
+          name: c.name,
+          type: c.type,
+          matter_count: parseInt(c.matter_count),
+          total_hours: parseFloat(c.total_hours),
+          total_amount: parseFloat(c.total_amount)
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Firm dashboard error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to retrieve firm dashboard analytics',
+      code: 'INTERNAL_ERROR'
+    });
+  }
+});
+
+/**
  * AI Agent Tool: Get Quick KPIs
  * 
  * GET /api/v1/analytics/kpis
