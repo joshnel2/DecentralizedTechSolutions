@@ -510,7 +510,17 @@ router.get('/quickbooks/connect', authenticate, async (req, res) => {
     userId: req.user.id,
   })).toString('base64');
 
-  const scopes = 'com.intuit.quickbooks.accounting';
+  // QuickBooks OAuth Scopes:
+  // - com.intuit.quickbooks.accounting: Full read/write access to accounting data (invoices, customers, bills, etc.)
+  // - openid, profile, email: User identity information
+  // - address, phone: Additional user info (optional but useful)
+  const scopes = [
+    'com.intuit.quickbooks.accounting',  // Full accounting read/write access
+    'openid',                             // OpenID authentication
+    'profile',                            // User profile info
+    'email',                              // User email
+  ].join(' ');
+  
   const baseUrl = 'https://appcenter.intuit.com/connect/oauth2';
 
   const authUrl = `${baseUrl}?` +
@@ -768,6 +778,802 @@ router.post('/quickbooks/sync', authenticate, async (req, res) => {
   } catch (error) {
     console.error('QuickBooks sync error:', error);
     res.status(500).json({ error: 'Failed to sync QuickBooks data' });
+  }
+});
+
+// ============================================
+// QUICKBOOKS EXTENDED ENDPOINTS (Clio-style)
+// ============================================
+
+// Helper to get valid QuickBooks access token (refreshes if needed)
+async function getQuickBooksAccessToken(firmId) {
+  const integration = await query(
+    `SELECT * FROM integrations WHERE firm_id = $1 AND provider = 'quickbooks' AND is_connected = true`,
+    [firmId]
+  );
+
+  if (integration.rows.length === 0) {
+    throw new Error('QuickBooks not connected');
+  }
+
+  const QB_CLIENT_ID = await getCredential('quickbooks_client_id', 'QUICKBOOKS_CLIENT_ID');
+  const QB_CLIENT_SECRET = await getCredential('quickbooks_client_secret', 'QUICKBOOKS_CLIENT_SECRET');
+  const QB_ENVIRONMENT = await getCredential('quickbooks_environment', 'QUICKBOOKS_ENVIRONMENT', 'sandbox');
+
+  let { access_token, refresh_token, settings } = integration.rows[0];
+  const { realmId } = settings || {};
+
+  if (!realmId) {
+    throw new Error('QuickBooks realm ID missing');
+  }
+
+  // Always refresh token (QB tokens expire in 1 hour)
+  const auth = Buffer.from(`${QB_CLIENT_ID}:${QB_CLIENT_SECRET}`).toString('base64');
+  const refreshResponse = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${auth}`,
+    },
+    body: new URLSearchParams({
+      refresh_token: refresh_token,
+      grant_type: 'refresh_token',
+    }),
+  });
+
+  const newTokens = await refreshResponse.json();
+  if (newTokens.access_token) {
+    access_token = newTokens.access_token;
+    await query(
+      `UPDATE integrations SET access_token = $1, refresh_token = $2, token_expires_at = NOW() + INTERVAL '1 hour'
+       WHERE firm_id = $3 AND provider = 'quickbooks'`,
+      [newTokens.access_token, newTokens.refresh_token || refresh_token, firmId]
+    );
+  } else if (newTokens.error) {
+    console.error('QuickBooks token refresh failed:', newTokens);
+    throw new Error('QuickBooks session expired. Please reconnect.');
+  }
+
+  const baseUrl = QB_ENVIRONMENT === 'production'
+    ? 'https://quickbooks.api.intuit.com'
+    : 'https://sandbox-quickbooks.api.intuit.com';
+
+  return { accessToken: access_token, realmId, baseUrl };
+}
+
+// Get all customers from QuickBooks
+router.get('/quickbooks/customers', authenticate, async (req, res) => {
+  try {
+    const { accessToken, realmId, baseUrl } = await getQuickBooksAccessToken(req.user.firmId);
+
+    const customersResponse = await fetch(
+      `${baseUrl}/v3/company/${realmId}/query?query=${encodeURIComponent('SELECT * FROM Customer MAXRESULTS 1000')}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    const customersData = await customersResponse.json();
+    
+    if (customersData.fault) {
+      console.error('QuickBooks API error:', customersData.fault);
+      return res.status(400).json({ error: customersData.fault.error?.[0]?.message || 'QuickBooks API error' });
+    }
+
+    const customers = (customersData.QueryResponse?.Customer || []).map(c => ({
+      id: c.Id,
+      name: c.DisplayName || c.CompanyName || `${c.GivenName || ''} ${c.FamilyName || ''}`.trim(),
+      email: c.PrimaryEmailAddr?.Address,
+      phone: c.PrimaryPhone?.FreeFormNumber,
+      balance: c.Balance || 0,
+      companyName: c.CompanyName,
+      active: c.Active,
+      createdAt: c.MetaData?.CreateTime,
+    }));
+
+    res.json({ customers, total: customers.length });
+  } catch (error) {
+    console.error('QuickBooks customers error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch customers' });
+  }
+});
+
+// Get all invoices from QuickBooks (detailed)
+router.get('/quickbooks/invoices', authenticate, async (req, res) => {
+  try {
+    const { accessToken, realmId, baseUrl } = await getQuickBooksAccessToken(req.user.firmId);
+
+    const invoicesResponse = await fetch(
+      `${baseUrl}/v3/company/${realmId}/query?query=${encodeURIComponent('SELECT * FROM Invoice ORDER BY TxnDate DESC MAXRESULTS 500')}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    const invoicesData = await invoicesResponse.json();
+    
+    if (invoicesData.fault) {
+      console.error('QuickBooks API error:', invoicesData.fault);
+      return res.status(400).json({ error: invoicesData.fault.error?.[0]?.message || 'QuickBooks API error' });
+    }
+
+    const invoices = (invoicesData.QueryResponse?.Invoice || []).map(inv => ({
+      id: inv.Id,
+      number: inv.DocNumber,
+      customerName: inv.CustomerRef?.name,
+      customerId: inv.CustomerRef?.value,
+      date: inv.TxnDate,
+      dueDate: inv.DueDate,
+      total: parseFloat(inv.TotalAmt || 0),
+      balance: parseFloat(inv.Balance || 0),
+      status: inv.Balance > 0 ? (new Date(inv.DueDate) < new Date() ? 'overdue' : 'pending') : 'paid',
+      emailStatus: inv.EmailStatus,
+      lineItems: inv.Line?.filter(l => l.DetailType === 'SalesItemLineDetail').map(l => ({
+        description: l.Description,
+        amount: l.Amount,
+        quantity: l.SalesItemLineDetail?.Qty,
+        unitPrice: l.SalesItemLineDetail?.UnitPrice,
+      })),
+    }));
+
+    res.json({ invoices, total: invoices.length });
+  } catch (error) {
+    console.error('QuickBooks invoices error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch invoices' });
+  }
+});
+
+// Get payments from QuickBooks
+router.get('/quickbooks/payments', authenticate, async (req, res) => {
+  try {
+    const { accessToken, realmId, baseUrl } = await getQuickBooksAccessToken(req.user.firmId);
+
+    const paymentsResponse = await fetch(
+      `${baseUrl}/v3/company/${realmId}/query?query=${encodeURIComponent('SELECT * FROM Payment ORDER BY TxnDate DESC MAXRESULTS 500')}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    const paymentsData = await paymentsResponse.json();
+    
+    if (paymentsData.fault) {
+      return res.status(400).json({ error: paymentsData.fault.error?.[0]?.message || 'QuickBooks API error' });
+    }
+
+    const payments = (paymentsData.QueryResponse?.Payment || []).map(p => ({
+      id: p.Id,
+      date: p.TxnDate,
+      amount: parseFloat(p.TotalAmt || 0),
+      customerName: p.CustomerRef?.name,
+      customerId: p.CustomerRef?.value,
+      paymentMethod: p.PaymentMethodRef?.name,
+      memo: p.PrivateNote,
+    }));
+
+    res.json({ payments, total: payments.length });
+  } catch (error) {
+    console.error('QuickBooks payments error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch payments' });
+  }
+});
+
+// Create a customer in QuickBooks
+router.post('/quickbooks/customers', authenticate, async (req, res) => {
+  try {
+    const { accessToken, realmId, baseUrl } = await getQuickBooksAccessToken(req.user.firmId);
+    const { displayName, companyName, email, phone, address } = req.body;
+
+    if (!displayName) {
+      return res.status(400).json({ error: 'Display name is required' });
+    }
+
+    const customerData = {
+      DisplayName: displayName,
+      ...(companyName && { CompanyName: companyName }),
+      ...(email && { PrimaryEmailAddr: { Address: email } }),
+      ...(phone && { PrimaryPhone: { FreeFormNumber: phone } }),
+      ...(address && {
+        BillAddr: {
+          Line1: address.line1,
+          City: address.city,
+          CountrySubDivisionCode: address.state,
+          PostalCode: address.postalCode,
+          Country: address.country || 'USA',
+        },
+      }),
+    };
+
+    const response = await fetch(`${baseUrl}/v3/company/${realmId}/customer`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(customerData),
+    });
+
+    const result = await response.json();
+
+    if (result.fault) {
+      console.error('QuickBooks create customer error:', result.fault);
+      return res.status(400).json({ error: result.fault.error?.[0]?.message || 'Failed to create customer' });
+    }
+
+    res.json({ 
+      success: true, 
+      customer: {
+        id: result.Customer.Id,
+        name: result.Customer.DisplayName,
+        email: result.Customer.PrimaryEmailAddr?.Address,
+      },
+      message: 'Customer created in QuickBooks'
+    });
+  } catch (error) {
+    console.error('QuickBooks create customer error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create customer' });
+  }
+});
+
+// Create an invoice in QuickBooks
+router.post('/quickbooks/invoices', authenticate, async (req, res) => {
+  try {
+    const { accessToken, realmId, baseUrl } = await getQuickBooksAccessToken(req.user.firmId);
+    const { customerId, lineItems, dueDate, memo, docNumber } = req.body;
+
+    if (!customerId || !lineItems || lineItems.length === 0) {
+      return res.status(400).json({ error: 'Customer ID and line items are required' });
+    }
+
+    // Build line items
+    const lines = lineItems.map((item, index) => ({
+      Id: String(index + 1),
+      LineNum: index + 1,
+      Description: item.description,
+      Amount: parseFloat(item.amount),
+      DetailType: 'SalesItemLineDetail',
+      SalesItemLineDetail: {
+        Qty: item.quantity || 1,
+        UnitPrice: item.unitPrice || item.amount,
+        ItemRef: item.itemRef || { value: '1', name: 'Services' }, // Default to Services item
+      },
+    }));
+
+    const invoiceData = {
+      CustomerRef: { value: customerId },
+      Line: lines,
+      ...(dueDate && { DueDate: dueDate }),
+      ...(memo && { PrivateNote: memo }),
+      ...(docNumber && { DocNumber: docNumber }),
+    };
+
+    const response = await fetch(`${baseUrl}/v3/company/${realmId}/invoice`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(invoiceData),
+    });
+
+    const result = await response.json();
+
+    if (result.fault) {
+      console.error('QuickBooks create invoice error:', result.fault);
+      return res.status(400).json({ error: result.fault.error?.[0]?.message || 'Failed to create invoice' });
+    }
+
+    res.json({ 
+      success: true, 
+      invoice: {
+        id: result.Invoice.Id,
+        number: result.Invoice.DocNumber,
+        total: result.Invoice.TotalAmt,
+        dueDate: result.Invoice.DueDate,
+      },
+      message: 'Invoice created in QuickBooks'
+    });
+  } catch (error) {
+    console.error('QuickBooks create invoice error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create invoice' });
+  }
+});
+
+// Record a payment in QuickBooks
+router.post('/quickbooks/payments', authenticate, async (req, res) => {
+  try {
+    const { accessToken, realmId, baseUrl } = await getQuickBooksAccessToken(req.user.firmId);
+    const { customerId, amount, invoiceId, paymentDate, memo } = req.body;
+
+    if (!customerId || !amount) {
+      return res.status(400).json({ error: 'Customer ID and amount are required' });
+    }
+
+    const paymentData = {
+      CustomerRef: { value: customerId },
+      TotalAmt: parseFloat(amount),
+      ...(paymentDate && { TxnDate: paymentDate }),
+      ...(memo && { PrivateNote: memo }),
+      ...(invoiceId && {
+        Line: [{
+          Amount: parseFloat(amount),
+          LinkedTxn: [{
+            TxnId: invoiceId,
+            TxnType: 'Invoice',
+          }],
+        }],
+      }),
+    };
+
+    const response = await fetch(`${baseUrl}/v3/company/${realmId}/payment`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(paymentData),
+    });
+
+    const result = await response.json();
+
+    if (result.fault) {
+      console.error('QuickBooks create payment error:', result.fault);
+      return res.status(400).json({ error: result.fault.error?.[0]?.message || 'Failed to record payment' });
+    }
+
+    res.json({ 
+      success: true, 
+      payment: {
+        id: result.Payment.Id,
+        amount: result.Payment.TotalAmt,
+        date: result.Payment.TxnDate,
+      },
+      message: 'Payment recorded in QuickBooks'
+    });
+  } catch (error) {
+    console.error('QuickBooks create payment error:', error);
+    res.status(500).json({ error: error.message || 'Failed to record payment' });
+  }
+});
+
+// Push a local invoice to QuickBooks
+router.post('/quickbooks/push-invoice/:invoiceId', authenticate, async (req, res) => {
+  try {
+    const { invoiceId } = req.params;
+
+    // Get the local invoice
+    const invoiceResult = await query(
+      `SELECT i.*, c.name as client_name, c.email as client_email
+       FROM invoices i
+       LEFT JOIN clients c ON i.client_id = c.id
+       WHERE i.id = $1 AND i.firm_id = $2`,
+      [invoiceId, req.user.firmId]
+    );
+
+    if (invoiceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    const invoice = invoiceResult.rows[0];
+    const { accessToken, realmId, baseUrl } = await getQuickBooksAccessToken(req.user.firmId);
+
+    // First, find or create the customer in QuickBooks
+    let customerId = null;
+    if (invoice.client_name) {
+      // Search for existing customer
+      const searchResponse = await fetch(
+        `${baseUrl}/v3/company/${realmId}/query?query=${encodeURIComponent(`SELECT * FROM Customer WHERE DisplayName = '${invoice.client_name.replace(/'/g, "''")}'`)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/json',
+          },
+        }
+      );
+
+      const searchResult = await searchResponse.json();
+      const existingCustomer = searchResult.QueryResponse?.Customer?.[0];
+
+      if (existingCustomer) {
+        customerId = existingCustomer.Id;
+      } else {
+        // Create new customer
+        const createResponse = await fetch(`${baseUrl}/v3/company/${realmId}/customer`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            DisplayName: invoice.client_name,
+            ...(invoice.client_email && { PrimaryEmailAddr: { Address: invoice.client_email } }),
+          }),
+        });
+
+        const createResult = await createResponse.json();
+        if (createResult.Customer) {
+          customerId = createResult.Customer.Id;
+        }
+      }
+    }
+
+    if (!customerId) {
+      return res.status(400).json({ error: 'Could not find or create customer in QuickBooks' });
+    }
+
+    // Create the invoice in QuickBooks
+    const invoiceData = {
+      CustomerRef: { value: customerId },
+      DocNumber: invoice.invoice_number,
+      DueDate: invoice.due_date,
+      Line: [{
+        Amount: parseFloat(invoice.amount),
+        DetailType: 'SalesItemLineDetail',
+        Description: invoice.description || `Invoice from Apex Legal`,
+        SalesItemLineDetail: {
+          Qty: 1,
+          UnitPrice: parseFloat(invoice.amount),
+          ItemRef: { value: '1', name: 'Services' },
+        },
+      }],
+    };
+
+    const response = await fetch(`${baseUrl}/v3/company/${realmId}/invoice`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(invoiceData),
+    });
+
+    const result = await response.json();
+
+    if (result.fault) {
+      console.error('QuickBooks push invoice error:', result.fault);
+      return res.status(400).json({ error: result.fault.error?.[0]?.message || 'Failed to push invoice' });
+    }
+
+    // Update local invoice with QuickBooks reference
+    await query(
+      `UPDATE invoices SET external_id = $1, external_source = 'quickbooks' WHERE id = $2`,
+      [result.Invoice.Id, invoiceId]
+    );
+
+    res.json({ 
+      success: true, 
+      quickbooksInvoiceId: result.Invoice.Id,
+      message: `Invoice pushed to QuickBooks as #${result.Invoice.DocNumber || result.Invoice.Id}`
+    });
+  } catch (error) {
+    console.error('QuickBooks push invoice error:', error);
+    res.status(500).json({ error: error.message || 'Failed to push invoice to QuickBooks' });
+  }
+});
+
+// Push a local client to QuickBooks
+router.post('/quickbooks/push-client/:clientId', authenticate, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+
+    // Get the local client
+    const clientResult = await query(
+      `SELECT * FROM clients WHERE id = $1 AND firm_id = $2`,
+      [clientId, req.user.firmId]
+    );
+
+    if (clientResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    const client = clientResult.rows[0];
+    const { accessToken, realmId, baseUrl } = await getQuickBooksAccessToken(req.user.firmId);
+
+    // Check if customer already exists
+    const searchResponse = await fetch(
+      `${baseUrl}/v3/company/${realmId}/query?query=${encodeURIComponent(`SELECT * FROM Customer WHERE DisplayName = '${client.name.replace(/'/g, "''")}'`)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    const searchResult = await searchResponse.json();
+    if (searchResult.QueryResponse?.Customer?.[0]) {
+      return res.json({ 
+        success: true, 
+        quickbooksCustomerId: searchResult.QueryResponse.Customer[0].Id,
+        message: 'Client already exists in QuickBooks'
+      });
+    }
+
+    // Create customer in QuickBooks
+    const customerData = {
+      DisplayName: client.name,
+      ...(client.email && { PrimaryEmailAddr: { Address: client.email } }),
+      ...(client.phone && { PrimaryPhone: { FreeFormNumber: client.phone } }),
+      ...(client.address && {
+        BillAddr: {
+          Line1: client.address,
+          City: client.city,
+          CountrySubDivisionCode: client.state,
+          PostalCode: client.zip_code,
+        },
+      }),
+    };
+
+    const response = await fetch(`${baseUrl}/v3/company/${realmId}/customer`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(customerData),
+    });
+
+    const result = await response.json();
+
+    if (result.fault) {
+      console.error('QuickBooks push client error:', result.fault);
+      return res.status(400).json({ error: result.fault.error?.[0]?.message || 'Failed to push client' });
+    }
+
+    res.json({ 
+      success: true, 
+      quickbooksCustomerId: result.Customer.Id,
+      message: 'Client pushed to QuickBooks'
+    });
+  } catch (error) {
+    console.error('QuickBooks push client error:', error);
+    res.status(500).json({ error: error.message || 'Failed to push client to QuickBooks' });
+  }
+});
+
+// Full two-way sync between Apex and QuickBooks
+router.post('/quickbooks/full-sync', authenticate, async (req, res) => {
+  try {
+    const { accessToken, realmId, baseUrl } = await getQuickBooksAccessToken(req.user.firmId);
+    const syncResults = {
+      customersImported: 0,
+      customersExported: 0,
+      invoicesImported: 0,
+      invoicesExported: 0,
+      errors: [],
+    };
+
+    // 1. Import customers from QuickBooks
+    const customersResponse = await fetch(
+      `${baseUrl}/v3/company/${realmId}/query?query=${encodeURIComponent('SELECT * FROM Customer WHERE Active = true MAXRESULTS 1000')}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    const customersData = await customersResponse.json();
+    const qbCustomers = customersData.QueryResponse?.Customer || [];
+
+    for (const qbCust of qbCustomers) {
+      try {
+        // Check if client exists by name
+        const existing = await query(
+          `SELECT id FROM clients WHERE firm_id = $1 AND name ILIKE $2`,
+          [req.user.firmId, qbCust.DisplayName]
+        );
+
+        if (existing.rows.length === 0) {
+          await query(
+            `INSERT INTO clients (firm_id, name, email, phone, type)
+             VALUES ($1, $2, $3, $4, 'individual')`,
+            [
+              req.user.firmId,
+              qbCust.DisplayName,
+              qbCust.PrimaryEmailAddr?.Address,
+              qbCust.PrimaryPhone?.FreeFormNumber,
+            ]
+          );
+          syncResults.customersImported++;
+        }
+      } catch (err) {
+        syncResults.errors.push(`Customer ${qbCust.DisplayName}: ${err.message}`);
+      }
+    }
+
+    // 2. Export local clients to QuickBooks (that don't have a QB record)
+    const localClients = await query(
+      `SELECT * FROM clients WHERE firm_id = $1`,
+      [req.user.firmId]
+    );
+
+    for (const client of localClients.rows) {
+      try {
+        // Check if already in QuickBooks
+        const searchResponse = await fetch(
+          `${baseUrl}/v3/company/${realmId}/query?query=${encodeURIComponent(`SELECT Id FROM Customer WHERE DisplayName = '${client.name.replace(/'/g, "''")}'`)}`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              Accept: 'application/json',
+            },
+          }
+        );
+
+        const searchResult = await searchResponse.json();
+        if (!searchResult.QueryResponse?.Customer?.[0]) {
+          // Create in QuickBooks
+          const response = await fetch(`${baseUrl}/v3/company/${realmId}/customer`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+            body: JSON.stringify({
+              DisplayName: client.name,
+              ...(client.email && { PrimaryEmailAddr: { Address: client.email } }),
+              ...(client.phone && { PrimaryPhone: { FreeFormNumber: client.phone } }),
+            }),
+          });
+
+          const result = await response.json();
+          if (result.Customer) {
+            syncResults.customersExported++;
+          }
+        }
+      } catch (err) {
+        syncResults.errors.push(`Export client ${client.name}: ${err.message}`);
+      }
+    }
+
+    // 3. Import invoices from QuickBooks
+    const invoicesResponse = await fetch(
+      `${baseUrl}/v3/company/${realmId}/query?query=${encodeURIComponent('SELECT * FROM Invoice ORDER BY TxnDate DESC MAXRESULTS 500')}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    const invoicesData = await invoicesResponse.json();
+    const qbInvoices = invoicesData.QueryResponse?.Invoice || [];
+
+    for (const qbInv of qbInvoices) {
+      try {
+        const existing = await query(
+          `SELECT id FROM invoices WHERE firm_id = $1 AND external_id = $2 AND external_source = 'quickbooks'`,
+          [req.user.firmId, qbInv.Id]
+        );
+
+        if (existing.rows.length === 0) {
+          // Find client
+          let clientId = null;
+          if (qbInv.CustomerRef?.name) {
+            const clientResult = await query(
+              `SELECT id FROM clients WHERE firm_id = $1 AND name ILIKE $2 LIMIT 1`,
+              [req.user.firmId, `%${qbInv.CustomerRef.name}%`]
+            );
+            clientId = clientResult.rows[0]?.id;
+          }
+
+          await query(
+            `INSERT INTO invoices (firm_id, client_id, invoice_number, amount, status, due_date, external_id, external_source, description)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'quickbooks', $8)
+             ON CONFLICT (firm_id, external_id, external_source) DO NOTHING`,
+            [
+              req.user.firmId,
+              clientId,
+              qbInv.DocNumber || `QB-${qbInv.Id}`,
+              parseFloat(qbInv.TotalAmt || 0),
+              qbInv.Balance > 0 ? 'pending' : 'paid',
+              qbInv.DueDate,
+              qbInv.Id,
+              `QuickBooks: ${qbInv.CustomerRef?.name || 'Unknown'}`,
+            ]
+          );
+          syncResults.invoicesImported++;
+        }
+      } catch (err) {
+        syncResults.errors.push(`Invoice ${qbInv.DocNumber}: ${err.message}`);
+      }
+    }
+
+    // Update last sync time
+    await query(
+      `UPDATE integrations SET last_sync_at = NOW() WHERE firm_id = $1 AND provider = 'quickbooks'`,
+      [req.user.firmId]
+    );
+
+    res.json({
+      success: true,
+      ...syncResults,
+      message: `Sync complete: ${syncResults.customersImported} customers imported, ${syncResults.customersExported} exported, ${syncResults.invoicesImported} invoices imported`,
+    });
+  } catch (error) {
+    console.error('QuickBooks full sync error:', error);
+    res.status(500).json({ error: error.message || 'Failed to sync with QuickBooks' });
+  }
+});
+
+// Update QuickBooks integration settings
+router.put('/quickbooks/settings', authenticate, async (req, res) => {
+  try {
+    const { syncBilling, syncCustomers, autoSync, twoWaySync } = req.body;
+
+    const integration = await query(
+      `SELECT * FROM integrations WHERE firm_id = $1 AND provider = 'quickbooks'`,
+      [req.user.firmId]
+    );
+
+    if (integration.rows.length === 0) {
+      return res.status(404).json({ error: 'QuickBooks not connected' });
+    }
+
+    const currentSettings = integration.rows[0].settings || {};
+    const newSettings = {
+      ...currentSettings,
+      syncBilling: syncBilling !== undefined ? syncBilling : currentSettings.syncBilling,
+      syncCustomers: syncCustomers !== undefined ? syncCustomers : currentSettings.syncCustomers,
+      autoSync: autoSync !== undefined ? autoSync : currentSettings.autoSync,
+      twoWaySync: twoWaySync !== undefined ? twoWaySync : currentSettings.twoWaySync,
+    };
+
+    await query(
+      `UPDATE integrations SET settings = $1 WHERE firm_id = $2 AND provider = 'quickbooks'`,
+      [JSON.stringify(newSettings), req.user.firmId]
+    );
+
+    res.json({ success: true, settings: newSettings });
+  } catch (error) {
+    console.error('QuickBooks settings error:', error);
+    res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+// Get QuickBooks integration status and stats
+router.get('/quickbooks/status', authenticate, async (req, res) => {
+  try {
+    const integration = await query(
+      `SELECT * FROM integrations WHERE firm_id = $1 AND provider = 'quickbooks'`,
+      [req.user.firmId]
+    );
+
+    if (integration.rows.length === 0 || !integration.rows[0].is_connected) {
+      return res.json({ connected: false });
+    }
+
+    const row = integration.rows[0];
+    
+    res.json({
+      connected: true,
+      accountName: row.account_name,
+      lastSyncAt: row.last_sync_at,
+      settings: row.settings,
+      connectedAt: row.connected_at,
+    });
+  } catch (error) {
+    console.error('QuickBooks status error:', error);
+    res.status(500).json({ error: 'Failed to get status' });
   }
 });
 

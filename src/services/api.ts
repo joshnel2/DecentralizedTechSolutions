@@ -1287,6 +1287,64 @@ export const integrationsApi = {
     return fetchWithAuth('/integrations/quickbooks/customers');
   },
 
+  async getQuickBooksPayments() {
+    return fetchWithAuth('/integrations/quickbooks/payments');
+  },
+
+  async getQuickBooksStatus() {
+    return fetchWithAuth('/integrations/quickbooks/status');
+  },
+
+  // Create QuickBooks records
+  async createQuickBooksCustomer(data: { displayName: string; companyName?: string; email?: string; phone?: string; address?: object }) {
+    return fetchWithAuth('/integrations/quickbooks/customers', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async createQuickBooksInvoice(data: { customerId: string; lineItems: Array<{ description: string; amount: number; quantity?: number; unitPrice?: number }>; dueDate?: string; memo?: string }) {
+    return fetchWithAuth('/integrations/quickbooks/invoices', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async createQuickBooksPayment(data: { customerId: string; amount: number; invoiceId?: string; paymentDate?: string; memo?: string }) {
+    return fetchWithAuth('/integrations/quickbooks/payments', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Push local data to QuickBooks
+  async pushInvoiceToQuickBooks(invoiceId: string) {
+    return fetchWithAuth(`/integrations/quickbooks/push-invoice/${invoiceId}`, {
+      method: 'POST',
+    });
+  },
+
+  async pushClientToQuickBooks(clientId: string) {
+    return fetchWithAuth(`/integrations/quickbooks/push-client/${clientId}`, {
+      method: 'POST',
+    });
+  },
+
+  // Full two-way sync
+  async fullSyncQuickBooks() {
+    return fetchWithAuth('/integrations/quickbooks/full-sync', {
+      method: 'POST',
+    });
+  },
+
+  // Update QuickBooks settings
+  async updateQuickBooksSettings(settings: { syncBilling?: boolean; syncCustomers?: boolean; autoSync?: boolean; twoWaySync?: boolean }) {
+    return fetchWithAuth('/integrations/quickbooks/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  },
+
   // Get cloud storage files
   async getOneDriveFiles() {
     return fetchWithAuth('/integrations/onedrive/files');
