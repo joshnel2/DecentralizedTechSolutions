@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, ReactNode } from 'react'
-import styles from './VirtualizedTable.module.css'
 
 interface VirtualizedTableProps<T> {
   data: T[]
@@ -8,12 +7,15 @@ interface VirtualizedTableProps<T> {
   headers: ReactNode
   renderRow: (item: T, index: number) => ReactNode
   emptyState?: ReactNode
-  className?: string
+  tableClassName?: string
+  containerClassName?: string
 }
 
 /**
  * VirtualizedTable - Renders only visible rows for performance with large datasets.
  * Used for "All Matters" and "All Clients" views where there can be thousands of rows.
+ * 
+ * This component is styling-transparent - it uses the parent's table styles.
  */
 export function VirtualizedTable<T extends { id: string }>({
   data,
@@ -22,7 +24,8 @@ export function VirtualizedTable<T extends { id: string }>({
   headers,
   renderRow,
   emptyState,
-  className = ''
+  tableClassName = '',
+  containerClassName = ''
 }: VirtualizedTableProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
@@ -61,8 +64,8 @@ export function VirtualizedTable<T extends { id: string }>({
 
   if (data.length === 0) {
     return (
-      <div className={`${styles.container} ${className}`}>
-        <table className={styles.table}>
+      <div className={containerClassName}>
+        <table className={tableClassName}>
           <thead>{headers}</thead>
         </table>
         {emptyState}
@@ -77,16 +80,22 @@ export function VirtualizedTable<T extends { id: string }>({
   return (
     <div 
       ref={containerRef}
-      className={`${styles.container} ${className}`}
+      className={containerClassName}
       onScroll={handleScroll}
+      style={{
+        height: 'calc(100vh - 280px)',
+        minHeight: '400px',
+        overflowY: 'auto',
+        overflowX: 'auto'
+      }}
     >
-      <table className={styles.table}>
-        <thead className={styles.stickyHeader}>{headers}</thead>
+      <table className={tableClassName}>
+        <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>{headers}</thead>
         <tbody>
           {/* Top spacer row to maintain scroll position */}
           {paddingTop > 0 && (
             <tr style={{ height: paddingTop }} aria-hidden="true">
-              <td colSpan={100} style={{ padding: 0, border: 'none' }} />
+              <td colSpan={100} style={{ padding: 0, border: 'none', background: 'transparent' }} />
             </tr>
           )}
           
@@ -96,7 +105,7 @@ export function VirtualizedTable<T extends { id: string }>({
           {/* Bottom spacer row to maintain total height */}
           {paddingBottom > 0 && (
             <tr style={{ height: paddingBottom }} aria-hidden="true">
-              <td colSpan={100} style={{ padding: 0, border: 'none' }} />
+              <td colSpan={100} style={{ padding: 0, border: 'none', background: 'transparent' }} />
             </tr>
           )}
         </tbody>
