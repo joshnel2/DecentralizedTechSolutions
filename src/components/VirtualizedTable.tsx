@@ -36,9 +36,8 @@ export function VirtualizedTable<T extends { id: string }>({
     Math.ceil((scrollTop + containerHeight) / rowHeight) + overscan
   )
   const visibleData = data.slice(startIndex, endIndex)
-  const offsetY = startIndex * rowHeight
 
-  // Handle scroll events with throttling for performance
+  // Handle scroll events
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     setScrollTop(e.currentTarget.scrollTop)
   }, [])
@@ -71,6 +70,10 @@ export function VirtualizedTable<T extends { id: string }>({
     )
   }
 
+  // Calculate padding to position visible rows correctly
+  const paddingTop = startIndex * rowHeight
+  const paddingBottom = Math.max(0, (data.length - endIndex) * rowHeight)
+
   return (
     <div 
       ref={containerRef}
@@ -79,25 +82,25 @@ export function VirtualizedTable<T extends { id: string }>({
     >
       <table className={styles.table}>
         <thead className={styles.stickyHeader}>{headers}</thead>
+        <tbody>
+          {/* Top spacer row to maintain scroll position */}
+          {paddingTop > 0 && (
+            <tr style={{ height: paddingTop }} aria-hidden="true">
+              <td colSpan={100} style={{ padding: 0, border: 'none' }} />
+            </tr>
+          )}
+          
+          {/* Visible rows */}
+          {visibleData.map((item, idx) => renderRow(item, startIndex + idx))}
+          
+          {/* Bottom spacer row to maintain total height */}
+          {paddingBottom > 0 && (
+            <tr style={{ height: paddingBottom }} aria-hidden="true">
+              <td colSpan={100} style={{ padding: 0, border: 'none' }} />
+            </tr>
+          )}
+        </tbody>
       </table>
-      <div 
-        className={styles.scrollArea}
-        style={{ height: totalHeight }}
-      >
-        <table 
-          className={styles.table}
-          style={{ 
-            position: 'absolute',
-            top: offsetY,
-            left: 0,
-            right: 0
-          }}
-        >
-          <tbody>
-            {visibleData.map((item, idx) => renderRow(item, startIndex + idx))}
-          </tbody>
-        </table>
-      </div>
     </div>
   )
 }
