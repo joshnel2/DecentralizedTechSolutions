@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
@@ -45,6 +45,12 @@ export function MattersPage() {
   const dropdownRef = useRef<HTMLDivElement>(null)
   const [prefilledClientId, setPrefilledClientId] = useState<string | null>(null)
   const [viewFilter, setViewFilter] = useState<'my' | 'all'>('my') // Default to "My Matters"
+  
+  // Virtualization state for "All" view
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+  const [scrollTop, setScrollTop] = useState(0)
+  const ROW_HEIGHT = 60
+  const OVERSCAN = 5
 
   const isAdmin = user?.role === 'owner' || user?.role === 'admin'
   const canDeleteMatters = hasPermission('matters:delete')
@@ -208,6 +214,23 @@ export function MattersPage() {
     }).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
   }, [matters, searchQuery, statusFilter, typeFilter])
 
+  // Virtualization: calculate which rows to render for "All" view
+  const containerHeight = 600 // Approximate visible height
+  const visibleRowCount = Math.ceil(containerHeight / ROW_HEIGHT) + OVERSCAN * 2
+  const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)
+  const endIndex = Math.min(filteredMatters.length, startIndex + visibleRowCount)
+  const visibleMatters = viewFilter === 'all' 
+    ? filteredMatters.slice(startIndex, endIndex)
+    : filteredMatters
+  const paddingTop = viewFilter === 'all' ? startIndex * ROW_HEIGHT : 0
+  const paddingBottom = viewFilter === 'all' ? Math.max(0, (filteredMatters.length - endIndex) * ROW_HEIGHT) : 0
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (viewFilter === 'all') {
+      setScrollTop(e.currentTarget.scrollTop)
+    }
+  }, [viewFilter])
+
   const getClientName = (clientId: string) => {
     return clients.find(c => c.id === clientId)?.name || 'Unknown Client'
   }
@@ -301,7 +324,11 @@ export function MattersPage() {
       </div>
 
       {/* Table */}
-      <div className={styles.tableContainer}>
+      <div 
+        ref={tableContainerRef}
+        className={styles.tableContainer}
+        onScroll={handleScroll}
+      >
         <table className={styles.table}>
             <thead>
               <tr>
@@ -316,7 +343,13 @@ export function MattersPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredMatters.map(matter => (
+              {/* Top spacer for virtualization */}
+              {paddingTop > 0 && (
+                <tr style={{ height: paddingTop }} aria-hidden="true">
+                  <td colSpan={8} style={{ padding: 0, border: 'none' }} />
+                </tr>
+              )}
+              {visibleMatters.map(matter => (
                 <tr key={matter.id}>
                   <td>
                     <Link to={`/app/matters/${matter.id}`} className={styles.nameCell}>
@@ -464,6 +497,12 @@ export function MattersPage() {
                   </td>
                 </tr>
               ))}
+              {/* Bottom spacer for virtualization */}
+              {paddingBottom > 0 && (
+                <tr style={{ height: paddingBottom }} aria-hidden="true">
+                  <td colSpan={8} style={{ padding: 0, border: 'none' }} />
+                </tr>
+              )}
             </tbody>
           </table>
 

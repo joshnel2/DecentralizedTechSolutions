@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
@@ -27,6 +27,12 @@ export function ClientsPage() {
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const [viewFilter, setViewFilter] = useState<'my' | 'all'>('my')
+  
+  // Virtualization state for "All" view
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+  const [scrollTop, setScrollTop] = useState(0)
+  const ROW_HEIGHT = 60
+  const OVERSCAN = 5
   
   const isAdmin = user?.role === 'owner' || user?.role === 'admin'
 
@@ -130,6 +136,23 @@ export function ClientsPage() {
     })
   }, [clients, searchQuery, statusFilter, typeFilter])
 
+  // Virtualization: calculate which rows to render for "All" view
+  const containerHeight = 600 // Approximate visible height
+  const visibleRowCount = Math.ceil(containerHeight / ROW_HEIGHT) + OVERSCAN * 2
+  const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)
+  const endIndex = Math.min(filteredClients.length, startIndex + visibleRowCount)
+  const visibleClients = viewFilter === 'all' 
+    ? filteredClients.slice(startIndex, endIndex)
+    : filteredClients
+  const paddingTop = viewFilter === 'all' ? startIndex * ROW_HEIGHT : 0
+  const paddingBottom = viewFilter === 'all' ? Math.max(0, (filteredClients.length - endIndex) * ROW_HEIGHT) : 0
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (viewFilter === 'all') {
+      setScrollTop(e.currentTarget.scrollTop)
+    }
+  }, [viewFilter])
+
   const getMatterCount = (clientId: string) => {
     return matters.filter(m => m.clientId === clientId).length
   }
@@ -214,7 +237,11 @@ export function ClientsPage() {
       </div>
 
       {/* Table */}
-      <div className={styles.tableContainer}>
+      <div 
+        ref={tableContainerRef}
+        className={styles.tableContainer}
+        onScroll={handleScroll}
+      >
         <table className={styles.table}>
             <thead>
               <tr>
@@ -227,7 +254,13 @@ export function ClientsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredClients.map(client => {
+              {/* Top spacer for virtualization */}
+              {paddingTop > 0 && (
+                <tr style={{ height: paddingTop }} aria-hidden="true">
+                  <td colSpan={6} style={{ padding: 0, border: 'none' }} />
+                </tr>
+              )}
+              {visibleClients.map(client => {
                 const clientStatus = client.isActive ? 'active' : 'inactive'
                 return (
                 <tr key={client.id}>
@@ -316,6 +349,12 @@ export function ClientsPage() {
                   </td>
                 </tr>
               )})}
+              {/* Bottom spacer for virtualization */}
+              {paddingBottom > 0 && (
+                <tr style={{ height: paddingBottom }} aria-hidden="true">
+                  <td colSpan={6} style={{ padding: 0, border: 'none' }} />
+                </tr>
+              )}
             </tbody>
           </table>
 
