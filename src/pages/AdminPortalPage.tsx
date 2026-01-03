@@ -362,6 +362,14 @@ export function AdminPortalPage() {
                           <Users size={16} />
                         </button>
                         <button 
+                          onClick={() => handleScanDocuments(firm.id)}
+                          disabled={scanningFirmId === firm.id}
+                          title="Scan Documents & Set Permissions"
+                          style={{ color: scanningFirmId === firm.id ? '#888' : '#10B981' }}
+                        >
+                          {scanningFirmId === firm.id ? <Clock size={16} className="animate-spin" /> : <FolderSync size={16} />}
+                        </button>
+                        <button 
                           className={styles.deleteBtn}
                           onClick={() => handleDeleteFirm(firm.id)}
                           title="Delete"
@@ -375,6 +383,29 @@ export function AdminPortalPage() {
               </tbody>
             </table>
           </div>
+          
+          {/* Scan Result Message */}
+          {scanResult && (
+            <div style={{
+              marginTop: '16px',
+              padding: '12px 16px',
+              borderRadius: '8px',
+              background: scanResult.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+              border: `1px solid ${scanResult.success ? '#10B981' : '#EF4444'}`,
+              color: scanResult.success ? '#10B981' : '#EF4444'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {scanResult.success ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+                <span>{scanResult.message}</span>
+                <button 
+                  onClick={() => setScanResult(null)}
+                  style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -880,6 +911,21 @@ export function AdminPortalPage() {
       loadData()
     } catch (err: any) {
       alert(err.message || 'Failed to delete firm')
+    }
+  }
+
+  async function handleScanDocuments(firmId: string) {
+    setScanningFirmId(firmId)
+    setScanResult(null)
+    try {
+      const result = await fetchSecureAdmin(`/firms/${firmId}/scan-documents`, {
+        method: 'POST'
+      })
+      setScanResult({ firmId, message: result.message, success: true })
+    } catch (err: any) {
+      setScanResult({ firmId, message: err.message || 'Scan failed', success: false })
+    } finally {
+      setScanningFirmId(null)
     }
   }
 
