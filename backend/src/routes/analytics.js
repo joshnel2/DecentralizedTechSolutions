@@ -733,26 +733,42 @@ router.get('/attorney-production', authenticate, requireRole('owner', 'admin', '
   try {
     const firmId = req.user.firmId;
 
+    // First, get diagnostic info about time entries
+    const diagnostic = await query(`
+      SELECT 
+        COUNT(*) as total_entries,
+        COUNT(*) FILTER (WHERE billable = true) as billable_entries,
+        COUNT(*) FILTER (WHERE date >= CURRENT_DATE - INTERVAL '12 months') as recent_entries,
+        COUNT(*) FILTER (WHERE billable = true AND date >= CURRENT_DATE - INTERVAL '12 months') as recent_billable,
+        MIN(date) as earliest_date,
+        MAX(date) as latest_date,
+        COUNT(DISTINCT user_id) as unique_users,
+        COUNT(*) FILTER (WHERE user_id IS NULL) as entries_without_user
+      FROM time_entries
+      WHERE firm_id = $1
+    `, [firmId]);
+    
+    console.log('[ANALYTICS] Time entries diagnostic:', diagnostic.rows[0]);
+
     // Get production value by attorney for last 12 months
     // Filter: billable = true (exclude non-billable entries)
     // Calculation: hours * hourly_rate = production value
     const productionByAttorney = await query(`
       SELECT 
-        u.id,
-        u.first_name || ' ' || u.last_name as name,
-        u.role,
-        u.hourly_rate as default_rate,
+        COALESCE(u.id, 'unassigned') as id,
+        COALESCE(u.first_name || ' ' || u.last_name, 'Unassigned') as name,
+        COALESCE(u.role, 'unknown') as role,
+        COALESCE(u.hourly_rate, 0) as default_rate,
         COALESCE(SUM(te.hours), 0) as total_hours,
-        COALESCE(SUM(te.hours * COALESCE(te.rate, u.hourly_rate, 0)), 0) as production_value,
+        COALESCE(SUM(te.hours * COALESCE(te.rate, u.hourly_rate, 350)), 0) as production_value,
         COUNT(te.id) as entry_count,
         COUNT(DISTINCT te.matter_id) as matter_count,
         COUNT(DISTINCT DATE_TRUNC('month', te.date)) as active_months
-      FROM users u
-      LEFT JOIN time_entries te ON te.user_id = u.id 
-        AND te.firm_id = $1 
-        AND te.billable = true
+      FROM time_entries te
+      LEFT JOIN users u ON te.user_id = u.id
+      WHERE te.firm_id = $1 
+        AND (te.billable = true OR te.billable IS NULL)
         AND te.date >= CURRENT_DATE - INTERVAL '12 months'
-      WHERE u.firm_id = $1 AND u.is_active = true
       GROUP BY u.id, u.first_name, u.last_name, u.role, u.hourly_rate
       HAVING COALESCE(SUM(te.hours), 0) > 0
       ORDER BY production_value DESC
@@ -790,6 +806,8 @@ router.get('/attorney-production', authenticate, requireRole('owner', 'admin', '
       monthlyData[monthKey].total += parseFloat(row.production_value);
     });
 
+    const diag = diagnostic.rows[0] || {};
+    
     res.json({
       success: true,
       data: {
@@ -801,6 +819,17 @@ router.get('/attorney-production', authenticate, requireRole('owner', 'admin', '
             ? totalProduction / productionByAttorney.rows.length 
             : 0,
           period: 'Last 12 Months'
+        },
+        // Diagnostic info to help debug data issues
+        diagnostic: {
+          total_time_entries: parseInt(diag.total_entries) || 0,
+          billable_entries: parseInt(diag.billable_entries) || 0,
+          entries_in_last_12_months: parseInt(diag.recent_entries) || 0,
+          billable_in_last_12_months: parseInt(diag.recent_billable) || 0,
+          earliest_entry_date: diag.earliest_date,
+          latest_entry_date: diag.latest_date,
+          unique_users_with_entries: parseInt(diag.unique_users) || 0,
+          entries_without_user: parseInt(diag.entries_without_user) || 0
         },
         by_attorney: productionByAttorney.rows.map(r => ({
           id: r.id,
