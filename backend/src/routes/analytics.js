@@ -816,7 +816,7 @@ router.get('/attorney-production', authenticate, requireRole('owner', 'admin', '
             ? parseFloat(r.production_value) / parseInt(r.active_months) 
             : 0
         })),
-        monthly_trend: Object.values(monthlyData).sort((a: any, b: any) => a.month.localeCompare(b.month)),
+        monthly_trend: Object.values(monthlyData).sort((a, b) => a.month.localeCompare(b.month)),
         generated_at: new Date().toISOString()
       }
     });
