@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
@@ -213,8 +213,8 @@ export function ClientsPage() {
         </select>
       </div>
 
-      {/* Table - Same structure for both views, scrollable container for "All" */}
-      <div className={styles.tableContainer} style={viewFilter === 'all' ? { maxHeight: 'calc(100vh - 280px)', overflowY: 'auto' } : undefined}>
+      {/* Table */}
+      <div className={styles.tableContainer}>
         <table className={styles.table}>
             <thead>
               <tr>
