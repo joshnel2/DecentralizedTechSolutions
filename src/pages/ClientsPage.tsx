@@ -4,6 +4,7 @@ import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { Plus, Search, Users, Building2, User, MoreVertical, Sparkles, Eye, Edit2, Trash2, Archive, Briefcase } from 'lucide-react'
+import { VirtualizedTable } from '../components/VirtualizedTable'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './ListPages.module.css'
@@ -213,9 +214,14 @@ export function ClientsPage() {
         </select>
       </div>
 
-      <div className={styles.tableContainer}>
-        <table className={styles.table}>
-          <thead>
+      {/* Table - Uses virtualized rendering for "All Clients" view to handle large datasets */}
+      {viewFilter === 'all' ? (
+        <VirtualizedTable
+          data={filteredClients}
+          rowHeight={60}
+          overscan={10}
+          className={styles.tableContainer}
+          headers={
             <tr>
               <th>Client</th>
               <th>Contact</th>
@@ -224,11 +230,10 @@ export function ClientsPage() {
               <th>Matters</th>
               <th></th>
             </tr>
-          </thead>
-          <tbody>
-            {filteredClients.map(client => {
-              const clientStatus = client.isActive ? 'active' : 'inactive'
-              return (
+          }
+          renderRow={(client) => {
+            const clientStatus = client.isActive ? 'active' : 'inactive'
+            return (
               <tr key={client.id}>
                 <td>
                   <Link to={`/app/clients/${client.id}`} className={styles.nameCell}>
@@ -314,18 +319,132 @@ export function ClientsPage() {
                   </div>
                 </td>
               </tr>
-            )})}
-          </tbody>
-        </table>
+            )
+          }}
+          emptyState={
+            <div className={styles.emptyState}>
+              <Users size={48} />
+              <h3>No clients found</h3>
+              <p>Try adjusting your search or filters</p>
+            </div>
+          }
+        />
+      ) : (
+        /* Standard table for "My Clients" - no changes */
+        <div className={styles.tableContainer}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Client</th>
+                <th>Contact</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Matters</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredClients.map(client => {
+                const clientStatus = client.isActive ? 'active' : 'inactive'
+                return (
+                <tr key={client.id}>
+                  <td>
+                    <Link to={`/app/clients/${client.id}`} className={styles.nameCell}>
+                      <div className={styles.icon}>
+                        {client.type === 'company' ? <Building2 size={16} /> : <User size={16} />}
+                      </div>
+                      <div>
+                        <span className={styles.name}>{client.name}</span>
+                        <span className={styles.subtitle}>{client.addressCity}, {client.addressState}</span>
+                      </div>
+                    </Link>
+                  </td>
+                  <td>
+                    <div>
+                      <span className={styles.name}>{client.email}</span>
+                      <span className={styles.subtitle}>{client.phone}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span className={styles.typeTag}>
+                      {client.type === 'company' ? 'Organization' : 'Individual'}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={clsx(styles.statusBadge, styles[clientStatus])}>
+                      {clientStatus}
+                    </span>
+                  </td>
+                  <td>{getMatterCount(client.id)}</td>
+                  <td>
+                    <div className={styles.menuWrapper} ref={openDropdownId === client.id ? dropdownRef : null}>
+                      <button 
+                        className={styles.menuBtn}
+                        onClick={() => setOpenDropdownId(openDropdownId === client.id ? null : client.id)}
+                      >
+                        <MoreVertical size={16} />
+                      </button>
+                      {openDropdownId === client.id && (
+                        <div className={styles.dropdown}>
+                          <button 
+                            className={styles.dropdownItem}
+                            onClick={() => {
+                              setOpenDropdownId(null)
+                              navigate(`/app/clients/${client.id}`)
+                            }}
+                          >
+                            <Eye size={14} />
+                            View Details
+                          </button>
+                          <button 
+                            className={styles.dropdownItem}
+                            onClick={() => {
+                              setConfirmModal({
+                                isOpen: true,
+                                clientId: client.id,
+                                clientName: client.name,
+                                action: client.isActive ? 'deactivate' : 'activate'
+                              })
+                              setOpenDropdownId(null)
+                            }}
+                          >
+                            <Archive size={14} />
+                            {client.isActive ? 'Deactivate' : 'Activate'}
+                          </button>
+                          <div className={styles.dropdownDivider} />
+                          <button 
+                            className={clsx(styles.dropdownItem, styles.danger)}
+                            onClick={() => {
+                              setConfirmModal({
+                                isOpen: true,
+                                clientId: client.id,
+                                clientName: client.name,
+                                action: 'delete'
+                              })
+                              setOpenDropdownId(null)
+                            }}
+                          >
+                            <Trash2 size={14} />
+                            Delete Client
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )})}
+            </tbody>
+          </table>
 
-        {filteredClients.length === 0 && (
-          <div className={styles.emptyState}>
-            <Users size={48} />
-            <h3>No clients found</h3>
-            <p>Try adjusting your search or filters</p>
-          </div>
-        )}
-      </div>
+          {filteredClients.length === 0 && (
+            <div className={styles.emptyState}>
+              <Users size={48} />
+              <h3>No clients found</h3>
+              <p>Try adjusting your search or filters</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {showNewModal && (
         <NewClientModal 
