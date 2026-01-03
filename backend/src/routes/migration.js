@@ -373,72 +373,80 @@ async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress,
   return allData;
 }
 
-// Fetch activities by STATUS + YEAR - chunked to avoid 10k limit
+// Fetch activities by STATUS + MONTH - smallest batches to avoid 10k limit
 async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgress, matterIds = null) {
   const allData = [];
   const seenIds = new Set();
   const statuses = ['billed', 'unbilled', 'non_billable'];
   const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
   
-  console.log(`[CLIO API] Fetching activities by status + year (to bypass 10k limit)...`);
+  console.log(`[CLIO API] Fetching activities by status + MONTH (smallest batches to bypass 10k limit)...`);
   
-  // Iterate through years (2008 is Clio launch, start safely at 2000)
-  for (let year = 2000; year <= currentYear; year++) {
-    const startDate = `${year}-01-01`;
-    const endDate = `${year}-12-31`;
+  // Iterate through each month of each year for maximum granularity
+  // Start from 2010 (most firms don't have data before this in Clio)
+  for (let year = 2010; year <= currentYear; year++) {
+    const maxMonth = (year === currentYear) ? currentMonth : 12;
     
-    for (const status of statuses) {
-      console.log(`[CLIO API] Fetching ${status} activities for ${year}...`);
+    for (let month = 1; month <= maxMonth; month++) {
+      const monthStr = String(month).padStart(2, '0');
+      const lastDay = new Date(year, month, 0).getDate();
+      const startDate = `${year}-${monthStr}-01`;
+      const endDate = `${year}-${monthStr}-${lastDay}`;
       
-      try {
-        const batchActivities = await clioGetPaginated(
-          accessToken,
-          endpoint,
-          { 
-            ...params, 
-            status,
-            'date[]': [`>=${startDate}`, `<=${endDate}`]
-          },
-          (count) => {
-            // Only update progress, don't recount total
+      for (const status of statuses) {
+        try {
+          const batchActivities = await clioGetPaginated(
+            accessToken,
+            endpoint,
+            { 
+              ...params, 
+              status,
+              'date[]': [`>=${startDate}`, `<=${endDate}`]
+            },
+            null
+          );
+          
+          let newCount = 0;
+          for (const item of batchActivities) {
+            if (item.id && !seenIds.has(item.id)) {
+              seenIds.add(item.id);
+              allData.push(item);
+              newCount++;
+            }
           }
-        );
-        
-        let newCount = 0;
-        for (const item of batchActivities) {
-          if (item.id && !seenIds.has(item.id)) {
-            seenIds.add(item.id);
-            allData.push(item);
-            newCount++;
+          
+          if (newCount > 0) {
+            console.log(`[CLIO API] ${status} activities for ${year}-${monthStr}: +${newCount}, total ${allData.length}`);
+            if (onProgress) onProgress(allData.length);
           }
+          
+        } catch (err) {
+          // Skip errors silently for individual month batches
         }
-        
-        if (newCount > 0) {
-          console.log(`[CLIO API] ${status} activities for ${year}: ${newCount} new records`);
-          if (onProgress) onProgress(allData.length);
-        }
-        
-      } catch (err) {
-        console.log(`[CLIO API] Error fetching ${status} activities for ${year}: ${err.message}`);
       }
     }
+    
+    // Log yearly progress
+    console.log(`[CLIO API] Completed ${year}: ${allData.length} activities so far`);
   }
   
-  // CATCH-ALL: Fetch recent activities (last 30 days) WITHOUT filters to catch any oddities
-  console.log(`[CLIO API] Running catch-all fetch for recent activities...`);
+  // CATCH-ALL #1: Fetch recent activities (last 90 days) by created_at to catch newly entered ones
+  console.log(`[CLIO API] Running catch-all for recently CREATED activities (last 90 days)...`);
   try {
-    const catchAllActivities = await clioGetPaginated(
+    const recentDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const catchAllCreated = await clioGetPaginated(
       accessToken,
       endpoint,
       { 
         ...params,
-        'updated_at[]': `>=${new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()}`
+        'created_at[]': `>=${recentDate}`
       },
       null
     );
     
     let newCount = 0;
-    for (const item of catchAllActivities) {
+    for (const item of catchAllCreated) {
       if (item.id && !seenIds.has(item.id)) {
         seenIds.add(item.id);
         allData.push(item);
@@ -447,12 +455,73 @@ async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgre
     }
     
     if (newCount > 0) {
-      console.log(`[CLIO API] Catch-all activities: found ${newCount} additional! Total: ${allData.length}`);
+      console.log(`[CLIO API] Catch-all (created): found ${newCount} additional! Total: ${allData.length}`);
       if (onProgress) onProgress(allData.length);
     }
     
   } catch (err) {
-    console.log(`[CLIO API] Catch-all activities error: ${err.message}`);
+    console.log(`[CLIO API] Catch-all (created) error: ${err.message}`);
+  }
+  
+  // CATCH-ALL #2: Fetch recent activities (last 90 days) by updated_at
+  console.log(`[CLIO API] Running catch-all for recently UPDATED activities (last 90 days)...`);
+  try {
+    const recentDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const catchAllUpdated = await clioGetPaginated(
+      accessToken,
+      endpoint,
+      { 
+        ...params,
+        'updated_at[]': `>=${recentDate}`
+      },
+      null
+    );
+    
+    let newCount = 0;
+    for (const item of catchAllUpdated) {
+      if (item.id && !seenIds.has(item.id)) {
+        seenIds.add(item.id);
+        allData.push(item);
+        newCount++;
+      }
+    }
+    
+    if (newCount > 0) {
+      console.log(`[CLIO API] Catch-all (updated): found ${newCount} additional! Total: ${allData.length}`);
+      if (onProgress) onProgress(allData.length);
+    }
+    
+  } catch (err) {
+    console.log(`[CLIO API] Catch-all (updated) error: ${err.message}`);
+  }
+  
+  // CATCH-ALL #3: Fetch WITHOUT any date filter (gets most recent by default)
+  console.log(`[CLIO API] Running final catch-all (no date filter)...`);
+  try {
+    for (const status of statuses) {
+      const noDateActivities = await clioGetPaginated(
+        accessToken,
+        endpoint,
+        { ...params, status },
+        null
+      );
+      
+      let newCount = 0;
+      for (const item of noDateActivities) {
+        if (item.id && !seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          allData.push(item);
+          newCount++;
+        }
+      }
+      
+      if (newCount > 0) {
+        console.log(`[CLIO API] Catch-all (${status}, no date): found ${newCount} additional!`);
+        if (onProgress) onProgress(allData.length);
+      }
+    }
+  } catch (err) {
+    console.log(`[CLIO API] Catch-all (no date) error: ${err.message}`);
   }
   
   console.log(`[CLIO API] Activities complete: ${allData.length} total records`);
