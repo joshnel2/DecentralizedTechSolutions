@@ -5239,6 +5239,241 @@ router.post('/documents/import', requireSecureAdmin, async (req, res) => {
   }
 });
 
+// ============================================
+// SCAN AZURE FILE SHARE - Auto-match files to matters
+// Use this after dragging Clio Drive files into Azure
+// ============================================
+router.post('/documents/scan-azure', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.body;
+    
+    if (!firmId) {
+      return res.status(400).json({ error: 'firmId required' });
+    }
+    
+    console.log(`[SCAN] Starting Azure scan for firm ${firmId}`);
+    
+    // Import Azure utilities
+    const { listFiles, isAzureConfigured, getShareClient, ensureDirectory } = await import('../utils/azureStorage.js');
+    const path = await import('path');
+    
+    const azureEnabled = await isAzureConfigured();
+    if (!azureEnabled) {
+      return res.status(400).json({ 
+        error: 'Azure Storage not configured',
+        message: 'Configure Azure Storage in Admin Portal → Settings first'
+      });
+    }
+    
+    // Get share client
+    const shareClient = await getShareClient();
+    const firmFolder = `firm-${firmId}`;
+    
+    // Load matters and clients for matching
+    const mattersResult = await query(
+      `SELECT id, name, number FROM matters WHERE firm_id = $1`,
+      [firmId]
+    );
+    const matters = mattersResult.rows;
+    
+    const clientsResult = await query(
+      `SELECT id, name, display_name FROM clients WHERE firm_id = $1`,
+      [firmId]
+    );
+    const clients = clientsResult.rows;
+    
+    console.log(`[SCAN] Loaded ${matters.length} matters, ${clients.length} clients`);
+    
+    // Scan Azure directory recursively
+    async function scanDirectory(dirClient, basePath = '') {
+      const files = [];
+      try {
+        for await (const item of dirClient.listFilesAndDirectories()) {
+          const itemPath = basePath ? `${basePath}/${item.name}` : item.name;
+          
+          if (item.kind === 'directory') {
+            const subDirClient = dirClient.getDirectoryClient(item.name);
+            const subFiles = await scanDirectory(subDirClient, itemPath);
+            files.push(...subFiles);
+          } else {
+            // Get file properties for size/etag
+            try {
+              const fileClient = dirClient.getFileClient(item.name);
+              const props = await fileClient.getProperties();
+              files.push({
+                name: item.name,
+                path: itemPath,
+                folder: basePath,
+                size: props.contentLength,
+                etag: props.etag,
+                lastModified: props.lastModified
+              });
+            } catch (e) {
+              files.push({ name: item.name, path: itemPath, folder: basePath, size: 0 });
+            }
+          }
+        }
+      } catch (err) {
+        console.log(`[SCAN] Error scanning ${basePath}: ${err.message}`);
+      }
+      return files;
+    }
+    
+    // Match folder path to matter
+    function matchFolder(folderPath) {
+      if (!folderPath) return { matterId: null, clientId: null };
+      
+      const parts = folderPath.split('/').filter(p => p);
+      const skipFolders = ['matters', 'clients', 'documents', 'files', 'general', 'firm', 'clio', 'clio drive'];
+      
+      for (const part of parts) {
+        if (skipFolders.includes(part.toLowerCase())) continue;
+        
+        // Match "MatterNumber - MatterName" or "ClientName - MatterName"
+        if (part.includes(' - ')) {
+          const [prefix, suffix] = part.split(' - ').map(s => s.trim());
+          
+          // Try matter number first
+          const byNumber = matters.find(m => 
+            m.number && m.number.toLowerCase() === prefix.toLowerCase()
+          );
+          if (byNumber) return { matterId: byNumber.id, clientId: null };
+          
+          // Try matter name
+          const byName = matters.find(m =>
+            m.name && m.name.toLowerCase().includes(suffix.toLowerCase())
+          );
+          if (byName) return { matterId: byName.id, clientId: null };
+        }
+        
+        // Try direct matter number match
+        const directMatch = matters.find(m => 
+          m.number && part.toLowerCase().includes(m.number.toLowerCase())
+        );
+        if (directMatch) return { matterId: directMatch.id, clientId: null };
+        
+        // Try matter-{id} folder pattern (already organized)
+        const matterIdMatch = part.match(/^matter-([a-f0-9-]+)$/i);
+        if (matterIdMatch) {
+          const m = matters.find(m => m.id === matterIdMatch[1]);
+          if (m) return { matterId: m.id, clientId: null };
+        }
+      }
+      
+      return { matterId: null, clientId: null };
+    }
+    
+    // Get MIME type from extension
+    function getMimeType(filename) {
+      const ext = (filename.split('.').pop() || '').toLowerCase();
+      const types = {
+        pdf: 'application/pdf',
+        doc: 'application/msword',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        xls: 'application/vnd.ms-excel',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ppt: 'application/vnd.ms-powerpoint',
+        pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        txt: 'text/plain',
+        jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        png: 'image/png',
+        gif: 'image/gif',
+        zip: 'application/zip',
+        msg: 'application/vnd.ms-outlook',
+        eml: 'message/rfc822'
+      };
+      return types[ext] || 'application/octet-stream';
+    }
+    
+    // Start scan
+    const dirClient = shareClient.getDirectoryClient(firmFolder);
+    const allFiles = await scanDirectory(dirClient, '');
+    
+    console.log(`[SCAN] Found ${allFiles.length} files`);
+    
+    const results = {
+      scanned: allFiles.length,
+      created: 0,
+      updated: 0,
+      matched: 0,
+      unmatched: 0,
+      errors: []
+    };
+    
+    for (const file of allFiles) {
+      try {
+        // Check if exists
+        const existing = await query(
+          `SELECT id, matter_id, size, external_etag FROM documents 
+           WHERE firm_id = $1 AND external_path = $2`,
+          [firmId, file.path]
+        );
+        
+        const { matterId } = matchFolder(file.folder);
+        if (matterId) results.matched++;
+        else results.unmatched++;
+        
+        if (existing.rows.length > 0) {
+          const doc = existing.rows[0];
+          // Update if matter changed or file changed
+          if ((!doc.matter_id && matterId) || file.etag !== doc.external_etag) {
+            await query(
+              `UPDATE documents SET 
+                matter_id = COALESCE($1, matter_id),
+                size = $2,
+                external_etag = $3,
+                updated_at = NOW()
+               WHERE id = $4`,
+              [matterId, file.size, file.etag, doc.id]
+            );
+            results.updated++;
+          }
+        } else {
+          // Create new record
+          await query(
+            `INSERT INTO documents (
+              firm_id, matter_id, name, original_name, path, folder_path,
+              type, size, external_path, external_etag, external_modified_at,
+              privacy_level, status, storage_location
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+            [
+              firmId,
+              matterId,
+              file.name,
+              file.name,
+              file.path,
+              file.folder,
+              getMimeType(file.name),
+              file.size || 0,
+              file.path,
+              file.etag,
+              file.lastModified,
+              matterId ? 'team' : 'firm',
+              'final',
+              'azure'
+            ]
+          );
+          results.created++;
+        }
+      } catch (err) {
+        results.errors.push({ path: file.path, error: err.message });
+      }
+    }
+    
+    console.log(`[SCAN] Complete: ${results.created} created, ${results.updated} updated, ${results.matched} matched`);
+    
+    res.json({
+      success: true,
+      ...results,
+      message: `Scanned ${results.scanned} files: ${results.created} new, ${results.updated} updated, ${results.matched} matched to matters`
+    });
+    
+  } catch (error) {
+    console.error('Azure scan error:', error);
+    res.status(500).json({ error: 'Failed to scan Azure: ' + error.message });
+  }
+});
+
 // API: Get matter matching suggestions for a single path
 router.post('/documents/match-single', requireSecureAdmin, async (req, res) => {
   try {
