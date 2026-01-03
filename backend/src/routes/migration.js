@@ -422,7 +422,8 @@ async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgre
           }
           
         } catch (err) {
-          // Skip errors silently for individual month batches
+          // Log errors instead of silently skipping
+          console.log(`[CLIO API] Error fetching ${status} for ${year}-${monthStr}: ${err.message}`);
         }
       }
     }
