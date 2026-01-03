@@ -373,7 +373,7 @@ async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress,
   return allData;
 }
 
-// Fetch activities by STATUS + MONTH - smallest batches to avoid 10k limit
+// Fetch activities by STATUS + TIME WINDOW - uses weeks for recent years to avoid 10k limit
 async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgress, matterIds = null) {
   const allData = [];
   const seenIds = new Set();
@@ -381,54 +381,74 @@ async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgre
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
   
-  console.log(`[CLIO API] Fetching activities by status + MONTH (smallest batches to bypass 10k limit)...`);
+  console.log(`[CLIO API] Fetching activities by status + TIME WINDOW (weekly for recent years to bypass 10k limit)...`);
   
-  // Iterate through each month of each year for maximum granularity
-  // Start from 2010 (most firms don't have data before this in Clio)
-  for (let year = 2010; year <= currentYear; year++) {
+  // Helper to fetch a date range
+  async function fetchDateRange(startDate, endDate, label) {
+    for (const status of statuses) {
+      try {
+        const batchActivities = await clioGetPaginated(
+          accessToken,
+          endpoint,
+          { 
+            ...params, 
+            status,
+            'date[]': [`>=${startDate}`, `<=${endDate}`]
+          },
+          null
+        );
+        
+        let newCount = 0;
+        for (const item of batchActivities) {
+          if (item.id && !seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            allData.push(item);
+            newCount++;
+          }
+        }
+        
+        if (newCount > 0) {
+          console.log(`[CLIO API] ${status} activities for ${label}: +${newCount}, total ${allData.length}`);
+          if (onProgress) onProgress(allData.length);
+        }
+        
+      } catch (err) {
+        console.log(`[CLIO API] Error fetching ${status} for ${label}: ${err.message}`);
+      }
+    }
+  }
+  
+  // For older years (before 2020), use monthly batches
+  for (let year = 2010; year < 2020; year++) {
+    for (let month = 1; month <= 12; month++) {
+      const monthStr = String(month).padStart(2, '0');
+      const lastDay = new Date(year, month, 0).getDate();
+      const startDate = `${year}-${monthStr}-01`;
+      const endDate = `${year}-${monthStr}-${lastDay}`;
+      await fetchDateRange(startDate, endDate, `${year}-${monthStr}`);
+    }
+    console.log(`[CLIO API] Completed ${year}: ${allData.length} activities so far`);
+  }
+  
+  // For recent years (2020+), use WEEKLY batches to avoid 10k limit
+  console.log(`[CLIO API] Switching to WEEKLY batches for 2020+ to handle high volume...`);
+  for (let year = 2020; year <= currentYear; year++) {
     const maxMonth = (year === currentYear) ? currentMonth : 12;
     
     for (let month = 1; month <= maxMonth; month++) {
       const monthStr = String(month).padStart(2, '0');
       const lastDay = new Date(year, month, 0).getDate();
-      const startDate = `${year}-${monthStr}-01`;
-      const endDate = `${year}-${monthStr}-${lastDay}`;
       
-      for (const status of statuses) {
-        try {
-          const batchActivities = await clioGetPaginated(
-            accessToken,
-            endpoint,
-            { 
-              ...params, 
-              status,
-              'date[]': [`>=${startDate}`, `<=${endDate}`]
-            },
-            null
-          );
-          
-          let newCount = 0;
-          for (const item of batchActivities) {
-            if (item.id && !seenIds.has(item.id)) {
-              seenIds.add(item.id);
-              allData.push(item);
-              newCount++;
-            }
-          }
-          
-          if (newCount > 0) {
-            console.log(`[CLIO API] ${status} activities for ${year}-${monthStr}: +${newCount}, total ${allData.length}`);
-            if (onProgress) onProgress(allData.length);
-          }
-          
-        } catch (err) {
-          // Log errors instead of silently skipping
-          console.log(`[CLIO API] Error fetching ${status} for ${year}-${monthStr}: ${err.message}`);
-        }
+      // Split month into weekly chunks
+      const weekStarts = [1, 8, 15, 22];
+      for (let i = 0; i < weekStarts.length; i++) {
+        const weekStart = weekStarts[i];
+        const weekEnd = (i === weekStarts.length - 1) ? lastDay : weekStarts[i + 1] - 1;
+        const startDate = `${year}-${monthStr}-${String(weekStart).padStart(2, '0')}`;
+        const endDate = `${year}-${monthStr}-${String(weekEnd).padStart(2, '0')}`;
+        await fetchDateRange(startDate, endDate, `${year}-${monthStr} week ${i + 1}`);
       }
     }
-    
-    // Log yearly progress
     console.log(`[CLIO API] Completed ${year}: ${allData.length} activities so far`);
   }
   
