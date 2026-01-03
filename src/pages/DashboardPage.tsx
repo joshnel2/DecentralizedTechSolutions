@@ -4,6 +4,7 @@ import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { useTimer, formatElapsedTime, secondsToHours } from '../contexts/TimerContext'
+import { analyticsApi } from '../services/api'
 import { 
   Briefcase, Users, Clock, DollarSign, Calendar, TrendingUp,
   AlertCircle, ArrowRight, Sparkles, FileText, CheckCircle2,
@@ -13,7 +14,7 @@ import { format, isAfter, parseISO, startOfMonth, endOfMonth } from 'date-fns'
 import { parseAsLocalDate } from '../utils/dateUtils'
 import { 
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell
+  PieChart, Pie, Cell, BarChart, Bar, CartesianGrid
 } from 'recharts'
 import styles from './DashboardPage.module.css'
 
@@ -29,6 +30,9 @@ export function DashboardPage() {
   const [selectedMatterId, setSelectedMatterId] = useState('')
   const [selectedClientId, setSelectedClientId] = useState('')
   const [showSaveTimerModal, setShowSaveTimerModal] = useState(false)
+  
+  // Attorney production data for billing analytics
+  const [attorneyProduction, setAttorneyProduction] = useState<any>(null)
 
   // Filter matters based on selected client
   const filteredMatters = useMemo(() => {
@@ -60,6 +64,15 @@ export function DashboardPage() {
     fetchTimeEntries({ limit: 500 })
     fetchInvoices()
     fetchEvents({})
+    
+    // Fetch attorney production for billing analytics
+    analyticsApi.getAttorneyProduction()
+      .then(res => {
+        if (res.success) {
+          setAttorneyProduction(res.data)
+        }
+      })
+      .catch(err => console.error('Failed to fetch attorney production:', err))
   }, [])
 
   const stats = useMemo(() => {
@@ -447,6 +460,83 @@ export function DashboardPage() {
           </div>
         </div>
       </section>
+
+      {/* Production Value by Attorney - Billing Analytics */}
+      {attorneyProduction && (
+        <section className={styles.chartsRow}>
+          <div className={styles.chartCard} style={{ flex: 1 }}>
+            <div className={styles.cardHeader}>
+              <h3>Production Value by Attorney</h3>
+              <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>
+                Last 12 months • Total: ${attorneyProduction.summary?.total_production_value?.toLocaleString() || '0'}
+              </span>
+            </div>
+            <div className={styles.chartContainer}>
+              {attorneyProduction.by_attorney?.length > 0 ? (
+                <ResponsiveContainer width="100%" height={Math.max(240, attorneyProduction.by_attorney.length * 40)}>
+                  <BarChart 
+                    data={attorneyProduction.by_attorney} 
+                    layout="vertical"
+                    margin={{ left: 10, right: 30 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)" />
+                    <XAxis 
+                      type="number" 
+                      stroke="var(--text-tertiary)" 
+                      fontSize={12} 
+                      tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`}
+                    />
+                    <YAxis 
+                      type="category" 
+                      dataKey="name" 
+                      stroke="var(--text-tertiary)" 
+                      fontSize={12} 
+                      width={120}
+                      tick={{ fill: 'var(--text-secondary)' }}
+                    />
+                    <Tooltip 
+                      contentStyle={{ 
+                        background: 'var(--bg-secondary)', 
+                        border: '1px solid var(--border-primary)',
+                        borderRadius: '8px'
+                      }}
+                      formatter={(value: number) => [`$${value.toLocaleString()}`, 'Production Value']}
+                    />
+                    <Bar 
+                      dataKey="production_value" 
+                      fill="#D4AF37" 
+                      radius={[0, 4, 4, 0]}
+                      name="Production Value"
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  height: '200px',
+                  color: 'var(--text-tertiary)',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}>
+                  <DollarSign size={32} />
+                  <span>No billable time entries in the last 12 months</span>
+                  <span style={{ fontSize: '12px' }}>Run Clio migration to import time entries</span>
+                </div>
+              )}
+            </div>
+            <div style={{ 
+              padding: '8px 16px', 
+              borderTop: '1px solid var(--border-primary)',
+              fontSize: '12px',
+              color: 'var(--text-tertiary)'
+            }}>
+              Billable Hours × Hourly Rate = Production Value
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Bottom Row */}
       <section className={styles.bottomRow}>
