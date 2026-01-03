@@ -549,7 +549,7 @@ export function FirmAnalyticsPage() {
           </div>
 
           {/* Production Value by Attorney - Uses billable time entries */}
-          {attorneyProduction && attorneyProduction.by_attorney?.length > 0 && (
+          {attorneyProduction && (
             <div className={styles.chartsRow}>
               <div className={styles.chartCard} style={{ flex: 1 }}>
                 <div className={styles.chartHeader}>
