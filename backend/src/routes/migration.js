@@ -299,31 +299,31 @@ async function clioGetContactsByInitial(accessToken, endpoint, params, onProgres
   return allData;
 }
 
-// Fetch matters by STATUS - includes all possible Clio statuses + catch-all
-// Each status can have up to 10k records
+// Fetch matters by STATUS + YEAR - includes all possible Clio statuses with yearly batching
+// Each status+year can have up to 10k records
 async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress, clientIds = null) {
   const allData = [];
   const seenIds = new Set();
   // Include ALL possible Clio matter statuses
   const statuses = ['Open', 'Pending', 'Closed', 'Archived'];
+  const currentYear = new Date().getFullYear();
   
-  console.log(`[CLIO API] Fetching matters by status (bypasses 10k limit)...`);
+  console.log(`[CLIO API] Fetching matters by status + year (bypasses 10k limit)...`);
   
-  for (const status of statuses) {
-    console.log(`[CLIO API] Fetching ${status} matters...`);
-    
+  // Helper to fetch and dedupe
+  async function fetchBatch(batchParams, label) {
     try {
-      const statusMatters = await clioGetPaginated(
+      const batchMatters = await clioGetPaginated(
         accessToken,
         endpoint,
-        { ...params, status },
+        batchParams,
         (count) => {
           if (onProgress) onProgress(allData.length + count);
         }
       );
       
       let newCount = 0;
-      for (const item of statusMatters) {
+      for (const item of batchMatters) {
         if (item.id && !seenIds.has(item.id)) {
           seenIds.add(item.id);
           allData.push(item);
@@ -331,43 +331,44 @@ async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress,
         }
       }
       
-      console.log(`[CLIO API] ${status} matters: ${newCount} records, total ${allData.length}`);
+      if (newCount > 0) {
+        console.log(`[CLIO API] ${label}: ${newCount} records, total ${allData.length}`);
+      }
       if (onProgress) onProgress(allData.length);
       
     } catch (err) {
-      console.log(`[CLIO API] Error fetching ${status} matters: ${err.message}`);
+      console.log(`[CLIO API] Error fetching ${label}: ${err.message}`);
+    }
+  }
+  
+  // Fetch by status + year for better granularity
+  for (const status of statuses) {
+    console.log(`[CLIO API] Fetching ${status} matters by year...`);
+    
+    // For closed/archived, batch by year (these accumulate over time)
+    if (status === 'Closed' || status === 'Archived') {
+      for (let year = 2010; year <= currentYear; year++) {
+        const startDate = `${year}-01-01`;
+        const endDate = `${year}-12-31`;
+        await fetchBatch(
+          { ...params, status, 'open_date[]': [`>=${startDate}`, `<=${endDate}`] },
+          `${status} matters ${year}`
+        );
+      }
+      // Also fetch ones without open_date
+      await fetchBatch(
+        { ...params, status },
+        `${status} matters (no date filter)`
+      );
+    } else {
+      // For Open/Pending, just fetch all (usually fewer)
+      await fetchBatch({ ...params, status }, `${status} matters`);
     }
   }
   
   // CATCH-ALL: Fetch matters WITHOUT status filter to catch any with null/empty/custom status
   console.log(`[CLIO API] Running catch-all fetch for matters without status filter...`);
-  try {
-    const catchAllMatters = await clioGetPaginated(
-      accessToken,
-      endpoint,
-      { ...params },
-      (count) => {
-        if (onProgress) onProgress(allData.length + count);
-      }
-    );
-    
-    let newCount = 0;
-    for (const item of catchAllMatters) {
-      if (item.id && !seenIds.has(item.id)) {
-        seenIds.add(item.id);
-        allData.push(item);
-        newCount++;
-      }
-    }
-    
-    if (newCount > 0) {
-      console.log(`[CLIO API] Catch-all matters: found ${newCount} additional! Total: ${allData.length}`);
-    }
-    if (onProgress) onProgress(allData.length);
-    
-  } catch (err) {
-    console.log(`[CLIO API] Catch-all matters error: ${err.message}`);
-  }
+  await fetchBatch({ ...params }, 'Catch-all matters');
   
   console.log(`[CLIO API] Matters complete: ${allData.length} total records`);
   return allData;
