@@ -721,6 +721,117 @@ router.get('/firm-dashboard', authenticate, requireRole('owner', 'admin', 'partn
 });
 
 /**
+ * Attorney Production Value - Last 12 Months
+ * 
+ * GET /api/v1/analytics/attorney-production
+ * 
+ * Calculates production value (Duration * Hourly Rate) for each attorney
+ * from billable time entries over the last 12 months.
+ * Used for billing analytics when firms don't have invoice/payment data.
+ */
+router.get('/attorney-production', authenticate, requireRole('owner', 'admin', 'partner', 'billing'), async (req, res) => {
+  try {
+    const firmId = req.user.firmId;
+
+    // Get production value by attorney for last 12 months
+    // Filter: billable = true (exclude non-billable entries)
+    // Calculation: hours * hourly_rate = production value
+    const productionByAttorney = await query(`
+      SELECT 
+        u.id,
+        u.first_name || ' ' || u.last_name as name,
+        u.role,
+        u.hourly_rate as default_rate,
+        COALESCE(SUM(te.hours), 0) as total_hours,
+        COALESCE(SUM(te.hours * COALESCE(te.rate, u.hourly_rate, 0)), 0) as production_value,
+        COUNT(te.id) as entry_count,
+        COUNT(DISTINCT te.matter_id) as matter_count,
+        COUNT(DISTINCT DATE_TRUNC('month', te.date)) as active_months
+      FROM users u
+      LEFT JOIN time_entries te ON te.user_id = u.id 
+        AND te.firm_id = $1 
+        AND te.billable = true
+        AND te.date >= CURRENT_DATE - INTERVAL '12 months'
+      WHERE u.firm_id = $1 AND u.is_active = true
+      GROUP BY u.id, u.first_name, u.last_name, u.role, u.hourly_rate
+      HAVING COALESCE(SUM(te.hours), 0) > 0
+      ORDER BY production_value DESC
+    `, [firmId]);
+
+    // Get monthly breakdown for trend chart
+    const monthlyProduction = await query(`
+      SELECT 
+        DATE_TRUNC('month', te.date) as month,
+        u.id as user_id,
+        u.first_name || ' ' || u.last_name as name,
+        COALESCE(SUM(te.hours), 0) as hours,
+        COALESCE(SUM(te.hours * COALESCE(te.rate, u.hourly_rate, 0)), 0) as production_value
+      FROM time_entries te
+      JOIN users u ON te.user_id = u.id
+      WHERE te.firm_id = $1 
+        AND te.billable = true
+        AND te.date >= CURRENT_DATE - INTERVAL '12 months'
+      GROUP BY DATE_TRUNC('month', te.date), u.id, u.first_name, u.last_name
+      ORDER BY month ASC, production_value DESC
+    `, [firmId]);
+
+    // Calculate totals
+    const totalProduction = productionByAttorney.rows.reduce((sum, r) => sum + parseFloat(r.production_value), 0);
+    const totalHours = productionByAttorney.rows.reduce((sum, r) => sum + parseFloat(r.total_hours), 0);
+
+    // Format monthly data for stacked chart (by attorney per month)
+    const monthlyData = {};
+    monthlyProduction.rows.forEach(row => {
+      const monthKey = row.month.toISOString().slice(0, 7); // YYYY-MM
+      if (!monthlyData[monthKey]) {
+        monthlyData[monthKey] = { month: monthKey, total: 0 };
+      }
+      monthlyData[monthKey][row.name] = parseFloat(row.production_value);
+      monthlyData[monthKey].total += parseFloat(row.production_value);
+    });
+
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          total_production_value: totalProduction,
+          total_billable_hours: totalHours,
+          attorney_count: productionByAttorney.rows.length,
+          avg_production_per_attorney: productionByAttorney.rows.length > 0 
+            ? totalProduction / productionByAttorney.rows.length 
+            : 0,
+          period: 'Last 12 Months'
+        },
+        by_attorney: productionByAttorney.rows.map(r => ({
+          id: r.id,
+          name: r.name,
+          role: r.role,
+          default_rate: parseFloat(r.default_rate) || 0,
+          total_hours: parseFloat(r.total_hours),
+          production_value: parseFloat(r.production_value),
+          entry_count: parseInt(r.entry_count),
+          matter_count: parseInt(r.matter_count),
+          active_months: parseInt(r.active_months),
+          avg_monthly_production: parseInt(r.active_months) > 0 
+            ? parseFloat(r.production_value) / parseInt(r.active_months) 
+            : 0
+        })),
+        monthly_trend: Object.values(monthlyData).sort((a: any, b: any) => a.month.localeCompare(b.month)),
+        generated_at: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error('Attorney production error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to retrieve attorney production data',
+      code: 'INTERNAL_ERROR'
+    });
+  }
+});
+
+/**
  * AI Agent Tool: Get Quick KPIs
  * 
  * GET /api/v1/analytics/kpis

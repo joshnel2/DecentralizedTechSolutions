@@ -34,15 +34,27 @@ export function FirmAnalyticsPage() {
   // Backend analytics state
   const [analytics, setAnalytics] = useState<any>(null)
   const [analyticsLoading, setAnalyticsLoading] = useState(true)
+  
+  // Attorney production data (for billing analytics from time entries)
+  const [attorneyProduction, setAttorneyProduction] = useState<any>(null)
 
   // Fetch analytics from backend
   const fetchAnalytics = useCallback(async () => {
     try {
       setAnalyticsLoading(true)
       const timePeriod = TIME_PERIOD_MAP[dateRange] || 'current_month'
-      const response = await analyticsApi.getFirmDashboard(timePeriod)
-      if (response.success) {
-        setAnalytics(response.data)
+      
+      // Fetch both dashboard and attorney production in parallel
+      const [dashboardResponse, productionResponse] = await Promise.all([
+        analyticsApi.getFirmDashboard(timePeriod),
+        analyticsApi.getAttorneyProduction()
+      ])
+      
+      if (dashboardResponse.success) {
+        setAnalytics(dashboardResponse.data)
+      }
+      if (productionResponse.success) {
+        setAttorneyProduction(productionResponse.data)
       }
     } catch (error) {
       console.error('Failed to fetch firm analytics:', error)
@@ -535,6 +547,74 @@ export function FirmAnalyticsPage() {
               </div>
             </div>
           </div>
+
+          {/* Production Value by Attorney - Uses billable time entries */}
+          {attorneyProduction && attorneyProduction.by_attorney?.length > 0 && (
+            <div className={styles.chartsRow}>
+              <div className={styles.chartCard} style={{ flex: 1 }}>
+                <div className={styles.chartHeader}>
+                  <h3>Production Value by Attorney</h3>
+                  <span className={styles.chartSubtitle}>
+                    Last 12 months • Total: ${attorneyProduction.summary?.total_production_value?.toLocaleString() || '0'}
+                  </span>
+                </div>
+                <div className={styles.chartBody}>
+                  <ResponsiveContainer width="100%" height={Math.max(300, attorneyProduction.by_attorney.length * 45)}>
+                    <BarChart 
+                      data={attorneyProduction.by_attorney} 
+                      layout="vertical"
+                      margin={{ left: 20, right: 40 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)" />
+                      <XAxis 
+                        type="number" 
+                        stroke="var(--text-tertiary)" 
+                        fontSize={12} 
+                        tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`}
+                      />
+                      <YAxis 
+                        type="category" 
+                        dataKey="name" 
+                        stroke="var(--text-tertiary)" 
+                        fontSize={12} 
+                        width={140}
+                        tick={{ fill: 'var(--text-secondary)' }}
+                      />
+                      <Tooltip 
+                        contentStyle={{ 
+                          background: 'var(--bg-secondary)', 
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: '8px'
+                        }}
+                        formatter={(value: number, name: string) => {
+                          if (name === 'production_value') {
+                            return [`$${value.toLocaleString()}`, 'Production Value']
+                          }
+                          return [value, name]
+                        }}
+                        labelFormatter={(label) => label}
+                      />
+                      <Bar 
+                        dataKey="production_value" 
+                        fill="#D4AF37" 
+                        radius={[0, 4, 4, 0]}
+                        name="Production Value"
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div style={{ 
+                  padding: '12px 16px', 
+                  borderTop: '1px solid var(--border-primary)',
+                  fontSize: '13px',
+                  color: 'var(--text-secondary)'
+                }}>
+                  <strong>How it's calculated:</strong> Billable Hours × Hourly Rate = Production Value. 
+                  Non-billable entries are excluded.
+                </div>
+              </div>
+            </div>
+          )}
 
         </>
       )}

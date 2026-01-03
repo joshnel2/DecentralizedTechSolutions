@@ -1761,6 +1761,12 @@ export const analyticsApi = {
   async getKpis() {
     return fetchWithAuth('/analytics/kpis');
   },
+
+  // Get attorney production value (last 12 months)
+  // Uses billable time entries: hours * rate = production value
+  async getAttorneyProduction() {
+    return fetchWithAuth('/analytics/attorney-production');
+  },
 };
 
 // Export all APIs
