@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
@@ -10,7 +10,6 @@ import {
   Edit2, Archive, CheckCircle2, Trash2, Eye, XCircle, FileText, Settings
 } from 'lucide-react'
 import { MatterTypesManager } from '../components/MatterTypesManager'
-import { VirtualizedTable } from '../components/VirtualizedTable'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './ListPages.module.css'
@@ -301,185 +300,9 @@ export function MattersPage() {
         </button>
       </div>
 
-      {/* Table - Uses virtualized rendering for "All Matters" view to handle large datasets */}
-      {viewFilter === 'all' ? (
-        <VirtualizedTable
-          data={filteredMatters}
-          rowHeight={60}
-          overscan={10}
-          className={styles.tableContainer}
-          headers={
-            <tr>
-              <th>Matter</th>
-              <th>Client</th>
-              <th>Responsible Attorney</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Billing</th>
-              <th>Opened</th>
-              <th></th>
-            </tr>
-          }
-          renderRow={(matter) => (
-            <tr key={matter.id}>
-              <td>
-                <Link to={`/app/matters/${matter.id}`} className={styles.nameCell}>
-                  <div className={styles.icon}>
-                    <Briefcase size={16} />
-                  </div>
-                  <div>
-                    <span className={styles.name}>{matter.name}</span>
-                    <span className={styles.subtitle}>{matter.number}</span>
-                  </div>
-                  {matter.aiSummary && (
-                    <span className={styles.aiTag}>
-                      <Sparkles size={12} />
-                    </span>
-                  )}
-                </Link>
-              </td>
-              <td>
-                <Link to={`/app/clients/${matter.clientId}`} className={styles.link}>
-                  {getClientName(matter.clientId)}
-                </Link>
-              </td>
-              <td>
-                {matter.responsibleAttorney ? (
-                  <span className={styles.attorneyName}>
-                    {attorneys.find(a => a.id === matter.responsibleAttorney)?.name || 'Assigned'}
-                  </span>
-                ) : (
-                  <span className={styles.unassigned}>Unassigned</span>
-                )}
-              </td>
-              <td>
-                <span className={styles.typeTag}>
-                  {(matter.type || 'other').replace(/_/g, ' ')}
-                </span>
-              </td>
-              <td>
-                <select
-                  className={clsx(styles.statusSelect, styles[matter.status])}
-                  value={matter.status}
-                  onChange={(e) => handleStatusChange(matter.id, e.target.value as any)}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <option value="intake">Intake</option>
-                  <option value="active">Active</option>
-                  <option value="pending">Pending</option>
-                  <option value="on_hold">On Hold</option>
-                  <option value="closed">Closed</option>
-                  <option value="closed_won">Closed - Won</option>
-                  <option value="closed_lost">Closed - Lost</option>
-                  <option value="closed_settled">Closed - Settled</option>
-                  <option value="closed_other">Closed - Other</option>
-                </select>
-              </td>
-              <td>
-                <div className={styles.billingInfo}>
-                  {matter.billingType === 'hourly' && (
-                    <>${matter.billingRate}/hr</>
-                  )}
-                  {matter.billingType === 'flat' && (
-                    <>${matter.flatFee?.toLocaleString()} flat</>
-                  )}
-                  {matter.billingType === 'contingency' && (
-                    <>{matter.contingencyPercent}% contingency</>
-                  )}
-                  {matter.billingType === 'retainer' && (
-                    <>${matter.retainerAmount?.toLocaleString()} retainer</>
-                  )}
-                </div>
-              </td>
-              <td className={styles.dateCell}>
-                {matter.openDate ? format(parseISO(matter.openDate), 'MMM d, yyyy') : '—'}
-              </td>
-              <td>
-                <div className={styles.menuWrapper} ref={openDropdownId === matter.id ? dropdownRef : null}>
-                  <button 
-                    className={styles.menuBtn}
-                    onClick={() => setOpenDropdownId(openDropdownId === matter.id ? null : matter.id)}
-                  >
-                    <MoreVertical size={16} />
-                  </button>
-                  {openDropdownId === matter.id && (
-                    <div className={styles.dropdown}>
-                      <button 
-                        className={styles.dropdownItem}
-                        onClick={() => {
-                          setOpenDropdownId(null)
-                          navigate(`/app/matters/${matter.id}`)
-                        }}
-                      >
-                        <Eye size={14} />
-                        View Details
-                      </button>
-                      {matter.status === 'active' && (
-                        <>
-                          <button 
-                            className={styles.dropdownItem}
-                            onClick={() => openConfirmModal(matter.id, matter.name, 'hold')}
-                          >
-                            <XCircle size={14} />
-                            Put On Hold
-                          </button>
-                          <button 
-                            className={clsx(styles.dropdownItem, styles.success)}
-                            onClick={() => handleStatusChange(matter.id, 'closed_won')}
-                          >
-                            <CheckCircle2 size={14} />
-                            Close - Won
-                          </button>
-                        </>
-                      )}
-                      {matter.status === 'on_hold' && (
-                        <button 
-                          className={styles.dropdownItem}
-                          onClick={() => openConfirmModal(matter.id, matter.name, 'reactivate')}
-                        >
-                          <Briefcase size={14} />
-                          Reactivate
-                        </button>
-                      )}
-                      {!matter.status.startsWith('closed') && (
-                        <button 
-                          className={styles.dropdownItem}
-                          onClick={() => openConfirmModal(matter.id, matter.name, 'archive')}
-                        >
-                          <Archive size={14} />
-                          Archive / Close
-                        </button>
-                      )}
-                      {canDeleteMatters && (
-                        <>
-                          <div className={styles.dropdownDivider} />
-                          <button 
-                            className={clsx(styles.dropdownItem, styles.danger)}
-                            onClick={() => openConfirmModal(matter.id, matter.name, 'delete')}
-                          >
-                            <Trash2 size={14} />
-                            Delete Matter
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </td>
-            </tr>
-          )}
-          emptyState={
-            <div className={styles.emptyState}>
-              <Briefcase size={48} />
-              <h3>No matters found</h3>
-              <p>Try adjusting your search or filters</p>
-            </div>
-          }
-        />
-      ) : (
-        /* Standard table for "My Matters" - no changes */
-        <div className={styles.tableContainer}>
-          <table className={styles.table}>
+      {/* Table - Same structure for both views, scrollable container for "All" */}
+      <div className={styles.tableContainer} style={viewFilter === 'all' ? { maxHeight: 'calc(100vh - 280px)', overflowY: 'auto' } : undefined}>
+        <table className={styles.table}>
             <thead>
               <tr>
                 <th>Matter</th>
@@ -652,7 +475,6 @@ export function MattersPage() {
             </div>
           )}
         </div>
-      )}
 
       {/* New Matter Modal */}
       {showNewModal && (
