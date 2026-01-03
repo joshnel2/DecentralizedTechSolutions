@@ -1447,9 +1447,12 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
     // 5. CREATE ACTIVITIES (Time Entries & Expenses)
     // ============================================
     if (data.activities && Array.isArray(data.activities)) {
+      let timeEntriesNoMatter = 0;
+      let expensesSkippedNoMatter = 0;
+      
       for (const activity of data.activities) {
         try {
-          // Find matter
+          // Find matter - try multiple lookup methods
           let matterId = null;
           if (activity.matter) {
             if (activity.matter.clio_id) {
@@ -1463,12 +1466,7 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
             }
           }
           
-          if (!matterId) {
-            results.warnings.push(`Activity skipped: Matter not found (ref: ${activity.matter?.display_number || activity.matter?.clio_id || 'unknown'})`);
-            continue;
-          }
-          
-          // Find user
+          // Find user - try multiple lookup methods
           let userId = null;
           if (activity.user) {
             if (activity.user.clio_id) {
@@ -1479,6 +1477,15 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
             }
             if (!userId && activity.user.name) {
               userId = userIdMap.get(activity.user.name.toLowerCase());
+              // Also try case-insensitive match
+              if (!userId) {
+                for (const [key, id] of userIdMap.entries()) {
+                  if (key.toLowerCase() === activity.user.name.toLowerCase()) {
+                    userId = id;
+                    break;
+                  }
+                }
+              }
             }
             if (!userId && activity.user.email) {
               userId = userIdMap.get(activity.user.email.toLowerCase());
@@ -1489,10 +1496,18 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
           const isExpense = activityType.includes('expense');
           
           if (isExpense) {
-            // Create expense record
+            // Expenses require a matter (must be billable to something)
+            if (!matterId) {
+              expensesSkippedNoMatter++;
+              results.warnings.push(`Expense skipped: Matter not found (ref: ${activity.matter?.display_number || activity.matter?.clio_id || 'unknown'})`);
+              continue;
+            }
+            
+            // Create expense record with migration tracking
             await query(
-              `INSERT INTO expenses (firm_id, matter_id, user_id, date, description, amount, category, billable, status)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+              `INSERT INTO expenses (firm_id, matter_id, user_id, date, description, amount, category, billable, status, clio_id, migrated_at, migration_source)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), 'json_import')
+               ON CONFLICT (firm_id, clio_id) WHERE clio_id IS NOT NULL DO NOTHING`,
               [
                 firmId,
                 matterId,
@@ -1500,28 +1515,42 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
                 parseDate(activity.date),
                 activity.note || activity.activity_description?.name || 'Expense',
                 parseFloat(activity.total) || parseFloat(activity.quantity) || 0,
-                activity.expense_category?.name || 'Other',
+                activity.expense_category?.name || activity.activity_description?.name || 'Other',
                 activity.non_billable !== true,
-                'pending'
+                'pending',
+                activity.id || activity.clio_id || null  // clio_id for deduplication
               ]
             );
             results.imported.expenses++;
           } else {
-            // Create time entry record
+            // Time entries CAN be imported without matter (general time tracking)
+            if (!matterId) {
+              timeEntriesNoMatter++;
+            }
+            
+            // Build description with context if matter is missing
+            let description = activity.note || activity.activity_description?.name || 'Time entry';
+            if (!matterId && activity.matter?.display_number) {
+              description = `[Matter: ${activity.matter.display_number}] ${description}`;
+            }
+            
+            // Create time entry record with migration tracking
             await query(
-              `INSERT INTO time_entries (firm_id, matter_id, user_id, date, hours, description, billable, rate, activity_code, status)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+              `INSERT INTO time_entries (firm_id, matter_id, user_id, date, hours, description, billable, rate, activity_code, status, clio_id, migrated_at, migration_source)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), 'json_import')
+               ON CONFLICT (firm_id, clio_id) WHERE clio_id IS NOT NULL DO NOTHING`,
               [
                 firmId,
-                matterId,
+                matterId,  // Can be null - entry will be "unassigned"
                 userId,
                 parseDate(activity.date),
-                parseFloat(activity.quantity) || 0,
-                activity.note || activity.activity_description?.name || 'Time entry',
+                parseFloat(activity.quantity_in_hours) || parseFloat(activity.quantity) || 0,
+                description,
                 activity.non_billable !== true,
-                parseFloat(activity.rate) || 0,
-                activity.activity_description?.code || null,
-                'pending'
+                parseFloat(activity.rate) || parseFloat(activity.price) || 0,
+                activity.activity_description?.code || activity.activity_description?.name || null,
+                'pending',
+                activity.id || activity.clio_id || null  // clio_id for deduplication
               ]
             );
             results.imported.time_entries++;
@@ -1529,6 +1558,14 @@ router.post('/import', requireSecureAdmin, async (req, res) => {
         } catch (err) {
           results.errors.push(`Activity: ${err.message}`);
         }
+      }
+      
+      // Add summary to results
+      if (timeEntriesNoMatter > 0) {
+        results.warnings.push(`${timeEntriesNoMatter} time entries imported without matter assignment`);
+      }
+      if (expensesSkippedNoMatter > 0) {
+        results.warnings.push(`${expensesSkippedNoMatter} expenses skipped (no matter reference)`);
       }
     }
 
@@ -3088,11 +3125,12 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 4/7: Importing time entries and expenses directly to DB...');
           updateProgress('activities', 'running', 0);
           try {
-            // Fetch activities - use proven working fields
-            // Fetch activities with all needed fields (verified against Clio OpenAPI spec)
+            // Fetch activities - comprehensive fields for complete time entry migration
+            // Added: created_at, updated_at for audit trail; rounded_quantity_in_hours for billing accuracy
+            // Added: utbms_expense_type for expense categorization; bill{id} for billed status tracking
             const activities = await clioGetActivitiesByStatus(
               accessToken, '/activities.json',
-              { fields: 'id,type,date,quantity,quantity_in_hours,price,total,note,billed,non_billable,matter{id,display_number},user{id,name},activity_description{id,name}' },
+              { fields: 'id,type,date,quantity,quantity_in_hours,rounded_quantity_in_hours,price,total,note,billed,non_billable,created_at,updated_at,matter{id,display_number,description},user{id,name,email},activity_description{id,name,code},utbms_expense_type{id,name,code},bill{id}' },
               (count) => updateProgress('activities', 'running', count)
             );
             
@@ -3119,31 +3157,57 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             }
             
             let expenseCount = 0;
-            let skippedNoMatter = 0;
+            let timeEntriesNoMatter = 0;
+            let timeEntriesNoUser = 0;
+            let expensesNoMatter = 0;
             let savedTimeEntries = 0;
             
             for (const a of activities) {
               try {
-                const matterId = a.matter?.id ? matterIdMap.get(`clio:${a.matter.id}`) : null;
-                const userId = a.user?.id ? userIdMap.get(`clio:${a.user.id}`) : null;
+                // Look up matter - try by Clio ID first, then by display_number
+                let matterId = a.matter?.id ? matterIdMap.get(`clio:${a.matter.id}`) : null;
+                if (!matterId && a.matter?.display_number) {
+                  matterId = matterIdMap.get(a.matter.display_number);
+                }
                 
-                if (!matterId) {
-                  skippedNoMatter++;
-                  continue; // Skip entries without linked matter
+                // Look up user - try by Clio ID first, then by name
+                let userId = a.user?.id ? userIdMap.get(`clio:${a.user.id}`) : null;
+                if (!userId && a.user?.name) {
+                  // Try to find user by name in the userIdMap
+                  for (const [key, id] of userIdMap.entries()) {
+                    if (key.toLowerCase() === a.user.name.toLowerCase()) {
+                      userId = id;
+                      break;
+                    }
+                  }
                 }
                 
                 // Clio has TimeEntry and ExpenseEntry types
                 const isExpense = a.type === 'ExpenseEntry';
                 
                 if (isExpense) {
-                  // Insert as expense
+                  // For expenses, we require a matter (expense must be billable to something)
+                  if (!matterId) {
+                    expensesNoMatter++;
+                    continue;
+                  }
+                  
+                  // Insert as expense with Clio tracking fields
                   const amount = parseFloat(a.total) || parseFloat(a.price) || 0;
-                  // Use activity_description name as category if available
-                  const category = a.activity_description?.name || 'Expense';
+                  // Use activity_description name as category if available, or UTBMS expense type
+                  const category = a.activity_description?.name || a.utbms_expense_type?.name || 'Expense';
                   
                   await query(
-                    `INSERT INTO expenses (firm_id, matter_id, user_id, date, description, amount, category, billable, billed, status)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    `INSERT INTO expenses (firm_id, matter_id, user_id, date, description, amount, category, billable, billed, status, clio_id, clio_created_at, clio_updated_at, migrated_at, migration_source)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), 'clio')
+                     ON CONFLICT (firm_id, clio_id) WHERE clio_id IS NOT NULL 
+                     DO UPDATE SET 
+                       description = EXCLUDED.description,
+                       amount = EXCLUDED.amount,
+                       billable = EXCLUDED.billable,
+                       billed = EXCLUDED.billed,
+                       status = EXCLUDED.status,
+                       clio_updated_at = EXCLUDED.clio_updated_at`,
                     [
                       firmId,
                       matterId,
@@ -3154,14 +3218,21 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                       category,
                       !a.non_billable,
                       a.billed || false,
-                      a.billed ? 'billed' : 'pending'
+                      a.billed ? 'billed' : 'pending',
+                      a.id || null,  // clio_id
+                      a.created_at || null,  // clio_created_at
+                      a.updated_at || null   // clio_updated_at
                     ]
                   );
                   expenseCount++;
                 } else {
-                  // Insert as time entry
-                  // Prefer quantity_in_hours (already in hours) over quantity (which may be in different units)
-                  const hours = parseFloat(a.quantity_in_hours) || parseFloat(a.quantity) || 0;
+                  // Insert as time entry - ALLOW entries without matter (general time tracking)
+                  // Track stats for reporting
+                  if (!matterId) timeEntriesNoMatter++;
+                  if (!userId) timeEntriesNoUser++;
+                  
+                  // Prefer rounded_quantity_in_hours (billing hours) > quantity_in_hours > quantity
+                  const hours = parseFloat(a.rounded_quantity_in_hours) || parseFloat(a.quantity_in_hours) || parseFloat(a.quantity) || 0;
                   let rate = parseFloat(a.price) || 0;
                   
                   // If no rate but we have total and hours, calculate rate
@@ -3177,24 +3248,44 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   // Determine entry status based on billed flag
                   const status = a.billed ? 'billed' : 'pending';
                   
-                  // Get activity code from activity_description.name
-                  const activityCode = a.activity_description?.name || null;
+                  // Get activity code from activity_description (prefer code over name for standardization)
+                  const activityCode = a.activity_description?.code || a.activity_description?.name || null;
+                  
+                  // Build description with context if matter is missing
+                  let description = a.note || 'Imported from Clio';
+                  if (!matterId && a.matter?.display_number) {
+                    description = `[Matter: ${a.matter.display_number}] ${description}`;
+                  }
                   
                   await query(
-                    `INSERT INTO time_entries (firm_id, matter_id, user_id, date, hours, rate, description, activity_code, billable, billed, status)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                    `INSERT INTO time_entries (firm_id, matter_id, user_id, date, hours, rate, description, activity_code, billable, billed, status, clio_id, clio_created_at, clio_updated_at, migrated_at, migration_source)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), 'clio')
+                     ON CONFLICT (firm_id, clio_id) WHERE clio_id IS NOT NULL 
+                     DO UPDATE SET 
+                       matter_id = COALESCE(EXCLUDED.matter_id, time_entries.matter_id),
+                       user_id = COALESCE(EXCLUDED.user_id, time_entries.user_id),
+                       hours = EXCLUDED.hours,
+                       rate = EXCLUDED.rate,
+                       description = EXCLUDED.description,
+                       billable = EXCLUDED.billable,
+                       billed = EXCLUDED.billed,
+                       status = EXCLUDED.status,
+                       clio_updated_at = EXCLUDED.clio_updated_at`,
                     [
                       firmId,
-                      matterId,
-                      userId,
+                      matterId, // Can be null - entry will be "unassigned"
+                      userId,   // Can be null - entry will be "unassigned"
                       a.date || new Date().toISOString().split('T')[0],
                       hours,
                       rate,
-                      a.note || 'Imported from Clio',
+                      description,
                       activityCode,
                       !a.non_billable,
                       a.billed || false,
-                      status
+                      status,
+                      a.id || null,  // clio_id
+                      a.created_at || null,  // clio_created_at
+                      a.updated_at || null   // clio_updated_at
                     ]
                   );
                   
@@ -3209,7 +3300,11 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 console.log(`[CLIO IMPORT] Activity error: ${a.id} - ${err.message}`);
               }
             }
-            console.log(`[CLIO IMPORT] Activities without matter (skipped): ${skippedNoMatter}`);
+            
+            // Detailed logging of import stats
+            console.log(`[CLIO IMPORT] Time entries without matter (still imported): ${timeEntriesNoMatter}`);
+            console.log(`[CLIO IMPORT] Time entries without user (still imported): ${timeEntriesNoUser}`);
+            console.log(`[CLIO IMPORT] Expenses without matter (skipped): ${expensesNoMatter}`);
             // Verify time entries and expenses were saved
             console.log(`[CLIO IMPORT] Activities fetched from Clio: ${activities.length}`);
             const activityVerify = await query('SELECT COUNT(*) FROM time_entries WHERE firm_id = $1', [firmId]);

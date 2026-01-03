@@ -22,6 +22,40 @@ async function runMigrations(client) {
          ALTER TABLE matter_assignments ADD COLUMN billing_rate DECIMAL(10,2);
        END IF;
      END $$;`,
+    
+    // Add Clio migration tracking columns to time_entries
+    `DO $$ 
+     BEGIN 
+       IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                      WHERE table_name = 'time_entries' AND column_name = 'clio_id') THEN
+         ALTER TABLE time_entries ADD COLUMN clio_id BIGINT;
+         ALTER TABLE time_entries ADD COLUMN clio_created_at TIMESTAMP WITH TIME ZONE;
+         ALTER TABLE time_entries ADD COLUMN clio_updated_at TIMESTAMP WITH TIME ZONE;
+         ALTER TABLE time_entries ADD COLUMN migrated_at TIMESTAMP WITH TIME ZONE;
+         ALTER TABLE time_entries ADD COLUMN migration_source VARCHAR(50);
+       END IF;
+     END $$;`,
+    
+    // Add Clio migration tracking columns to expenses
+    `DO $$ 
+     BEGIN 
+       IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                      WHERE table_name = 'expenses' AND column_name = 'clio_id') THEN
+         ALTER TABLE expenses ADD COLUMN clio_id BIGINT;
+         ALTER TABLE expenses ADD COLUMN clio_created_at TIMESTAMP WITH TIME ZONE;
+         ALTER TABLE expenses ADD COLUMN clio_updated_at TIMESTAMP WITH TIME ZONE;
+         ALTER TABLE expenses ADD COLUMN migrated_at TIMESTAMP WITH TIME ZONE;
+         ALTER TABLE expenses ADD COLUMN migration_source VARCHAR(50);
+       END IF;
+     END $$;`,
+    
+    // Create indexes for Clio deduplication (partial indexes for efficiency)
+    `CREATE INDEX IF NOT EXISTS idx_time_entries_clio_id ON time_entries(clio_id) WHERE clio_id IS NOT NULL;`,
+    `CREATE INDEX IF NOT EXISTS idx_expenses_clio_id ON expenses(clio_id) WHERE clio_id IS NOT NULL;`,
+    
+    // Create unique constraint for deduplication
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_time_entries_clio_unique ON time_entries(firm_id, clio_id) WHERE clio_id IS NOT NULL;`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_clio_unique ON expenses(firm_id, clio_id) WHERE clio_id IS NOT NULL;`,
   ];
 
   for (const migration of migrations) {
