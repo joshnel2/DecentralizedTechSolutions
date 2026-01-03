@@ -2300,7 +2300,7 @@ router.get('/clio/diagnose/:connectionId', requireSecureAdmin, async (req, res) 
     try {
       console.log('[CLIO DIAGNOSE] Fetching sample contacts with different field syntaxes...');
       
-      // Try syntax 1: Simple field names
+      // Try syntax 1: Simple field names (no nested specifiers)
       const response1 = await clioRequest(accessToken, '/contacts.json', {
         fields: 'id,name,primary_email_address,primary_phone_number',
         limit: 3
@@ -2310,23 +2310,23 @@ router.get('/clio/diagnose/:connectionId', requireSecureAdmin, async (req, res) 
         sample: response1.data?.[0] || null
       };
       
-      // Try syntax 2: Nested field syntax
+      // Try syntax 2: Array fields WITHOUT nested specifiers (most reliable)
       const response2 = await clioRequest(accessToken, '/contacts.json', {
-        fields: 'id,name,primary_email_address{address,name},primary_phone_number{number,name}',
-        limit: 3
-      });
-      results.contacts.syntax2_nested = {
-        fields: 'primary_email_address{address,name},primary_phone_number{number,name}',
-        sample: response2.data?.[0] || null
-      };
-      
-      // Try syntax 3: email_addresses array (the old way)
-      const response3 = await clioRequest(accessToken, '/contacts.json', {
         fields: 'id,name,email_addresses,phone_numbers',
         limit: 3
       });
-      results.contacts.syntax3_arrays = {
+      results.contacts.syntax2_arrays = {
         fields: 'email_addresses,phone_numbers',
+        sample: response2.data?.[0] || null
+      };
+      
+      // Try syntax 3: Array fields WITH valid nested specifiers only
+      const response3 = await clioRequest(accessToken, '/contacts.json', {
+        fields: 'id,name,email_addresses{id,address,name,primary},phone_numbers{id,number,name,primary}',
+        limit: 3
+      });
+      results.contacts.syntax3_nested_valid = {
+        fields: 'email_addresses{id,address,name,primary},phone_numbers{id,number,name,primary}',
         sample: response3.data?.[0] || null
       };
       
@@ -2348,18 +2348,25 @@ router.get('/clio/diagnose/:connectionId', requireSecureAdmin, async (req, res) 
       
       // Check which syntax returned data
       const s1 = results.contacts.syntax1_simple?.sample;
-      const s2 = results.contacts.syntax2_nested?.sample;
-      const s3 = results.contacts.syntax3_arrays?.sample;
+      const s2 = results.contacts.syntax2_arrays?.sample;
+      const s3 = results.contacts.syntax3_nested_valid?.sample;
       
       if (s1?.primary_email_address?.address) {
-        contactAnalysis.recommendation = 'Use: primary_email_address (simple syntax works)';
-      } else if (s2?.primary_email_address?.address) {
-        contactAnalysis.recommendation = 'Use: primary_email_address{address,name} (nested syntax required)';
-      } else if (s3?.email_addresses?.length > 0) {
-        contactAnalysis.recommendation = 'Use: email_addresses array (old syntax works)';
+        contactAnalysis.recommendation = 'Use: primary_email_address (returns object with address)';
+      } else if (s2?.email_addresses?.length > 0 && s2.email_addresses[0]?.address) {
+        contactAnalysis.recommendation = 'Use: email_addresses array (returns full array)';
+      } else if (s3?.email_addresses?.length > 0 && s3.email_addresses[0]?.address) {
+        contactAnalysis.recommendation = 'Use: email_addresses{id,address,name,primary} (nested syntax works)';
       } else {
-        contactAnalysis.recommendation = 'NONE of the syntaxes returned email data - check API permissions';
+        contactAnalysis.recommendation = 'NONE of the syntaxes returned email data - check API permissions or contact has no email';
       }
+      
+      // Log what each syntax returned for debugging
+      results.contacts.syntaxComparison = {
+        syntax1_has_email: !!s1?.primary_email_address?.address,
+        syntax2_has_email: !!(s2?.email_addresses?.length > 0 && s2.email_addresses[0]?.address),
+        syntax3_has_email: !!(s3?.email_addresses?.length > 0 && s3.email_addresses[0]?.address)
+      };
       
       for (const c of results.contacts.raw) {
         Object.keys(c).forEach(k => contactAnalysis.fieldsPresent.add(k));
@@ -2768,12 +2775,13 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           addLog('Starting contacts import from Clio...');
           updateProgress('contacts', 'running', 0);
           try {
-            // Fetch contacts - try ALL possible field syntaxes for email/phone
-            // Clio API is inconsistent - some accounts need arrays, some need primary_ fields
-            // Also need to handle nested fields for email_addresses and phone_numbers which some API versions use
-            // The format email_addresses{address,primary,name} asks for those specific fields on the nested objects
+            // Fetch contacts with VALID Clio API v4 field names only
+            // Invalid nested fields (like default_email, value) cause Clio to return empty arrays
+            // Valid email_addresses fields: id, name, address, primary
+            // Valid phone_numbers fields: id, name, number, primary
+            // Valid addresses fields: id, name, street, city, province, postal_code, country, primary
             const contacts = await clioGetAll(accessToken, '/contacts.json', {
-              fields: 'id,name,first_name,last_name,type,company{name},email_addresses{address,primary,name,default_email,value},phone_numbers{number,primary,name,default_number,value},primary_email_address{address,primary,name,value},primary_phone_number{number,primary,name,value},addresses{street,city,province,postal_code,country,primary,name},primary_address{street,city,province,postal_code,country,primary,name}'
+              fields: 'id,name,first_name,last_name,type,company{id,name},email_addresses{id,address,name,primary},phone_numbers{id,number,name,primary},primary_email_address,primary_phone_number,addresses{id,street,city,province,postal_code,country,name,primary},primary_address'
             }, (count) => updateProgress('contacts', 'running', count));
             
             addLog(`Fetched ${contacts.length} contacts from Clio API. Analyzing email/phone data...`);
