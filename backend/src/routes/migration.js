@@ -2644,10 +2644,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // STEP 1: IMPORT USERS (direct to DB)
         // ============================================
         if (!includeUsers) {
-          console.log('[CLIO IMPORT] Step 1/7: SKIPPING users');
+          console.log('[CLIO IMPORT] Step 1/10: SKIPPING users');
           updateProgress('users', 'skipped', 0);
         } else {
-          console.log('[CLIO IMPORT] Step 1/7: Importing users directly to DB...');
+          console.log('[CLIO IMPORT] Step 1/10: Importing users directly to DB...');
           updateProgress('users', 'running', 0);
           try {
             // Fetch users - use proven working fields
@@ -2768,10 +2768,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // STEP 2: IMPORT CONTACTS (direct to DB)
         // ============================================
         if (!includeContacts) {
-          console.log('[CLIO IMPORT] Step 2/7: SKIPPING contacts');
+          console.log('[CLIO IMPORT] Step 2/10: SKIPPING contacts');
           updateProgress('contacts', 'skipped', 0);
         } else {
-          console.log('[CLIO IMPORT] Step 2/7: Importing contacts directly to DB...');
+          console.log('[CLIO IMPORT] Step 2/10: Importing contacts directly to DB...');
           addLog('Starting contacts import from Clio...');
           updateProgress('contacts', 'running', 0);
           try {
@@ -2995,10 +2995,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // STEP 3: IMPORT MATTERS (direct to DB)
         // ============================================
         if (!includeMatters) {
-          console.log('[CLIO IMPORT] Step 3/7: SKIPPING matters');
+          console.log('[CLIO IMPORT] Step 3/10: SKIPPING matters');
           updateProgress('matters', 'skipped', 0);
         } else {
-          console.log('[CLIO IMPORT] Step 3/7: Importing matters directly to DB...');
+          console.log('[CLIO IMPORT] Step 3/10: Importing matters directly to DB...');
           updateProgress('matters', 'running', 0);
           try {
             // Fetch matters
@@ -3127,10 +3127,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // STEP 4: IMPORT TIME ENTRIES (direct to DB)
         // ============================================
         if (!includeActivities) {
-          console.log('[CLIO IMPORT] Step 4/7: SKIPPING activities');
+          console.log('[CLIO IMPORT] Step 4/10: SKIPPING activities');
           updateProgress('activities', 'skipped', 0);
         } else {
-          console.log('[CLIO IMPORT] Step 4/7: Importing time entries and expenses directly to DB...');
+          console.log('[CLIO IMPORT] Step 4/10: Importing time entries and expenses directly to DB...');
           updateProgress('activities', 'running', 0);
           try {
             // Fetch activities - comprehensive fields for complete time entry migration
@@ -3332,10 +3332,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // STEP 5: IMPORT BILLS (direct to DB)
         // ============================================
         if (!includeBills) {
-          console.log('[CLIO IMPORT] Step 5/7: SKIPPING bills');
+          console.log('[CLIO IMPORT] Step 5/10: SKIPPING bills');
           updateProgress('bills', 'skipped', 0);
         } else {
-          console.log('[CLIO IMPORT] Step 5/7: Importing bills directly to DB...');
+          console.log('[CLIO IMPORT] Step 5/10: Importing bills directly to DB...');
           updateProgress('bills', 'running', 0);
           try {
             // Fetch bills with comprehensive financial data
@@ -3460,10 +3460,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // STEP 6: IMPORT CALENDAR (direct to DB)
         // ============================================
         if (!includeCalendar) {
-          console.log('[CLIO IMPORT] Step 6/7: SKIPPING calendar');
+          console.log('[CLIO IMPORT] Step 6/10: SKIPPING calendar');
           updateProgress('calendar', 'skipped', 0);
         } else {
-          console.log('[CLIO IMPORT] Step 6/7: Importing calendar directly to DB...');
+          console.log('[CLIO IMPORT] Step 6/10: Importing calendar directly to DB...');
           updateProgress('calendar', 'running', 0);
           try {
             // Fetch calendar entries with type and recurrence info
@@ -3563,7 +3563,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // STEP 7: IMPORT NOTES (direct to DB)
         // ============================================
         // Clio notes are attached to matters or contacts - we save them to custom_fields or notes field
-        console.log('[CLIO IMPORT] Step 7/7: Importing notes...');
+        console.log('[CLIO IMPORT] Step 7/10: Importing notes...');
         let notesCount = 0;
         try {
           // Fetch notes from Clio - notes are attached to matters or contacts
@@ -3649,6 +3649,256 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         }
         
         // ============================================
+        // STEP 8: IMPORT PAYMENTS (direct to DB)
+        // ============================================
+        console.log('[CLIO IMPORT] Step 8/10: Importing payments...');
+        let paymentsCount = 0;
+        try {
+          // Fetch payments from Clio - these are actual payment records
+          const payments = await clioGetPaginated(accessToken, '/payments.json', {
+            fields: 'id,date,amount,note,payment_type,bill{id,number},contact{id,name},matter{id,display_number},created_at'
+          }, null);
+          
+          console.log(`[CLIO IMPORT] Payments fetched from Clio: ${payments.length}`);
+          
+          if (payments.length > 0) {
+            console.log(`[CLIO IMPORT] First payment sample:`, JSON.stringify(payments[0], null, 2));
+          }
+          
+          // We need to map Clio bill IDs to Apex invoice IDs
+          // Since we appended Clio ID to invoice numbers, we can look up by number pattern
+          const invoiceMap = new Map();
+          const invoiceResults = await query('SELECT id, number FROM invoices WHERE firm_id = $1', [firmId]);
+          for (const inv of invoiceResults.rows) {
+            // Extract Clio ID from number format "INV-123-456" where 456 is Clio ID
+            const parts = inv.number.split('-');
+            if (parts.length >= 2) {
+              const clioId = parts[parts.length - 1];
+              invoiceMap.set(clioId, inv.id);
+            }
+          }
+          
+          for (const p of payments) {
+            try {
+              // Look up invoice by Clio bill ID
+              let invoiceId = null;
+              if (p.bill?.id) {
+                invoiceId = invoiceMap.get(String(p.bill.id));
+              }
+              
+              // Look up client
+              const clientId = p.contact?.id ? contactIdMap.get(`clio:${p.contact.id}`) : null;
+              
+              const amount = parseFloat(p.amount) || 0;
+              if (amount <= 0) continue;
+              
+              // Map Clio payment_type to our payment_method
+              let paymentMethod = 'other';
+              if (p.payment_type) {
+                const pt = p.payment_type.toLowerCase();
+                if (pt.includes('check') || pt.includes('cheque')) paymentMethod = 'check';
+                else if (pt.includes('credit') || pt.includes('card')) paymentMethod = 'credit_card';
+                else if (pt.includes('wire') || pt.includes('transfer') || pt.includes('ach')) paymentMethod = 'bank_transfer';
+                else if (pt.includes('cash')) paymentMethod = 'cash';
+              }
+              
+              await query(
+                `INSERT INTO payments (firm_id, invoice_id, client_id, amount, payment_method, payment_date, notes, reference, created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                [
+                  firmId,
+                  invoiceId,
+                  clientId,
+                  amount,
+                  paymentMethod,
+                  p.date || new Date().toISOString().split('T')[0],
+                  p.note || null,
+                  p.bill?.number ? `Clio Bill #${p.bill.number}` : null,
+                  p.created_at || new Date().toISOString()
+                ]
+              );
+              paymentsCount++;
+            } catch (err) {
+              // Skip silently - payments are optional
+            }
+          }
+          
+          // Calculate total payments imported
+          const paymentSummary = await query(
+            'SELECT COUNT(*) as count, SUM(amount) as total FROM payments WHERE firm_id = $1',
+            [firmId]
+          );
+          console.log(`[CLIO IMPORT] Payments saved: ${paymentsCount}, total amount: $${parseFloat(paymentSummary.rows[0]?.total || 0).toFixed(2)}`);
+          
+        } catch (err) {
+          console.log(`[CLIO IMPORT] Payments error (non-fatal): ${err.message}`);
+        }
+        
+        // ============================================
+        // STEP 9: IMPORT TRUST ACCOUNTS (direct to DB)
+        // ============================================
+        console.log('[CLIO IMPORT] Step 9/10: Importing trust accounts...');
+        let trustAccountsCount = 0;
+        let trustTransactionsCount = 0;
+        const trustAccountMap = new Map(); // clio ID -> apex ID
+        
+        try {
+          // Fetch bank accounts from Clio (includes trust/IOLTA accounts)
+          const bankAccounts = await clioGetPaginated(accessToken, '/bank_accounts.json', {
+            fields: 'id,name,account_type,currency,balance,holder,domicile,bank_transactions_enabled,created_at'
+          }, null);
+          
+          console.log(`[CLIO IMPORT] Bank accounts fetched from Clio: ${bankAccounts.length}`);
+          
+          for (const acct of bankAccounts) {
+            try {
+              // Map Clio account_type to our types
+              const accountType = acct.account_type?.toLowerCase()?.includes('operating') ? 'operating' : 'iolta';
+              
+              const result = await query(
+                `INSERT INTO trust_accounts (firm_id, bank_name, account_name, account_type, balance, is_verified, created_at)
+                 VALUES ($1, $2, $3, $4, $5, true, $6)
+                 RETURNING id`,
+                [
+                  firmId,
+                  acct.holder || 'Bank',
+                  acct.name || 'Trust Account',
+                  accountType,
+                  parseFloat(acct.balance) || 0,
+                  acct.created_at || new Date().toISOString()
+                ]
+              );
+              
+              trustAccountMap.set(`clio:${acct.id}`, result.rows[0].id);
+              trustAccountsCount++;
+            } catch (err) {
+              // Skip duplicate accounts
+            }
+          }
+          
+          console.log(`[CLIO IMPORT] Trust accounts saved: ${trustAccountsCount}`);
+          
+          // Now fetch trust transactions if we have accounts
+          if (trustAccountsCount > 0) {
+            try {
+              const transactions = await clioGetPaginated(accessToken, '/bank_transactions.json', {
+                fields: 'id,date,amount,description,type,balance,bank_account{id},matter{id,display_number},contact{id,name},created_at'
+              }, null);
+              
+              console.log(`[CLIO IMPORT] Bank transactions fetched from Clio: ${transactions.length}`);
+              
+              for (const tx of transactions) {
+                try {
+                  const trustAccountId = tx.bank_account?.id ? trustAccountMap.get(`clio:${tx.bank_account.id}`) : null;
+                  if (!trustAccountId) continue;
+                  
+                  const matterId = tx.matter?.id ? matterIdMap.get(`clio:${tx.matter.id}`) : null;
+                  const clientId = tx.contact?.id ? contactIdMap.get(`clio:${tx.contact.id}`) : null;
+                  
+                  // Map Clio type to our transaction types
+                  let txType = 'deposit';
+                  if (tx.type) {
+                    const t = tx.type.toLowerCase();
+                    if (t.includes('withdraw') || t.includes('disbursement') || t.includes('payment')) txType = 'withdrawal';
+                    else if (t.includes('transfer')) txType = 'transfer';
+                    else if (t.includes('interest')) txType = 'interest';
+                    else if (t.includes('fee')) txType = 'fee';
+                  }
+                  
+                  // Determine sign based on transaction type
+                  let amount = parseFloat(tx.amount) || 0;
+                  if (txType === 'withdrawal' && amount > 0) amount = -amount;
+                  
+                  await query(
+                    `INSERT INTO trust_transactions (trust_account_id, client_id, matter_id, type, amount, description, created_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                    [
+                      trustAccountId,
+                      clientId,
+                      matterId,
+                      txType,
+                      Math.abs(amount),
+                      tx.description || 'Trust transaction from Clio',
+                      tx.date || tx.created_at || new Date().toISOString()
+                    ]
+                  );
+                  trustTransactionsCount++;
+                } catch (err) {
+                  // Skip errors
+                }
+              }
+              
+              console.log(`[CLIO IMPORT] Trust transactions saved: ${trustTransactionsCount}`);
+              
+            } catch (err) {
+              console.log(`[CLIO IMPORT] Trust transactions error: ${err.message}`);
+            }
+          }
+          
+        } catch (err) {
+          console.log(`[CLIO IMPORT] Trust accounts error (non-fatal): ${err.message}`);
+        }
+        
+        // ============================================
+        // STEP 10: ENHANCE INVOICES WITH LINE ITEMS
+        // ============================================
+        console.log('[CLIO IMPORT] Step 10/10: Fetching invoice line items...');
+        let lineItemsCount = 0;
+        
+        try {
+          // Fetch line items from Clio - these show what's on each bill
+          const lineItems = await clioGetPaginated(accessToken, '/line_items.json', {
+            fields: 'id,type,description,quantity,rate,total,date,bill{id,number},matter{id},activity{id,type},created_at'
+          }, null);
+          
+          console.log(`[CLIO IMPORT] Line items fetched from Clio: ${lineItems.length}`);
+          
+          // Group line items by bill ID
+          const billLineItems = new Map(); // clioId -> array of line items
+          
+          for (const li of lineItems) {
+            if (!li.bill?.id) continue;
+            
+            const billId = String(li.bill.id);
+            if (!billLineItems.has(billId)) {
+              billLineItems.set(billId, []);
+            }
+            
+            billLineItems.get(billId).push({
+              type: li.type || 'time',
+              description: li.description || '',
+              quantity: parseFloat(li.quantity) || 0,
+              rate: parseFloat(li.rate) || 0,
+              total: parseFloat(li.total) || 0,
+              date: li.date || null
+            });
+          }
+          
+          // Update invoices with line items
+          const invoiceResults = await query('SELECT id, number FROM invoices WHERE firm_id = $1', [firmId]);
+          
+          for (const inv of invoiceResults.rows) {
+            // Extract Clio ID from number format
+            const parts = inv.number.split('-');
+            const clioId = parts[parts.length - 1];
+            
+            const items = billLineItems.get(clioId);
+            if (items && items.length > 0) {
+              await query(
+                'UPDATE invoices SET line_items = $1 WHERE id = $2',
+                [JSON.stringify(items), inv.id]
+              );
+              lineItemsCount += items.length;
+            }
+          }
+          
+          console.log(`[CLIO IMPORT] Line items added to invoices: ${lineItemsCount}`);
+          
+        } catch (err) {
+          console.log(`[CLIO IMPORT] Line items error (non-fatal): ${err.message}`);
+        }
+        
+        // ============================================
         // COMPLETE
         // ============================================
         // Note: Documents are NOT imported via API - firms drag files from Clio Drive to Apex Drive
@@ -3668,6 +3918,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             bills: counts.bills,
             calendar: counts.calendar,
             notes: notesCount,
+            payments: paymentsCount,
+            trustAccounts: trustAccountsCount,
+            trustTransactions: trustTransactionsCount,
+            lineItems: lineItemsCount,
             warnings: warnings.length,
             userCredentials: userCredentials // Store credentials for portal display
           };
