@@ -4,7 +4,7 @@ import { adminApi } from '../services/api'
 import { 
   Building2, Users, Plus, Edit, Trash2, Search, 
   ChevronRight, BarChart3, FileText, Clock, X,
-  Shield, Eye, EyeOff, ArrowLeft, Link2, Save, CheckCircle2, AlertCircle
+  Shield, Eye, EyeOff, ArrowLeft, Link2, Save, CheckCircle2, AlertCircle, FolderSync
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -94,6 +94,10 @@ export function AdminPortalPage() {
   const [integrationSettings, setIntegrationSettings] = useState<Record<string, any>>({})
   const [savingIntegrations, setSavingIntegrations] = useState(false)
   const [integrationMessage, setIntegrationMessage] = useState<{type: 'success' | 'error', text: string} | null>(null)
+  
+  // Document scan state
+  const [scanningFirmId, setScanningFirmId] = useState<string | null>(null)
+  const [scanResult, setScanResult] = useState<{firmId: string, message: string, success: boolean} | null>(null)
 
   useEffect(() => {
     loadData()
