@@ -15,7 +15,7 @@ import {
   getDateInTimezone
 } from '../utils/dateUtils.js';
 import { extractTextFromFile } from './documents.js';
-import { uploadFile, isAzureConfigured } from '../utils/azureStorage.js';
+import { uploadFile, downloadFile, isAzureConfigured } from '../utils/azureStorage.js';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
@@ -4277,7 +4277,8 @@ async function readDocumentContent(args, user) {
   }
   
   const result = await query(
-    `SELECT d.id, d.name, d.type, d.content_text, d.ai_summary, d.path, m.name as matter_name
+    `SELECT d.id, d.name, d.original_name, d.type, d.content_text, d.ai_summary, d.path, 
+            d.azure_path, d.external_path, d.folder_path, m.name as matter_name
      FROM documents d
      LEFT JOIN matters m ON d.matter_id = m.id
      WHERE d.id = $1 AND d.firm_id = $2`,
@@ -4289,9 +4290,10 @@ async function readDocumentContent(args, user) {
   }
   
   const doc = result.rows[0];
+  const fileName = doc.original_name || doc.name || 'document';
   
   // If we have extracted content, return it
-  if (doc.content_text) {
+  if (doc.content_text && doc.content_text.trim().length > 0) {
     const content = doc.content_text.substring(0, Math.min(parseInt(max_length), 50000));
     return {
       id: doc.id,
@@ -4304,7 +4306,104 @@ async function readDocumentContent(args, user) {
     };
   }
   
-  // If we have an AI summary but no content, return that
+  // No stored content - try to extract on-demand
+  // FIRST: Try Azure (that's where documents are stored!)
+  let fileBuffer = null;
+  let extractedContent = null;
+  
+  try {
+    const azureEnabled = await isAzureConfigured();
+    if (azureEnabled) {
+      // Try multiple possible Azure paths
+      const possiblePaths = [
+        doc.azure_path,
+        doc.external_path,
+        doc.path,
+        doc.folder_path ? `${doc.folder_path}/${fileName}` : null
+      ].filter(Boolean);
+      
+      for (const azurePath of possiblePaths) {
+        try {
+          console.log(`[AI Agent] Trying Azure path: ${azurePath}`);
+          fileBuffer = await downloadFile(azurePath, user.firmId);
+          if (fileBuffer && fileBuffer.length > 0) {
+            console.log(`[AI Agent] Got ${fileBuffer.length} bytes from Azure for ${doc.name}`);
+            break;
+          }
+        } catch (e) {
+          console.log(`[AI Agent] Azure path ${azurePath} failed: ${e.message}`);
+        }
+      }
+    }
+  } catch (azureError) {
+    console.error(`[AI Agent] Azure download failed for ${doc.name}:`, azureError.message);
+  }
+  
+  // If we got a buffer from Azure, extract text from it
+  if (fileBuffer && fileBuffer.length > 0) {
+    try {
+      const ext = path.extname(fileName).toLowerCase();
+      
+      if (ext === '.pdf') {
+        // Dynamic import for PDF parsing
+        const pdfParse = (await import('pdf-parse')).default;
+        const pdfData = await pdfParse(fileBuffer);
+        extractedContent = pdfData.text;
+      } else if (ext === '.docx') {
+        const mammoth = (await import('mammoth')).default;
+        const result = await mammoth.extractRawText({ buffer: fileBuffer });
+        extractedContent = result.value;
+      } else if (['.txt', '.md', '.json', '.csv', '.xml', '.html'].includes(ext)) {
+        extractedContent = fileBuffer.toString('utf-8');
+      }
+      
+      if (extractedContent && extractedContent.trim().length > 0) {
+        console.log(`[AI Agent] Extracted ${extractedContent.length} chars from Azure file`);
+        // Save to database for future use
+        await query(
+          'UPDATE documents SET content_text = $1, content_extracted_at = NOW() WHERE id = $2',
+          [extractedContent.substring(0, 100000), doc.id]
+        );
+      }
+    } catch (extractError) {
+      console.error(`[AI Agent] Text extraction from Azure buffer failed:`, extractError.message);
+    }
+  }
+  
+  // FALLBACK: Try local file if Azure didn't work
+  if (!extractedContent && doc.path) {
+    try {
+      console.log(`[AI Agent] Falling back to local path: ${doc.path}`);
+      extractedContent = await extractTextFromFile(doc.path, fileName);
+      
+      if (extractedContent && extractedContent.trim().length > 0) {
+        // Save to database for future use
+        await query(
+          'UPDATE documents SET content_text = $1, content_extracted_at = NOW() WHERE id = $2',
+          [extractedContent.substring(0, 100000), doc.id]
+        );
+      }
+    } catch (extractError) {
+      console.error(`[AI Agent] Local extraction failed for ${doc.name}:`, extractError.message);
+    }
+  }
+  
+  // Return extracted content if we got any
+  if (extractedContent && extractedContent.trim().length > 0) {
+    const content = extractedContent.substring(0, Math.min(parseInt(max_length), 50000));
+    return {
+      id: doc.id,
+      name: doc.name,
+      type: doc.type,
+      matter: doc.matter_name,
+      content: content,
+      truncated: extractedContent.length > content.length,
+      total_length: extractedContent.length,
+      note: 'Content extracted on-demand and saved for future use.'
+    };
+  }
+  
+  // If we have an AI summary but no extractable content, return that
   if (doc.ai_summary) {
     return {
       id: doc.id,
@@ -4313,38 +4412,8 @@ async function readDocumentContent(args, user) {
       matter: doc.matter_name,
       content: null,
       summary: doc.ai_summary,
-      note: 'Full text content not yet extracted. Summary available.'
+      note: 'Full text content not extractable. Summary available.'
     };
-  }
-  
-  // No content in database - try to extract on-demand if we have a file path
-  if (doc.path) {
-    try {
-      console.log(`[AI Agent] On-demand extraction for document: ${doc.name}`);
-      const extractedContent = await extractTextFromFile(doc.path, doc.name);
-      
-      if (extractedContent && extractedContent.trim().length > 0) {
-        // Save to database for future use
-        await query(
-          'UPDATE documents SET content_text = $1, content_extracted_at = NOW() WHERE id = $2',
-          [extractedContent, doc.id]
-        );
-        
-        const content = extractedContent.substring(0, Math.min(parseInt(max_length), 50000));
-        return {
-          id: doc.id,
-          name: doc.name,
-          type: doc.type,
-          matter: doc.matter_name,
-          content: content,
-          truncated: extractedContent.length > content.length,
-          total_length: extractedContent.length,
-          note: 'Content extracted on-demand and saved for future use.'
-        };
-      }
-    } catch (extractError) {
-      console.error(`[AI Agent] On-demand extraction failed for ${doc.name}:`, extractError.message);
-    }
   }
   
   // No content available and extraction failed
