@@ -241,7 +241,7 @@ export function MattersPage() {
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <h1>{viewFilter === 'my' ? 'My Matters' : 'All Matters'}</h1>
-          <span className={styles.count}>{matters.length} {viewFilter === 'my' ? 'assigned to you' : 'total'}</span>
+          <span className={styles.count}>{matters.length} total</span>
         </div>
         <div className={styles.headerActions}>
           <button 

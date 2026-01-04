@@ -162,7 +162,7 @@ export function ClientsPage() {
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <h1>{viewFilter === 'my' ? 'My Clients' : 'All Clients'}</h1>
-          <span className={styles.count}>{filteredClients.length} {viewFilter === 'my' ? 'assigned to you' : 'total'}</span>
+          <span className={styles.count}>{filteredClients.length} total</span>
         </div>
         <div className={styles.headerActions}>
           <button 
