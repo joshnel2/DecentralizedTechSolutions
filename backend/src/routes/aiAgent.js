@@ -744,7 +744,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "read_document_content",
-      description: "Read the text content of a document. Use this to see what's actually inside a document (contracts, pleadings, letters, etc.). Works best with PDFs, Word docs, and text files.",
+      description: "Read the text content of a document by ID. Use this to see what's actually inside a document (contracts, pleadings, letters, etc.). Works best with PDFs, Word docs, and text files.",
       parameters: {
         type: "object",
         properties: {
@@ -752,6 +752,22 @@ const TOOLS = [
           max_length: { type: "number", description: "Max characters to return (default 10000, max 50000)" }
         },
         required: ["document_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "find_and_read_document",
+      description: "Find a document by name and read its content. Use this when user asks about a document by name (e.g., 'What's in the Smith contract?'). Searches document names and extracts text content.",
+      parameters: {
+        type: "object",
+        properties: {
+          document_name: { type: "string", description: "Name or partial name of the document to find (e.g., 'Smith contract', 'engagement letter')" },
+          matter_id: { type: "string", description: "Optional: limit search to specific matter" },
+          max_length: { type: "number", description: "Max characters to return (default 10000)" }
+        },
+        required: ["document_name"]
       }
     }
   },
@@ -1996,6 +2012,7 @@ async function executeTool(toolName, args, user, req = null) {
       case 'list_documents': return await listDocuments(args, user);
       case 'get_document': return await getDocument(args, user);
       case 'read_document_content': return await readDocumentContent(args, user);
+      case 'find_and_read_document': return await findAndReadDocument(args, user);
       case 'analyze_image': return await analyzeImage(args, user);
       case 'get_matter_documents_content': return await getMatterDocumentsContent(args, user);
       case 'search_document_content': return await searchDocumentContent(args, user);
@@ -4177,7 +4194,9 @@ async function listDocuments(args, user) {
   const { matter_id, client_id, search, source, limit = 20 } = args;
   
   let sql = `
-    SELECT d.id, d.name, d.file_type, d.file_size, d.status, d.created_at, d.external_source, d.external_url, m.name as matter_name, c.display_name as client_name
+    SELECT d.id, d.name, d.type, d.size, d.status, d.created_at, d.uploaded_at, 
+           d.external_source, d.external_url, d.content_text IS NOT NULL as has_content,
+           m.name as matter_name, c.display_name as client_name
     FROM documents d
     LEFT JOIN matters m ON d.matter_id = m.id
     LEFT JOIN clients c ON d.client_id = c.id
@@ -4208,7 +4227,7 @@ async function listDocuments(args, user) {
     }
   }
   
-  sql += ` ORDER BY d.created_at DESC LIMIT ${Math.min(parseInt(limit), 50)}`;
+  sql += ` ORDER BY d.uploaded_at DESC NULLS LAST, d.created_at DESC LIMIT ${Math.min(parseInt(limit), 50)}`;
   
   const result = await query(sql, params);
   
@@ -4216,14 +4235,15 @@ async function listDocuments(args, user) {
     documents: result.rows.map(d => ({
       id: d.id,
       name: d.name,
-      type: d.file_type,
-      size: d.file_size,
+      type: d.type,
+      size: d.size,
       status: d.status,
       matter: d.matter_name,
       client: d.client_name,
       source: d.external_source || 'local',
       external_url: d.external_url,
-      uploaded_at: d.created_at
+      has_content: d.has_content,
+      uploaded_at: d.uploaded_at || d.created_at
     })),
     count: result.rows.length
   };
@@ -4424,6 +4444,162 @@ async function readDocumentContent(args, user) {
     matter: doc.matter_name,
     content: null,
     note: 'Document content could not be extracted. The file may be a scanned image or unsupported format.'
+  };
+}
+
+async function findAndReadDocument(args, user) {
+  const { document_name, matter_id, max_length = 10000 } = args;
+  
+  if (!document_name || document_name.length < 2) {
+    return { error: 'document_name must be at least 2 characters' };
+  }
+  
+  // Search for the document by name
+  let sql = `
+    SELECT d.id, d.name, d.original_name, d.type, d.content_text, d.ai_summary, d.path,
+           d.azure_path, d.external_path, d.folder_path, m.name as matter_name
+    FROM documents d
+    LEFT JOIN matters m ON d.matter_id = m.id
+    WHERE d.firm_id = $1 AND (d.name ILIKE $2 OR d.original_name ILIKE $2)
+  `;
+  const params = [user.firmId, `%${document_name}%`];
+  
+  if (matter_id) {
+    sql += ` AND d.matter_id = $3`;
+    params.push(matter_id);
+  }
+  
+  sql += ` ORDER BY d.uploaded_at DESC NULLS LAST LIMIT 5`;
+  
+  const result = await query(sql, params);
+  
+  if (result.rows.length === 0) {
+    return { 
+      error: `No documents found matching "${document_name}"`,
+      suggestion: 'Try using list_documents to see all available documents, or check the exact document name.'
+    };
+  }
+  
+  // If multiple matches, list them and read the first one
+  const matches = result.rows;
+  const doc = matches[0];
+  const fileName = doc.original_name || doc.name || 'document';
+  
+  // If we have stored content, return it
+  if (doc.content_text && doc.content_text.trim().length > 0) {
+    const content = doc.content_text.substring(0, Math.min(parseInt(max_length), 50000));
+    return {
+      id: doc.id,
+      name: doc.name,
+      type: doc.type,
+      matter: doc.matter_name,
+      content: content,
+      truncated: doc.content_text.length > content.length,
+      total_length: doc.content_text.length,
+      other_matches: matches.length > 1 ? matches.slice(1).map(m => ({ id: m.id, name: m.name })) : null
+    };
+  }
+  
+  // No stored content - try to extract on-demand
+  let fileBuffer = null;
+  let extractedContent = null;
+  
+  // Try Azure first
+  try {
+    const azureEnabled = await isAzureConfigured();
+    if (azureEnabled) {
+      const possiblePaths = [
+        doc.azure_path,
+        doc.external_path,
+        doc.path,
+        doc.folder_path ? `${doc.folder_path}/${fileName}` : null
+      ].filter(Boolean);
+      
+      for (const azurePath of possiblePaths) {
+        try {
+          fileBuffer = await downloadFile(azurePath, user.firmId);
+          if (fileBuffer && fileBuffer.length > 0) {
+            console.log(`[AI Agent] Got ${fileBuffer.length} bytes from Azure for ${doc.name}`);
+            break;
+          }
+        } catch (e) {
+          // Try next path
+        }
+      }
+    }
+  } catch (e) {
+    console.error(`[AI Agent] Azure download failed:`, e.message);
+  }
+  
+  // Extract text from buffer
+  if (fileBuffer && fileBuffer.length > 0) {
+    try {
+      const ext = path.extname(fileName).toLowerCase();
+      
+      if (ext === '.pdf') {
+        const pdfParse = (await import('pdf-parse')).default;
+        const pdfData = await pdfParse(fileBuffer);
+        extractedContent = pdfData.text;
+      } else if (ext === '.docx') {
+        const mammoth = (await import('mammoth')).default;
+        const result = await mammoth.extractRawText({ buffer: fileBuffer });
+        extractedContent = result.value;
+      } else if (['.txt', '.md', '.json', '.csv', '.xml', '.html'].includes(ext)) {
+        extractedContent = fileBuffer.toString('utf-8');
+      }
+      
+      if (extractedContent && extractedContent.trim().length > 0) {
+        // Save to database for future use
+        await query(
+          'UPDATE documents SET content_text = $1, content_extracted_at = NOW() WHERE id = $2',
+          [extractedContent.substring(0, 100000), doc.id]
+        );
+      }
+    } catch (e) {
+      console.error(`[AI Agent] Text extraction failed:`, e.message);
+    }
+  }
+  
+  // Fallback to local file
+  if (!extractedContent && doc.path) {
+    try {
+      extractedContent = await extractTextFromFile(doc.path, fileName);
+      if (extractedContent && extractedContent.trim().length > 0) {
+        await query(
+          'UPDATE documents SET content_text = $1, content_extracted_at = NOW() WHERE id = $2',
+          [extractedContent.substring(0, 100000), doc.id]
+        );
+      }
+    } catch (e) {
+      console.error(`[AI Agent] Local extraction failed:`, e.message);
+    }
+  }
+  
+  if (extractedContent && extractedContent.trim().length > 0) {
+    const content = extractedContent.substring(0, Math.min(parseInt(max_length), 50000));
+    return {
+      id: doc.id,
+      name: doc.name,
+      type: doc.type,
+      matter: doc.matter_name,
+      content: content,
+      truncated: extractedContent.length > content.length,
+      total_length: extractedContent.length,
+      note: 'Content extracted on-demand.',
+      other_matches: matches.length > 1 ? matches.slice(1).map(m => ({ id: m.id, name: m.name })) : null
+    };
+  }
+  
+  // Return what we have even without content
+  return {
+    id: doc.id,
+    name: doc.name,
+    type: doc.type,
+    matter: doc.matter_name,
+    content: null,
+    summary: doc.ai_summary || null,
+    note: 'Could not extract document content. File may be an image, scanned PDF, or in an unsupported format.',
+    other_matches: matches.length > 1 ? matches.slice(1).map(m => ({ id: m.id, name: m.name })) : null
   };
 }
 
