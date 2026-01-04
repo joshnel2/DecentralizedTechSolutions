@@ -38,6 +38,7 @@ import billingRoutes from './routes/billing.js';
 import analyticsRoutes from './routes/analytics.js';
 import aiAgentRoutes, { resumeIncompleteTasks } from './routes/aiAgent.js';
 import stripeConnectRoutes from './routes/stripeConnect.js';
+import notificationRoutes from './routes/notifications.js';
 
 // Import middleware
 import { apiLimiter } from './middleware/rateLimit.js';
@@ -110,6 +111,7 @@ app.use('/api/v1/billing', billingRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/agent', aiAgentRoutes);
 app.use('/api/stripe/connect', stripeConnectRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

@@ -1853,6 +1853,82 @@ export const stripeApi = {
   },
 };
 
+// Notifications API
+export const notificationsApi = {
+  // Get user preferences
+  async getPreferences() {
+    return fetchWithAuth('/notifications/preferences');
+  },
+
+  // Update preferences
+  async updatePreferences(preferences: Record<string, unknown>) {
+    return fetchWithAuth('/notifications/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(preferences),
+    });
+  },
+
+  // Get notifications
+  async getNotifications(params?: { limit?: number; unread_only?: boolean }) {
+    const query = new URLSearchParams();
+    if (params?.limit) query.append('limit', params.limit.toString());
+    if (params?.unread_only) query.append('unread_only', 'true');
+    return fetchWithAuth(`/notifications?${query.toString()}`);
+  },
+
+  // Create notification
+  async create(notification: {
+    user_id?: string;
+    title: string;
+    message?: string;
+    type?: string;
+    priority?: string;
+    channels?: string[];
+    entity_type?: string;
+    entity_id?: string;
+    action_url?: string;
+  }) {
+    return fetchWithAuth('/notifications', {
+      method: 'POST',
+      body: JSON.stringify(notification),
+    });
+  },
+
+  // Mark as read
+  async markAsRead(notificationId: string) {
+    return fetchWithAuth(`/notifications/${notificationId}/read`, {
+      method: 'PUT',
+    });
+  },
+
+  // Mark all as read
+  async markAllAsRead() {
+    return fetchWithAuth('/notifications/read-all', {
+      method: 'PUT',
+    });
+  },
+
+  // Delete notification
+  async delete(notificationId: string) {
+    return fetchWithAuth(`/notifications/${notificationId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // Test SMS
+  async testSms(phone: string) {
+    return fetchWithAuth('/notifications/test-sms', {
+      method: 'POST',
+      body: JSON.stringify({ phone }),
+    });
+  },
+
+  // Get templates
+  async getTemplates() {
+    return fetchWithAuth('/notifications/templates');
+  },
+};
+
 // Export all APIs
 export default {
   auth: authApi,
@@ -1878,4 +1954,5 @@ export default {
   wordOnline: wordOnlineApi,
   analytics: analyticsApi,
   stripe: stripeApi,
+  notifications: notificationsApi,
 };

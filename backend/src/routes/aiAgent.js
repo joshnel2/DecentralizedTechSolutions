@@ -1945,6 +1945,106 @@ const TOOLS = [
         required: []
       }
     }
+  },
+
+  // ===================== NOTIFICATIONS =====================
+  {
+    type: "function",
+    function: {
+      name: "send_notification",
+      description: "Send a notification to users. Can send in-app, email, or SMS notifications. Use this when you need to alert users about important events, reminders, or updates.",
+      parameters: {
+        type: "object",
+        properties: {
+          user_id: { 
+            type: "string", 
+            description: "UUID of the user to notify, or 'all' for all firm users, or 'self' for the current user" 
+          },
+          title: { type: "string", description: "Notification title (required)" },
+          message: { type: "string", description: "Notification message body" },
+          type: { 
+            type: "string", 
+            enum: ["general", "deadline_reminder", "matter_update", "payment_received", "document_update", "urgent", "ai_insight"],
+            description: "Type of notification (affects icon and styling)" 
+          },
+          priority: { 
+            type: "string", 
+            enum: ["low", "normal", "high", "urgent"],
+            description: "Priority level. Urgent notifications bypass quiet hours." 
+          },
+          channels: { 
+            type: "array", 
+            items: { type: "string", enum: ["in_app", "email", "sms"] },
+            description: "Delivery channels. Defaults to ['in_app']. Use ['in_app', 'email', 'sms'] for urgent matters." 
+          },
+          entity_type: { type: "string", description: "Related entity type (matter, client, invoice, etc.)" },
+          entity_id: { type: "string", description: "UUID of the related entity" },
+          action_url: { type: "string", description: "URL to open when notification is clicked" }
+        },
+        required: ["title"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_notifications",
+      description: "Get user's notifications. Use this to check unread notifications or review notification history.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "integer", description: "Number to return (default 20)" },
+          unread_only: { type: "boolean", description: "Only return unread notifications" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "schedule_notification",
+      description: "Schedule a notification to be sent at a future time. Useful for reminders about deadlines, events, or follow-ups.",
+      parameters: {
+        type: "object",
+        properties: {
+          user_id: { type: "string", description: "UUID of user to notify, 'all', or 'self'" },
+          title: { type: "string", description: "Notification title" },
+          message: { type: "string", description: "Notification message" },
+          scheduled_for: { type: "string", description: "When to send (ISO 8601 format, e.g., '2024-01-15T09:00:00Z')" },
+          type: { type: "string", enum: ["deadline_reminder", "calendar_reminder", "follow_up", "general"] },
+          channels: { 
+            type: "array", 
+            items: { type: "string", enum: ["in_app", "email", "sms"] }
+          },
+          entity_type: { type: "string", description: "Related entity type" },
+          entity_id: { type: "string", description: "UUID of related entity" }
+        },
+        required: ["title", "scheduled_for"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_deadline_reminder",
+      description: "Send a reminder about an upcoming deadline. Automatically includes matter details and sends via appropriate channels based on urgency.",
+      parameters: {
+        type: "object",
+        properties: {
+          matter_id: { type: "string", description: "UUID of the matter with the deadline" },
+          deadline_date: { type: "string", description: "The deadline date (YYYY-MM-DD)" },
+          deadline_description: { type: "string", description: "Description of what's due" },
+          user_ids: { 
+            type: "array", 
+            items: { type: "string" },
+            description: "UUIDs of users to notify (defaults to matter team)" 
+          },
+          include_sms: { type: "boolean", description: "Also send SMS if within 24 hours" }
+        },
+        required: ["matter_id", "deadline_date", "deadline_description"]
+      }
+    }
   }
 ];
 
@@ -2118,6 +2218,12 @@ async function executeTool(toolName, args, user, req = null) {
       case 'get_quicken_summary': return await getQuickenSummary(args, user);
       case 'get_quicken_transactions': return await getQuickenTransactions(args, user);
       case 'get_quicken_accounts': return await getQuickenAccounts(args, user);
+      
+      // Notifications
+      case 'send_notification': return await sendNotification(args, user);
+      case 'get_notifications': return await getNotifications(args, user);
+      case 'schedule_notification': return await scheduleNotification(args, user);
+      case 'send_deadline_reminder': return await sendDeadlineReminder(args, user);
       
       default:
         return { error: `Unknown tool: ${toolName}` };
@@ -10863,6 +10969,282 @@ async function getQuickenAccounts(args, user) {
     message: 'Quicken accounts connected.',
     account: auth.name || auth.email,
     note: 'Account data is available in your connected Quicken account.'
+  };
+}
+
+// =============================================================================
+// NOTIFICATION FUNCTIONS
+// =============================================================================
+async function sendNotification(args, user) {
+  const { 
+    user_id, 
+    title, 
+    message, 
+    type = 'general', 
+    priority = 'normal',
+    channels = ['in_app'],
+    entity_type,
+    entity_id,
+    action_url
+  } = args;
+  
+  if (!title) {
+    return { error: 'Title is required for notifications' };
+  }
+  
+  // Determine target user(s)
+  let targetUserIds = [];
+  if (user_id === 'self' || !user_id) {
+    targetUserIds = [user.userId];
+  } else if (user_id === 'all') {
+    const usersResult = await query(
+      `SELECT id FROM users WHERE firm_id = $1`,
+      [user.firmId]
+    );
+    targetUserIds = usersResult.rows.map(u => u.id);
+  } else if (Array.isArray(user_id)) {
+    targetUserIds = user_id;
+  } else {
+    targetUserIds = [user_id];
+  }
+  
+  const notifications = [];
+  
+  for (const targetUserId of targetUserIds) {
+    const result = await query(`
+      INSERT INTO notifications (
+        firm_id, user_id, type, title, message, priority,
+        entity_type, entity_id, action_url, triggered_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING id, title, message, type, priority, created_at
+    `, [
+      user.firmId, targetUserId, type, title, message, priority,
+      entity_type, entity_id, action_url, user.userId
+    ]);
+    
+    notifications.push(result.rows[0]);
+    
+    // Queue additional delivery channels
+    for (const channel of channels) {
+      if (channel !== 'in_app') {
+        // Get user preferences
+        const prefsResult = await query(
+          `SELECT sms_enabled, sms_phone, email_immediate FROM notification_preferences WHERE user_id = $1`,
+          [targetUserId]
+        );
+        const prefs = prefsResult.rows[0] || {};
+        
+        // Get user contact info
+        const userResult = await query(
+          `SELECT email, phone FROM users WHERE id = $1`,
+          [targetUserId]
+        );
+        const targetUser = userResult.rows[0] || {};
+        
+        if (channel === 'email' && (prefs.email_immediate || priority === 'urgent')) {
+          await query(`
+            INSERT INTO notification_deliveries (
+              notification_id, firm_id, user_id, channel, status, email_to, email_subject
+            ) VALUES ($1, $2, $3, 'email', 'pending', $4, $5)
+          `, [result.rows[0].id, user.firmId, targetUserId, targetUser.email, title]);
+          
+          console.log(`📧 Email queued for ${targetUser.email}: ${title}`);
+        }
+        
+        if (channel === 'sms' && prefs.sms_enabled && (prefs.sms_phone || targetUser.phone)) {
+          const phone = prefs.sms_phone || targetUser.phone;
+          await query(`
+            INSERT INTO notification_deliveries (
+              notification_id, firm_id, user_id, channel, status, sms_to
+            ) VALUES ($1, $2, $3, 'sms', 'pending', $4)
+          `, [result.rows[0].id, user.firmId, targetUserId, phone]);
+          
+          console.log(`📱 SMS queued for ${phone}: ${title}`);
+        }
+      }
+    }
+  }
+  
+  return {
+    success: true,
+    message: `Notification sent to ${notifications.length} user(s)`,
+    notifications,
+    channels_used: channels
+  };
+}
+
+async function getNotifications(args, user) {
+  const { limit = 20, unread_only = false } = args;
+  
+  let queryStr = `
+    SELECT n.id, n.type, n.title, n.message, n.priority, n.entity_type, n.entity_id,
+           n.action_url, n.read_at, n.created_at,
+           u.name as triggered_by_name
+    FROM notifications n
+    LEFT JOIN users u ON n.triggered_by = u.id
+    WHERE n.user_id = $1 AND n.firm_id = $2
+  `;
+  const params = [user.userId, user.firmId];
+  
+  if (unread_only) {
+    queryStr += ` AND n.read_at IS NULL`;
+  }
+  
+  queryStr += ` ORDER BY n.created_at DESC LIMIT $3`;
+  params.push(limit);
+  
+  const result = await query(queryStr, params);
+  
+  // Get unread count
+  const countResult = await query(
+    `SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND firm_id = $2 AND read_at IS NULL`,
+    [user.userId, user.firmId]
+  );
+  
+  return {
+    notifications: result.rows,
+    unread_count: parseInt(countResult.rows[0].count),
+    total: result.rows.length
+  };
+}
+
+async function scheduleNotification(args, user) {
+  const { 
+    user_id, 
+    title, 
+    message, 
+    scheduled_for,
+    type = 'general',
+    channels = ['in_app'],
+    entity_type,
+    entity_id
+  } = args;
+  
+  if (!title || !scheduled_for) {
+    return { error: 'Title and scheduled_for are required' };
+  }
+  
+  // Determine target
+  let targetUserId = user.userId;
+  if (user_id && user_id !== 'self') {
+    targetUserId = user_id === 'all' ? null : user_id;
+  }
+  
+  const result = await query(`
+    INSERT INTO notifications (
+      firm_id, user_id, type, title, message, priority,
+      entity_type, entity_id, scheduled_for, triggered_by,
+      metadata
+    ) VALUES ($1, $2, $3, $4, $5, 'normal', $6, $7, $8, $9, $10)
+    RETURNING id, title, scheduled_for
+  `, [
+    user.firmId, 
+    targetUserId || user.userId,
+    type, 
+    title, 
+    message,
+    entity_type, 
+    entity_id, 
+    scheduled_for, 
+    user.userId,
+    JSON.stringify({ channels, target: user_id === 'all' ? 'all_users' : 'specific' })
+  ]);
+  
+  return {
+    success: true,
+    message: `Notification scheduled for ${new Date(scheduled_for).toLocaleString()}`,
+    notification: result.rows[0]
+  };
+}
+
+async function sendDeadlineReminder(args, user) {
+  const { matter_id, deadline_date, deadline_description, user_ids, include_sms = false } = args;
+  
+  if (!matter_id || !deadline_date || !deadline_description) {
+    return { error: 'matter_id, deadline_date, and deadline_description are required' };
+  }
+  
+  // Get matter details
+  const matterResult = await query(
+    `SELECT m.name, m.number, c.name as client_name 
+     FROM matters m 
+     LEFT JOIN clients c ON m.client_id = c.id 
+     WHERE m.id = $1 AND m.firm_id = $2`,
+    [matter_id, user.firmId]
+  );
+  
+  if (matterResult.rows.length === 0) {
+    return { error: 'Matter not found' };
+  }
+  
+  const matter = matterResult.rows[0];
+  
+  // Determine target users
+  let targetUserIds = user_ids;
+  if (!targetUserIds || targetUserIds.length === 0) {
+    // Default to matter team members
+    const teamResult = await query(
+      `SELECT user_id FROM matter_team_members WHERE matter_id = $1`,
+      [matter_id]
+    );
+    targetUserIds = teamResult.rows.map(t => t.user_id);
+    
+    // If no team, notify the assigned attorney or current user
+    if (targetUserIds.length === 0) {
+      targetUserIds = [user.userId];
+    }
+  }
+  
+  // Calculate urgency
+  const deadlineTs = new Date(deadline_date).getTime();
+  const now = Date.now();
+  const hoursUntil = (deadlineTs - now) / (1000 * 60 * 60);
+  
+  let priority = 'normal';
+  if (hoursUntil < 4) {
+    priority = 'urgent';
+  } else if (hoursUntil < 24) {
+    priority = 'high';
+  }
+  
+  // Determine channels
+  const channels = ['in_app', 'email'];
+  if (include_sms || hoursUntil < 24) {
+    channels.push('sms');
+  }
+  
+  // Format the message
+  const title = `⏰ Deadline Reminder: ${matter.name}`;
+  const message = `${deadline_description}\n\nMatter: ${matter.number ? `#${matter.number} - ` : ''}${matter.name}${matter.client_name ? `\nClient: ${matter.client_name}` : ''}\nDue: ${new Date(deadline_date).toLocaleDateString()}`;
+  
+  // Send to all target users
+  const notifications = [];
+  for (const targetUserId of targetUserIds) {
+    const result = await sendNotification({
+      user_id: targetUserId,
+      title,
+      message,
+      type: 'deadline_reminder',
+      priority,
+      channels,
+      entity_type: 'matter',
+      entity_id: matter_id,
+      action_url: `/app/matters/${matter_id}`
+    }, user);
+    
+    if (result.success) {
+      notifications.push(...result.notifications);
+    }
+  }
+  
+  return {
+    success: true,
+    message: `Deadline reminder sent to ${notifications.length} user(s)`,
+    matter: matter.name,
+    deadline: deadline_date,
+    priority,
+    channels_used: channels,
+    users_notified: notifications.length
   };
 }
 
