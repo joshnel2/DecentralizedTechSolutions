@@ -110,12 +110,19 @@
 .contextBar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   padding: 10px 20px;
   background: rgba(245, 158, 11, 0.1);
   border-bottom: 1px solid rgba(245, 158, 11, 0.2);
   font-size: 13px;
   color: #94A3B8;
+}
+
+.contextInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .contextPage {
@@ -125,7 +132,6 @@
 }
 
 .modeToggle {
-  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -154,6 +160,16 @@
   background: rgba(16, 185, 129, 0.25);
 }
 
+.modeToggle.backgroundMode {
+  background: rgba(147, 51, 234, 0.2);
+  border-color: rgba(147, 51, 234, 0.5);
+  color: #A855F7;
+}
+
+.modeToggle.backgroundMode:hover {
+  background: rgba(147, 51, 234, 0.3);
+}
+
 .actionTaken {
   display: inline-flex;
   align-items: center;
@@ -165,6 +181,26 @@
   font-size: 11px;
   font-weight: 500;
   margin-bottom: 8px;
+}
+
+.backgroundAgentDeployed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: linear-gradient(135deg, rgba(147, 51, 234, 0.2), rgba(168, 85, 247, 0.15));
+  border: 1px solid rgba(147, 51, 234, 0.3);
+  border-radius: 6px;
+  color: #A855F7;
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  animation: glow 2s ease-in-out infinite;
+}
+
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(147, 51, 234, 0.3); }
+  50% { box-shadow: 0 0 16px rgba(147, 51, 234, 0.5); }
 }
 
 /* Navigation Button - shown when AI wants to navigate user somewhere */

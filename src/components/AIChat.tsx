@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Mail } from 'lucide-react'
+import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Mail, Bot } from 'lucide-react'
 import { aiApi, documentsApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import styles from './AIChat.module.css'
@@ -30,6 +30,8 @@ interface Message {
   content: string
   timestamp: Date
   toolsUsed?: boolean  // Indicates if AI took an action
+  backgroundTaskStarted?: boolean  // Indicates if background task was started
+  backgroundTask?: { taskId: string; goal: string }
   navigation?: NavigationInfo  // Navigation command from AI
   attachedFile?: { name: string; type: string }  // File that was attached
 }
@@ -79,6 +81,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const [showSuggestions, setShowSuggestions] = useState(true)
   const [pendingNavigation, setPendingNavigation] = useState<NavigationInfo | null>(null)
   const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null)
+  const [useBackgroundAgent, setUseBackgroundAgent] = useState(false) // Background agent mode toggle
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const lastUserMessageRef = useRef<HTMLDivElement>(null)
@@ -228,7 +231,8 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
       response = await aiApi.agentChat(
         text || `Analyze and summarize this document: ${currentFile?.name}`, 
         conversationHistory, 
-        fileContext
+        fileContext,
+        useBackgroundAgent // Pass background agent mode
       )
 
       const assistantMessage: Message = {
@@ -237,10 +241,19 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         content: response.response,
         timestamp: new Date(),
         toolsUsed: response.toolsUsed,
+        backgroundTaskStarted: response.backgroundTaskStarted,
+        backgroundTask: response.backgroundTask,
         navigation: response.navigation,
       }
 
       setMessages(prev => [...prev, assistantMessage])
+      
+      // If background task started, trigger global progress bar
+      if (response.backgroundTaskStarted && response.backgroundTask) {
+        window.dispatchEvent(new CustomEvent('backgroundTaskStarted', { 
+          detail: response.backgroundTask 
+        }))
+      }
       
       // If there's a navigation command, set it as pending so user can click to navigate
       if (response.navigation) {
@@ -303,12 +316,22 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           </div>
         </div>
 
-        {/* Context indicator */}
+        {/* Context indicator with background toggle */}
         <div className={styles.contextBar}>
-          <span>Context:</span>
-          <span className={styles.contextPage}>
-            {chatContext?.label || currentPage.replace('-', ' ')}
-          </span>
+          <div className={styles.contextInfo}>
+            <span>Context:</span>
+            <span className={styles.contextPage}>
+              {chatContext?.label || currentPage.replace('-', ' ')}
+            </span>
+          </div>
+          <button 
+            className={`${styles.modeToggle} ${useBackgroundAgent ? styles.backgroundMode : ''}`}
+            onClick={() => setUseBackgroundAgent(!useBackgroundAgent)}
+            title={useBackgroundAgent ? "Background Agent: ON - Complex tasks run for up to 15 minutes" : "Background Agent: OFF - Quick responses"}
+          >
+            <Bot size={14} />
+            {useBackgroundAgent ? 'Background' : 'Quick'}
+          </button>
         </div>
 
         {/* Messages */}
@@ -376,7 +399,12 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
                             <span>{message.attachedFile.name}</span>
                           </div>
                         )}
-                        {message.toolsUsed && (
+                        {message.backgroundTaskStarted && (
+                          <div className={styles.backgroundAgentDeployed}>
+                            <Bot size={12} /> Background Agent Deployed
+                          </div>
+                        )}
+                        {message.toolsUsed && !message.backgroundTaskStarted && (
                           <div className={styles.actionTaken}>
                             <Zap size={12} /> Action taken
                           </div>

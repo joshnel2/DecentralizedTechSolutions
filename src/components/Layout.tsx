@@ -7,6 +7,7 @@ import { useTemplateStore } from '../stores/templateStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
 import { AIChat } from './AIChat'
+import { BackgroundTaskBar } from './BackgroundTaskBar'
 import { EmailCompose } from './EmailCompose'
 import { EmailComposeProvider } from '../contexts/EmailComposeContext'
 import { integrationsApi } from '../services/api'
@@ -493,6 +494,9 @@ export function Layout() {
         isOpen={aiChatOpen} 
         onClose={closeChat} 
       />
+      
+      {/* Background Task Progress Bar */}
+      <BackgroundTaskBar />
       
       {/* Global Email Compose (Gmail-style) */}
       <EmailCompose />
