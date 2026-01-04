@@ -15,7 +15,7 @@ import {
   getDateInTimezone
 } from '../utils/dateUtils.js';
 import { extractTextFromFile } from './documents.js';
-import { uploadFile, downloadFile, isAzureConfigured } from '../utils/azureStorage.js';
+import { uploadFile, downloadFile, deleteFile, isAzureConfigured } from '../utils/azureStorage.js';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
@@ -4464,25 +4464,46 @@ async function analyzeImage(args, user) {
   }
   
   try {
-    // Read the image file
-    let imageBuffer;
-    const filePath = doc.path || doc.azure_path;
+    // Read the image file - try Azure FIRST (that's where docs are stored)
+    let imageBuffer = null;
     
-    if (!filePath) {
-      return { error: 'Image file path not available.' };
+    // Try Azure first
+    try {
+      const azureEnabled = await isAzureConfigured();
+      if (azureEnabled) {
+        const possiblePaths = [
+          doc.azure_path,
+          doc.path,
+          doc.name
+        ].filter(Boolean);
+        
+        for (const azurePath of possiblePaths) {
+          try {
+            imageBuffer = await downloadFile(azurePath, user.firmId);
+            if (imageBuffer && imageBuffer.length > 0) {
+              console.log(`[AI Agent] Got image from Azure: ${azurePath}`);
+              break;
+            }
+          } catch (e) {
+            // Try next path
+          }
+        }
+      }
+    } catch (e) {
+      console.log('[AI Agent] Azure image download failed:', e.message);
     }
     
-    // Try to read from local path first
-    try {
-      imageBuffer = await fs.promises.readFile(filePath);
-    } catch (e) {
-      // If local read fails, try Azure
-      if (isAzureConfigured()) {
-        const { downloadFile } = await import('../utils/azureStorage.js');
-        imageBuffer = await downloadFile(user.firmId, doc.azure_path || doc.name);
-      } else {
-        return { error: 'Could not read image file.' };
+    // Fallback to local file
+    if (!imageBuffer && doc.path) {
+      try {
+        imageBuffer = await fs.promises.readFile(doc.path);
+      } catch (e) {
+        // Local file not found
       }
+    }
+    
+    if (!imageBuffer || imageBuffer.length === 0) {
+      return { error: 'Could not read image file from Azure or local storage.' };
     }
     
     const base64Image = imageBuffer.toString('base64');
@@ -5156,7 +5177,7 @@ async function deleteDocument(args, user) {
   }
   
   const docResult = await query(
-    'SELECT id, name, path FROM documents WHERE id = $1 AND firm_id = $2',
+    'SELECT id, name, path, azure_path, folder_path, original_name FROM documents WHERE id = $1 AND firm_id = $2',
     [document_id, user.firmId]
   );
   
@@ -5165,11 +5186,36 @@ async function deleteDocument(args, user) {
   }
   
   const doc = docResult.rows[0];
+  const fileName = doc.original_name || doc.name;
   
-  // Delete from database
+  // Delete from database first
   await query('DELETE FROM documents WHERE id = $1', [document_id]);
   
-  // Try to delete physical file if it exists
+  // Try to delete from Azure (that's where docs are stored)
+  try {
+    const azureEnabled = await isAzureConfigured();
+    if (azureEnabled) {
+      const possiblePaths = [
+        doc.azure_path,
+        doc.folder_path ? `${doc.folder_path}/${fileName}` : null,
+        doc.path
+      ].filter(Boolean);
+      
+      for (const azurePath of possiblePaths) {
+        try {
+          await deleteFile(azurePath, user.firmId);
+          console.log(`[AI Agent] Deleted from Azure: ${azurePath}`);
+          break;
+        } catch (e) {
+          // Try next path
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error deleting from Azure:', e.message);
+  }
+  
+  // Also try to delete local file if it exists
   if (doc.path) {
     try {
       const filePath = path.join(process.cwd(), doc.path);
@@ -5177,7 +5223,6 @@ async function deleteDocument(args, user) {
         fs.unlinkSync(filePath);
       }
     } catch (e) {
-      console.error('Error deleting physical file:', e);
       // Continue - database record is already deleted
     }
   }
@@ -8651,29 +8696,39 @@ async function sendEmail(args, user) {
         const doc = docResult.rows[0];
         const fileName = doc.original_name || doc.name;
         
-        // Try to get file content
+        // Try to get file content - Azure FIRST (that's where docs are stored)
         let fileBuffer = null;
         
-        // Try local file first
-        if (doc.path) {
-          try {
-            const fs = await import('fs/promises');
-            fileBuffer = await fs.readFile(doc.path);
-          } catch (e) {
-            // Local file not found, try Azure
+        // Try Azure first
+        try {
+          const azureEnabled = await isAzureConfigured();
+          if (azureEnabled) {
+            const possiblePaths = [
+              doc.azure_path,
+              doc.folder_path ? `${doc.folder_path}/${fileName}` : null,
+              doc.path
+            ].filter(Boolean);
+            
+            for (const azurePath of possiblePaths) {
+              try {
+                fileBuffer = await downloadFile(azurePath, user.firmId);
+                if (fileBuffer && fileBuffer.length > 0) break;
+              } catch (e) {
+                // Try next path
+              }
+            }
           }
+        } catch (e) {
+          console.error('Failed to download from Azure for attachment:', e.message);
         }
         
-        // Try Azure if local not found
-        if (!fileBuffer && (doc.azure_path || doc.folder_path)) {
+        // Fallback to local file
+        if (!fileBuffer && doc.path) {
           try {
-            const { downloadFile, isAzureConfigured } = await import('../utils/azureStorage.js');
-            if (await isAzureConfigured()) {
-              const azurePath = doc.azure_path || `${doc.folder_path}/${fileName}`;
-              fileBuffer = await downloadFile(azurePath, user.firmId);
-            }
+            const fsPromises = await import('fs/promises');
+            fileBuffer = await fsPromises.readFile(doc.path);
           } catch (e) {
-            console.error('Failed to download from Azure for attachment:', e.message);
+            // Local file not found
           }
         }
         
