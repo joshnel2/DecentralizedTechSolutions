@@ -61,6 +61,8 @@ import { TextMessagingPage } from './pages/TextMessagingPage'
 import { AIConfigPage } from './pages/AIConfigPage'
 import { ReportingSettingsPage } from './pages/ReportingSettingsPage'
 import { RedlineAIPage } from './pages/RedlineAIPage'
+import { ApexPayPage } from './pages/ApexPayPage'
+import { ApexPaySettingsPage } from './pages/ApexPaySettingsPage'
 // Drive Integration Pages
 import { ApexDrivePage } from './pages/ApexDrivePage'
 import { DriveBrowsePage } from './pages/DriveBrowsePage'
@@ -212,6 +214,7 @@ function AppContent() {
         <Route path="clients/:id" element={<ClientDetailPage />} />
         <Route path="calendar" element={<CalendarPage />} />
         <Route path="billing" element={<BillingPage />} />
+        <Route path="apex-pay" element={<ApexPayPage />} />
         <Route path="time" element={<TimeTrackingPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="documents" element={<DocumentsPage />} />
@@ -263,6 +266,7 @@ function AppContent() {
         <Route path="settings/referrals" element={<ReferralsPage />} />
         <Route path="settings/billing" element={<BillingSettingsPage />} />
         <Route path="settings/payments" element={<PaymentsSettingsPage />} />
+        <Route path="settings/apex-pay" element={<ApexPaySettingsPage />} />
         <Route path="settings/data-escrow" element={<DataEscrowPage />} />
         <Route path="settings/sharing" element={<SharingSettingsPage />} />
         <Route path="settings/text-messaging" element={<TextMessagingPage />} />
