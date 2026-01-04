@@ -204,9 +204,9 @@ export function BackgroundTaskBar() {
     }, 100)
   }
 
-  const handleBarClick = () => {
-    // Open AI chat when clicking on the progress bar (while task is running)
-    window.dispatchEvent(new CustomEvent('openAIChat'))
+  const handleViewProgress = () => {
+    // Navigate to AI Assistant page to view progress
+    navigate('/app/ai')
   }
 
   // Only render when there's an active task or recently completed task
@@ -217,8 +217,8 @@ export function BackgroundTaskBar() {
   return (
     <div className={`${styles.taskBar} ${isComplete ? styles.complete : ''} ${hasError ? styles.error : ''} ${isCancelledState ? styles.cancelled : ''}`}>
       <div className={styles.content}>
-        {/* Clickable area - opens AI chat */}
-        <div className={styles.clickableArea} onClick={handleBarClick} title="Click to open AI Assistant">
+        {/* Clickable area - goes to AI Assistant page */}
+        <div className={styles.clickableArea} onClick={handleViewProgress} title="Click to view progress">
           <div className={styles.icon}>
             {isComplete ? (
               <CheckCircle size={20} />
@@ -276,7 +276,7 @@ export function BackgroundTaskBar() {
           {!isComplete && !hasError && !isCancelledState && (
             <>
               <button 
-                onClick={handleBarClick} 
+                onClick={handleViewProgress} 
                 className={styles.viewProgressBtn}
                 title="View progress in AI Assistant"
               >
@@ -294,7 +294,7 @@ export function BackgroundTaskBar() {
               </button>
             </>
           )}
-          <button onClick={handleDismiss} className={styles.dismissBtn} title="Dismiss">
+          <button onClick={handleDismiss} className={styles.dismissBtn} title="Hide">
             <X size={16} />
           </button>
         </div>
