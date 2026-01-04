@@ -22,76 +22,9 @@ interface Transaction {
   invoiceNumber?: string
 }
 
-// Demo transactions
-const demoTransactions: Transaction[] = [
-  {
-    id: 'txn_001',
-    clientName: 'Johnson Family Trust',
-    matterName: 'Estate Planning - 2024',
-    amount: 2500.00,
-    fee: 72.50,
-    netAmount: 2427.50,
-    status: 'completed',
-    type: 'credit_card',
-    accountType: 'operating',
-    date: '2024-01-15T10:30:00Z',
-    invoiceNumber: 'INV-2024-0042'
-  },
-  {
-    id: 'txn_002',
-    clientName: 'Smith & Associates LLC',
-    matterName: 'Contract Review',
-    amount: 5000.00,
-    fee: 40.00,
-    netAmount: 4960.00,
-    status: 'completed',
-    type: 'ach',
-    accountType: 'trust',
-    date: '2024-01-14T14:22:00Z',
-    invoiceNumber: 'INV-2024-0041'
-  },
-  {
-    id: 'txn_003',
-    clientName: 'Martinez Holdings',
-    matterName: 'Litigation - Thompson v. Martinez',
-    amount: 15000.00,
-    fee: 435.00,
-    netAmount: 14565.00,
-    status: 'pending',
-    type: 'credit_card',
-    accountType: 'trust',
-    date: '2024-01-13T09:15:00Z'
-  },
-  {
-    id: 'txn_004',
-    clientName: 'Chen Industries',
-    matterName: 'IP Registration',
-    amount: 750.00,
-    fee: 21.75,
-    netAmount: 728.25,
-    status: 'completed',
-    type: 'credit_card',
-    accountType: 'operating',
-    date: '2024-01-12T16:45:00Z',
-    invoiceNumber: 'INV-2024-0039'
-  },
-  {
-    id: 'txn_005',
-    clientName: 'Williams Estate',
-    matterName: 'Probate Administration',
-    amount: 3200.00,
-    fee: 25.60,
-    netAmount: 3174.40,
-    status: 'failed',
-    type: 'ach',
-    accountType: 'operating',
-    date: '2024-01-11T11:00:00Z'
-  }
-]
-
 export function ApexPayPage() {
   const navigate = useNavigate()
-  const [transactions] = useState<Transaction[]>(demoTransactions)
+  const [transactions] = useState<Transaction[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [isConnected] = useState(false) // Will be dynamic based on Stripe connection
