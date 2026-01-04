@@ -877,31 +877,57 @@ router.get('/:id/content', authenticate, requirePermission('documents:view'), as
       });
     }
 
-    // Check if file exists on disk
-    try {
-      await fs.access(doc.path);
-    } catch {
-      // File doesn't exist - return any available content
+    let fileBuffer = null;
+    const fileName = doc.original_name || doc.name || 'document';
+    const ext = path.extname(fileName).toLowerCase();
+    
+    // Try to get file content - local first, then Azure
+    let localFileExists = false;
+    if (doc.path) {
+      try {
+        await fs.access(doc.path);
+        localFileExists = true;
+        fileBuffer = await fs.readFile(doc.path);
+      } catch {
+        localFileExists = false;
+      }
+    }
+    
+    // If not local, try Azure
+    if (!localFileExists && (doc.azure_path || doc.folder_path || doc.external_path)) {
+      try {
+        const azureEnabled = await isAzureConfigured();
+        if (azureEnabled) {
+          const azurePath = doc.azure_path || doc.external_path ||
+            (doc.folder_path ? `${doc.folder_path}/${fileName}` : fileName);
+          
+          console.log(`[CONTENT] Downloading from Azure for AI analysis: ${azurePath}`);
+          fileBuffer = await downloadFile(azurePath, req.user.firmId);
+        }
+      } catch (azureError) {
+        console.error('[CONTENT] Azure download failed:', azureError.message);
+      }
+    }
+    
+    // If still no file, return fallback
+    if (!fileBuffer || fileBuffer.length === 0) {
       return res.json({
         id: doc.id,
         name: doc.original_name || doc.name,
         type: doc.type,
         size: doc.size,
-        content: doc.ai_summary || '[File not found on server]',
+        content: doc.ai_summary || '[File not found - unable to extract content]',
       });
     }
 
     let textContent = '';
-    const fileName = doc.original_name || doc.name || 'document';
-    const ext = path.extname(fileName).toLowerCase();
 
     // Extract text based on file type
     if (ext === '.pdf') {
       try {
         const pdfParser = await getPdfParse();
         if (!pdfParser) throw new Error('PDF parser not available');
-        const dataBuffer = await fs.readFile(doc.path);
-        const pdfData = await pdfParser(dataBuffer);
+        const pdfData = await pdfParser(fileBuffer);
         textContent = pdfData.text;
       } catch (pdfError) {
         console.error('PDF parse error:', pdfError);
@@ -909,11 +935,11 @@ router.get('/:id/content', authenticate, requirePermission('documents:view'), as
       }
     } else if (['.txt', '.md', '.json', '.csv', '.xml', '.html', '.js', '.ts', '.jsx', '.tsx', '.css', '.sql'].includes(ext)) {
       // Text-based files - read directly
-      textContent = await fs.readFile(doc.path, 'utf-8');
+      textContent = fileBuffer.toString('utf-8');
     } else if (ext === '.docx') {
       // Word .docx files - use mammoth
       try {
-        const result = await mammoth.extractRawText({ path: doc.path });
+        const result = await mammoth.extractRawText({ buffer: fileBuffer });
         textContent = result.value;
       } catch (docxError) {
         console.error('DOCX parse error:', docxError);
@@ -931,7 +957,7 @@ router.get('/:id/content', authenticate, requirePermission('documents:view'), as
     } else if (!ext) {
       // No extension - try to read as text (might be AI-generated content)
       try {
-        textContent = await fs.readFile(doc.path, 'utf-8');
+        textContent = fileBuffer.toString('utf-8');
       } catch {
         textContent = `[Unable to read file content]`;
       }
