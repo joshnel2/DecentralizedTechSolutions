@@ -109,6 +109,32 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
     }
   }, [isOpen])
 
+  // Check for background task summary to display
+  useEffect(() => {
+    if (isOpen) {
+      const savedSummary = sessionStorage.getItem('backgroundTaskSummary')
+      if (savedSummary) {
+        try {
+          const taskData = JSON.parse(savedSummary)
+          // Clear immediately so we don't show it again
+          sessionStorage.removeItem('backgroundTaskSummary')
+          
+          // Add a system message showing the task summary
+          const summaryMessage: Message = {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: `## Background Task Complete\n\n**Goal:** ${taskData.goal}\n\n**Summary:**\n${taskData.summary || 'Task completed successfully.'}\n\n---\n\nHow can I help you with the results?`,
+            timestamp: new Date(),
+            backgroundTaskStarted: false,
+          }
+          setMessages(prev => [...prev, summaryMessage])
+        } catch (e) {
+          console.error('Failed to parse background task summary:', e)
+        }
+      }
+    }
+  }, [isOpen])
+
   // Load suggestions when page changes or when AI Insights button is clicked
   useEffect(() => {
     if (isOpen) {

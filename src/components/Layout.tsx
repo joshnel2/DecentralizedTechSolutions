@@ -138,6 +138,16 @@ export function Layout() {
     }
   }, [location.pathname, isMobile])
 
+  // Listen for openAIChat events from BackgroundTaskBar
+  useEffect(() => {
+    const handleOpenAIChat = () => {
+      openChat()
+    }
+    
+    window.addEventListener('openAIChat', handleOpenAIChat)
+    return () => window.removeEventListener('openAIChat', handleOpenAIChat)
+  }, [openChat])
+
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = () => {
