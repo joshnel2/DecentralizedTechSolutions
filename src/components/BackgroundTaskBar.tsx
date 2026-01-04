@@ -204,6 +204,11 @@ export function BackgroundTaskBar() {
     }, 100)
   }
 
+  const handleBarClick = () => {
+    // Open AI chat when clicking on the progress bar (while task is running)
+    window.dispatchEvent(new CustomEvent('openAIChat'))
+  }
+
   // Only render when there's an active task or recently completed task
   if (!activeTask) return null
 
@@ -212,45 +217,48 @@ export function BackgroundTaskBar() {
   return (
     <div className={`${styles.taskBar} ${isComplete ? styles.complete : ''} ${hasError ? styles.error : ''} ${isCancelledState ? styles.cancelled : ''}`}>
       <div className={styles.content}>
-        <div className={styles.icon}>
-          {isComplete ? (
-            <CheckCircle size={20} />
-          ) : hasError ? (
-            <AlertCircle size={20} />
-          ) : isCancelledState ? (
-            <StopCircle size={20} />
-          ) : (
-            <Bot size={20} className={styles.spinning} />
-          )}
-        </div>
-        
-        <div className={styles.info}>
-          <div className={styles.header}>
-            <div className={styles.title}>
-              {isComplete ? 'Background Task Complete' : 
-               hasError ? 'Task Error' : 
-               isCancelledState ? 'Task Cancelled' :
-               'Background Agent Working'}
-            </div>
-            {!isComplete && !hasError && !isCancelledState && (
-              <div className={styles.iterations}>
-                Step {activeTask.iterations || 1}
-              </div>
+        {/* Clickable area - opens AI chat */}
+        <div className={styles.clickableArea} onClick={handleBarClick} title="Click to open AI Assistant">
+          <div className={styles.icon}>
+            {isComplete ? (
+              <CheckCircle size={20} />
+            ) : hasError ? (
+              <AlertCircle size={20} />
+            ) : isCancelledState ? (
+              <StopCircle size={20} />
+            ) : (
+              <Bot size={20} className={styles.spinning} />
             )}
           </div>
-          <div className={styles.goal}>{activeTask.goal}</div>
-          <div className={styles.step}>{activeTask.currentStep}</div>
-        </div>
-
-        <div className={styles.progress}>
-          <div className={styles.progressBar}>
-            <div 
-              className={styles.progressFill} 
-              style={{ width: `${isComplete ? 100 : activeTask.progressPercent}%` }}
-            />
+          
+          <div className={styles.info}>
+            <div className={styles.header}>
+              <div className={styles.title}>
+                {isComplete ? 'Background Task Complete' : 
+                 hasError ? 'Task Error' : 
+                 isCancelledState ? 'Task Cancelled' :
+                 'Background Agent Working'}
+              </div>
+              {!isComplete && !hasError && !isCancelledState && (
+                <div className={styles.iterations}>
+                  Step {activeTask.iterations || 1}
+                </div>
+              )}
+            </div>
+            <div className={styles.goal}>{activeTask.goal}</div>
+            <div className={styles.step}>{activeTask.currentStep}</div>
           </div>
-          <div className={styles.progressText}>
-            {isComplete ? 'Done!' : isCancelledState ? 'Stopped' : `${activeTask.progressPercent}%`}
+
+          <div className={styles.progress}>
+            <div className={styles.progressBar}>
+              <div 
+                className={styles.progressFill} 
+                style={{ width: `${isComplete ? 100 : activeTask.progressPercent}%` }}
+              />
+            </div>
+            <div className={styles.progressText}>
+              {isComplete ? 'Done!' : isCancelledState ? 'Stopped' : `${activeTask.progressPercent}%`}
+            </div>
           </div>
         </div>
 
