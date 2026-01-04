@@ -244,23 +244,6 @@ export function MattersPage() {
           <span className={styles.count}>{matters.length} total</span>
         </div>
         <div className={styles.headerActions}>
-          <button 
-            className={styles.aiBtn} 
-            onClick={() => openChat({
-              label: 'Matters',
-              contextType: 'matters',
-              suggestedQuestions: [
-                'Give me an overview of all active matters',
-                'Which matters need attention this week?',
-                'Analyze billing across all matters',
-                'Which matters have upcoming deadlines?',
-                'Summarize matter workload by attorney'
-              ]
-            })}
-          >
-            <Sparkles size={16} />
-            AI Insights
-          </button>
           <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
             <Plus size={18} />
             New Matter

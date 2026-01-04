@@ -165,23 +165,6 @@ export function ClientsPage() {
           <span className={styles.count}>{filteredClients.length} total</span>
         </div>
         <div className={styles.headerActions}>
-          <button 
-            className={styles.aiBtn} 
-            onClick={() => openChat({
-              label: 'Clients',
-              contextType: 'clients',
-              suggestedQuestions: [
-                'Give me an overview of my clients',
-                'Which clients have the most active matters?',
-                'Analyze client billing and revenue',
-                'Which clients need follow-up?',
-                'Summarize client acquisition trends'
-              ]
-            })}
-          >
-            <Sparkles size={16} />
-            AI Insights
-          </button>
           <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
             <Plus size={18} />
             New Client
