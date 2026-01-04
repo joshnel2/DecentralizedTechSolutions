@@ -881,31 +881,45 @@ router.get('/:id/content', authenticate, requirePermission('documents:view'), as
     const fileName = doc.original_name || doc.name || 'document';
     const ext = path.extname(fileName).toLowerCase();
     
-    // Try to get file content - local first, then Azure
-    let localFileExists = false;
-    if (doc.path) {
-      try {
-        await fs.access(doc.path);
-        localFileExists = true;
-        fileBuffer = await fs.readFile(doc.path);
-      } catch {
-        localFileExists = false;
-      }
-    }
-    
-    // If not local, try Azure
-    if (!localFileExists && (doc.azure_path || doc.folder_path || doc.external_path)) {
+    // Try Azure FIRST (that's where documents are stored)
+    if (doc.azure_path || doc.folder_path || doc.external_path || doc.path) {
       try {
         const azureEnabled = await isAzureConfigured();
         if (azureEnabled) {
-          const azurePath = doc.azure_path || doc.external_path ||
-            (doc.folder_path ? `${doc.folder_path}/${fileName}` : fileName);
+          // Try multiple possible paths
+          const possiblePaths = [
+            doc.azure_path,
+            doc.external_path,
+            doc.path,
+            doc.folder_path ? `${doc.folder_path}/${fileName}` : null
+          ].filter(Boolean);
           
-          console.log(`[CONTENT] Downloading from Azure for AI analysis: ${azurePath}`);
-          fileBuffer = await downloadFile(azurePath, req.user.firmId);
+          for (const azurePath of possiblePaths) {
+            try {
+              console.log(`[CONTENT] Trying Azure path: ${azurePath}`);
+              fileBuffer = await downloadFile(azurePath, req.user.firmId);
+              if (fileBuffer && fileBuffer.length > 0) {
+                console.log(`[CONTENT] Got ${fileBuffer.length} bytes from Azure`);
+                break;
+              }
+            } catch (e) {
+              console.log(`[CONTENT] Path ${azurePath} failed: ${e.message}`);
+            }
+          }
         }
       } catch (azureError) {
         console.error('[CONTENT] Azure download failed:', azureError.message);
+      }
+    }
+    
+    // Fallback to local file if Azure didn't work
+    if (!fileBuffer && doc.path) {
+      try {
+        await fs.access(doc.path);
+        fileBuffer = await fs.readFile(doc.path);
+        console.log(`[CONTENT] Got ${fileBuffer.length} bytes from local file`);
+      } catch {
+        // Local file doesn't exist
       }
     }
     
