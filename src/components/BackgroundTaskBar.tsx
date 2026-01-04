@@ -274,14 +274,25 @@ export function BackgroundTaskBar() {
             </button>
           )}
           {!isComplete && !hasError && !isCancelledState && (
-            <button 
-              onClick={handleCancel} 
-              className={styles.cancelBtn}
-              disabled={isCancelling}
-              title="Cancel task"
-            >
-              <StopCircle size={16} />
-            </button>
+            <>
+              <button 
+                onClick={handleBarClick} 
+                className={styles.viewProgressBtn}
+                title="View progress in AI Assistant"
+              >
+                <MessageSquare size={14} />
+                View Progress
+              </button>
+              <button 
+                onClick={handleCancel} 
+                className={styles.cancelBtn}
+                disabled={isCancelling}
+                title="Cancel task"
+              >
+                <StopCircle size={16} />
+                Cancel
+              </button>
+            </>
           )}
           <button onClick={handleDismiss} className={styles.dismissBtn} title="Dismiss">
             <X size={16} />
