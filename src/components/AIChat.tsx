@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Mail, Bot } from 'lucide-react'
+import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Mail, Bot, Cpu, Terminal } from 'lucide-react'
 import { aiApi, documentsApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import styles from './AIChat.module.css'
@@ -274,11 +274,13 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
 
       setMessages(prev => [...prev, assistantMessage])
       
-      // If background task started, trigger global progress bar
+      // If background task started, trigger global progress bar and reset to Quick mode
       if (response.backgroundTaskStarted && response.backgroundTask) {
         window.dispatchEvent(new CustomEvent('backgroundTaskStarted', { 
           detail: response.backgroundTask 
         }))
+        // Auto-reset to Quick mode after starting a background task
+        setUseBackgroundAgent(false)
       }
       
       // If there's a navigation command, set it as pending so user can click to navigate
@@ -327,37 +329,45 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         {/* Header */}
         <div className={styles.header}>
           <div className={styles.headerTitle}>
-            <Sparkles size={20} className={styles.sparkle} />
-            <span>AI Assistant</span>
+            <div className={styles.headerIcon}>
+              <Terminal size={16} />
+              <div className={styles.headerIconPulse} />
+            </div>
+            <div className={styles.headerText}>
+              <span className={styles.headerMain}>APEX AI</span>
+              <span className={styles.headerSub}>v2.0 • {useBackgroundAgent ? 'Agent Mode' : 'Quick Mode'}</span>
+            </div>
           </div>
           <div className={styles.headerActions}>
             {messages.length > 0 && (
               <button onClick={clearChat} className={styles.clearBtn}>
+                <Terminal size={12} />
                 Clear
               </button>
             )}
             <button onClick={onClose} className={styles.closeBtn}>
-              <X size={20} />
+              <X size={18} />
             </button>
           </div>
         </div>
 
-        {/* Context indicator with background toggle */}
-        <div className={styles.contextBar}>
-          <div className={styles.contextInfo}>
-            <span>Context:</span>
-            <span className={styles.contextPage}>
-              {chatContext?.label || currentPage.replace('-', ' ')}
-            </span>
-          </div>
-          <button 
-            className={`${styles.modeToggle} ${useBackgroundAgent ? styles.backgroundMode : ''}`}
+        {/* Mode Toggle */}
+        <div className={styles.modeBar}>
+          <div 
+            className={styles.modeToggleSwitch}
             onClick={() => setUseBackgroundAgent(!useBackgroundAgent)}
-            title={useBackgroundAgent ? "Background Agent: ON - Complex tasks run for up to 15 minutes" : "Background Agent: OFF - Quick responses"}
+            title={useBackgroundAgent ? "Background Agent: Complex tasks run autonomously for up to 15 minutes" : "Quick Mode: Fast responses for simple questions"}
           >
-            <Bot size={14} />
-            {useBackgroundAgent ? 'Background' : 'Quick'}
-          </button>
+            <div className={`${styles.modeOption} ${!useBackgroundAgent ? styles.active : ''}`}>
+              <Zap size={12} />
+              <span>Quick</span>
+            </div>
+            <div className={`${styles.modeOption} ${useBackgroundAgent ? styles.active : ''}`}>
+              <Cpu size={12} />
+              <span>Background</span>
+            </div>
+            <div className={`${styles.modeSlider} ${useBackgroundAgent ? styles.sliderRight : ''}`} />
+          </div>
         </div>
 
         {/* Messages */}
@@ -373,27 +383,39 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           {messages.length === 0 ? (
             <div className={styles.welcome}>
               <div className={styles.welcomeIcon}>
-                <Sparkles size={32} />
+                <div className={styles.welcomeIconInner}>
+                  <Cpu size={28} />
+                </div>
+                <div className={styles.welcomeIconRing} />
+                <div className={styles.welcomeIconRing2} />
               </div>
-              <h3>{mergedContext.emailDraft ? 'Need help with your email?' : 'How can I help you?'}</h3>
+              <div className={styles.welcomeStatus}>
+                <span className={styles.statusDot} />
+                <span>System Online</span>
+              </div>
+              <h3>{mergedContext.emailDraft ? 'Email Assistant Ready' : 'Ready to Assist'}</h3>
               <p>
                 {mergedContext.emailDraft 
                   ? "I can see your draft. Ask me to improve it, make it more professional, check for errors, or suggest a better subject line."
-                  : "I can answer questions and take actions like logging time, creating events, and more."}
+                  : useBackgroundAgent 
+                    ? "Background mode active. I'll work autonomously on complex tasks for up to 15 minutes."
+                    : "Quick mode active. I can answer questions and take actions instantly."}
               </p>
               
               {suggestions.length > 0 && (
                 <div className={styles.suggestions}>
-                  <span className={styles.suggestionsLabel}>Try asking:</span>
+                  <div className={styles.suggestionsLabel}>
+                    <Terminal size={12} />
+                    <span>Suggested Commands</span>
+                  </div>
                   {suggestions.map((suggestion, i) => (
                     <button
                       key={i}
                       className={styles.suggestionBtn}
                       onClick={() => sendMessage(suggestion)}
                     >
-                      <MessageSquare size={14} />
-                      {suggestion}
-                      <ChevronRight size={14} />
+                      <ChevronRight size={14} className={styles.suggestionArrow} />
+                      <span>{suggestion}</span>
                     </button>
                   ))}
                 </div>
