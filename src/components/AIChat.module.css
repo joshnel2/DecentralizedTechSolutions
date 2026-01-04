@@ -173,29 +173,32 @@
 
 .modeToggleSwitch {
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   background: rgba(0, 0, 0, 0.5);
-  border: 1px solid rgba(99, 102, 241, 0.2);
-  border-radius: 8px;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 10px;
   padding: 4px;
   cursor: pointer;
-  width: 200px;
+  width: 240px;
+  gap: 0;
 }
 
 .modeOption {
-  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 10px 16px;
   color: #64748b;
   font-size: 12px;
   font-weight: 500;
-  transition: all 0.3s;
-  z-index: 1;
+  transition: color 0.3s;
+  z-index: 2;
   position: relative;
   font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  white-space: nowrap;
+  user-select: none;
 }
 
 .modeOption.active {
@@ -206,18 +209,19 @@
   position: absolute;
   top: 4px;
   left: 4px;
-  width: calc(50% - 4px);
+  width: calc(50% - 2px);
   height: calc(100% - 8px);
   background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  border-radius: 6px;
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.4);
+  border-radius: 8px;
+  transition: left 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.4);
+  z-index: 1;
 }
 
 .modeSlider.sliderRight {
-  transform: translateX(100%);
+  left: calc(50% - 2px);
   background: linear-gradient(135deg, #8b5cf6, #a855f7);
-  box-shadow: 0 2px 10px rgba(139, 92, 246, 0.4);
+  box-shadow: 0 2px 12px rgba(139, 92, 246, 0.4);
 }
 
 /* Context Bar (legacy - keeping for email context) */
@@ -865,12 +869,13 @@
   }
 
   .modeToggleSwitch {
-    width: 180px;
+    width: 220px;
   }
 
   .modeOption {
-    padding: 6px 10px;
+    padding: 8px 12px;
     font-size: 11px;
+    gap: 6px;
   }
 
   .messages {
