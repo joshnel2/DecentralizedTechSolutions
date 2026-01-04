@@ -6478,18 +6478,18 @@ Do not include any other text. Just the JSON array.`;
     phase = 'discovery';
     
     // =========================================================================
-    // PHASE 2+: EXECUTION - Work through sub-tasks
+    // PHASE 2+: EXECUTION - Backend-driven sub-task execution
+    // The backend feeds ONE sub-task at a time to the AI
+    // AI does NOT see future sub-tasks - only the current assignment
     // =========================================================================
     
-    // System prompt - sets up the AI's role and context
-    const systemPrompt = `You are an AUTONOMOUS legal AI assistant running a background task for 15 minutes. You work completely independently - NO human intervention.
+    // Build context-only system prompt - NO full task list shown to AI
+    const buildSystemPrompt = (currentTask, taskNumber, totalTasks) => `You are an AUTONOMOUS legal AI assistant executing a specific task assignment.
 
 OVERALL GOAL: ${goal}
 
-YOUR WORK PLAN (${subTasks.length} sub-tasks):
-${subTasks.map((task, i) => `${i + 1}. ${task}`).join('\n')}
-
-CURRENT SUB-TASK: 1. ${subTasks[0]}
+YOUR CURRENT ASSIGNMENT (Task ${taskNumber} of ${totalTasks}):
+>>> ${currentTask} <<<
 
 CONTEXT:
 ${initialContext.matter_id ? `- Working on Matter ID: ${initialContext.matter_id}` : '- No specific matter (search if needed)'}
@@ -6497,37 +6497,38 @@ ${initialContext.client_id ? `- Working with Client ID: ${initialContext.client_
 
 CRITICAL RULES:
 1. You MUST call a tool in EVERY response - text-only responses are NOT allowed
-2. You can DRAFT emails (draft_email_for_matter) but NEVER send them - drafting only!
+2. Focus ONLY on completing your current assignment: "${currentTask}"
 3. Work autonomously - do NOT ask for human input or confirmation
-4. If something fails, try a different approach - do NOT stop
-5. Keep working for the full 15 minutes - be thorough and comprehensive
-6. Document everything with create_note
-7. When you complete a sub-task, move to the next one in the plan
+4. If something fails, try a different approach
+5. You can DRAFT emails (draft_email_for_matter) but NEVER send them
+6. Document important findings with create_note
+7. Call the most appropriate tool NOW to complete this assignment
 
-AVAILABLE ACTIONS:
-- Search/get matters and clients
-- Review and create documents
-- Create tasks and calendar events  
-- DRAFT emails (never send)
-- Add notes to matters
-- Log time entries
+AVAILABLE TOOLS:
+- search_matters, get_matter, list_my_matters - Find and examine cases
+- list_clients, get_client - Find and examine clients  
+- list_documents, read_document_content - Review documents
+- create_document, create_note - Create documentation
+- create_task, create_event - Schedule work
+- draft_email_for_matter - Draft (not send) emails
+- log_time - Record time spent
 
-START WORKING ON SUB-TASK 1 IMMEDIATELY. Call a tool now.`;
+Execute your current assignment: "${currentTask}"
+Call a tool NOW.`;
 
-    // Conversation history - maintained throughout the session
+    // Start with first sub-task
     let conversationHistory = [
-      { role: 'system', content: systemPrompt }
+      { role: 'system', content: buildSystemPrompt(subTasks[0], 1, subTasks.length) }
     ];
     
-    // Break down the initial task into sub-tasks for the backend to prompt
-    const taskPrompts = generateTaskPrompts(goal, initialContext);
-    let currentTaskIndex = 0;
     let consecutiveNoToolCalls = 0;
     
-    // Send initial prompt based on the first sub-task
+    console.log(`[AGENT ${taskId}] Backend driving execution - feeding sub-task 1/${subTasks.length}: "${subTasks[0]}"`);
+    
+    // Send explicit initial instruction for sub-task 1
     conversationHistory.push({
       role: 'user',
-      content: `Begin working on Sub-Task 1: "${subTasks[0]}"\n\nWhat tool will you call first?`
+      content: `Execute Task 1: "${subTasks[0]}"\n\nCall the most appropriate tool to start this task.`
     });
     
     // Main loop - runs for exactly 15 minutes with resilient error handling
@@ -6720,48 +6721,60 @@ START WORKING ON SUB-TASK 1 IMMEDIATELY. Call a tool now.`;
           content: response.content || '' 
         });
         
-        // Escalating prompts to force tool usage
+        // Get current sub-task for context
+        const currentTaskDesc = subTasks[currentSubTaskIndex] || goal;
+        const taskHeader = `[Task ${currentSubTaskIndex + 1}/${subTasks.length}: "${currentTaskDesc}"]`;
+        
+        // Escalating prompts to force tool usage - always reference current sub-task
         if (consecutiveNoToolCalls >= 5) {
           // After 5 attempts, reset and try a different phase
           consecutiveNoToolCalls = 0;
-          currentTaskIndex++;
           
-          // Cycle through phases
-          const phases = ['discovery', 'analysis', 'action', 'review'];
-          const currentPhaseIndex = phases.indexOf(phase);
-          phase = phases[(currentPhaseIndex + 1) % phases.length];
-          
-          console.log(`[AGENT ${taskId}] Switching to ${phase} phase after no tool calls`);
-          
-          // Reset conversation with phase-specific guidance
-          const phasePrompts = {
-            discovery: `DISCOVERY PHASE: Call search_matters, list_clients, or get_firm_overview NOW. No more text responses.`,
-            analysis: `ANALYSIS PHASE: Call get_matter, read_document_content, or list_documents NOW. No more text responses.`,
-            action: `ACTION PHASE: Call create_note, create_task, or draft_email_for_matter NOW. No more text responses.`,
-            review: `REVIEW PHASE: Call add_matter_note to document progress, or create_task for follow-ups. Do it NOW.`
-          };
+          console.log(`[AGENT ${taskId}] No tool calls after 5 attempts - sending stronger instruction`);
           
           conversationHistory.push({
             role: 'user',
-            content: `${phasePrompts[phase]}\n\nGoal: ${goal}\n\nYou MUST call a tool in your next response.`
+            content: `${taskHeader}
+
+❌ CRITICAL: You have NOT called any tools. Text responses are NOT allowed.
+
+Your assignment: "${currentTaskDesc}"
+
+You MUST call ONE of these tools NOW:
+• list_my_matters - get your matters
+• get_firm_overview - get firm info
+• list_clients - get clients
+
+NO MORE TEXT. Call a tool immediately.`
           });
         } else if (consecutiveNoToolCalls >= 3) {
           // Stronger prompt after 3 attempts
           conversationHistory.push({
             role: 'user',
-            content: `WARNING: You have not called a tool in ${consecutiveNoToolCalls} responses. You MUST call a tool NOW.\n\nSimple tools you can call:\n- list_my_matters (no arguments needed)\n- get_firm_overview (no arguments needed)\n- list_clients (no arguments needed)\n\nCall one of these NOW for: "${goal}"`
+            content: `${taskHeader}
+
+⚠️ WARNING: ${consecutiveNoToolCalls} responses without a tool call.
+
+Your assignment: "${currentTaskDesc}"
+
+Call a tool NOW:
+• list_my_matters (no arguments needed)
+• list_clients (no arguments needed)  
+• search_matters({ query: "relevant term" })
+
+Execute one of these tools immediately.`
           });
         } else {
-          // Standard prompts
-          const forcePrompts = [
-            `You must call a tool now. Continue working on: "${goal}"`,
-            `Call a tool to take the next action. You have ${remainingMinutes} minutes left for: "${goal}"`,
-            `Execute a tool now. Search for more information or take an action for: "${goal}"`,
-            `Keep working. Call search_matters, list_documents, create_note, or another tool for: "${goal}"`
-          ];
+          // Standard prompts - reference current sub-task
           conversationHistory.push({
             role: 'user',
-            content: forcePrompts[consecutiveNoToolCalls % forcePrompts.length]
+            content: `${taskHeader}
+
+You must call a tool now.
+Current assignment: "${currentTaskDesc}"
+${remainingMinutes} minutes remaining.
+
+Call a tool to continue.`
           });
         }
         
@@ -6845,12 +6858,30 @@ START WORKING ON SUB-TASK 1 IMMEDIATELY. Call a tool now.`;
       if (shouldAdvanceSubTask) {
         subTaskProgress[currentSubTaskIndex].completed = true;
         currentSubTaskIndex++;
-        console.log(`[AGENT ${taskId}] Advanced to Sub-Task ${currentSubTaskIndex + 1}: ${subTasks[currentSubTaskIndex]}`);
         
-        // Notify AI of the sub-task change
+        console.log(`[AGENT ${taskId}] ========================================`);
+        console.log(`[AGENT ${taskId}] BACKEND ADVANCING: Feeding sub-task ${currentSubTaskIndex + 1}/${subTasks.length}`);
+        console.log(`[AGENT ${taskId}] New assignment: "${subTasks[currentSubTaskIndex]}"`);
+        console.log(`[AGENT ${taskId}] ========================================`);
+        
+        // Update database with new sub-task
+        await query(
+          `UPDATE ai_tasks SET current_step = $1 WHERE id = $2`,
+          [`Starting Task ${currentSubTaskIndex + 1}: ${subTasks[currentSubTaskIndex]}`, taskId]
+        );
+        
+        // BACKEND-DRIVEN: Explicitly send the next sub-task assignment
+        // The AI receives a new system context focused on the new sub-task
         conversationHistory.push({
           role: 'user',
-          content: `Great progress! You've completed Sub-Task ${currentSubTaskIndex}: "${subTasks[currentSubTaskIndex - 1]}".\n\nNow working on Sub-Task ${currentSubTaskIndex + 1} of ${subTasks.length}: "${subTasks[currentSubTaskIndex]}"\n\nContinue working. What tool will you call next?`
+          content: `✅ TASK ${currentSubTaskIndex} COMPLETE: "${subTasks[currentSubTaskIndex - 1]}"
+
+═══════════════════════════════════════════════════════════
+📋 NEW ASSIGNMENT - TASK ${currentSubTaskIndex + 1} of ${subTasks.length}:
+>>> ${subTasks[currentSubTaskIndex]} <<<
+═══════════════════════════════════════════════════════════
+
+Focus ONLY on this new task. Call a tool NOW to begin.`
         });
       }
       
@@ -6907,8 +6938,9 @@ START WORKING ON SUB-TASK 1 IMMEDIATELY. Call a tool now.`;
         const recoveryPrompt = generateRecoveryPrompt(goal, actions, 'repeated_actions');
         conversationHistory.push({ role: 'user', content: recoveryPrompt });
       } else if (!shouldAdvanceSubTask) {
-        // Backend sends next prompt based on the result and task (only if we didn't already send a sub-task advancement prompt)
-        const nextPrompt = generateNextPrompt(goal, functionName, toolResult, actions, remainingMinutes, phase, currentSubTaskIndex, subTasks.length);
+        // BACKEND-DRIVEN: Send next prompt with explicit sub-task context
+        // The AI always knows exactly what it should be working on
+        const nextPrompt = generateNextPrompt(goal, functionName, toolResult, actions, remainingMinutes, phase, currentSubTaskIndex, subTasks.length, subTasks);
         conversationHistory.push({ role: 'user', content: nextPrompt });
       }
       
@@ -7113,58 +7145,116 @@ function generateTaskPrompts(goal, context) {
  * Generate the next prompt based on what just happened
  * Now includes sub-task context for better guidance
  */
-function generateNextPrompt(goal, lastTool, lastResult, actions, remainingMinutes, phase, currentSubTask = null, totalSubTasks = null) {
+function generateNextPrompt(goal, lastTool, lastResult, actions, remainingMinutes, phase, currentSubTask = null, totalSubTasks = null, subTasks = []) {
   const actionCount = actions.length;
   
-  // Build sub-task context if available
-  let subTaskContext = '';
-  if (currentSubTask !== null && totalSubTasks !== null) {
-    subTaskContext = ` (Working on sub-task ${currentSubTask + 1}/${totalSubTasks})`;
-  }
+  // Get current sub-task description
+  const currentTaskDesc = subTasks[currentSubTask] || goal;
+  const taskHeader = (currentSubTask !== null && totalSubTasks !== null) 
+    ? `[Task ${currentSubTask + 1}/${totalSubTasks}: "${currentTaskDesc}"]` 
+    : '';
   
   // If there was an error, acknowledge and suggest alternative
   if (lastResult.error) {
-    return `That action encountered an issue: ${lastResult.error}\n\nTry a different approach. What else can you do for: "${goal}"?${subTaskContext}`;
+    return `${taskHeader}
+
+⚠️ That action failed: ${lastResult.error}
+
+Try a different approach to complete your current task: "${currentTaskDesc}"
+Call another tool NOW.`;
   }
   
   // Context-aware follow-up based on what tool was just used
+  // Each prompt reminds the AI of its current assignment
   switch (lastTool) {
     case 'get_matter':
     case 'search_matters':
-      return `Good, you have the matter information. Now dig deeper - check the documents, review any linked emails, or look at recent activity. What's next?${subTaskContext}`;
+      return `${taskHeader}
+
+✓ Matter information received. 
+→ Continue your task: "${currentTaskDesc}"
+→ Next step: Check documents, review details, or take action.
+Call a tool NOW.`;
     
     case 'get_client':
     case 'list_clients':
-      return `You have client information. Now look at their matters, documents, or recent communications. Continue working.${subTaskContext}`;
+      return `${taskHeader}
+
+✓ Client information received.
+→ Continue your task: "${currentTaskDesc}"  
+→ Next step: Look at their matters, documents, or communications.
+Call a tool NOW.`;
     
     case 'list_documents':
-      return `You found documents. Read the important ones to understand their contents. Use read_document_content on the most relevant ones.${subTaskContext}`;
+      return `${taskHeader}
+
+✓ Documents found.
+→ Continue your task: "${currentTaskDesc}"
+→ Next step: Use read_document_content on the most relevant ones.
+Call a tool NOW.`;
     
     case 'read_document_content':
-      return `You've read the document content. Based on this information, what action should be taken? Continue working.${subTaskContext}`;
+      return `${taskHeader}
+
+✓ Document content retrieved.
+→ Continue your task: "${currentTaskDesc}"
+→ Next step: Use this information to take action or gather more data.
+Call a tool NOW.`;
     
     case 'create_document':
     case 'create_note':
-      return `Document created. What else needs to be done? You have ${remainingMinutes} minutes remaining.${subTaskContext}`;
+      return `${taskHeader}
+
+✓ Document/note created successfully.
+→ Continue your task: "${currentTaskDesc}"
+→ ${remainingMinutes} minutes remaining.
+Call a tool NOW.`;
     
     case 'draft_email_for_matter':
-      return `Email drafted. Any other communications needed? Or move to the next part of your work.${subTaskContext}`;
+      return `${taskHeader}
+
+✓ Email draft created.
+→ Continue your task: "${currentTaskDesc}"
+Call a tool NOW.`;
     
     case 'create_task':
     case 'create_event':
-      return `Task/event created. Continue with other actions needed.${subTaskContext}`;
+      return `${taskHeader}
+
+✓ Task/event created.
+→ Continue your task: "${currentTaskDesc}"
+Call a tool NOW.`;
     
     case 'log_time':
-      return `Time logged. Continue with other work.${subTaskContext}`;
+      return `${taskHeader}
+
+✓ Time logged.
+→ Continue your task: "${currentTaskDesc}"
+Call a tool NOW.`;
     
     default:
-      // Generic continuation based on phase and time remaining
+      // Generic continuation - always remind of current task
       if (remainingMinutes > 10) {
-        return `Result received. You have ${remainingMinutes} minutes left. Continue being thorough.${subTaskContext}`;
+        return `${taskHeader}
+
+✓ Action completed.
+→ Continue your task: "${currentTaskDesc}"
+→ ${remainingMinutes} minutes remaining - be thorough.
+Call a tool NOW.`;
       } else if (remainingMinutes > 5) {
-        return `${remainingMinutes} minutes remaining. Focus on completing key actions.${subTaskContext}`;
+        return `${taskHeader}
+
+✓ Action completed.
+→ ${remainingMinutes} minutes left.
+→ Focus on completing: "${currentTaskDesc}"
+Call a tool NOW.`;
       } else {
-        return `Only ${remainingMinutes} minutes left. Wrap up essential tasks and document your work.${subTaskContext}`;
+        return `${taskHeader}
+
+⏰ Only ${remainingMinutes} minutes left!
+→ Wrap up your current task: "${currentTaskDesc}"
+→ Document any important findings with create_note.
+Call a tool NOW.`;
       }
   }
 }
@@ -7173,40 +7263,41 @@ function generateNextPrompt(goal, lastTool, lastResult, actions, remainingMinute
  * Generate a continuation prompt when the AI hasn't called a tool
  * These prompts keep the agent working for the full 15 minutes
  */
-function generateContinuationPrompt(goal, actions, remainingMinutes, phase) {
+function generateContinuationPrompt(goal, actions, remainingMinutes, phase, currentSubTask = null, subTasks = []) {
+  const currentTaskDesc = subTasks[currentSubTask] || goal;
+  const taskHeader = (currentSubTask !== null && subTasks.length > 0)
+    ? `[Task ${currentSubTask + 1}/${subTasks.length}: "${currentTaskDesc}"]\n\n`
+    : '';
+  
   if (actions.length === 0) {
-    return `You haven't taken any actions yet. Call a tool NOW to start working on: "${goal}"\n\nSuggested first steps:\n1. search_matters - find relevant cases\n2. list_clients - see who's involved\n3. get_firm_overview - understand current state`;
+    return `${taskHeader}❌ You have NOT called any tools yet.
+
+Your current task: "${currentTaskDesc}"
+
+Call a tool NOW:
+• search_matters - find relevant cases
+• list_clients - see who's involved
+• get_firm_overview - understand current state
+
+Execute a tool immediately.`;
   }
   
   const recentActions = actions.slice(-3).map(a => a.summary).join(', ');
   const actionCount = actions.length;
   
-  // Different prompts for different phases - all require tool calls
-  const phasePrompts = {
-    discovery: [
-      `You've done ${actionCount} actions so far (${recentActions}). Keep gathering information. Search for more related matters, documents, or client info for: "${goal}"`,
-      `Discovery phase: ${remainingMinutes} minutes left. Use list_documents, search_matters, or get_client to find more relevant information.`,
-      `Continue exploring. What else do you need to know about: "${goal}"? Call a search or get tool.`
-    ],
-    analysis: [
-      `Analysis phase: You have ${remainingMinutes} minutes. Read document contents, review matter details, check billing status for: "${goal}"`,
-      `Time to analyze. Use read_document_content on important files, or get_matter for detailed case info.`,
-      `${actionCount} actions completed. Now analyze what you've found. Call a tool to examine the data more closely.`
-    ],
-    action: [
-      `Action phase: ${remainingMinutes} minutes remaining. Create documents, draft emails, log time, or schedule tasks for: "${goal}"`,
-      `Time to act. Use create_document, draft_email_for_matter, create_task, or log_time to make progress.`,
-      `You've analyzed enough. Now take action. What needs to be created or scheduled for: "${goal}"?`
-    ],
-    review: [
-      `Review phase: ${remainingMinutes} minutes left. Document your findings with create_note. Create follow-up tasks. Check if anything was missed.`,
-      `Final review. Use create_note to summarize your work. Create any remaining tasks or events needed.`,
-      `Wrapping up: ${remainingMinutes} minutes remaining. Make sure everything is documented and follow-ups are scheduled for: "${goal}"`
-    ]
-  };
-  
-  const prompts = phasePrompts[phase] || phasePrompts.discovery;
-  return prompts[Math.floor(Math.random() * prompts.length)];
+  // Sub-task focused prompts - always remind AI of current assignment
+  return `${taskHeader}⚠️ You must call a tool in every response.
+
+Your current task: "${currentTaskDesc}"
+Recent progress: ${recentActions}
+${remainingMinutes} minutes remaining.
+
+Suggested tools:
+• search_matters, list_documents - gather more info
+• read_document_content - analyze documents
+• create_note, create_task - document findings
+
+Call a tool NOW to continue your task.`;
 }
 
 // =============================================================================
