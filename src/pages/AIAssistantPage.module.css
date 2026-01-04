@@ -1090,6 +1090,139 @@
   letter-spacing: 0.5px;
 }
 
+/* Background Agent History */
+.historySection {
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.historySectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.75rem;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.historySectionHeader:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--apex-white);
+}
+
+.historyList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 0.5rem 0;
+}
+
+.historyLoading,
+.historyEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.5rem 1rem;
+  color: var(--apex-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.historyEmptyHint {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.historyItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.historyItem:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.historyItemIcon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.2);
+  color: var(--apex-muted);
+  flex-shrink: 0;
+}
+
+.historyItem.completed .historyItemIcon {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22C55E;
+}
+
+.historyItem.failed .historyItemIcon {
+  background: rgba(239, 68, 68, 0.2);
+  color: #EF4444;
+}
+
+.historyItem.running .historyItemIcon {
+  background: rgba(147, 51, 234, 0.2);
+  color: #A855F7;
+}
+
+.historyItemContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.historyItemGoal {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--apex-white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 0.25rem;
+}
+
+.historyItemMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--apex-muted);
+}
+
+.historyItemStatus {
+  text-transform: capitalize;
+}
+
+.historyItemMeta .running {
+  color: #A855F7;
+}
+
+.historyItemTime {
+  color: var(--apex-subtle);
+}
+
 .poweredBy {
   display: flex;
   align-items: center;

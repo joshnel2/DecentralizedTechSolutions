@@ -5,13 +5,26 @@ import { useAuthStore } from '../stores/authStore'
 import { 
   Sparkles, Send, Plus, MessageSquare, Trash2, 
   MessageCircle, FileEdit, FileText, Paperclip, X,
-  FileSearch, History, ChevronRight, Loader2, Image
+  FileSearch, History, ChevronRight, Loader2, Image,
+  Bot, CheckCircle, AlertCircle, Clock, ChevronDown, ChevronUp
 } from 'lucide-react'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './AIAssistantPage.module.css'
 import { parseDocument, getSupportedFileTypes } from '../utils/documentParser'
 import { aiApi } from '../services/api'
+
+interface BackgroundTask {
+  id: string
+  goal: string
+  status: string
+  progressPercent: number
+  iterations: number
+  createdAt: string
+  completedAt?: string
+  duration?: number
+  summary?: string
+}
 
 // Mode configurations
 const AI_MODES = {
@@ -74,6 +87,37 @@ export function AIAssistantPage() {
   const activeConversation = conversations.find(c => c.id === activeConversationId)
   const currentMode = AI_MODES[selectedMode]
   const [isExtracting, setIsExtracting] = useState(false)
+  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([])
+  const [showBackgroundHistory, setShowBackgroundHistory] = useState(true)
+  const [loadingTasks, setLoadingTasks] = useState(false)
+
+  // Fetch background task history
+  useEffect(() => {
+    const fetchTasks = async () => {
+      setLoadingTasks(true)
+      try {
+        const response = await aiApi.getTasks()
+        if (response.tasks) {
+          setBackgroundTasks(response.tasks.map((t: any) => ({
+            id: t.id,
+            goal: t.goal,
+            status: t.status,
+            progressPercent: t.progressPercent || 0,
+            iterations: t.iterations || 0,
+            createdAt: t.createdAt,
+            completedAt: t.completedAt,
+            duration: t.durationSeconds,
+            summary: t.summary
+          })))
+        }
+      } catch (error) {
+        console.error('Failed to fetch background tasks:', error)
+      } finally {
+        setLoadingTasks(false)
+      }
+    }
+    fetchTasks()
+  }, [])
 
   // Handle document passed via URL params (from Documents page)
   useEffect(() => {
@@ -245,6 +289,77 @@ export function AIAssistantPage() {
               )
             })}
           </div>
+        </div>
+
+        {/* Background Agent History */}
+        <div className={styles.historySection}>
+          <button 
+            className={styles.historySectionHeader}
+            onClick={() => setShowBackgroundHistory(!showBackgroundHistory)}
+          >
+            <Bot size={16} />
+            <span>Background Agent History</span>
+            {showBackgroundHistory ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+          
+          {showBackgroundHistory && (
+            <div className={styles.historyList}>
+              {loadingTasks ? (
+                <div className={styles.historyLoading}>
+                  <Loader2 size={16} className={styles.spinner} />
+                  <span>Loading...</span>
+                </div>
+              ) : backgroundTasks.length === 0 ? (
+                <div className={styles.historyEmpty}>
+                  <span>No background tasks yet</span>
+                  <span className={styles.historyEmptyHint}>
+                    Use the sidebar AI chat with "Background" mode enabled
+                  </span>
+                </div>
+              ) : (
+                backgroundTasks.slice(0, 10).map(task => (
+                  <div 
+                    key={task.id} 
+                    className={clsx(
+                      styles.historyItem,
+                      task.status === 'completed' && styles.completed,
+                      task.status === 'failed' && styles.failed,
+                      task.status === 'running' && styles.running
+                    )}
+                  >
+                    <div className={styles.historyItemIcon}>
+                      {task.status === 'completed' ? (
+                        <CheckCircle size={14} />
+                      ) : task.status === 'failed' ? (
+                        <AlertCircle size={14} />
+                      ) : task.status === 'running' ? (
+                        <Loader2 size={14} className={styles.spinner} />
+                      ) : (
+                        <Clock size={14} />
+                      )}
+                    </div>
+                    <div className={styles.historyItemContent}>
+                      <div className={styles.historyItemGoal}>{task.goal}</div>
+                      <div className={styles.historyItemMeta}>
+                        {task.status === 'running' ? (
+                          <span className={styles.running}>{task.progressPercent}% • Running</span>
+                        ) : (
+                          <>
+                            <span className={styles.historyItemStatus}>{task.status}</span>
+                            {task.createdAt && (
+                              <span className={styles.historyItemTime}>
+                                {formatDistanceToNow(new Date(task.createdAt), { addSuffix: true })}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
 
         <div className={styles.poweredBy}>

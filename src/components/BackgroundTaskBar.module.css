@@ -66,6 +66,22 @@
   gap: 14px;
 }
 
+.clickableArea {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  cursor: pointer;
+  padding: 4px;
+  margin: -4px;
+  border-radius: 12px;
+  transition: background 0.2s;
+}
+
+.clickableArea:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .icon {
   width: 44px;
   height: 44px;
