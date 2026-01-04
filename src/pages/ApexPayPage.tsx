@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { 
   CreditCard, DollarSign, TrendingUp, Clock, CheckCircle2, 
-  AlertCircle, ArrowUpRight, ArrowDownRight, Settings, 
-  Building2, Wallet, Filter, Download, Search, ExternalLink,
-  Shield, Zap, RefreshCw
+  AlertCircle, ArrowUpRight, Settings, 
+  Building2, Wallet, Download, Search, ExternalLink,
+  Shield, Zap, RefreshCw, Loader2
 } from 'lucide-react'
+import { stripeApi } from '../services/api'
 import styles from './ApexPayPage.module.css'
 
 interface Transaction {
@@ -16,35 +17,60 @@ interface Transaction {
   fee: number
   netAmount: number
   status: 'completed' | 'pending' | 'failed' | 'refunded'
-  type: 'credit_card' | 'ach' | 'echeck'
+  paymentMethod: 'card' | 'ach_debit' | 'apple_pay' | 'google_pay'
   accountType: 'operating' | 'trust'
-  date: string
+  createdAt: string
   invoiceNumber?: string
+}
+
+interface Stats {
+  totalReceived: number
+  totalFees: number
+  pendingAmount: number
+  successRate: number
+  operatingBalance: number
+  trustBalance: number
+  transactionCount: number
 }
 
 export function ApexPayPage() {
   const navigate = useNavigate()
-  const [transactions] = useState<Transaction[]>([])
+  const [loading, setLoading] = useState(true)
+  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [stats, setStats] = useState<Stats | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('all')
-  const [isConnected] = useState(false) // Will be dynamic based on Stripe connection
+  const [isConnected, setIsConnected] = useState(false)
+  const [connectionDetails, setConnectionDetails] = useState<any>(null)
 
-  // Calculate stats
-  const totalReceived = transactions
-    .filter(t => t.status === 'completed')
-    .reduce((sum, t) => sum + t.amount, 0)
-  
-  const totalFees = transactions
-    .filter(t => t.status === 'completed')
-    .reduce((sum, t) => sum + t.fee, 0)
-  
-  const pendingAmount = transactions
-    .filter(t => t.status === 'pending')
-    .reduce((sum, t) => sum + t.amount, 0)
+  useEffect(() => {
+    loadData()
+  }, [])
 
-  const successRate = transactions.length > 0
-    ? (transactions.filter(t => t.status === 'completed').length / transactions.length) * 100
-    : 0
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      
+      // Check connection status
+      const statusData = await stripeApi.getConnectionStatus()
+      setIsConnected(statusData.connected)
+      setConnectionDetails(statusData.connection)
+
+      if (statusData.connected) {
+        // Load stats and transactions
+        const [statsData, txnData] = await Promise.all([
+          stripeApi.getStats(),
+          stripeApi.getTransactions({ limit: 50 })
+        ])
+        setStats(statsData)
+        setTransactions(txnData.transactions || [])
+      }
+    } catch (error) {
+      console.error('Error loading Apex Pay data:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const filteredTransactions = transactions.filter(t => {
     const matchesSearch = 
@@ -73,13 +99,14 @@ export function ApexPayPage() {
     )
   }
 
-  const getPaymentTypeLabel = (type: Transaction['type']) => {
-    const labels = {
-      credit_card: 'Card',
-      ach: 'ACH',
-      echeck: 'eCheck'
+  const getPaymentTypeLabel = (type: Transaction['paymentMethod']) => {
+    const labels: Record<string, string> = {
+      card: 'Card',
+      ach_debit: 'ACH',
+      apple_pay: 'Apple Pay',
+      google_pay: 'Google Pay'
     }
-    return labels[type]
+    return labels[type] || type
   }
 
   const formatDate = (dateString: string) => {
@@ -97,6 +124,17 @@ export function ApexPayPage() {
       style: 'currency',
       currency: 'USD'
     }).format(amount)
+  }
+
+  if (loading) {
+    return (
+      <div className={styles.page}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '50vh' }}>
+          <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--gold-primary)' }} />
+        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    )
   }
 
   return (
@@ -153,11 +191,10 @@ export function ApexPayPage() {
           </div>
           <div className={styles.statContent}>
             <span className={styles.statLabel}>Total Received</span>
-            <span className={styles.statValue}>{formatCurrency(totalReceived)}</span>
-            <span className={styles.statChange}>
-              <ArrowUpRight size={14} />
-              +12.5% from last month
-            </span>
+            <span className={styles.statValue}>{formatCurrency(stats?.totalReceived || 0)}</span>
+            {stats?.transactionCount ? (
+              <span className={styles.statNote}>{stats.transactionCount} transactions</span>
+            ) : null}
           </div>
         </div>
 
@@ -167,7 +204,7 @@ export function ApexPayPage() {
           </div>
           <div className={styles.statContent}>
             <span className={styles.statLabel}>Pending</span>
-            <span className={styles.statValue}>{formatCurrency(pendingAmount)}</span>
+            <span className={styles.statValue}>{formatCurrency(stats?.pendingAmount || 0)}</span>
             <span className={styles.statNote}>Processing</span>
           </div>
         </div>
@@ -178,11 +215,8 @@ export function ApexPayPage() {
           </div>
           <div className={styles.statContent}>
             <span className={styles.statLabel}>Success Rate</span>
-            <span className={styles.statValue}>{successRate.toFixed(1)}%</span>
-            <span className={styles.statChange}>
-              <ArrowUpRight size={14} />
-              +2.3% improvement
-            </span>
+            <span className={styles.statValue}>{(stats?.successRate || 0).toFixed(1)}%</span>
+            <span className={styles.statNote}>All time</span>
           </div>
         </div>
 
@@ -192,7 +226,7 @@ export function ApexPayPage() {
           </div>
           <div className={styles.statContent}>
             <span className={styles.statLabel}>Processing Fees</span>
-            <span className={styles.statValue}>{formatCurrency(totalFees)}</span>
+            <span className={styles.statValue}>{formatCurrency(stats?.totalFees || 0)}</span>
             <span className={styles.statNote}>2.9% + $0.30 avg</span>
           </div>
         </div>
@@ -205,32 +239,26 @@ export function ApexPayPage() {
           <div className={styles.accountCard}>
             <div className={styles.accountHeader}>
               <Building2 size={18} />
-              <span>Operating Account</span>
+              <span>{connectionDetails?.settings?.operatingAccountLabel || 'Operating Account'}</span>
             </div>
             <div className={styles.accountBalance}>
-              {formatCurrency(transactions
-                .filter(t => t.status === 'completed' && t.accountType === 'operating')
-                .reduce((sum, t) => sum + t.netAmount, 0)
-              )}
+              {formatCurrency(stats?.operatingBalance || 0)}
             </div>
             <div className={styles.accountMeta}>
-              {transactions.filter(t => t.accountType === 'operating').length} transactions
+              Net received
             </div>
           </div>
 
           <div className={styles.accountCard}>
             <div className={styles.accountHeader}>
               <Shield size={18} />
-              <span>Trust Account (IOLTA)</span>
+              <span>{connectionDetails?.settings?.trustAccountLabel || 'Trust Account (IOLTA)'}</span>
             </div>
             <div className={styles.accountBalance}>
-              {formatCurrency(transactions
-                .filter(t => t.status === 'completed' && t.accountType === 'trust')
-                .reduce((sum, t) => sum + t.netAmount, 0)
-              )}
+              {formatCurrency(stats?.trustBalance || 0)}
             </div>
             <div className={styles.accountMeta}>
-              {transactions.filter(t => t.accountType === 'trust').length} transactions
+              Net received
             </div>
           </div>
         </div>
@@ -298,7 +326,7 @@ export function ApexPayPage() {
                   <td className={styles.feeCell}>-{formatCurrency(txn.fee)}</td>
                   <td className={styles.netCell}>{formatCurrency(txn.netAmount)}</td>
                   <td>
-                    <span className={styles.typeBadge}>{getPaymentTypeLabel(txn.type)}</span>
+                    <span className={styles.typeBadge}>{getPaymentTypeLabel(txn.paymentMethod)}</span>
                   </td>
                   <td>
                     <span className={`${styles.accountBadge} ${txn.accountType === 'trust' ? styles.trustAccount : ''}`}>
@@ -306,7 +334,7 @@ export function ApexPayPage() {
                     </span>
                   </td>
                   <td>{getStatusBadge(txn.status)}</td>
-                  <td className={styles.dateCell}>{formatDate(txn.date)}</td>
+                  <td className={styles.dateCell}>{formatDate(txn.createdAt)}</td>
                 </tr>
               ))}
             </tbody>

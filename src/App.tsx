@@ -267,6 +267,7 @@ function AppContent() {
         <Route path="settings/billing" element={<BillingSettingsPage />} />
         <Route path="settings/payments" element={<PaymentsSettingsPage />} />
         <Route path="settings/apex-pay" element={<ApexPaySettingsPage />} />
+        <Route path="settings/apex-pay/callback" element={<ApexPaySettingsPage />} />
         <Route path="settings/data-escrow" element={<DataEscrowPage />} />
         <Route path="settings/sharing" element={<SharingSettingsPage />} />
         <Route path="settings/text-messaging" element={<TextMessagingPage />} />

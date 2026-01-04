@@ -1788,6 +1788,71 @@ export const analyticsApi = {
   },
 };
 
+// Stripe Connect API for Apex Pay
+export const stripeApi = {
+  // Get connection status
+  async getConnectionStatus() {
+    return fetchWithAuth('/stripe/connect/status');
+  },
+
+  // Get OAuth URL for connecting
+  async getOAuthUrl() {
+    return fetchWithAuth('/stripe/connect/oauth-url');
+  },
+
+  // Handle OAuth callback
+  async handleCallback(code: string, state: string) {
+    return fetchWithAuth('/stripe/connect/callback', {
+      method: 'POST',
+      body: JSON.stringify({ code, state }),
+    });
+  },
+
+  // Accept compliance terms
+  async acceptCompliance() {
+    return fetchWithAuth('/stripe/connect/accept-compliance', {
+      method: 'POST',
+    });
+  },
+
+  // Update settings
+  async updateSettings(settings: {
+    defaultToTrust?: boolean;
+    trustAccountLabel?: string;
+    operatingAccountLabel?: string;
+    acceptCards?: boolean;
+    acceptAch?: boolean;
+    acceptApplePay?: boolean;
+    acceptGooglePay?: boolean;
+  }) {
+    return fetchWithAuth('/stripe/connect/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  },
+
+  // Disconnect Stripe
+  async disconnect() {
+    return fetchWithAuth('/stripe/connect/disconnect', {
+      method: 'POST',
+    });
+  },
+
+  // Get transactions
+  async getTransactions(params?: { status?: string; limit?: number; offset?: number }) {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', params.status);
+    if (params?.limit) query.set('limit', params.limit.toString());
+    if (params?.offset) query.set('offset', params.offset.toString());
+    return fetchWithAuth(`/stripe/connect/transactions?${query.toString()}`);
+  },
+
+  // Get stats
+  async getStats() {
+    return fetchWithAuth('/stripe/connect/stats');
+  },
+};
+
 // Export all APIs
 export default {
   auth: authApi,
@@ -1812,4 +1877,5 @@ export default {
   documentPermissions: documentPermissionsApi,
   wordOnline: wordOnlineApi,
   analytics: analyticsApi,
+  stripe: stripeApi,
 };
