@@ -2771,6 +2771,36 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         }
         
         // ============================================
+        // USER-SPECIFIC MIGRATION: Pre-fetch matters to get client IDs for contact filtering
+        // ============================================
+        const filterClientClioIds = new Set();
+        if (filterClioUserId) {
+          console.log(`[CLIO IMPORT] Pre-fetching matters to identify clients for user filter...`);
+          addLog(`🔍 Pre-fetching matters to identify which contacts to import...`);
+          
+          try {
+            const allMatters = await clioGetMattersByStatus(
+              accessToken, '/matters.json',
+              { fields: 'id,client{id},responsible_attorney{id}' },
+              null
+            );
+            
+            // Filter to user's matters and collect client IDs
+            for (const m of allMatters) {
+              if (m.responsible_attorney?.id === filterClioUserId && m.client?.id) {
+                filterClientClioIds.add(m.client.id);
+              }
+            }
+            
+            console.log(`[CLIO IMPORT] Found ${filterClientClioIds.size} unique clients from user's matters`);
+            addLog(`📇 Found ${filterClientClioIds.size} clients associated with user's matters`);
+          } catch (err) {
+            console.error(`[CLIO IMPORT] Error pre-fetching matters for client filter: ${err.message}`);
+            addLog(`⚠️ Could not pre-fetch clients, will import all contacts`);
+          }
+        }
+        
+        // ============================================
         // STEP 1: IMPORT USERS (direct to DB)
         // ============================================
         if (!includeUsers) {
@@ -2924,14 +2954,22 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             
             addLog(`Fetched ${contacts.length} contacts from Clio API. Analyzing email/phone data...`);
             
+            // If user-specific filter is active, filter contacts to only those associated with user's matters
+            let filteredContacts = contacts;
+            if (filterClioUserId && filterClientClioIds.size > 0) {
+              filteredContacts = contacts.filter(c => filterClientClioIds.has(c.id));
+              console.log(`[CLIO IMPORT] User filter applied: ${filteredContacts.length} of ${contacts.length} contacts for user's matters`);
+              addLog(`📇 Filtered to ${filteredContacts.length} contacts (from ${contacts.length} total) for user's matters`);
+            }
+            
             // Log samples to debug what Clio returns for email/phone
-            if (contacts.length > 0) {
+            if (filteredContacts.length > 0) {
               // Log RAW first contact to see exactly what Clio returns
               console.log(`[CLIO IMPORT] RAW first contact from Clio API:`);
-              console.log(JSON.stringify(contacts[0], null, 2));
+              console.log(JSON.stringify(filteredContacts[0], null, 2));
               
               // Log to frontend what fields exist on first contact
-              const firstContact = contacts[0];
+              const firstContact = filteredContacts[0];
               const firstContactFields = Object.keys(firstContact).join(', ');
               addLog(`DEBUG: First contact fields: ${firstContactFields}`);
               
@@ -2955,22 +2993,22 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               }
               
               console.log(`[CLIO IMPORT] First 3 contacts with email/phone data:`);
-              for (let i = 0; i < Math.min(3, contacts.length); i++) {
-                const c = contacts[i];
+              for (let i = 0; i < Math.min(3, filteredContacts.length); i++) {
+                const c = filteredContacts[i];
                 console.log(`[CLIO IMPORT]   Contact ${i+1}: name="${c.name}", email=${JSON.stringify(c.primary_email_address)}, phone=${JSON.stringify(c.primary_phone_number)}`);
               }
               // Also count how many have email/phone - check both field syntaxes
-              const withEmail = contacts.filter(c => c.primary_email_address?.address || c.email_addresses?.[0]?.address).length;
-              const withPhone = contacts.filter(c => c.primary_phone_number?.number || c.phone_numbers?.[0]?.number).length;
-              console.log(`[CLIO IMPORT] Contacts with email: ${withEmail}/${contacts.length}, with phone: ${withPhone}/${contacts.length}`);
-              addLog(`Contacts from Clio: ${contacts.length} total, ${withEmail} with email, ${withPhone} with phone`);
+              const withEmail = filteredContacts.filter(c => c.primary_email_address?.address || c.email_addresses?.[0]?.address).length;
+              const withPhone = filteredContacts.filter(c => c.primary_phone_number?.number || c.phone_numbers?.[0]?.number).length;
+              console.log(`[CLIO IMPORT] Contacts with email: ${withEmail}/${filteredContacts.length}, with phone: ${withPhone}/${filteredContacts.length}`);
+              addLog(`Contacts to import: ${filteredContacts.length} total, ${withEmail} with email, ${withPhone} with phone`);
             }
             
             // Track how many contacts have email/phone saved
             let savedWithEmail = 0;
             let savedWithPhone = 0;
             
-            for (const c of contacts) {
+            for (const c of filteredContacts) {
               try {
                 const isCompany = c.type === 'Company';
                 const displayName = c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown';
