@@ -3168,7 +3168,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               }
             }
             // Verify contacts were saved
-            console.log(`[CLIO IMPORT] Contacts fetched from Clio: ${contacts.length}`);
+            console.log(`[CLIO IMPORT] Contacts fetched from Clio: ${filteredContacts.length}`);
             console.log(`[CLIO IMPORT] Contacts saved with email: ${savedWithEmail}/${counts.contacts}`);
             console.log(`[CLIO IMPORT] Contacts saved with phone: ${savedWithPhone}/${counts.contacts}`);
             addLog(`RESULT: Saved ${counts.contacts} contacts - ${savedWithEmail} with email, ${savedWithPhone} with phone`);
