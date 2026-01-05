@@ -90,6 +90,42 @@ export function AIAssistantPage() {
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([])
   const [showBackgroundHistory, setShowBackgroundHistory] = useState(true)
   const [loadingTasks, setLoadingTasks] = useState(false)
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null)
+  const historyListRef = useRef<HTMLDivElement>(null)
+
+  // Handle showAgent query param - scroll to background agent history
+  useEffect(() => {
+    const showAgent = searchParams.get('showAgent')
+    if (showAgent === 'true') {
+      // Make sure background history is expanded
+      setShowBackgroundHistory(true)
+      
+      // Check for stored task info
+      const storedTask = sessionStorage.getItem('viewBackgroundTask')
+      if (storedTask) {
+        try {
+          const taskInfo = JSON.parse(storedTask)
+          setHighlightTaskId(taskInfo.id)
+          // Clear the stored data
+          sessionStorage.removeItem('viewBackgroundTask')
+          
+          // Clear highlight after 3 seconds
+          setTimeout(() => setHighlightTaskId(null), 3000)
+        } catch (e) {
+          console.error('Error parsing stored task:', e)
+        }
+      }
+      
+      // Scroll to history section after a short delay
+      setTimeout(() => {
+        historyListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 200)
+      
+      // Clear the query param
+      navigate('/app/ai', { replace: true })
+    }
+  }, [searchParams, navigate])
 
   // Fetch background task history
   useEffect(() => {
@@ -303,7 +339,7 @@ export function AIAssistantPage() {
           </button>
           
           {showBackgroundHistory && (
-            <div className={styles.historyList}>
+            <div className={styles.historyList} ref={historyListRef}>
               {loadingTasks ? (
                 <div className={styles.historyLoading}>
                   <Loader2 size={16} className={styles.spinner} />
@@ -324,8 +360,11 @@ export function AIAssistantPage() {
                       styles.historyItem,
                       task.status === 'completed' && styles.completed,
                       task.status === 'failed' && styles.failed,
-                      task.status === 'running' && styles.running
+                      task.status === 'running' && styles.running,
+                      highlightTaskId === task.id && styles.highlighted,
+                      selectedTaskId === task.id && styles.selected
                     )}
+                    onClick={() => setSelectedTaskId(selectedTaskId === task.id ? null : task.id)}
                   >
                     <div className={styles.historyItemIcon}>
                       {task.status === 'completed' ? (
@@ -354,6 +393,12 @@ export function AIAssistantPage() {
                           </>
                         )}
                       </div>
+                      {/* Show summary when task is selected */}
+                      {selectedTaskId === task.id && task.summary && (
+                        <div className={styles.historyItemSummary}>
+                          {task.summary}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))
