@@ -2770,35 +2770,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           }
         }
         
-        // ============================================
-        // USER-SPECIFIC MIGRATION: Pre-fetch matters to get client IDs for contact filtering
-        // ============================================
+        // Track client IDs for contact filtering (populated during matters import)
         const filterClientClioIds = new Set();
-        if (filterClioUserId) {
-          console.log(`[CLIO IMPORT] Pre-fetching matters to identify clients for user filter...`);
-          addLog(`🔍 Pre-fetching matters to identify which contacts to import...`);
-          
-          try {
-            const allMatters = await clioGetMattersByStatus(
-              accessToken, '/matters.json',
-              { fields: 'id,client{id},responsible_attorney{id}' },
-              null
-            );
-            
-            // Filter to user's matters and collect client IDs
-            for (const m of allMatters) {
-              if (m.responsible_attorney?.id === filterClioUserId && m.client?.id) {
-                filterClientClioIds.add(m.client.id);
-              }
-            }
-            
-            console.log(`[CLIO IMPORT] Found ${filterClientClioIds.size} unique clients from user's matters`);
-            addLog(`📇 Found ${filterClientClioIds.size} clients associated with user's matters`);
-          } catch (err) {
-            console.error(`[CLIO IMPORT] Error pre-fetching matters for client filter: ${err.message}`);
-            addLog(`⚠️ Could not pre-fetch clients, will import all contacts`);
-          }
-        }
         
         // ============================================
         // STEP 1: IMPORT USERS (direct to DB)
@@ -2929,6 +2902,36 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           } catch (err) {
             console.error('[CLIO IMPORT] Users error:', err.message);
             updateProgress('users', 'error', counts.users, err.message);
+          }
+        }
+        
+        // ============================================
+        // PRE-FETCH: Get client IDs for user-specific contact filtering
+        // ============================================
+        if (filterClioUserId && includeContacts) {
+          console.log(`[CLIO IMPORT] Pre-fetching matters to identify clients for user filter...`);
+          addLog(`🔍 Identifying which contacts to import...`);
+          
+          try {
+            // Use simple paginated fetch with minimal fields for speed
+            const mattersList = await clioGetPaginated(
+              accessToken, '/matters.json',
+              { fields: 'id,client{id},responsible_attorney{id}', limit: 200 },
+              null
+            );
+            
+            // Collect client IDs from user's matters
+            for (const m of mattersList) {
+              if (m.responsible_attorney?.id === filterClioUserId && m.client?.id) {
+                filterClientClioIds.add(m.client.id);
+              }
+            }
+            
+            console.log(`[CLIO IMPORT] Found ${filterClientClioIds.size} unique clients from user's matters`);
+            addLog(`📇 Found ${filterClientClioIds.size} clients to import`);
+          } catch (err) {
+            console.error(`[CLIO IMPORT] Error pre-fetching matters for client filter: ${err.message}`);
+            addLog(`⚠️ Could not identify clients, will import all contacts`);
           }
         }
         
