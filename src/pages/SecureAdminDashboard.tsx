@@ -212,6 +212,10 @@ export default function SecureAdminDashboard() {
   const [useExistingFirm, setUseExistingFirm] = useState(() => sessionStorage.getItem('clio_useExistingFirm') === 'true')
   const [selectedExistingFirmId, setSelectedExistingFirmId] = useState(() => sessionStorage.getItem('clio_existingFirmId') || '')
   
+  // User-specific migration (filter by user email, only migrate their matters)
+  const [filterByUser, setFilterByUser] = useState(() => sessionStorage.getItem('clio_filterByUser') === 'true')
+  const [filterUserEmail, setFilterUserEmail] = useState(() => sessionStorage.getItem('clio_filterUserEmail') || '')
+  
   // Sync options to sessionStorage so they persist through OAuth redirect
   useEffect(() => { sessionStorage.setItem('clio_includeUsers', String(includeUsers)) }, [includeUsers])
   useEffect(() => { sessionStorage.setItem('clio_includeContacts', String(includeContacts)) }, [includeContacts])
@@ -221,6 +225,8 @@ export default function SecureAdminDashboard() {
   useEffect(() => { sessionStorage.setItem('clio_includeCalendar', String(includeCalendar)) }, [includeCalendar])
   useEffect(() => { sessionStorage.setItem('clio_useExistingFirm', String(useExistingFirm)) }, [useExistingFirm])
   useEffect(() => { sessionStorage.setItem('clio_existingFirmId', selectedExistingFirmId) }, [selectedExistingFirmId])
+  useEffect(() => { sessionStorage.setItem('clio_filterByUser', String(filterByUser)) }, [filterByUser])
+  useEffect(() => { sessionStorage.setItem('clio_filterUserEmail', filterUserEmail) }, [filterUserEmail])
   
   const [clioProgress, setClioProgress] = useState<{
     status: string;
@@ -1199,6 +1205,8 @@ export default function SecureAdminDashboard() {
     const storedIncludeActivities = sessionStorage.getItem('clio_includeActivities') !== 'false'
     const storedIncludeBills = sessionStorage.getItem('clio_includeBills') !== 'false'
     const storedIncludeCalendar = sessionStorage.getItem('clio_includeCalendar') !== 'false'
+    const storedFilterByUser = sessionStorage.getItem('clio_filterByUser') === 'true'
+    const storedFilterUserEmail = sessionStorage.getItem('clio_filterUserEmail') || ''
     
     console.log('[CLIO] Import options from sessionStorage:', {
       useExistingFirm: storedUseExistingFirm,
@@ -1208,7 +1216,9 @@ export default function SecureAdminDashboard() {
       includeMatters: storedIncludeMatters,
       includeActivities: storedIncludeActivities,
       includeBills: storedIncludeBills,
-      includeCalendar: storedIncludeCalendar
+      includeCalendar: storedIncludeCalendar,
+      filterByUser: storedFilterByUser,
+      filterUserEmail: storedFilterUserEmail
     })
     
     try {
@@ -1225,7 +1235,9 @@ export default function SecureAdminDashboard() {
           includeMatters: storedIncludeMatters,
           includeActivities: storedIncludeActivities,
           includeBills: storedIncludeBills,
-          includeCalendar: storedIncludeCalendar
+          includeCalendar: storedIncludeCalendar,
+          filterByUser: storedFilterByUser,
+          filterUserEmail: storedFilterByUser ? storedFilterUserEmail : null
         })
       })
       
@@ -1275,7 +1287,9 @@ export default function SecureAdminDashboard() {
           includeMatters,
           includeActivities,
           includeBills,
-          includeCalendar
+          includeCalendar,
+          filterByUser,
+          filterUserEmail: filterByUser ? filterUserEmail : null
         })
       })
       
@@ -1386,11 +1400,15 @@ export default function SecureAdminDashboard() {
     setClioImporting(false)
     setUseExistingFirm(false)
     setSelectedExistingFirmId('')
+    setFilterByUser(false)
+    setFilterUserEmail('')
     setMigrationInputs(prev => ({ ...prev, firmName: '' }))
     
     // Clear sessionStorage for Clio-related settings
     sessionStorage.removeItem('clio_useExistingFirm')
     sessionStorage.removeItem('clio_existingFirmId')
+    sessionStorage.removeItem('clio_filterByUser')
+    sessionStorage.removeItem('clio_filterUserEmail')
     sessionStorage.removeItem('clio_migration_progress')
     
     // Clear URL params if any
@@ -2497,9 +2515,46 @@ Password: ${newPass}`
                                   </div>
                                 </div>
                                 
+                                {/* User-Specific Migration */}
+                                <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', marginBottom: '0.5rem' }}>
+                                    <input 
+                                      type="checkbox" 
+                                      checked={filterByUser} 
+                                      onChange={(e) => {
+                                        setFilterByUser(e.target.checked)
+                                        if (!e.target.checked) setFilterUserEmail('')
+                                      }} 
+                                    />
+                                    <span style={{ fontSize: '0.9rem', fontWeight: 500, color: '#F59E0B' }}>
+                                      Migrate Specific User Only
+                                    </span>
+                                  </label>
+                                  <p style={{ fontSize: '0.8rem', color: '#888', marginBottom: '0.5rem' }}>
+                                    Only migrate matters where this user is the responsible attorney, plus their time entries, bills, and calendar events.
+                                  </p>
+                                  {filterByUser && (
+                                    <input
+                                      type="email"
+                                      value={filterUserEmail}
+                                      onChange={(e) => setFilterUserEmail(e.target.value)}
+                                      placeholder="Enter user email from Clio (e.g. john@firm.com)"
+                                      style={{ 
+                                        width: '100%', 
+                                        padding: '0.5rem', 
+                                        borderRadius: '6px', 
+                                        background: '#1a1a2e', 
+                                        border: '1px solid #2d2d4a',
+                                        color: '#e5e7eb',
+                                        fontSize: '0.85rem'
+                                      }}
+                                    />
+                                  )}
+                                </div>
+                                
                                 <button 
                                   onClick={connectToClio}
-                                  disabled={clioImporting || !clioClientId.trim() || !clioClientSecret.trim() || !migrationInputs.firmName.trim()}
+                                  disabled={clioImporting || !clioClientId.trim() || !clioClientSecret.trim() || !migrationInputs.firmName.trim() || (filterByUser && !filterUserEmail.trim())}
                                   className={styles.primaryBtn}
                                   style={{ marginTop: '1rem' }}
                                 >

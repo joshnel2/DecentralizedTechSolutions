@@ -2601,11 +2601,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
       includeMatters = true, 
       includeActivities = true, 
       includeBills = true, 
-      includeCalendar = true
+      includeCalendar = true,
+      filterByUser = false,
+      filterUserEmail = null
     } = req.body;
     
     console.log('[CLIO IMPORT] Starting import for connection:', connectionId, 'firmName:', firmName);
     console.log('[CLIO IMPORT] Include options:', { includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar });
+    console.log('[CLIO IMPORT] User filter:', { filterByUser, filterUserEmail });
     
     if (!connectionId) {
       console.error('[CLIO IMPORT] No connection ID provided');
@@ -2629,7 +2632,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
     }
     
     // Store options for background process
-    const importOptions = { existingFirmId, includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar };
+    const importOptions = { existingFirmId, includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar, filterByUser, filterUserEmail };
     
     // Initialize progress
     migrationProgress.set(connectionId, {
@@ -2729,6 +2732,42 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           );
           firmId = firmResult.rows[0].id;
           console.log(`[CLIO IMPORT] Created new firm: ${actualFirmName} (${firmId})`);
+        }
+        
+        // ============================================
+        // USER-SPECIFIC MIGRATION: Find Clio user ID by email
+        // ============================================
+        let filterClioUserId = null;
+        if (filterByUser && filterUserEmail) {
+          console.log(`[CLIO IMPORT] User-specific migration enabled. Finding Clio user with email: ${filterUserEmail}`);
+          addLog(`🔍 Looking up Clio user: ${filterUserEmail}`);
+          
+          try {
+            // Fetch all users from Clio to find the one with matching email
+            const allClioUsers = await clioGetAll(accessToken, '/users.json', {
+              fields: 'id,name,email'
+            }, null);
+            
+            const matchingUser = allClioUsers.find(u => 
+              u.email && u.email.toLowerCase() === filterUserEmail.toLowerCase()
+            );
+            
+            if (matchingUser) {
+              filterClioUserId = matchingUser.id;
+              console.log(`[CLIO IMPORT] Found Clio user: ${matchingUser.name} (ID: ${filterClioUserId})`);
+              addLog(`✅ Found Clio user: ${matchingUser.name} (ID: ${filterClioUserId})`);
+              addLog(`📋 Will only import matters where this user is the responsible attorney`);
+            } else {
+              console.log(`[CLIO IMPORT] WARNING: No Clio user found with email: ${filterUserEmail}`);
+              addLog(`⚠️ No Clio user found with email: ${filterUserEmail}`);
+              addLog(`Proceeding with full import (no user filter applied)`);
+              warnings.push(`User-specific filter requested but no user found with email: ${filterUserEmail}. Importing all data.`);
+            }
+          } catch (err) {
+            console.error(`[CLIO IMPORT] Error looking up filter user: ${err.message}`);
+            addLog(`⚠️ Error looking up user: ${err.message}. Proceeding with full import.`);
+            warnings.push(`Could not look up filter user: ${err.message}`);
+          }
         }
         
         // ============================================
@@ -3085,6 +3124,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // ============================================
         // STEP 3: IMPORT MATTERS (direct to DB)
         // ============================================
+        // Track imported Clio matter IDs for filtering time entries, bills, calendar
+        const importedClioMatterIds = new Set();
+        
         if (!includeMatters) {
           console.log('[CLIO IMPORT] Step 3/10: SKIPPING matters');
           updateProgress('matters', 'skipped', 0);
@@ -3099,7 +3141,17 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               (count) => updateProgress('matters', 'running', count)
             );
             
-            for (const m of matters) {
+            // If user-specific filter is active, filter matters
+            let filteredMatters = matters;
+            if (filterClioUserId) {
+              filteredMatters = matters.filter(m => 
+                m.responsible_attorney?.id === filterClioUserId
+              );
+              console.log(`[CLIO IMPORT] User filter applied: ${filteredMatters.length} of ${matters.length} matters where user is responsible attorney`);
+              addLog(`📋 Filtered to ${filteredMatters.length} matters (from ${matters.length} total) where user is responsible attorney`);
+            }
+            
+            for (const m of filteredMatters) {
               try {
                 // Always use unique matter number - append Clio ID to guarantee uniqueness
                 const baseNumber = m.display_number || `M-${m.id}`;
@@ -3166,6 +3218,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 
                 const matterId = result.rows[0].id;
                 matterIdMap.set(`clio:${m.id}`, matterId);
+                importedClioMatterIds.add(m.id); // Track for filtering time entries, bills, calendar
                 
                 // Create matter_assignments for responsible and originating attorneys
                 if (responsibleId) {
@@ -3235,6 +3288,16 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             
             console.log(`[CLIO IMPORT] Activities fetched from Clio: ${activities.length}`);
             
+            // If user-specific filter is active, filter activities to only those for imported matters
+            let filteredActivities = activities;
+            if (filterClioUserId && importedClioMatterIds.size > 0) {
+              filteredActivities = activities.filter(a => 
+                a.matter?.id && importedClioMatterIds.has(a.matter.id)
+              );
+              console.log(`[CLIO IMPORT] User filter applied: ${filteredActivities.length} of ${activities.length} activities for user's matters`);
+              addLog(`⏱️ Filtered to ${filteredActivities.length} time entries/expenses (from ${activities.length} total) for user's matters`);
+            }
+            
             // Log RAW first activity to see exactly what Clio returns
             if (activities.length > 0) {
               console.log(`[CLIO IMPORT] RAW first activity from Clio API:`);
@@ -3261,7 +3324,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             let expensesNoMatter = 0;
             let savedTimeEntries = 0;
             
-            for (const a of activities) {
+            for (const a of filteredActivities) {
               try {
                 // Look up matter - try by Clio ID first, then by display_number
                 let matterId = a.matter?.id ? matterIdMap.get(`clio:${a.matter.id}`) : null;
@@ -3451,34 +3514,48 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
 
             console.log(`[CLIO IMPORT] Bills fetched from Clio: ${bills.length}`);
             
+            // If user-specific filter is active, filter bills to only those for imported matters
+            let filteredBills = bills;
+            if (filterClioUserId && importedClioMatterIds.size > 0) {
+              filteredBills = bills.filter(b => {
+                // Check if any of the bill's matters are in our imported set
+                if (b.matters && b.matters.length > 0) {
+                  return b.matters.some(m => m.id && importedClioMatterIds.has(m.id));
+                }
+                return false; // Skip bills without matter association
+              });
+              console.log(`[CLIO IMPORT] User filter applied: ${filteredBills.length} of ${bills.length} bills for user's matters`);
+              addLog(`💰 Filtered to ${filteredBills.length} bills (from ${bills.length} total) for user's matters`);
+            }
+            
             // Log RAW first bill to see exactly what Clio returns
-            if (bills.length > 0) {
+            if (filteredBills.length > 0) {
               console.log(`[CLIO IMPORT] RAW first bill from Clio API:`);
-              console.log(JSON.stringify(bills[0], null, 2));
+              console.log(JSON.stringify(filteredBills[0], null, 2));
               
               // Log first 5 bills summary
               console.log(`[CLIO IMPORT] First 5 bills summary:`);
-              for (let i = 0; i < Math.min(5, bills.length); i++) {
-                const b = bills[i];
+              for (let i = 0; i < Math.min(5, filteredBills.length); i++) {
+                const b = filteredBills[i];
                 console.log(`[CLIO IMPORT]   Bill ${i+1}: number=${b.number}, state=${b.state}, total=${b.total}, balance=${b.balance}, issued_at=${b.issued_at}, matters=${b.matters?.length || 0}, client=${b.client?.name}`);
               }
               
               // Count by state
               const byState = {};
-              bills.forEach(b => {
+              filteredBills.forEach(b => {
                 byState[b.state] = (byState[b.state] || 0) + 1;
               });
               console.log(`[CLIO IMPORT] Bills by state:`, byState);
               
               // Calculate totals
-              const totalAmount = bills.reduce((sum, b) => sum + (parseFloat(b.total) || 0), 0);
-              const totalBalance = bills.reduce((sum, b) => sum + (parseFloat(b.balance) || 0), 0);
+              const totalAmount = filteredBills.reduce((sum, b) => sum + (parseFloat(b.total) || 0), 0);
+              const totalBalance = filteredBills.reduce((sum, b) => sum + (parseFloat(b.balance) || 0), 0);
               console.log(`[CLIO IMPORT] Bills total amount: $${totalAmount.toFixed(2)}, outstanding: $${totalBalance.toFixed(2)}`);
             }
             
             let skippedBills = 0;
             
-            for (const b of bills) {
+            for (const b of filteredBills) {
               try {
                 const firstMatter = b.matters?.[0];
                 const matterId = firstMatter?.id ? matterIdMap.get(`clio:${firstMatter.id}`) : null;
@@ -3562,7 +3639,17 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               fields: 'id,summary,description,start_at,end_at,all_day,location,matter,attendees'
             }, (count) => updateProgress('calendar', 'running', count));
             
-            for (const e of events) {
+            // If user-specific filter is active, filter calendar events to only those for imported matters
+            let filteredEvents = events;
+            if (filterClioUserId && importedClioMatterIds.size > 0) {
+              filteredEvents = events.filter(e => 
+                e.matter?.id && importedClioMatterIds.has(e.matter.id)
+              );
+              console.log(`[CLIO IMPORT] User filter applied: ${filteredEvents.length} of ${events.length} calendar events for user's matters`);
+              addLog(`📅 Filtered to ${filteredEvents.length} calendar events (from ${events.length} total) for user's matters`);
+            }
+            
+            for (const e of filteredEvents) {
               try {
                 // Skip events without start/end times (required fields)
                 if (!e.start_at || !e.end_at) continue;
