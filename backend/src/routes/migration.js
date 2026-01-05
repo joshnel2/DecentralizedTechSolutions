@@ -3343,44 +3343,63 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 4/10: Importing time entries and expenses directly to DB...');
           updateProgress('activities', 'running', 0);
           try {
-            // Fetch activities - comprehensive fields for complete time entry migration
-            // Added: created_at, updated_at for audit trail; rounded_quantity_in_hours for billing accuracy
-            // Added: utbms_expense_type for expense categorization; bill{id} for billed status tracking
-            const activities = await clioGetActivitiesByStatus(
-              accessToken, '/activities.json',
-              { fields: 'id,type,date,quantity,quantity_in_hours,rounded_quantity_in_hours,price,total,note,billed,non_billable,created_at,updated_at,matter{id,display_number,description},user{id,name,email},activity_description{id,name,code},utbms_expense_type{id,name,code},bill{id}' },
-              (count) => updateProgress('activities', 'running', count)
-            );
+            const activityFields = 'id,type,date,quantity,quantity_in_hours,rounded_quantity_in_hours,price,total,note,billed,non_billable,created_at,updated_at,matter{id,display_number,description},user{id,name,email},activity_description{id,name,code},utbms_expense_type{id,name,code},bill{id}';
             
-            console.log(`[CLIO IMPORT] Activities fetched from Clio: ${activities.length}`);
+            let filteredActivities = [];
             
-            // If user-specific filter is active, filter activities to only those for imported matters
-            let filteredActivities = activities;
+            // If user-specific filter, fetch activities only for the imported matters
             if (filterClioUserId && importedClioMatterIds.size > 0) {
-              filteredActivities = activities.filter(a => 
-                a.matter?.id && importedClioMatterIds.has(a.matter.id)
+              console.log(`[CLIO IMPORT] Fetching activities for ${importedClioMatterIds.size} matters...`);
+              addLog(`⏱️ Fetching time entries for ${importedClioMatterIds.size} matters...`);
+              
+              const matterIds = Array.from(importedClioMatterIds);
+              for (let i = 0; i < matterIds.length; i++) {
+                try {
+                  const matterActivities = await clioGetPaginated(
+                    accessToken, '/activities.json',
+                    { fields: activityFields, matter_id: matterIds[i] },
+                    null
+                  );
+                  filteredActivities.push(...matterActivities);
+                  
+                  if ((i + 1) % 10 === 0 || i === matterIds.length - 1) {
+                    updateProgress('activities', 'running', filteredActivities.length);
+                    addLog(`⏱️ Fetched activities for ${i + 1}/${matterIds.length} matters (${filteredActivities.length} total)...`);
+                  }
+                } catch (err) {
+                  console.log(`[CLIO IMPORT] Could not fetch activities for matter ${matterIds[i]}: ${err.message}`);
+                }
+              }
+              console.log(`[CLIO IMPORT] Fetched ${filteredActivities.length} activities for user's matters`);
+              addLog(`✅ Fetched ${filteredActivities.length} time entries for user's matters`);
+            } else {
+              // No filter - fetch all activities
+              const activities = await clioGetActivitiesByStatus(
+                accessToken, '/activities.json',
+                { fields: activityFields },
+                (count) => updateProgress('activities', 'running', count)
               );
-              console.log(`[CLIO IMPORT] User filter applied: ${filteredActivities.length} of ${activities.length} activities for user's matters`);
-              addLog(`⏱️ Filtered to ${filteredActivities.length} time entries/expenses (from ${activities.length} total) for user's matters`);
+              filteredActivities = activities;
+              console.log(`[CLIO IMPORT] Activities fetched from Clio: ${activities.length}`);
             }
             
             // Log RAW first activity to see exactly what Clio returns
-            if (activities.length > 0) {
+            if (filteredActivities.length > 0) {
               console.log(`[CLIO IMPORT] RAW first activity from Clio API:`);
-              console.log(JSON.stringify(activities[0], null, 2));
+              console.log(JSON.stringify(filteredActivities[0], null, 2));
               
               // Log first 5 activities summary
               console.log(`[CLIO IMPORT] First 5 activities summary:`);
-              for (let i = 0; i < Math.min(5, activities.length); i++) {
-                const a = activities[i];
+              for (let i = 0; i < Math.min(5, filteredActivities.length); i++) {
+                const a = filteredActivities[i];
                 console.log(`[CLIO IMPORT]   Activity ${i+1}: type=${a.type}, date=${a.date}, quantity=${a.quantity}, quantity_in_hours=${a.quantity_in_hours}, price=${a.price}, total=${a.total}, billed=${a.billed}, matter_id=${a.matter?.id}, user=${a.user?.name}`);
               }
               
               // Count by type and status
-              const timeEntries = activities.filter(a => a.type === 'TimeEntry').length;
-              const expenses = activities.filter(a => a.type === 'ExpenseEntry').length;
-              const billed = activities.filter(a => a.billed).length;
-              const withMatter = activities.filter(a => a.matter?.id).length;
+              const timeEntries = filteredActivities.filter(a => a.type === 'TimeEntry').length;
+              const expenses = filteredActivities.filter(a => a.type === 'ExpenseEntry').length;
+              const billed = filteredActivities.filter(a => a.billed).length;
+              const withMatter = filteredActivities.filter(a => a.matter?.id).length;
               console.log(`[CLIO IMPORT] Activity breakdown: ${timeEntries} time entries, ${expenses} expenses, ${billed} billed, ${withMatter} with matter`);
             }
             
@@ -3534,7 +3553,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             console.log(`[CLIO IMPORT] Time entries without user (still imported): ${timeEntriesNoUser}`);
             console.log(`[CLIO IMPORT] Expenses without matter (skipped): ${expensesNoMatter}`);
             // Verify time entries and expenses were saved
-            console.log(`[CLIO IMPORT] Activities fetched from Clio: ${activities.length}`);
+            console.log(`[CLIO IMPORT] Activities fetched from Clio: ${filteredActivities.length}`);
             const activityVerify = await query('SELECT COUNT(*) FROM time_entries WHERE firm_id = $1', [firmId]);
             const expenseVerify = await query('SELECT COUNT(*) FROM expenses WHERE firm_id = $1', [firmId]);
             const actualActivityCount = parseInt(activityVerify.rows[0].count);
@@ -3558,40 +3577,61 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 5/10: Importing bills directly to DB...');
           updateProgress('bills', 'running', 0);
           try {
-            // Fetch bills with comprehensive financial data
-            // Try different field combinations for bills as Clio API permissions vary
-            let bills = [];
-            try {
-              bills = await clioGetAll(accessToken, '/bills.json', {
-                fields: 'id,number,issued_at,due_at,total,balance,state,matters{id,display_number},client{id,name}'
-              }, (count) => updateProgress('bills', 'running', count));
-            } catch (err) {
-              console.log(`[CLIO IMPORT] Standard bills fetch failed: ${err.message}. Retrying with minimal fields...`);
-              try {
-                // Retry with less aggressive field selection - some accounts restrict nested data
-                bills = await clioGetAll(accessToken, '/bills.json', {
-                  fields: 'id,number,issued_at,due_at,total,balance,state'
-                }, (count) => updateProgress('bills', 'running', count));
-              } catch (retryErr) {
-                console.error(`[CLIO IMPORT] Retry failed: ${retryErr.message}`);
-                // If it fails again, we just have 0 bills
-              }
-            }
-
-            console.log(`[CLIO IMPORT] Bills fetched from Clio: ${bills.length}`);
+            const billFields = 'id,number,issued_at,due_at,total,balance,state,matters{id,display_number},client{id,name}';
+            const billFieldsMinimal = 'id,number,issued_at,due_at,total,balance,state';
             
-            // If user-specific filter is active, filter bills to only those for imported matters
-            let filteredBills = bills;
+            let filteredBills = [];
+            
+            // If user-specific filter, fetch bills only for the imported matters
             if (filterClioUserId && importedClioMatterIds.size > 0) {
-              filteredBills = bills.filter(b => {
-                // Check if any of the bill's matters are in our imported set
-                if (b.matters && b.matters.length > 0) {
-                  return b.matters.some(m => m.id && importedClioMatterIds.has(m.id));
+              console.log(`[CLIO IMPORT] Fetching bills for ${importedClioMatterIds.size} matters...`);
+              addLog(`💰 Fetching bills for ${importedClioMatterIds.size} matters...`);
+              
+              const seenBillIds = new Set(); // Bills can appear for multiple matters
+              const matterIds = Array.from(importedClioMatterIds);
+              
+              for (let i = 0; i < matterIds.length; i++) {
+                try {
+                  const matterBills = await clioGetPaginated(
+                    accessToken, '/bills.json',
+                    { fields: billFields, matter_id: matterIds[i] },
+                    null
+                  );
+                  for (const bill of matterBills) {
+                    if (!seenBillIds.has(bill.id)) {
+                      seenBillIds.add(bill.id);
+                      filteredBills.push(bill);
+                    }
+                  }
+                  
+                  if ((i + 1) % 20 === 0 || i === matterIds.length - 1) {
+                    updateProgress('bills', 'running', filteredBills.length);
+                  }
+                } catch (err) {
+                  console.log(`[CLIO IMPORT] Could not fetch bills for matter ${matterIds[i]}: ${err.message}`);
                 }
-                return false; // Skip bills without matter association
-              });
-              console.log(`[CLIO IMPORT] User filter applied: ${filteredBills.length} of ${bills.length} bills for user's matters`);
-              addLog(`💰 Filtered to ${filteredBills.length} bills (from ${bills.length} total) for user's matters`);
+              }
+              console.log(`[CLIO IMPORT] Fetched ${filteredBills.length} bills for user's matters`);
+              addLog(`✅ Fetched ${filteredBills.length} bills for user's matters`);
+            } else {
+              // No filter - fetch all bills
+              let bills = [];
+              try {
+                bills = await clioGetAll(accessToken, '/bills.json', {
+                  fields: billFields
+                }, (count) => updateProgress('bills', 'running', count));
+              } catch (err) {
+                console.log(`[CLIO IMPORT] Standard bills fetch failed: ${err.message}. Retrying with minimal fields...`);
+                try {
+                  bills = await clioGetAll(accessToken, '/bills.json', {
+                    fields: billFieldsMinimal
+                  }, (count) => updateProgress('bills', 'running', count));
+                } catch (retryErr) {
+                  console.error(`[CLIO IMPORT] Retry failed: ${retryErr.message}`);
+                }
+              }
+              filteredBills = bills;
+              console.log(`[CLIO IMPORT] Bills fetched from Clio: ${bills.length}`);
             }
             
             // Log RAW first bill to see exactly what Clio returns
@@ -3700,19 +3740,40 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 6/10: Importing calendar directly to DB...');
           updateProgress('calendar', 'running', 0);
           try {
-            // Fetch calendar entries with type and recurrence info
-            const events = await clioGetAll(accessToken, '/calendar_entries.json', {
-              fields: 'id,summary,description,start_at,end_at,all_day,location,matter,attendees'
-            }, (count) => updateProgress('calendar', 'running', count));
+            const calendarFields = 'id,summary,description,start_at,end_at,all_day,location,matter,attendees';
             
-            // If user-specific filter is active, filter calendar events to only those for imported matters
-            let filteredEvents = events;
+            let filteredEvents = [];
+            
+            // If user-specific filter, fetch calendar entries only for the imported matters
             if (filterClioUserId && importedClioMatterIds.size > 0) {
-              filteredEvents = events.filter(e => 
-                e.matter?.id && importedClioMatterIds.has(e.matter.id)
-              );
-              console.log(`[CLIO IMPORT] User filter applied: ${filteredEvents.length} of ${events.length} calendar events for user's matters`);
-              addLog(`📅 Filtered to ${filteredEvents.length} calendar events (from ${events.length} total) for user's matters`);
+              console.log(`[CLIO IMPORT] Fetching calendar events for ${importedClioMatterIds.size} matters...`);
+              addLog(`📅 Fetching calendar events for ${importedClioMatterIds.size} matters...`);
+              
+              const matterIds = Array.from(importedClioMatterIds);
+              for (let i = 0; i < matterIds.length; i++) {
+                try {
+                  const matterEvents = await clioGetPaginated(
+                    accessToken, '/calendar_entries.json',
+                    { fields: calendarFields, matter_id: matterIds[i] },
+                    null
+                  );
+                  filteredEvents.push(...matterEvents);
+                  
+                  if ((i + 1) % 20 === 0 || i === matterIds.length - 1) {
+                    updateProgress('calendar', 'running', filteredEvents.length);
+                  }
+                } catch (err) {
+                  console.log(`[CLIO IMPORT] Could not fetch calendar for matter ${matterIds[i]}: ${err.message}`);
+                }
+              }
+              console.log(`[CLIO IMPORT] Fetched ${filteredEvents.length} calendar events for user's matters`);
+              addLog(`✅ Fetched ${filteredEvents.length} calendar events for user's matters`);
+            } else {
+              // No filter - fetch all calendar events
+              const events = await clioGetAll(accessToken, '/calendar_entries.json', {
+                fields: calendarFields
+              }, (count) => updateProgress('calendar', 'running', count));
+              filteredEvents = events;
             }
             
             for (const e of filteredEvents) {
