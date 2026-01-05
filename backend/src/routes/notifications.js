@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import pool from '../db/pool.js';
+import { query } from '../db/connection.js';
 
 const router = Router();
 
@@ -14,14 +14,14 @@ router.get('/preferences', async (req, res) => {
     const userId = req.headers['x-user-id'] || 'a1b2c3d4-5678-90ab-cdef-1234567890ab';
     
     // Try to get existing preferences
-    let result = await pool.query(
+    let result = await query(
       `SELECT * FROM notification_preferences WHERE user_id = $1 AND firm_id = $2`,
       [userId, firmId]
     );
     
     // If no preferences exist, create defaults
     if (result.rows.length === 0) {
-      result = await pool.query(`
+      result = await query(`
         INSERT INTO notification_preferences (user_id, firm_id)
         VALUES ($1, $2)
         RETURNING *
@@ -31,7 +31,7 @@ router.get('/preferences', async (req, res) => {
     const prefs = result.rows[0];
     
     // Get user's phone/email from users table if not in preferences
-    const userResult = await pool.query(
+    const userResult = await query(
       `SELECT email, phone FROM users WHERE id = $1`,
       [userId]
     );
@@ -83,7 +83,7 @@ router.put('/preferences', async (req, res) => {
       quiet_hours_end
     } = req.body;
     
-    const result = await pool.query(`
+    const result = await query(`
       INSERT INTO notification_preferences (
         user_id, firm_id, in_app, email_immediate, email_digest, digest_frequency,
         document_changes, document_shares, co_editing, matter_updates, billing_updates,
@@ -154,10 +154,10 @@ router.get('/', async (req, res) => {
     query += ` ORDER BY n.created_at DESC LIMIT $3 OFFSET $4`;
     params.push(parseInt(limit), parseInt(offset));
     
-    const result = await pool.query(query, params);
+    const result = await query(query, params);
     
     // Get unread count
-    const countResult = await pool.query(
+    const countResult = await query(
       `SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND firm_id = $2 AND read_at IS NULL`,
       [userId, firmId]
     );
@@ -200,7 +200,7 @@ router.post('/', async (req, res) => {
     // If user_id is 'all', get all users in firm
     let targetUserIds = [];
     if (user_id === 'all') {
-      const usersResult = await pool.query(
+      const usersResult = await query(
         `SELECT id FROM users WHERE firm_id = $1`,
         [firmId]
       );
@@ -216,7 +216,7 @@ router.post('/', async (req, res) => {
     
     for (const targetUserId of targetUserIds) {
       // Create the notification
-      const result = await pool.query(`
+      const result = await query(`
         INSERT INTO notifications (
           firm_id, user_id, type, title, message, priority,
           entity_type, entity_id, action_url, scheduled_for, metadata, triggered_by
@@ -254,7 +254,7 @@ router.put('/:id/read', async (req, res) => {
     const { id } = req.params;
     const userId = req.headers['x-user-id'] || 'a1b2c3d4-5678-90ab-cdef-1234567890ab';
     
-    const result = await pool.query(`
+    const result = await query(`
       UPDATE notifications SET read_at = NOW()
       WHERE id = $1 AND user_id = $2
       RETURNING *
@@ -277,7 +277,7 @@ router.put('/read-all', async (req, res) => {
     const firmId = req.headers['x-firm-id'] || 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
     const userId = req.headers['x-user-id'] || 'a1b2c3d4-5678-90ab-cdef-1234567890ab';
     
-    const result = await pool.query(`
+    const result = await query(`
       UPDATE notifications SET read_at = NOW()
       WHERE user_id = $1 AND firm_id = $2 AND read_at IS NULL
     `, [userId, firmId]);
@@ -295,7 +295,7 @@ router.delete('/:id', async (req, res) => {
     const { id } = req.params;
     const userId = req.headers['x-user-id'] || 'a1b2c3d4-5678-90ab-cdef-1234567890ab';
     
-    await pool.query(
+    await query(
       `DELETE FROM notifications WHERE id = $1 AND user_id = $2`,
       [id, userId]
     );
@@ -314,14 +314,14 @@ router.delete('/:id', async (req, res) => {
 async function queueNotificationDelivery(notification, channel, userId, firmId) {
   try {
     // Get user preferences
-    const prefsResult = await pool.query(
+    const prefsResult = await query(
       `SELECT * FROM notification_preferences WHERE user_id = $1`,
       [userId]
     );
     const prefs = prefsResult.rows[0] || {};
     
     // Get user contact info
-    const userResult = await pool.query(
+    const userResult = await query(
       `SELECT email, phone FROM users WHERE id = $1`,
       [userId]
     );
@@ -348,7 +348,7 @@ async function queueNotificationDelivery(notification, channel, userId, firmId) 
       deliveryData.sms_to = prefs.sms_phone || user.phone;
     }
     
-    await pool.query(`
+    await query(`
       INSERT INTO notification_deliveries (
         notification_id, firm_id, user_id, channel, status,
         email_to, email_subject, sms_to
@@ -378,7 +378,7 @@ async function sendEmailNotification(notification, email) {
   });
   
   // Mark as sent
-  await pool.query(`
+  await query(`
     UPDATE notification_deliveries 
     SET status = 'sent', sent_at = NOW()
     WHERE notification_id = $1 AND channel = 'email'
@@ -409,7 +409,7 @@ async function sendSMSNotification(notification, phone) {
       });
       
       // Mark as sent with provider ID
-      await pool.query(`
+      await query(`
         UPDATE notification_deliveries 
         SET status = 'sent', sent_at = NOW(), sms_provider_id = $2
         WHERE notification_id = $1 AND channel = 'sms'
@@ -418,7 +418,7 @@ async function sendSMSNotification(notification, phone) {
       return { success: true, provider: 'twilio', sid: message.sid };
     } catch (error) {
       console.error('Twilio error:', error);
-      await pool.query(`
+      await query(`
         UPDATE notification_deliveries 
         SET status = 'failed', failed_at = NOW(), failure_reason = $2
         WHERE notification_id = $1 AND channel = 'sms'
@@ -426,7 +426,7 @@ async function sendSMSNotification(notification, phone) {
     }
   } else {
     // Mark as sent (simulated)
-    await pool.query(`
+    await query(`
       UPDATE notification_deliveries 
       SET status = 'sent', sent_at = NOW()
       WHERE notification_id = $1 AND channel = 'sms'
@@ -445,7 +445,7 @@ router.get('/templates', async (req, res) => {
   try {
     const firmId = req.headers['x-firm-id'] || 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
     
-    const result = await pool.query(`
+    const result = await query(`
       SELECT * FROM notification_templates 
       WHERE firm_id = $1 OR firm_id IS NULL
       ORDER BY firm_id NULLS LAST, type, channel
@@ -464,7 +464,7 @@ router.post('/templates', async (req, res) => {
     const firmId = req.headers['x-firm-id'] || 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
     const { type, channel, name, subject, body, available_variables } = req.body;
     
-    const result = await pool.query(`
+    const result = await query(`
       INSERT INTO notification_templates (firm_id, type, channel, name, subject, body, available_variables)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (firm_id, type, channel) DO UPDATE SET
@@ -531,7 +531,7 @@ router.post('/verify-phone', async (req, res) => {
     
     // Store code temporarily (in production, use Redis with TTL)
     // For now, we'll use the database
-    await pool.query(`
+    await query(`
       INSERT INTO notification_preferences (user_id, firm_id, sms_phone)
       VALUES ($1, (SELECT firm_id FROM users WHERE id = $1), $2)
       ON CONFLICT (user_id) DO UPDATE SET sms_phone = $2
