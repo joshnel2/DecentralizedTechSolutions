@@ -3353,6 +3353,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               addLog(`⏱️ Fetching time entries for ${importedClioMatterIds.size} matters...`);
               
               const matterIds = Array.from(importedClioMatterIds);
+              let fetchErrors = 0;
+              
               for (let i = 0; i < matterIds.length; i++) {
                 try {
                   const matterActivities = await clioGetPaginated(
@@ -3361,17 +3363,27 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     null
                   );
                   filteredActivities.push(...matterActivities);
-                  
-                  if ((i + 1) % 10 === 0 || i === matterIds.length - 1) {
-                    updateProgress('activities', 'running', filteredActivities.length);
-                    addLog(`⏱️ Fetched activities for ${i + 1}/${matterIds.length} matters (${filteredActivities.length} total)...`);
-                  }
                 } catch (err) {
+                  fetchErrors++;
                   console.log(`[CLIO IMPORT] Could not fetch activities for matter ${matterIds[i]}: ${err.message}`);
                 }
+                
+                // Update progress every 5 matters or on last one
+                if ((i + 1) % 5 === 0 || i === matterIds.length - 1) {
+                  updateProgress('activities', 'running', filteredActivities.length);
+                  addLog(`⏱️ Processed ${i + 1}/${matterIds.length} matters (${filteredActivities.length} time entries found)...`);
+                }
+              }
+              
+              if (fetchErrors > 0) {
+                addLog(`⚠️ ${fetchErrors} matters had errors fetching activities`);
               }
               console.log(`[CLIO IMPORT] Fetched ${filteredActivities.length} activities for user's matters`);
               addLog(`✅ Fetched ${filteredActivities.length} time entries for user's matters`);
+            } else if (filterClioUserId && importedClioMatterIds.size === 0) {
+              // User filter active but no matters were imported
+              console.log(`[CLIO IMPORT] No matters imported for user, skipping activities`);
+              addLog(`⚠️ No matters found for this user, skipping time entries`);
             } else {
               // No filter - fetch all activities
               const activities = await clioGetActivitiesByStatus(
@@ -3613,6 +3625,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               }
               console.log(`[CLIO IMPORT] Fetched ${filteredBills.length} bills for user's matters`);
               addLog(`✅ Fetched ${filteredBills.length} bills for user's matters`);
+            } else if (filterClioUserId && importedClioMatterIds.size === 0) {
+              // User filter active but no matters were imported
+              console.log(`[CLIO IMPORT] No matters imported for user, skipping bills`);
+              addLog(`⚠️ No matters found for this user, skipping bills`);
             } else {
               // No filter - fetch all bills
               let bills = [];
@@ -3768,6 +3784,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               }
               console.log(`[CLIO IMPORT] Fetched ${filteredEvents.length} calendar events for user's matters`);
               addLog(`✅ Fetched ${filteredEvents.length} calendar events for user's matters`);
+            } else if (filterClioUserId && importedClioMatterIds.size === 0) {
+              // User filter active but no matters were imported
+              console.log(`[CLIO IMPORT] No matters imported for user, skipping calendar`);
+              addLog(`⚠️ No matters found for this user, skipping calendar events`);
             } else {
               // No filter - fetch all calendar events
               const events = await clioGetAll(accessToken, '/calendar_entries.json', {
