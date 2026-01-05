@@ -2946,23 +2946,40 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           addLog('Starting contacts import from Clio...');
           updateProgress('contacts', 'running', 0);
           try {
-            // Fetch contacts with VALID Clio API v4 field names only
-            // Invalid nested fields (like default_email, value) cause Clio to return empty arrays
-            // Valid email_addresses fields: id, name, address, primary
-            // Valid phone_numbers fields: id, name, number, primary
-            // Valid addresses fields: id, name, street, city, province, postal_code, country, primary
-            const contacts = await clioGetAll(accessToken, '/contacts.json', {
-              fields: 'id,name,first_name,last_name,type,company{id,name},email_addresses{id,address,name,primary},phone_numbers{id,number,name,primary},primary_email_address,primary_phone_number,addresses{id,street,city,province,postal_code,country,name,primary},primary_address'
-            }, (count) => updateProgress('contacts', 'running', count));
+            const contactFields = 'id,name,first_name,last_name,type,company{id,name},email_addresses{id,address,name,primary},phone_numbers{id,number,name,primary},primary_email_address,primary_phone_number,addresses{id,street,city,province,postal_code,country,name,primary},primary_address';
             
-            addLog(`Fetched ${contacts.length} contacts from Clio API. Analyzing email/phone data...`);
+            let filteredContacts = [];
             
-            // If user-specific filter is active, filter contacts to only those associated with user's matters
-            let filteredContacts = contacts;
+            // If user-specific filter is active, fetch only those specific contacts by ID (much faster)
             if (filterClioUserId && filterClientClioIds.size > 0) {
-              filteredContacts = contacts.filter(c => filterClientClioIds.has(c.id));
-              console.log(`[CLIO IMPORT] User filter applied: ${filteredContacts.length} of ${contacts.length} contacts for user's matters`);
-              addLog(`📇 Filtered to ${filteredContacts.length} contacts (from ${contacts.length} total) for user's matters`);
+              console.log(`[CLIO IMPORT] Fetching ${filterClientClioIds.size} specific contacts by ID...`);
+              addLog(`📇 Fetching ${filterClientClioIds.size} contacts for user's matters...`);
+              
+              const clientIds = Array.from(filterClientClioIds);
+              for (let i = 0; i < clientIds.length; i++) {
+                try {
+                  const response = await clioRequest(accessToken, `/contacts/${clientIds[i]}.json`, { fields: contactFields });
+                  if (response.data) {
+                    filteredContacts.push(response.data);
+                  }
+                  if ((i + 1) % 20 === 0 || i === clientIds.length - 1) {
+                    updateProgress('contacts', 'running', filteredContacts.length);
+                    addLog(`📇 Fetched ${filteredContacts.length}/${clientIds.length} contacts...`);
+                  }
+                } catch (err) {
+                  console.log(`[CLIO IMPORT] Could not fetch contact ${clientIds[i]}: ${err.message}`);
+                }
+              }
+              console.log(`[CLIO IMPORT] Fetched ${filteredContacts.length} contacts by ID`);
+              addLog(`✅ Fetched ${filteredContacts.length} contacts for user's matters`);
+            } else {
+              // No filter - fetch all contacts
+              const contacts = await clioGetAll(accessToken, '/contacts.json', {
+                fields: contactFields
+              }, (count) => updateProgress('contacts', 'running', count));
+              
+              filteredContacts = contacts;
+              addLog(`Fetched ${contacts.length} contacts from Clio API.`);
             }
             
             // Log samples to debug what Clio returns for email/phone
