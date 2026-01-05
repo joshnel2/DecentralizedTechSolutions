@@ -2788,9 +2788,17 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             console.log(`[CLIO IMPORT] Users fetched from Clio: ${users.length}`);
             addLog(`Fetched ${users.length} users from Clio`);
             
+            // If user-specific filter is active, only import that single user
+            let filteredUsers = users;
+            if (filterClioUserId) {
+              filteredUsers = users.filter(u => u.id === filterClioUserId);
+              console.log(`[CLIO IMPORT] User filter applied: importing only 1 user (${filterUserEmail})`);
+              addLog(`👤 Importing only 1 user: ${filterUserEmail}`);
+            }
+            
             let skippedNoEmail = 0;
             
-            for (const u of users) {
+            for (const u of filteredUsers) {
               try {
                 // SKIP users without a real email - don't create fake emails
                 if (!u.email || !u.email.includes('@') || u.email.includes('@import.clio')) {
