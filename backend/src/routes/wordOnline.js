@@ -229,15 +229,12 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'You do not have permission to edit this document' });
     }
 
-    // Get Microsoft integration token (same as Outlook - uses Files.ReadWrite scope)
-    const msIntegration = await query(
-      `SELECT id, access_token, refresh_token, token_expires_at 
-       FROM integrations 
-       WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
-      [req.user.firmId]
-    );
-
-    if (msIntegration.rows.length === 0) {
+    // Get valid Microsoft token with automatic refresh if needed
+    let accessToken;
+    try {
+      accessToken = await getValidAccessToken(req.user.firmId);
+    } catch (tokenError) {
+      console.error('[WORD ONLINE] Token error:', tokenError.message);
       return res.json({
         editUrl: null,
         coAuthoring: false,
@@ -245,23 +242,6 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
         fallback: 'desktop',
         needsMicrosoftAuth: true
       });
-    }
-
-    // Refresh token if expired or about to expire
-    let accessToken = msIntegration.rows[0].access_token;
-    const tokenExpires = msIntegration.rows[0].token_expires_at;
-    const refreshToken = msIntegration.rows[0].refresh_token;
-    const integrationId = msIntegration.rows[0].id;
-    
-    if (tokenExpires && new Date(tokenExpires) < new Date(Date.now() + 60000) && refreshToken) {
-      console.log('[WORD ONLINE] Token expired or expiring soon, refreshing...');
-      const refreshResult = await refreshMicrosoftToken(integrationId, refreshToken, req.user.firmId);
-      if (refreshResult.success) {
-        accessToken = refreshResult.accessToken;
-        console.log('[WORD ONLINE] Token refreshed successfully');
-      } else {
-        console.error('[WORD ONLINE] Token refresh failed:', refreshResult.error);
-      }
     }
 
     // For Azure Files / OneDrive / SharePoint / any document with storage, get Word Online URL
@@ -412,15 +392,13 @@ router.post('/documents/:documentId/open-desktop', authenticate, async (req, res
       });
     }
 
-    // Get Microsoft integration
-    const msIntegration = await query(
-      `SELECT access_token FROM integrations 
-       WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
-      [req.user.firmId]
-    );
-
-    if (msIntegration.rows.length === 0) {
-      // No Microsoft connection - provide network drive path if available
+    // Get Microsoft integration with token refresh
+    let accessToken;
+    try {
+      accessToken = await getValidAccessToken(req.user.firmId);
+    } catch (tokenError) {
+      // No Microsoft connection or token refresh failed
+      console.log('[WORD DESKTOP] Token error:', tokenError.message);
       return res.json({
         desktopUrl: null,
         networkPath: document.path ? `\\\\azure-path\\${document.path}` : null,
@@ -433,8 +411,6 @@ router.post('/documents/:documentId/open-desktop', authenticate, async (req, res
         ]
       });
     }
-
-    const accessToken = msIntegration.rows[0].access_token;
 
     // Upload to OneDrive for editing
     try {
@@ -957,14 +933,11 @@ router.get('/documents/:documentId/check-changes', authenticate, async (req, res
       return res.json({ hasChanges: false, reason: 'not_linked' });
     }
 
-    // Get Microsoft integration
-    const msIntegration = await query(
-      `SELECT access_token FROM integrations 
-       WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
-      [req.user.firmId]
-    );
-
-    if (msIntegration.rows.length === 0) {
+    // Get valid Microsoft token with automatic refresh
+    let accessToken;
+    try {
+      accessToken = await getValidAccessToken(req.user.firmId);
+    } catch (tokenError) {
       return res.json({ hasChanges: false, reason: 'not_connected' });
     }
 
@@ -972,7 +945,7 @@ router.get('/documents/:documentId/check-changes', authenticate, async (req, res
     const metadataResponse = await fetch(
       `https://graph.microsoft.com/v1.0/me/drive/items/${doc.graph_item_id}`,
       {
-        headers: { 'Authorization': `Bearer ${msIntegration.rows[0].access_token}` }
+        headers: { 'Authorization': `Bearer ${accessToken}` }
       }
     );
 
@@ -1654,18 +1627,13 @@ router.post('/documents/:documentId/sync-from-online', authenticate, async (req,
       return res.status(400).json({ error: 'Document is not linked to OneDrive' });
     }
 
-    // Get Microsoft integration
-    const msIntegration = await query(
-      `SELECT access_token FROM integrations 
-       WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
-      [req.user.firmId]
-    );
-
-    if (msIntegration.rows.length === 0) {
+    // Get valid Microsoft token with automatic refresh
+    let accessToken;
+    try {
+      accessToken = await getValidAccessToken(req.user.firmId);
+    } catch (tokenError) {
       return res.status(400).json({ error: 'Microsoft integration not connected' });
     }
-
-    const accessToken = msIntegration.rows[0].access_token;
 
     // Download latest content from OneDrive
     const fileContentResponse = await fetch(
@@ -3003,18 +2971,14 @@ router.post('/documents/:documentId/subscribe', authenticate, async (req, res) =
       return res.json({ subscribed: false, reason: 'not_linked' });
     }
 
-    // Get Microsoft integration
-    const msIntegration = await query(
-      `SELECT access_token FROM integrations 
-       WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
-      [req.user.firmId]
-    );
-
-    if (msIntegration.rows.length === 0) {
+    // Get valid Microsoft token with automatic refresh
+    let accessToken;
+    try {
+      accessToken = await getValidAccessToken(req.user.firmId);
+    } catch (tokenError) {
       return res.json({ subscribed: false, reason: 'not_connected' });
     }
 
-    const accessToken = msIntegration.rows[0].access_token;
     const webhookUrl = process.env.API_BASE_URL 
       ? `${process.env.API_BASE_URL}/api/word-online/webhook`
       : null;

@@ -83,6 +83,17 @@ export function DocumentsPage() {
           alert('Connect Microsoft in Settings → Integrations for seamless Word editing. Downloading document instead...')
           downloadDocument(doc)
           return
+        } else if (result.downloadUrl) {
+          // Desktop upload failed but we can still download
+          // This happens when the file can't be synced to OneDrive
+          const confirmed = confirm(
+            'Could not open directly in Word. Would you like to download and edit locally?\n\n' +
+            'After editing, upload the file back to save your changes.'
+          )
+          if (confirmed) {
+            downloadDocument(doc)
+          }
+          return
         }
       }
       
@@ -95,7 +106,7 @@ export function DocumentsPage() {
       } else if (result.desktopUrl) {
         // Desktop Word URL available
         window.location.href = result.desktopUrl
-      } else if (result.fallback === 'desktop') {
+      } else if (result.fallback === 'desktop' || result.downloadUrl) {
         // Fallback to downloading
         const confirmed = confirm(
           'Word Online is not available for this document. Would you like to download and edit it locally instead?'
