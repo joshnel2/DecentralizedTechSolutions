@@ -12035,8 +12035,13 @@ Please analyze the document above and respond to the user's question.`;
   }
 });
 
-async function callAzureOpenAIWithTools(messages, tools) {
+async function callAzureOpenAIWithTools(messages, tools, retryOptions = {}) {
   const url = `${AZURE_ENDPOINT}openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${API_VERSION}`;
+  
+  // Retry configuration
+  const maxRetries = retryOptions.maxRetries ?? 3;
+  const baseDelay = retryOptions.baseDelay ?? 1000; // 1 second
+  const maxDelay = retryOptions.maxDelay ?? 10000; // 10 seconds
   
   // Log config for debugging (without exposing full key)
   console.log(`[AZURE AI] Calling: ${AZURE_DEPLOYMENT} at ${AZURE_ENDPOINT?.substring(0, 30)}...`);
@@ -12050,51 +12055,125 @@ async function callAzureOpenAIWithTools(messages, tools) {
     throw new Error('Azure OpenAI not configured. Check AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT.');
   }
   
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'api-key': AZURE_API_KEY,
-    },
-    body: JSON.stringify({
-      messages,
-      tools,
-      tool_choice: 'auto',
-      parallel_tool_calls: false, // Force one tool at a time
-      temperature: 0.7,
-      max_tokens: 4000,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`[AZURE AI] Error ${response.status}:`, errorText);
-    console.error(`[AZURE AI] URL was: ${url}`);
-    
-    // Parse error for better message
-    let errorMessage = `Azure OpenAI API error: ${response.status}`;
+  let lastError = null;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const errorJson = JSON.parse(errorText);
-      errorMessage = errorJson.error?.message || errorMessage;
-    } catch (e) {}
-    
-    throw new Error(errorMessage);
-  }
+      if (attempt > 0) {
+        // Exponential backoff with jitter
+        const delay = Math.min(baseDelay * Math.pow(2, attempt - 1) + Math.random() * 500, maxDelay);
+        console.log(`[AZURE AI] Retry attempt ${attempt}/${maxRetries} after ${Math.round(delay)}ms delay...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': AZURE_API_KEY,
+        },
+        body: JSON.stringify({
+          messages,
+          tools,
+          tool_choice: 'auto',
+          parallel_tool_calls: false, // Force one tool at a time
+          temperature: 0.7,
+          max_tokens: 4000,
+        }),
+      });
 
-  const data = await response.json();
-  
-  if (!data.choices || data.choices.length === 0) {
-    console.error('[AZURE AI] No choices in response:', JSON.stringify(data).substring(0, 500));
-    throw new Error('Azure OpenAI returned no response');
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[AZURE AI] Error ${response.status}:`, errorText);
+        
+        // Parse error for better message
+        let errorMessage = `Azure OpenAI API error: ${response.status}`;
+        let errorCode = null;
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.error?.message || errorMessage;
+          errorCode = errorJson.error?.code;
+        } catch (e) {}
+        
+        // Check if this is a retryable error
+        const isRetryable = 
+          response.status === 429 || // Rate limited
+          response.status === 500 || // Internal server error
+          response.status === 502 || // Bad gateway
+          response.status === 503 || // Service unavailable
+          response.status === 504 || // Gateway timeout
+          errorCode === 'rate_limit_exceeded' ||
+          errorCode === 'server_error';
+        
+        if (isRetryable && attempt < maxRetries) {
+          // Check for Retry-After header
+          const retryAfter = response.headers.get('Retry-After');
+          if (retryAfter) {
+            const retryDelay = parseInt(retryAfter, 10) * 1000 || baseDelay;
+            console.log(`[AZURE AI] Rate limited. Retry-After: ${retryAfter}s`);
+            await new Promise(resolve => setTimeout(resolve, Math.min(retryDelay, maxDelay)));
+          }
+          lastError = new Error(errorMessage);
+          lastError.status = response.status;
+          lastError.retryable = true;
+          continue; // Retry
+        }
+        
+        // Non-retryable error or max retries exceeded
+        const error = new Error(errorMessage);
+        error.status = response.status;
+        error.retryable = false;
+        throw error;
+      }
+
+      const data = await response.json();
+      
+      if (!data.choices || data.choices.length === 0) {
+        console.error('[AZURE AI] No choices in response:', JSON.stringify(data).substring(0, 500));
+        
+        // This might be a transient issue, retry if we can
+        if (attempt < maxRetries) {
+          lastError = new Error('Azure OpenAI returned no response');
+          lastError.retryable = true;
+          continue;
+        }
+        throw new Error('Azure OpenAI returned no response');
+      }
+      
+      const choice = data.choices[0];
+      console.log(`[AZURE AI] Success - got response with ${choice.message.tool_calls?.length || 0} tool calls${attempt > 0 ? ` (after ${attempt} retries)` : ''}`);
+      
+      return {
+        content: choice.message.content,
+        tool_calls: choice.message.tool_calls
+      };
+      
+    } catch (error) {
+      // Network errors (fetch failed) are retryable
+      if (error.name === 'TypeError' || error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT') {
+        console.error(`[AZURE AI] Network error on attempt ${attempt + 1}:`, error.message);
+        if (attempt < maxRetries) {
+          lastError = error;
+          lastError.retryable = true;
+          continue;
+        }
+      }
+      
+      // If this is already a processed error with status, rethrow it
+      if (error.status !== undefined) {
+        throw error;
+      }
+      
+      // Unknown error
+      lastError = error;
+      if (attempt >= maxRetries) {
+        throw error;
+      }
+    }
   }
   
-  const choice = data.choices[0];
-  console.log(`[AZURE AI] Success - got response with ${choice.message.tool_calls?.length || 0} tool calls`);
-  
-  return {
-    content: choice.message.content,
-    tool_calls: choice.message.tool_calls
-  };
+  // Should not reach here, but just in case
+  throw lastError || new Error('Failed to get AI response after retries');
 }
 
 // Named exports for server.js
