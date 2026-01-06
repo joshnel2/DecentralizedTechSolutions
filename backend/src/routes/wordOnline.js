@@ -710,14 +710,55 @@ router.post('/documents/:documentId/save', authenticate, async (req, res) => {
     const wordsAdded = Math.max(0, wordCount - prevWordCount);
     const wordsRemoved = Math.max(0, prevWordCount - wordCount);
 
+    // SAVE VERSION FILE - Store the actual file for version history downloads
+    let versionFilePath = null;
+    let versionContentUrl = null;
+    let storageType = 'database';
+
+    try {
+      // Try Azure Blob storage first
+      const { uploadFile, isAzureConfigured } = await import('../utils/azureStorage.js');
+      const azureEnabled = await isAzureConfigured();
+      
+      const originalName = doc.original_name || doc.name || 'document';
+      const ext = originalName.includes('.') ? originalName.substring(originalName.lastIndexOf('.')) : '.docx';
+      const baseName = originalName.includes('.') ? originalName.substring(0, originalName.lastIndexOf('.')) : originalName;
+      const versionFileName = `${baseName}_v${nextVersion}_${Date.now()}${ext}`;
+
+      if (azureEnabled) {
+        // Store in Azure Blob
+        const azurePath = `versions/${documentId}/${versionFileName}`;
+        await uploadFile(azurePath, fileBuffer, req.user.firmId);
+        versionContentUrl = azurePath;
+        storageType = 'azure_blob';
+        console.log(`[VERSION SAVE] Stored version ${nextVersion} in Azure: ${azurePath}`);
+      } else {
+        // Store locally in uploads/versions folder
+        const fs = await import('fs/promises');
+        const path = await import('path');
+        
+        const versionsDir = path.join(process.cwd(), 'uploads', 'versions', documentId);
+        await fs.mkdir(versionsDir, { recursive: true });
+        
+        versionFilePath = path.join(versionsDir, versionFileName);
+        await fs.writeFile(versionFilePath, fileBuffer);
+        storageType = 'local';
+        console.log(`[VERSION SAVE] Stored version ${nextVersion} locally: ${versionFilePath}`);
+      }
+    } catch (storageError) {
+      console.error(`[VERSION SAVE] Failed to store version file (non-fatal):`, storageError.message);
+      // Continue without file storage - text content will still be available
+    }
+
     // CREATE NEW VERSION - This is the key operation!
     await query(
       `INSERT INTO document_versions (
         document_id, firm_id, version_number, version_label,
         content_text, content_hash, change_summary, change_type,
         word_count, character_count, words_added, words_removed,
-        file_size, created_by, created_by_name, source
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'edit', $8, $9, $10, $11, $12, $13, $14, 'word_online')`,
+        file_size, created_by, created_by_name, source,
+        file_path, content_url, storage_type
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'edit', $8, $9, $10, $11, $12, $13, $14, 'word_online', $15, $16, $17)`,
       [
         documentId,
         req.user.firmId,
@@ -732,7 +773,10 @@ router.post('/documents/:documentId/save', authenticate, async (req, res) => {
         wordsRemoved,
         fileBuffer.length,
         req.user.id,
-        `${req.user.firstName} ${req.user.lastName}`
+        `${req.user.firstName} ${req.user.lastName}`,
+        versionFilePath,
+        versionContentUrl,
+        storageType
       ]
     );
 
@@ -1721,6 +1765,12 @@ router.get('/documents/:documentId/versions-online', authenticate, async (req, r
 
     const hasMicrosoftIntegration = msIntegration.rows.length > 0;
 
+    // Generate download filenames for each version
+    const originalName = doc.original_name || doc.name;
+    const ext = originalName.includes('.') ? originalName.substring(originalName.lastIndexOf('.')) : '';
+    const baseName = originalName.includes('.') ? originalName.substring(0, originalName.lastIndexOf('.')) : originalName;
+    const sanitizedBaseName = baseName.replace(/[^a-zA-Z0-9 \-_]/g, '');
+
     res.json({
       document: {
         id: documentId,
@@ -1729,19 +1779,38 @@ router.get('/documents/:documentId/versions-online', authenticate, async (req, r
         hasOnlineEdit: !!doc.graph_item_id,
         wordOnlineUrl: doc.word_online_url,
       },
-      versions: versionsResult.rows.map(v => ({
-        id: v.id,
-        versionNumber: v.version_number,
-        versionLabel: v.version_label,
-        changeSummary: v.change_summary,
-        changeType: v.change_type,
-        wordCount: v.word_count,
-        createdBy: v.created_by,
-        createdByName: v.created_by_name,
-        createdAt: v.created_at,
-        source: v.source,
-        canCompare: v.version_number > 1,
-      })),
+      versions: versionsResult.rows.map(v => {
+        const editorName = v.created_by_name || 'Unknown';
+        const sanitizedEditorName = editorName.replace(/[^a-zA-Z0-9 \-_]/g, '');
+        const versionDate = new Date(v.created_at);
+        const dateStr = versionDate.toLocaleDateString('en-US', { 
+          month: 'short', day: 'numeric', year: 'numeric' 
+        });
+        const downloadFilename = `${sanitizedBaseName} - ${sanitizedEditorName} - ${dateStr}${ext}`;
+        
+        return {
+          id: v.id,
+          versionNumber: v.version_number,
+          versionLabel: v.version_label,
+          changeSummary: v.change_summary,
+          changeType: v.change_type,
+          wordCount: v.word_count,
+          wordsAdded: v.words_added,
+          wordsRemoved: v.words_removed,
+          fileSize: v.file_size,
+          createdBy: v.created_by,
+          createdByName: editorName,
+          createdAt: v.created_at,
+          source: v.source,
+          canCompare: v.version_number > 1,
+          // File availability info for downloads
+          hasFile: !!(v.file_path || v.content_url),
+          hasTextContent: !!v.content_text,
+          storageType: v.storage_type || 'database',
+          downloadFilename,
+          downloadUrl: `/api/word-online/documents/${documentId}/versions/${v.version_number}/download`,
+        };
+      }),
       hasMicrosoftIntegration,
       message: hasMicrosoftIntegration 
         ? 'Click any two versions to compare with redline'
@@ -1750,6 +1819,286 @@ router.get('/documents/:documentId/versions-online', authenticate, async (req, r
   } catch (error) {
     console.error('Get versions online error:', error);
     res.status(500).json({ error: 'Failed to get versions' });
+  }
+});
+
+/**
+ * DOWNLOAD SPECIFIC VERSION
+ * Downloads a specific version of a document with proper naming:
+ * Format: {DocumentName} - {EditorName} - {Date}.{extension}
+ * Example: "Motion to Dismiss - Sarah Johnson - Jan 6, 2024.docx"
+ */
+router.get('/documents/:documentId/versions/:versionNumber/download', authenticate, async (req, res) => {
+  try {
+    const { documentId, versionNumber } = req.params;
+
+    // Check access
+    const canView = await checkDocumentAccess(documentId, req.user.id, req.user.firmId, req.user.role, 'view');
+    if (!canView) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Get document info
+    const docResult = await query(
+      `SELECT d.name, d.original_name, d.type, d.path, d.graph_item_id, d.folder_path
+       FROM documents d
+       WHERE d.id = $1 AND d.firm_id = $2`,
+      [documentId, req.user.firmId]
+    );
+
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const doc = docResult.rows[0];
+
+    // Get the specific version
+    const versionResult = await query(
+      `SELECT dv.*, u.first_name, u.last_name
+       FROM document_versions dv
+       LEFT JOIN users u ON dv.created_by = u.id
+       WHERE dv.document_id = $1 AND dv.version_number = $2`,
+      [documentId, parseInt(versionNumber)]
+    );
+
+    if (versionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Version not found' });
+    }
+
+    const version = versionResult.rows[0];
+    const editorName = version.created_by_name || 
+      (version.first_name && version.last_name ? `${version.first_name} ${version.last_name}` : 'Unknown');
+    
+    // Format the date
+    const versionDate = new Date(version.created_at);
+    const dateStr = versionDate.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric' 
+    });
+
+    // Build the download filename
+    // Format: "DocumentName - EditorName - Date.extension"
+    const originalName = doc.original_name || doc.name;
+    const ext = originalName.includes('.') ? originalName.substring(originalName.lastIndexOf('.')) : '';
+    const baseName = originalName.includes('.') ? originalName.substring(0, originalName.lastIndexOf('.')) : originalName;
+    const sanitizedBaseName = baseName.replace(/[^a-zA-Z0-9 \-_]/g, '');
+    const sanitizedEditorName = editorName.replace(/[^a-zA-Z0-9 \-_]/g, '');
+    
+    const downloadFilename = `${sanitizedBaseName} - ${sanitizedEditorName} - ${dateStr}${ext}`;
+
+    // Try to get the actual file content
+    let fileBuffer = null;
+
+    // 1. Check if version has stored file path
+    if (version.file_path) {
+      try {
+        const fs = await import('fs/promises');
+        fileBuffer = await fs.readFile(version.file_path);
+      } catch (e) {
+        console.log(`[VERSION DOWNLOAD] File path not found: ${version.file_path}`);
+      }
+    }
+
+    // 2. Check if version has content_url (Azure Blob)
+    if (!fileBuffer && version.content_url) {
+      try {
+        const { downloadFile } = await import('../utils/azureStorage.js');
+        fileBuffer = await downloadFile(version.content_url, req.user.firmId);
+      } catch (e) {
+        console.log(`[VERSION DOWNLOAD] Azure URL not accessible: ${version.content_url}`);
+      }
+    }
+
+    // 3. If this is the current version, try to get from the main document
+    const isCurrentVersion = parseInt(versionNumber) === (await query(
+      `SELECT version FROM documents WHERE id = $1`, [documentId]
+    )).rows[0]?.version;
+
+    if (!fileBuffer && isCurrentVersion) {
+      // Try Azure storage for current document
+      try {
+        const { downloadFile, isAzureConfigured } = await import('../utils/azureStorage.js');
+        const azureEnabled = await isAzureConfigured();
+        if (azureEnabled) {
+          const azurePath = doc.folder_path 
+            ? `${doc.folder_path}/${doc.original_name || doc.name}`
+            : doc.path;
+          fileBuffer = await downloadFile(azurePath, req.user.firmId);
+        }
+      } catch (e) {
+        console.log(`[VERSION DOWNLOAD] Azure current doc failed: ${e.message}`);
+      }
+
+      // Try local file
+      if (!fileBuffer && doc.path) {
+        try {
+          const fs = await import('fs/promises');
+          fileBuffer = await fs.readFile(doc.path);
+        } catch (e) {
+          console.log(`[VERSION DOWNLOAD] Local file not found: ${doc.path}`);
+        }
+      }
+    }
+
+    // 4. If we have content_text but no file, create a text file
+    if (!fileBuffer && version.content_text) {
+      // For text-based content, create a simple text file
+      // Note: For proper Word doc reconstruction, we'd need a DOCX library
+      const textContent = version.content_text;
+      
+      // If it was a Word doc, we'll return as .txt with a note
+      if (ext === '.docx' || ext === '.doc') {
+        const textWithNote = `[Version ${versionNumber} - Text Content]\n` +
+          `Editor: ${editorName}\n` +
+          `Date: ${dateStr}\n` +
+          `---\n\n` +
+          textContent;
+        fileBuffer = Buffer.from(textWithNote, 'utf-8');
+        
+        // Change extension to .txt since we only have text
+        const textFilename = `${sanitizedBaseName} - ${sanitizedEditorName} - ${dateStr}.txt`;
+        
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(textFilename)}"`);
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Content-Length', fileBuffer.length);
+        
+        // Log the download
+        await query(
+          `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
+           VALUES ($1, $2, 'download_version', $3, $4, $5)`,
+          [
+            documentId, req.user.firmId, req.user.id,
+            `${req.user.firstName} ${req.user.lastName}`,
+            JSON.stringify({ versionNumber: parseInt(versionNumber), format: 'text' })
+          ]
+        );
+
+        return res.send(fileBuffer);
+      }
+    }
+
+    if (!fileBuffer) {
+      return res.status(404).json({ 
+        error: 'Version file not available',
+        message: 'The file for this version is not stored. Only text content is available.',
+        hasTextContent: !!version.content_text
+      });
+    }
+
+    // Determine MIME type
+    const mimeTypes = {
+      '.pdf': 'application/pdf',
+      '.doc': 'application/msword',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.txt': 'text/plain',
+    };
+    const contentType = mimeTypes[ext.toLowerCase()] || doc.type || 'application/octet-stream';
+
+    // Set headers and send
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(downloadFilename)}"`);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', fileBuffer.length);
+
+    // Log the download
+    await query(
+      `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
+       VALUES ($1, $2, 'download_version', $3, $4, $5)`,
+      [
+        documentId, req.user.firmId, req.user.id,
+        `${req.user.firstName} ${req.user.lastName}`,
+        JSON.stringify({ versionNumber: parseInt(versionNumber), filename: downloadFilename })
+      ]
+    );
+
+    console.log(`[VERSION DOWNLOAD] Serving version ${versionNumber}: ${downloadFilename} (${fileBuffer.length} bytes)`);
+    res.send(fileBuffer);
+
+  } catch (error) {
+    console.error('Download version error:', error);
+    res.status(500).json({ error: 'Failed to download version' });
+  }
+});
+
+/**
+ * GET VERSION INFO
+ * Returns info about a specific version including download filename
+ */
+router.get('/documents/:documentId/versions/:versionNumber', authenticate, async (req, res) => {
+  try {
+    const { documentId, versionNumber } = req.params;
+
+    // Check access
+    const canView = await checkDocumentAccess(documentId, req.user.id, req.user.firmId, req.user.role, 'view');
+    if (!canView) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Get document and version info
+    const result = await query(
+      `SELECT 
+        dv.*,
+        d.name as doc_name,
+        d.original_name,
+        d.type as doc_type,
+        u.first_name,
+        u.last_name
+       FROM document_versions dv
+       JOIN documents d ON dv.document_id = d.id
+       LEFT JOIN users u ON dv.created_by = u.id
+       WHERE dv.document_id = $1 AND dv.version_number = $2 AND d.firm_id = $3`,
+      [documentId, parseInt(versionNumber), req.user.firmId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Version not found' });
+    }
+
+    const v = result.rows[0];
+    const editorName = v.created_by_name || 
+      (v.first_name && v.last_name ? `${v.first_name} ${v.last_name}` : 'Unknown');
+    
+    // Format the date
+    const versionDate = new Date(v.created_at);
+    const dateStr = versionDate.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric' 
+    });
+
+    // Build the download filename
+    const originalName = v.original_name || v.doc_name;
+    const ext = originalName.includes('.') ? originalName.substring(originalName.lastIndexOf('.')) : '';
+    const baseName = originalName.includes('.') ? originalName.substring(0, originalName.lastIndexOf('.')) : originalName;
+    const sanitizedBaseName = baseName.replace(/[^a-zA-Z0-9 \-_]/g, '');
+    const sanitizedEditorName = editorName.replace(/[^a-zA-Z0-9 \-_]/g, '');
+    
+    const downloadFilename = `${sanitizedBaseName} - ${sanitizedEditorName} - ${dateStr}${ext}`;
+
+    res.json({
+      id: v.id,
+      documentId: v.document_id,
+      versionNumber: v.version_number,
+      versionLabel: v.version_label,
+      changeSummary: v.change_summary,
+      changeType: v.change_type,
+      wordCount: v.word_count,
+      characterCount: v.character_count,
+      wordsAdded: v.words_added,
+      wordsRemoved: v.words_removed,
+      fileSize: v.file_size,
+      createdBy: v.created_by,
+      createdByName: editorName,
+      createdAt: v.created_at,
+      source: v.source,
+      downloadFilename,
+      downloadUrl: `/api/word-online/documents/${documentId}/versions/${versionNumber}/download`,
+      hasFile: !!(v.file_path || v.content_url),
+      hasTextContent: !!v.content_text,
+    });
+  } catch (error) {
+    console.error('Get version error:', error);
+    res.status(500).json({ error: 'Failed to get version' });
   }
 });
 

@@ -783,25 +783,38 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
       console.log('[UPLOAD] Permission auto-create skipped (may already exist)');
     }
 
-    // Create initial version record
+    // Create initial version record with file path for download
     try {
       const contentHash = contentText 
         ? require('crypto').createHash('sha256').update(contentText).digest('hex')
         : null;
+      
+      // Store file path for version download
+      // For v1, we use the original uploaded file path
+      // If Azure was used, we also store the Azure path
+      const versionFilePath = req.file.path;
+      const versionContentUrl = azureResult ? azureResult.path : null;
+      const storageType = azureResult ? 'azure_blob' : 'local';
+      
       await query(
         `INSERT INTO document_versions (
           document_id, firm_id, version_number, version_label,
           content_text, content_hash, change_summary, change_type,
-          word_count, character_count, file_size, created_by, created_by_name, source
-        ) VALUES ($1, $2, 1, 'Initial upload', $3, $4, 'Document uploaded', 'upload', $5, $6, $7, $8, $9, 'apex')`,
+          word_count, character_count, file_size, created_by, created_by_name, source,
+          file_path, content_url, storage_type
+        ) VALUES ($1, $2, 1, 'Initial upload', $3, $4, 'Document uploaded', 'upload', $5, $6, $7, $8, $9, 'upload', $10, $11, $12)`,
         [
           d.id, req.user.firmId, contentText, contentHash,
           contentText ? contentText.split(/\s+/).filter(w => w).length : 0,
           contentText ? contentText.length : 0,
           req.file.size, req.user.id,
-          `${req.user.firstName} ${req.user.lastName}`
+          `${req.user.firstName} ${req.user.lastName}`,
+          versionFilePath,
+          versionContentUrl,
+          storageType
         ]
       );
+      console.log(`[UPLOAD] Created initial version record for ${d.id} with file path`);
     } catch (versionError) {
       console.log('[UPLOAD] Initial version creation skipped:', versionError.message);
     }

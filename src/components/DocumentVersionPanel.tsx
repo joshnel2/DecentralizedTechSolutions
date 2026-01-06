@@ -24,6 +24,12 @@ interface Version {
   canCompare: boolean
   wordsAdded?: number
   wordsRemoved?: number
+  fileSize?: number
+  hasFile?: boolean
+  hasTextContent?: boolean
+  storageType?: string
+  downloadFilename?: string
+  downloadUrl?: string
 }
 
 interface DocumentVersionPanelProps {
@@ -76,6 +82,9 @@ export function DocumentVersionPanel({
   
   // Expanded version details
   const [expandedVersion, setExpandedVersion] = useState<number | null>(null)
+  
+  // Downloading state
+  const [downloadingVersion, setDownloadingVersion] = useState<number | null>(null)
 
   // Check if document is a Word document
   useEffect(() => {
@@ -183,6 +192,48 @@ export function DocumentVersionPanel({
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
     return `${(bytes / 1024 / 1024).toFixed(2)} MB`
+  }
+
+  // Generate version download filename
+  // Format: "DocumentName - EditorName - Date.extension"
+  const getVersionFilename = (version: Version) => {
+    const originalName = document.originalName || document.name
+    const ext = originalName.includes('.') ? originalName.substring(originalName.lastIndexOf('.')) : ''
+    const baseName = originalName.includes('.') ? originalName.substring(0, originalName.lastIndexOf('.')) : originalName
+    
+    const editorName = version.createdByName || 'Unknown'
+    const versionDate = new Date(version.createdAt)
+    const dateStr = versionDate.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric' 
+    })
+    
+    return `${baseName} - ${editorName} - ${dateStr}${ext}`
+  }
+
+  // Download a specific version
+  const downloadVersion = async (version: Version) => {
+    setDownloadingVersion(version.versionNumber)
+    try {
+      const { blob, filename } = await wordOnlineApi.downloadVersion(document.id, version.versionNumber)
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const a = window.document.createElement('a')
+      a.href = url
+      a.download = filename || getVersionFilename(version)
+      window.document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      window.document.body.removeChild(a)
+    } catch (err: any) {
+      console.error('Failed to download version:', err)
+      // If download fails (maybe file not stored), show error
+      setError(`Could not download version ${version.versionNumber}. ${err.message || ''}`)
+    } finally {
+      setDownloadingVersion(null)
+    }
   }
 
   return (
@@ -481,6 +532,45 @@ export function DocumentVersionPanel({
                             {version.versionLabel}
                           </div>
                         )}
+                        
+                        {/* Download this version button */}
+                        <div className={styles.versionActions}>
+                          <button
+                            className={`${styles.downloadVersionBtn} ${!version.hasFile && !version.hasTextContent ? styles.downloadDisabled : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              downloadVersion(version)
+                            }}
+                            disabled={downloadingVersion === version.versionNumber || (!version.hasFile && !version.hasTextContent)}
+                            title={
+                              version.hasFile 
+                                ? `Download: ${version.downloadFilename || getVersionFilename(version)}`
+                                : version.hasTextContent 
+                                  ? 'Download text content (original file not stored)'
+                                  : 'No downloadable content available'
+                            }
+                          >
+                            {downloadingVersion === version.versionNumber ? (
+                              <><Loader2 size={14} className={styles.spinner} /> Downloading...</>
+                            ) : (
+                              <><Download size={14} /> Download this version</>
+                            )}
+                          </button>
+                          <span className={styles.downloadFilename}>
+                            {version.downloadFilename || getVersionFilename(version)}
+                            {version.hasFile && (
+                              <span className={styles.fileAvailable}>✓ File stored</span>
+                            )}
+                            {!version.hasFile && version.hasTextContent && (
+                              <span className={styles.textOnly}>Text only</span>
+                            )}
+                          </span>
+                          {version.fileSize && (
+                            <span className={styles.versionFileSize}>
+                              {formatFileSize(version.fileSize)}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     )}
 

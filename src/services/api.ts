@@ -1712,6 +1712,46 @@ export const wordOnlineApi = {
     return fetchWithAuth(`/word-online/documents/${documentId}/redline?version1=${version1}&version2=${version2}`);
   },
 
+  // Get specific version info
+  async getVersionInfo(documentId: string, versionNumber: number) {
+    return fetchWithAuth(`/word-online/documents/${documentId}/versions/${versionNumber}`);
+  },
+
+  // Download specific version
+  async downloadVersion(documentId: string, versionNumber: number): Promise<{ blob: Blob; filename: string }> {
+    const headers: HeadersInit = {};
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    const response = await fetch(`${API_URL}/word-online/documents/${documentId}/versions/${versionNumber}/download`, {
+      headers,
+      credentials: 'include',
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Download failed' }));
+      throw new ApiError(response.status, error.error || 'Failed to download version');
+    }
+    
+    // Extract filename from Content-Disposition header
+    const contentDisposition = response.headers.get('Content-Disposition') || '';
+    let filename = `document-version-${versionNumber}`;
+    const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
+    if (filenameMatch) {
+      filename = decodeURIComponent(filenameMatch[1].replace(/"/g, ''));
+    }
+    
+    const blob = await response.blob();
+    return { blob, filename };
+  },
+
+  // Get download URL for a version (useful for links)
+  getVersionDownloadUrl(documentId: string, versionNumber: number) {
+    return `${API_URL}/word-online/documents/${documentId}/versions/${versionNumber}/download`;
+  },
+
   // Open document in desktop Word
   async openDesktop(documentId: string) {
     return fetchWithAuth(`/word-online/documents/${documentId}/open-desktop`, { method: 'POST' });
