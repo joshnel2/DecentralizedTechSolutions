@@ -1157,7 +1157,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "start_background_task",
-      description: "REQUIRED for complex tasks! Start a background task that shows a progress bar to the user. USE THIS when: user says 'background', 'review', 'analyze', 'audit', 'research', 'prepare', 'draft', or any task needing multiple steps. The user will see real-time progress while you work. IMPORTANT: Each step in the plan should be a SINGLE, SPECIFIC action (e.g., 'Search for the Smith matter' not 'Review the case').",
+      description: "ONLY use this when the user EXPLICITLY requests a 'background task' or 'background agent' by name. For ALL other requests, execute tasks immediately using the available tools - do NOT start a background task. This tool runs a separate 15-minute agent session with a progress bar, which is unnecessary for normal requests.",
       parameters: {
         type: "object",
         properties: {
@@ -11573,8 +11573,8 @@ function getSystemPrompt() {
 4. Never expose UUIDs - use names/numbers
 5. Be concise and professional
 
-## Background Tasks
-For complex requests (case reviews, onboarding, audits, "prepare for" anything), use \`start_background_task\` with a detailed plan of specific, atomic steps. The agent can run for 15 minutes - be thorough!
+## Execution Style
+Execute tasks IMMEDIATELY using your available tools. Do NOT use \`start_background_task\` unless the user explicitly says "background task" or "background agent". Most requests can be completed in a few tool calls - just do it directly.
 
 ## Matter Permissions
 - Matters can be "firm_wide" (everyone sees) or "restricted" (selected users only)
