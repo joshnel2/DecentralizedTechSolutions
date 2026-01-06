@@ -113,7 +113,7 @@ const TOOLS = [
         type: "object",
         properties: {
           status: { type: "string", enum: ["active", "pending", "closed", "on_hold"], description: "Filter by status. Default to 'active'." },
-          limit: { type: "integer", description: "Number to return (default 50, max 500)" }
+          limit: { type: "integer", description: "Number to return (default 50, max 100)" }
         },
         required: []
       }
@@ -2515,7 +2515,7 @@ async function listMyMatters(args, user) {
   const totalCount = parseInt(countResult.rows[0]?.total || 0);
   
   sql += ` ORDER BY m.created_at DESC LIMIT $${idx}`;
-  params.push(Math.min(parseInt(limit) || 50, 500));
+  params.push(Math.min(parseInt(limit) || 50, 100));
   
   const result = await query(sql, params);
   
