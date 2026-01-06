@@ -57,11 +57,11 @@ const integrationConfigs: IntegrationConfig[] = [
   { 
     id: 'microsoft-365', 
     name: 'Microsoft 365', 
-    description: 'Connect once for Outlook email, calendar, and Word Online document editing. One sign-in covers everything.', 
+    description: 'Connect once to enable Word Online document editing, Outlook email, and calendar sync. Click any Word document in Documents and select "Open in Word" after connecting.', 
     category: 'calendar', 
     icon: '🔷', 
     provider: 'outlook',
-    features: ['Outlook Email', 'Calendar Sync', 'Word Online Editing', 'Excel & PowerPoint'],
+    features: ['Word Online & Desktop', 'Document Version History', 'Outlook Email', 'Calendar Sync'],
     syncOptions: { calendar: true, documents: true }
   },
   

@@ -592,11 +592,16 @@ export function DocumentVersionPanel({
       {/* Footer */}
       <div className={styles.footer}>
         {!hasMicrosoftIntegration && isWordDoc && (
-          <div className={styles.integrationHint}>
+          <div 
+            className={styles.integrationHint}
+            onClick={() => navigate('/app/integrations')}
+            style={{ cursor: 'pointer' }}
+          >
             <AlertCircle size={14} />
             <span>
-              Connect Microsoft in Settings → Integrations for seamless Word editing
+              <strong>Connect Microsoft 365</strong> in Integrations for seamless Word editing with version sync
             </span>
+            <ExternalLink size={12} />
           </div>
         )}
       </div>

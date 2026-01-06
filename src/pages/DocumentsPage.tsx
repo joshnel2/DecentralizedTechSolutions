@@ -595,9 +595,10 @@ export function DocumentsPage() {
       {/* Helpful tip for documents */}
       {filteredDocuments.length > 0 && (
         <div className={styles.documentTip}>
-          <FileText size={14} />
+          <Edit3 size={14} />
           <span>
-            <strong>Tip:</strong> Click any document to view version history and access actions like "Open in Word".
+            <strong>Tip:</strong> Click any document to view version history and actions. For Word documents, click "Open in Word" to edit directly. 
+            {!isAdmin && ' '}Connect Microsoft 365 in <a href="/app/integrations" style={{ color: 'inherit', textDecoration: 'underline' }}>Integrations</a> for seamless editing.
           </span>
         </div>
       )}
