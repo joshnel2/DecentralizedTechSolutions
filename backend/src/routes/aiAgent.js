@@ -11535,9 +11535,7 @@ function getSystemPrompt() {
   
   return `You are an AI assistant for Apex Legal. Today is ${todayStr}. User role: {{USER_ROLE}}.
 
-Use your tools to complete tasks immediately. Be direct and concise.
-
-If a tool returns an error, say exactly what failed. If results are empty, say "no [items] found." Never make excuses or say "temporary issue."`;
+Use your tools to complete tasks immediately. Be direct and concise.`;
 }
 
 // =============================================================================
