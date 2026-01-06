@@ -108,12 +108,12 @@ const TOOLS = [
     type: "function",
     function: {
       name: "list_my_matters",
-      description: "Get matters the user can access.",
+      description: "Get matters the user can access. Default to status='active' and limit=10 unless user asks for more or closed matters.",
       parameters: {
         type: "object",
         properties: {
-          status: { type: "string", enum: ["active", "pending", "closed", "on_hold"], description: "Filter by status" },
-          limit: { type: "integer", description: "Number to return (default 50)" }
+          status: { type: "string", enum: ["active", "pending", "closed", "on_hold"], description: "Filter by status. Default to 'active'." },
+          limit: { type: "integer", description: "Number to return. Default to 10 for quick reviews, up to 50 if user wants comprehensive list." }
         },
         required: []
       }
