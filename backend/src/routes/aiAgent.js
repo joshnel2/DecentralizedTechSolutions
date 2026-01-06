@@ -12048,6 +12048,7 @@ async function callAzureOpenAIWithTools(messages, tools, retryOptions = {}) {
   const maxRetries = retryOptions.maxRetries ?? 3;
   const baseDelay = retryOptions.baseDelay ?? 1000; // 1 second
   const maxDelay = retryOptions.maxDelay ?? 10000; // 10 seconds
+  const requestTimeout = retryOptions.timeout ?? 60000; // 60 second timeout
   
   // Log config for debugging (without exposing full key)
   console.log(`[AZURE AI] Calling: ${AZURE_DEPLOYMENT} at ${AZURE_ENDPOINT?.substring(0, 30)}...`);
@@ -12072,6 +12073,13 @@ async function callAzureOpenAIWithTools(messages, tools, retryOptions = {}) {
         await new Promise(resolve => setTimeout(resolve, delay));
       }
       
+      // Create abort controller for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), requestTimeout);
+      
+      const startTime = Date.now();
+      console.log(`[AZURE AI] Sending request (attempt ${attempt + 1})...`);
+      
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -12080,13 +12088,17 @@ async function callAzureOpenAIWithTools(messages, tools, retryOptions = {}) {
         },
         body: JSON.stringify({
           messages,
-          tools,
-          tool_choice: 'auto',
-          parallel_tool_calls: false, // Force one tool at a time
+          tools: tools.length > 0 ? tools : undefined,
+          tool_choice: tools.length > 0 ? 'auto' : undefined,
+          parallel_tool_calls: false,
           temperature: 0.7,
           max_tokens: 4000,
         }),
+        signal: controller.signal,
       });
+      
+      clearTimeout(timeoutId);
+      console.log(`[AZURE AI] Response received in ${Date.now() - startTime}ms, status: ${response.status}`);
 
       if (!response.ok) {
         const errorText = await response.text();
