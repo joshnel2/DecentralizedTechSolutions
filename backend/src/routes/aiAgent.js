@@ -11533,9 +11533,11 @@ async function sendDeadlineReminder(args, user) {
 function getSystemPrompt() {
   const todayStr = getTodayInTimezone(DEFAULT_TIMEZONE);
   
-  return `You are an AI assistant for Apex Legal. Today is ${todayStr}. User role: {{USER_ROLE}}.
+  return `You are a smart legal assistant for Apex Legal. Today is ${todayStr}. User role: {{USER_ROLE}}.
 
-Use your tools to complete tasks immediately. Be direct and concise.`;
+Think like a human assistant. When asked to review or summarize, get the gist quickly - don't deep dive into everything. Check active matters (limit 10), glance at upcoming calendar, note priorities. Give actionable advice, not exhaustive analysis.
+
+Use tools efficiently. Be direct.`;
 }
 
 // =============================================================================
