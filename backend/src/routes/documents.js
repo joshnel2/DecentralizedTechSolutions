@@ -1154,7 +1154,7 @@ router.get('/:id/download', authenticate, requirePermission('documents:view'), a
     }
 
     // Try Azure File Share fallback
-    if (doc.azure_path || doc.folder_path) {
+    if (doc.azure_path || doc.external_path || doc.folder_path) {
       try {
         const { downloadFile, isAzureConfigured } = await import('../utils/azureStorage.js');
         
@@ -1164,9 +1164,15 @@ router.get('/:id/download', authenticate, requirePermission('documents:view'), a
           return res.status(404).json({ error: 'File not found on server and Azure not configured' });
         }
 
-        // Determine the Azure path - try azure_path first, then construct from folder_path
-        const azurePath = doc.azure_path || 
+        // Determine the Azure path - try azure_path, external_path, then construct from folder_path
+        let azurePath = doc.azure_path || doc.external_path || 
           (doc.folder_path ? `${doc.folder_path}/${downloadFilename}` : downloadFilename);
+        
+        // Strip firm prefix if already present (downloadFile will add it)
+        const firmPrefix = `firm-${req.user.firmId}/`;
+        if (azurePath.startsWith(firmPrefix)) {
+          azurePath = azurePath.substring(firmPrefix.length);
+        }
         
         console.log(`[DOWNLOAD] Downloading from Azure: ${azurePath}`);
         

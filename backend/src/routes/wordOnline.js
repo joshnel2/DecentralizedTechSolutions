@@ -229,9 +229,9 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'You do not have permission to edit this document' });
     }
 
-    // Get Microsoft integration token (same as Outlook - uses Files.ReadWrite.All scope)
+    // Get Microsoft integration token (same as Outlook - uses Files.ReadWrite scope)
     const msIntegration = await query(
-      `SELECT access_token, refresh_token, token_expires_at 
+      `SELECT id, access_token, refresh_token, token_expires_at 
        FROM integrations 
        WHERE firm_id = $1 AND provider = 'outlook' AND is_connected = true`,
       [req.user.firmId]
@@ -247,7 +247,22 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
       });
     }
 
-    const accessToken = msIntegration.rows[0].access_token;
+    // Refresh token if expired or about to expire
+    let accessToken = msIntegration.rows[0].access_token;
+    const tokenExpires = msIntegration.rows[0].token_expires_at;
+    const refreshToken = msIntegration.rows[0].refresh_token;
+    const integrationId = msIntegration.rows[0].id;
+    
+    if (tokenExpires && new Date(tokenExpires) < new Date(Date.now() + 60000) && refreshToken) {
+      console.log('[WORD ONLINE] Token expired or expiring soon, refreshing...');
+      const refreshResult = await refreshMicrosoftToken(integrationId, refreshToken, req.user.firmId);
+      if (refreshResult.success) {
+        accessToken = refreshResult.accessToken;
+        console.log('[WORD ONLINE] Token refreshed successfully');
+      } else {
+        console.error('[WORD ONLINE] Token refresh failed:', refreshResult.error);
+      }
+    }
 
     // For Azure Files / OneDrive / SharePoint / any document with storage, get Word Online URL
     // Most documents should go through this path - we'll try to upload to OneDrive for editing
@@ -317,11 +332,13 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
               }
             });
           }
+          console.log(`[WORD ONLINE] Upload returned null or no webUrl for document ${documentId}`);
         } catch (uploadError) {
-          console.error('Failed to upload to OneDrive:', uploadError.message);
-          console.error('Upload error details:', { 
+          console.error('[WORD ONLINE] Upload exception:', uploadError.message);
+          console.error('[WORD ONLINE] Document details:', { 
             documentId, 
             path: document.path, 
+            external_path: document.external_path,
             folder_path: document.folder_path,
             azure_path: document.azure_path,
             drive_type: document.drive_type
@@ -330,18 +347,13 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
       }
 
       // Fallback to desktop
-      console.log(`[WORD ONLINE] Upload failed, returning desktop fallback for document ${documentId}`);
+      console.log(`[WORD ONLINE] Returning desktop fallback for document ${documentId}`);
       return res.json({
         editUrl: null,
         coAuthoring: false,
-        message: 'Could not open in Word Online. The document file could not be retrieved from storage. Try downloading and editing locally.',
+        message: 'Word Online is not available for this document. Would you like to download and edit it locally instead?',
         fallback: 'desktop',
-        debug: {
-          hasPath: !!document.path,
-          hasFolderPath: !!document.folder_path,
-          hasAzurePath: !!document.azure_path,
-          driveType: document.drive_type
-        }
+        downloadUrl: `/api/documents/${documentId}/download`
       });
     }
 
@@ -494,81 +506,56 @@ async function uploadToOneDriveForEditing(document, accessToken, firmId) {
     const fs = await import('fs/promises');
     const pathModule = await import('path');
     
-    // Read file content from various storage locations
-    let fileContent;
     const fileName = document.original_name || document.name;
+    let fileContent = null;
     
-    console.log(`[WORD ONLINE] Attempting to load document: ${fileName}`);
-    console.log(`[WORD ONLINE] Document paths - local: ${document.path}, folder: ${document.folder_path}, azure: ${document.azure_path}`);
-    
-    // 1. Try local file path first
+    console.log(`[WORD ONLINE] Loading document for OneDrive: ${fileName}`);
+
+    // 1. Try local file first (same logic as download endpoint)
     if (document.path) {
       try {
-        await fs.access(document.path); // Check if file exists
+        await fs.access(document.path);
         fileContent = await fs.readFile(document.path);
-        console.log(`[WORD ONLINE] Read ${fileContent.length} bytes from local path: ${document.path}`);
-      } catch (localErr) {
-        console.log(`[WORD ONLINE] Local file not accessible: ${document.path} - ${localErr.message}`);
+        console.log(`[WORD ONLINE] Read ${fileContent.length} bytes from local: ${document.path}`);
+      } catch {
+        console.log(`[WORD ONLINE] Local file not found: ${document.path}`);
       }
     }
-    
-    // 2. Try Azure File Share storage (most common for cloud deployments)
+
+    // 2. Try Azure File Share (same logic as download endpoint)
     if (!fileContent) {
       try {
         const { downloadFile, isAzureConfigured } = await import('../utils/azureStorage.js');
         const azureEnabled = await isAzureConfigured();
         
         if (azureEnabled) {
-          // Try multiple possible Azure paths
-          const possiblePaths = [];
+          // Determine the Azure path
+          // Note: external_path may include firm-{firmId}/ prefix already, but downloadFile adds it
+          // So we need to strip the prefix if it exists
+          let azurePath = document.azure_path || document.external_path || 
+            (document.folder_path ? `${document.folder_path}/${fileName}`.replace(/^\//, '') : fileName);
           
-          // Path 1: azure_path if set
-          if (document.azure_path) {
-            possiblePaths.push(document.azure_path);
+          // Strip firm prefix if already present (downloadFile will add it)
+          const firmPrefix = `firm-${firmId}/`;
+          if (azurePath.startsWith(firmPrefix)) {
+            azurePath = azurePath.substring(firmPrefix.length);
           }
           
-          // Path 2: folder_path + filename
-          if (document.folder_path) {
-            // folder_path might be absolute (/Documents) or relative
-            const folderPath = document.folder_path.startsWith('/') 
-              ? document.folder_path.substring(1) 
-              : document.folder_path;
-            possiblePaths.push(`${folderPath}/${fileName}`);
-            possiblePaths.push(folderPath ? `${folderPath}/${fileName}` : fileName);
+          console.log(`[WORD ONLINE] Downloading from Azure: ${azurePath}`);
+          fileContent = await downloadFile(azurePath, firmId);
+          
+          if (fileContent && fileContent.length > 0) {
+            console.log(`[WORD ONLINE] Downloaded ${fileContent.length} bytes from Azure`);
           }
-          
-          // Path 3: Just the filename at root
-          possiblePaths.push(fileName);
-          
-          // Path 4: Documents folder (common default)
-          possiblePaths.push(`Documents/${fileName}`);
-          
-          // Try each path
-          for (const azurePath of possiblePaths) {
-            if (!azurePath) continue;
-            try {
-              console.log(`[WORD ONLINE] Trying Azure path: ${azurePath}`);
-              fileContent = await downloadFile(azurePath, firmId);
-              if (fileContent && fileContent.length > 0) {
-                console.log(`[WORD ONLINE] Downloaded ${fileContent.length} bytes from Azure: ${azurePath}`);
-                break;
-              }
-            } catch (e) {
-              console.log(`[WORD ONLINE] Azure path failed: ${azurePath} - ${e.message}`);
-            }
-          }
-        } else {
-          console.log(`[WORD ONLINE] Azure not configured`);
         }
       } catch (azureErr) {
-        console.error(`[WORD ONLINE] Azure module error:`, azureErr.message);
+        console.error(`[WORD ONLINE] Azure download failed:`, azureErr.message);
       }
     }
     
     // If we still don't have content, we can't proceed
     if (!fileContent || fileContent.length === 0) {
-      console.error(`[WORD ONLINE] Could not read document content from any source`);
-      console.error(`[WORD ONLINE] Tried: local path (${document.path}), Azure folder (${document.folder_path}), Azure path (${document.azure_path})`);
+      console.error(`[WORD ONLINE] Could not load document from any storage`);
       return null;
     }
 
