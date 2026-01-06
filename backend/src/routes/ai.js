@@ -258,7 +258,7 @@ RECENT TIME ENTRIES:
 ${timeRes.rows.map(t => `- ${formatDate(t.date)}: ${t.hours}hrs - ${t.description} (${t.user_name})`).join('\n') || 'No time entries'}
 
 DOCUMENTS (${docsRes.rows.length}):
-${docsRes.rows.map(d => `- ${d.name} (${d.type})`).join('\n') || 'No documents'}
+${docsRes.rows.map(d => `- ${d.original_name || d.name} (${d.type})`).join('\n') || 'No documents'}
 
 UPCOMING EVENTS:
 ${eventsRes.rows.map(e => `- ${formatDateTime(e.start_time)}: ${e.title} (${e.type})`).join('\n') || 'No upcoming events'}
@@ -473,7 +473,7 @@ SUGGESTION: Compare calendar events with time entries to identify work that may 
 [CURRENT PAGE: Documents]
 
 RECENT DOCUMENTS:
-${docs.rows.map(d => `- ${d.name} (${d.type || 'unknown type'})
+${docs.rows.map(d => `- ${d.original_name || d.name} (${d.type || 'unknown type'})
   ${d.matter_name ? `Matter: ${d.matter_name}` : ''}${d.client_name ? ` | Client: ${d.client_name}` : ''}
   Uploaded: ${formatDate(d.created_at)}`).join('\n\n') || 'No documents'}
 `;

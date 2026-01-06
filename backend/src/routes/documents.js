@@ -754,7 +754,7 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
       RETURNING *`,
       [
         req.user.firmId, matterId || null, clientId || null,
-        req.file.filename, req.file.originalname, req.file.mimetype,
+        req.file.originalname, req.file.originalname, req.file.mimetype,
         req.file.size, req.file.path,
         tags ? (Array.isArray(tags) ? tags : JSON.parse(tags)) : [],
         isConfidential === 'true' || isConfidential === true,

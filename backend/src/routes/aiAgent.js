@@ -2634,7 +2634,7 @@ async function getMatter(args, user) {
   
   // Get documents with content summaries
   const docsResult = await query(
-    `SELECT id, name, type, ai_summary, uploaded_at,
+    `SELECT id, name, original_name, type, ai_summary, uploaded_at,
             CASE WHEN content_text IS NOT NULL THEN LEFT(content_text, 500) ELSE NULL END as content_preview,
             CASE WHEN content_text IS NOT NULL THEN LENGTH(content_text) ELSE 0 END as content_length
      FROM documents 
@@ -2646,7 +2646,7 @@ async function getMatter(args, user) {
   
   const documents = docsResult.rows.map(d => ({
     id: d.id,
-    name: d.name,
+    name: d.original_name || d.name,
     type: d.type,
     summary: d.ai_summary,
     content_preview: d.content_preview,
@@ -3042,7 +3042,7 @@ async function getClient(args, user) {
   
   // Get client's documents
   const docsResult = await query(
-    `SELECT id, name, type, ai_summary, uploaded_at,
+    `SELECT id, name, original_name, type, ai_summary, uploaded_at,
             CASE WHEN content_text IS NOT NULL THEN LEFT(content_text, 300) ELSE NULL END as content_preview,
             CASE WHEN content_text IS NOT NULL THEN true ELSE false END as has_content
      FROM documents 
@@ -3103,7 +3103,7 @@ async function getClient(args, user) {
       count: docsResult.rows.length,
       items: docsResult.rows.map(d => ({
         id: d.id,
-        name: d.name,
+        name: d.original_name || d.name,
         type: d.type,
         summary: d.ai_summary,
         content_preview: d.content_preview,
@@ -4353,7 +4353,7 @@ async function listDocuments(args, user) {
   const { matter_id, client_id, search, source, limit = 20 } = args;
   
   let sql = `
-    SELECT d.id, d.name, d.type, d.size, d.status, d.created_at, d.uploaded_at, 
+    SELECT d.id, d.name, d.original_name, d.type, d.size, d.status, d.created_at, d.uploaded_at, 
            d.external_source, d.external_url, d.content_text IS NOT NULL as has_content,
            m.name as matter_name, c.display_name as client_name
     FROM documents d
@@ -4373,7 +4373,7 @@ async function listDocuments(args, user) {
     params.push(client_id);
   }
   if (search) {
-    sql += ` AND d.name ILIKE $${idx++}`;
+    sql += ` AND (d.name ILIKE $${idx} OR d.original_name ILIKE $${idx++})`;
     params.push(`%${search}%`);
   }
   if (source) {
@@ -4393,7 +4393,7 @@ async function listDocuments(args, user) {
   return {
     documents: result.rows.map(d => ({
       id: d.id,
-      name: d.name,
+      name: d.original_name || d.name,
       type: d.type,
       size: d.size,
       status: d.status,
@@ -4930,7 +4930,7 @@ async function getMatterDocumentsContent(args, user) {
   
   // Get all documents for this matter
   const docsResult = await query(
-    `SELECT id, name, type, size, status, content_text, ai_summary, uploaded_at
+    `SELECT id, name, original_name, type, size, status, content_text, ai_summary, uploaded_at
      FROM documents 
      WHERE matter_id = $1 AND firm_id = $2
      ORDER BY uploaded_at DESC`,
@@ -4940,7 +4940,7 @@ async function getMatterDocumentsContent(args, user) {
   const documents = docsResult.rows.map(d => {
     const doc = {
       id: d.id,
-      name: d.name,
+      name: d.original_name || d.name,
       type: d.type,
       size: d.size,
       status: d.status,
@@ -4984,13 +4984,13 @@ async function searchDocumentContent(args, user) {
   }
   
   let sql = `
-    SELECT d.id, d.name, d.type, d.content_text, d.ai_summary, 
+    SELECT d.id, d.name, d.original_name, d.type, d.content_text, d.ai_summary, 
            m.name as matter_name, m.number as matter_number, c.display_name as client_name
     FROM documents d
     LEFT JOIN matters m ON d.matter_id = m.id
     LEFT JOIN clients c ON d.client_id = c.id
     WHERE d.firm_id = $1 
-      AND (d.content_text ILIKE $2 OR d.ai_summary ILIKE $2 OR d.name ILIKE $2)
+      AND (d.content_text ILIKE $2 OR d.ai_summary ILIKE $2 OR d.name ILIKE $2 OR d.original_name ILIKE $2)
   `;
   const params = [user.firmId, `%${search_term}%`];
   let idx = 3;
@@ -5013,7 +5013,7 @@ async function searchDocumentContent(args, user) {
   const matches = result.rows.map(d => {
     const match = {
       id: d.id,
-      name: d.name,
+      name: d.original_name || d.name,
       type: d.type,
       matter: d.matter_name ? `${d.matter_number} - ${d.matter_name}` : null,
       client: d.client_name
