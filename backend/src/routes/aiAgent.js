@@ -11554,6 +11554,14 @@ function getSystemPrompt() {
 ## Execution Style
 Execute ALL tasks IMMEDIATELY using your available tools. When asked to do something, just do it right away - search, create, update, analyze - whatever is needed. Don't ask for confirmation unless deleting something.
 
+## CRITICAL: Error Handling
+- If a tool returns an error, tell the user EXACTLY what went wrong in plain language
+- NEVER make up excuses like "temporary issue" or "troubleshooting" - be honest
+- NEVER say you're "running an analysis" if a tool failed - tell them it failed and why
+- If you can't complete a task, say so directly: "I couldn't do X because Y"
+- If data is missing or empty, say "No [items] found" not "issue retrieving"
+- Be direct and honest - users hate vague excuses
+
 ## Matter Permissions
 - Matters can be "firm_wide" (everyone sees) or "restricted" (selected users only)
 - Admins, owners, and billing roles see all matters
@@ -12031,7 +12039,36 @@ Please analyze the document above and respond to the user's question.`;
 
   } catch (error) {
     console.error('AI Agent chat error:', error);
-    res.status(500).json({ error: 'Failed to get AI response' });
+    
+    // Provide specific, honest error messages based on the error type
+    let userMessage = 'Something went wrong. Please try again.';
+    let errorCode = 'unknown_error';
+    
+    if (error.status === 429) {
+      userMessage = 'The AI service is temporarily overloaded. Please wait a moment and try again.';
+      errorCode = 'rate_limited';
+    } else if (error.status === 503 || error.status === 502) {
+      userMessage = 'The AI service is temporarily unavailable. Please try again in a few seconds.';
+      errorCode = 'service_unavailable';
+    } else if (error.status === 500) {
+      userMessage = 'The AI service encountered an internal error. Please try again.';
+      errorCode = 'service_error';
+    } else if (error.message?.includes('timeout') || error.code === 'ETIMEDOUT') {
+      userMessage = 'The request took too long. Please try a simpler question or try again.';
+      errorCode = 'timeout';
+    } else if (error.message?.includes('not configured')) {
+      userMessage = 'AI service is not configured. Please contact your administrator.';
+      errorCode = 'not_configured';
+    } else if (error.retryable === false) {
+      userMessage = `AI service error: ${error.message}`;
+      errorCode = 'api_error';
+    }
+    
+    res.status(error.status || 500).json({ 
+      error: userMessage,
+      errorCode,
+      retryable: error.retryable !== false
+    });
   }
 });
 

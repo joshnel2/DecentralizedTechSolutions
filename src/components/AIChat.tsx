@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Mail, Bot, Cpu, Terminal } from 'lucide-react'
+import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Mail, Bot, Cpu, Terminal, AlertCircle, RefreshCw } from 'lucide-react'
 import { aiApi, documentsApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import styles from './AIChat.module.css'
@@ -32,6 +32,8 @@ interface Message {
   toolsUsed?: boolean  // Indicates if AI took an action
   navigation?: NavigationInfo  // Navigation command from AI
   attachedFile?: { name: string; type: string }  // File that was attached
+  isError?: boolean  // Indicates this is an error message
+  isRetryable?: boolean  // Can the user retry this request
 }
 
 interface AIChatProps {
@@ -79,6 +81,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const [showSuggestions, setShowSuggestions] = useState(true)
   const [pendingNavigation, setPendingNavigation] = useState<NavigationInfo | null>(null)
   const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null)
+  const [lastSentMessage, setLastSentMessage] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const lastUserMessageRef = useRef<HTMLDivElement>(null)
@@ -193,6 +196,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
 
     setMessages(prev => [...prev, userMessage])
     setInput('')
+    setLastSentMessage(text) // Track for retry
     const currentFile = uploadedFile
     setUploadedFile(null)
     setIsLoading(true)
@@ -247,13 +251,44 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
       if (response.navigation) {
         setPendingNavigation(response.navigation)
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('AI chat error:', error)
+      
+      // Parse error response for better messaging
+      let errorContent = "I'm sorry, I encountered an error. Please try again."
+      let isRetryable = true
+      
+      // Handle ApiError from the service
+      if (error?.name === 'ApiError' || error?.status) {
+        errorContent = error.message || errorContent
+        // Check for retryable status codes
+        const retryableStatuses = [429, 500, 502, 503, 504]
+        isRetryable = retryableStatuses.includes(error.status)
+        
+        // Use data.retryable if available
+        if (error.data?.retryable !== undefined) {
+          isRetryable = error.data.retryable
+        }
+        if (error.data?.error) {
+          errorContent = error.data.error
+        }
+      } else if (error?.message) {
+        // Network errors or other JS errors
+        if (error.message.includes('fetch') || error.message.includes('network') || error.message.includes('Failed to fetch')) {
+          errorContent = "Network error - please check your connection and try again."
+          isRetryable = true
+        } else {
+          errorContent = error.message
+        }
+      }
+      
       const errorMessage: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: "I'm sorry, I encountered an error. Please try again.",
+        content: errorContent,
         timestamp: new Date(),
+        isError: true,
+        isRetryable,
       }
       setMessages(prev => [...prev, errorMessage])
     } finally {
@@ -268,6 +303,21 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
     navigate(nav.path)
     // Clear pending navigation
     setPendingNavigation(null)
+  }
+
+  const handleRetry = () => {
+    if (lastSentMessage && !isLoading) {
+      // Remove the last error message before retrying
+      setMessages(prev => {
+        const lastMsg = prev[prev.length - 1]
+        if (lastMsg?.isError) {
+          return prev.slice(0, -1)
+        }
+        return prev
+      })
+      // Retry with the last message
+      sendMessage(lastSentMessage)
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -388,14 +438,29 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
                             <span>{message.attachedFile.name}</span>
                           </div>
                         )}
-                        {message.toolsUsed && (
+                        {message.toolsUsed && !message.isError && (
                           <div className={styles.actionTaken}>
                             <Zap size={12} /> Action taken
+                          </div>
+                        )}
+                        {message.isError && (
+                          <div className={styles.errorIndicator}>
+                            <AlertCircle size={12} /> Error
                           </div>
                         )}
                         {message.content.split('\n').map((line, i) => (
                           <p key={i}>{line || <br />}</p>
                         ))}
+                        {message.isError && message.isRetryable && (
+                          <button 
+                            className={styles.retryBtn}
+                            onClick={handleRetry}
+                            disabled={isLoading}
+                          >
+                            <RefreshCw size={14} />
+                            Try again
+                          </button>
+                        )}
                         {message.navigation && (
                           <button 
                             className={styles.navigationBtn}
