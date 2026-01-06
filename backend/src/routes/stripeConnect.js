@@ -3,17 +3,24 @@
  * 
  * Handles connecting law firms to Stripe via OAuth
  * Uses Stripe Connect Standard accounts - firms own their accounts
+ * 
+ * Also handles:
+ * - Payment processing (creating payment intents)
+ * - Webhooks for payment events
+ * - QuickBooks sync for completed payments
  */
 
 import { Router } from 'express';
-import { query } from '../db/connection.js';
+import { query, withTransaction } from '../db/connection.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import express from 'express';
 
 const router = Router();
 
 // Stripe Connect configuration
 const STRIPE_CLIENT_ID = process.env.STRIPE_CLIENT_ID;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // Initialize Stripe if key is available
@@ -23,6 +30,36 @@ if (STRIPE_SECRET_KEY) {
   stripe = new Stripe(STRIPE_SECRET_KEY, {
     apiVersion: '2023-10-16',
   });
+}
+
+/**
+ * Helper function to trigger QuickBooks payment sync
+ */
+async function triggerQuickBooksPaymentSync(firmId, paymentId) {
+  try {
+    // Check if QuickBooks is connected for this firm
+    const integration = await query(
+      `SELECT id FROM integrations WHERE firm_id = $1 AND provider = 'quickbooks' AND is_connected = true`,
+      [firmId]
+    );
+
+    if (integration.rows.length === 0) {
+      console.log('[Stripe→QB] QuickBooks not connected for firm, skipping sync');
+      return;
+    }
+
+    // Add to sync queue with retry support
+    await query(
+      `INSERT INTO quickbooks_sync_queue (firm_id, entity_type, entity_id, action, status, next_retry_at)
+       VALUES ($1, 'payment', $2, 'create', 'pending', NOW())
+       ON CONFLICT DO NOTHING`,
+      [firmId, paymentId]
+    );
+
+    console.log(`[Stripe→QB] Payment ${paymentId} queued for QuickBooks sync`);
+  } catch (error) {
+    console.error('[Stripe→QB] Failed to queue payment for QuickBooks sync:', error.message);
+  }
 }
 
 /**
@@ -477,6 +514,430 @@ router.get('/stats', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Error fetching stats:', error);
     res.status(500).json({ error: 'Failed to fetch statistics' });
+  }
+});
+
+// ============================================
+// PAYMENT PROCESSING (Apex Pay)
+// ============================================
+
+/**
+ * POST /api/stripe/connect/create-payment-intent
+ * Create a payment intent for collecting payment
+ */
+router.post('/create-payment-intent', authenticate, async (req, res) => {
+  try {
+    const { 
+      amount, 
+      invoiceId, 
+      clientId, 
+      matterId, 
+      accountType = 'operating',
+      description 
+    } = req.body;
+
+    if (!stripe) {
+      return res.status(400).json({ error: 'Stripe is not configured' });
+    }
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'Valid amount is required' });
+    }
+
+    // Get firm's Stripe connection
+    const connectionResult = await query(
+      `SELECT stripe_account_id, charges_enabled FROM stripe_connections 
+       WHERE firm_id = $1 AND is_connected = true`,
+      [req.user.firmId]
+    );
+
+    if (connectionResult.rows.length === 0) {
+      return res.status(400).json({ error: 'Stripe not connected. Please connect Apex Pay first.' });
+    }
+
+    const { stripe_account_id, charges_enabled } = connectionResult.rows[0];
+
+    if (!charges_enabled) {
+      return res.status(400).json({ error: 'Stripe account not fully set up. Please complete onboarding.' });
+    }
+
+    // Get client info if provided
+    let clientName = 'Client';
+    if (clientId) {
+      const clientResult = await query(
+        'SELECT display_name FROM clients WHERE id = $1 AND firm_id = $2',
+        [clientId, req.user.firmId]
+      );
+      if (clientResult.rows.length > 0) {
+        clientName = clientResult.rows[0].display_name;
+      }
+    }
+
+    // Get invoice info if provided
+    let invoiceNumber = null;
+    if (invoiceId) {
+      const invoiceResult = await query(
+        'SELECT number FROM invoices WHERE id = $1 AND firm_id = $2',
+        [invoiceId, req.user.firmId]
+      );
+      if (invoiceResult.rows.length > 0) {
+        invoiceNumber = invoiceResult.rows[0].number;
+      }
+    }
+
+    // Create payment intent on the connected account
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100), // Convert to cents
+      currency: 'usd',
+      description: description || `Payment from ${clientName}${invoiceNumber ? ` for Invoice ${invoiceNumber}` : ''}`,
+      metadata: {
+        firm_id: req.user.firmId,
+        client_id: clientId || '',
+        invoice_id: invoiceId || '',
+        matter_id: matterId || '',
+        account_type: accountType,
+        created_by: req.user.id
+      },
+      // Apply platform fee if desired (optional)
+      // application_fee_amount: Math.round(amount * 100 * 0.01), // 1% platform fee
+    }, {
+      stripeAccount: stripe_account_id,
+    });
+
+    res.json({
+      clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id,
+      amount: amount
+    });
+
+  } catch (error) {
+    console.error('Error creating payment intent:', error);
+    res.status(500).json({ error: error.message || 'Failed to create payment' });
+  }
+});
+
+/**
+ * POST /api/stripe/connect/webhook
+ * Handle Stripe webhook events
+ * This is called by Stripe when payment events occur
+ */
+router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  let event;
+
+  try {
+    // Verify webhook signature if secret is configured
+    if (STRIPE_WEBHOOK_SECRET) {
+      const sig = req.headers['stripe-signature'];
+      event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
+    } else {
+      // For development without signature verification
+      event = JSON.parse(req.body.toString());
+    }
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  console.log(`[Stripe Webhook] Received event: ${event.type}`);
+
+  try {
+    switch (event.type) {
+      case 'payment_intent.succeeded':
+        await handlePaymentSucceeded(event.data.object);
+        break;
+      
+      case 'payment_intent.payment_failed':
+        await handlePaymentFailed(event.data.object);
+        break;
+
+      case 'charge.refunded':
+        await handleRefund(event.data.object);
+        break;
+
+      default:
+        console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
+    }
+
+    res.json({ received: true });
+  } catch (error) {
+    console.error(`[Stripe Webhook] Error handling ${event.type}:`, error);
+    // Still return 200 to prevent Stripe from retrying
+    res.json({ received: true, error: error.message });
+  }
+});
+
+/**
+ * Handle successful payment
+ * Records transaction, updates invoice, syncs to QuickBooks
+ */
+async function handlePaymentSucceeded(paymentIntent) {
+  console.log(`[Stripe] Payment succeeded: ${paymentIntent.id}`);
+
+  const metadata = paymentIntent.metadata || {};
+  const firmId = metadata.firm_id;
+  const clientId = metadata.client_id || null;
+  const invoiceId = metadata.invoice_id || null;
+  const matterId = metadata.matter_id || null;
+  const accountType = metadata.account_type || 'operating';
+
+  if (!firmId) {
+    console.error('[Stripe] Payment missing firm_id metadata:', paymentIntent.id);
+    return;
+  }
+
+  // Get charge details for card info
+  let cardBrand = null;
+  let cardLast4 = null;
+  let paymentMethod = 'card';
+
+  if (paymentIntent.latest_charge) {
+    try {
+      // Find the firm's Stripe account
+      const connectionResult = await query(
+        'SELECT stripe_account_id FROM stripe_connections WHERE firm_id = $1',
+        [firmId]
+      );
+      
+      if (connectionResult.rows.length > 0) {
+        const charge = await stripe.charges.retrieve(
+          paymentIntent.latest_charge,
+          { stripeAccount: connectionResult.rows[0].stripe_account_id }
+        );
+        
+        if (charge.payment_method_details?.card) {
+          cardBrand = charge.payment_method_details.card.brand;
+          cardLast4 = charge.payment_method_details.card.last4;
+        } else if (charge.payment_method_details?.us_bank_account) {
+          paymentMethod = 'ach';
+          cardLast4 = charge.payment_method_details.us_bank_account.last4;
+        }
+      }
+    } catch (err) {
+      console.error('[Stripe] Error fetching charge details:', err.message);
+    }
+  }
+
+  const amountCents = paymentIntent.amount;
+  const feeCents = Math.round(amountCents * 0.029 + 30); // Estimate: 2.9% + $0.30
+  const netAmountCents = amountCents - feeCents;
+
+  let paymentId = null;
+
+  await withTransaction(async (client) => {
+    // Record the Stripe transaction
+    const txnResult = await client.query(
+      `INSERT INTO stripe_transactions (
+        firm_id, client_id, matter_id, invoice_id,
+        stripe_payment_intent_id, amount_cents, fee_cents, net_amount_cents,
+        currency, payment_method, card_brand, card_last4, account_type, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'completed')
+      RETURNING id`,
+      [
+        firmId,
+        clientId || null,
+        matterId || null,
+        invoiceId || null,
+        paymentIntent.id,
+        amountCents,
+        feeCents,
+        netAmountCents,
+        paymentIntent.currency,
+        paymentMethod,
+        cardBrand,
+        cardLast4,
+        accountType
+      ]
+    );
+
+    // Also record in payments table for unified payment tracking
+    const paymentResult = await client.query(
+      `INSERT INTO payments (
+        firm_id, invoice_id, client_id, amount, payment_method,
+        reference, payment_date, notes, processor_id, sync_status
+      ) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_DATE, $7, $8, 'pending')
+      RETURNING id`,
+      [
+        firmId,
+        invoiceId || null,
+        clientId || null,
+        amountCents / 100,
+        paymentMethod === 'ach' ? 'ach' : 'apex_pay',
+        `Apex Pay - ${cardBrand || 'Card'} ending ${cardLast4 || '****'}`,
+        `Paid via Apex Pay${cardBrand ? ` (${cardBrand} •••• ${cardLast4})` : ''}`,
+        paymentIntent.id
+      ]
+    );
+    paymentId = paymentResult.rows[0].id;
+
+    // If linked to an invoice, update the invoice
+    if (invoiceId) {
+      const invoiceResult = await client.query(
+        'SELECT total, amount_paid FROM invoices WHERE id = $1 AND firm_id = $2',
+        [invoiceId, firmId]
+      );
+
+      if (invoiceResult.rows.length > 0) {
+        const invoice = invoiceResult.rows[0];
+        const newAmountPaid = parseFloat(invoice.amount_paid) + (amountCents / 100);
+        const newAmountDue = parseFloat(invoice.total) - newAmountPaid;
+        const newStatus = newAmountDue <= 0 ? 'paid' : 'partial';
+
+        await client.query(
+          `UPDATE invoices SET 
+            amount_paid = $1, 
+            status = $2,
+            paid_at = CASE WHEN $2 = 'paid' THEN NOW() ELSE paid_at END
+          WHERE id = $3`,
+          [newAmountPaid, newStatus, invoiceId]
+        );
+      }
+    }
+  });
+
+  // Trigger QuickBooks sync (async, don't block)
+  if (paymentId) {
+    triggerQuickBooksPaymentSync(firmId, paymentId).catch(err => {
+      console.error('[Stripe→QB] Async sync trigger failed:', err.message);
+    });
+  }
+
+  console.log(`[Stripe] Payment recorded successfully: ${paymentIntent.id}, Payment ID: ${paymentId}`);
+}
+
+/**
+ * Handle failed payment
+ */
+async function handlePaymentFailed(paymentIntent) {
+  console.log(`[Stripe] Payment failed: ${paymentIntent.id}`);
+
+  const metadata = paymentIntent.metadata || {};
+  const firmId = metadata.firm_id;
+
+  if (!firmId) return;
+
+  // Record the failed attempt
+  await query(
+    `INSERT INTO stripe_transactions (
+      firm_id, client_id, matter_id, invoice_id,
+      stripe_payment_intent_id, amount_cents, currency, status,
+      error_message
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'failed', $8)
+    ON CONFLICT (stripe_payment_intent_id) DO UPDATE SET
+      status = 'failed',
+      error_message = $8`,
+    [
+      firmId,
+      metadata.client_id || null,
+      metadata.matter_id || null,
+      metadata.invoice_id || null,
+      paymentIntent.id,
+      paymentIntent.amount,
+      paymentIntent.currency,
+      paymentIntent.last_payment_error?.message || 'Payment failed'
+    ]
+  ).catch(err => console.error('[Stripe] Error recording failed payment:', err.message));
+}
+
+/**
+ * Handle refund
+ */
+async function handleRefund(charge) {
+  console.log(`[Stripe] Refund processed: ${charge.id}`);
+
+  // Update the transaction status
+  await query(
+    `UPDATE stripe_transactions SET status = 'refunded' 
+     WHERE stripe_payment_intent_id = $1`,
+    [charge.payment_intent]
+  ).catch(err => console.error('[Stripe] Error updating refund status:', err.message));
+
+  // TODO: Could also create a reverse entry in QuickBooks for the refund
+}
+
+/**
+ * POST /api/stripe/connect/process-payment
+ * Alternative: Process payment directly (for server-side payment confirmation)
+ */
+router.post('/process-payment', authenticate, async (req, res) => {
+  try {
+    const { 
+      paymentIntentId,
+      invoiceId,
+      clientId,
+      amount,
+      paymentMethodId,
+      accountType = 'operating'
+    } = req.body;
+
+    if (!stripe) {
+      return res.status(400).json({ error: 'Stripe is not configured' });
+    }
+
+    // Get firm's Stripe connection
+    const connectionResult = await query(
+      `SELECT stripe_account_id, charges_enabled FROM stripe_connections 
+       WHERE firm_id = $1 AND is_connected = true`,
+      [req.user.firmId]
+    );
+
+    if (connectionResult.rows.length === 0) {
+      return res.status(400).json({ error: 'Stripe not connected' });
+    }
+
+    const { stripe_account_id } = connectionResult.rows[0];
+
+    let paymentIntent;
+
+    if (paymentIntentId) {
+      // Confirm existing payment intent
+      paymentIntent = await stripe.paymentIntents.confirm(
+        paymentIntentId,
+        { payment_method: paymentMethodId },
+        { stripeAccount: stripe_account_id }
+      );
+    } else {
+      // Create and confirm new payment intent
+      paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(amount * 100),
+        currency: 'usd',
+        payment_method: paymentMethodId,
+        confirm: true,
+        metadata: {
+          firm_id: req.user.firmId,
+          client_id: clientId || '',
+          invoice_id: invoiceId || '',
+          account_type: accountType,
+          created_by: req.user.id
+        }
+      }, {
+        stripeAccount: stripe_account_id,
+      });
+    }
+
+    if (paymentIntent.status === 'succeeded') {
+      res.json({
+        success: true,
+        paymentIntentId: paymentIntent.id,
+        status: paymentIntent.status
+      });
+    } else if (paymentIntent.status === 'requires_action') {
+      res.json({
+        success: false,
+        requiresAction: true,
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id
+      });
+    } else {
+      res.json({
+        success: false,
+        status: paymentIntent.status,
+        paymentIntentId: paymentIntent.id
+      });
+    }
+
+  } catch (error) {
+    console.error('Error processing payment:', error);
+    res.status(500).json({ error: error.message || 'Payment processing failed' });
   }
 });
 
