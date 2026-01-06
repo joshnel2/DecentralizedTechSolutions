@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  Folder, Users, User, ChevronRight, ChevronDown, Lock, 
+  Folder, Users, User, ChevronRight, Lock, 
   Shield, Eye, Edit3, Download, Share2, Trash2, Plus,
-  Check, X, Loader2, AlertCircle, Settings
+  Check, X, Loader2, AlertCircle, ArrowLeft, FolderOpen,
+  Home, HelpCircle
 } from 'lucide-react'
 import { documentPermissionsApi, teamApi } from '../services/api'
 import styles from './FolderPermissionsPage.module.css'
@@ -38,11 +39,11 @@ interface TeamMember {
 }
 
 const PERMISSION_LEVELS = [
-  { value: 'view', label: 'View Only', description: 'Can view files', color: '#6b7280' },
-  { value: 'download', label: 'View & Download', description: 'Can view and download files', color: '#10b981' },
-  { value: 'edit', label: 'Editor', description: 'Can view, download, and edit files', color: '#3b82f6' },
-  { value: 'contributor', label: 'Contributor', description: 'Can create and edit files', color: '#8b5cf6' },
-  { value: 'admin', label: 'Folder Admin', description: 'Full control including permissions', color: '#f59e0b' },
+  { value: 'view', label: 'View Only', description: 'Can see files but not download', icon: Eye, color: '#6b7280' },
+  { value: 'download', label: 'View & Download', description: 'Can view and download files', icon: Download, color: '#10b981' },
+  { value: 'edit', label: 'Editor', description: 'Can view, download, and edit files', icon: Edit3, color: '#3b82f6' },
+  { value: 'contributor', label: 'Contributor', description: 'Can create, edit, and delete files', icon: FolderOpen, color: '#8b5cf6' },
+  { value: 'admin', label: 'Folder Admin', description: 'Full control including managing permissions', icon: Shield, color: '#f59e0b' },
 ]
 
 export function FolderPermissionsPage() {
@@ -69,6 +70,14 @@ export function FolderPermissionsPage() {
     loadData()
   }, [currentPath])
 
+  // Auto-dismiss notifications
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 4000)
+      return () => clearTimeout(timer)
+    }
+  }, [notification])
+
   const loadData = async () => {
     setLoading(true)
     try {
@@ -80,6 +89,7 @@ export function FolderPermissionsPage() {
       setTeamMembers(teamResult.members || [])
     } catch (error) {
       console.error('Failed to load permissions:', error)
+      setPermissions([])
     } finally {
       setLoading(false)
     }
@@ -87,7 +97,7 @@ export function FolderPermissionsPage() {
 
   const handleAddPermission = async () => {
     if (!newPermission.userId && !newPermission.groupId) {
-      setNotification({ type: 'error', message: 'Please select a user or group' })
+      setNotification({ type: 'error', message: 'Please select a team member' })
       return
     }
 
@@ -109,7 +119,7 @@ export function FolderPermissionsPage() {
         canManagePermissions: preset.canManagePermissions,
       })
 
-      setNotification({ type: 'success', message: 'Permission added' })
+      setNotification({ type: 'success', message: 'Permission added successfully' })
       setShowAddForm(false)
       setNewPermission({ userId: '', groupId: '', permissionLevel: 'view' })
       loadData()
@@ -148,202 +158,276 @@ export function FolderPermissionsPage() {
   }
 
   const pathParts = currentPath.split('/').filter(Boolean)
+  const availableMembers = teamMembers.filter(m => !permissions.some(p => p.userId === m.id))
 
   return (
-    <div className={styles.container}>
+    <div className={styles.page}>
+      {/* Header with back button */}
       <header className={styles.header}>
-        <div className={styles.headerLeft}>
-          <div className={styles.icon}>
-            <Shield size={24} />
-          </div>
-          <div>
-            <h1>Folder Permissions</h1>
-            <p>Manage who can access files in each folder</p>
-          </div>
-        </div>
-        <button className={styles.settingsBtn} onClick={() => navigate('/app/settings/drives')}>
-          <Settings size={18} />
-          Drive Settings
+        <button className={styles.backBtn} onClick={() => navigate('/app/documents')}>
+          <ArrowLeft size={20} />
+          <span>Back to Documents</span>
         </button>
       </header>
 
-      {/* Notification */}
-      {notification && (
-        <div className={`${styles.notification} ${styles[notification.type]}`}>
-          {notification.type === 'success' ? <Check size={16} /> : <AlertCircle size={16} />}
-          {notification.message}
-          <button onClick={() => setNotification(null)}>×</button>
-        </div>
-      )}
-
-      {/* Breadcrumb */}
-      <div className={styles.breadcrumb}>
-        <button 
-          className={`${styles.breadcrumbItem} ${currentPath === '/' ? styles.active : ''}`}
-          onClick={() => setCurrentPath('/')}
-        >
-          <Folder size={16} />
-          Root
-        </button>
-        {pathParts.map((part, index) => {
-          const path = '/' + pathParts.slice(0, index + 1).join('/')
-          return (
-            <span key={path}>
-              <ChevronRight size={14} className={styles.breadcrumbSep} />
-              <button
-                className={`${styles.breadcrumbItem} ${currentPath === path ? styles.active : ''}`}
-                onClick={() => setCurrentPath(path)}
-              >
-                {part}
-              </button>
-            </span>
-          )
-        })}
-      </div>
-
-      {/* Current Folder Info */}
-      <div className={styles.folderInfo}>
-        <Folder size={28} className={styles.folderIcon} />
-        <div className={styles.folderDetails}>
-          <h2>{currentPath === '/' ? 'Root Folder' : pathParts[pathParts.length - 1] || 'Folder'}</h2>
-          <span className={styles.folderPath}>{currentPath}</span>
-        </div>
-        <button className={styles.addBtn} onClick={() => setShowAddForm(true)}>
-          <Plus size={16} />
-          Add Permission
-        </button>
-      </div>
-
-      {/* Add Permission Form */}
-      {showAddForm && (
-        <div className={styles.addForm}>
-          <h3>Add Permission</h3>
-          
-          <div className={styles.formGroup}>
-            <label>Grant access to:</label>
-            <select
-              value={newPermission.userId}
-              onChange={e => setNewPermission({ ...newPermission, userId: e.target.value, groupId: '' })}
-            >
-              <option value="">Select a team member...</option>
-              {teamMembers
-                .filter(m => !permissions.some(p => p.userId === m.id))
-                .map(member => (
-                  <option key={member.id} value={member.id}>
-                    {member.firstName} {member.lastName} ({member.email})
-                  </option>
-                ))}
-            </select>
+      <div className={styles.container}>
+        {/* Page Title */}
+        <div className={styles.titleSection}>
+          <div className={styles.titleIcon}>
+            <Shield size={28} />
           </div>
-
-          <div className={styles.formGroup}>
-            <label>Permission level:</label>
-            <div className={styles.permissionLevels}>
-              {PERMISSION_LEVELS.map(level => (
-                <button
-                  key={level.value}
-                  className={`${styles.levelBtn} ${newPermission.permissionLevel === level.value ? styles.active : ''}`}
-                  onClick={() => setNewPermission({ ...newPermission, permissionLevel: level.value })}
-                  style={{ '--level-color': level.color } as React.CSSProperties}
-                >
-                  <span className={styles.levelDot} />
-                  <div className={styles.levelInfo}>
-                    <span className={styles.levelLabel}>{level.label}</span>
-                    <span className={styles.levelDesc}>{level.description}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
+          <div className={styles.titleText}>
+            <h1>Folder Permissions</h1>
+            <p>Control who can access files in each folder. Permissions set here override default firm-wide access.</p>
           </div>
+        </div>
 
-          <div className={styles.formActions}>
-            <button className={styles.cancelBtn} onClick={() => setShowAddForm(false)}>
-              Cancel
+        {/* Notification */}
+        {notification && (
+          <div className={`${styles.notification} ${styles[notification.type]}`}>
+            {notification.type === 'success' ? <Check size={18} /> : <AlertCircle size={18} />}
+            <span>{notification.message}</span>
+            <button onClick={() => setNotification(null)} className={styles.notificationClose}>
+              <X size={16} />
             </button>
-            <button className={styles.saveBtn} onClick={handleAddPermission} disabled={saving}>
-              {saving ? <Loader2 size={16} className={styles.spinning} /> : <Check size={16} />}
-              Add Permission
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Permissions List */}
-      <div className={styles.permissionsList}>
-        <h3>
-          <Lock size={16} />
-          Current Permissions ({permissions.length})
-        </h3>
-
-        {loading ? (
-          <div className={styles.loading}>
-            <Loader2 size={24} className={styles.spinning} />
-            Loading...
-          </div>
-        ) : permissions.length === 0 ? (
-          <div className={styles.empty}>
-            <Users size={32} />
-            <p>No specific permissions set for this folder</p>
-            <span>Folder will use inherited permissions from parent folders, or default firm-wide access</span>
-          </div>
-        ) : (
-          <div className={styles.permissionsGrid}>
-            {permissions.map(perm => (
-              <div key={perm.id} className={styles.permissionCard}>
-                <div className={styles.permissionUser}>
-                  <div className={styles.avatar}>
-                    {perm.userId ? <User size={16} /> : <Users size={16} />}
-                  </div>
-                  <div className={styles.userInfo}>
-                    <span className={styles.userName}>{perm.userName || perm.groupName}</span>
-                    <span className={styles.userType}>{perm.userId ? 'User' : 'Group'}</span>
-                  </div>
-                </div>
-
-                <div className={styles.permissionBadges}>
-                  {perm.canView && <span className={styles.badge} title="Can view"><Eye size={12} /></span>}
-                  {perm.canDownload && <span className={styles.badge} title="Can download"><Download size={12} /></span>}
-                  {perm.canEdit && <span className={styles.badge} title="Can edit"><Edit3 size={12} /></span>}
-                  {perm.canShare && <span className={styles.badge} title="Can share"><Share2 size={12} /></span>}
-                  {perm.canManagePermissions && <span className={`${styles.badge} ${styles.admin}`} title="Admin"><Shield size={12} /></span>}
-                </div>
-
-                <div className={styles.permissionLevel}>
-                  <span 
-                    className={styles.levelTag}
-                    style={{ 
-                      background: PERMISSION_LEVELS.find(l => l.value === perm.permissionLevel)?.color + '20',
-                      color: PERMISSION_LEVELS.find(l => l.value === perm.permissionLevel)?.color 
-                    }}
-                  >
-                    {PERMISSION_LEVELS.find(l => l.value === perm.permissionLevel)?.label || perm.permissionLevel}
-                  </span>
-                </div>
-
-                <button 
-                  className={styles.removeBtn}
-                  onClick={() => handleDeletePermission(perm.id)}
-                  title="Remove permission"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
           </div>
         )}
-      </div>
 
-      {/* Permission Legend */}
-      <div className={styles.legend}>
-        <h4>Permission Levels Explained</h4>
-        <div className={styles.legendGrid}>
-          {PERMISSION_LEVELS.map(level => (
-            <div key={level.value} className={styles.legendItem}>
-              <span className={styles.legendDot} style={{ background: level.color }} />
-              <span className={styles.legendLabel}>{level.label}</span>
-              <span className={styles.legendDesc}>{level.description}</span>
+        {/* Folder Navigation */}
+        <div className={styles.folderNav}>
+          <div className={styles.breadcrumb}>
+            <button 
+              className={`${styles.breadcrumbItem} ${currentPath === '/' ? styles.active : ''}`}
+              onClick={() => setCurrentPath('/')}
+            >
+              <Home size={14} />
+              <span>Root</span>
+            </button>
+            {pathParts.map((part, index) => {
+              const path = '/' + pathParts.slice(0, index + 1).join('/')
+              const isActive = currentPath === path
+              return (
+                <span key={path} className={styles.breadcrumbSegment}>
+                  <ChevronRight size={14} className={styles.breadcrumbSep} />
+                  <button
+                    className={`${styles.breadcrumbItem} ${isActive ? styles.active : ''}`}
+                    onClick={() => setCurrentPath(path)}
+                  >
+                    <Folder size={14} />
+                    <span>{part}</span>
+                  </button>
+                </span>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Current Folder Card */}
+        <div className={styles.currentFolder}>
+          <div className={styles.folderHeader}>
+            <div className={styles.folderIconLarge}>
+              <Folder size={24} />
             </div>
-          ))}
+            <div className={styles.folderInfo}>
+              <h2>{currentPath === '/' ? 'Root Folder' : pathParts[pathParts.length - 1]}</h2>
+              <code className={styles.folderPath}>{currentPath}</code>
+            </div>
+            <button 
+              className={styles.addPermissionBtn} 
+              onClick={() => setShowAddForm(true)}
+              disabled={showAddForm}
+            >
+              <Plus size={18} />
+              <span>Add Permission</span>
+            </button>
+          </div>
+
+          {/* Add Permission Form */}
+          {showAddForm && (
+            <div className={styles.addForm}>
+              <div className={styles.addFormHeader}>
+                <h3>Add New Permission</h3>
+                <button className={styles.closeFormBtn} onClick={() => setShowAddForm(false)}>
+                  <X size={18} />
+                </button>
+              </div>
+              
+              <div className={styles.formContent}>
+                <div className={styles.formGroup}>
+                  <label>Team Member</label>
+                  {availableMembers.length === 0 ? (
+                    <div className={styles.noMembers}>
+                      <Users size={20} />
+                      <span>All team members already have permissions for this folder</span>
+                    </div>
+                  ) : (
+                    <select
+                      value={newPermission.userId}
+                      onChange={e => setNewPermission({ ...newPermission, userId: e.target.value, groupId: '' })}
+                      className={styles.select}
+                    >
+                      <option value="">Select a team member...</option>
+                      {availableMembers.map(member => (
+                        <option key={member.id} value={member.id}>
+                          {member.firstName} {member.lastName} ({member.email})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Permission Level</label>
+                  <div className={styles.permissionOptions}>
+                    {PERMISSION_LEVELS.map(level => {
+                      const Icon = level.icon
+                      const isSelected = newPermission.permissionLevel === level.value
+                      return (
+                        <button
+                          key={level.value}
+                          type="button"
+                          className={`${styles.permissionOption} ${isSelected ? styles.selected : ''}`}
+                          onClick={() => setNewPermission({ ...newPermission, permissionLevel: level.value })}
+                          style={{ '--level-color': level.color } as React.CSSProperties}
+                        >
+                          <div className={styles.optionIcon}>
+                            <Icon size={18} />
+                          </div>
+                          <div className={styles.optionText}>
+                            <span className={styles.optionLabel}>{level.label}</span>
+                            <span className={styles.optionDesc}>{level.description}</span>
+                          </div>
+                          {isSelected && (
+                            <div className={styles.optionCheck}>
+                              <Check size={16} />
+                            </div>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className={styles.formActions}>
+                  <button 
+                    type="button" 
+                    className={styles.cancelBtn} 
+                    onClick={() => setShowAddForm(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="button" 
+                    className={styles.saveBtn} 
+                    onClick={handleAddPermission} 
+                    disabled={saving || !newPermission.userId}
+                  >
+                    {saving ? (
+                      <>
+                        <Loader2 size={16} className={styles.spinning} />
+                        <span>Adding...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check size={16} />
+                        <span>Add Permission</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Existing Permissions */}
+          <div className={styles.permissionsSection}>
+            <div className={styles.sectionHeader}>
+              <Lock size={16} />
+              <h3>Current Permissions</h3>
+              <span className={styles.count}>{permissions.length}</span>
+            </div>
+
+            {loading ? (
+              <div className={styles.loading}>
+                <Loader2 size={24} className={styles.spinning} />
+                <span>Loading permissions...</span>
+              </div>
+            ) : permissions.length === 0 ? (
+              <div className={styles.emptyState}>
+                <div className={styles.emptyIcon}>
+                  <Users size={32} />
+                </div>
+                <h4>No Specific Permissions</h4>
+                <p>This folder uses default firm-wide access settings. Add permissions above to restrict or grant specific access.</p>
+              </div>
+            ) : (
+              <div className={styles.permissionsList}>
+                {permissions.map(perm => {
+                  const levelInfo = PERMISSION_LEVELS.find(l => l.value === perm.permissionLevel)
+                  const LevelIcon = levelInfo?.icon || Eye
+                  
+                  return (
+                    <div key={perm.id} className={styles.permissionItem}>
+                      <div className={styles.permissionUser}>
+                        <div className={styles.userAvatar}>
+                          {perm.userId ? <User size={18} /> : <Users size={18} />}
+                        </div>
+                        <div className={styles.userDetails}>
+                          <span className={styles.userName}>{perm.userName || perm.groupName}</span>
+                          <span className={styles.userType}>{perm.userId ? 'Individual' : 'Group'}</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.permissionCapabilities}>
+                        {perm.canView && <span className={styles.capability} title="Can view"><Eye size={14} /></span>}
+                        {perm.canDownload && <span className={styles.capability} title="Can download"><Download size={14} /></span>}
+                        {perm.canEdit && <span className={styles.capability} title="Can edit"><Edit3 size={14} /></span>}
+                        {perm.canShare && <span className={styles.capability} title="Can share"><Share2 size={14} /></span>}
+                        {perm.canManagePermissions && <span className={`${styles.capability} ${styles.admin}`} title="Can manage permissions"><Shield size={14} /></span>}
+                      </div>
+
+                      <div 
+                        className={styles.permissionBadge}
+                        style={{ 
+                          '--badge-color': levelInfo?.color || '#6b7280'
+                        } as React.CSSProperties}
+                      >
+                        <LevelIcon size={14} />
+                        <span>{levelInfo?.label || perm.permissionLevel}</span>
+                      </div>
+
+                      <button 
+                        className={styles.removeBtn}
+                        onClick={() => handleDeletePermission(perm.id)}
+                        title="Remove permission"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Help Section */}
+        <div className={styles.helpSection}>
+          <div className={styles.helpHeader}>
+            <HelpCircle size={18} />
+            <h4>How Permissions Work</h4>
+          </div>
+          <div className={styles.helpContent}>
+            <div className={styles.helpItem}>
+              <strong>Inheritance:</strong> Child folders inherit permissions from parent folders unless overridden.
+            </div>
+            <div className={styles.helpItem}>
+              <strong>Priority:</strong> Specific user permissions take priority over group permissions.
+            </div>
+            <div className={styles.helpItem}>
+              <strong>Admins:</strong> Firm owners and admins always have full access to all folders.
+            </div>
+          </div>
         </div>
       </div>
     </div>
