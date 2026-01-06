@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   X, History, Clock, User, FileText, GitCompare, ExternalLink, 
   Download, ChevronDown, ChevronRight, RefreshCw, AlertCircle,
-  Edit3, CheckCircle, ArrowUpRight, Loader2
+  Edit3, CheckCircle, ArrowUpRight, Loader2, Share2, Mail, 
+  Sparkles, Trash2, Eye
 } from 'lucide-react'
 import { wordOnlineApi, documentsApi } from '../services/api'
 import { format, formatDistanceToNow, parseISO } from 'date-fns'
@@ -38,14 +40,25 @@ interface DocumentVersionPanelProps {
   onClose: () => void
   onOpenInWord: (preferDesktop?: boolean) => void
   onDownload: () => void
+  onShare?: () => void
+  onEmail?: () => void
+  onAnalyze?: () => void
+  onDelete?: () => void
+  onPreview?: () => void
 }
 
 export function DocumentVersionPanel({ 
   document, 
   onClose, 
   onOpenInWord,
-  onDownload 
+  onDownload,
+  onShare,
+  onEmail,
+  onAnalyze,
+  onDelete,
+  onPreview
 }: DocumentVersionPanelProps) {
+  const navigate = useNavigate()
   const [versions, setVersions] = useState<Version[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -191,7 +204,7 @@ export function DocumentVersionPanel({
         </button>
       </div>
 
-      {/* Quick Actions */}
+      {/* Quick Actions - Main buttons */}
       <div className={styles.quickActions}>
         {isWordDoc ? (
           <button 
@@ -217,6 +230,60 @@ export function DocumentVersionPanel({
           <Download size={16} />
           Download
         </button>
+      </div>
+
+      {/* Secondary Actions */}
+      <div className={styles.secondaryActions}>
+        {onPreview && (
+          <button 
+            className={styles.actionButton}
+            onClick={onPreview}
+            title="Preview document content"
+          >
+            <Eye size={15} />
+            <span>Preview</span>
+          </button>
+        )}
+        {onShare && (
+          <button 
+            className={styles.actionButton}
+            onClick={onShare}
+            title="Share with team members"
+          >
+            <Share2 size={15} />
+            <span>Share</span>
+          </button>
+        )}
+        {onEmail && (
+          <button 
+            className={styles.actionButton}
+            onClick={onEmail}
+            title="Email as attachment"
+          >
+            <Mail size={15} />
+            <span>Email</span>
+          </button>
+        )}
+        {onAnalyze && (
+          <button 
+            className={styles.aiButton}
+            onClick={onAnalyze}
+            title="Analyze with AI"
+          >
+            <Sparkles size={15} />
+            <span>AI Analysis</span>
+          </button>
+        )}
+        {onDelete && (
+          <button 
+            className={styles.deleteButton}
+            onClick={onDelete}
+            title="Delete document"
+          >
+            <Trash2 size={15} />
+            <span>Delete</span>
+          </button>
+        )}
       </div>
 
       {/* Comparison Controls */}

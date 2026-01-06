@@ -163,7 +163,7 @@ export function DocumentsPage() {
     try {
       await deleteDocument(confirmModal.docId)
       setConfirmModal({ isOpen: false, docId: '', docName: '' })
-      setSelectedDoc(null)
+      setVersionPanelDoc(null)
       fetchDocuments()
     } catch (error) {
       console.error('Failed to delete document:', error)
@@ -237,7 +237,7 @@ export function DocumentsPage() {
       }
       
       createConversation('document')
-      setSelectedDoc(null)
+      setVersionPanelDoc(null)
       navigate('/app/ai')
       
     } catch (error) {
@@ -252,7 +252,6 @@ export function DocumentsPage() {
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [selectedMatterId, setSelectedMatterId] = useState('')
-  const [selectedDoc, setSelectedDoc] = useState<typeof documents[0] | null>(null)
   
   // Version history panel state - shows on right side when document clicked
   const [versionPanelDoc, setVersionPanelDoc] = useState<typeof documents[0] | null>(null)
@@ -281,7 +280,7 @@ export function DocumentsPage() {
       name: doc.name,
       size: doc.size
     })
-    setSelectedDoc(null)
+    setVersionPanelDoc(null)
   }
 
   // Document viewer state (preview only - no editing)
@@ -538,15 +537,7 @@ export function DocumentsPage() {
               return (
                 <tr 
                   key={doc.id} 
-                  onClick={() => setVersionPanelDoc(doc)} 
-                  onDoubleClick={() => {
-                    // Double-click opens directly in Word (for Word docs) or opens file
-                    if (isWordDoc) {
-                      editInWord(doc, true)
-                    } else {
-                      openFileOnComputer(doc)
-                    }
-                  }}
+                  onClick={() => setVersionPanelDoc(doc)}
                   className={`${styles.clickableRow} ${isSelected ? styles.selectedRow : ''}`}
                 >
                   <td>
@@ -554,55 +545,22 @@ export function DocumentsPage() {
                       <span className={styles.fileIcon}>{getFileIcon(doc.type)}</span>
                       <span className={styles.docNameLink}>{doc.name}</span>
                       {isWordDoc && (
-                        <span className={styles.wordBadge} title="Word Document - Double-click to edit">
+                        <span className={styles.wordBadge} title="Word Document">
                           <Edit3 size={12} />
                         </span>
                       )}
                     </div>
                   </td>
-                <td>{getMatterName(doc.matterId) || '-'}</td>
-                <td>{formatFileSize(doc.size)}</td>
-                <td>
-                  <span className={styles.versionBadge}>
-                    v{doc.version || 1}
-                  </span>
-                </td>
-                <td>{format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}</td>
-                <td>
+                  <td>{getMatterName(doc.matterId) || '-'}</td>
+                  <td>{formatFileSize(doc.size)}</td>
+                  <td>
+                    <span className={styles.versionBadge}>
+                      v{doc.version || 1}
+                    </span>
+                  </td>
+                  <td>{format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}</td>
+                  <td>
                     <div className={styles.rowActions}>
-                      {isWordDoc ? (
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            editInWord(doc, true)
-                          }}
-                          title="Edit in Word"
-                          className={styles.wordBtn}
-                        >
-                          <Edit3 size={16} />
-                        </button>
-                      ) : (
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            openFileOnComputer(doc)
-                          }}
-                          title="Open File"
-                          className={styles.openBtn}
-                        >
-                          <ExternalLink size={16} />
-                        </button>
-                      )}
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setVersionPanelDoc(doc)
-                        }}
-                        title="Version History"
-                        className={styles.historyRowBtn}
-                      >
-                        <History size={16} />
-                      </button>
                       <button 
                         onClick={(e) => downloadDocument(doc, e)}
                         title="Download"
@@ -634,160 +592,13 @@ export function DocumentsPage() {
         </div>
       )}
 
-      {/* Helpful tip for Word documents */}
+      {/* Helpful tip for documents */}
       {filteredDocuments.length > 0 && (
         <div className={styles.documentTip}>
-          <Edit3 size={14} />
+          <FileText size={14} />
           <span>
-            <strong>Tip:</strong> Double-click Word documents to open directly in Microsoft Word. 
-            Single-click to view version history. Changes save automatically.
+            <strong>Tip:</strong> Click any document to view version history and access actions like "Open in Word".
           </span>
-        </div>
-      )}
-
-      {/* Document Quick Actions Modal */}
-      {selectedDoc && (
-        <div className={styles.modalOverlay} onClick={() => setSelectedDoc(null)}>
-          <div className={styles.docModal} onClick={e => e.stopPropagation()}>
-            <div className={styles.docModalHeader}>
-              <div className={styles.docModalTitle}>
-                <span className={styles.docModalIcon}>{getFileIcon(selectedDoc.type)}</span>
-                <div className={styles.docModalInfo}>
-                  <h3>{selectedDoc.name}</h3>
-                  <span className={styles.docModalMeta}>
-                    {formatFileSize(selectedDoc.size)} • {format(parseISO(selectedDoc.uploadedAt), 'MMM d, yyyy')}
-                    {getMatterName(selectedDoc.matterId) && ` • ${getMatterName(selectedDoc.matterId)}`}
-                  </span>
-                </div>
-              </div>
-              <button className={styles.closeBtn} onClick={() => setSelectedDoc(null)}>
-                <X size={18} />
-              </button>
-            </div>
-            
-            <div className={styles.docModalContent}>
-              <div className={styles.quickActions}>
-                {/* Edit in Word - Primary action for Word docs */}
-                {(selectedDoc.name.toLowerCase().endsWith('.doc') || 
-                  selectedDoc.name.toLowerCase().endsWith('.docx') ||
-                  selectedDoc.name.toLowerCase().endsWith('.odt')) && (
-                  <button 
-                    className={styles.editWordBtn}
-                    onClick={() => {
-                      editInWord(selectedDoc)
-                      setSelectedDoc(null)
-                    }}
-                    disabled={isOpeningWord}
-                  >
-                    <Edit3 size={18} />
-                    {isOpeningWord ? 'Opening...' : 'Edit in Word'}
-                  </button>
-                )}
-                <button 
-                  className={styles.openFileBtn}
-                  onClick={() => {
-                    openFileOnComputer(selectedDoc)
-                    setSelectedDoc(null)
-                  }}
-                >
-                  <ExternalLink size={18} />
-                  Open File
-                </button>
-                <button 
-                  className={styles.previewBtn}
-                  onClick={() => {
-                    openDocumentViewer(selectedDoc)
-                    setSelectedDoc(null)
-                  }}
-                >
-                  <Eye size={18} />
-                  Preview
-                </button>
-                <button 
-                  className={styles.historyBtn}
-                  onClick={() => {
-                    navigate(`/app/documents/${selectedDoc.id}/versions`)
-                    setSelectedDoc(null)
-                  }}
-                >
-                  <History size={18} />
-                  Version History
-                </button>
-                <button 
-                  className={styles.compareBtn}
-                  onClick={() => {
-                    navigate(`/app/documents/${selectedDoc.id}/compare`)
-                    setSelectedDoc(null)
-                  }}
-                >
-                  <GitCompare size={18} />
-                  Compare Versions
-                </button>
-                <button 
-                  className={styles.shareBtn}
-                  onClick={() => {
-                    setShareModal({
-                      isOpen: true,
-                      documentId: selectedDoc.id,
-                      documentName: selectedDoc.name
-                    })
-                    setSelectedDoc(null)
-                  }}
-                >
-                  <Share2 size={18} />
-                  Share
-                </button>
-                <button 
-                  className={styles.emailBtn}
-                  onClick={() => openEmailWithDocument(selectedDoc)}
-                >
-                  <Mail size={18} />
-                  Email
-                </button>
-                <button 
-                  className={styles.downloadBtn}
-                  onClick={() => downloadDocument(selectedDoc)}
-                >
-                  <Download size={18} />
-                  Download
-                </button>
-                <button 
-                  className={styles.deleteDocBtn}
-                  onClick={() => handleDeleteDocument(selectedDoc.id)}
-                >
-                  <Trash2 size={18} />
-                  Delete
-                </button>
-              </div>
-
-              <div className={styles.aiSection}>
-                <div className={styles.aiSectionHeader}>
-                  <Sparkles size={16} />
-                  <span>AI Document Analysis</span>
-                </div>
-                
-                {isExtracting ? (
-                  <div className={styles.extractingState}>
-                    <Loader2 size={24} className={styles.spinner} />
-                    <span>Preparing document for analysis...</span>
-                  </div>
-                ) : (
-                  <div className={styles.aiSuggestions}>
-                    {AI_SUGGESTIONS.map((suggestion, i) => (
-                      <button
-                        key={i}
-                        className={styles.suggestionBtn}
-                        onClick={() => openAIWithDocument(selectedDoc, suggestion.prompt)}
-                      >
-                        <suggestion.icon size={16} />
-                        <span>{suggestion.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
@@ -909,6 +720,34 @@ export function DocumentsPage() {
               }
             }}
             onDownload={() => downloadDocument(versionPanelDoc)}
+            onPreview={() => {
+              openDocumentViewer(versionPanelDoc)
+              setVersionPanelDoc(null)
+            }}
+            onShare={() => {
+              setShareModal({
+                isOpen: true,
+                documentId: versionPanelDoc.id,
+                documentName: versionPanelDoc.name
+              })
+              setVersionPanelDoc(null)
+            }}
+            onEmail={() => {
+              emailDocument({
+                id: versionPanelDoc.id,
+                name: versionPanelDoc.name,
+                size: versionPanelDoc.size
+              })
+              setVersionPanelDoc(null)
+            }}
+            onAnalyze={() => {
+              openAIWithDocument(versionPanelDoc, 'Please analyze this document and provide a summary.')
+              setVersionPanelDoc(null)
+            }}
+            onDelete={() => {
+              handleDeleteDocument(versionPanelDoc.id)
+              setVersionPanelDoc(null)
+            }}
           />
         </>
       )}
