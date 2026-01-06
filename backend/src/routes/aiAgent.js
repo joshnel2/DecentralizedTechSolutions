@@ -1153,28 +1153,7 @@ const TOOLS = [
   },
 
   // ===================== AUTONOMOUS AGENT TOOLS =====================
-  {
-    type: "function",
-    function: {
-      name: "start_background_task",
-      description: "ONLY use this when the user EXPLICITLY requests a 'background task' or 'background agent' by name. For ALL other requests, execute tasks immediately using the available tools - do NOT start a background task. This tool runs a separate 15-minute agent session with a progress bar, which is unnecessary for normal requests.",
-      parameters: {
-        type: "object",
-        properties: {
-          goal: { type: "string", description: "The goal/task to accomplish - be specific!" },
-          plan: { 
-            type: "array", 
-            items: { type: "string" }, 
-            description: "List of SINGULAR, SPECIFIC steps. Each step = one tool call. Example good steps: 'Search for the matter by name', 'Get full matter details', 'Read the engagement letter document', 'Draft settlement agreement PDF', 'Add note summarizing review'. Example BAD steps: 'Review case' (too vague), 'Create documents' (too broad)."
-          },
-          estimated_steps: { type: "number", description: "Estimated number of actions needed (should match plan length)" },
-          matter_id: { type: "string", description: "Optional: Related matter ID if known" },
-          client_id: { type: "string", description: "Optional: Related client ID if known" }
-        },
-        required: ["goal", "plan"]
-      }
-    }
-  },
+  // NOTE: start_background_task has been removed - AI now executes all tasks immediately
   {
     type: "function",
     function: {
@@ -2194,8 +2173,7 @@ async function executeTool(toolName, args, user, req = null) {
       // Notes
       case 'add_matter_note': return await addMatterNote(args, user);
       
-      // Autonomous Agent Tools
-      case 'start_background_task': return await startBackgroundTask(args, user);
+      // Autonomous Agent Tools (background task removed - AI executes immediately)
       case 'think_and_plan': return await thinkAndPlan(args, user);
       case 'evaluate_progress': return await evaluateProgress(args, user);
       case 'task_complete': return await taskComplete(args, user);
@@ -11574,7 +11552,7 @@ function getSystemPrompt() {
 5. Be concise and professional
 
 ## Execution Style
-Execute tasks IMMEDIATELY using your available tools. Do NOT use \`start_background_task\` unless the user explicitly says "background task" or "background agent". Most requests can be completed in a few tool calls - just do it directly.
+Execute ALL tasks IMMEDIATELY using your available tools. When asked to do something, just do it right away - search, create, update, analyze - whatever is needed. Don't ask for confirmation unless deleting something.
 
 ## Matter Permissions
 - Matters can be "firm_wide" (everyone sees) or "restricted" (selected users only)
@@ -11906,7 +11884,7 @@ router.get('/tasks/active/current', authenticate, async (req, res) => {
 // =============================================================================
 router.post('/chat', authenticate, async (req, res) => {
   try {
-    const { message, conversationHistory = [], fileContext, forceBackground } = req.body;
+    const { message, conversationHistory = [], fileContext } = req.body;
 
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
@@ -11916,24 +11894,9 @@ router.post('/chat', authenticate, async (req, res) => {
       return res.status(500).json({ error: 'AI service not configured' });
     }
 
-    let systemPrompt = getSystemPrompt()
+    const systemPrompt = getSystemPrompt()
       .replace('{{USER_ROLE}}', req.user.role)
       .replace('{{USER_NAME}}', `${req.user.firstName} ${req.user.lastName}`);
-    
-    // If forceBackground is enabled, add instruction to use background task
-    if (forceBackground) {
-      systemPrompt += `
-
-## BACKGROUND AGENT MODE ENABLED
-You MUST call \`start_background_task\` for this request. 
-
-Call it with:
-- goal: What you will accomplish (be specific)
-
-Example: start_background_task({ goal: "Review the Smith v. Jones case, analyze all documents, create a case summary memo, and set up follow-up tasks" })
-
-The agent will then work autonomously for up to 15 minutes, taking multiple actions to achieve the goal. DO NOT respond with text - call start_background_task immediately.`;
-    }
 
     // If there's an uploaded document, add it to the context
     let userMessage = message;
@@ -11978,11 +11941,10 @@ Please analyze the document above and respond to the user's question.`;
     let response = await callAzureOpenAIWithTools(messages, TOOLS);
     
     let iterations = 0;
-    const maxIterations = 50;  // Increased significantly for long autonomous tasks
+    const maxIterations = 50;  // Allow plenty of iterations for complex tasks
     let navigationResult = null; // Track navigation commands
     let taskCompleted = false;  // Track if AI declared task complete
     let needsHumanInput = null; // Track if AI needs human input
-    let backgroundTaskStarted = null; // Track if background task was started
     
     while (response.tool_calls && iterations < maxIterations && !taskCompleted) {
       iterations++;
@@ -12014,19 +11976,10 @@ Please analyze the document above and respond to the user's question.`;
           console.log('Navigation result captured:', navigationResult);
         }
         
-        // Check for autonomous agent signals
+        // Check for task completion signal
         if (result._task_complete) {
           taskCompleted = true;
           console.log('Task marked as complete by AI');
-        }
-        
-        if (result._background_task_started) {
-          backgroundTaskStarted = {
-            taskId: result.task_id,
-            goal: result.goal,
-            plan: result.plan
-          };
-          console.log('Background task started:', result.task_id);
         }
         
         if (result._needs_human_input) {
@@ -12050,23 +12003,13 @@ Please analyze the document above and respond to the user's question.`;
       [req.user.firmId, req.user.id, JSON.stringify({ messageLength: message.length, toolCalls: iterations, hasNavigation: !!navigationResult })]
     ).catch(() => {});
 
-    // Build response with optional navigation and autonomous work info
+    // Build response
     const responsePayload = {
       response: response.content,
-      toolsUsed: iterations > 0 && !backgroundTaskStarted,
+      toolsUsed: iterations > 0,
       iterations: iterations,
-      taskCompleted: taskCompleted,
-      backgroundTaskStarted: !!backgroundTaskStarted
+      taskCompleted: taskCompleted
     };
-    
-    // Include background task info
-    if (backgroundTaskStarted) {
-      responsePayload.backgroundTask = {
-        taskId: backgroundTaskStarted.taskId,
-        goal: backgroundTaskStarted.goal,
-        plan: backgroundTaskStarted.plan
-      };
-    }
     
     // Include human input request if AI needs guidance
     if (needsHumanInput) {

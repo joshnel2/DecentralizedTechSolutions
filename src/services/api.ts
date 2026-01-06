@@ -776,11 +776,11 @@ export const aiApi = {
     });
   },
 
-  // New AI Agent endpoint (with function calling - can take actions!)
-  async agentChat(message: string, conversationHistory?: { role: string; content: string }[], fileContext?: Record<string, any>, forceBackground?: boolean) {
+  // AI Agent endpoint (with function calling - can take actions immediately!)
+  async agentChat(message: string, conversationHistory?: { role: string; content: string }[], fileContext?: Record<string, any>) {
     return fetchWithAuth('/v1/agent/chat', {
       method: 'POST',
-      body: JSON.stringify({ message, conversationHistory, fileContext, forceBackground }),
+      body: JSON.stringify({ message, conversationHistory, fileContext }),
     });
   },
 

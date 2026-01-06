@@ -30,8 +30,6 @@ interface Message {
   content: string
   timestamp: Date
   toolsUsed?: boolean  // Indicates if AI took an action
-  backgroundTaskStarted?: boolean  // Indicates if background task was started
-  backgroundTask?: { taskId: string; goal: string }
   navigation?: NavigationInfo  // Navigation command from AI
   attachedFile?: { name: string; type: string }  // File that was attached
 }
@@ -81,7 +79,6 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const [showSuggestions, setShowSuggestions] = useState(true)
   const [pendingNavigation, setPendingNavigation] = useState<NavigationInfo | null>(null)
   const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null)
-  // Background agent mode disabled - using Quick Mode only
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const lastUserMessageRef = useRef<HTMLDivElement>(null)
@@ -109,31 +106,6 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
     }
   }, [isOpen])
 
-  // Check for background task summary to display
-  useEffect(() => {
-    if (isOpen) {
-      const savedSummary = sessionStorage.getItem('backgroundTaskSummary')
-      if (savedSummary) {
-        try {
-          const taskData = JSON.parse(savedSummary)
-          // Clear immediately so we don't show it again
-          sessionStorage.removeItem('backgroundTaskSummary')
-          
-          // Add a system message showing the task summary
-          const summaryMessage: Message = {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: `## Background Task Complete\n\n**Goal:** ${taskData.goal}\n\n**Summary:**\n${taskData.summary || 'Task completed successfully.'}\n\n---\n\nHow can I help you with the results?`,
-            timestamp: new Date(),
-            backgroundTaskStarted: false,
-          }
-          setMessages(prev => [...prev, summaryMessage])
-        } catch (e) {
-          console.error('Failed to parse background task summary:', e)
-        }
-      }
-    }
-  }, [isOpen])
 
   // Load suggestions when page changes or when AI Insights button is clicked
   useEffect(() => {
@@ -253,12 +225,11 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         } : {})
       }
       
-      // Always use AI Agent with function calling (can take actions!)
+      // Always use AI Agent with function calling (can take actions immediately!)
       response = await aiApi.agentChat(
         text || `Analyze and summarize this document: ${currentFile?.name}`, 
         conversationHistory, 
-        fileContext,
-        false // Background agent mode disabled
+        fileContext
       )
 
       const assistantMessage: Message = {
@@ -267,14 +238,10 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         content: response.response,
         timestamp: new Date(),
         toolsUsed: response.toolsUsed,
-        backgroundTaskStarted: response.backgroundTaskStarted,
-        backgroundTask: response.backgroundTask,
         navigation: response.navigation,
       }
 
       setMessages(prev => [...prev, assistantMessage])
-      
-      // Background agent mode disabled - no task triggering
       
       // If there's a navigation command, set it as pending so user can click to navigate
       if (response.navigation) {

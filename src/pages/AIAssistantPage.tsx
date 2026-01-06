@@ -12,19 +12,7 @@ import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './AIAssistantPage.module.css'
 import { parseDocument, getSupportedFileTypes } from '../utils/documentParser'
-import { aiApi } from '../services/api'
 
-interface BackgroundTask {
-  id: string
-  goal: string
-  status: string
-  progressPercent: number
-  iterations: number
-  createdAt: string
-  completedAt?: string
-  duration?: number
-  summary?: string
-}
 
 // Mode configurations
 const AI_MODES = {
@@ -87,37 +75,6 @@ export function AIAssistantPage() {
   const activeConversation = conversations.find(c => c.id === activeConversationId)
   const currentMode = AI_MODES[selectedMode]
   const [isExtracting, setIsExtracting] = useState(false)
-  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([])
-  const [showBackgroundHistory, setShowBackgroundHistory] = useState(true)
-  const [loadingTasks, setLoadingTasks] = useState(false)
-
-  // Fetch background task history
-  useEffect(() => {
-    const fetchTasks = async () => {
-      setLoadingTasks(true)
-      try {
-        const response = await aiApi.getTasks()
-        if (response.tasks) {
-          setBackgroundTasks(response.tasks.map((t: any) => ({
-            id: t.id,
-            goal: t.goal,
-            status: t.status,
-            progressPercent: t.progressPercent || 0,
-            iterations: t.iterations || 0,
-            createdAt: t.createdAt,
-            completedAt: t.completedAt,
-            duration: t.durationSeconds,
-            summary: t.summary
-          })))
-        }
-      } catch (error) {
-        console.error('Failed to fetch background tasks:', error)
-      } finally {
-        setLoadingTasks(false)
-      }
-    }
-    fetchTasks()
-  }, [])
 
   // Handle document passed via URL params (from Documents page)
   useEffect(() => {
