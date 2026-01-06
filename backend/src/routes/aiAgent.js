@@ -12046,20 +12046,11 @@ async function callAzureOpenAIWithTools(messages, tools, retryOptions = {}) {
   
   // Retry configuration
   const maxRetries = retryOptions.maxRetries ?? 3;
-  const baseDelay = retryOptions.baseDelay ?? 1000; // 1 second
-  const maxDelay = retryOptions.maxDelay ?? 10000; // 10 seconds
-  const requestTimeout = retryOptions.timeout ?? 60000; // 60 second timeout
-  
-  // Log config for debugging (without exposing full key)
-  console.log(`[AZURE AI] Calling: ${AZURE_DEPLOYMENT} at ${AZURE_ENDPOINT?.substring(0, 30)}...`);
+  const baseDelay = retryOptions.baseDelay ?? 1000;
+  const maxDelay = retryOptions.maxDelay ?? 10000;
   
   if (!AZURE_ENDPOINT || !AZURE_API_KEY || !AZURE_DEPLOYMENT) {
-    console.error('[AZURE AI] Missing config:', {
-      hasEndpoint: !!AZURE_ENDPOINT,
-      hasKey: !!AZURE_API_KEY,
-      hasDeployment: !!AZURE_DEPLOYMENT
-    });
-    throw new Error('Azure OpenAI not configured. Check AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT.');
+    throw new Error('Azure OpenAI not configured');
   }
   
   let lastError = null;
@@ -12067,18 +12058,9 @@ async function callAzureOpenAIWithTools(messages, tools, retryOptions = {}) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       if (attempt > 0) {
-        // Exponential backoff with jitter
         const delay = Math.min(baseDelay * Math.pow(2, attempt - 1) + Math.random() * 500, maxDelay);
-        console.log(`[AZURE AI] Retry attempt ${attempt}/${maxRetries} after ${Math.round(delay)}ms delay...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
-      
-      // Create abort controller for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), requestTimeout);
-      
-      const startTime = Date.now();
-      console.log(`[AZURE AI] Sending request (attempt ${attempt + 1})...`);
       
       const response = await fetch(url, {
         method: 'POST',
@@ -12094,11 +12076,7 @@ async function callAzureOpenAIWithTools(messages, tools, retryOptions = {}) {
           temperature: 0.7,
           max_tokens: 4000,
         }),
-        signal: controller.signal,
       });
-      
-      clearTimeout(timeoutId);
-      console.log(`[AZURE AI] Response received in ${Date.now() - startTime}ms, status: ${response.status}`);
 
       if (!response.ok) {
         const errorText = await response.text();
