@@ -973,6 +973,54 @@ const TOOLS = [
       }
     }
   },
+  
+  // ===================== VERSION HISTORY =====================
+  {
+    type: "function",
+    function: {
+      name: "get_document_versions",
+      description: "Get the version history of a document. Shows who edited the document and when, with change details.",
+      parameters: {
+        type: "object",
+        properties: {
+          document_id: { type: "string", description: "UUID of the document" }
+        },
+        required: ["document_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_version_content",
+      description: "Read the text content of a specific version of a document. Use this to see what a document looked like at a particular point in time.",
+      parameters: {
+        type: "object",
+        properties: {
+          document_id: { type: "string", description: "UUID of the document" },
+          version_number: { type: "integer", description: "Version number to read (1 is the original)" },
+          max_length: { type: "number", description: "Max characters to return (default 10000)" }
+        },
+        required: ["document_id", "version_number"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "compare_versions",
+      description: "Compare two versions of a document and show what changed (additions and deletions).",
+      parameters: {
+        type: "object",
+        properties: {
+          document_id: { type: "string", description: "UUID of the document" },
+          version1: { type: "integer", description: "First version number (older)" },
+          version2: { type: "integer", description: "Second version number (newer)" }
+        },
+        required: ["document_id", "version1", "version2"]
+      }
+    }
+  },
 
   // ===================== TEAM =====================
   {
@@ -2124,6 +2172,11 @@ async function executeTool(toolName, args, user, req = null) {
       case 'move_document': return await moveDocument(args, user);
       case 'rename_document': return await renameDocument(args, user);
       case 'share_document': return await shareDocument(args, user);
+      
+      // Version History
+      case 'get_document_versions': return await getDocumentVersions(args, user);
+      case 'read_version_content': return await readVersionContent(args, user);
+      case 'compare_versions': return await compareVersions(args, user);
       
       // Team
       case 'list_team_members': return await listTeamMembers(args, user);
@@ -5385,7 +5438,7 @@ async function updateDocument(args, user) {
   try {
     // Get the existing document
     const existing = await query(
-      'SELECT id, name, matter_id, client_id, type, tags, firm_id FROM documents WHERE id = $1',
+      'SELECT id, name, original_name, matter_id, client_id, type, tags, firm_id FROM documents WHERE id = $1',
       [document_id]
     );
     
@@ -5400,13 +5453,37 @@ async function updateDocument(args, user) {
       return { error: 'You do not have permission to access this document' };
     }
     
-    // Create a new name for the cloned document
-    // Remove any existing (AI) suffix first, then add it
-    let baseName = originalDoc.name.replace(/\s*\(AI\)\s*$/, '').replace(/\s*\(AI edited\)\s*$/, '');
-    const clonedName = new_name || `${baseName} (AI)`;
+    // Get user's name for the filename
+    const userName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'User';
+    
+    // Format: documentname - Username (AI) - Date.extension
+    // Extract base name and extension from original
+    const origName = originalDoc.original_name || originalDoc.name;
+    const hasExt = origName.includes('.');
+    const ext = hasExt ? origName.substring(origName.lastIndexOf('.')) : '.txt';
+    let baseName = hasExt ? origName.substring(0, origName.lastIndexOf('.')) : origName;
+    
+    // Remove any existing AI suffix patterns
+    baseName = baseName
+      .replace(/\s*-\s*[^-]+\s*\(AI\)\s*-\s*\w+\s+\d+,?\s*\d*$/i, '') // Remove "- Name (AI) - Date" pattern
+      .replace(/\s*\(AI\)\s*$/i, '')  // Remove "(AI)" suffix
+      .replace(/\s*\(AI edited\)\s*$/i, '') // Remove "(AI edited)" suffix
+      .trim();
+    
+    // Format the date
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric' 
+    });
+    
+    // Create the new document name: "DocumentName - Username (AI) - Jan 6, 2024.docx"
+    const clonedName = new_name || `${baseName} - ${userName} (AI) - ${dateStr}${ext}`;
     
     // Create a placeholder file path for the new document
-    const newPath = `ai-documents/${Date.now()}-${clonedName.replace(/[^a-z0-9]/gi, '_')}.txt`;
+    const safeFileName = clonedName.replace(/[^a-z0-9.\-_ ]/gi, '_');
+    const newPath = `ai-documents/${Date.now()}-${safeFileName}`;
     
     // Insert the cloned document with the new content
     const result = await query(
@@ -5421,7 +5498,7 @@ async function updateDocument(args, user) {
         originalDoc.client_id,
         clonedName,
         clonedName,
-        'text/plain',
+        originalDoc.type || 'text/plain',
         new_content.length,
         newPath,
         'draft',
@@ -5433,15 +5510,41 @@ async function updateDocument(args, user) {
     
     const newDoc = result.rows[0];
     
+    // Create initial version record for the new document
+    try {
+      const contentHash = crypto.createHash('sha256').update(new_content).digest('hex');
+      await query(
+        `INSERT INTO document_versions (
+          document_id, firm_id, version_number, version_label,
+          content_text, content_hash, change_summary, change_type,
+          word_count, character_count, file_size, created_by, created_by_name, source
+        ) VALUES ($1, $2, 1, 'AI Generated', $3, $4, $5, 'create', $6, $7, $8, $9, $10, 'ai_generated')`,
+        [
+          newDoc.id, user.firmId, new_content, contentHash,
+          `AI-edited version of "${origName}" created by ${userName}`,
+          new_content.split(/\s+/).filter(w => w).length,
+          new_content.length,
+          new_content.length,
+          user.id,
+          `${userName} (AI)`
+        ]
+      );
+    } catch (versionError) {
+      console.log('[AI Agent] Version record creation skipped:', versionError.message);
+    }
+    
     return {
       success: true,
-      message: `Created edited version: "${clonedName}" (original "${originalDoc.name}" preserved)`,
+      message: `Created AI-edited document: "${clonedName}" (original "${origName}" preserved)`,
       data: {
         original_id: document_id,
-        original_name: originalDoc.name,
+        original_name: origName,
         new_id: newDoc.id,
         new_name: clonedName,
+        edited_by: `${userName} (AI)`,
+        created_at: dateStr,
         content_length: new_content.length,
+        word_count: new_content.split(/\s+/).filter(w => w).length,
         preview: new_content.substring(0, 200) + (new_content.length > 200 ? '...' : '')
       }
     };
@@ -5672,6 +5775,204 @@ async function shareDocument(args, user) {
     success: true,
     message: `Shared "${doc.name}" with ${targetName} (${permission_level} access)`,
     data: { document_id, user_id, permission_level, user_name: targetName }
+  };
+}
+
+// =============================================================================
+// VERSION HISTORY FUNCTIONS
+// =============================================================================
+async function getDocumentVersions(args, user) {
+  const { document_id } = args;
+  
+  if (!document_id) {
+    return { error: 'document_id is required' };
+  }
+  
+  // Verify document access
+  const docResult = await query(
+    'SELECT id, name, original_name, version FROM documents WHERE id = $1 AND firm_id = $2',
+    [document_id, user.firmId]
+  );
+  
+  if (docResult.rows.length === 0) {
+    return { error: 'Document not found' };
+  }
+  
+  const doc = docResult.rows[0];
+  
+  // Get all versions
+  const versionsResult = await query(
+    `SELECT 
+      dv.id, dv.version_number, dv.version_label, dv.change_summary, dv.change_type,
+      dv.word_count, dv.words_added, dv.words_removed, dv.file_size,
+      dv.created_by, dv.created_by_name, dv.created_at, dv.source,
+      CASE WHEN dv.content_text IS NOT NULL THEN true ELSE false END as has_content
+     FROM document_versions dv
+     WHERE dv.document_id = $1
+     ORDER BY dv.version_number DESC`,
+    [document_id]
+  );
+  
+  return {
+    document: {
+      id: doc.id,
+      name: doc.original_name || doc.name,
+      current_version: doc.version || 1
+    },
+    versions: versionsResult.rows.map(v => ({
+      version_number: v.version_number,
+      label: v.version_label,
+      edited_by: v.created_by_name || 'Unknown',
+      edited_at: v.created_at,
+      change_type: v.change_type,
+      change_summary: v.change_summary,
+      word_count: v.word_count,
+      words_added: v.words_added || 0,
+      words_removed: v.words_removed || 0,
+      source: v.source,
+      has_content: v.has_content
+    })),
+    total_versions: versionsResult.rows.length,
+    note: versionsResult.rows.length > 0 
+      ? 'Use read_version_content(document_id, version_number) to read a specific version'
+      : 'No version history available for this document'
+  };
+}
+
+async function readVersionContent(args, user) {
+  const { document_id, version_number, max_length = 10000 } = args;
+  
+  if (!document_id) {
+    return { error: 'document_id is required' };
+  }
+  if (!version_number) {
+    return { error: 'version_number is required' };
+  }
+  
+  // Verify document access
+  const docResult = await query(
+    'SELECT id, name, original_name FROM documents WHERE id = $1 AND firm_id = $2',
+    [document_id, user.firmId]
+  );
+  
+  if (docResult.rows.length === 0) {
+    return { error: 'Document not found' };
+  }
+  
+  const doc = docResult.rows[0];
+  
+  // Get the specific version
+  const versionResult = await query(
+    `SELECT 
+      dv.version_number, dv.version_label, dv.content_text, dv.change_summary,
+      dv.created_by_name, dv.created_at, dv.word_count, dv.source
+     FROM document_versions dv
+     WHERE dv.document_id = $1 AND dv.version_number = $2`,
+    [document_id, version_number]
+  );
+  
+  if (versionResult.rows.length === 0) {
+    return { error: `Version ${version_number} not found for this document` };
+  }
+  
+  const v = versionResult.rows[0];
+  
+  if (!v.content_text) {
+    return { 
+      error: 'Version content not available',
+      note: 'The text content for this version was not saved. Only the current version may be readable via read_document_content.'
+    };
+  }
+  
+  const content = v.content_text.substring(0, max_length);
+  const truncated = v.content_text.length > max_length;
+  
+  return {
+    document: doc.original_name || doc.name,
+    version: v.version_number,
+    label: v.version_label,
+    edited_by: v.created_by_name || 'Unknown',
+    edited_at: v.created_at,
+    word_count: v.word_count,
+    content: content,
+    truncated: truncated,
+    total_characters: v.content_text.length,
+    note: truncated ? `Showing first ${max_length} characters. Use max_length parameter for more.` : null
+  };
+}
+
+async function compareVersions(args, user) {
+  const { document_id, version1, version2 } = args;
+  
+  if (!document_id || !version1 || !version2) {
+    return { error: 'document_id, version1, and version2 are required' };
+  }
+  
+  // Verify document access
+  const docResult = await query(
+    'SELECT id, name, original_name FROM documents WHERE id = $1 AND firm_id = $2',
+    [document_id, user.firmId]
+  );
+  
+  if (docResult.rows.length === 0) {
+    return { error: 'Document not found' };
+  }
+  
+  const doc = docResult.rows[0];
+  
+  // Get both versions
+  const versionsResult = await query(
+    `SELECT version_number, content_text, created_by_name, created_at, word_count
+     FROM document_versions
+     WHERE document_id = $1 AND version_number IN ($2, $3)
+     ORDER BY version_number`,
+    [document_id, version1, version2]
+  );
+  
+  if (versionsResult.rows.length < 2) {
+    return { error: 'One or both versions not found' };
+  }
+  
+  const [older, newer] = versionsResult.rows;
+  
+  if (!older.content_text || !newer.content_text) {
+    return { error: 'Content not available for one or both versions' };
+  }
+  
+  // Simple word-level diff
+  const oldWords = older.content_text.split(/\s+/).filter(w => w);
+  const newWords = newer.content_text.split(/\s+/).filter(w => w);
+  
+  const oldSet = new Set(oldWords);
+  const newSet = new Set(newWords);
+  
+  const added = newWords.filter(w => !oldSet.has(w));
+  const removed = oldWords.filter(w => !newSet.has(w));
+  
+  return {
+    document: doc.original_name || doc.name,
+    comparison: {
+      older_version: {
+        number: older.version_number,
+        edited_by: older.created_by_name,
+        edited_at: older.created_at,
+        word_count: older.word_count
+      },
+      newer_version: {
+        number: newer.version_number,
+        edited_by: newer.created_by_name,
+        edited_at: newer.created_at,
+        word_count: newer.word_count
+      }
+    },
+    changes: {
+      words_added: added.length,
+      words_removed: removed.length,
+      net_change: added.length - removed.length,
+      sample_additions: added.slice(0, 20),
+      sample_deletions: removed.slice(0, 20)
+    },
+    summary: `Version ${newer.version_number} has ${added.length} new words and ${removed.length} removed words compared to version ${older.version_number}.`
   };
 }
 

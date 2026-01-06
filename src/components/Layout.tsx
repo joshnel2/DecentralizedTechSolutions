@@ -7,7 +7,7 @@ import { useTemplateStore } from '../stores/templateStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
 import { AIChat } from './AIChat'
-import { BackgroundTaskBar } from './BackgroundTaskBar'
+// BackgroundTaskBar removed - using quick mode only for now
 import { EmailCompose } from './EmailCompose'
 import { EmailComposeProvider } from '../contexts/EmailComposeContext'
 import { integrationsApi } from '../services/api'
@@ -506,8 +506,7 @@ export function Layout() {
         onClose={closeChat} 
       />
       
-      {/* Background Task Progress Bar */}
-      <BackgroundTaskBar />
+      {/* Background Task Progress Bar - disabled for now */}
       
       {/* Global Email Compose (Gmail-style) */}
       <EmailCompose />

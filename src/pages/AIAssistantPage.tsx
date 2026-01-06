@@ -291,76 +291,7 @@ export function AIAssistantPage() {
           </div>
         </div>
 
-        {/* Background Agent History */}
-        <div className={styles.historySection}>
-          <button 
-            className={styles.historySectionHeader}
-            onClick={() => setShowBackgroundHistory(!showBackgroundHistory)}
-          >
-            <Bot size={16} />
-            <span>Background Agent History</span>
-            {showBackgroundHistory ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </button>
-          
-          {showBackgroundHistory && (
-            <div className={styles.historyList}>
-              {loadingTasks ? (
-                <div className={styles.historyLoading}>
-                  <Loader2 size={16} className={styles.spinner} />
-                  <span>Loading...</span>
-                </div>
-              ) : backgroundTasks.length === 0 ? (
-                <div className={styles.historyEmpty}>
-                  <span>No background tasks yet</span>
-                  <span className={styles.historyEmptyHint}>
-                    Use the sidebar AI chat with "Background" mode enabled
-                  </span>
-                </div>
-              ) : (
-                backgroundTasks.slice(0, 10).map(task => (
-                  <div 
-                    key={task.id} 
-                    className={clsx(
-                      styles.historyItem,
-                      task.status === 'completed' && styles.completed,
-                      task.status === 'failed' && styles.failed,
-                      task.status === 'running' && styles.running
-                    )}
-                  >
-                    <div className={styles.historyItemIcon}>
-                      {task.status === 'completed' ? (
-                        <CheckCircle size={14} />
-                      ) : task.status === 'failed' ? (
-                        <AlertCircle size={14} />
-                      ) : task.status === 'running' ? (
-                        <Loader2 size={14} className={styles.spinner} />
-                      ) : (
-                        <Clock size={14} />
-                      )}
-                    </div>
-                    <div className={styles.historyItemContent}>
-                      <div className={styles.historyItemGoal}>{task.goal}</div>
-                      <div className={styles.historyItemMeta}>
-                        {task.status === 'running' ? (
-                          <span className={styles.running}>{task.progressPercent}% • Running</span>
-                        ) : (
-                          <>
-                            <span className={styles.historyItemStatus}>{task.status}</span>
-                            {task.createdAt && (
-                              <span className={styles.historyItemTime}>
-                                {formatDistanceToNow(new Date(task.createdAt), { addSuffix: true })}
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </div>
+        {/* Background Agent History - removed */}
 
         <div className={styles.poweredBy}>
           <Sparkles size={14} />

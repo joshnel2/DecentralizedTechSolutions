@@ -1352,12 +1352,6 @@ export const integrationsApi = {
 // ============================================
 
 export const driveApi = {
-  // Get Azure File Share connection info (admin only)
-  // Returns direct paths for mapping firm folder
-  async getConnectionInfo() {
-    return fetchWithAuth('/drive/connection-info');
-  },
-
   // Drive Configurations
   async getConfigurations() {
     return fetchWithAuth('/drive/configurations');

@@ -81,7 +81,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const [showSuggestions, setShowSuggestions] = useState(true)
   const [pendingNavigation, setPendingNavigation] = useState<NavigationInfo | null>(null)
   const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null)
-  const [useBackgroundAgent, setUseBackgroundAgent] = useState(false) // Background agent mode toggle
+  // Background agent mode disabled - using Quick Mode only
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const lastUserMessageRef = useRef<HTMLDivElement>(null)
@@ -258,7 +258,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         text || `Analyze and summarize this document: ${currentFile?.name}`, 
         conversationHistory, 
         fileContext,
-        useBackgroundAgent // Pass background agent mode
+        false // Background agent mode disabled
       )
 
       const assistantMessage: Message = {
@@ -274,14 +274,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
 
       setMessages(prev => [...prev, assistantMessage])
       
-      // If background task started, trigger global progress bar and reset to Quick mode
-      if (response.backgroundTaskStarted && response.backgroundTask) {
-        window.dispatchEvent(new CustomEvent('backgroundTaskStarted', { 
-          detail: response.backgroundTask 
-        }))
-        // Auto-reset to Quick mode after starting a background task
-        setUseBackgroundAgent(false)
-      }
+      // Background agent mode disabled - no task triggering
       
       // If there's a navigation command, set it as pending so user can click to navigate
       if (response.navigation) {
@@ -335,7 +328,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
             </div>
             <div className={styles.headerText}>
               <span className={styles.headerMain}>APEX AI</span>
-              <span className={styles.headerSub}>v2.0 • {useBackgroundAgent ? 'Agent Mode' : 'Quick Mode'}</span>
+              <span className={styles.headerSub}>v2.0 • Your Legal Assistant</span>
             </div>
           </div>
           <div className={styles.headerActions}>
@@ -351,24 +344,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           </div>
         </div>
 
-        {/* Mode Toggle */}
-        <div className={styles.modeBar}>
-          <div 
-            className={styles.modeToggleSwitch}
-            onClick={() => setUseBackgroundAgent(!useBackgroundAgent)}
-            title={useBackgroundAgent ? "Background Agent: Complex tasks run autonomously for up to 15 minutes" : "Quick Mode: Fast responses for simple questions"}
-          >
-            <div className={`${styles.modeOption} ${!useBackgroundAgent ? styles.active : ''}`}>
-              <Zap size={12} />
-              <span>Quick</span>
-            </div>
-            <div className={`${styles.modeOption} ${useBackgroundAgent ? styles.active : ''}`}>
-              <Cpu size={12} />
-              <span>Background</span>
-            </div>
-            <div className={`${styles.modeSlider} ${useBackgroundAgent ? styles.sliderRight : ''}`} />
-          </div>
-        </div>
+        {/* Mode Toggle - removed, using Quick Mode only */}
 
         {/* Messages */}
         <div className={styles.messages} ref={messagesContainerRef}>
@@ -397,9 +373,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
               <p>
                 {mergedContext.emailDraft 
                   ? "I can see your draft. Ask me to improve it, make it more professional, check for errors, or suggest a better subject line."
-                  : useBackgroundAgent 
-                    ? "Background mode active. I'll work autonomously on complex tasks for up to 15 minutes."
-                    : "Quick mode active. I can answer questions and take actions instantly."}
+                  : "I can answer questions, analyze documents, and help with your legal work instantly."}
               </p>
               
               {suggestions.length > 0 && (
@@ -447,12 +421,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
                             <span>{message.attachedFile.name}</span>
                           </div>
                         )}
-                        {message.backgroundTaskStarted && (
-                          <div className={styles.backgroundAgentDeployed}>
-                            <Bot size={12} /> Background Agent Deployed
-                          </div>
-                        )}
-                        {message.toolsUsed && !message.backgroundTaskStarted && (
+                        {message.toolsUsed && (
                           <div className={styles.actionTaken}>
                             <Zap size={12} /> Action taken
                           </div>
