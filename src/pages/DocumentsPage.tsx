@@ -69,25 +69,24 @@ export function DocumentsPage() {
         
         if (result.desktopUrl) {
           // Open using ms-word: protocol (opens in desktop Word)
+          // Note: If Office blocks this, the user will see Office's own protection message
           window.location.href = result.desktopUrl
-          
-          // Show instructions toast
-          setTimeout(() => {
-            if (result.autoSync) {
-              console.log('Document opened in Word. Changes will auto-sync when you save.')
-            }
-          }, 1000)
+          // Don't show any alerts - let the protocol handler (Word) take over
           return
         } else if (result.needsMicrosoftAuth) {
-          // Microsoft not connected - try Word Online or download
-          alert('Connect Microsoft in Settings → Integrations for seamless Word editing. Downloading document instead...')
-          downloadDocument(doc)
+          // Microsoft not connected - offer to download instead
+          const confirmed = confirm(
+            'Microsoft is not connected. Would you like to download the document to edit locally?\n\n' +
+            'Tip: Connect Microsoft in Settings → Integrations for seamless editing.'
+          )
+          if (confirmed) {
+            downloadDocument(doc)
+          }
           return
         } else if (result.downloadUrl) {
           // Desktop upload failed but we can still download
-          // This happens when the file can't be synced to OneDrive
           const confirmed = confirm(
-            'Could not open directly in Word. Would you like to download and edit locally?\n\n' +
+            'Could not sync to OneDrive. Would you like to download and edit locally?\n\n' +
             'After editing, upload the file back to save your changes.'
           )
           if (confirmed) {
@@ -106,22 +105,29 @@ export function DocumentsPage() {
       } else if (result.desktopUrl) {
         // Desktop Word URL available
         window.location.href = result.desktopUrl
-      } else if (result.fallback === 'desktop' || result.downloadUrl) {
+      } else if (result.fallback === 'desktop' || result.downloadUrl || result.needsMicrosoftAuth) {
         // Fallback to downloading
         const confirmed = confirm(
-          'Word Online is not available for this document. Would you like to download and edit it locally instead?'
+          'Would you like to download the document to edit locally?'
         )
         if (confirmed) {
           downloadDocument(doc)
         }
       } else {
-        alert(result.message || 'Unable to open in Word')
+        // Only show error if we truly couldn't do anything
+        console.error('Open in Word failed:', result.message)
+        const confirmed = confirm(
+          'Could not open in Word. Would you like to download instead?'
+        )
+        if (confirmed) {
+          downloadDocument(doc)
+        }
       }
     } catch (error: any) {
       console.error('Failed to open Word:', error)
-      // Fallback - offer to download
+      // Don't show alert for network/API errors - just offer download
       const confirmed = confirm(
-        'Could not open Word. Would you like to download the document to edit locally?'
+        'Could not connect to Word service. Would you like to download the document instead?'
       )
       if (confirmed) {
         downloadDocument(doc)
