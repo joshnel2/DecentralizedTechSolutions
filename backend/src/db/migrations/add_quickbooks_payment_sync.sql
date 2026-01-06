@@ -77,3 +77,25 @@ CREATE TABLE IF NOT EXISTS quickbooks_sync_queue (
 
 CREATE INDEX IF NOT EXISTS idx_qb_sync_queue_status ON quickbooks_sync_queue(status, next_retry_at) WHERE status IN ('pending', 'failed');
 CREATE INDEX IF NOT EXISTS idx_qb_sync_queue_firm ON quickbooks_sync_queue(firm_id);
+
+-- Add unique constraint on stripe_payment_intent_id to prevent duplicates
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'stripe_transactions_payment_intent_unique'
+    ) THEN
+        ALTER TABLE stripe_transactions ADD CONSTRAINT stripe_transactions_payment_intent_unique 
+        UNIQUE (stripe_payment_intent_id);
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    -- Ignore if column doesn't exist or constraint can't be added
+    NULL;
+END $$;
+
+-- Add error_message column to stripe_transactions if it doesn't exist
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'stripe_transactions' AND column_name = 'error_message') THEN
+        ALTER TABLE stripe_transactions ADD COLUMN error_message TEXT;
+    END IF;
+END $$;

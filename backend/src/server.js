@@ -39,6 +39,8 @@ import analyticsRoutes from './routes/analytics.js';
 import aiAgentRoutes, { resumeIncompleteTasks } from './routes/aiAgent.js';
 import stripeConnectRoutes from './routes/stripeConnect.js';
 import notificationRoutes from './routes/notifications.js';
+import paymentsRoutes from './routes/payments.js';
+import { startQuickBooksSyncJob } from './jobs/quickbooksSyncJob.js';
 
 // Import middleware
 import { apiLimiter } from './middleware/rateLimit.js';
@@ -112,6 +114,7 @@ app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/agent', aiAgentRoutes);
 app.use('/api/stripe/connect', stripeConnectRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/payments', paymentsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -187,6 +190,12 @@ app.listen(PORT, () => {
       console.error('Error resuming incomplete AI tasks:', err);
     });
   }, 10000); // Wait 10 seconds after startup
+
+  // Start QuickBooks sync background job (runs every 60 seconds)
+  setTimeout(() => {
+    startQuickBooksSyncJob(60000); // 60 second interval
+    console.log('   ✅ QuickBooks sync job started');
+  }, 15000); // Wait 15 seconds after startup
 });
 
 export default app;

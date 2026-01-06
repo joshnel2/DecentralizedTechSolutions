@@ -474,6 +474,73 @@ export const invoicesApi = {
 };
 
 // ============================================
+// PAYMENTS API
+// ============================================
+
+export const paymentsApi = {
+  async getAll(params?: { 
+    clientId?: string; 
+    matterId?: string;
+    invoiceId?: string;
+    startDate?: string;
+    endDate?: string;
+    syncStatus?: string;
+    view?: 'my' | 'all';
+    limit?: number;
+    offset?: number;
+  }) {
+    const query = new URLSearchParams();
+    if (params?.clientId) query.set('clientId', params.clientId);
+    if (params?.matterId) query.set('matterId', params.matterId);
+    if (params?.invoiceId) query.set('invoiceId', params.invoiceId);
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    if (params?.syncStatus) query.set('syncStatus', params.syncStatus);
+    if (params?.view) query.set('view', params.view);
+    if (params?.limit) query.set('limit', params.limit.toString());
+    if (params?.offset) query.set('offset', params.offset.toString());
+    
+    return fetchWithAuth(`/payments?${query}`);
+  },
+
+  async getById(id: string) {
+    return fetchWithAuth(`/payments/${id}`);
+  },
+
+  async create(data: {
+    clientId: string;
+    invoiceId?: string;
+    amount: number;
+    paymentMethod: string;
+    reference?: string;
+    paymentDate?: string;
+    notes?: string;
+    syncToQuickBooks?: boolean;
+  }) {
+    return fetchWithAuth('/payments', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async delete(id: string) {
+    return fetchWithAuth(`/payments/${id}`, { method: 'DELETE' });
+  },
+
+  async retrySync(id: string) {
+    return fetchWithAuth(`/payments/${id}/retry-sync`, { method: 'POST' });
+  },
+
+  async bulkSync() {
+    return fetchWithAuth('/payments/bulk-sync', { method: 'POST' });
+  },
+
+  async getSyncStatus() {
+    return fetchWithAuth('/payments/sync/status');
+  },
+};
+
+// ============================================
 // CALENDAR API
 // ============================================
 
