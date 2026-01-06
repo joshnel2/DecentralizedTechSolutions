@@ -149,6 +149,97 @@ router.get('/configurations/:id', authenticate, async (req, res) => {
   }
 });
 
+// ============================================
+// GET AZURE FILE SHARE CONNECTION INFO (Admin only)
+// ============================================
+// Returns the direct path for admins to map their firm's folder
+router.get('/connection-info', authenticate, async (req, res) => {
+  try {
+    // Only admins can get connection info
+    if (!['admin', 'owner', 'super_admin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const azureConfigured = await isAzureConfigured();
+    
+    if (!azureConfigured) {
+      return res.json({
+        configured: false,
+        message: 'Azure File Share is not configured. Documents are stored locally on the server.',
+      });
+    }
+
+    const firmId = req.user.firmId;
+    const firmFolder = `firm-${firmId}`;
+
+    // Get firm name for display
+    const firmResult = await query(
+      `SELECT name FROM firms WHERE id = $1`,
+      [firmId]
+    );
+    const firmName = firmResult.rows[0]?.name || 'Your Firm';
+
+    res.json({
+      configured: true,
+      firmId,
+      firmName,
+      firmFolder,
+      storageAccount: AZURE_STORAGE_ACCOUNT,
+      shareName: AZURE_FILE_SHARE,
+      
+      // Direct paths for mapping the drive
+      paths: {
+        windows: `\\\\${AZURE_STORAGE_ACCOUNT}.file.core.windows.net\\${AZURE_FILE_SHARE}\\${firmFolder}`,
+        mac: `smb://${AZURE_STORAGE_ACCOUNT}.file.core.windows.net/${AZURE_FILE_SHARE}/${firmFolder}`,
+        linux: `//${AZURE_STORAGE_ACCOUNT}.file.core.windows.net/${AZURE_FILE_SHARE}/${firmFolder}`,
+        azurePortal: `https://portal.azure.com/#view/Microsoft_Azure_Storage/FileShareMenuBlade/~/overview/storageAccountId/%2Fsubscriptions%2F{subscriptionId}%2FresourceGroups%2F{resourceGroup}%2Fproviders%2FMicrosoft.Storage%2FstorageAccounts%2F${AZURE_STORAGE_ACCOUNT}/path/${AZURE_FILE_SHARE}/protocol/SMB`,
+      },
+      
+      // Folder structure info
+      structure: {
+        root: firmFolder,
+        matters: `${firmFolder}/Matters/{ClientName}/{MatterNumber - MatterName}`,
+        clients: `${firmFolder}/Clients/{ClientName}`,
+        versions: `${firmFolder}/versions/{documentId}`,
+      },
+      
+      // Connection instructions
+      instructions: {
+        windows: [
+          '1. Open File Explorer',
+          '2. Right-click "This PC" → "Map network drive"',
+          '3. Choose a drive letter (e.g., Z:)',
+          `4. Folder: \\\\${AZURE_STORAGE_ACCOUNT}.file.core.windows.net\\${AZURE_FILE_SHARE}\\${firmFolder}`,
+          '5. Check "Connect using different credentials"',
+          '6. Click "Finish"',
+          `7. Username: AZURE\\${AZURE_STORAGE_ACCOUNT}`,
+          '8. Password: (Your storage account access key)',
+        ],
+        mac: [
+          '1. Open Finder',
+          '2. Press Cmd+K (Connect to Server)',
+          `3. Enter: smb://${AZURE_STORAGE_ACCOUNT}.file.core.windows.net/${AZURE_FILE_SHARE}/${firmFolder}`,
+          '4. Click "Connect"',
+          `5. Username: ${AZURE_STORAGE_ACCOUNT}`,
+          '6. Password: (Your storage account access key)',
+        ],
+        powershell: [
+          '# Run in PowerShell as Admin:',
+          `$connectTestResult = Test-NetConnection -ComputerName ${AZURE_STORAGE_ACCOUNT}.file.core.windows.net -Port 445`,
+          `cmd.exe /C "cmdkey /add:\`"${AZURE_STORAGE_ACCOUNT}.file.core.windows.net\`" /user:\`"AZURE\\${AZURE_STORAGE_ACCOUNT}\`" /pass:\`"YOUR_STORAGE_KEY\`""`,
+          `New-PSDrive -Name Z -PSProvider FileSystem -Root "\\\\${AZURE_STORAGE_ACCOUNT}.file.core.windows.net\\${AZURE_FILE_SHARE}\\${firmFolder}" -Persist`,
+        ],
+      },
+      
+      // Note about credentials
+      credentialNote: 'The storage account access key can be found in Azure Portal → Storage Account → Access keys. Share this only with authorized admins.',
+    });
+  } catch (error) {
+    console.error('Get connection info error:', error);
+    res.status(500).json({ error: 'Failed to get connection info' });
+  }
+});
+
 // Create a new drive configuration (admin only for firm drives)
 router.post('/configurations', authenticate, async (req, res) => {
   try {
