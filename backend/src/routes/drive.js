@@ -1843,6 +1843,7 @@ router.get('/download-shortcut/windows', authenticate, async (req, res) => {
     const safeFirmName = firmName.replace(/[^a-zA-Z0-9 ]/g, '');
 
     // Create a batch file that maps the drive and opens it
+    // Uses cmdkey to store credentials so it connects automatically
     const batchContent = `@echo off
 :: ${safeFirmName} - Apex Drive Shortcut
 :: This script maps your firm's document drive
@@ -1853,37 +1854,43 @@ echo   ${safeFirmName} - Apex Drive
 echo ========================================
 echo.
 
-:: Check if drive Z: is already mapped
+:: Check if drive Z: is already mapped and accessible
 if exist Z:\\ (
-    echo Drive Z: is already mapped. Opening...
+    echo Drive Z: is already connected. Opening...
     explorer Z:\\
     goto end
 )
 
 echo Connecting to your firm's document drive...
-echo.
-echo You will be prompted for credentials:
-echo   Username: AZURE\\${AZURE_STORAGE_ACCOUNT}
-echo   Password: (get from your platform admin)
-echo.
 
-:: Map the drive
-net use Z: "${drivePath}" /persistent:yes
+:: Store credentials in Windows Credential Manager (silent)
+cmdkey /add:${AZURE_STORAGE_ACCOUNT}.file.core.windows.net /user:AZURE\\${AZURE_STORAGE_ACCOUNT} /pass:${AZURE_STORAGE_KEY} >nul 2>&1
+
+:: Map the drive with stored credentials
+net use Z: "${drivePath}" /persistent:yes >nul 2>&1
+
+if %errorlevel% neq 0 (
+    :: Try with explicit credentials if credential store failed
+    net use Z: "${drivePath}" /user:AZURE\\${AZURE_STORAGE_ACCOUNT} "${AZURE_STORAGE_KEY}" /persistent:yes >nul 2>&1
+)
 
 if %errorlevel% neq 0 (
     echo.
-    echo Failed to connect. Please check your credentials.
+    echo Failed to connect. This may be due to:
+    echo   - Network/firewall blocking port 445
+    echo   - Corporate VPN restrictions
     echo.
-    echo Manual connection:
-    echo   Path: ${drivePath}
-    echo   User: AZURE\\${AZURE_STORAGE_ACCOUNT}
+    echo Try accessing via web browser instead:
+    echo   https://your-apex-url/app/documents
     echo.
     pause
     goto end
 )
 
+echo Successfully connected!
 echo.
-echo Successfully connected! Opening drive...
+echo Your firm drive is now mapped to Z:\\
+echo Opening drive...
 explorer Z:\\
 
 :end
@@ -1919,6 +1926,10 @@ router.get('/download-shortcut/mac', authenticate, async (req, res) => {
     const safeFirmName = firmName.replace(/[^a-zA-Z0-9 ]/g, '');
 
     // Create a shell script that mounts and opens the drive
+    // Includes credentials for automatic connection
+    // URL-encode the storage key for the SMB URL
+    const encodedKey = encodeURIComponent(AZURE_STORAGE_KEY);
+    
     const scriptContent = `#!/bin/bash
 # ${safeFirmName} - Apex Drive Shortcut
 # This script connects to your firm's document drive
@@ -1932,35 +1943,40 @@ echo ""
 MOUNT_POINT="/Volumes/${safeFirmName}"
 
 # Check if already mounted
-if [ -d "$MOUNT_POINT" ]; then
+if [ -d "$MOUNT_POINT" ] && mount | grep -q "$MOUNT_POINT"; then
     echo "Drive already connected. Opening..."
     open "$MOUNT_POINT"
     exit 0
 fi
 
 echo "Connecting to your firm's document drive..."
-echo ""
-echo "When prompted for credentials:"
-echo "  Username: ${AZURE_STORAGE_ACCOUNT}"
-echo "  Password: (get from your platform admin)"
-echo ""
 
-# Create mount point
-mkdir -p "$MOUNT_POINT"
+# Create mount point if needed
+mkdir -p "$MOUNT_POINT" 2>/dev/null
 
-# Mount the drive (will prompt for password)
-mount_smbfs "//${AZURE_STORAGE_ACCOUNT}@${AZURE_STORAGE_ACCOUNT}.file.core.windows.net/${AZURE_FILE_SHARE}/${firmFolder}" "$MOUNT_POINT"
+# Mount with credentials embedded
+mount_smbfs "//${AZURE_STORAGE_ACCOUNT}:${encodedKey}@${AZURE_STORAGE_ACCOUNT}.file.core.windows.net/${AZURE_FILE_SHARE}/${firmFolder}" "$MOUNT_POINT" 2>/dev/null
 
 if [ $? -eq 0 ]; then
+    echo "Successfully connected!"
     echo ""
-    echo "Successfully connected! Opening drive..."
+    echo "Your firm drive is mounted at: $MOUNT_POINT"
+    echo "Opening drive..."
     open "$MOUNT_POINT"
 else
     echo ""
-    echo "Failed to connect. Please try manually:"
-    echo "  1. Open Finder"
-    echo "  2. Press Cmd+K"
-    echo "  3. Enter: ${drivePath}"
+    echo "Could not connect automatically."
+    echo ""
+    echo "This may be due to:"
+    echo "  - Firewall blocking port 445"
+    echo "  - macOS security settings"
+    echo ""
+    echo "Try manually in Finder:"
+    echo "  1. Press Cmd+K"
+    echo "  2. Enter: ${drivePath}"
+    echo "  3. Username: ${AZURE_STORAGE_ACCOUNT}"
+    echo "  4. Password: (contact your admin)"
+    echo ""
     rmdir "$MOUNT_POINT" 2>/dev/null
 fi
 `;

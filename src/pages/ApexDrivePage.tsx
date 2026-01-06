@@ -415,7 +415,7 @@ export function ApexDrivePage() {
                 <div className={styles.accessCard}>
                   <Monitor size={32} />
                   <h4>Map Network Drive (Admin)</h4>
-                  <p>Download a script to map your firm's Azure File Share as a network drive.</p>
+                  <p>Download a script to map your firm's drive. Credentials are included - just run it!</p>
                   <div className={styles.shortcutButtons}>
                     <button 
                       onClick={async () => {
@@ -427,10 +427,10 @@ export function ApexDrivePage() {
                           a.download = 'Apex Drive.bat'
                           a.click()
                           window.URL.revokeObjectURL(url)
-                          setNotification({ type: 'success', message: 'Downloaded! Right-click → Run as Administrator. You\'ll need the storage account key.' })
+                          setNotification({ type: 'success', message: 'Downloaded! Double-click to connect. Drive will appear as Z:' })
                         } catch (err: any) {
                           if (err.message?.includes('not configured')) {
-                            setNotification({ type: 'error', message: 'Azure Storage not configured. Contact your platform admin.' })
+                            setNotification({ type: 'error', message: 'Azure Storage not configured. Configure it in the admin portal.' })
                           } else {
                             setNotification({ type: 'error', message: 'Failed to download shortcut' })
                           }
@@ -451,10 +451,10 @@ export function ApexDrivePage() {
                           a.download = 'Apex Drive.command'
                           a.click()
                           window.URL.revokeObjectURL(url)
-                          setNotification({ type: 'success', message: 'Downloaded! Right-click → Open. Allow in System Preferences → Security.' })
+                          setNotification({ type: 'success', message: 'Downloaded! Right-click → Open, then allow in Security settings.' })
                         } catch (err: any) {
                           if (err.message?.includes('not configured')) {
-                            setNotification({ type: 'error', message: 'Azure Storage not configured. Contact your platform admin.' })
+                            setNotification({ type: 'error', message: 'Azure Storage not configured. Configure it in the admin portal.' })
                           } else {
                             setNotification({ type: 'error', message: 'Failed to download shortcut' })
                           }
@@ -466,8 +466,8 @@ export function ApexDrivePage() {
                     </button>
                   </div>
                   <p className={styles.shortcutNote}>
-                    <AlertCircle size={14} />
-                    Requires Azure Storage account key from platform admin
+                    <Check size={14} />
+                    Credentials included - connects automatically
                   </p>
                 </div>
                 )}
