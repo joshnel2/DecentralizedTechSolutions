@@ -2508,6 +2508,11 @@ async function listMyMatters(args, user) {
     params.push(status);
   }
   
+  // Get total count first
+  let countSql = sql.replace('SELECT m.id, m.name, m.number, m.status, m.priority, m.billing_type, c.display_name as client_name', 'SELECT COUNT(*) as total');
+  const countResult = await query(countSql, params.slice(0, -0 || params.length));
+  const totalCount = parseInt(countResult.rows[0]?.total || 0);
+  
   sql += ` ORDER BY m.created_at DESC LIMIT $${idx}`;
   params.push(Math.min(parseInt(limit), 100));
   
@@ -2523,7 +2528,9 @@ async function listMyMatters(args, user) {
       billing_type: m.billing_type,
       client: m.client_name
     })),
-    count: result.rows.length
+    count: result.rows.length,
+    total: totalCount,
+    showing: `${result.rows.length} of ${totalCount}${status ? ` ${status}` : ''} matters`
   };
 }
 
