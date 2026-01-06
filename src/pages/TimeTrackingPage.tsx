@@ -2,7 +2,6 @@ import { useState, useMemo, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
-import { useAIChat } from '../contexts/AIChatContext'
 import { useTimer, formatElapsedTime, secondsToHours } from '../contexts/TimerContext'
 import { 
   Plus, Clock, DollarSign, 
@@ -16,7 +15,6 @@ import styles from './TimeTrackingPage.module.css'
 
 export function TimeTrackingPage() {
   const { timeEntries, matters, clients, addTimeEntry, updateTimeEntry, addInvoice, fetchTimeEntries, fetchMatters, fetchClients, fetchInvoices } = useDataStore()
-  const { openChat } = useAIChat()
   const { timer, startTimer, pauseTimer, resumeTimer, stopTimer, discardTimer, isTimerActive } = useTimer()
   const navigate = useNavigate()
   const location = useLocation()
@@ -294,23 +292,6 @@ export function TimeTrackingPage() {
           <h1>Time Tracking</h1>
         </div>
         <div className={styles.headerActions}>
-          <button 
-            className={styles.aiBtn}
-            onClick={() => openChat({
-              label: 'Time Tracking',
-              contextType: 'time-tracking',
-              suggestedQuestions: [
-                'Suggest a time entry for my recent work',
-                'Analyze my billable vs non-billable ratio',
-                'What unbilled time should I invoice?',
-                'Review my time entries for this week',
-                'Suggest ways to improve my time capture'
-              ]
-            })}
-          >
-            <Sparkles size={16} />
-            AI Time Suggestions
-          </button>
           <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
             <Plus size={18} />
             New Entry

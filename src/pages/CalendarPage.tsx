@@ -1,10 +1,9 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
-import { useAIChat } from '../contexts/AIChatContext'
 import { 
   ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon,
-  Clock, MapPin, Users, Sparkles, Edit2, Trash2, X, Video, Link2, UserPlus, Check
+  Clock, MapPin, Users, Edit2, Trash2, X, Video, Link2, UserPlus, Check
 } from 'lucide-react'
 import { 
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
@@ -18,7 +17,6 @@ import styles from './CalendarPage.module.css'
 export function CalendarPage() {
   const { events, matters, clients, addEvent, updateEvent, deleteEvent, fetchEvents, fetchMatters } = useDataStore()
   const { teamMembers, loadTeamMembers } = useAuthStore()
-  const { openChat } = useAIChat()
   
   // Fetch data from API on mount
   useEffect(() => {
@@ -47,15 +45,6 @@ export function CalendarPage() {
     document.addEventListener('click', handleClickOutside)
     return () => document.removeEventListener('click', handleClickOutside)
   }, [showMonthDropdown])
-  
-  // AI helper with context-specific questions
-  const openAIWithContext = (questions: string[]) => {
-    openChat({
-      label: 'Calendar',
-      contextType: 'calendar',
-      suggestedQuestions: questions
-    })
-  }
   
   // Handle event delete
   const handleDeleteEvent = async (eventId: string) => {
@@ -212,18 +201,6 @@ export function CalendarPage() {
               </button>
             ))}
           </div>
-          <button 
-            className={styles.aiBtn} 
-            onClick={() => openAIWithContext([
-              'What events do I have scheduled this week?',
-              'Are there any scheduling conflicts in my calendar?',
-              'What deadlines are coming up soon?',
-              'Help me plan my schedule for optimal productivity'
-            ])}
-          >
-            <Sparkles size={16} />
-            AI Insights
-          </button>
           <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
             <Plus size={18} />
             New Event
