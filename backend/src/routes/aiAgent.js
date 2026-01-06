@@ -108,12 +108,12 @@ const TOOLS = [
     type: "function",
     function: {
       name: "list_my_matters",
-      description: "Get matters the user can access. Default to status='active' and limit=10 unless user asks for more or closed matters.",
+      description: "Get matters the user can access. Default to status='active' unless user asks for closed matters.",
       parameters: {
         type: "object",
         properties: {
           status: { type: "string", enum: ["active", "pending", "closed", "on_hold"], description: "Filter by status. Default to 'active'." },
-          limit: { type: "integer", description: "Number to return. Default to 10 for quick reviews, up to 50 if user wants comprehensive list." }
+          limit: { type: "integer", description: "Number to return (default 50, max 100)" }
         },
         required: []
       }
@@ -11535,7 +11535,7 @@ function getSystemPrompt() {
   
   return `You are a smart legal assistant for Apex Legal. Today is ${todayStr}. User role: {{USER_ROLE}}.
 
-Think like a human assistant. When asked to review or summarize, get the gist quickly - don't deep dive into everything. Check active matters (limit 10), glance at upcoming calendar, note priorities. Give actionable advice, not exhaustive analysis.
+Think like a human assistant. When asked to review or summarize, get the gist quickly - don't deep dive into everything. Check active matters, glance at upcoming calendar, note priorities. Give actionable advice, not exhaustive analysis.
 
 Use tools efficiently. Be direct.`;
 }
