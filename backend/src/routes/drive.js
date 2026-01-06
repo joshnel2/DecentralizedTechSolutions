@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import { buildDocumentAccessFilter, FULL_ACCESS_ROLES, canAccessDocument } from '../middleware/documentAccess.js';
-import { ensureDirectory, isAzureConfigured } from '../utils/azureStorage.js';
+import { ensureDirectory, isAzureConfigured, getAzureConfig } from '../utils/azureStorage.js';
 import { 
   uploadVersion as uploadVersionToBlob, 
   downloadVersion as downloadVersionFromBlob,
@@ -16,10 +16,9 @@ import path from 'path';
 
 const router = Router();
 
-// Azure Storage configuration from environment
-const AZURE_STORAGE_ACCOUNT = process.env.AZURE_STORAGE_ACCOUNT_NAME;
-const AZURE_STORAGE_KEY = process.env.AZURE_STORAGE_ACCOUNT_KEY;
-const AZURE_FILE_SHARE = process.env.AZURE_FILE_SHARE_NAME || 'apexdrive';
+// Azure Storage configuration - loaded dynamically from platform settings or env vars
+// Use getAzureConfig() for actual values to support admin portal configuration
+const AZURE_FILE_SHARE_DEFAULT = process.env.AZURE_FILE_SHARE_NAME || 'apexdrive';
 
 // Helper: Get firm folder path
 function getFirmFolderPath(firmId) {
@@ -160,15 +159,17 @@ router.get('/connection-info', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    const azureConfigured = await isAzureConfigured();
+    // Get Azure config from platform settings or env vars
+    const azureConfig = await getAzureConfig();
     
-    if (!azureConfigured) {
+    if (!azureConfig) {
       return res.json({
         configured: false,
         message: 'Azure File Share is not configured. Documents are stored locally on the server.',
       });
     }
 
+    const { accountName, accountKey, shareName } = azureConfig;
     const firmId = req.user.firmId;
     const firmFolder = `firm-${firmId}`;
 
@@ -184,15 +185,15 @@ router.get('/connection-info', authenticate, async (req, res) => {
       firmId,
       firmName,
       firmFolder,
-      storageAccount: AZURE_STORAGE_ACCOUNT,
-      shareName: AZURE_FILE_SHARE,
+      storageAccount: accountName,
+      shareName: shareName,
       
       // Direct paths for mapping the drive
       paths: {
-        windows: `\\\\${AZURE_STORAGE_ACCOUNT}.file.core.windows.net\\${AZURE_FILE_SHARE}\\${firmFolder}`,
-        mac: `smb://${AZURE_STORAGE_ACCOUNT}.file.core.windows.net/${AZURE_FILE_SHARE}/${firmFolder}`,
-        linux: `//${AZURE_STORAGE_ACCOUNT}.file.core.windows.net/${AZURE_FILE_SHARE}/${firmFolder}`,
-        azurePortal: `https://portal.azure.com/#view/Microsoft_Azure_Storage/FileShareMenuBlade/~/overview/storageAccountId/%2Fsubscriptions%2F{subscriptionId}%2FresourceGroups%2F{resourceGroup}%2Fproviders%2FMicrosoft.Storage%2FstorageAccounts%2F${AZURE_STORAGE_ACCOUNT}/path/${AZURE_FILE_SHARE}/protocol/SMB`,
+        windows: `\\\\${accountName}.file.core.windows.net\\${shareName}\\${firmFolder}`,
+        mac: `smb://${accountName}.file.core.windows.net/${shareName}/${firmFolder}`,
+        linux: `//${accountName}.file.core.windows.net/${shareName}/${firmFolder}`,
+        azurePortal: `https://portal.azure.com/#view/Microsoft_Azure_Storage/FileShareMenuBlade/~/overview/storageAccountId/%2Fsubscriptions%2F{subscriptionId}%2FresourceGroups%2F{resourceGroup}%2Fproviders%2FMicrosoft.Storage%2FstorageAccounts%2F${accountName}/path/${shareName}/protocol/SMB`,
       },
       
       // Folder structure info
@@ -209,25 +210,25 @@ router.get('/connection-info', authenticate, async (req, res) => {
           '1. Open File Explorer',
           '2. Right-click "This PC" → "Map network drive"',
           '3. Choose a drive letter (e.g., Z:)',
-          `4. Folder: \\\\${AZURE_STORAGE_ACCOUNT}.file.core.windows.net\\${AZURE_FILE_SHARE}\\${firmFolder}`,
+          `4. Folder: \\\\${accountName}.file.core.windows.net\\${shareName}\\${firmFolder}`,
           '5. Check "Connect using different credentials"',
           '6. Click "Finish"',
-          `7. Username: AZURE\\${AZURE_STORAGE_ACCOUNT}`,
+          `7. Username: AZURE\\${accountName}`,
           '8. Password: (Your storage account access key)',
         ],
         mac: [
           '1. Open Finder',
           '2. Press Cmd+K (Connect to Server)',
-          `3. Enter: smb://${AZURE_STORAGE_ACCOUNT}.file.core.windows.net/${AZURE_FILE_SHARE}/${firmFolder}`,
+          `3. Enter: smb://${accountName}.file.core.windows.net/${shareName}/${firmFolder}`,
           '4. Click "Connect"',
-          `5. Username: ${AZURE_STORAGE_ACCOUNT}`,
+          `5. Username: ${accountName}`,
           '6. Password: (Your storage account access key)',
         ],
         powershell: [
           '# Run in PowerShell as Admin:',
-          `$connectTestResult = Test-NetConnection -ComputerName ${AZURE_STORAGE_ACCOUNT}.file.core.windows.net -Port 445`,
-          `cmd.exe /C "cmdkey /add:\`"${AZURE_STORAGE_ACCOUNT}.file.core.windows.net\`" /user:\`"AZURE\\${AZURE_STORAGE_ACCOUNT}\`" /pass:\`"YOUR_STORAGE_KEY\`""`,
-          `New-PSDrive -Name Z -PSProvider FileSystem -Root "\\\\${AZURE_STORAGE_ACCOUNT}.file.core.windows.net\\${AZURE_FILE_SHARE}\\${firmFolder}" -Persist`,
+          `$connectTestResult = Test-NetConnection -ComputerName ${accountName}.file.core.windows.net -Port 445`,
+          `cmd.exe /C "cmdkey /add:\`"${accountName}.file.core.windows.net\`" /user:\`"AZURE\\${accountName}\`" /pass:\`"YOUR_STORAGE_KEY\`""`,
+          `New-PSDrive -Name Z -PSProvider FileSystem -Root "\\\\${accountName}.file.core.windows.net\\${shareName}\\${firmFolder}" -Persist`,
         ],
       },
       
@@ -1659,13 +1660,14 @@ router.get('/browse', authenticate, async (req, res) => {
         mattersWithFiles: parseInt(stats.matters_with_files) || 0,
       },
       // Only show Azure config to admins
-      azureConfig: isAdmin ? {
-        configured: !!(AZURE_STORAGE_ACCOUNT && AZURE_STORAGE_KEY),
-        shareName: AZURE_FILE_SHARE,
-        connectionPath: AZURE_STORAGE_ACCOUNT 
-          ? `\\\\${AZURE_STORAGE_ACCOUNT}.file.core.windows.net\\${AZURE_FILE_SHARE}\\${firmFolder}`
-          : null,
-      } : { configured: false }
+      azureConfig: isAdmin ? await (async () => {
+        const config = await getAzureConfig();
+        return config ? {
+          configured: true,
+          shareName: config.shareName,
+          connectionPath: `\\\\${config.accountName}.file.core.windows.net\\${config.shareName}\\${firmFolder}`,
+        } : { configured: false };
+      })() : { configured: false }
     });
   } catch (error) {
     console.error('Browse drive error:', error);
@@ -1771,57 +1773,8 @@ router.get('/my-documents', authenticate, async (req, res) => {
   }
 });
 
-// Get Azure connection info for admin to map drive
-router.get('/connection-info', authenticate, async (req, res) => {
-  try {
-    if (!['owner', 'admin'].includes(req.user.role)) {
-      return res.status(403).json({ error: 'Only admins can view connection info' });
-    }
-
-    const firmFolder = getFirmFolderPath(req.user.firmId);
-
-    if (!AZURE_STORAGE_ACCOUNT || !AZURE_STORAGE_KEY) {
-      return res.json({
-        configured: false,
-        message: 'Azure Storage is not configured. Contact platform administrator.'
-      });
-    }
-
-    res.json({
-      configured: true,
-      firmFolder,
-      // Windows path for mapping network drive
-      windowsPath: `\\\\${AZURE_STORAGE_ACCOUNT}.file.core.windows.net\\${AZURE_FILE_SHARE}\\${firmFolder}`,
-      // Mac/Linux path
-      macPath: `smb://${AZURE_STORAGE_ACCOUNT}.file.core.windows.net/${AZURE_FILE_SHARE}/${firmFolder}`,
-      // Instructions
-      instructions: {
-        windows: [
-          'Open File Explorer',
-          'Right-click "This PC" and select "Map network drive"',
-          'Choose a drive letter (e.g., Z:)',
-          'Enter the Windows path shown above',
-          'Check "Connect using different credentials"',
-          'Username: AZURE\\' + AZURE_STORAGE_ACCOUNT,
-          'Password: Your storage account key'
-        ],
-        mac: [
-          'Open Finder',
-          'Press Cmd+K (Go → Connect to Server)',
-          'Enter the Mac path shown above',
-          'Click Connect',
-          'Username: ' + AZURE_STORAGE_ACCOUNT,
-          'Password: Your storage account key'
-        ]
-      },
-      // Note: Don't expose the actual key, admin gets it from Azure portal or platform admin
-      note: 'Contact your platform administrator for the storage account key.'
-    });
-  } catch (error) {
-    console.error('Get connection info error:', error);
-    res.status(500).json({ error: 'Failed to get connection info' });
-  }
-});
+// Get Azure connection info for admin to map drive (secondary endpoint for backwards compat)
+// Note: Primary endpoint is earlier in file with more detailed response
 
 // Download desktop shortcut to access drive (Windows .bat file)
 router.get('/download-shortcut/windows', authenticate, async (req, res) => {
@@ -1830,12 +1783,15 @@ router.get('/download-shortcut/windows', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Only admins can download shortcuts' });
     }
 
-    if (!AZURE_STORAGE_ACCOUNT || !AZURE_STORAGE_KEY) {
+    // Get Azure config from platform settings or env vars (auto from admin portal)
+    const azureConfig = await getAzureConfig();
+    if (!azureConfig) {
       return res.status(400).json({ error: 'Azure Storage not configured' });
     }
 
+    const { accountName, accountKey, shareName } = azureConfig;
     const firmFolder = getFirmFolderPath(req.user.firmId);
-    const drivePath = `\\\\${AZURE_STORAGE_ACCOUNT}.file.core.windows.net\\${AZURE_FILE_SHARE}\\${firmFolder}`;
+    const drivePath = `\\\\${accountName}.file.core.windows.net\\${shareName}\\${firmFolder}`;
     
     // Get firm name for the shortcut
     const firmResult = await query('SELECT name FROM firms WHERE id = $1', [req.user.firmId]);
@@ -1864,14 +1820,14 @@ if exist Z:\\ (
 echo Connecting to your firm's document drive...
 
 :: Store credentials in Windows Credential Manager (silent)
-cmdkey /add:${AZURE_STORAGE_ACCOUNT}.file.core.windows.net /user:AZURE\\${AZURE_STORAGE_ACCOUNT} /pass:${AZURE_STORAGE_KEY} >nul 2>&1
+cmdkey /add:${accountName}.file.core.windows.net /user:AZURE\\${accountName} /pass:${accountKey} >nul 2>&1
 
 :: Map the drive with stored credentials
 net use Z: "${drivePath}" /persistent:yes >nul 2>&1
 
 if %errorlevel% neq 0 (
     :: Try with explicit credentials if credential store failed
-    net use Z: "${drivePath}" /user:AZURE\\${AZURE_STORAGE_ACCOUNT} "${AZURE_STORAGE_KEY}" /persistent:yes >nul 2>&1
+    net use Z: "${drivePath}" /user:AZURE\\${accountName} "${accountKey}" /persistent:yes >nul 2>&1
 )
 
 if %errorlevel% neq 0 (
@@ -1913,12 +1869,15 @@ router.get('/download-shortcut/mac', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Only admins can download shortcuts' });
     }
 
-    if (!AZURE_STORAGE_ACCOUNT || !AZURE_STORAGE_KEY) {
+    // Get Azure config from platform settings or env vars (auto from admin portal)
+    const azureConfig = await getAzureConfig();
+    if (!azureConfig) {
       return res.status(400).json({ error: 'Azure Storage not configured' });
     }
 
+    const { accountName, accountKey, shareName } = azureConfig;
     const firmFolder = getFirmFolderPath(req.user.firmId);
-    const drivePath = `smb://${AZURE_STORAGE_ACCOUNT}.file.core.windows.net/${AZURE_FILE_SHARE}/${firmFolder}`;
+    const drivePath = `smb://${accountName}.file.core.windows.net/${shareName}/${firmFolder}`;
     
     // Get firm name for the shortcut
     const firmResult = await query('SELECT name FROM firms WHERE id = $1', [req.user.firmId]);
@@ -1928,7 +1887,7 @@ router.get('/download-shortcut/mac', authenticate, async (req, res) => {
     // Create a shell script that mounts and opens the drive
     // Includes credentials for automatic connection
     // URL-encode the storage key for the SMB URL
-    const encodedKey = encodeURIComponent(AZURE_STORAGE_KEY);
+    const encodedKey = encodeURIComponent(accountKey);
     
     const scriptContent = `#!/bin/bash
 # ${safeFirmName} - Apex Drive Shortcut
@@ -1955,7 +1914,7 @@ echo "Connecting to your firm's document drive..."
 mkdir -p "$MOUNT_POINT" 2>/dev/null
 
 # Mount with credentials embedded
-mount_smbfs "//${AZURE_STORAGE_ACCOUNT}:${encodedKey}@${AZURE_STORAGE_ACCOUNT}.file.core.windows.net/${AZURE_FILE_SHARE}/${firmFolder}" "$MOUNT_POINT" 2>/dev/null
+mount_smbfs "//${accountName}:${encodedKey}@${accountName}.file.core.windows.net/${shareName}/${firmFolder}" "$MOUNT_POINT" 2>/dev/null
 
 if [ $? -eq 0 ]; then
     echo "Successfully connected!"
@@ -1974,7 +1933,7 @@ else
     echo "Try manually in Finder:"
     echo "  1. Press Cmd+K"
     echo "  2. Enter: ${drivePath}"
-    echo "  3. Username: ${AZURE_STORAGE_ACCOUNT}"
+    echo "  3. Username: ${accountName}"
     echo "  4. Password: (contact your admin)"
     echo ""
     rmdir "$MOUNT_POINT" 2>/dev/null
