@@ -249,8 +249,12 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
 
     const accessToken = msIntegration.rows[0].access_token;
 
-    // For Azure Files / OneDrive / SharePoint, get Word Online URL
-    if (['azure_files', 'onedrive', 'sharepoint'].includes(document.drive_type) || document.external_path) {
+    // For Azure Files / OneDrive / SharePoint / any document with storage, get Word Online URL
+    // Most documents should go through this path - we'll try to upload to OneDrive for editing
+    const hasStorageLocation = document.path || document.external_path || document.folder_path || document.azure_path;
+    const isCloudDrive = ['azure_files', 'onedrive', 'sharepoint'].includes(document.drive_type);
+    
+    if (isCloudDrive || hasStorageLocation) {
       // If we already have a Graph item ID, use it
       if (document.graph_item_id) {
         const editUrl = await getWordOnlineUrl(document.graph_item_id, accessToken);
@@ -269,8 +273,10 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
       }
 
       // Try to upload the document to OneDrive for Word Online editing
-      if (document.path || document.external_path) {
+      // Check all possible storage locations: local path, external path, folder path, or azure path
+      if (document.path || document.external_path || document.folder_path || document.azure_path) {
         try {
+          console.log(`[WORD ONLINE] Opening document ${documentId}: path=${document.path}, folder=${document.folder_path}, azure=${document.azure_path}`);
           const uploadResult = await uploadToOneDriveForEditing(document, accessToken, req.user.firmId);
           if (uploadResult && uploadResult.webUrl) {
             // Save the Graph item ID for future use
@@ -313,15 +319,29 @@ router.post('/documents/:documentId/open', authenticate, async (req, res) => {
           }
         } catch (uploadError) {
           console.error('Failed to upload to OneDrive:', uploadError.message);
+          console.error('Upload error details:', { 
+            documentId, 
+            path: document.path, 
+            folder_path: document.folder_path,
+            azure_path: document.azure_path,
+            drive_type: document.drive_type
+          });
         }
       }
 
       // Fallback to desktop
+      console.log(`[WORD ONLINE] Upload failed, returning desktop fallback for document ${documentId}`);
       return res.json({
         editUrl: null,
         coAuthoring: false,
-        message: 'Could not open in Word Online. Use desktop Word instead.',
-        fallback: 'desktop'
+        message: 'Could not open in Word Online. The document file could not be retrieved from storage. Try downloading and editing locally.',
+        fallback: 'desktop',
+        debug: {
+          hasPath: !!document.path,
+          hasFolderPath: !!document.folder_path,
+          hasAzurePath: !!document.azure_path,
+          driveType: document.drive_type
+        }
       });
     }
 
@@ -406,6 +426,7 @@ router.post('/documents/:documentId/open-desktop', authenticate, async (req, res
 
     // Upload to OneDrive for editing
     try {
+      console.log(`[WORD DESKTOP] Opening document ${documentId}: path=${document.path}, folder=${document.folder_path}, azure=${document.azure_path}`);
       const uploadResult = await uploadToOneDriveForEditing(document, accessToken, req.user.firmId);
       
       if (uploadResult && uploadResult.webUrl) {
@@ -438,9 +459,17 @@ router.post('/documents/:documentId/open-desktop', authenticate, async (req, res
       }
     } catch (uploadError) {
       console.error('Desktop Word - OneDrive upload failed:', uploadError.message);
+      console.error('Desktop Word - Document info:', { 
+        id: documentId, 
+        path: document.path, 
+        folder_path: document.folder_path,
+        azure_path: document.azure_path,
+        drive_type: document.drive_type
+      });
     }
 
     // Fallback: provide download + re-upload instructions
+    console.log(`[WORD DESKTOP] Upload failed, returning download fallback for document ${documentId}`);
     res.json({
       desktopUrl: null,
       downloadUrl: `/api/documents/${documentId}/download`,
@@ -463,19 +492,86 @@ router.post('/documents/:documentId/open-desktop', authenticate, async (req, res
 async function uploadToOneDriveForEditing(document, accessToken, firmId) {
   try {
     const fs = await import('fs/promises');
-    const path = await import('path');
+    const pathModule = await import('path');
     
-    // Read file content
+    // Read file content from various storage locations
     let fileContent;
+    const fileName = document.original_name || document.name;
+    
+    console.log(`[WORD ONLINE] Attempting to load document: ${fileName}`);
+    console.log(`[WORD ONLINE] Document paths - local: ${document.path}, folder: ${document.folder_path}, azure: ${document.azure_path}`);
+    
+    // 1. Try local file path first
     if (document.path) {
-      fileContent = await fs.readFile(document.path);
-    } else {
-      // For external files, we'd need to download from Azure first
-      // For now, skip
+      try {
+        await fs.access(document.path); // Check if file exists
+        fileContent = await fs.readFile(document.path);
+        console.log(`[WORD ONLINE] Read ${fileContent.length} bytes from local path: ${document.path}`);
+      } catch (localErr) {
+        console.log(`[WORD ONLINE] Local file not accessible: ${document.path} - ${localErr.message}`);
+      }
+    }
+    
+    // 2. Try Azure File Share storage (most common for cloud deployments)
+    if (!fileContent) {
+      try {
+        const { downloadFile, isAzureConfigured } = await import('../utils/azureStorage.js');
+        const azureEnabled = await isAzureConfigured();
+        
+        if (azureEnabled) {
+          // Try multiple possible Azure paths
+          const possiblePaths = [];
+          
+          // Path 1: azure_path if set
+          if (document.azure_path) {
+            possiblePaths.push(document.azure_path);
+          }
+          
+          // Path 2: folder_path + filename
+          if (document.folder_path) {
+            // folder_path might be absolute (/Documents) or relative
+            const folderPath = document.folder_path.startsWith('/') 
+              ? document.folder_path.substring(1) 
+              : document.folder_path;
+            possiblePaths.push(`${folderPath}/${fileName}`);
+            possiblePaths.push(folderPath ? `${folderPath}/${fileName}` : fileName);
+          }
+          
+          // Path 3: Just the filename at root
+          possiblePaths.push(fileName);
+          
+          // Path 4: Documents folder (common default)
+          possiblePaths.push(`Documents/${fileName}`);
+          
+          // Try each path
+          for (const azurePath of possiblePaths) {
+            if (!azurePath) continue;
+            try {
+              console.log(`[WORD ONLINE] Trying Azure path: ${azurePath}`);
+              fileContent = await downloadFile(azurePath, firmId);
+              if (fileContent && fileContent.length > 0) {
+                console.log(`[WORD ONLINE] Downloaded ${fileContent.length} bytes from Azure: ${azurePath}`);
+                break;
+              }
+            } catch (e) {
+              console.log(`[WORD ONLINE] Azure path failed: ${azurePath} - ${e.message}`);
+            }
+          }
+        } else {
+          console.log(`[WORD ONLINE] Azure not configured`);
+        }
+      } catch (azureErr) {
+        console.error(`[WORD ONLINE] Azure module error:`, azureErr.message);
+      }
+    }
+    
+    // If we still don't have content, we can't proceed
+    if (!fileContent || fileContent.length === 0) {
+      console.error(`[WORD ONLINE] Could not read document content from any source`);
+      console.error(`[WORD ONLINE] Tried: local path (${document.path}), Azure folder (${document.folder_path}), Azure path (${document.azure_path})`);
       return null;
     }
 
-    const fileName = document.original_name || document.name;
     const folderName = `ApexDrive-${firmId}`;
 
     // Create folder in OneDrive if it doesn't exist
