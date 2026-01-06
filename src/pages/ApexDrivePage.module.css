@@ -474,6 +474,15 @@
   flex: 1;
 }
 
+.shortcutNote {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--apex-muted);
+}
+
 /* Comparison */
 .comparison {
   background: white;

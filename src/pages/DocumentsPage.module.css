@@ -135,6 +135,116 @@
   transform: translateY(-1px);
 }
 
+/* Bulk Selection */
+.selectedCount {
+  background: var(--apex-gold);
+  color: var(--apex-midnight);
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.bulkDeleteBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(239, 68, 68, 0.1) 100%);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: var(--radius-md);
+  color: #f87171;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.bulkDeleteBtn:hover {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.3) 0%, rgba(239, 68, 68, 0.15) 100%);
+  border-color: rgba(239, 68, 68, 0.6);
+  transform: translateY(-1px);
+}
+
+.clearSelectionBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.clearSelectionBtn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* Checkbox Column */
+.checkboxCol {
+  width: 48px;
+  padding: 0 !important;
+  text-align: center;
+}
+
+.selectAllBtn {
+  background: none;
+  border: none;
+  color: var(--apex-muted);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.selectAllBtn:hover {
+  color: var(--apex-gold);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.selectAllBtn .partialSelect {
+  color: var(--apex-gold);
+  opacity: 0.6;
+}
+
+.rowCheckbox {
+  background: none;
+  border: none;
+  color: var(--apex-muted);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rowCheckbox:hover {
+  color: var(--apex-light);
+}
+
+.rowCheckbox.checked {
+  color: var(--apex-gold);
+}
+
+.checkedRow {
+  background: rgba(217, 119, 6, 0.08) !important;
+}
+
+.checkedRow:hover {
+  background: rgba(217, 119, 6, 0.12) !important;
+}
+
 .filters {
   margin-bottom: var(--space-lg);
 }

@@ -9,7 +9,7 @@ import {
   Sparkles, Download, Trash2, X, Loader2,
   FileSearch, Scale, AlertTriangle, List, MessageSquare,
   Eye, ExternalLink, Wand2, History, GitCompare, Lock, Edit3,
-  HardDrive, Settings, Share2, Shield, Mail, Users
+  HardDrive, Settings, Share2, Shield, Mail, Users, CheckSquare, Square
 } from 'lucide-react'
 import { documentsApi, driveApi, wordOnlineApi } from '../services/api'
 import { useEmailCompose } from '../contexts/EmailComposeContext'
@@ -170,6 +170,53 @@ export function DocumentsPage() {
       alert('Failed to delete document')
     }
   }
+
+  // Bulk selection handlers
+  const toggleSelectDoc = (docId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedDocIds(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(docId)) {
+        newSet.delete(docId)
+      } else {
+        newSet.add(docId)
+      }
+      return newSet
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedDocIds.size === filteredDocuments.length) {
+      setSelectedDocIds(new Set())
+    } else {
+      setSelectedDocIds(new Set(filteredDocuments.map(d => d.id)))
+    }
+  }
+
+  const clearSelection = () => {
+    setSelectedDocIds(new Set())
+  }
+
+  const confirmBulkDelete = async () => {
+    if (selectedDocIds.size === 0) return
+    
+    setIsBulkDeleting(true)
+    try {
+      // Delete each selected document
+      const deletePromises = Array.from(selectedDocIds).map(id => deleteDocument(id))
+      await Promise.all(deletePromises)
+      
+      setBulkDeleteModal(false)
+      setSelectedDocIds(new Set())
+      setVersionPanelDoc(null)
+      fetchDocuments()
+    } catch (error) {
+      console.error('Failed to delete documents:', error)
+      alert('Failed to delete some documents. Please try again.')
+    } finally {
+      setIsBulkDeleting(false)
+    }
+  }
   
   // Open AI with document context and optional prompt
   const openAIWithDocument = async (doc: typeof documents[0], prompt?: string) => {
@@ -262,6 +309,11 @@ export function DocumentsPage() {
     docId: string
     docName: string
   }>({ isOpen: false, docId: '', docName: '' })
+
+  // Bulk selection state
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set())
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const [bulkDeleteModal, setBulkDeleteModal] = useState(false)
 
   // Share modal state
   const [shareModal, setShareModal] = useState<{
@@ -401,10 +453,36 @@ export function DocumentsPage() {
         <div className={styles.headerLeft}>
           <h1>Documents</h1>
           <span className={styles.count}>{documents.length} files</span>
+          {selectedDocIds.size > 0 && (
+            <span className={styles.selectedCount}>
+              {selectedDocIds.size} selected
+            </span>
+          )}
         </div>
         <div className={styles.headerActions}>
+          {/* Bulk actions when items selected */}
+          {selectedDocIds.size > 0 && (
+            <>
+              <button 
+                className={styles.bulkDeleteBtn}
+                onClick={() => setBulkDeleteModal(true)}
+                title={`Delete ${selectedDocIds.size} documents`}
+              >
+                <Trash2 size={18} />
+                Delete ({selectedDocIds.size})
+              </button>
+              <button 
+                className={styles.clearSelectionBtn}
+                onClick={clearSelection}
+                title="Clear selection"
+              >
+                <X size={18} />
+                Clear
+              </button>
+            </>
+          )}
           {/* Admin-only buttons */}
-          {isAdmin && (
+          {isAdmin && selectedDocIds.size === 0 && (
             <>
               <button 
                 className={styles.driveBtn}
@@ -520,6 +598,21 @@ export function DocumentsPage() {
         <table>
           <thead>
             <tr>
+              <th className={styles.checkboxCol}>
+                <button 
+                  className={styles.selectAllBtn}
+                  onClick={toggleSelectAll}
+                  title={selectedDocIds.size === filteredDocuments.length ? 'Deselect all' : 'Select all'}
+                >
+                  {selectedDocIds.size === filteredDocuments.length && filteredDocuments.length > 0 ? (
+                    <CheckSquare size={18} />
+                  ) : selectedDocIds.size > 0 ? (
+                    <Square size={18} className={styles.partialSelect} />
+                  ) : (
+                    <Square size={18} />
+                  )}
+                </button>
+              </th>
               <th>Name</th>
               <th>Matter</th>
               <th>Size</th>
@@ -532,14 +625,24 @@ export function DocumentsPage() {
             {filteredDocuments.map(doc => {
               const wordExtensions = ['.doc', '.docx', '.odt', '.rtf']
               const isWordDoc = wordExtensions.some(ext => doc.name.toLowerCase().endsWith(ext))
-              const isSelected = versionPanelDoc?.id === doc.id
+              const isRowSelected = versionPanelDoc?.id === doc.id
+              const isChecked = selectedDocIds.has(doc.id)
               
               return (
                 <tr 
                   key={doc.id} 
                   onClick={() => setVersionPanelDoc(doc)}
-                  className={`${styles.clickableRow} ${isSelected ? styles.selectedRow : ''}`}
+                  className={`${styles.clickableRow} ${isRowSelected ? styles.selectedRow : ''} ${isChecked ? styles.checkedRow : ''}`}
                 >
+                  <td className={styles.checkboxCol}>
+                    <button 
+                      className={`${styles.rowCheckbox} ${isChecked ? styles.checked : ''}`}
+                      onClick={(e) => toggleSelectDoc(doc.id, e)}
+                      title={isChecked ? 'Deselect' : 'Select'}
+                    >
+                      {isChecked ? <CheckSquare size={18} /> : <Square size={18} />}
+                    </button>
+                  </td>
                   <td>
                     <div className={styles.nameCell}>
                       <span className={styles.fileIcon}>{getFileIcon(doc.type)}</span>
@@ -611,6 +714,17 @@ export function DocumentsPage() {
         title="Delete Document"
         message={`Are you sure you want to delete "${confirmModal.docName}"? This action cannot be undone.`}
         confirmText="Delete"
+        type="danger"
+      />
+
+      {/* Bulk Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={bulkDeleteModal}
+        onClose={() => setBulkDeleteModal(false)}
+        onConfirm={confirmBulkDelete}
+        title="Delete Multiple Documents"
+        message={`Are you sure you want to delete ${selectedDocIds.size} document${selectedDocIds.size === 1 ? '' : 's'}? This action cannot be undone.`}
+        confirmText={isBulkDeleting ? 'Deleting...' : `Delete ${selectedDocIds.size} Document${selectedDocIds.size === 1 ? '' : 's'}`}
         type="danger"
       />
 
