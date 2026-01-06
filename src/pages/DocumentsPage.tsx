@@ -53,7 +53,8 @@ export function DocumentsPage() {
     
     // Check if it's a Word document
     const wordExtensions = ['.doc', '.docx', '.odt', '.rtf']
-    const isWordDoc = wordExtensions.some(ext => doc.name.toLowerCase().endsWith(ext))
+    const docName = doc.originalName || doc.name
+    const isWordDoc = wordExtensions.some(ext => docName.toLowerCase().endsWith(ext))
     
     if (!isWordDoc) {
       alert('Word editing is only available for Word documents (.doc, .docx)')
@@ -424,8 +425,10 @@ export function DocumentsPage() {
   }
 
   const filteredDocuments = useMemo(() => {
+    const query = searchQuery.toLowerCase()
     return documents.filter(doc =>
-      doc.name.toLowerCase().includes(searchQuery.toLowerCase())
+      (doc.originalName || doc.name).toLowerCase().includes(query) ||
+      doc.name.toLowerCase().includes(query)
     ).sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
   }, [documents, searchQuery])
 
@@ -624,7 +627,8 @@ export function DocumentsPage() {
           <tbody>
             {filteredDocuments.map(doc => {
               const wordExtensions = ['.doc', '.docx', '.odt', '.rtf']
-              const isWordDoc = wordExtensions.some(ext => doc.name.toLowerCase().endsWith(ext))
+              const docName = doc.originalName || doc.name
+              const isWordDoc = wordExtensions.some(ext => docName.toLowerCase().endsWith(ext))
               const isRowSelected = versionPanelDoc?.id === doc.id
               const isChecked = selectedDocIds.has(doc.id)
               
@@ -646,7 +650,7 @@ export function DocumentsPage() {
                   <td>
                     <div className={styles.nameCell}>
                       <span className={styles.fileIcon}>{getFileIcon(doc.type)}</span>
-                      <span className={styles.docNameLink}>{doc.name}</span>
+                      <span className={styles.docNameLink}>{doc.originalName || doc.name}</span>
                       {isWordDoc && (
                         <span className={styles.wordBadge} title="Word Document">
                           <Edit3 size={12} />
