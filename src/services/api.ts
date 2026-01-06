@@ -1701,6 +1701,46 @@ export const wordOnlineApi = {
   async removeShare(documentId: string, shareId: string) {
     return fetchWithAuth(`/word-online/documents/${documentId}/share/${shareId}`, { method: 'DELETE' });
   },
+
+  // Get version history with editor info
+  async getVersionHistory(documentId: string) {
+    return fetchWithAuth(`/word-online/documents/${documentId}/versions-online`);
+  },
+
+  // Get redline comparison between two versions
+  async getRedline(documentId: string, version1: number, version2: number) {
+    return fetchWithAuth(`/word-online/documents/${documentId}/redline?version1=${version1}&version2=${version2}`);
+  },
+
+  // Open document in desktop Word
+  async openDesktop(documentId: string) {
+    return fetchWithAuth(`/word-online/documents/${documentId}/open-desktop`, { method: 'POST' });
+  },
+
+  // Save/sync document from Word Online
+  async saveFromWord(documentId: string) {
+    return fetchWithAuth(`/word-online/documents/${documentId}/save`, { method: 'POST' });
+  },
+
+  // Check for changes in OneDrive
+  async checkChanges(documentId: string) {
+    return fetchWithAuth(`/word-online/documents/${documentId}/check-changes`);
+  },
+
+  // Poll and auto-sync changes
+  async pollSync(documentId: string) {
+    return fetchWithAuth(`/word-online/documents/${documentId}/poll-sync`, { method: 'POST' });
+  },
+
+  // Refresh Microsoft token (for long editing sessions)
+  async refreshToken() {
+    return fetchWithAuth(`/word-online/token/refresh`, { method: 'POST' });
+  },
+
+  // Get token status
+  async getTokenStatus() {
+    return fetchWithAuth(`/word-online/token/status`);
+  },
 };
 
 // ============================================

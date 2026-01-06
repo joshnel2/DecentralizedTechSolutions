@@ -1228,6 +1228,7 @@ export interface Document {
   
   // Tracking
   uploadedBy: string
+  uploadedByName?: string
   uploadedAt: string
   updatedAt: string
   lastViewedAt?: string

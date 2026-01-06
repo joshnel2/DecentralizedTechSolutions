@@ -9,7 +9,7 @@ import {
   Sparkles, Download, Trash2, X, Loader2,
   FileSearch, Scale, AlertTriangle, List, MessageSquare,
   Eye, ExternalLink, Wand2, History, GitCompare, Lock, Edit3,
-  HardDrive, Settings, Share2, Shield, Mail
+  HardDrive, Settings, Share2, Shield, Mail, Users
 } from 'lucide-react'
 import { documentsApi, driveApi, wordOnlineApi } from '../services/api'
 import { useEmailCompose } from '../contexts/EmailComposeContext'
@@ -17,6 +17,7 @@ import { format, parseISO } from 'date-fns'
 import styles from './DocumentsPage.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { ShareDocumentModal } from '../components/ShareDocumentModal'
+import { DocumentVersionPanel } from '../components/DocumentVersionPanel'
 import { parseDocument } from '../utils/documentParser'
 
 // AI suggestion prompts for document analysis
@@ -46,8 +47,8 @@ export function DocumentsPage() {
     fetchMatters()
   }, [fetchDocuments, fetchMatters])
   
-  // Edit in Word Online
-  const editInWord = async (doc: typeof documents[0], e?: React.MouseEvent) => {
+  // Open document in Word (Desktop or Online)
+  const editInWord = async (doc: typeof documents[0], preferDesktop = true, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
     
     // Check if it's a Word document
@@ -55,19 +56,46 @@ export function DocumentsPage() {
     const isWordDoc = wordExtensions.some(ext => doc.name.toLowerCase().endsWith(ext))
     
     if (!isWordDoc) {
-      alert('Word Online editing is only available for Word documents (.doc, .docx)')
+      alert('Word editing is only available for Word documents (.doc, .docx)')
       return
     }
 
     setIsOpeningWord(true)
     try {
+      // Try to open in desktop Word first (preferred for lawyers)
+      if (preferDesktop) {
+        const result = await wordOnlineApi.openDesktop(doc.id)
+        
+        if (result.desktopUrl) {
+          // Open using ms-word: protocol (opens in desktop Word)
+          window.location.href = result.desktopUrl
+          
+          // Show instructions toast
+          setTimeout(() => {
+            if (result.autoSync) {
+              console.log('Document opened in Word. Changes will auto-sync when you save.')
+            }
+          }, 1000)
+          return
+        } else if (result.needsMicrosoftAuth) {
+          // Microsoft not connected - try Word Online or download
+          alert('Connect Microsoft in Settings → Integrations for seamless Word editing. Downloading document instead...')
+          downloadDocument(doc)
+          return
+        }
+      }
+      
+      // Fallback to Word Online
       const result = await wordOnlineApi.openDocument(doc.id)
       
       if (result.editUrl) {
         // Open Word Online in new tab
         window.open(result.editUrl, '_blank')
+      } else if (result.desktopUrl) {
+        // Desktop Word URL available
+        window.location.href = result.desktopUrl
       } else if (result.fallback === 'desktop') {
-        // Fallback to opening locally
+        // Fallback to downloading
         const confirmed = confirm(
           'Word Online is not available for this document. Would you like to download and edit it locally instead?'
         )
@@ -75,13 +103,13 @@ export function DocumentsPage() {
           downloadDocument(doc)
         }
       } else {
-        alert(result.message || 'Unable to open in Word Online')
+        alert(result.message || 'Unable to open in Word')
       }
     } catch (error: any) {
-      console.error('Failed to open Word Online:', error)
+      console.error('Failed to open Word:', error)
       // Fallback - offer to download
       const confirmed = confirm(
-        'Could not open Word Online. Would you like to download the document to edit locally?'
+        'Could not open Word. Would you like to download the document to edit locally?'
       )
       if (confirmed) {
         downloadDocument(doc)
@@ -225,6 +253,9 @@ export function DocumentsPage() {
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [selectedMatterId, setSelectedMatterId] = useState('')
   const [selectedDoc, setSelectedDoc] = useState<typeof documents[0] | null>(null)
+  
+  // Version history panel state - shows on right side when document clicked
+  const [versionPanelDoc, setVersionPanelDoc] = useState<typeof documents[0] | null>(null)
   
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -493,52 +524,104 @@ export function DocumentsPage() {
               <th>Name</th>
               <th>Matter</th>
               <th>Size</th>
-              <th>Uploaded</th>
+              <th>Version</th>
+              <th>Last Modified</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filteredDocuments.map(doc => (
-              <tr key={doc.id} onClick={() => setSelectedDoc(doc)} className={styles.clickableRow}>
-                <td>
-                  <div className={styles.nameCell}>
-                    <span className={styles.fileIcon}>{getFileIcon(doc.type)}</span>
-                    <span className={styles.docNameLink}>{doc.name}</span>
-                  </div>
-                </td>
+            {filteredDocuments.map(doc => {
+              const wordExtensions = ['.doc', '.docx', '.odt', '.rtf']
+              const isWordDoc = wordExtensions.some(ext => doc.name.toLowerCase().endsWith(ext))
+              const isSelected = versionPanelDoc?.id === doc.id
+              
+              return (
+                <tr 
+                  key={doc.id} 
+                  onClick={() => setVersionPanelDoc(doc)} 
+                  onDoubleClick={() => {
+                    // Double-click opens directly in Word (for Word docs) or opens file
+                    if (isWordDoc) {
+                      editInWord(doc, true)
+                    } else {
+                      openFileOnComputer(doc)
+                    }
+                  }}
+                  className={`${styles.clickableRow} ${isSelected ? styles.selectedRow : ''}`}
+                >
+                  <td>
+                    <div className={styles.nameCell}>
+                      <span className={styles.fileIcon}>{getFileIcon(doc.type)}</span>
+                      <span className={styles.docNameLink}>{doc.name}</span>
+                      {isWordDoc && (
+                        <span className={styles.wordBadge} title="Word Document - Double-click to edit">
+                          <Edit3 size={12} />
+                        </span>
+                      )}
+                    </div>
+                  </td>
                 <td>{getMatterName(doc.matterId) || '-'}</td>
                 <td>{formatFileSize(doc.size)}</td>
+                <td>
+                  <span className={styles.versionBadge}>
+                    v{doc.version || 1}
+                  </span>
+                </td>
                 <td>{format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}</td>
                 <td>
-                  <div className={styles.rowActions}>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openFileOnComputer(doc)
-                      }}
-                      title="Open File"
-                      className={styles.openBtn}
-                    >
-                      <ExternalLink size={16} />
-                    </button>
-                    <button 
-                      onClick={(e) => downloadDocument(doc, e)}
-                      title="Download"
-                      className={styles.actionBtn}
-                    >
-                      <Download size={16} />
-                    </button>
-                    <button 
-                      onClick={(e) => handleDeleteDocument(doc.id, e)}
-                      title="Delete"
-                      className={styles.deleteBtn}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                    <div className={styles.rowActions}>
+                      {isWordDoc ? (
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            editInWord(doc, true)
+                          }}
+                          title="Edit in Word"
+                          className={styles.wordBtn}
+                        >
+                          <Edit3 size={16} />
+                        </button>
+                      ) : (
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openFileOnComputer(doc)
+                          }}
+                          title="Open File"
+                          className={styles.openBtn}
+                        >
+                          <ExternalLink size={16} />
+                        </button>
+                      )}
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setVersionPanelDoc(doc)
+                        }}
+                        title="Version History"
+                        className={styles.historyRowBtn}
+                      >
+                        <History size={16} />
+                      </button>
+                      <button 
+                        onClick={(e) => downloadDocument(doc, e)}
+                        title="Download"
+                        className={styles.actionBtn}
+                      >
+                        <Download size={16} />
+                      </button>
+                      <button 
+                        onClick={(e) => handleDeleteDocument(doc.id, e)}
+                        title="Delete"
+                        className={styles.deleteBtn}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -548,6 +631,17 @@ export function DocumentsPage() {
           <FolderOpen size={48} />
           <h3>No documents found</h3>
           <p>Upload your first document to get started</p>
+        </div>
+      )}
+
+      {/* Helpful tip for Word documents */}
+      {filteredDocuments.length > 0 && (
+        <div className={styles.documentTip}>
+          <Edit3 size={14} />
+          <span>
+            <strong>Tip:</strong> Double-click Word documents to open directly in Microsoft Word. 
+            Single-click to view version history. Changes save automatically.
+          </span>
         </div>
       )}
 
@@ -781,6 +875,42 @@ export function DocumentsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Version History Panel - Slides in from right when document is selected */}
+      {versionPanelDoc && (
+        <>
+          {/* Overlay for closing panel */}
+          <div 
+            className={styles.panelOverlay} 
+            onClick={() => setVersionPanelDoc(null)}
+          />
+          <DocumentVersionPanel
+            document={{
+              id: versionPanelDoc.id,
+              name: versionPanelDoc.name,
+              originalName: versionPanelDoc.originalName,
+              type: versionPanelDoc.type,
+              size: versionPanelDoc.size,
+              uploadedAt: versionPanelDoc.uploadedAt,
+              matterName: getMatterName(versionPanelDoc.matterId) || undefined,
+              uploadedByName: versionPanelDoc.uploadedByName,
+            }}
+            onClose={() => setVersionPanelDoc(null)}
+            onOpenInWord={(preferDesktop) => {
+              const wordExtensions = ['.doc', '.docx', '.odt', '.rtf']
+              const isWordDoc = wordExtensions.some(ext => 
+                versionPanelDoc.name.toLowerCase().endsWith(ext)
+              )
+              if (isWordDoc) {
+                editInWord(versionPanelDoc, preferDesktop)
+              } else {
+                openFileOnComputer(versionPanelDoc)
+              }
+            }}
+            onDownload={() => downloadDocument(versionPanelDoc)}
+          />
+        </>
       )}
     </div>
   )

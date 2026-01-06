@@ -761,6 +761,114 @@
   background: rgba(255, 255, 255, 0.02);
 }
 
+.selectedRow {
+  background: rgba(212, 175, 55, 0.08) !important;
+  border-left: 3px solid var(--apex-gold);
+}
+
+.selectedRow td:first-child {
+  padding-left: calc(var(--space-lg) - 3px);
+}
+
+/* Word document badge */
+.wordBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: linear-gradient(135deg, #0078d4 0%, #005a9e 100%);
+  border-radius: 4px;
+  color: white;
+  margin-left: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Word edit button in row */
+.wordBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, #0078d4 0%, #005a9e 100%);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: white;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.wordBtn:hover {
+  background: linear-gradient(135deg, #1a86d9 0%, #0078d4 100%);
+  transform: translateY(-1px);
+}
+
+/* History button in row */
+.historyRowBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: white;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.historyRowBtn:hover {
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  transform: translateY(-1px);
+}
+
+/* Panel overlay */
+.panelOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+/* Version badge in table */
+.versionBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--apex-gold);
+}
+
+/* Document tip */
+.documentTip {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1.25rem;
+  margin-top: 1rem;
+  background: linear-gradient(135deg, rgba(0, 120, 212, 0.1) 0%, rgba(0, 120, 212, 0.05) 100%);
+  border: 1px solid rgba(0, 120, 212, 0.2);
+  border-radius: var(--radius-lg);
+  font-size: 0.8125rem;
+  color: var(--apex-light);
+}
+
+.documentTip svg {
+  color: #0078d4;
+  flex-shrink: 0;
+}
+
+.documentTip strong {
+  color: #60a5fa;
+}
+
 /* ===== MOBILE RESPONSIVE STYLES ===== */
 @media (max-width: 768px) {
   .header {
