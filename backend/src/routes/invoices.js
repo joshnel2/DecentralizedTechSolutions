@@ -5,6 +5,39 @@ import { getTodayInTimezone, getCurrentYear } from '../utils/dateUtils.js';
 
 const router = Router();
 
+/**
+ * Helper function to trigger QuickBooks payment sync
+ * This queues the payment for sync to QuickBooks if connected
+ */
+async function triggerQuickBooksPaymentSync(firmId, paymentId) {
+  try {
+    // Check if QuickBooks is connected for this firm
+    const integration = await query(
+      `SELECT id FROM integrations WHERE firm_id = $1 AND provider = 'quickbooks' AND is_connected = true`,
+      [firmId]
+    );
+
+    if (integration.rows.length === 0) {
+      // QuickBooks not connected, skip silently
+      console.log('QuickBooks not connected for firm, skipping payment sync');
+      return;
+    }
+
+    // Add to sync queue with retry support
+    await query(
+      `INSERT INTO quickbooks_sync_queue (firm_id, entity_type, entity_id, action, status, next_retry_at)
+       VALUES ($1, 'payment', $2, 'create', 'pending', NOW())
+       ON CONFLICT DO NOTHING`,
+      [firmId, paymentId]
+    );
+
+    console.log(`Payment ${paymentId} queued for QuickBooks sync`);
+  } catch (error) {
+    // Don't fail the payment if sync queue fails
+    console.error('Failed to queue payment for QuickBooks sync:', error.message);
+  }
+}
+
 // Roles that can see all firm invoices (not just their own)
 const FULL_ACCESS_ROLES = ['owner', 'admin', 'billing'];
 
@@ -325,7 +358,7 @@ router.put('/:id', authenticate, requirePermission('billing:edit'), async (req, 
 // Record payment
 router.post('/:id/payments', authenticate, requirePermission('billing:edit'), async (req, res) => {
   try {
-    const { amount, paymentMethod, reference, paymentDate, notes } = req.body;
+    const { amount, paymentMethod, reference, paymentDate, notes, syncToQuickBooks = true } = req.body;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({ error: 'Valid payment amount required' });
@@ -341,19 +374,22 @@ router.post('/:id/payments', authenticate, requirePermission('billing:edit'), as
     }
 
     const invoice = invoiceResult.rows[0];
+    let paymentId = null;
 
     await withTransaction(async (client) => {
-      // Record payment
-      await client.query(
+      // Record payment and get the ID
+      const paymentResult = await client.query(
         `INSERT INTO payments (
           firm_id, invoice_id, client_id, amount, payment_method,
-          reference, payment_date, notes, created_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          reference, payment_date, notes, created_by, sync_status
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
+        RETURNING id`,
         [
           req.user.firmId, invoice.id, invoice.client_id, amount,
           paymentMethod, reference, paymentDate || getTodayInTimezone(), notes, req.user.id
         ]
       );
+      paymentId = paymentResult.rows[0].id;
 
       // Update invoice
       const newAmountPaid = parseFloat(invoice.amount_paid) + amount;
@@ -370,7 +406,18 @@ router.post('/:id/payments', authenticate, requirePermission('billing:edit'), as
       );
     });
 
-    res.json({ message: 'Payment recorded successfully' });
+    // Trigger QuickBooks sync asynchronously (don't block the response)
+    if (syncToQuickBooks && paymentId) {
+      triggerQuickBooksPaymentSync(req.user.firmId, paymentId).catch(err => {
+        console.error('QuickBooks sync trigger failed:', err.message);
+      });
+    }
+
+    res.json({ 
+      message: 'Payment recorded successfully',
+      paymentId,
+      quickBooksSyncQueued: syncToQuickBooks
+    });
   } catch (error) {
     console.error('Record payment error:', error);
     res.status(500).json({ error: 'Failed to record payment' });

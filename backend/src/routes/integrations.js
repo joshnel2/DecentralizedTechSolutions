@@ -772,6 +772,752 @@ router.post('/quickbooks/sync', authenticate, async (req, res) => {
 });
 
 // ============================================
+// QUICKBOOKS PAYMENT SYNC (Write Operations)
+// ============================================
+
+/**
+ * Helper function to get a valid QuickBooks access token
+ * Automatically refreshes if expired
+ */
+async function getQuickBooksAccessToken(firmId) {
+  const integration = await query(
+    `SELECT * FROM integrations WHERE firm_id = $1 AND provider = 'quickbooks' AND is_connected = true`,
+    [firmId]
+  );
+
+  if (integration.rows.length === 0) {
+    throw new Error('QuickBooks not connected');
+  }
+
+  const QB_CLIENT_ID = await getCredential('quickbooks_client_id', 'QUICKBOOKS_CLIENT_ID');
+  const QB_CLIENT_SECRET = await getCredential('quickbooks_client_secret', 'QUICKBOOKS_CLIENT_SECRET');
+
+  const { access_token, refresh_token, token_expires_at, settings } = integration.rows[0];
+  const { realmId } = settings || {};
+
+  if (!realmId) {
+    throw new Error('QuickBooks realm ID missing');
+  }
+
+  let accessToken = access_token;
+
+  // Check if token is expired or will expire soon (within 5 minutes)
+  const expiresAt = new Date(token_expires_at);
+  const now = new Date();
+  const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
+
+  if (expiresAt <= fiveMinutesFromNow) {
+    // Refresh the token
+    const auth = Buffer.from(`${QB_CLIENT_ID}:${QB_CLIENT_SECRET}`).toString('base64');
+    const refreshResponse = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${auth}`,
+      },
+      body: `grant_type=refresh_token&refresh_token=${refresh_token}`,
+    });
+
+    const newTokens = await refreshResponse.json();
+    
+    if (newTokens.error) {
+      console.error('QuickBooks token refresh error:', newTokens);
+      throw new Error(`Token refresh failed: ${newTokens.error_description || newTokens.error}`);
+    }
+    
+    if (newTokens.access_token) {
+      accessToken = newTokens.access_token;
+      await query(
+        `UPDATE integrations SET access_token = $1, refresh_token = $2, token_expires_at = NOW() + INTERVAL '1 hour'
+         WHERE firm_id = $3 AND provider = 'quickbooks'`,
+        [newTokens.access_token, newTokens.refresh_token || refresh_token, firmId]
+      );
+    }
+  }
+
+  const QB_ENVIRONMENT = await getCredential('quickbooks_environment', 'QUICKBOOKS_ENVIRONMENT', 'sandbox');
+  const baseUrl = QB_ENVIRONMENT === 'production'
+    ? 'https://quickbooks.api.intuit.com'
+    : 'https://sandbox-quickbooks.api.intuit.com';
+
+  return { accessToken, realmId, baseUrl };
+}
+
+/**
+ * Helper function to make QuickBooks API requests with retry logic
+ * This is better than Clio - we retry with exponential backoff!
+ */
+async function quickBooksApiRequest(method, url, accessToken, body = null, retryCount = 0) {
+  const maxRetries = 3;
+  const baseDelay = 1000; // 1 second
+
+  try {
+    const options = {
+      method,
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+    };
+
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(url, options);
+    const data = await response.json();
+
+    // Handle rate limiting (better than Clio!)
+    if (response.status === 429) {
+      if (retryCount < maxRetries) {
+        const delay = baseDelay * Math.pow(2, retryCount);
+        console.log(`QuickBooks rate limited, retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return quickBooksApiRequest(method, url, accessToken, body, retryCount + 1);
+      }
+      throw new Error('QuickBooks rate limit exceeded after retries');
+    }
+
+    // Handle server errors with retry
+    if (response.status >= 500 && retryCount < maxRetries) {
+      const delay = baseDelay * Math.pow(2, retryCount);
+      console.log(`QuickBooks server error ${response.status}, retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return quickBooksApiRequest(method, url, accessToken, body, retryCount + 1);
+    }
+
+    if (!response.ok) {
+      const errorMsg = data.Fault?.Error?.[0]?.Detail || data.Fault?.Error?.[0]?.Message || `HTTP ${response.status}`;
+      throw new Error(`QuickBooks API error: ${errorMsg}`);
+    }
+
+    return data;
+  } catch (error) {
+    // Network errors - retry
+    if (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT') {
+      if (retryCount < maxRetries) {
+        const delay = baseDelay * Math.pow(2, retryCount);
+        console.log(`Network error, retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return quickBooksApiRequest(method, url, accessToken, body, retryCount + 1);
+      }
+    }
+    throw error;
+  }
+}
+
+/**
+ * Find or create a customer in QuickBooks
+ */
+async function findOrCreateQuickBooksCustomer(firmId, client) {
+  const { accessToken, realmId, baseUrl } = await getQuickBooksAccessToken(firmId);
+
+  // Check if we already have a QuickBooks ID for this client
+  if (client.quickbooks_customer_id) {
+    // Verify it still exists in QuickBooks
+    try {
+      const result = await quickBooksApiRequest(
+        'GET',
+        `${baseUrl}/v3/company/${realmId}/customer/${client.quickbooks_customer_id}?minorversion=65`,
+        accessToken
+      );
+      if (result.Customer) {
+        return result.Customer.Id;
+      }
+    } catch (error) {
+      console.log('Cached QuickBooks customer not found, will search/create');
+    }
+  }
+
+  // Search for existing customer by name
+  const searchQuery = encodeURIComponent(`SELECT * FROM Customer WHERE DisplayName = '${client.display_name.replace(/'/g, "''")}'`);
+  const searchResult = await quickBooksApiRequest(
+    'GET',
+    `${baseUrl}/v3/company/${realmId}/query?query=${searchQuery}&minorversion=65`,
+    accessToken
+  );
+
+  if (searchResult.QueryResponse?.Customer?.length > 0) {
+    const qbCustomerId = searchResult.QueryResponse.Customer[0].Id;
+    // Cache the QuickBooks ID
+    await query(
+      'UPDATE clients SET quickbooks_customer_id = $1 WHERE id = $2',
+      [qbCustomerId, client.id]
+    );
+    return qbCustomerId;
+  }
+
+  // Create new customer in QuickBooks
+  const customerData = {
+    DisplayName: client.display_name,
+    PrimaryEmailAddr: client.email ? { Address: client.email } : undefined,
+    PrimaryPhone: client.phone ? { FreeFormNumber: client.phone } : undefined,
+    BillAddr: client.address_street ? {
+      Line1: client.address_street,
+      City: client.address_city,
+      CountrySubDivisionCode: client.address_state,
+      PostalCode: client.address_zip
+    } : undefined
+  };
+
+  const createResult = await quickBooksApiRequest(
+    'POST',
+    `${baseUrl}/v3/company/${realmId}/customer?minorversion=65`,
+    accessToken,
+    customerData
+  );
+
+  const qbCustomerId = createResult.Customer.Id;
+  
+  // Cache the QuickBooks ID
+  await query(
+    'UPDATE clients SET quickbooks_customer_id = $1 WHERE id = $2',
+    [qbCustomerId, client.id]
+  );
+
+  return qbCustomerId;
+}
+
+/**
+ * Create a payment in QuickBooks
+ * This syncs payments from Apex to QuickBooks
+ */
+async function createQuickBooksPayment(firmId, payment, invoice, client) {
+  const { accessToken, realmId, baseUrl } = await getQuickBooksAccessToken(firmId);
+
+  // Ensure customer exists in QuickBooks
+  const qbCustomerId = await findOrCreateQuickBooksCustomer(firmId, client);
+
+  // Build the payment object
+  const paymentData = {
+    CustomerRef: {
+      value: qbCustomerId
+    },
+    TotalAmt: parseFloat(payment.amount),
+    PaymentMethodRef: payment.payment_method ? {
+      value: getQuickBooksPaymentMethodId(payment.payment_method)
+    } : undefined,
+    PrivateNote: payment.notes || `Payment recorded in Apex Legal - Ref: ${payment.reference || payment.id}`,
+    TxnDate: payment.payment_date
+  };
+
+  // If this payment is linked to a QuickBooks invoice, add it
+  if (invoice?.quickbooks_invoice_id) {
+    paymentData.Line = [{
+      Amount: parseFloat(payment.amount),
+      LinkedTxn: [{
+        TxnId: invoice.quickbooks_invoice_id,
+        TxnType: 'Invoice'
+      }]
+    }];
+  }
+
+  const result = await quickBooksApiRequest(
+    'POST',
+    `${baseUrl}/v3/company/${realmId}/payment?minorversion=65`,
+    accessToken,
+    paymentData
+  );
+
+  return result.Payment;
+}
+
+/**
+ * Map Apex payment methods to QuickBooks payment method IDs
+ * QuickBooks has predefined payment methods, but you can also create custom ones
+ */
+function getQuickBooksPaymentMethodId(apexMethod) {
+  // These are common QuickBooks payment method IDs
+  // You may need to query your specific QuickBooks company for exact IDs
+  const methodMap = {
+    'credit_card': '1',
+    'card': '1',
+    'cash': '2',
+    'check': '3',
+    'ach': '4',
+    'bank_transfer': '4',
+    'wire': '4',
+    'apple_pay': '1',
+    'google_pay': '1',
+    'stripe': '1',
+    'apex_pay': '1' // Map Apex Pay to credit card
+  };
+  return methodMap[apexMethod?.toLowerCase()] || '1'; // Default to credit card
+}
+
+/**
+ * POST /api/integrations/quickbooks/payments
+ * Record a payment in QuickBooks from Apex
+ */
+router.post('/quickbooks/payments', authenticate, async (req, res) => {
+  try {
+    const { paymentId, invoiceId, clientId, amount, paymentMethod, reference, paymentDate, notes } = req.body;
+
+    // Validate required fields
+    if (!clientId || !amount) {
+      return res.status(400).json({ error: 'Client ID and amount are required' });
+    }
+
+    // Get client info
+    const clientResult = await query(
+      'SELECT * FROM clients WHERE id = $1 AND firm_id = $2',
+      [clientId, req.user.firmId]
+    );
+
+    if (clientResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    const client = clientResult.rows[0];
+
+    // Get invoice info if provided
+    let invoice = null;
+    if (invoiceId) {
+      const invoiceResult = await query(
+        'SELECT * FROM invoices WHERE id = $1 AND firm_id = $2',
+        [invoiceId, req.user.firmId]
+      );
+      invoice = invoiceResult.rows[0] || null;
+    }
+
+    // Create payment object
+    const payment = {
+      id: paymentId || crypto.randomUUID(),
+      amount,
+      payment_method: paymentMethod,
+      reference,
+      payment_date: paymentDate || new Date().toISOString().split('T')[0],
+      notes
+    };
+
+    // Create payment in QuickBooks
+    const qbPayment = await createQuickBooksPayment(req.user.firmId, payment, invoice, client);
+
+    // If we have a local payment ID, update it with the QuickBooks ID
+    if (paymentId) {
+      await query(
+        `UPDATE payments SET 
+          external_id = $1, 
+          external_source = 'quickbooks',
+          sync_status = 'synced',
+          synced_at = NOW()
+        WHERE id = $2`,
+        [qbPayment.Id, paymentId]
+      );
+    }
+
+    res.json({
+      success: true,
+      quickbooksPaymentId: qbPayment.Id,
+      message: 'Payment recorded in QuickBooks'
+    });
+
+  } catch (error) {
+    console.error('QuickBooks payment sync error:', error);
+    
+    // If we have a payment ID, record the failure for retry
+    if (req.body.paymentId) {
+      await query(
+        `UPDATE payments SET 
+          sync_status = 'failed',
+          sync_error = $1,
+          retry_count = COALESCE(retry_count, 0) + 1
+        WHERE id = $2`,
+        [error.message, req.body.paymentId]
+      ).catch(e => console.error('Failed to update payment sync status:', e));
+    }
+
+    res.status(500).json({ 
+      error: 'Failed to record payment in QuickBooks',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/integrations/quickbooks/invoices
+ * Create/sync an invoice to QuickBooks
+ */
+router.post('/quickbooks/invoices', authenticate, async (req, res) => {
+  try {
+    const { invoiceId } = req.body;
+
+    if (!invoiceId) {
+      return res.status(400).json({ error: 'Invoice ID is required' });
+    }
+
+    // Get the invoice with related data
+    const invoiceResult = await query(
+      `SELECT i.*, c.id as client_uuid, c.display_name as client_name, c.email as client_email, 
+              c.phone as client_phone, c.address_street, c.address_city, c.address_state, c.address_zip,
+              c.quickbooks_customer_id
+       FROM invoices i
+       LEFT JOIN clients c ON i.client_id = c.id
+       WHERE i.id = $1 AND i.firm_id = $2`,
+      [invoiceId, req.user.firmId]
+    );
+
+    if (invoiceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    const invoice = invoiceResult.rows[0];
+    const client = {
+      id: invoice.client_uuid,
+      display_name: invoice.client_name,
+      email: invoice.client_email,
+      phone: invoice.client_phone,
+      address_street: invoice.address_street,
+      address_city: invoice.address_city,
+      address_state: invoice.address_state,
+      address_zip: invoice.address_zip,
+      quickbooks_customer_id: invoice.quickbooks_customer_id
+    };
+
+    const { accessToken, realmId, baseUrl } = await getQuickBooksAccessToken(req.user.firmId);
+
+    // Ensure customer exists in QuickBooks
+    const qbCustomerId = await findOrCreateQuickBooksCustomer(req.user.firmId, client);
+
+    // Build QuickBooks invoice lines
+    const lines = [];
+    const lineItems = invoice.line_items || [];
+    
+    for (const item of lineItems) {
+      lines.push({
+        DetailType: 'SalesItemLineDetail',
+        Amount: item.amount || (item.quantity * item.rate),
+        Description: item.description,
+        SalesItemLineDetail: {
+          UnitPrice: item.rate,
+          Qty: item.quantity || 1
+        }
+      });
+    }
+
+    // If no line items, create a single line with the total
+    if (lines.length === 0) {
+      lines.push({
+        DetailType: 'SalesItemLineDetail',
+        Amount: parseFloat(invoice.total),
+        Description: `Invoice ${invoice.number}`,
+        SalesItemLineDetail: {
+          UnitPrice: parseFloat(invoice.total),
+          Qty: 1
+        }
+      });
+    }
+
+    const invoiceData = {
+      CustomerRef: {
+        value: qbCustomerId
+      },
+      Line: lines,
+      DocNumber: invoice.number,
+      TxnDate: invoice.issue_date,
+      DueDate: invoice.due_date,
+      CustomerMemo: invoice.notes ? { value: invoice.notes } : undefined,
+      PrivateNote: `Synced from Apex Legal - ID: ${invoice.id}`
+    };
+
+    // Check if invoice already exists in QuickBooks (update) or create new
+    let qbInvoice;
+    if (invoice.quickbooks_invoice_id) {
+      // Get current version for update
+      const existingResult = await quickBooksApiRequest(
+        'GET',
+        `${baseUrl}/v3/company/${realmId}/invoice/${invoice.quickbooks_invoice_id}?minorversion=65`,
+        accessToken
+      );
+      
+      invoiceData.Id = invoice.quickbooks_invoice_id;
+      invoiceData.SyncToken = existingResult.Invoice.SyncToken;
+      
+      qbInvoice = await quickBooksApiRequest(
+        'POST',
+        `${baseUrl}/v3/company/${realmId}/invoice?minorversion=65`,
+        accessToken,
+        invoiceData
+      );
+    } else {
+      qbInvoice = await quickBooksApiRequest(
+        'POST',
+        `${baseUrl}/v3/company/${realmId}/invoice?minorversion=65`,
+        accessToken,
+        invoiceData
+      );
+    }
+
+    // Save QuickBooks invoice ID
+    await query(
+      `UPDATE invoices SET 
+        quickbooks_invoice_id = $1, 
+        quickbooks_sync_status = 'synced'
+      WHERE id = $2`,
+      [qbInvoice.Invoice.Id, invoiceId]
+    );
+
+    res.json({
+      success: true,
+      quickbooksInvoiceId: qbInvoice.Invoice.Id,
+      message: 'Invoice synced to QuickBooks'
+    });
+
+  } catch (error) {
+    console.error('QuickBooks invoice sync error:', error);
+
+    // Update sync status
+    if (req.body.invoiceId) {
+      await query(
+        `UPDATE invoices SET quickbooks_sync_status = 'failed' WHERE id = $1`,
+        [req.body.invoiceId]
+      ).catch(e => console.error('Failed to update invoice sync status:', e));
+    }
+
+    res.status(500).json({ 
+      error: 'Failed to sync invoice to QuickBooks',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/integrations/quickbooks/sync-payment
+ * Called internally when a payment is recorded (from Stripe/Apex Pay or manual)
+ * This adds the payment to a sync queue with retry logic
+ */
+router.post('/quickbooks/sync-payment', authenticate, async (req, res) => {
+  try {
+    const { paymentId } = req.body;
+
+    if (!paymentId) {
+      return res.status(400).json({ error: 'Payment ID is required' });
+    }
+
+    // Check if QuickBooks is connected
+    const integration = await query(
+      `SELECT id FROM integrations WHERE firm_id = $1 AND provider = 'quickbooks' AND is_connected = true`,
+      [req.user.firmId]
+    );
+
+    if (integration.rows.length === 0) {
+      // QuickBooks not connected, skip sync silently
+      return res.json({ 
+        success: true, 
+        synced: false, 
+        message: 'QuickBooks not connected, sync skipped' 
+      });
+    }
+
+    // Add to sync queue
+    await query(
+      `INSERT INTO quickbooks_sync_queue (firm_id, entity_type, entity_id, action, status, next_retry_at)
+       VALUES ($1, 'payment', $2, 'create', 'pending', NOW())
+       ON CONFLICT DO NOTHING`,
+      [req.user.firmId, paymentId]
+    );
+
+    // Try immediate sync
+    try {
+      // Get payment details
+      const paymentResult = await query(
+        `SELECT p.*, i.id as invoice_id, i.quickbooks_invoice_id,
+                c.id as client_uuid, c.display_name, c.email, c.phone,
+                c.address_street, c.address_city, c.address_state, c.address_zip,
+                c.quickbooks_customer_id
+         FROM payments p
+         LEFT JOIN invoices i ON p.invoice_id = i.id
+         LEFT JOIN clients c ON p.client_id = c.id
+         WHERE p.id = $1 AND p.firm_id = $2`,
+        [paymentId, req.user.firmId]
+      );
+
+      if (paymentResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Payment not found' });
+      }
+
+      const paymentRow = paymentResult.rows[0];
+      
+      const payment = {
+        id: paymentRow.id,
+        amount: paymentRow.amount,
+        payment_method: paymentRow.payment_method,
+        reference: paymentRow.reference,
+        payment_date: paymentRow.payment_date,
+        notes: paymentRow.notes
+      };
+
+      const invoice = paymentRow.invoice_id ? {
+        quickbooks_invoice_id: paymentRow.quickbooks_invoice_id
+      } : null;
+
+      const client = {
+        id: paymentRow.client_uuid,
+        display_name: paymentRow.display_name,
+        email: paymentRow.email,
+        phone: paymentRow.phone,
+        address_street: paymentRow.address_street,
+        address_city: paymentRow.address_city,
+        address_state: paymentRow.address_state,
+        address_zip: paymentRow.address_zip,
+        quickbooks_customer_id: paymentRow.quickbooks_customer_id
+      };
+
+      const qbPayment = await createQuickBooksPayment(req.user.firmId, payment, invoice, client);
+
+      // Update payment with QuickBooks ID
+      await query(
+        `UPDATE payments SET 
+          external_id = $1, 
+          external_source = 'quickbooks',
+          sync_status = 'synced',
+          synced_at = NOW()
+        WHERE id = $2`,
+        [qbPayment.Id, paymentId]
+      );
+
+      // Mark queue item as complete
+      await query(
+        `UPDATE quickbooks_sync_queue SET 
+          status = 'completed', 
+          completed_at = NOW(),
+          processed_at = NOW()
+        WHERE entity_type = 'payment' AND entity_id = $1`,
+        [paymentId]
+      );
+
+      res.json({
+        success: true,
+        synced: true,
+        quickbooksPaymentId: qbPayment.Id,
+        message: 'Payment synced to QuickBooks'
+      });
+
+    } catch (syncError) {
+      console.error('Immediate sync failed, queued for retry:', syncError.message);
+
+      // Update queue item for retry
+      await query(
+        `UPDATE quickbooks_sync_queue SET 
+          status = 'failed',
+          error_message = $1,
+          retry_count = retry_count + 1,
+          next_retry_at = NOW() + INTERVAL '5 minutes'
+        WHERE entity_type = 'payment' AND entity_id = $2`,
+        [syncError.message, paymentId]
+      );
+
+      // Update payment sync status
+      await query(
+        `UPDATE payments SET 
+          sync_status = 'pending_retry',
+          sync_error = $1,
+          retry_count = COALESCE(retry_count, 0) + 1
+        WHERE id = $2`,
+        [syncError.message, paymentId]
+      );
+
+      res.json({
+        success: true,
+        synced: false,
+        queued: true,
+        message: 'Payment queued for retry sync to QuickBooks'
+      });
+    }
+
+  } catch (error) {
+    console.error('QuickBooks sync-payment error:', error);
+    res.status(500).json({ 
+      error: 'Failed to queue payment sync',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/integrations/quickbooks/sync-status
+ * Get status of QuickBooks sync operations
+ */
+router.get('/quickbooks/sync-status', authenticate, async (req, res) => {
+  try {
+    // Get pending/failed sync items
+    const queueResult = await query(
+      `SELECT entity_type, COUNT(*) as count, status
+       FROM quickbooks_sync_queue
+       WHERE firm_id = $1 AND status IN ('pending', 'failed', 'processing')
+       GROUP BY entity_type, status`,
+      [req.user.firmId]
+    );
+
+    // Get recently synced items
+    const recentResult = await query(
+      `SELECT entity_type, entity_id, status, completed_at, error_message
+       FROM quickbooks_sync_queue
+       WHERE firm_id = $1
+       ORDER BY COALESCE(completed_at, created_at) DESC
+       LIMIT 20`,
+      [req.user.firmId]
+    );
+
+    // Get payments needing sync
+    const pendingPayments = await query(
+      `SELECT COUNT(*) as count
+       FROM payments
+       WHERE firm_id = $1 AND sync_status IN ('pending', 'pending_retry', 'failed')`,
+      [req.user.firmId]
+    );
+
+    res.json({
+      queue: queueResult.rows,
+      recent: recentResult.rows,
+      pendingPayments: parseInt(pendingPayments.rows[0]?.count || 0)
+    });
+
+  } catch (error) {
+    console.error('QuickBooks sync status error:', error);
+    res.status(500).json({ error: 'Failed to get sync status' });
+  }
+});
+
+/**
+ * POST /api/integrations/quickbooks/retry-failed
+ * Retry all failed sync operations
+ */
+router.post('/quickbooks/retry-failed', authenticate, async (req, res) => {
+  try {
+    // Reset failed items to pending
+    const result = await query(
+      `UPDATE quickbooks_sync_queue SET 
+        status = 'pending',
+        next_retry_at = NOW(),
+        processed_at = NULL
+       WHERE firm_id = $1 AND status = 'failed' AND retry_count < max_retries
+       RETURNING id`,
+      [req.user.firmId]
+    );
+
+    res.json({
+      success: true,
+      retriedCount: result.rows.length,
+      message: `${result.rows.length} items queued for retry`
+    });
+
+  } catch (error) {
+    console.error('QuickBooks retry failed error:', error);
+    res.status(500).json({ error: 'Failed to retry sync' });
+  }
+});
+
+// Export helper functions for use in other routes
+export { 
+  getQuickBooksAccessToken, 
+  createQuickBooksPayment, 
+  findOrCreateQuickBooksCustomer,
+  quickBooksApiRequest 
+};
+
+// ============================================
 // OUTLOOK/MICROSOFT INTEGRATION
 // ============================================
 
