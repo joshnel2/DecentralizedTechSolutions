@@ -1221,7 +1221,8 @@ function PaymentModal({ invoice, onClose, onSave }: {
     paymentMethod: 'check',
     reference: '',
     paymentDate: format(new Date(), 'yyyy-MM-dd'),
-    notes: ''
+    notes: '',
+    syncToQuickBooks: true
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1325,6 +1326,21 @@ function PaymentModal({ invoice, onClose, onSave }: {
               placeholder="Payment notes..."
               rows={2}
             />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={formData.syncToQuickBooks}
+                onChange={(e) => setFormData({...formData, syncToQuickBooks: e.target.checked})}
+                style={{ width: '16px', height: '16px', accentColor: 'var(--apex-gold)' }}
+              />
+              <span style={{ fontWeight: 400 }}>Sync payment to QuickBooks</span>
+            </label>
+            <p style={{ fontSize: '0.75rem', color: 'var(--apex-muted)', marginTop: '4px' }}>
+              If connected, this payment will be automatically recorded in QuickBooks
+            </p>
           </div>
 
           <div className={styles.modalActions}>

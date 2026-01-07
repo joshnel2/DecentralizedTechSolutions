@@ -468,6 +468,22 @@ export const invoicesApi = {
     });
   },
 
+  async getPayments(id: string) {
+    return fetchWithAuth(`/invoices/${id}/payments`);
+  },
+
+  async syncToQuickBooks(id: string) {
+    return fetchWithAuth(`/invoices/${id}/sync-quickbooks`, {
+      method: 'POST',
+    });
+  },
+
+  async syncPaymentToQuickBooks(invoiceId: string, paymentId: string) {
+    return fetchWithAuth(`/invoices/${invoiceId}/payments/${paymentId}/sync-quickbooks`, {
+      method: 'POST',
+    });
+  },
+
   async delete(id: string) {
     return fetchWithAuth(`/invoices/${id}`, { method: 'DELETE' });
   },
