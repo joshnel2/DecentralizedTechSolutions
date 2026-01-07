@@ -2,11 +2,10 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
-import { useAIChat } from '../contexts/AIChatContext'
 import { invoicesApi } from '../services/api'
 import { 
   Plus, Search, DollarSign, FileText, TrendingUp, AlertCircle,
-  CheckCircle2, Clock, Send, MoreVertical, Sparkles, Download,
+  CheckCircle2, Clock, Send, MoreVertical, Download,
   CreditCard, XCircle, Eye, ChevronRight, Filter, Calendar,
   ArrowUpRight, ArrowDownRight, Wallet, Receipt, Trash2, Edit2, User, Users, Mail
 } from 'lucide-react'
@@ -24,7 +23,6 @@ const viewOptions = [
 export function BillingPage() {
   const { invoices, clients, matters, timeEntries, expenses, fetchInvoices, fetchClients, fetchMatters, fetchTimeEntries, addInvoice, updateInvoice } = useDataStore()
   const { firm, user } = useAuthStore()
-  const { openChat } = useAIChat()
   const { emailInvoice } = useEmailCompose()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -413,20 +411,6 @@ export function BillingPage() {
           <p className={styles.headerSubtitle}>{canViewAllBilling && viewFilter === 'all' ? 'Manage all firm invoices, payments, and billing' : 'Your invoices, payments, and billing'}</p>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.aiBtn} onClick={() => openChat({
-              label: 'Billing',
-              contextType: 'billing',
-              suggestedQuestions: [
-                'Analyze my outstanding receivables',
-                'Which invoices are overdue and need follow-up?',
-                'What is my collection rate trend?',
-                'Suggest ways to improve billing efficiency',
-                'Give me a summary of this month\'s billing'
-              ]
-            })}>
-            <Sparkles size={16} />
-            AI Insights
-          </button>
           <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
             <Plus size={18} />
             New Invoice
