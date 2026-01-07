@@ -759,11 +759,11 @@ const TOOLS = [
     type: "function",
     function: {
       name: "find_and_read_document",
-      description: "Find a document by name and read its content. Use this when user asks about a document by name (e.g., 'What's in the Smith contract?'). Searches document names and extracts text content.",
+      description: "Find a document by name and read its content. Use this when user asks about a document by name. Searches flexibly - you can use partial names, keywords, or descriptions. Examples: 'contract', 'Smith', 'engagement', 'letter'. The search is case-insensitive and matches partial names.",
       parameters: {
         type: "object",
         properties: {
-          document_name: { type: "string", description: "Name or partial name of the document to find (e.g., 'Smith contract', 'engagement letter')" },
+          document_name: { type: "string", description: "Search term - can be partial name, keyword, or any part of the document name (e.g., 'Smith', 'contract', 'engagement'). Keep it simple - one or two words work best." },
           matter_id: { type: "string", description: "Optional: limit search to specific matter" },
           max_length: { type: "number", description: "Max characters to return (default 10000)" }
         },
@@ -838,14 +838,14 @@ const TOOLS = [
     type: "function",
     function: {
       name: "create_document",
-      description: "Create a new professional PDF document and save it to a matter or client. Use this to draft contracts, letters, memos, engagement letters, pleadings, or any legal document. The document will be automatically formatted as a PDF and will appear in the matter's Documents section.",
+      description: "Create a new professional PDF document. IMPORTANT: You MUST include matter_id to save the document to a matter - without it, the document won't appear in the matter's Documents section. Always find the matter first with search_matters, then include the matter_id here.",
       parameters: {
         type: "object",
         properties: {
           name: { type: "string", description: "Document name without extension (e.g. 'Client Engagement Letter', 'Settlement Agreement')" },
-          content: { type: "string", description: "The full text content of the document. Use markdown-style formatting: # for headers, ## for subheaders, - for bullets, **bold** for emphasis." },
-          matter_id: { type: "string", description: "Matter UUID to attach the document to (REQUIRED for matter documents). The document will appear in the matter's Documents tab." },
-          client_id: { type: "string", description: "Client UUID to attach the document to (if no matter specified)" },
+          content: { type: "string", description: "The full text content of the document. Use markdown-style formatting: # for headers, ## for subheaders, - for bullets, **bold** for emphasis. Write COMPLETE professional content." },
+          matter_id: { type: "string", description: "Matter UUID - ALWAYS INCLUDE THIS when creating a document for a matter. Find it first with search_matters if needed." },
+          client_id: { type: "string", description: "Client UUID (only if not attaching to a matter)" },
           tags: { type: "array", items: { type: "string" }, description: "Optional: tags for the document" }
         },
         required: ["name", "content"]
@@ -4599,30 +4599,68 @@ async function findAndReadDocument(args, user) {
     return { error: 'document_name must be at least 2 characters' };
   }
   
-  // Search for the document by name
+  // Split search term into keywords for flexible matching
+  const keywords = document_name.trim().split(/\s+/).filter(k => k.length >= 2);
+  
+  // Build flexible search - match ANY keyword in name OR original_name
   let sql = `
     SELECT d.id, d.name, d.original_name, d.type, d.content_text, d.ai_summary, d.path,
-           d.azure_path, d.external_path, d.folder_path, m.name as matter_name
+           d.azure_path, d.external_path, d.folder_path, m.name as matter_name,
+           (
+             CASE WHEN d.name ILIKE $2 OR d.original_name ILIKE $2 THEN 10 ELSE 0 END +
+             CASE WHEN d.name ILIKE $3 OR d.original_name ILIKE $3 THEN 5 ELSE 0 END
+           ) as relevance
     FROM documents d
     LEFT JOIN matters m ON d.matter_id = m.id
-    WHERE d.firm_id = $1 AND (d.name ILIKE $2 OR d.original_name ILIKE $2)
+    WHERE d.firm_id = $1 AND (
+      d.name ILIKE $2 OR d.original_name ILIKE $2 OR
+      d.name ILIKE $3 OR d.original_name ILIKE $3
   `;
-  const params = [user.firmId, `%${document_name}%`];
   
-  if (matter_id) {
-    sql += ` AND d.matter_id = $3`;
-    params.push(matter_id);
+  // Full phrase match gets higher priority, individual keywords also match
+  const fullPhrase = `%${document_name}%`;
+  const firstKeyword = keywords.length > 0 ? `%${keywords[0]}%` : fullPhrase;
+  const params = [user.firmId, fullPhrase, firstKeyword];
+  let idx = 4;
+  
+  // Add additional keywords to search
+  for (let i = 1; i < keywords.length && i < 4; i++) {
+    sql += ` OR d.name ILIKE $${idx} OR d.original_name ILIKE $${idx}`;
+    params.push(`%${keywords[i]}%`);
+    idx++;
   }
   
-  sql += ` ORDER BY d.uploaded_at DESC NULLS LAST LIMIT 5`;
+  sql += `)`;
+  
+  if (matter_id) {
+    sql += ` AND d.matter_id = $${idx}`;
+    params.push(matter_id);
+    idx++;
+  }
+  
+  sql += ` ORDER BY relevance DESC, d.uploaded_at DESC NULLS LAST LIMIT 10`;
   
   const result = await query(sql, params);
   
   if (result.rows.length === 0) {
-    return { 
-      error: `No documents found matching "${document_name}"`,
-      suggestion: 'Try using list_documents to see all available documents, or check the exact document name.'
-    };
+    // Try one more search with just the first keyword
+    const fallbackSql = `
+      SELECT d.id, d.name, d.original_name, d.type, d.content_text, d.ai_summary, d.path,
+             d.azure_path, d.external_path, d.folder_path, m.name as matter_name
+      FROM documents d
+      LEFT JOIN matters m ON d.matter_id = m.id
+      WHERE d.firm_id = $1 AND (d.name ILIKE $2 OR d.original_name ILIKE $2)
+      ORDER BY d.uploaded_at DESC NULLS LAST LIMIT 10
+    `;
+    const fallbackResult = await query(fallbackSql, [user.firmId, `%${keywords[0] || document_name}%`]);
+    
+    if (fallbackResult.rows.length === 0) {
+      return { 
+        error: `No documents found matching "${document_name}"`,
+        suggestion: 'Try using list_documents to see all available documents, or use a shorter/simpler search term.'
+      };
+    }
+    result.rows = fallbackResult.rows;
   }
   
   // If multiple matches, list them and read the first one
@@ -11609,6 +11647,28 @@ HOW TO THINK:
     The email should be READY TO SEND when you create the draft. Don't make the user rewrite it.
     
     If Outlook is connected, the draft appears in their Outlook Drafts folder. If not, show them the complete draft they can copy.
+
+14. CREATE DOCUMENTS IN MATTERS
+    When asked to create, draft, or write a document - ALWAYS include the matter_id so it goes in the right place.
+    
+    - "Create a letter for the Smith case" → First find the Smith matter (search_matters), then create_document WITH matter_id
+    - "Draft an engagement letter" → If they're on a matter page, use that matter_id. Otherwise ask which matter or find the most relevant one.
+    - "Write a memo about..." → Same - always attach to a matter using matter_id
+    
+    The document MUST have matter_id set or it won't appear in the matter's Documents section.
+    
+    ALWAYS:
+    1. Find the matter first (use search_matters or list_my_matters if needed)
+    2. Call create_document with matter_id included
+    3. Write COMPLETE, professional content - not outlines
+    
+15. FLEXIBLE DOCUMENT SEARCH
+    When looking for documents, use simple keywords. The search is flexible:
+    - "Smith contract" → search for "Smith" or "contract"  
+    - "engagement letter" → search for "engagement"
+    - Just use the most distinctive word from what the user said
+    
+    If the first search doesn't find it, try simpler terms or use list_documents to see what's available.
 
 NEVER fabricate errors or technical issues. If tools return data, use it confidently. Only mention problems if they actually occurred.`;
 }
