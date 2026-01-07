@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query, withTransaction } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import { getTodayInTimezone, getCurrentYear } from '../utils/dateUtils.js';
+import { pushPaymentToQuickBooks, pushInvoiceToQuickBooks, syncPendingToQuickBooks } from '../utils/quickbooksSync.js';
 
 const router = Router();
 
@@ -325,7 +326,7 @@ router.put('/:id', authenticate, requirePermission('billing:edit'), async (req, 
 // Record payment
 router.post('/:id/payments', authenticate, requirePermission('billing:edit'), async (req, res) => {
   try {
-    const { amount, paymentMethod, reference, paymentDate, notes } = req.body;
+    const { amount, paymentMethod, reference, paymentDate, notes, syncToQuickBooks = true } = req.body;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({ error: 'Valid payment amount required' });
@@ -341,19 +342,22 @@ router.post('/:id/payments', authenticate, requirePermission('billing:edit'), as
     }
 
     const invoice = invoiceResult.rows[0];
+    let paymentId;
 
     await withTransaction(async (client) => {
       // Record payment
-      await client.query(
+      const paymentResult = await client.query(
         `INSERT INTO payments (
           firm_id, invoice_id, client_id, amount, payment_method,
-          reference, payment_date, notes, created_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          reference, payment_date, notes, created_by, quickbooks_sync_status
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
+        RETURNING id`,
         [
           req.user.firmId, invoice.id, invoice.client_id, amount,
           paymentMethod, reference, paymentDate || getTodayInTimezone(), notes, req.user.id
         ]
       );
+      paymentId = paymentResult.rows[0].id;
 
       // Update invoice
       const newAmountPaid = parseFloat(invoice.amount_paid) + amount;
@@ -370,10 +374,120 @@ router.post('/:id/payments', authenticate, requirePermission('billing:edit'), as
       );
     });
 
-    res.json({ message: 'Payment recorded successfully' });
+    // Sync to QuickBooks asynchronously (don't block the response)
+    let quickbooksSync = null;
+    if (syncToQuickBooks && paymentId) {
+      // Don't await - let it happen in the background
+      pushPaymentToQuickBooks(req.user.firmId, paymentId)
+        .then(result => {
+          console.log(`QuickBooks payment sync result for payment ${paymentId}:`, result);
+        })
+        .catch(err => {
+          console.error(`QuickBooks payment sync failed for payment ${paymentId}:`, err);
+        });
+      quickbooksSync = 'pending';
+    }
+
+    res.json({ 
+      message: 'Payment recorded successfully',
+      paymentId,
+      quickbooksSync
+    });
   } catch (error) {
     console.error('Record payment error:', error);
     res.status(500).json({ error: 'Failed to record payment' });
+  }
+});
+
+// Get payments for an invoice
+router.get('/:id/payments', authenticate, requirePermission('billing:view'), async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT p.*, u.first_name || ' ' || u.last_name as created_by_name
+       FROM payments p
+       LEFT JOIN users u ON p.created_by = u.id
+       WHERE p.invoice_id = $1 AND p.firm_id = $2
+       ORDER BY p.payment_date DESC, p.created_at DESC`,
+      [req.params.id, req.user.firmId]
+    );
+
+    res.json({
+      payments: result.rows.map(p => ({
+        id: p.id,
+        amount: parseFloat(p.amount),
+        paymentMethod: p.payment_method,
+        reference: p.reference,
+        paymentDate: p.payment_date,
+        notes: p.notes,
+        createdBy: p.created_by,
+        createdByName: p.created_by_name,
+        createdAt: p.created_at,
+        quickbooksId: p.quickbooks_id,
+        quickbooksSyncStatus: p.quickbooks_sync_status,
+        quickbooksSyncedAt: p.quickbooks_synced_at,
+        quickbooksSyncError: p.quickbooks_sync_error
+      }))
+    });
+  } catch (error) {
+    console.error('Get payments error:', error);
+    res.status(500).json({ error: 'Failed to get payments' });
+  }
+});
+
+// Sync invoice to QuickBooks
+router.post('/:id/sync-quickbooks', authenticate, requirePermission('billing:edit'), async (req, res) => {
+  try {
+    const result = await pushInvoiceToQuickBooks(req.user.firmId, req.params.id);
+    
+    if (result.success) {
+      res.json({ 
+        message: 'Invoice synced to QuickBooks',
+        quickbooksId: result.quickbooks_id
+      });
+    } else {
+      res.status(400).json({ 
+        error: result.error || result.reason || 'Sync failed'
+      });
+    }
+  } catch (error) {
+    console.error('QuickBooks sync error:', error);
+    res.status(500).json({ error: 'Failed to sync to QuickBooks' });
+  }
+});
+
+// Retry payment sync to QuickBooks
+router.post('/:invoiceId/payments/:paymentId/sync-quickbooks', authenticate, requirePermission('billing:edit'), async (req, res) => {
+  try {
+    const result = await pushPaymentToQuickBooks(req.user.firmId, req.params.paymentId);
+    
+    if (result.success) {
+      res.json({ 
+        message: 'Payment synced to QuickBooks',
+        quickbooksId: result.quickbooks_id
+      });
+    } else {
+      res.status(400).json({ 
+        error: result.error || result.reason || 'Sync failed'
+      });
+    }
+  } catch (error) {
+    console.error('QuickBooks payment sync error:', error);
+    res.status(500).json({ error: 'Failed to sync payment to QuickBooks' });
+  }
+});
+
+// Bulk sync pending items to QuickBooks
+router.post('/sync-all-quickbooks', authenticate, requirePermission('billing:edit'), async (req, res) => {
+  try {
+    const results = await syncPendingToQuickBooks(req.user.firmId);
+    
+    res.json({
+      message: 'Sync completed',
+      results
+    });
+  } catch (error) {
+    console.error('Bulk QuickBooks sync error:', error);
+    res.status(500).json({ error: 'Failed to sync to QuickBooks' });
   }
 });
 
@@ -393,6 +507,102 @@ router.delete('/:id', authenticate, requirePermission('billing:delete'), async (
   } catch (error) {
     console.error('Delete invoice error:', error);
     res.status(500).json({ error: 'Failed to delete invoice' });
+  }
+});
+
+// Get all payments (with filtering)
+router.get('/all/payments', authenticate, requirePermission('billing:view'), async (req, res) => {
+  try {
+    const { startDate, endDate, clientId, syncStatus, limit = 100, offset = 0 } = req.query;
+    
+    let sql = `
+      SELECT p.*, 
+             i.number as invoice_number,
+             c.display_name as client_name,
+             u.first_name || ' ' || u.last_name as created_by_name
+       FROM payments p
+       LEFT JOIN invoices i ON p.invoice_id = i.id
+       LEFT JOIN clients c ON p.client_id = c.id
+       LEFT JOIN users u ON p.created_by = u.id
+       WHERE p.firm_id = $1
+    `;
+    const params = [req.user.firmId];
+    let paramIndex = 2;
+
+    if (startDate) {
+      sql += ` AND p.payment_date >= $${paramIndex}`;
+      params.push(startDate);
+      paramIndex++;
+    }
+
+    if (endDate) {
+      sql += ` AND p.payment_date <= $${paramIndex}`;
+      params.push(endDate);
+      paramIndex++;
+    }
+
+    if (clientId) {
+      sql += ` AND p.client_id = $${paramIndex}`;
+      params.push(clientId);
+      paramIndex++;
+    }
+
+    if (syncStatus) {
+      sql += ` AND p.quickbooks_sync_status = $${paramIndex}`;
+      params.push(syncStatus);
+      paramIndex++;
+    }
+
+    sql += ` ORDER BY p.payment_date DESC, p.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(parseInt(limit), parseInt(offset));
+
+    const result = await query(sql, params);
+
+    // Get totals
+    const totalsResult = await query(
+      `SELECT 
+        COUNT(*) as total_count,
+        SUM(amount) as total_amount,
+        COUNT(CASE WHEN quickbooks_sync_status = 'synced' THEN 1 END) as synced_count,
+        COUNT(CASE WHEN quickbooks_sync_status = 'failed' THEN 1 END) as failed_count,
+        COUNT(CASE WHEN quickbooks_sync_status = 'pending' THEN 1 END) as pending_count
+       FROM payments WHERE firm_id = $1`,
+      [req.user.firmId]
+    );
+
+    const totals = totalsResult.rows[0];
+
+    res.json({
+      payments: result.rows.map(p => ({
+        id: p.id,
+        invoiceId: p.invoice_id,
+        invoiceNumber: p.invoice_number,
+        clientId: p.client_id,
+        clientName: p.client_name,
+        amount: parseFloat(p.amount),
+        paymentMethod: p.payment_method,
+        reference: p.reference,
+        paymentDate: p.payment_date,
+        notes: p.notes,
+        createdBy: p.created_by,
+        createdByName: p.created_by_name,
+        createdAt: p.created_at,
+        quickbooksId: p.quickbooks_id,
+        quickbooksSyncStatus: p.quickbooks_sync_status,
+        quickbooksSyncedAt: p.quickbooks_synced_at,
+        quickbooksSyncError: p.quickbooks_sync_error
+      })),
+      totals: {
+        count: parseInt(totals.total_count),
+        amount: parseFloat(totals.total_amount || 0),
+        syncedCount: parseInt(totals.synced_count),
+        failedCount: parseInt(totals.failed_count),
+        pendingCount: parseInt(totals.pending_count)
+      }
+    });
+  } catch (error) {
+    console.error('Get all payments error:', error);
+    res.status(500).json({ error: 'Failed to get payments' });
   }
 });
 
