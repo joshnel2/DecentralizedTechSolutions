@@ -3,11 +3,12 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAIChat } from '../contexts/AIChatContext'
-import { teamApi } from '../services/api'
+import { teamApi, mattersApi } from '../services/api'
 import { 
   Plus, Search, Filter, ChevronDown, Briefcase, 
   MoreVertical, Sparkles, Calendar, DollarSign, Users, X,
-  Edit2, Archive, CheckCircle2, Trash2, Eye, XCircle, FileText, Settings, Columns
+  Edit2, Archive, CheckCircle2, Trash2, Eye, XCircle, FileText, Settings, Columns,
+  AlertTriangle, Shield, Loader2, UserX
 } from 'lucide-react'
 import { MatterTypesManager } from '../components/MatterTypesManager'
 import { ColumnSettingsModal, ColumnConfig, loadColumnSettings, getDefaultColumns } from '../components/ColumnSettingsModal'
@@ -662,6 +663,12 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
   const [teamAssignments, setTeamAssignments] = useState<TeamAssignment[]>([])
   const [selectedAttorney, setSelectedAttorney] = useState('')
   const [selectedRate, setSelectedRate] = useState(0)
+  
+  // Conflict check state
+  const [conflictCheckResult, setConflictCheckResult] = useState<any>(null)
+  const [isCheckingConflicts, setIsCheckingConflicts] = useState(false)
+  const [conflictAcknowledged, setConflictAcknowledged] = useState(false)
+  const [opposingPartyName, setOpposingPartyName] = useState('')
 
   const addTeamMember = () => {
     if (!selectedAttorney) return
@@ -693,9 +700,46 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
     ))
   }
 
+  // Run conflict check
+  const runConflictCheck = async () => {
+    const selectedClient = clients.find(c => c.id === formData.clientId)
+    const clientName = selectedClient?.name || selectedClient?.displayName || formData.name
+    
+    if (!clientName && !opposingPartyName) {
+      alert('Please enter a client or matter name to check for conflicts')
+      return
+    }
+    
+    setIsCheckingConflicts(true)
+    setConflictCheckResult(null)
+    setConflictAcknowledged(false)
+    
+    try {
+      const partyNames = opposingPartyName ? [opposingPartyName] : []
+      const result = await mattersApi.checkConflicts({
+        clientName: clientName || undefined,
+        partyNames,
+        matterName: formData.name || undefined
+      })
+      setConflictCheckResult(result)
+    } catch (error) {
+      console.error('Conflict check failed:', error)
+      alert('Failed to run conflict check')
+    } finally {
+      setIsCheckingConflicts(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isSubmitting) return
+    
+    // If there are high severity conflicts and not acknowledged, prevent submission
+    if (conflictCheckResult?.summary?.high > 0 && !conflictAcknowledged) {
+      alert('Please acknowledge the conflict warnings before proceeding')
+      return
+    }
+    
     setIsSubmitting(true)
     try {
       await onSave({
@@ -704,7 +748,8 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
         clientId: formData.clientId || undefined,
         responsibleAttorney: formData.responsibleAttorney || undefined,
         originatingAttorney: formData.originatingAttorney || undefined,
-        teamAssignments: isAdmin ? teamAssignments : undefined
+        teamAssignments: isAdmin ? teamAssignments : undefined,
+        conflictCleared: conflictCheckResult ? !conflictCheckResult.hasConflicts || conflictAcknowledged : false
       })
     } finally {
       setIsSubmitting(false)
@@ -817,6 +862,191 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
               placeholder="Brief description of the matter"
               rows={3}
             />
+          </div>
+
+          {/* Conflict Check Section */}
+          <div className={styles.formGroup} style={{ 
+            background: 'rgba(245, 158, 11, 0.05)', 
+            border: '1px solid rgba(245, 158, 11, 0.2)', 
+            borderRadius: '8px', 
+            padding: '16px',
+            marginTop: '8px'
+          }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+              <Shield size={16} style={{ color: '#F59E0B' }} />
+              Conflict Check
+            </label>
+            
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+              <input
+                type="text"
+                value={opposingPartyName}
+                onChange={(e) => setOpposingPartyName(e.target.value)}
+                placeholder="Opposing party name (optional)"
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                onClick={runConflictCheck}
+                disabled={isCheckingConflicts}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 16px',
+                  background: 'var(--apex-gold)',
+                  border: 'none',
+                  borderRadius: '6px',
+                  color: 'var(--apex-midnight)',
+                  fontWeight: 600,
+                  fontSize: '0.875rem',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {isCheckingConflicts ? (
+                  <><Loader2 size={14} className="spinning" /> Checking...</>
+                ) : (
+                  <><Search size={14} /> Check Conflicts</>
+                )}
+              </button>
+            </div>
+
+            {/* Conflict Check Results */}
+            {conflictCheckResult && (
+              <div style={{ marginTop: '12px' }}>
+                {/* Summary Banner */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '10px 14px',
+                  borderRadius: '6px',
+                  marginBottom: '12px',
+                  background: conflictCheckResult.summary.high > 0 
+                    ? 'rgba(239, 68, 68, 0.15)' 
+                    : conflictCheckResult.summary.medium > 0 
+                      ? 'rgba(245, 158, 11, 0.15)'
+                      : 'rgba(16, 185, 129, 0.15)',
+                  border: `1px solid ${
+                    conflictCheckResult.summary.high > 0 
+                      ? 'rgba(239, 68, 68, 0.3)' 
+                      : conflictCheckResult.summary.medium > 0 
+                        ? 'rgba(245, 158, 11, 0.3)'
+                        : 'rgba(16, 185, 129, 0.3)'
+                  }`
+                }}>
+                  {conflictCheckResult.summary.high > 0 ? (
+                    <AlertTriangle size={18} style={{ color: '#EF4444' }} />
+                  ) : conflictCheckResult.summary.medium > 0 ? (
+                    <AlertTriangle size={18} style={{ color: '#F59E0B' }} />
+                  ) : (
+                    <CheckCircle2 size={18} style={{ color: '#10B981' }} />
+                  )}
+                  <span style={{ 
+                    fontSize: '0.875rem', 
+                    fontWeight: 500,
+                    color: conflictCheckResult.summary.high > 0 
+                      ? '#EF4444' 
+                      : conflictCheckResult.summary.medium > 0 
+                        ? '#F59E0B'
+                        : '#10B981'
+                  }}>
+                    {conflictCheckResult.recommendation}
+                  </span>
+                </div>
+
+                {/* Conflict List */}
+                {conflictCheckResult.conflicts.length > 0 && (
+                  <div style={{ 
+                    maxHeight: '200px', 
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                  }}>
+                    {conflictCheckResult.conflicts.slice(0, 10).map((conflict: any, idx: number) => (
+                      <div 
+                        key={idx}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '10px',
+                          padding: '10px 12px',
+                          background: 'rgba(0,0,0,0.2)',
+                          borderRadius: '6px',
+                          borderLeft: `3px solid ${
+                            conflict.severity === 'high' ? '#EF4444' : 
+                            conflict.severity === 'medium' ? '#F59E0B' : '#64748B'
+                          }`
+                        }}
+                      >
+                        {conflict.matchType === 'client' ? (
+                          <Users size={14} style={{ marginTop: '2px', flexShrink: 0, color: '#94A3B8' }} />
+                        ) : (
+                          <UserX size={14} style={{ marginTop: '2px', flexShrink: 0, color: '#94A3B8' }} />
+                        )}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '0.8125rem', fontWeight: 500, color: 'var(--apex-light)' }}>
+                            {conflict.matchName}
+                            {conflict.role && (
+                              <span style={{ 
+                                marginLeft: '8px', 
+                                fontSize: '0.6875rem', 
+                                padding: '2px 6px', 
+                                background: 'rgba(255,255,255,0.1)', 
+                                borderRadius: '4px',
+                                textTransform: 'uppercase'
+                              }}>
+                                {conflict.role}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: '#94A3B8', marginTop: '2px' }}>
+                            {conflict.description}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {conflictCheckResult.conflicts.length > 10 && (
+                      <div style={{ fontSize: '0.75rem', color: '#64748B', textAlign: 'center', padding: '8px' }}>
+                        + {conflictCheckResult.conflicts.length - 10} more results
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Acknowledgment Checkbox */}
+                {conflictCheckResult.hasConflicts && (
+                  <label style={{ 
+                    display: 'flex', 
+                    alignItems: 'flex-start', 
+                    gap: '10px', 
+                    marginTop: '12px',
+                    padding: '10px 12px',
+                    background: 'rgba(0,0,0,0.2)',
+                    borderRadius: '6px',
+                    cursor: 'pointer'
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={conflictAcknowledged}
+                      onChange={(e) => setConflictAcknowledged(e.target.checked)}
+                      style={{ marginTop: '2px', accentColor: 'var(--apex-gold)' }}
+                    />
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--apex-light)' }}>
+                      I have reviewed the potential conflicts and confirm it is appropriate to proceed with this matter
+                    </span>
+                  </label>
+                )}
+              </div>
+            )}
+
+            {!conflictCheckResult && (
+              <p style={{ fontSize: '0.75rem', color: '#64748B', margin: 0 }}>
+                Run a conflict check to search for existing clients and matter parties that may create a conflict of interest.
+              </p>
+            )}
           </div>
 
           {/* Team Assignment Section - Admin Only */}

@@ -596,4 +596,251 @@ router.delete('/:id', authenticate, requirePermission('matters:delete'), async (
   }
 });
 
+// ============================================
+// CONFLICT CHECK
+// ============================================
+
+/**
+ * Check for potential conflicts of interest
+ * Searches against:
+ * - Existing clients (by name, company name)
+ * - Matter contacts/parties (opposing counsel, parties, witnesses)
+ * - Matter names
+ * 
+ * POST /api/matters/conflict-check
+ */
+router.post('/conflict-check', authenticate, requirePermission('matters:view'), async (req, res) => {
+  try {
+    const { 
+      clientName,      // Name of the potential new client
+      partyNames = [], // Array of related party names to check (opposing party, etc.)
+      matterName       // Optional matter name to check
+    } = req.body;
+
+    if (!clientName && partyNames.length === 0) {
+      return res.status(400).json({ 
+        error: 'Please provide at least a client name or party names to check' 
+      });
+    }
+
+    const conflicts = [];
+    const searchTerms = [];
+
+    // Build search terms
+    if (clientName) {
+      searchTerms.push({ term: clientName, type: 'client' });
+    }
+    partyNames.forEach(name => {
+      if (name && name.trim()) {
+        searchTerms.push({ term: name.trim(), type: 'party' });
+      }
+    });
+
+    // Search each term
+    for (const { term, type } of searchTerms) {
+      const searchPattern = `%${term.toLowerCase()}%`;
+
+      // 1. Search existing clients
+      const clientMatches = await query(
+        `SELECT c.id, c.display_name, c.company_name, c.email, c.type,
+                (SELECT COUNT(*) FROM matters WHERE client_id = c.id) as matter_count
+         FROM clients c
+         WHERE c.firm_id = $1 
+           AND c.is_active = true
+           AND (
+             LOWER(c.display_name) LIKE $2 
+             OR LOWER(c.company_name) LIKE $2
+             OR LOWER(c.first_name || ' ' || c.last_name) LIKE $2
+           )
+         LIMIT 10`,
+        [req.user.firmId, searchPattern]
+      );
+
+      for (const client of clientMatches.rows) {
+        conflicts.push({
+          searchTerm: term,
+          searchType: type,
+          matchType: 'client',
+          matchId: client.id,
+          matchName: client.display_name,
+          companyName: client.company_name,
+          email: client.email,
+          clientType: client.type,
+          matterCount: parseInt(client.matter_count),
+          severity: type === 'party' ? 'high' : 'medium', // Matching a party name to existing client is high severity
+          description: type === 'party' 
+            ? `"${term}" matches existing client "${client.display_name}" - potential adverse party conflict`
+            : `Client "${client.display_name}" already exists in the system`
+        });
+      }
+
+      // 2. Search matter contacts (opposing parties, co-counsel, etc.)
+      const contactMatches = await query(
+        `SELECT mc.id, mc.name, mc.role, mc.firm as contact_firm, mc.email,
+                m.id as matter_id, m.name as matter_name, m.number as matter_number, m.status as matter_status,
+                c.display_name as matter_client_name
+         FROM matter_contacts mc
+         JOIN matters m ON mc.matter_id = m.id
+         LEFT JOIN clients c ON m.client_id = c.id
+         WHERE m.firm_id = $1 
+           AND LOWER(mc.name) LIKE $2
+         ORDER BY m.created_at DESC
+         LIMIT 15`,
+        [req.user.firmId, searchPattern]
+      );
+
+      for (const contact of contactMatches.rows) {
+        // Determine severity based on role
+        const isAdverseRole = ['opposing party', 'opposing counsel', 'adverse party', 'defendant', 'plaintiff']
+          .some(role => contact.role?.toLowerCase().includes(role));
+        
+        conflicts.push({
+          searchTerm: term,
+          searchType: type,
+          matchType: 'matter_contact',
+          matchId: contact.id,
+          matchName: contact.name,
+          role: contact.role,
+          contactFirm: contact.contact_firm,
+          email: contact.email,
+          matterId: contact.matter_id,
+          matterName: contact.matter_name,
+          matterNumber: contact.matter_number,
+          matterStatus: contact.matter_status,
+          matterClientName: contact.matter_client_name,
+          severity: isAdverseRole ? 'high' : 'medium',
+          description: `"${term}" appears as ${contact.role || 'contact'} on matter "${contact.matter_name}" (${contact.matter_number}) for client "${contact.matter_client_name || 'Unknown'}"`
+        });
+      }
+
+      // 3. Search matter names (less common but useful)
+      if (matterName && term === clientName) {
+        const matterMatches = await query(
+          `SELECT m.id, m.name, m.number, m.status, m.type,
+                  c.display_name as client_name
+           FROM matters m
+           LEFT JOIN clients c ON m.client_id = c.id
+           WHERE m.firm_id = $1 
+             AND (LOWER(m.name) LIKE $2 OR LOWER(m.number) LIKE $2)
+           ORDER BY m.created_at DESC
+           LIMIT 5`,
+          [req.user.firmId, `%${matterName.toLowerCase()}%`]
+        );
+
+        for (const matter of matterMatches.rows) {
+          conflicts.push({
+            searchTerm: matterName,
+            searchType: 'matter_name',
+            matchType: 'matter',
+            matchId: matter.id,
+            matchName: matter.name,
+            matterNumber: matter.number,
+            matterStatus: matter.status,
+            matterType: matter.type,
+            clientName: matter.client_name,
+            severity: 'low',
+            description: `Similar matter "${matter.name}" (${matter.number}) exists for client "${matter.client_name || 'Unknown'}"`
+          });
+        }
+      }
+    }
+
+    // Sort conflicts by severity
+    const severityOrder = { high: 0, medium: 1, low: 2 };
+    conflicts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+
+    // Summary
+    const highCount = conflicts.filter(c => c.severity === 'high').length;
+    const mediumCount = conflicts.filter(c => c.severity === 'medium').length;
+    const lowCount = conflicts.filter(c => c.severity === 'low').length;
+
+    res.json({
+      hasConflicts: conflicts.length > 0,
+      conflictCount: conflicts.length,
+      summary: {
+        high: highCount,
+        medium: mediumCount,
+        low: lowCount
+      },
+      recommendation: highCount > 0 
+        ? 'STOP - High severity conflicts detected. Review carefully before proceeding.'
+        : mediumCount > 0 
+          ? 'CAUTION - Potential conflicts found. Please review before proceeding.'
+          : conflicts.length > 0 
+            ? 'LOW RISK - Minor matches found. Review recommended.'
+            : 'CLEAR - No conflicts detected.',
+      conflicts,
+      searchedTerms: searchTerms.map(s => s.term),
+      checkedAt: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Conflict check error:', error);
+    res.status(500).json({ error: 'Failed to perform conflict check' });
+  }
+});
+
+/**
+ * Mark a matter as conflict-cleared
+ * PUT /api/matters/:id/conflict-cleared
+ */
+router.put('/:id/conflict-cleared', authenticate, requirePermission('matters:edit'), async (req, res) => {
+  try {
+    const { cleared, notes, checkedBy } = req.body;
+
+    // Get user's name for the record
+    const userResult = await query(
+      'SELECT first_name, last_name FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    const userName = userResult.rows[0] 
+      ? `${userResult.rows[0].first_name} ${userResult.rows[0].last_name}`
+      : 'Unknown';
+
+    const result = await query(
+      `UPDATE matters SET 
+        conflict_cleared = $1,
+        custom_fields = COALESCE(custom_fields, '{}'::jsonb) || jsonb_build_object(
+          'conflictCheckDate', $2,
+          'conflictCheckBy', $3,
+          'conflictCheckNotes', $4
+        ),
+        updated_at = NOW()
+       WHERE id = $5 AND firm_id = $6
+       RETURNING id, conflict_cleared, custom_fields`,
+      [
+        cleared !== false, 
+        new Date().toISOString(),
+        checkedBy || userName,
+        notes || '',
+        req.params.id, 
+        req.user.firmId
+      ]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Matter not found' });
+    }
+
+    // Audit log
+    await query(
+      `INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
+       VALUES ($1, $2, 'matter.conflict_cleared', 'matter', $3, $4)`,
+      [req.user.firmId, req.user.id, req.params.id, JSON.stringify({ cleared, notes })]
+    );
+
+    res.json({
+      success: true,
+      conflictCleared: result.rows[0].conflict_cleared,
+      conflictCheckDate: result.rows[0].custom_fields?.conflictCheckDate,
+      conflictCheckBy: result.rows[0].custom_fields?.conflictCheckBy,
+      conflictCheckNotes: result.rows[0].custom_fields?.conflictCheckNotes
+    });
+
+  } catch (error) {
+    console.error('Mark conflict cleared error:', error);
+    res.status(500).json({ error: 'Failed to update conflict status' });
+  }
+});
+
 export default router;

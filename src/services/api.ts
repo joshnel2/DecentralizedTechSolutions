@@ -379,6 +379,29 @@ export const mattersApi = {
     if (excludeMatterId) query.set('excludeMatterId', excludeMatterId);
     return fetchWithAuth(`/matters/permissions/groups?${query}`);
   },
+
+  // Conflict Check
+  async checkConflicts(data: { 
+    clientName?: string; 
+    partyNames?: string[]; 
+    matterName?: string;
+  }) {
+    return fetchWithAuth('/matters/conflict-check', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async markConflictCleared(matterId: string, data: {
+    cleared?: boolean;
+    notes?: string;
+    checkedBy?: string;
+  }) {
+    return fetchWithAuth(`/matters/${matterId}/conflict-cleared`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
 };
 
 // ============================================
