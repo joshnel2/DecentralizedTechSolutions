@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { query } from '../db/connection.js';
 import { clearPlatformSettingsCache } from './integrations.js';
+import { clearAzureConfigCache } from '../utils/azureStorage.js';
 
 const router = Router();
 
@@ -1266,9 +1267,10 @@ router.put('/platform-settings', requireSecureAdmin, async (req, res) => {
       updated.push(key);
     }
 
-    // Clear the cache so integrations pick up new values immediately
+    // Clear the caches so integrations pick up new values immediately
     try {
       clearPlatformSettingsCache();
+      clearAzureConfigCache(); // Also clear Azure config cache for Apex Drive
     } catch (e) {
       // Cache clear is optional, continue
     }
