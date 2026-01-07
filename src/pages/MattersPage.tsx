@@ -7,13 +7,16 @@ import { teamApi } from '../services/api'
 import { 
   Plus, Search, Filter, ChevronDown, Briefcase, 
   MoreVertical, Sparkles, Calendar, DollarSign, Users, X,
-  Edit2, Archive, CheckCircle2, Trash2, Eye, XCircle, FileText, Settings
+  Edit2, Archive, CheckCircle2, Trash2, Eye, XCircle, FileText, Settings, Columns
 } from 'lucide-react'
 import { MatterTypesManager } from '../components/MatterTypesManager'
+import { ColumnSettingsModal, ColumnConfig, loadColumnSettings, getDefaultColumns } from '../components/ColumnSettingsModal'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './ListPages.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+
+const COLUMN_SETTINGS_KEY = 'matters-column-settings'
 
 const statusOptions = [
   { value: 'all', label: 'All Statuses' },
@@ -88,6 +91,28 @@ export function MattersPage() {
   const [typeFilter, setTypeFilter] = useState('all')
   const [showNewModal, setShowNewModal] = useState(false)
   const [showTypesManager, setShowTypesManager] = useState(false)
+  const [showColumnSettings, setShowColumnSettings] = useState(false)
+  const [columnSettings, setColumnSettings] = useState<ColumnConfig[]>(() => loadColumnSettings(COLUMN_SETTINGS_KEY))
+  const [showSettingsDropdown, setShowSettingsDropdown] = useState(false)
+  const settingsDropdownRef = useRef<HTMLDivElement>(null)
+  
+  // Close settings dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (settingsDropdownRef.current && !settingsDropdownRef.current.contains(event.target as Node)) {
+        setShowSettingsDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+  
+  // Get visible columns in order
+  const visibleColumns = useMemo(() => {
+    return columnSettings
+      .filter(col => col.visible)
+      .sort((a, b) => a.order - b.order)
+  }, [columnSettings])
   
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -297,13 +322,39 @@ export function MattersPage() {
           ))}
         </select>
 
-        <button 
-          className={styles.settingsBtn}
-          onClick={() => setShowTypesManager(true)}
-          title="Manage Matter Types"
-        >
-          <Settings size={16} />
-        </button>
+        <div className={styles.menuWrapper} ref={settingsDropdownRef}>
+          <button 
+            className={styles.settingsBtn}
+            onClick={() => setShowSettingsDropdown(!showSettingsDropdown)}
+            title="Settings"
+          >
+            <Settings size={16} />
+          </button>
+          {showSettingsDropdown && (
+            <div className={styles.dropdown}>
+              <button 
+                className={styles.dropdownItem}
+                onClick={() => {
+                  setShowColumnSettings(true)
+                  setShowSettingsDropdown(false)
+                }}
+              >
+                <Columns size={14} />
+                Column Settings
+              </button>
+              <button 
+                className={styles.dropdownItem}
+                onClick={() => {
+                  setShowTypesManager(true)
+                  setShowSettingsDropdown(false)
+                }}
+              >
+                <Briefcase size={14} />
+                Manage Matter Types
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Table */}
@@ -315,13 +366,9 @@ export function MattersPage() {
         <table className={styles.table}>
             <thead>
               <tr>
-                <th>Matter</th>
-                <th>Client</th>
-                <th>Responsible Attorney</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Billing</th>
-                <th>Opened</th>
+                {visibleColumns.map(col => (
+                  <th key={col.id}>{col.label}</th>
+                ))}
                 <th></th>
               </tr>
             </thead>
@@ -329,83 +376,110 @@ export function MattersPage() {
               {/* Top spacer for virtualization */}
               {paddingTop > 0 && (
                 <tr style={{ height: paddingTop }} aria-hidden="true">
-                  <td colSpan={8} style={{ padding: 0, border: 'none' }} />
+                  <td colSpan={visibleColumns.length + 1} style={{ padding: 0, border: 'none' }} />
                 </tr>
               )}
               {visibleMatters.map(matter => (
                 <tr key={matter.id}>
-                  <td>
-                    <Link to={`/app/matters/${matter.id}`} className={styles.nameCell}>
-                      <div className={styles.icon}>
-                        <Briefcase size={16} />
-                      </div>
-                      <div>
-                        <span className={styles.name}>{matter.name}</span>
-                        <span className={styles.subtitle}>{matter.number}</span>
-                      </div>
-                      {matter.aiSummary && (
-                        <span className={styles.aiTag}>
-                          <Sparkles size={12} />
-                        </span>
-                      )}
-                    </Link>
-                  </td>
-                  <td>
-                    <Link to={`/app/clients/${matter.clientId}`} className={styles.link}>
-                      {getClientName(matter.clientId)}
-                    </Link>
-                  </td>
-                  <td>
-                    {matter.responsibleAttorney ? (
-                      <span className={styles.attorneyName}>
-                        {attorneys.find(a => a.id === matter.responsibleAttorney)?.name || 'Assigned'}
-                      </span>
-                    ) : (
-                      <span className={styles.unassigned}>Unassigned</span>
-                    )}
-                  </td>
-                  <td>
-                    <span className={styles.typeTag}>
-                      {(matter.type || 'other').replace(/_/g, ' ')}
-                    </span>
-                  </td>
-                  <td>
-                    <select
-                      className={clsx(styles.statusSelect, styles[matter.status])}
-                      value={matter.status}
-                      onChange={(e) => handleStatusChange(matter.id, e.target.value as any)}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <option value="intake">Intake</option>
-                      <option value="active">Active</option>
-                      <option value="pending">Pending</option>
-                      <option value="on_hold">On Hold</option>
-                      <option value="closed">Closed</option>
-                      <option value="closed_won">Closed - Won</option>
-                      <option value="closed_lost">Closed - Lost</option>
-                      <option value="closed_settled">Closed - Settled</option>
-                      <option value="closed_other">Closed - Other</option>
-                    </select>
-                  </td>
-                  <td>
-                    <div className={styles.billingInfo}>
-                      {matter.billingType === 'hourly' && (
-                        <>${matter.billingRate}/hr</>
-                      )}
-                      {matter.billingType === 'flat' && (
-                        <>${matter.flatFee?.toLocaleString()} flat</>
-                      )}
-                      {matter.billingType === 'contingency' && (
-                        <>{matter.contingencyPercent}% contingency</>
-                      )}
-                      {matter.billingType === 'retainer' && (
-                        <>${matter.retainerAmount?.toLocaleString()} retainer</>
-                      )}
-                    </div>
-                  </td>
-                  <td className={styles.dateCell}>
-                    {matter.openDate ? format(parseISO(matter.openDate), 'MMM d, yyyy') : '—'}
-                  </td>
+                  {visibleColumns.map(col => {
+                    switch (col.id) {
+                      case 'matter':
+                        return (
+                          <td key={col.id}>
+                            <Link to={`/app/matters/${matter.id}`} className={styles.nameCell}>
+                              <div className={styles.icon}>
+                                <Briefcase size={16} />
+                              </div>
+                              <div>
+                                <span className={styles.name}>{matter.name}</span>
+                                <span className={styles.subtitle}>{matter.number}</span>
+                              </div>
+                              {matter.aiSummary && (
+                                <span className={styles.aiTag}>
+                                  <Sparkles size={12} />
+                                </span>
+                              )}
+                            </Link>
+                          </td>
+                        )
+                      case 'client':
+                        return (
+                          <td key={col.id}>
+                            <Link to={`/app/clients/${matter.clientId}`} className={styles.link}>
+                              {getClientName(matter.clientId)}
+                            </Link>
+                          </td>
+                        )
+                      case 'responsibleAttorney':
+                        return (
+                          <td key={col.id}>
+                            {matter.responsibleAttorney ? (
+                              <span className={styles.attorneyName}>
+                                {attorneys.find(a => a.id === matter.responsibleAttorney)?.name || 'Assigned'}
+                              </span>
+                            ) : (
+                              <span className={styles.unassigned}>Unassigned</span>
+                            )}
+                          </td>
+                        )
+                      case 'type':
+                        return (
+                          <td key={col.id}>
+                            <span className={styles.typeTag}>
+                              {(matter.type || 'other').replace(/_/g, ' ')}
+                            </span>
+                          </td>
+                        )
+                      case 'status':
+                        return (
+                          <td key={col.id}>
+                            <select
+                              className={clsx(styles.statusSelect, styles[matter.status])}
+                              value={matter.status}
+                              onChange={(e) => handleStatusChange(matter.id, e.target.value as any)}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <option value="intake">Intake</option>
+                              <option value="active">Active</option>
+                              <option value="pending">Pending</option>
+                              <option value="on_hold">On Hold</option>
+                              <option value="closed">Closed</option>
+                              <option value="closed_won">Closed - Won</option>
+                              <option value="closed_lost">Closed - Lost</option>
+                              <option value="closed_settled">Closed - Settled</option>
+                              <option value="closed_other">Closed - Other</option>
+                            </select>
+                          </td>
+                        )
+                      case 'billing':
+                        return (
+                          <td key={col.id}>
+                            <div className={styles.billingInfo}>
+                              {matter.billingType === 'hourly' && (
+                                <>${matter.billingRate}/hr</>
+                              )}
+                              {matter.billingType === 'flat' && (
+                                <>${matter.flatFee?.toLocaleString()} flat</>
+                              )}
+                              {matter.billingType === 'contingency' && (
+                                <>{matter.contingencyPercent}% contingency</>
+                              )}
+                              {matter.billingType === 'retainer' && (
+                                <>${matter.retainerAmount?.toLocaleString()} retainer</>
+                              )}
+                            </div>
+                          </td>
+                        )
+                      case 'opened':
+                        return (
+                          <td key={col.id} className={styles.dateCell}>
+                            {matter.openDate ? format(parseISO(matter.openDate), 'MMM d, yyyy') : '—'}
+                          </td>
+                        )
+                      default:
+                        return null
+                    }
+                  })}
                   <td>
                     <div className={styles.menuWrapper} ref={openDropdownId === matter.id ? dropdownRef : null}>
                       <button 
@@ -483,7 +557,7 @@ export function MattersPage() {
               {/* Bottom spacer for virtualization */}
               {paddingBottom > 0 && (
                 <tr style={{ height: paddingBottom }} aria-hidden="true">
-                  <td colSpan={8} style={{ padding: 0, border: 'none' }} />
+                  <td colSpan={visibleColumns.length + 1} style={{ padding: 0, border: 'none' }} />
                 </tr>
               )}
             </tbody>
@@ -537,6 +611,15 @@ export function MattersPage() {
       <MatterTypesManager 
         isOpen={showTypesManager}
         onClose={() => setShowTypesManager(false)}
+      />
+
+      {/* Column Settings Modal */}
+      <ColumnSettingsModal
+        isOpen={showColumnSettings}
+        onClose={() => setShowColumnSettings(false)}
+        columns={columnSettings}
+        onSave={setColumnSettings}
+        storageKey={COLUMN_SETTINGS_KEY}
       />
     </div>
   )
