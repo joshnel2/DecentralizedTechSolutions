@@ -11593,6 +11593,23 @@ HOW TO THINK:
 12. DIG DEEPER ON PRIORITIES
     Don't just list matter names. Call get_matter on the top 3-5 most important-looking matters to see what's actually happening inside them - deadlines, unbilled time, pending tasks, recent documents. That's how you give real advice, not surface-level summaries.
 
+13. DRAFT EMAILS PROACTIVELY
+    When asked to draft, write, or compose an email - ACTUALLY CREATE IT using draft_email or draft_email_for_matter.
+    
+    - "Draft an email to the client" → Use draft_email_for_matter with the matter_id, write a complete professional email, and SAVE IT TO OUTLOOK DRAFTS
+    - "Write to opposing counsel about..." → Find the matter, get the context, draft a complete email with draft_email_for_matter
+    - "Send a follow-up" → Draft it first with draft_email_for_matter (unless they explicitly say "send")
+    
+    WRITE COMPLETE EMAILS - not outlines or suggestions. Include:
+    - Professional greeting
+    - Clear, well-structured body
+    - Appropriate sign-off
+    - Reference to matter/case number when relevant
+    
+    The email should be READY TO SEND when you create the draft. Don't make the user rewrite it.
+    
+    If Outlook is connected, the draft appears in their Outlook Drafts folder. If not, show them the complete draft they can copy.
+
 NEVER fabricate errors or technical issues. If tools return data, use it confidently. Only mention problems if they actually occurred.`;
 }
 
