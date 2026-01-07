@@ -11597,6 +11597,286 @@ NEVER fabricate errors or technical issues. If tools return data, use it confide
 }
 
 // =============================================================================
+// HOT CONTEXT - User-specific awareness injected at conversation start
+// =============================================================================
+async function buildHotContext(userId, firmId) {
+  try {
+    const todayStr = getTodayInTimezone(DEFAULT_TIMEZONE);
+    const { dayOfWeek } = getDatePartsInTimezone(new Date(), DEFAULT_TIMEZONE);
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    
+    // Run all queries in parallel for performance
+    const [
+      userResult,
+      todayEventsResult,
+      weekEventsResult,
+      unbilledTimeResult,
+      urgentMattersResult,
+      overdueInvoicesResult,
+      weeklyStatsResult,
+      pendingTasksResult,
+      recentActivityResult
+    ] = await Promise.all([
+      // 1. User info
+      query(`SELECT first_name, last_name, role, hourly_rate FROM users WHERE id = $1`, [userId]),
+      
+      // 2. Today's calendar events
+      query(`
+        SELECT e.title, e.start_time, e.end_time, e.type, e.location, m.name as matter_name
+        FROM calendar_events e
+        LEFT JOIN matters m ON e.matter_id = m.id
+        WHERE e.firm_id = $1 
+          AND e.created_by = $2
+          AND DATE(e.start_time AT TIME ZONE 'America/Chicago') = $3::date
+        ORDER BY e.start_time
+        LIMIT 10
+      `, [firmId, userId, todayStr]),
+      
+      // 3. This week's upcoming events (next 7 days, excluding today)
+      query(`
+        SELECT e.title, e.start_time, e.type, m.name as matter_name
+        FROM calendar_events e
+        LEFT JOIN matters m ON e.matter_id = m.id
+        WHERE e.firm_id = $1 
+          AND e.created_by = $2
+          AND e.start_time > NOW()
+          AND e.start_time < NOW() + INTERVAL '7 days'
+          AND DATE(e.start_time AT TIME ZONE 'America/Chicago') != $3::date
+        ORDER BY e.start_time
+        LIMIT 5
+      `, [firmId, userId, todayStr]),
+      
+      // 4. Unbilled time (last 7 days for this user)
+      query(`
+        SELECT 
+          SUM(hours) as total_hours,
+          SUM(amount) as total_amount,
+          COUNT(*) as entry_count
+        FROM time_entries
+        WHERE firm_id = $1 
+          AND user_id = $2
+          AND billable = true 
+          AND billed = false
+          AND date >= CURRENT_DATE - INTERVAL '7 days'
+      `, [firmId, userId]),
+      
+      // 5. Urgent/high priority matters assigned to or responsible by user
+      query(`
+        SELECT m.name, m.number, m.priority, m.status, c.display_name as client_name
+        FROM matters m
+        LEFT JOIN clients c ON m.client_id = c.id
+        WHERE m.firm_id = $1 
+          AND m.status = 'active'
+          AND m.priority IN ('urgent', 'high')
+          AND (m.responsible_attorney = $2 OR EXISTS(
+            SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2
+          ))
+        ORDER BY CASE m.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 END
+        LIMIT 5
+      `, [firmId, userId]),
+      
+      // 6. Overdue invoices (for matters user is responsible for)
+      query(`
+        SELECT i.number, i.amount_due, i.due_date, c.display_name as client_name, m.name as matter_name
+        FROM invoices i
+        LEFT JOIN clients c ON i.client_id = c.id
+        LEFT JOIN matters m ON i.matter_id = m.id
+        WHERE i.firm_id = $1
+          AND i.status IN ('sent', 'overdue')
+          AND i.due_date < CURRENT_DATE
+          AND (m.responsible_attorney = $2 OR i.created_by = $2)
+        ORDER BY i.due_date ASC
+        LIMIT 5
+      `, [firmId, userId]),
+      
+      // 7. This week's billable hours (Mon-Sun) for the user
+      query(`
+        SELECT 
+          SUM(CASE WHEN billable THEN hours ELSE 0 END) as billable_hours,
+          SUM(hours) as total_hours,
+          SUM(CASE WHEN billable THEN amount ELSE 0 END) as billable_amount
+        FROM time_entries
+        WHERE firm_id = $1 
+          AND user_id = $2
+          AND date >= DATE_TRUNC('week', CURRENT_DATE)
+          AND date <= CURRENT_DATE
+      `, [firmId, userId]),
+      
+      // 8. Pending tasks assigned to user
+      query(`
+        SELECT t.title, t.due_date, t.priority, m.name as matter_name
+        FROM tasks t
+        LEFT JOIN matters m ON t.matter_id = m.id
+        WHERE t.firm_id = $1
+          AND t.assigned_to = $2
+          AND t.status IN ('pending', 'in_progress')
+        ORDER BY 
+          CASE WHEN t.due_date IS NOT NULL AND t.due_date <= CURRENT_DATE THEN 0 ELSE 1 END,
+          t.due_date ASC NULLS LAST,
+          CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END
+        LIMIT 5
+      `, [firmId, userId]),
+      
+      // 9. Recent activity (what did they work on yesterday/recently)
+      query(`
+        SELECT m.name as matter_name, m.number, SUM(te.hours) as hours, MAX(te.date) as last_date
+        FROM time_entries te
+        JOIN matters m ON te.matter_id = m.id
+        WHERE te.firm_id = $1 
+          AND te.user_id = $2
+          AND te.date >= CURRENT_DATE - INTERVAL '3 days'
+        GROUP BY m.id, m.name, m.number
+        ORDER BY MAX(te.date) DESC, SUM(te.hours) DESC
+        LIMIT 5
+      `, [firmId, userId])
+    ]);
+
+    const user = userResult.rows[0];
+    const todayEvents = todayEventsResult.rows;
+    const weekEvents = weekEventsResult.rows;
+    const unbilled = unbilledTimeResult.rows[0];
+    const urgentMatters = urgentMattersResult.rows;
+    const overdueInvoices = overdueInvoicesResult.rows;
+    const weeklyStats = weeklyStatsResult.rows[0];
+    const pendingTasks = pendingTasksResult.rows;
+    const recentActivity = recentActivityResult.rows;
+
+    // Build the hot context string
+    let context = `
+=== YOUR CURRENT AWARENESS ===
+Today: ${dayNames[dayOfWeek]}, ${todayStr}
+User: ${user?.first_name || 'Unknown'} ${user?.last_name || ''} (${user?.role || 'staff'})
+
+`;
+
+    // Today's Calendar
+    if (todayEvents.length > 0) {
+      context += `📅 TODAY'S SCHEDULE:\n`;
+      for (const event of todayEvents) {
+        const time = formatTime(event.start_time);
+        const endTime = event.end_time ? ` - ${formatTime(event.end_time)}` : '';
+        context += `• ${time}${endTime}: ${event.title}`;
+        if (event.type && event.type !== 'meeting') context += ` (${event.type})`;
+        if (event.matter_name) context += ` — ${event.matter_name}`;
+        if (event.location) context += ` @ ${event.location}`;
+        context += `\n`;
+      }
+      context += `\n`;
+    } else {
+      context += `📅 TODAY'S SCHEDULE: No events scheduled\n\n`;
+    }
+
+    // Needs Attention Section
+    let needsAttention = [];
+    
+    // Unbilled time
+    const unbilledHours = parseFloat(unbilled?.total_hours || 0);
+    const unbilledAmount = parseFloat(unbilled?.total_amount || 0);
+    if (unbilledHours > 0) {
+      needsAttention.push(`${unbilledHours.toFixed(1)} hrs unbilled time ($${unbilledAmount.toLocaleString()}) from last 7 days`);
+    }
+    
+    // Overdue invoices
+    if (overdueInvoices.length > 0) {
+      const totalOverdue = overdueInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount_due || 0), 0);
+      needsAttention.push(`${overdueInvoices.length} overdue invoice${overdueInvoices.length > 1 ? 's' : ''} ($${totalOverdue.toLocaleString()} total)`);
+    }
+    
+    // Urgent matters
+    if (urgentMatters.length > 0) {
+      const urgentCount = urgentMatters.filter(m => m.priority === 'urgent').length;
+      const highCount = urgentMatters.filter(m => m.priority === 'high').length;
+      let matterText = [];
+      if (urgentCount > 0) matterText.push(`${urgentCount} urgent`);
+      if (highCount > 0) matterText.push(`${highCount} high priority`);
+      needsAttention.push(`${matterText.join(', ')} matter${urgentMatters.length > 1 ? 's' : ''}`);
+    }
+    
+    // Overdue tasks
+    const overdueTasks = pendingTasks.filter(t => t.due_date && new Date(t.due_date) < new Date());
+    if (overdueTasks.length > 0) {
+      needsAttention.push(`${overdueTasks.length} overdue task${overdueTasks.length > 1 ? 's' : ''}`);
+    }
+
+    if (needsAttention.length > 0) {
+      context += `⚡ NEEDS ATTENTION:\n`;
+      for (const item of needsAttention) {
+        context += `• ${item}\n`;
+      }
+      context += `\n`;
+    }
+
+    // This Week's Stats
+    const billableHours = parseFloat(weeklyStats?.billable_hours || 0);
+    const billableAmount = parseFloat(weeklyStats?.billable_amount || 0);
+    context += `📊 THIS WEEK:\n`;
+    context += `• Billable hours: ${billableHours.toFixed(1)} hrs ($${billableAmount.toLocaleString()})\n`;
+    context += `\n`;
+
+    // Urgent/High Priority Matters (details)
+    if (urgentMatters.length > 0) {
+      context += `🔥 PRIORITY MATTERS:\n`;
+      for (const matter of urgentMatters) {
+        context += `• ${matter.name} (${matter.number}) — ${matter.priority.toUpperCase()}`;
+        if (matter.client_name) context += ` — ${matter.client_name}`;
+        context += `\n`;
+      }
+      context += `\n`;
+    }
+
+    // Pending Tasks
+    if (pendingTasks.length > 0) {
+      context += `✅ PENDING TASKS:\n`;
+      for (const task of pendingTasks) {
+        const overdue = task.due_date && new Date(task.due_date) < new Date();
+        context += `• ${task.title}`;
+        if (task.due_date) {
+          context += ` — due ${formatDate(task.due_date)}${overdue ? ' (OVERDUE)' : ''}`;
+        }
+        if (task.matter_name) context += ` — ${task.matter_name}`;
+        context += `\n`;
+      }
+      context += `\n`;
+    }
+
+    // Upcoming This Week
+    if (weekEvents.length > 0) {
+      context += `📆 COMING UP THIS WEEK:\n`;
+      for (const event of weekEvents) {
+        context += `• ${formatDateTime(event.start_time)}: ${event.title}`;
+        if (event.matter_name) context += ` — ${event.matter_name}`;
+        context += `\n`;
+      }
+      context += `\n`;
+    }
+
+    // Recent Work
+    if (recentActivity.length > 0) {
+      context += `🕐 RECENTLY WORKED ON:\n`;
+      for (const activity of recentActivity) {
+        context += `• ${activity.matter_name} (${activity.number}) — ${parseFloat(activity.hours).toFixed(1)} hrs\n`;
+      }
+      context += `\n`;
+    }
+
+    context += `=== END AWARENESS ===
+
+Use this awareness to be proactive. If the user just says "hi" or asks what they should focus on, reference this context. But you can still look up ANYTHING using your tools - this is just what you know upfront.
+`;
+
+    return context;
+  } catch (error) {
+    console.error('Error building hot context:', error);
+    // Return minimal context on error - don't break the chat
+    return `
+=== AWARENESS ===
+Note: Could not load full context. You can still use tools to look up any information.
+=== END AWARENESS ===
+`;
+  }
+}
+
+// =============================================================================
 // MAIN CHAT ENDPOINT
 // =============================================================================
 // =============================================================================
@@ -11927,9 +12207,22 @@ router.post('/chat', authenticate, async (req, res) => {
       return res.status(500).json({ error: 'AI service not configured' });
     }
 
-    const systemPrompt = getSystemPrompt()
+    // Build hot context (user-specific awareness) - only for new conversations
+    // If there's conversation history, the context was already in the first message
+    let hotContext = '';
+    if (conversationHistory.length === 0) {
+      hotContext = await buildHotContext(req.user.id, req.user.firmId);
+      console.log(`[AI Agent] Built hot context for user ${req.user.id} (${hotContext.length} chars)`);
+    }
+
+    const baseSystemPrompt = getSystemPrompt()
       .replace('{{USER_ROLE}}', req.user.role)
       .replace('{{USER_NAME}}', `${req.user.firstName} ${req.user.lastName}`);
+    
+    // Combine base system prompt with hot context
+    const systemPrompt = hotContext 
+      ? `${baseSystemPrompt}\n\n${hotContext}`
+      : baseSystemPrompt;
 
     // If there's an uploaded document, add it to the context
     let userMessage = message;
