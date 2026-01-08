@@ -181,6 +181,8 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
       paymentInstructions,
       taxRate = 0,
       discountAmount = 0,
+      timeEntryIds = [], // Link time entries to this invoice
+      expenseIds = [],   // Link expenses to this invoice
     } = req.body;
 
     if (!clientId) {
@@ -221,7 +223,29 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
         ]
       );
 
-      return invoiceResult.rows[0];
+      const invoice = invoiceResult.rows[0];
+
+      // Link time entries to this invoice and mark as billed
+      if (timeEntryIds && timeEntryIds.length > 0) {
+        await client.query(
+          `UPDATE time_entries 
+           SET invoice_id = $1, billed = true, status = 'billed', updated_at = NOW()
+           WHERE id = ANY($2) AND firm_id = $3`,
+          [invoice.id, timeEntryIds, req.user.firmId]
+        );
+      }
+
+      // Link expenses to this invoice and mark as billed
+      if (expenseIds && expenseIds.length > 0) {
+        await client.query(
+          `UPDATE expenses 
+           SET invoice_id = $1, billed = true, updated_at = NOW()
+           WHERE id = ANY($2) AND firm_id = $3`,
+          [invoice.id, expenseIds, req.user.firmId]
+        );
+      }
+
+      return invoice;
     });
 
     res.status(201).json({
@@ -238,6 +262,8 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
       total: parseFloat(result.total),
       amountDue: parseFloat(result.amount_due),
       lineItems: result.line_items,
+      linkedTimeEntries: timeEntryIds.length,
+      linkedExpenses: expenseIds.length,
       createdAt: result.created_at,
     });
   } catch (error) {
@@ -396,6 +422,50 @@ router.post('/:id/payments', authenticate, requirePermission('billing:edit'), as
   } catch (error) {
     console.error('Record payment error:', error);
     res.status(500).json({ error: 'Failed to record payment' });
+  }
+});
+
+// Get time entries linked to an invoice
+router.get('/:id/time-entries', authenticate, requirePermission('billing:view'), async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT te.*, 
+              m.name as matter_name, m.number as matter_number,
+              u.first_name || ' ' || u.last_name as user_name
+       FROM time_entries te
+       LEFT JOIN matters m ON te.matter_id = m.id
+       LEFT JOIN users u ON te.user_id = u.id
+       WHERE te.invoice_id = $1 AND te.firm_id = $2
+       ORDER BY te.date DESC, te.created_at DESC`,
+      [req.params.id, req.user.firmId]
+    );
+
+    res.json({
+      timeEntries: result.rows.map(te => ({
+        id: te.id,
+        matterId: te.matter_id,
+        matterName: te.matter_name,
+        matterNumber: te.matter_number,
+        userId: te.user_id,
+        userName: te.user_name,
+        date: te.date,
+        hours: parseFloat(te.hours),
+        description: te.description,
+        billable: te.billable,
+        billed: te.billed,
+        rate: parseFloat(te.rate),
+        amount: parseFloat(te.amount),
+        activityCode: te.activity_code,
+      })),
+      totals: {
+        hours: result.rows.reduce((sum, te) => sum + parseFloat(te.hours), 0),
+        amount: result.rows.reduce((sum, te) => sum + parseFloat(te.amount), 0),
+        count: result.rows.length
+      }
+    });
+  } catch (error) {
+    console.error('Get invoice time entries error:', error);
+    res.status(500).json({ error: 'Failed to get time entries' });
   }
 });
 

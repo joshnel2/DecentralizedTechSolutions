@@ -20,10 +20,13 @@ router.get('/', authenticate, requirePermission('billing:view'), async (req, res
       SELECT te.*,
              m.name as matter_name,
              m.number as matter_number,
-             u.first_name || ' ' || u.last_name as user_name
+             u.first_name || ' ' || u.last_name as user_name,
+             i.number as invoice_number,
+             i.status as invoice_status
       FROM time_entries te
       LEFT JOIN matters m ON te.matter_id = m.id
       LEFT JOIN users u ON te.user_id = u.id
+      LEFT JOIN invoices i ON te.invoice_id = i.id
       WHERE te.firm_id = $1
     `;
     const params = [req.user.firmId];
@@ -104,6 +107,8 @@ router.get('/', authenticate, requirePermission('billing:view'), async (req, res
         entryType: te.entry_type,
         aiGenerated: te.ai_generated,
         invoiceId: te.invoice_id,
+        invoiceNumber: te.invoice_number,
+        invoiceStatus: te.invoice_status,
         createdAt: te.created_at,
         updatedAt: te.updated_at,
       })),

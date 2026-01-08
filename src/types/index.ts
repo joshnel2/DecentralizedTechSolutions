@@ -636,6 +636,8 @@ export interface TimeEntry {
   billed: boolean
   billedOn?: string
   invoiceId?: string
+  invoiceNumber?: string
+  invoiceStatus?: string
   
   // Rates & Amounts
   rate: number

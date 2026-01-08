@@ -495,6 +495,10 @@ export const invoicesApi = {
     return fetchWithAuth(`/invoices/${id}/payments`);
   },
 
+  async getTimeEntries(id: string) {
+    return fetchWithAuth(`/invoices/${id}/time-entries`);
+  },
+
   async syncToQuickBooks(id: string) {
     return fetchWithAuth(`/invoices/${id}/sync-quickbooks`, {
       method: 'POST',

@@ -617,13 +617,26 @@ export function TimeTrackingPage() {
                     <td>{entry.hours}h</td>
                     <td>${entry.amount.toLocaleString()}</td>
                     <td>
-                      <button
-                        className={clsx(styles.statusBadge, styles.clickable, entry.billed ? styles.billed : styles.unbilled)}
-                        onClick={() => toggleBilledStatus(entry)}
-                        title={entry.billed ? 'Click to mark as unbilled' : 'Click to mark as billed'}
-                      >
-                        {entry.billed ? 'Billed' : 'Unbilled'}
-                      </button>
+                      <div className={styles.billingStatusCell}>
+                        {entry.billed && entry.invoiceNumber ? (
+                          <Link 
+                            to="/app/billing" 
+                            className={clsx(styles.statusBadge, styles.billed, styles.invoiceLink)}
+                            title={`View Invoice ${entry.invoiceNumber}`}
+                          >
+                            <FileText size={12} />
+                            {entry.invoiceNumber}
+                          </Link>
+                        ) : (
+                          <button
+                            className={clsx(styles.statusBadge, styles.clickable, entry.billed ? styles.billed : styles.unbilled)}
+                            onClick={() => toggleBilledStatus(entry)}
+                            title={entry.billed ? 'Click to mark as unbilled' : 'Click to mark as billed'}
+                          >
+                            {entry.billed ? 'Billed' : 'Unbilled'}
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <button 
@@ -795,13 +808,26 @@ export function TimeTrackingPage() {
                     <td>{entry.hours}h</td>
                     <td>${entry.amount.toLocaleString()}</td>
                     <td>
-                      <button
-                        className={clsx(styles.statusBadge, styles.clickable, entry.billed ? styles.billed : styles.unbilled)}
-                        onClick={() => toggleBilledStatus(entry)}
-                        title={entry.billed ? 'Click to mark as unbilled' : 'Click to mark as billed'}
-                      >
-                        {entry.billed ? 'Billed' : 'Unbilled'}
-                      </button>
+                      <div className={styles.billingStatusCell}>
+                        {entry.billed && entry.invoiceNumber ? (
+                          <Link 
+                            to="/app/billing" 
+                            className={clsx(styles.statusBadge, styles.billed, styles.invoiceLink)}
+                            title={`View Invoice ${entry.invoiceNumber}`}
+                          >
+                            <FileText size={12} />
+                            {entry.invoiceNumber}
+                          </Link>
+                        ) : (
+                          <button
+                            className={clsx(styles.statusBadge, styles.clickable, entry.billed ? styles.billed : styles.unbilled)}
+                            onClick={() => toggleBilledStatus(entry)}
+                            title={entry.billed ? 'Click to mark as unbilled' : 'Click to mark as billed'}
+                          >
+                            {entry.billed ? 'Billed' : 'Unbilled'}
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <button 
