@@ -10649,11 +10649,14 @@ async function draftEmailForMatter(args, user) {
   // Format the body with signature
   const fullBody = body + signature;
   
+  // Determine recipient - use provided 'to' or fall back to client email
+  const recipientEmail = to || matter.client_email;
+  
   // Prepare response data
   const response = {
     success: true,
     email_draft: {
-      to: to || matter.client_email || '[recipient email needed]',
+      to: recipientEmail || '[recipient email needed]',
       subject: subject,
       body: fullBody,
       cc: cc || null,
@@ -10668,8 +10671,8 @@ async function draftEmailForMatter(args, user) {
     message: `Email draft prepared for matter "${matter.name}" (${matter.number})`
   };
   
-  // Try to save to Outlook if connected and requested
-  if (save_to_outlook && to) {
+  // Try to save to Outlook if connected and we have a recipient
+  if (save_to_outlook && recipientEmail) {
     try {
       const accessToken = await getOutlookAccessToken(user.firmId);
       if (accessToken) {
@@ -10679,7 +10682,7 @@ async function draftEmailForMatter(args, user) {
             contentType: 'HTML',
             content: fullBody.replace(/\n/g, '<br>')
           },
-          toRecipients: to.split(',').map(email => ({
+          toRecipients: recipientEmail.split(',').map(email => ({
             emailAddress: { address: email.trim() }
           })),
           importance: 'normal'
@@ -10714,7 +10717,7 @@ async function draftEmailForMatter(args, user) {
                 `INSERT INTO email_links (firm_id, matter_id, email_id, email_provider, subject, from_address, to_addresses, linked_by, created_at)
                  VALUES ($1, $2, $3, 'outlook', $4, $5, $6, $7, NOW())
                  ON CONFLICT DO NOTHING`,
-                [user.firmId, matter_id, outlookResult.id, subject, user.email, to.split(','), user.id]
+                [user.firmId, matter_id, outlookResult.id, subject, user.email, recipientEmail.split(','), user.id]
               );
               response.linked_to_matter = true;
               response.message += ' Email linked to matter.';
