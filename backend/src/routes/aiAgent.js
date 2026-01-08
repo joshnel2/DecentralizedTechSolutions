@@ -4339,7 +4339,7 @@ async function listDocuments(args, user) {
   const { matter_id, client_id, search, source, limit = 20 } = args;
   
   let sql = `
-    SELECT d.id, d.name, d.original_name, d.type, d.size, d.status, d.created_at, d.uploaded_at, 
+    SELECT d.id, d.name, d.original_name, d.type, d.size, d.status, d.uploaded_at, 
            d.external_source, d.external_url, d.content_text IS NOT NULL as has_content,
            m.name as matter_name, c.display_name as client_name
     FROM documents d
@@ -4372,7 +4372,7 @@ async function listDocuments(args, user) {
     }
   }
   
-  sql += ` ORDER BY d.uploaded_at DESC NULLS LAST, d.created_at DESC LIMIT ${Math.min(parseInt(limit), 50)}`;
+  sql += ` ORDER BY d.uploaded_at DESC NULLS LAST LIMIT ${Math.min(parseInt(limit), 50)}`;
   
   const result = await query(sql, params);
   
@@ -4388,7 +4388,7 @@ async function listDocuments(args, user) {
       source: d.external_source || 'local',
       external_url: d.external_url,
       has_content: d.has_content,
-      uploaded_at: d.uploaded_at || d.created_at
+      uploaded_at: d.uploaded_at
     })),
     count: result.rows.length
   };
