@@ -1108,6 +1108,46 @@
   accent-color: var(--apex-gold);
 }
 
+.entryCheckbox.checkboxDisabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Bill Unbilled Button */
+.billUnbilledBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  border-radius: var(--radius-md);
+  color: #10B981;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.billUnbilledBtn:hover {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(16, 185, 129, 0.1) 100%);
+  border-color: rgba(16, 185, 129, 0.6);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+}
+
+/* Clickable Stat Card */
+.clickableCard {
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.clickableCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
 /* Selected Row */
 .selectedRow {
   background: rgba(16, 185, 129, 0.05) !important;
