@@ -3,13 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { 
   DollarSign, FileText, Clock, Receipt, Settings, Check, 
-  Palette, AlertCircle, ArrowLeft
+  Palette, AlertCircle, ArrowLeft, Image, Type, CreditCard
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
 export function BillingSettingsPage() {
   const navigate = useNavigate()
-  const { user } = useAuthStore()
+  const { user, firm } = useAuthStore()
   const [saved, setSaved] = useState(false)
   
   const [settings, setSettings] = useState({
@@ -35,7 +35,19 @@ export function BillingSettingsPage() {
     showDetailedTime: true,
     showAttorneyInitials: true,
     groupByMatter: true,
-    showTaskCodes: true
+    showTaskCodes: true,
+    
+    // Invoice Template
+    logoUrl: '',
+    invoiceTitle: 'INVOICE',
+    headerMessage: '',
+    footerMessage: 'Thank you for your business. Please include the invoice number with your payment.',
+    paymentInstructions: '',
+    primaryColor: '#1a1a2e',
+    accentColor: '#F59E0B',
+    showFirmAddress: true,
+    showFirmPhone: true,
+    showFirmEmail: true
   })
 
   const handleSave = () => {
@@ -231,7 +243,7 @@ export function BillingSettingsPage() {
           </div>
 
           {/* Bill Appearance */}
-          <div className={styles.section} style={{ borderBottom: 'none' }}>
+          <div className={styles.section}>
             <div className={styles.sectionHeader}>
               <Palette size={20} />
               <div>
@@ -313,6 +325,150 @@ export function BillingSettingsPage() {
                   <span className={styles.slider}></span>
                 </label>
               </div>
+            </div>
+          </div>
+
+          {/* Invoice Template */}
+          <div className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <Image size={20} />
+              <div>
+                <h2>Invoice Template</h2>
+                <p>Customize your invoice branding and content</p>
+              </div>
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>Firm Logo URL</label>
+              <input
+                type="url"
+                value={settings.logoUrl}
+                onChange={e => setSettings({...settings, logoUrl: e.target.value})}
+                placeholder="https://example.com/logo.png"
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--apex-text)', marginTop: '4px' }}>
+                Enter a URL to your firm's logo (recommended size: 200x80px)
+              </span>
+            </div>
+
+            <div className={styles.formGrid}>
+              <div className={styles.formGroup}>
+                <label>Invoice Title</label>
+                <input
+                  type="text"
+                  value={settings.invoiceTitle}
+                  onChange={e => setSettings({...settings, invoiceTitle: e.target.value})}
+                  placeholder="INVOICE"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Primary Color</label>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    type="color"
+                    value={settings.primaryColor}
+                    onChange={e => setSettings({...settings, primaryColor: e.target.value})}
+                    style={{ width: '50px', height: '38px', padding: '2px', cursor: 'pointer' }}
+                  />
+                  <input
+                    type="text"
+                    value={settings.primaryColor}
+                    onChange={e => setSettings({...settings, primaryColor: e.target.value})}
+                    style={{ flex: 1 }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>Header Message (optional)</label>
+              <textarea
+                value={settings.headerMessage}
+                onChange={e => setSettings({...settings, headerMessage: e.target.value})}
+                placeholder="Appears at the top of your invoice..."
+                rows={2}
+              />
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>Footer Message</label>
+              <textarea
+                value={settings.footerMessage}
+                onChange={e => setSettings({...settings, footerMessage: e.target.value})}
+                placeholder="Thank you message or additional information..."
+                rows={2}
+              />
+            </div>
+
+            <div className={styles.toggleGroup}>
+              <div className={styles.toggle}>
+                <div>
+                  <span className={styles.toggleLabel}>Show Firm Address</span>
+                  <span className={styles.toggleDesc}>Display your firm's address on invoices</span>
+                </div>
+                <label className={styles.switch}>
+                  <input
+                    type="checkbox"
+                    checked={settings.showFirmAddress}
+                    onChange={e => setSettings({...settings, showFirmAddress: e.target.checked})}
+                  />
+                  <span className={styles.slider}></span>
+                </label>
+              </div>
+
+              <div className={styles.toggle}>
+                <div>
+                  <span className={styles.toggleLabel}>Show Firm Phone</span>
+                  <span className={styles.toggleDesc}>Display your firm's phone number</span>
+                </div>
+                <label className={styles.switch}>
+                  <input
+                    type="checkbox"
+                    checked={settings.showFirmPhone}
+                    onChange={e => setSettings({...settings, showFirmPhone: e.target.checked})}
+                  />
+                  <span className={styles.slider}></span>
+                </label>
+              </div>
+
+              <div className={styles.toggle}>
+                <div>
+                  <span className={styles.toggleLabel}>Show Firm Email</span>
+                  <span className={styles.toggleDesc}>Display your firm's email address</span>
+                </div>
+                <label className={styles.switch}>
+                  <input
+                    type="checkbox"
+                    checked={settings.showFirmEmail}
+                    onChange={e => setSettings({...settings, showFirmEmail: e.target.checked})}
+                  />
+                  <span className={styles.slider}></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Payment Instructions */}
+          <div className={styles.section} style={{ borderBottom: 'none' }}>
+            <div className={styles.sectionHeader}>
+              <CreditCard size={20} />
+              <div>
+                <h2>Payment Instructions</h2>
+                <p>Add payment details that appear on every invoice</p>
+              </div>
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>Payment Instructions</label>
+              <textarea
+                value={settings.paymentInstructions}
+                onChange={e => setSettings({...settings, paymentInstructions: e.target.value})}
+                placeholder="E.g., Make checks payable to [Firm Name]&#10;Wire Transfer: Bank Name, Account #12345&#10;Pay online at: pay.yourfirm.com"
+                rows={4}
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--apex-text)', marginTop: '4px' }}>
+                These instructions will appear in the payment section of every invoice
+              </span>
             </div>
           </div>
 
