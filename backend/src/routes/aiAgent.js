@@ -11691,7 +11691,6 @@ async function buildHotContext(userId, firmId) {
       urgentMattersResult,
       overdueInvoicesResult,
       weeklyStatsResult,
-      pendingTasksResult,
       recentActivityResult
     ] = await Promise.all([
       // 1. User info
@@ -11779,22 +11778,7 @@ async function buildHotContext(userId, firmId) {
           AND date <= CURRENT_DATE
       `, [firmId, userId]),
       
-      // 8. Pending tasks assigned to user
-      query(`
-        SELECT t.title, t.due_date, t.priority, m.name as matter_name
-        FROM tasks t
-        LEFT JOIN matters m ON t.matter_id = m.id
-        WHERE t.firm_id = $1
-          AND t.assigned_to = $2
-          AND t.status IN ('pending', 'in_progress')
-        ORDER BY 
-          CASE WHEN t.due_date IS NOT NULL AND t.due_date <= CURRENT_DATE THEN 0 ELSE 1 END,
-          t.due_date ASC NULLS LAST,
-          CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END
-        LIMIT 5
-      `, [firmId, userId]),
-      
-      // 9. Recent activity (what did they work on yesterday/recently)
+      // 8. Recent activity (what did they work on yesterday/recently)
       query(`
         SELECT m.name as matter_name, m.number, SUM(te.hours) as hours, MAX(te.date) as last_date
         FROM time_entries te
@@ -11815,7 +11799,6 @@ async function buildHotContext(userId, firmId) {
     const urgentMatters = urgentMattersResult.rows;
     const overdueInvoices = overdueInvoicesResult.rows;
     const weeklyStats = weeklyStatsResult.rows[0];
-    const pendingTasks = pendingTasksResult.rows;
     const recentActivity = recentActivityResult.rows;
 
     // Build the hot context string
@@ -11869,12 +11852,6 @@ User: ${user?.first_name || 'Unknown'} ${user?.last_name || ''} (${user?.role ||
       needsAttention.push(`${matterText.join(', ')} matter${urgentMatters.length > 1 ? 's' : ''}`);
     }
     
-    // Overdue tasks
-    const overdueTasks = pendingTasks.filter(t => t.due_date && new Date(t.due_date) < new Date());
-    if (overdueTasks.length > 0) {
-      needsAttention.push(`${overdueTasks.length} overdue task${overdueTasks.length > 1 ? 's' : ''}`);
-    }
-
     if (needsAttention.length > 0) {
       context += `⚡ NEEDS ATTENTION:\n`;
       for (const item of needsAttention) {
@@ -11896,21 +11873,6 @@ User: ${user?.first_name || 'Unknown'} ${user?.last_name || ''} (${user?.role ||
       for (const matter of urgentMatters) {
         context += `• ${matter.name} (${matter.number}) — ${matter.priority.toUpperCase()}`;
         if (matter.client_name) context += ` — ${matter.client_name}`;
-        context += `\n`;
-      }
-      context += `\n`;
-    }
-
-    // Pending Tasks
-    if (pendingTasks.length > 0) {
-      context += `✅ PENDING TASKS:\n`;
-      for (const task of pendingTasks) {
-        const overdue = task.due_date && new Date(task.due_date) < new Date();
-        context += `• ${task.title}`;
-        if (task.due_date) {
-          context += ` — due ${formatDate(task.due_date)}${overdue ? ' (OVERDUE)' : ''}`;
-        }
-        if (task.matter_name) context += ` — ${task.matter_name}`;
         context += `\n`;
       }
       context += `\n`;
