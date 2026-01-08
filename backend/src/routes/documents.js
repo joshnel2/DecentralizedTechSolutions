@@ -23,10 +23,15 @@ let pdfParse = null;
 async function getPdfParse() {
   if (!pdfParse) {
     try {
-      // Use dynamic import (same as aiAgent.js) - works in ES modules
+      // Use dynamic import - try multiple access patterns
       const pdfModule = await import('pdf-parse');
-      pdfParse = pdfModule.default;
-      console.log('[PDF] Loaded pdf-parse via dynamic import, type:', typeof pdfParse);
+      // pdf-parse CommonJS module - could be default, the module itself, or nested
+      pdfParse = pdfModule.default || pdfModule;
+      // If it's still an object with a default, unwrap it
+      if (typeof pdfParse === 'object' && pdfParse.default) {
+        pdfParse = pdfParse.default;
+      }
+      console.log('[PDF] Loaded pdf-parse, type:', typeof pdfParse, 'keys:', Object.keys(pdfModule));
     } catch (err) {
       console.error('Failed to load pdf-parse:', err);
     }
