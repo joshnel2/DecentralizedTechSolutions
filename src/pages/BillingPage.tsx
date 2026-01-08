@@ -7,7 +7,8 @@ import {
   Plus, Search, DollarSign, FileText, TrendingUp, AlertCircle,
   CheckCircle2, Clock, Send, MoreVertical, Download,
   CreditCard, XCircle, Eye, ChevronRight, Filter, Calendar,
-  ArrowUpRight, ArrowDownRight, Wallet, Receipt, Trash2, Edit2, User, Users, Mail
+  ArrowUpRight, ArrowDownRight, Wallet, Receipt, Trash2, Edit2, User, Users, Mail,
+  Merge, Square, CheckSquare
 } from 'lucide-react'
 import { useEmailCompose } from '../contexts/EmailComposeContext'
 import { format, parseISO, differenceInDays, startOfMonth, endOfMonth, subMonths } from 'date-fns'
@@ -59,6 +60,10 @@ export function BillingPage() {
     invoiceId: '',
     invoiceNumber: ''
   })
+
+  // Selected invoices for merge
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([])
+  const [showMergeModal, setShowMergeModal] = useState(false)
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -402,6 +407,34 @@ export function BillingPage() {
   const getClientName = (clientId: string) => clients.find(c => c.id === clientId)?.name || 'Unknown'
   const getMatterName = (matterId: string) => matters.find(m => m.id === matterId)?.name || 'Unknown'
 
+  // Selected invoices for merging
+  const selectedInvoices = invoices.filter(i => selectedInvoiceIds.includes(i.id))
+  
+  // Check if selected invoices can be merged (same matter, not paid/void)
+  const canMergeSelected = useMemo(() => {
+    if (selectedInvoices.length < 2) return false
+    
+    // All must have the same matter
+    const matterIds = [...new Set(selectedInvoices.map(i => i.matterId))]
+    if (matterIds.length !== 1 || !matterIds[0]) return false
+    
+    // None can be paid or void
+    return selectedInvoices.every(i => i.status !== 'paid' && i.status !== 'void')
+  }, [selectedInvoices])
+
+  const toggleInvoiceSelection = (invoiceId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedInvoiceIds(prev => 
+      prev.includes(invoiceId) 
+        ? prev.filter(id => id !== invoiceId)
+        : [...prev, invoiceId]
+    )
+  }
+
+  const clearSelection = () => {
+    setSelectedInvoiceIds([])
+  }
+
   return (
     <div className={styles.billingPage}>
       {/* Header */}
@@ -460,6 +493,35 @@ export function BillingPage() {
           <div className={styles.metricLabel}>Overdue</div>
         </div>
       </div>
+
+      {/* Selection Bar - Shows when invoices are selected */}
+      {selectedInvoiceIds.length > 0 && (
+        <div className={styles.selectionBar}>
+          <div className={styles.selectionInfo}>
+            <CheckSquare size={20} />
+            <span><strong>{selectedInvoiceIds.length}</strong> invoice{selectedInvoiceIds.length > 1 ? 's' : ''} selected</span>
+            {canMergeSelected && (
+              <span className={styles.mergeHint}>
+                (Same matter - can merge)
+              </span>
+            )}
+          </div>
+          <div className={styles.selectionActions}>
+            <button className={styles.clearSelectionBtn} onClick={clearSelection}>
+              Clear
+            </button>
+            {canMergeSelected && (
+              <button 
+                className={styles.mergeBtn}
+                onClick={() => setShowMergeModal(true)}
+              >
+                <Merge size={18} />
+                Merge Invoices
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className={styles.tabs}>
@@ -544,11 +606,27 @@ export function BillingPage() {
             return (
               <div 
                 key={invoice.id} 
-                className={clsx(styles.invoiceCard, isPastDue && styles.pastDue)}
+                className={clsx(
+                  styles.invoiceCard, 
+                  isPastDue && styles.pastDue,
+                  selectedInvoiceIds.includes(invoice.id) && styles.selectedCard
+                )}
                 onClick={() => setShowInvoicePreview(invoice)}
                 style={{ cursor: 'pointer', zIndex: openDropdownId === invoice.id ? 100 : 1, position: 'relative' }}
               >
                 <div className={styles.invoiceMain}>
+                  {/* Checkbox for selection */}
+                  <div 
+                    className={styles.invoiceCheckbox}
+                    onClick={(e) => toggleInvoiceSelection(invoice.id, e)}
+                  >
+                    {selectedInvoiceIds.includes(invoice.id) ? (
+                      <CheckSquare size={20} className={styles.checkedIcon} />
+                    ) : (
+                      <Square size={20} className={styles.uncheckedIcon} />
+                    )}
+                  </div>
+
                   <div className={styles.invoiceInfo}>
                     <div className={styles.invoiceNumber}>
                       <FileText size={16} />
@@ -833,6 +911,28 @@ export function BillingPage() {
         confirmText="Void Invoice"
         type="danger"
       />
+
+      {/* Merge Invoices Modal */}
+      {showMergeModal && selectedInvoices.length >= 2 && (
+        <MergeInvoicesModal
+          invoices={selectedInvoices}
+          matter={matters.find(m => m.id === selectedInvoices[0]?.matterId)}
+          client={clients.find(c => c.id === selectedInvoices[0]?.clientId)}
+          onClose={() => setShowMergeModal(false)}
+          onMerge={async (keepInvoiceId) => {
+            try {
+              // Call backend to merge invoices
+              await invoicesApi.merge(keepInvoiceId, selectedInvoiceIds.filter(id => id !== keepInvoiceId))
+              setShowMergeModal(false)
+              setSelectedInvoiceIds([])
+              fetchInvoices()
+            } catch (error) {
+              console.error('Failed to merge invoices:', error)
+              alert('Failed to merge invoices. Please try again.')
+            }
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -1352,6 +1452,117 @@ function PaymentModal({ invoice, onClose, onSave }: {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+// Merge Invoices Modal
+function MergeInvoicesModal({ invoices, matter, client, onClose, onMerge }: {
+  invoices: any[]
+  matter: any
+  client: any
+  onClose: () => void
+  onMerge: (keepInvoiceId: string) => Promise<void>
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [keepInvoiceId, setKeepInvoiceId] = useState(invoices[0]?.id || '')
+
+  const totalAmount = invoices.reduce((sum, inv) => sum + inv.total, 0)
+  const totalPaid = invoices.reduce((sum, inv) => sum + inv.amountPaid, 0)
+  const totalLineItems = invoices.reduce((sum, inv) => sum + (inv.lineItems?.length || 0), 0)
+
+  const handleMerge = async () => {
+    if (!keepInvoiceId) return
+    setIsSubmitting(true)
+    try {
+      await onMerge(keepInvoiceId)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.mergeModal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <div className={styles.mergeModalTitle}>
+            <Merge size={20} />
+            <h2>Merge Invoices</h2>
+          </div>
+          <button onClick={onClose} className={styles.closeBtn}>×</button>
+        </div>
+
+        <div className={styles.mergeModalContent}>
+          <div className={styles.mergeInfo}>
+            <p>
+              Combine <strong>{invoices.length} invoices</strong> for matter <strong>{matter?.name || 'Unknown'}</strong> into one invoice.
+            </p>
+          </div>
+
+          <div className={styles.mergeSummary}>
+            <div className={styles.mergeSummaryItem}>
+              <span>Total Amount</span>
+              <strong>${totalAmount.toLocaleString()}</strong>
+            </div>
+            <div className={styles.mergeSummaryItem}>
+              <span>Already Paid</span>
+              <strong>${totalPaid.toLocaleString()}</strong>
+            </div>
+            <div className={styles.mergeSummaryItem}>
+              <span>Line Items</span>
+              <strong>{totalLineItems}</strong>
+            </div>
+          </div>
+
+          <div className={styles.mergeSelectSection}>
+            <label>Keep invoice number:</label>
+            <p className={styles.mergeSelectHint}>
+              The selected invoice number will be kept. All line items from other invoices will be merged into this one.
+            </p>
+            <div className={styles.mergeInvoiceList}>
+              {invoices.map(inv => (
+                <label 
+                  key={inv.id} 
+                  className={clsx(styles.mergeInvoiceOption, keepInvoiceId === inv.id && styles.selected)}
+                >
+                  <input
+                    type="radio"
+                    name="keepInvoice"
+                    value={inv.id}
+                    checked={keepInvoiceId === inv.id}
+                    onChange={(e) => setKeepInvoiceId(e.target.value)}
+                  />
+                  <div className={styles.mergeInvoiceDetails}>
+                    <span className={styles.mergeInvoiceNumber}>{inv.number}</span>
+                    <span className={styles.mergeInvoiceAmount}>${inv.total.toLocaleString()}</span>
+                    <span className={styles.mergeInvoiceDate}>
+                      {format(parseISO(inv.issueDate), 'MMM d, yyyy')}
+                    </span>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.mergeWarning}>
+            <AlertCircle size={16} />
+            <span>Other invoices will be voided after merging. This action cannot be undone.</span>
+          </div>
+        </div>
+
+        <div className={styles.mergeModalFooter}>
+          <button onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
+            Cancel
+          </button>
+          <button 
+            onClick={handleMerge} 
+            className={styles.mergeConfirmBtn}
+            disabled={isSubmitting || !keepInvoiceId}
+          >
+            {isSubmitting ? 'Merging...' : `Merge ${invoices.length} Invoices`}
+          </button>
+        </div>
       </div>
     </div>
   )

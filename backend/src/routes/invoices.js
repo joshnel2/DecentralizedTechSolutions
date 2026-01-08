@@ -425,6 +425,135 @@ router.post('/:id/payments', authenticate, requirePermission('billing:edit'), as
   }
 });
 
+// Merge multiple invoices into one
+router.post('/:id/merge', authenticate, requirePermission('billing:edit'), async (req, res) => {
+  try {
+    const keepInvoiceId = req.params.id;
+    const { mergeInvoiceIds } = req.body;
+
+    if (!mergeInvoiceIds || !Array.isArray(mergeInvoiceIds) || mergeInvoiceIds.length === 0) {
+      return res.status(400).json({ error: 'mergeInvoiceIds array is required' });
+    }
+
+    // Verify all invoices exist and belong to the same matter
+    const allInvoiceIds = [keepInvoiceId, ...mergeInvoiceIds];
+    const invoicesResult = await query(
+      `SELECT id, matter_id, client_id, status, line_items, total, amount_paid, notes
+       FROM invoices 
+       WHERE id = ANY($1) AND firm_id = $2`,
+      [allInvoiceIds, req.user.firmId]
+    );
+
+    if (invoicesResult.rows.length !== allInvoiceIds.length) {
+      return res.status(404).json({ error: 'One or more invoices not found' });
+    }
+
+    // Verify all invoices have the same matter
+    const matterIds = [...new Set(invoicesResult.rows.map(inv => inv.matter_id))];
+    if (matterIds.length > 1) {
+      return res.status(400).json({ error: 'All invoices must belong to the same matter' });
+    }
+
+    // Verify no invoices are paid or void
+    const invalidStatuses = invoicesResult.rows.filter(inv => inv.status === 'paid' || inv.status === 'void');
+    if (invalidStatuses.length > 0) {
+      return res.status(400).json({ error: 'Cannot merge paid or voided invoices' });
+    }
+
+    const keepInvoice = invoicesResult.rows.find(inv => inv.id === keepInvoiceId);
+    const mergeInvoices = invoicesResult.rows.filter(inv => inv.id !== keepInvoiceId);
+
+    await withTransaction(async (client) => {
+      // Combine all line items
+      let combinedLineItems = keepInvoice.line_items || [];
+      let additionalTotal = 0;
+      let additionalPaid = 0;
+      const mergedNotes = [];
+
+      for (const inv of mergeInvoices) {
+        if (inv.line_items && inv.line_items.length > 0) {
+          // Add a separator comment
+          combinedLineItems.push({
+            type: 'note',
+            description: `--- Merged from Invoice ${inv.number || inv.id.slice(0, 8)} ---`
+          });
+          combinedLineItems = combinedLineItems.concat(inv.line_items);
+        }
+        additionalTotal += parseFloat(inv.total);
+        additionalPaid += parseFloat(inv.amount_paid);
+        if (inv.notes) {
+          mergedNotes.push(inv.notes);
+        }
+      }
+
+      // Calculate new totals
+      const newTotal = parseFloat(keepInvoice.total) + additionalTotal;
+      const newAmountPaid = parseFloat(keepInvoice.amount_paid) + additionalPaid;
+      const newAmountDue = newTotal - newAmountPaid;
+
+      // Recalculate subtotals
+      const subtotalFees = combinedLineItems
+        .filter(li => li.type === 'fee' || li.type === 'flat_fee' || !li.type)
+        .reduce((sum, li) => sum + (parseFloat(li.amount) || 0), 0);
+
+      // Update the keep invoice with combined data
+      const combinedNotes = [keepInvoice.notes, ...mergedNotes].filter(Boolean).join('\n\n');
+      
+      await client.query(
+        `UPDATE invoices SET
+          line_items = $1,
+          subtotal_fees = $2,
+          subtotal = $2,
+          total = $3,
+          amount_paid = $4,
+          amount_due = $5,
+          notes = $6,
+          updated_at = NOW()
+        WHERE id = $7`,
+        [
+          JSON.stringify(combinedLineItems),
+          subtotalFees,
+          newTotal,
+          newAmountPaid,
+          newAmountDue,
+          combinedNotes,
+          keepInvoiceId
+        ]
+      );
+
+      // Update time entries to point to the merged invoice
+      await client.query(
+        `UPDATE time_entries SET invoice_id = $1 WHERE invoice_id = ANY($2) AND firm_id = $3`,
+        [keepInvoiceId, mergeInvoiceIds, req.user.firmId]
+      );
+
+      // Update expenses to point to the merged invoice
+      await client.query(
+        `UPDATE expenses SET invoice_id = $1 WHERE invoice_id = ANY($2) AND firm_id = $3`,
+        [keepInvoiceId, mergeInvoiceIds, req.user.firmId]
+      );
+
+      // Void the merged invoices
+      await client.query(
+        `UPDATE invoices SET 
+          status = 'void', 
+          notes = COALESCE(notes, '') || E'\n\n[Merged into invoice ' || $1 || ']',
+          updated_at = NOW()
+        WHERE id = ANY($2)`,
+        [keepInvoice.number || keepInvoiceId, mergeInvoiceIds]
+      );
+    });
+
+    res.json({ 
+      message: `Successfully merged ${mergeInvoiceIds.length + 1} invoices`,
+      mergedInvoiceId: keepInvoiceId
+    });
+  } catch (error) {
+    console.error('Merge invoices error:', error);
+    res.status(500).json({ error: 'Failed to merge invoices' });
+  }
+});
+
 // Get time entries linked to an invoice
 router.get('/:id/time-entries', authenticate, requirePermission('billing:view'), async (req, res) => {
   try {

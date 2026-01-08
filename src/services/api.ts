@@ -499,6 +499,13 @@ export const invoicesApi = {
     return fetchWithAuth(`/invoices/${id}/time-entries`);
   },
 
+  async merge(keepInvoiceId: string, mergeInvoiceIds: string[]) {
+    return fetchWithAuth(`/invoices/${keepInvoiceId}/merge`, {
+      method: 'POST',
+      body: JSON.stringify({ mergeInvoiceIds }),
+    });
+  },
+
   async syncToQuickBooks(id: string) {
     return fetchWithAuth(`/invoices/${id}/sync-quickbooks`, {
       method: 'POST',

@@ -491,9 +491,288 @@
   border-left: 3px solid #EF4444;
 }
 
+.invoiceCard.selectedCard {
+  border-color: var(--apex-gold);
+  background: rgba(245, 158, 11, 0.05);
+}
+
+/* Invoice Checkbox */
+.invoiceCheckbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: var(--space-xs);
+  margin-right: var(--space-sm);
+}
+
+.invoiceCheckbox .uncheckedIcon {
+  color: var(--apex-subtle);
+  transition: all var(--transition-fast);
+}
+
+.invoiceCheckbox:hover .uncheckedIcon {
+  color: var(--apex-gold);
+}
+
+.invoiceCheckbox .checkedIcon {
+  color: var(--apex-gold);
+}
+
+/* Selection Bar */
+.selectionBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(245, 158, 11, 0.05) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-lg);
+}
+
+.selectionInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  color: var(--apex-gold);
+}
+
+.selectionInfo span {
+  color: var(--apex-white);
+}
+
+.mergeHint {
+  font-size: 0.8125rem;
+  color: var(--apex-success) !important;
+}
+
+.selectionActions {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.clearSelectionBtn {
+  padding: var(--space-sm) var(--space-md);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.clearSelectionBtn:hover {
+  border-color: var(--apex-text);
+  color: var(--apex-white);
+}
+
+.mergeBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.mergeBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+/* Merge Modal */
+.mergeModal {
+  width: 100%;
+  max-width: 500px;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.mergeModalTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--apex-gold);
+}
+
+.mergeModalTitle h2 {
+  color: var(--apex-white);
+  font-family: var(--font-serif);
+  font-weight: 400;
+}
+
+.mergeModalContent {
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.mergeInfo {
+  font-size: 0.9375rem;
+  color: var(--apex-light);
+}
+
+.mergeInfo strong {
+  color: var(--apex-white);
+}
+
+.mergeSummary {
+  display: flex;
+  gap: var(--space-lg);
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+}
+
+.mergeSummaryItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+
+.mergeSummaryItem span {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  margin-bottom: var(--space-xs);
+}
+
+.mergeSummaryItem strong {
+  font-size: 1.125rem;
+  color: var(--apex-gold-bright);
+}
+
+.mergeSelectSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.mergeSelectSection > label {
+  font-weight: 500;
+  color: var(--apex-white);
+}
+
+.mergeSelectHint {
+  font-size: 0.8125rem;
+  color: var(--apex-text);
+  margin-bottom: var(--space-sm);
+}
+
+.mergeInvoiceList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.mergeInvoiceOption {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.mergeInvoiceOption:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.mergeInvoiceOption.selected {
+  border-color: var(--apex-gold);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.mergeInvoiceOption input[type="radio"] {
+  accent-color: var(--apex-gold);
+}
+
+.mergeInvoiceDetails {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex: 1;
+}
+
+.mergeInvoiceNumber {
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.mergeInvoiceAmount {
+  color: var(--apex-gold-bright);
+  font-weight: 500;
+}
+
+.mergeInvoiceDate {
+  color: var(--apex-text);
+  font-size: 0.8125rem;
+  margin-left: auto;
+}
+
+.mergeWarning {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  color: #f87171;
+}
+
+.mergeModalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--apex-slate);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.mergeConfirmBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.mergeConfirmBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+.mergeConfirmBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .invoiceMain {
   display: grid;
-  grid-template-columns: 2fr 1.5fr 1fr 100px 120px;
+  grid-template-columns: 40px 2fr 1.5fr 1fr 100px 120px;
   align-items: center;
   gap: var(--space-lg);
 }
