@@ -23,8 +23,10 @@ let pdfParse = null;
 async function getPdfParse() {
   if (!pdfParse) {
     try {
-      pdfParse = require('pdf-parse');
-      console.log('[PDF] Loaded pdf-parse via require, type:', typeof pdfParse);
+      const pdfModule = require('pdf-parse');
+      // Handle both CommonJS and ES module formats
+      pdfParse = pdfModule.default || pdfModule;
+      console.log('[PDF] Loaded pdf-parse, type:', typeof pdfParse);
     } catch (err) {
       console.error('Failed to load pdf-parse:', err);
     }
