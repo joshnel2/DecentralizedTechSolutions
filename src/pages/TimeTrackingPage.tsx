@@ -268,6 +268,27 @@ export function TimeTrackingPage() {
     }
   }
 
+  // Select all unbilled entries and open bill modal
+  const handleBillAllUnbilled = () => {
+    const allUnbilledIds = unbilledEntries.map(e => e.id)
+    setSelectedEntries(allUnbilledIds)
+    setShowBillModal(true)
+  }
+
+  // Handle clicking unbilled stat card - select all unbilled entries
+  const handleUnbilledCardClick = () => {
+    const allUnbilledIds = unbilledEntries.map(e => e.id)
+    if (allUnbilledIds.length === 0) return
+    
+    // If all unbilled are already selected, deselect them
+    const allSelected = allUnbilledIds.every(id => selectedEntries.includes(id))
+    if (allSelected) {
+      setSelectedEntries([])
+    } else {
+      setSelectedEntries(allUnbilledIds)
+    }
+  }
+
   const handleStopTimer = () => {
     stopTimer()
     setShowSaveTimerModal(true)
@@ -292,6 +313,12 @@ export function TimeTrackingPage() {
           <h1>Time Tracking</h1>
         </div>
         <div className={styles.headerActions}>
+          {unbilledEntries.length > 0 && (
+            <button className={styles.billUnbilledBtn} onClick={handleBillAllUnbilled}>
+              <DollarSign size={18} />
+              Bill Unbilled (${unbilledTotal.toLocaleString()})
+            </button>
+          )}
           <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
             <Plus size={18} />
             New Entry
@@ -398,13 +425,17 @@ export function TimeTrackingPage() {
             <span className={styles.statLabel}>Value</span>
           </div>
         </div>
-        <div className={clsx(styles.statCard, styles.unbilledCard)}>
+        <button 
+          className={clsx(styles.statCard, styles.unbilledCard, styles.clickableCard)}
+          onClick={handleUnbilledCardClick}
+          title={unbilledEntries.length > 0 ? `Click to select all ${unbilledEntries.length} unbilled entries` : 'No unbilled entries'}
+        >
           <FileText size={20} />
           <div>
             <span className={styles.statValue}>${unbilledTotal.toLocaleString()}</span>
-            <span className={styles.statLabel}>Unbilled</span>
+            <span className={styles.statLabel}>Unbilled ({unbilledEntries.length})</span>
           </div>
-        </div>
+        </button>
       </div>
 
       {/* Bill Selected Bar */}
@@ -584,14 +615,14 @@ export function TimeTrackingPage() {
                     )}
                   >
                     <td>
-                      {!entry.billed && entry.billable && (
-                        <input
-                          type="checkbox"
-                          checked={selectedEntries.includes(entry.id)}
-                          onChange={() => toggleEntrySelection(entry.id)}
-                          className={styles.entryCheckbox}
-                        />
-                      )}
+                      <input
+                        type="checkbox"
+                        checked={selectedEntries.includes(entry.id)}
+                        onChange={() => toggleEntrySelection(entry.id)}
+                        className={clsx(styles.entryCheckbox, entry.billed && styles.checkboxDisabled)}
+                        disabled={entry.billed}
+                        title={entry.billed ? 'Already billed' : (entry.billable ? 'Select for billing' : 'Non-billable entry')}
+                      />
                     </td>
                     <td>{format(parseAsLocalDate(entry.date), 'MMM d, yyyy')}</td>
                     <td>
@@ -775,14 +806,14 @@ export function TimeTrackingPage() {
                     )}
                   >
                     <td>
-                      {!entry.billed && entry.billable && (
-                        <input
-                          type="checkbox"
-                          checked={selectedEntries.includes(entry.id)}
-                          onChange={() => toggleEntrySelection(entry.id)}
-                          className={styles.entryCheckbox}
-                        />
-                      )}
+                      <input
+                        type="checkbox"
+                        checked={selectedEntries.includes(entry.id)}
+                        onChange={() => toggleEntrySelection(entry.id)}
+                        className={clsx(styles.entryCheckbox, entry.billed && styles.checkboxDisabled)}
+                        disabled={entry.billed}
+                        title={entry.billed ? 'Already billed' : (entry.billable ? 'Select for billing' : 'Non-billable entry')}
+                      />
                     </td>
                     <td>{format(parseAsLocalDate(entry.date), 'MMM d, yyyy')}</td>
                     <td>
