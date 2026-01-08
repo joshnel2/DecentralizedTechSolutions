@@ -2663,7 +2663,7 @@ async function getMatter(args, user) {
   
   // Get invoices for this matter
   const invoicesResult = await query(
-    `SELECT id, invoice_number, status, amount, due_date
+    `SELECT id, number, status, total as amount, due_date
      FROM invoices 
      WHERE matter_id = $1 AND firm_id = $2
      ORDER BY created_at DESC 
@@ -2718,7 +2718,7 @@ async function getMatter(args, user) {
     })),
     invoices: invoicesResult.rows.map(i => ({
       id: i.id,
-      number: i.invoice_number,
+      number: i.number,
       status: i.status,
       amount: parseFloat(i.amount),
       due_date: i.due_date
@@ -3050,7 +3050,7 @@ async function getClient(args, user) {
   
   // Get recent invoices
   const invoicesResult = await query(
-    `SELECT id, invoice_number, status, amount, due_date
+    `SELECT id, number, status, total as amount, due_date
      FROM invoices 
      WHERE client_id = $1 AND firm_id = $2
      ORDER BY created_at DESC 
@@ -3107,7 +3107,7 @@ async function getClient(args, user) {
     })),
     invoices: invoicesResult.rows.map(i => ({
       id: i.id,
-      number: i.invoice_number,
+      number: i.number,
       status: i.status,
       amount: parseFloat(i.amount),
       due_date: i.due_date
@@ -3326,7 +3326,7 @@ async function listInvoices(args, user) {
   const { status, client_id, matter_id, source, limit = 20 } = args;
   
   let sql = `
-    SELECT i.id, i.invoice_number, i.status, i.amount, i.due_date, i.external_id, i.external_source, c.display_name as client_name, m.name as matter_name, i.description
+    SELECT i.id, i.number, i.status, i.total as amount, i.due_date, i.external_id, i.external_source, c.display_name as client_name, m.name as matter_name, i.description
     FROM invoices i
     LEFT JOIN clients c ON i.client_id = c.id
     LEFT JOIN matters m ON i.matter_id = m.id
@@ -3363,7 +3363,7 @@ async function listInvoices(args, user) {
   return {
     invoices: result.rows.map(i => ({
       id: i.id,
-      number: i.invoice_number,
+      number: i.number,
       client: i.client_name,
       matter: i.matter_name,
       status: i.status,
@@ -3425,15 +3425,32 @@ async function createInvoice(args, user) {
     return { error: 'You do not have permission to create invoices' };
   }
   
-  const { client_id, matter_id, due_date, notes, items, amount, include_unbilled_time } = args;
+  let { client_id, matter_id, due_date, notes, items, amount, include_unbilled_time } = args;
   
   if (!client_id) {
     return { error: 'client_id is required' };
   }
   
-  const clientCheck = await query('SELECT id, display_name FROM clients WHERE id = $1 AND firm_id = $2', [client_id, user.firmId]);
+  // Check if client_id is a valid UUID format, if not try to look up by name
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  let clientCheck;
+  
+  if (uuidRegex.test(client_id)) {
+    clientCheck = await query('SELECT id, display_name FROM clients WHERE id = $1 AND firm_id = $2', [client_id, user.firmId]);
+  } else {
+    // Try to find client by name (case-insensitive)
+    clientCheck = await query(
+      'SELECT id, display_name FROM clients WHERE firm_id = $1 AND (LOWER(display_name) = LOWER($2) OR LOWER(first_name || \' \' || last_name) = LOWER($2))',
+      [user.firmId, client_id]
+    );
+    if (clientCheck.rows.length > 0) {
+      // Update client_id to use the found UUID
+      client_id = clientCheck.rows[0].id;
+    }
+  }
+  
   if (clientCheck.rows.length === 0) {
-    return { error: 'Client not found' };
+    return { error: `Client not found: "${client_id}". Please provide a valid client ID or exact client name.` };
   }
   
   return await withTransaction(async (client) => {
@@ -4229,7 +4246,7 @@ async function generateReport(args, user) {
     
     case 'outstanding_invoices': {
       const result = await query(`
-        SELECT i.invoice_number, c.display_name as client, i.amount, i.due_date, i.status,
+        SELECT i.number, c.display_name as client, i.total as amount, i.due_date, i.status,
                CURRENT_DATE - i.due_date as days_overdue
         FROM invoices i
         LEFT JOIN clients c ON i.client_id = c.id
@@ -4241,7 +4258,7 @@ async function generateReport(args, user) {
       return {
         report: 'Outstanding Invoices',
         data: result.rows.map(r => ({
-          invoice: r.invoice_number,
+          invoice: r.number,
           client: r.client,
           amount: parseFloat(r.amount),
           due_date: r.due_date,
