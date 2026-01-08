@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
-import { invoicesApi, teamApi, mattersApi } from '../services/api'
+import { invoicesApi, teamApi, mattersApi, wordOnlineApi, documentsApi } from '../services/api'
 import { 
   Briefcase, Calendar, DollarSign, Clock, FileText,
   ChevronLeft, Sparkles, Edit2, MoreVertical, Plus,
@@ -12,7 +12,7 @@ import {
   ListTodo, Users, Circle, Upload, Download, X, 
   Trash2, Archive, XCircle, Eye, Play, Pause, StopCircle,
   MessageSquare, Settings, Share2, Globe, Lock, Shield,
-  Search, Filter
+  Search, Filter, Edit3
 } from 'lucide-react'
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { parseAsLocalDate, localDateToISO } from '../utils/dateUtils'
@@ -22,6 +22,9 @@ import { ConfirmationModal } from '../components/ConfirmationModal'
 import { MatterTypesManager } from '../components/MatterTypesManager'
 import { ShareMatterModal } from '../components/ShareMatterModal'
 import { MatterPermissions } from '../components/MatterPermissions'
+import { DocumentVersionPanel } from '../components/DocumentVersionPanel'
+import { ShareDocumentModal } from '../components/ShareDocumentModal'
+import { useEmailCompose } from '../contexts/EmailComposeContext'
 import { useAuthStore } from '../stores/authStore'
 
 // Task interface
@@ -77,8 +80,11 @@ export function MatterDetailPage() {
   const [showTimeEntryModal, setShowTimeEntryModal] = useState(false)
   const [showEventModal, setShowEventModal] = useState(false)
   const [showTaskModal, setShowTaskModal] = useState(false)
-  const [showDocPreview, setShowDocPreview] = useState<any>(null)
+  const [selectedDocument, setSelectedDocument] = useState<any>(null)
+  const [showDocVersionPanel, setShowDocVersionPanel] = useState(false)
+  const [showShareDocModal, setShowShareDocModal] = useState<{ isOpen: boolean; documentId: string; documentName: string }>({ isOpen: false, documentId: '', documentName: '' })
   const [isUploading, setIsUploading] = useState(false)
+  const { emailDocument } = useEmailCompose()
   const [showEditMatterModal, setShowEditMatterModal] = useState(false)
   const [showMatterDropdown, setShowMatterDropdown] = useState(false)
   const [editingTimeEntry, setEditingTimeEntry] = useState<any>(null)
@@ -485,6 +491,68 @@ export function MatterDetailPage() {
       console.error('Download error:', error)
       alert('Failed to download document')
     }
+  }
+
+  // Open document in Word
+  const openDocInWord = async (doc: any, preferDesktop = true) => {
+    const wordExtensions = ['.doc', '.docx', '.odt', '.rtf']
+    const docName = doc.originalName || doc.name
+    const isWordDoc = wordExtensions.some(ext => docName.toLowerCase().endsWith(ext))
+    
+    if (!isWordDoc) {
+      alert('Word editing is only available for Word documents (.doc, .docx)')
+      return
+    }
+
+    try {
+      if (preferDesktop) {
+        const result = await wordOnlineApi.openDesktop(doc.id)
+        if (result.desktopUrl) {
+          window.location.href = result.desktopUrl
+          return
+        }
+      }
+      // Fallback to open document
+      const result = await wordOnlineApi.openDocument(doc.id)
+      if (result.editUrl) {
+        window.open(result.editUrl, '_blank')
+      }
+    } catch (error) {
+      console.error('Failed to open in Word:', error)
+      alert('Failed to open document in Word. Try downloading it instead.')
+    }
+  }
+
+  // Open document preview - just download for now
+  const openDocPreview = async (doc: any) => {
+    // For now, just download the document as preview
+    downloadDocument(doc)
+  }
+
+  // AI analyze document
+  const analyzeDocWithAI = (doc: any) => {
+    // Navigate to AI page with document context
+    navigate('/app/ai', { state: { documentId: doc.id, documentName: doc.name } })
+  }
+
+  // Delete document
+  const handleDeleteDocument = async (docId: string) => {
+    if (!confirm('Are you sure you want to delete this document?')) return
+    try {
+      await documentsApi.delete(docId)
+      setSelectedDocument(null)
+      setShowDocVersionPanel(false)
+      fetchDocuments({ matterId: id })
+    } catch (error) {
+      console.error('Delete error:', error)
+      alert('Failed to delete document')
+    }
+  }
+
+  // Handle document click - open version panel
+  const handleDocumentClick = (doc: any) => {
+    setSelectedDocument(doc)
+    setShowDocVersionPanel(true)
   }
 
   const matter = useMemo(() => matters.find(m => m.id === id), [matters, id])
@@ -1581,39 +1649,50 @@ Only analyze documents actually associated with this matter.`
               </div>
             </div>
             <div className={styles.docGrid}>
-              {matterDocuments.map(doc => (
-                <div 
-                  key={doc.id} 
-                  className={styles.docCard}
-                  onClick={() => setShowDocPreview(doc)}
-                >
-                  <div className={styles.docIcon}>
-                    <FileText size={24} />
+              {matterDocuments.map(doc => {
+                const wordExtensions = ['.doc', '.docx', '.odt', '.rtf']
+                const docName = doc.originalName || doc.name
+                const isWordDoc = wordExtensions.some(ext => docName.toLowerCase().endsWith(ext))
+                
+                return (
+                  <div 
+                    key={doc.id} 
+                    className={clsx(styles.docCard, selectedDocument?.id === doc.id && styles.selectedDocCard)}
+                    onClick={() => handleDocumentClick(doc)}
+                  >
+                    <div className={styles.docIcon}>
+                      <FileText size={24} />
+                      {isWordDoc && (
+                        <span className={styles.wordBadge} title="Word Document">
+                          <Edit3 size={10} />
+                        </span>
+                      )}
+                    </div>
+                    <div className={styles.docInfo}>
+                      <span className={styles.docName}>{doc.name}</span>
+                      <span className={styles.docMeta}>
+                        {format(parseISO(doc.uploadedAt), 'MMM d, yyyy')} · 
+                        {(doc.size / 1024 / 1024).toFixed(2)} MB
+                      </span>
+                    </div>
+                    <div className={styles.docActions} onClick={e => e.stopPropagation()}>
+                      <button 
+                        className={styles.docDownloadBtn}
+                        onClick={() => downloadDocument(doc)}
+                        title="Download"
+                      >
+                        <Download size={16} />
+                      </button>
+                    </div>
+                    {doc.aiSummary && (
+                      <span className={styles.docAi}>
+                        <Sparkles size={12} />
+                        AI Summary
+                      </span>
+                    )}
                   </div>
-                  <div className={styles.docInfo}>
-                    <span className={styles.docName}>{doc.name}</span>
-                    <span className={styles.docMeta}>
-                      {format(parseISO(doc.uploadedAt), 'MMM d, yyyy')} · 
-                      {(doc.size / 1024 / 1024).toFixed(2)} MB
-                    </span>
-                  </div>
-                  <div className={styles.docActions} onClick={e => e.stopPropagation()}>
-                    <button 
-                      className={styles.docDownloadBtn}
-                      onClick={() => downloadDocument(doc)}
-                      title="Download"
-                    >
-                      <Download size={16} />
-                    </button>
-                  </div>
-                  {doc.aiSummary && (
-                    <span className={styles.docAi}>
-                      <Sparkles size={12} />
-                      AI Summary
-                    </span>
-                  )}
-                </div>
-              ))}
+                )
+              })}
               {matterDocuments.length === 0 && (
                 <div className={styles.emptyDocs}>
                   <FileText size={48} />
@@ -1981,47 +2060,50 @@ Only analyze documents actually associated with this matter.`
         </div>
       )}
 
-      {/* Document Preview Modal */}
-      {showDocPreview && (
-        <div className={styles.modalOverlay} onClick={() => setShowDocPreview(null)}>
-          <div className={styles.docPreviewModal} onClick={e => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h2>{showDocPreview.name}</h2>
-              <button onClick={() => setShowDocPreview(null)} className={styles.closeBtn}>
-                <X size={20} />
-              </button>
-            </div>
-            <div className={styles.docPreviewContent}>
-              <div className={styles.docPreviewInfo}>
-                <div className={styles.docPreviewIcon}>
-                  <FileText size={48} />
-                </div>
-                <div className={styles.docPreviewMeta}>
-                  <h3>{showDocPreview.name}</h3>
-                  <p>Uploaded: {format(parseISO(showDocPreview.uploadedAt), 'MMMM d, yyyy h:mm a')}</p>
-                  <p>Size: {(showDocPreview.size / 1024 / 1024).toFixed(2)} MB</p>
-                  <p>Type: {showDocPreview.type || 'Document'}</p>
-                </div>
-              </div>
-              {showDocPreview.aiSummary && (
-                <div className={styles.docPreviewSummary}>
-                  <h4><Sparkles size={16} /> AI Summary</h4>
-                  <p>{showDocPreview.aiSummary}</p>
-                </div>
-              )}
-              <div className={styles.docPreviewActions}>
-                <button 
-                  className={styles.primaryBtn}
-                  onClick={() => downloadDocument(showDocPreview)}
-                >
-                  <Download size={18} />
-                  Download
-                </button>
-              </div>
-            </div>
-          </div>
+      {/* Document Version Panel */}
+      {showDocVersionPanel && selectedDocument && (
+        <div className={styles.docVersionPanelOverlay}>
+          <DocumentVersionPanel
+            document={{
+              id: selectedDocument.id,
+              name: selectedDocument.name,
+              originalName: selectedDocument.originalName,
+              type: selectedDocument.type,
+              size: selectedDocument.size,
+              uploadedAt: selectedDocument.uploadedAt,
+              matterName: matter?.name,
+              uploadedByName: selectedDocument.uploadedByName
+            }}
+            onClose={() => {
+              setShowDocVersionPanel(false)
+              setSelectedDocument(null)
+            }}
+            onOpenInWord={(preferDesktop) => openDocInWord(selectedDocument, preferDesktop)}
+            onDownload={() => downloadDocument(selectedDocument)}
+            onShare={() => setShowShareDocModal({
+              isOpen: true,
+              documentId: selectedDocument.id,
+              documentName: selectedDocument.name
+            })}
+            onEmail={() => emailDocument({
+              id: selectedDocument.id,
+              name: selectedDocument.name,
+              size: selectedDocument.size
+            })}
+            onAnalyze={() => analyzeDocWithAI(selectedDocument)}
+            onDelete={() => handleDeleteDocument(selectedDocument.id)}
+            onPreview={() => openDocPreview(selectedDocument)}
+          />
         </div>
       )}
+
+      {/* Share Document Modal */}
+      <ShareDocumentModal
+        isOpen={showShareDocModal.isOpen}
+        onClose={() => setShowShareDocModal({ isOpen: false, documentId: '', documentName: '' })}
+        documentId={showShareDocModal.documentId}
+        documentName={showShareDocModal.documentName}
+      />
       
       {/* Edit Matter Modal */}
       {showEditMatterModal && matter && (

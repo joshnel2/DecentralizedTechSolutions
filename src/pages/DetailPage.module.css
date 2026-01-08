@@ -1097,7 +1097,13 @@
   transform: translateY(-2px);
 }
 
+.docCard.selectedDocCard {
+  border-color: var(--apex-gold);
+  background: rgba(245, 158, 11, 0.05);
+}
+
 .docIcon {
+  position: relative;
   width: 48px;
   height: 48px;
   border-radius: var(--radius-md);
@@ -1141,6 +1147,47 @@
   color: var(--apex-ai);
   font-size: 0.6875rem;
   flex-shrink: 0;
+}
+
+/* Word badge on document icon */
+.docIcon .wordBadge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 18px;
+  height: 18px;
+  background: #2B579A;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+/* Document Version Panel Overlay */
+.docVersionPanelOverlay {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 400px;
+  max-width: 100%;
+  background: var(--apex-deep);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 100;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+  animation: slideInRight 0.2s ease;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 .emptyDocs {
