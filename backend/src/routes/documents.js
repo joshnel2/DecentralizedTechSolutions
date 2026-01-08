@@ -19,23 +19,17 @@ const require = createRequire(import.meta.url);
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from 'canvas';
 
+// Load pdf-parse using createRequire (works reliably for CommonJS modules)
 let pdfParse = null;
+try {
+  pdfParse = require('pdf-parse');
+  console.log('[PDF] Loaded pdf-parse via require, type:', typeof pdfParse);
+} catch (err) {
+  console.error('Failed to load pdf-parse via require:', err);
+}
+
 async function getPdfParse() {
-  if (!pdfParse) {
-    try {
-      // Use dynamic import - try multiple access patterns
-      const pdfModule = await import('pdf-parse');
-      // pdf-parse CommonJS module - could be default, the module itself, or nested
-      pdfParse = pdfModule.default || pdfModule;
-      // If it's still an object with a default, unwrap it
-      if (typeof pdfParse === 'object' && pdfParse.default) {
-        pdfParse = pdfParse.default;
-      }
-      console.log('[PDF] Loaded pdf-parse, type:', typeof pdfParse, 'keys:', Object.keys(pdfModule));
-    } catch (err) {
-      console.error('Failed to load pdf-parse:', err);
-    }
-  }
+  // Already loaded at module init
   return pdfParse;
 }
 
