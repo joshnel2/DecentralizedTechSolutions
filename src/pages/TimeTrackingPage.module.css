@@ -563,43 +563,25 @@
 }
 
 .statusBadge {
-  padding: 4px 10px;
-  border-radius: var(--radius-full);
-  font-size: 0.6875rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
-  border: none;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
 }
 
 .statusBadge.clickable {
   cursor: pointer;
-  transition: all var(--transition-fast);
-  position: relative;
-  border: 1px solid transparent;
-}
-
-.statusBadge.clickable::after {
-  content: '';
-  position: absolute;
-  right: -4px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 0;
-  height: 0;
-  border-left: 4px solid currentColor;
-  border-top: 3px solid transparent;
-  border-bottom: 3px solid transparent;
-  opacity: 0.5;
-  transition: opacity var(--transition-fast);
 }
 
 .statusBadge.clickable:hover {
-  transform: scale(1.05);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-}
-
-.statusBadge.clickable:hover::after {
-  opacity: 1;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
 }
 
 .statusBadge.billed {
@@ -614,14 +596,14 @@
 }
 
 .statusBadge.unbilled {
-  background: rgba(245, 158, 11, 0.15);
-  color: var(--apex-warning);
-  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.2);
+  color: #D97706;
+  border-color: rgba(245, 158, 11, 0.4);
 }
 
 .statusBadge.unbilled.clickable:hover {
-  background: rgba(245, 158, 11, 0.25);
-  border-color: rgba(245, 158, 11, 0.5);
+  background: rgba(245, 158, 11, 0.3);
+  border-color: rgba(245, 158, 11, 0.6);
 }
 
 /* Invoice Link Styling */
@@ -869,30 +851,64 @@
   color: var(--apex-warning);
 }
 
-/* Bill Bar */
+/* Bill Bar - STICKY at bottom */
 .billBar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: var(--space-md) var(--space-lg);
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  border-radius: var(--radius-lg);
-  margin-bottom: var(--space-lg);
-  animation: fadeIn 0.2s ease;
+  justify-content: center;
+  gap: var(--space-xl);
+  padding: var(--space-lg) var(--space-xl);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.95) 0%, rgba(5, 150, 105, 0.95) 100%);
+  border-top: 2px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Add padding to page when bill bar is visible */
+.timeTrackingPage.hasBillBar {
+  padding-bottom: 100px;
 }
 
 .billBarInfo {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
-  color: var(--apex-success);
+  gap: var(--space-lg);
+  color: white;
+}
+
+.billBarInfo svg {
+  color: white;
+}
+
+.billBarInfo span {
+  font-size: 1rem;
+  font-weight: 500;
+  color: white;
 }
 
 .billBarAmount {
-  font-weight: 600;
-  font-size: 1.125rem;
-  color: var(--apex-white);
+  font-weight: 700;
+  font-size: 1.5rem;
+  color: white;
+  background: rgba(255, 255, 255, 0.2);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-md);
 }
 
 .billBarActions {
@@ -901,39 +917,41 @@
 }
 
 .clearSelectionBtn {
-  padding: var(--space-sm) var(--space-md);
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: var(--space-sm) var(--space-lg);
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: var(--radius-md);
-  color: var(--apex-text);
-  font-size: 0.875rem;
+  color: white;
+  font-size: 0.9375rem;
+  font-weight: 500;
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .clearSelectionBtn:hover {
-  border-color: var(--apex-text);
-  color: var(--apex-white);
+  background: rgba(0, 0, 0, 0.3);
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 .billSelectedBtn {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-lg);
-  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  padding: var(--space-md) var(--space-xl);
+  background: white;
   border: none;
   border-radius: var(--radius-md);
-  color: var(--apex-midnight);
-  font-weight: 600;
-  font-size: 0.875rem;
+  color: #059669;
+  font-weight: 700;
+  font-size: 1rem;
   cursor: pointer;
   transition: all var(--transition-fast);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .billSelectedBtn:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-glow);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 /* Filter Bar */

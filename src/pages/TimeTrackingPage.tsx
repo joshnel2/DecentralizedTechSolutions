@@ -234,16 +234,6 @@ export function TimeTrackingPage() {
     )
   }
 
-  const toggleBilledStatus = async (entry: any) => {
-    try {
-      await updateTimeEntry(entry.id, { billed: !entry.billed })
-      await fetchTimeEntries({})
-    } catch (error) {
-      console.error('Failed to toggle billed status:', error)
-      alert('Failed to update billing status. Please try again.')
-    }
-  }
-
   const toggleRecentUnbilled = () => {
     const unbilledIds = unbilledRecentEntries.map(e => e.id)
     const allSelected = unbilledIds.every(id => selectedEntries.includes(id))
@@ -307,7 +297,7 @@ export function TimeTrackingPage() {
   }
 
   return (
-    <div className={styles.timeTrackingPage}>
+    <div className={clsx(styles.timeTrackingPage, selectedEntries.length > 0 && styles.hasBillBar)}>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <h1>Time Tracking</h1>
@@ -437,32 +427,6 @@ export function TimeTrackingPage() {
           </div>
         </button>
       </div>
-
-      {/* Bill Selected Bar */}
-      {selectedEntries.length > 0 && (
-        <div className={styles.billBar}>
-          <div className={styles.billBarInfo}>
-            <CheckSquare size={18} />
-            <span>{selectedEntries.length} entries selected</span>
-            <span className={styles.billBarAmount}>${selectedTotal.toLocaleString()}</span>
-          </div>
-          <div className={styles.billBarActions}>
-            <button 
-              className={styles.clearSelectionBtn}
-              onClick={() => setSelectedEntries([])}
-            >
-              Clear Selection
-            </button>
-            <button 
-              className={styles.billSelectedBtn}
-              onClick={() => setShowBillModal(true)}
-            >
-              <FileText size={16} />
-              Create Invoice
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Weekly Chart */}
       <div className={styles.weeklyChart}>
@@ -658,14 +622,16 @@ export function TimeTrackingPage() {
                             <FileText size={12} />
                             {entry.invoiceNumber}
                           </Link>
+                        ) : entry.billed ? (
+                          <span className={clsx(styles.statusBadge, styles.billed)}>
+                            <CheckSquare size={12} />
+                            Billed
+                          </span>
                         ) : (
-                          <button
-                            className={clsx(styles.statusBadge, styles.clickable, entry.billed ? styles.billed : styles.unbilled)}
-                            onClick={() => toggleBilledStatus(entry)}
-                            title={entry.billed ? 'Click to mark as unbilled' : 'Click to mark as billed'}
-                          >
-                            {entry.billed ? 'Billed' : 'Unbilled'}
-                          </button>
+                          <span className={clsx(styles.statusBadge, styles.unbilled)}>
+                            <Clock size={12} />
+                            Unbilled
+                          </span>
                         )}
                       </div>
                     </td>
@@ -849,14 +815,16 @@ export function TimeTrackingPage() {
                             <FileText size={12} />
                             {entry.invoiceNumber}
                           </Link>
+                        ) : entry.billed ? (
+                          <span className={clsx(styles.statusBadge, styles.billed)}>
+                            <CheckSquare size={12} />
+                            Billed
+                          </span>
                         ) : (
-                          <button
-                            className={clsx(styles.statusBadge, styles.clickable, entry.billed ? styles.billed : styles.unbilled)}
-                            onClick={() => toggleBilledStatus(entry)}
-                            title={entry.billed ? 'Click to mark as unbilled' : 'Click to mark as billed'}
-                          >
-                            {entry.billed ? 'Billed' : 'Unbilled'}
-                          </button>
+                          <span className={clsx(styles.statusBadge, styles.unbilled)}>
+                            <Clock size={12} />
+                            Unbilled
+                          </span>
                         )}
                       </div>
                     </td>
@@ -904,15 +872,10 @@ export function TimeTrackingPage() {
           clients={clients}
           onCreateInvoice={async (invoiceData) => {
             try {
-              // Create the invoice
+              // Create the invoice - backend marks time entries as billed via timeEntryIds
               await addInvoice(invoiceData)
               
-              // Mark selected time entries as billed
-              for (const entryId of selectedEntries) {
-                await updateTimeEntry(entryId, { billed: true })
-              }
-              
-              // Refresh data
+              // Refresh data to show updated billing status
               await fetchTimeEntries({})
               await fetchInvoices()
               
@@ -920,7 +883,7 @@ export function TimeTrackingPage() {
               setSelectedEntries([])
               setShowBillModal(false)
               
-              // Navigate to billing page
+              // Navigate to billing page to see the new invoice
               navigate('/app/billing')
             } catch (error) {
               console.error('Failed to create invoice:', error)
@@ -970,6 +933,32 @@ export function TimeTrackingPage() {
             }
           }}
         />
+      )}
+
+      {/* STICKY BILL BAR - Fixed at bottom when entries selected */}
+      {selectedEntries.length > 0 && (
+        <div className={styles.billBar}>
+          <div className={styles.billBarInfo}>
+            <CheckSquare size={24} />
+            <span><strong>{selectedEntries.length}</strong> entries selected</span>
+            <span className={styles.billBarAmount}>${selectedTotal.toLocaleString()}</span>
+          </div>
+          <div className={styles.billBarActions}>
+            <button 
+              className={styles.clearSelectionBtn}
+              onClick={() => setSelectedEntries([])}
+            >
+              Clear
+            </button>
+            <button 
+              className={styles.billSelectedBtn}
+              onClick={() => setShowBillModal(true)}
+            >
+              <DollarSign size={20} />
+              Create Invoice
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -1466,6 +1455,7 @@ function BillTimeModal({
           if (!group.matter || !group.client) continue
           
           const lineItems = group.entries.map(entry => ({
+            type: 'fee',  // Required for backend to calculate subtotals
             description: entry.description || 'Legal services',
             quantity: entry.hours,
             rate: entry.rate,
@@ -1477,10 +1467,6 @@ function BillTimeModal({
             matterId: group.matter.id,
             issueDate: new Date().toISOString(),
             dueDate: addDays(new Date(), 30).toISOString(),
-            status: 'draft',
-            subtotal: group.total,
-            total: group.total,
-            amountPaid: 0,
             lineItems,
             timeEntryIds: group.entries.map(e => e.id)
           })
@@ -1492,6 +1478,7 @@ function BillTimeModal({
           const lineItems = group.entries.map(entry => {
             const matter = matters.find(m => m.id === entry.matterId)
             return {
+              type: 'fee',  // Required for backend to calculate subtotals
               description: `${matter?.name || 'Legal Services'}: ${entry.description || 'Services rendered'}`,
               quantity: entry.hours,
               rate: entry.rate,
@@ -1506,10 +1493,6 @@ function BillTimeModal({
             matterId: primaryMatter?.id,
             issueDate: new Date().toISOString(),
             dueDate: addDays(new Date(), 30).toISOString(),
-            status: 'draft',
-            subtotal: group.total,
-            total: group.total,
-            amountPaid: 0,
             lineItems,
             timeEntryIds: group.entries.map(e => e.id)
           })
