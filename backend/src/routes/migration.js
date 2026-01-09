@@ -3034,50 +3034,82 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const displayName = c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown';
                 
                 // Try both Clio field syntaxes: primary_* fields OR *_arrays
-                // Also handle the case where email_addresses might be an array of objects but the 'address' property is at the top level of the object
+                // Handle ALL possible property names from Clio API
                 
-                // Helper to safely get email - try ALL possible fields
-                let primaryEmail = null;
-                // 1. Direct object
+                // Helper to extract email string from an email object (handles all Clio formats)
+                const getEmailString = (emailObj) => {
+                    if (!emailObj) return null;
+                    if (typeof emailObj === 'string') return emailObj;
+                    // Try all possible property names Clio might use
+                    return emailObj.address || emailObj.email || emailObj.value || 
+                           emailObj.email_address || emailObj.mail || null;
+                };
+                
+                // Helper to extract phone string from a phone object (handles all Clio formats)
+                const getPhoneString = (phoneObj) => {
+                    if (!phoneObj) return null;
+                    if (typeof phoneObj === 'string') return phoneObj;
+                    // Try all possible property names Clio might use
+                    return phoneObj.number || phoneObj.phone || phoneObj.value || 
+                           phoneObj.phone_number || phoneObj.tel || null;
+                };
+                
+                // Extract primary email - try multiple sources
+                let primaryEmailString = null;
+                let primaryEmailLabel = 'Email';
+                
+                // 1. Try primary_email_address first (direct object from Clio)
                 if (c.primary_email_address) {
-                    primaryEmail = c.primary_email_address;
-                }
-                // 2. Scan array
-                else if (Array.isArray(c.email_addresses) && c.email_addresses.length > 0) {
-                    primaryEmail = c.email_addresses.find(e => e.primary) || 
-                                  c.email_addresses.find(e => e.default_email) || 
-                                  c.email_addresses.find(e => e.name === 'Work') ||
-                                  c.email_addresses.find(e => e.name === 'Other') ||
-                                  c.email_addresses[0];
+                    primaryEmailString = getEmailString(c.primary_email_address);
+                    primaryEmailLabel = c.primary_email_address.name || 'Email';
                 }
                 
-                // Normalize email object - sometimes it's {address: '...'} and sometimes {value: '...'}
-                if (primaryEmail) {
-                    if (!primaryEmail.address && primaryEmail.value) {
-                        primaryEmail.address = primaryEmail.value;
+                // 2. If not found, scan email_addresses array
+                if (!primaryEmailString && Array.isArray(c.email_addresses) && c.email_addresses.length > 0) {
+                    // Find the best email: primary > default > Work > Other > first
+                    const emailItem = c.email_addresses.find(e => e.primary) || 
+                                     c.email_addresses.find(e => e.default_email) || 
+                                     c.email_addresses.find(e => e.name === 'Work') ||
+                                     c.email_addresses.find(e => e.name === 'Other') ||
+                                     c.email_addresses[0];
+                    if (emailItem) {
+                        primaryEmailString = getEmailString(emailItem);
+                        primaryEmailLabel = emailItem.name || 'Email';
                     }
+                }
+                
+                // 3. Last resort - check if there's a direct email field on the contact
+                if (!primaryEmailString && c.email) {
+                    primaryEmailString = typeof c.email === 'string' ? c.email : getEmailString(c.email);
                 }
 
-                // Helper to safely get phone - try ALL possible fields
-                let primaryPhone = null;
-                // 1. Direct object
+                // Extract primary phone - try multiple sources
+                let primaryPhoneString = null;
+                let primaryPhoneLabel = 'Phone';
+                
+                // 1. Try primary_phone_number first (direct object from Clio)
                 if (c.primary_phone_number) {
-                    primaryPhone = c.primary_phone_number;
-                }
-                // 2. Scan array
-                else if (Array.isArray(c.phone_numbers) && c.phone_numbers.length > 0) {
-                    primaryPhone = c.phone_numbers.find(p => p.primary) || 
-                                  c.phone_numbers.find(p => p.default_number) || 
-                                  c.phone_numbers.find(p => p.name === 'Work') ||
-                                  c.phone_numbers.find(p => p.name === 'Mobile') ||
-                                  c.phone_numbers[0];
+                    primaryPhoneString = getPhoneString(c.primary_phone_number);
+                    primaryPhoneLabel = c.primary_phone_number.name || 'Phone';
                 }
                 
-                // Normalize phone object - sometimes it's {number: '...'} and sometimes {value: '...'}
-                if (primaryPhone) {
-                    if (!primaryPhone.number && primaryPhone.value) {
-                        primaryPhone.number = primaryPhone.value;
+                // 2. If not found, scan phone_numbers array
+                if (!primaryPhoneString && Array.isArray(c.phone_numbers) && c.phone_numbers.length > 0) {
+                    // Find the best phone: primary > default > Work > Mobile > first
+                    const phoneItem = c.phone_numbers.find(p => p.primary) || 
+                                     c.phone_numbers.find(p => p.default_number) || 
+                                     c.phone_numbers.find(p => p.name === 'Work') ||
+                                     c.phone_numbers.find(p => p.name === 'Mobile') ||
+                                     c.phone_numbers[0];
+                    if (phoneItem) {
+                        primaryPhoneString = getPhoneString(phoneItem);
+                        primaryPhoneLabel = phoneItem.name || 'Phone';
                     }
+                }
+                
+                // 3. Last resort - check if there's a direct phone field on the contact
+                if (!primaryPhoneString && c.phone) {
+                    primaryPhoneString = typeof c.phone === 'string' ? c.phone : getPhoneString(c.phone);
                 }
 
                 const primaryAddr = 
@@ -3094,31 +3126,29 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   console.log(`[CLIO IMPORT]   Name: "${displayName}"`);
                   console.log(`[CLIO IMPORT]   Raw email_addresses: ${JSON.stringify(c.email_addresses)}`);
                   console.log(`[CLIO IMPORT]   Raw primary_email_address: ${JSON.stringify(c.primary_email_address)}`);
-                  console.log(`[CLIO IMPORT]   Primary email found: ${JSON.stringify(primaryEmail)}`);
-                  console.log(`[CLIO IMPORT]   Email to save: "${primaryEmail?.address || 'NULL'}"`);
+                  console.log(`[CLIO IMPORT]   Raw c.email: ${JSON.stringify(c.email)}`);
+                  console.log(`[CLIO IMPORT]   EXTRACTED Email: "${primaryEmailString || 'NULL'}"`);
                   console.log(`[CLIO IMPORT]   Raw phone_numbers: ${JSON.stringify(c.phone_numbers)}`);
                   console.log(`[CLIO IMPORT]   Raw primary_phone_number: ${JSON.stringify(c.primary_phone_number)}`);
-                  console.log(`[CLIO IMPORT]   Primary phone found: ${JSON.stringify(primaryPhone)}`);
-                  console.log(`[CLIO IMPORT]   Phone to save: "${primaryPhone?.number || 'NULL'}"`);
+                  console.log(`[CLIO IMPORT]   Raw c.phone: ${JSON.stringify(c.phone)}`);
+                  console.log(`[CLIO IMPORT]   EXTRACTED Phone: "${primaryPhoneString || 'NULL'}"`);
                 }
                 
                 // Track what we're saving
-                if (primaryEmail?.address) savedWithEmail++;
-                if (primaryPhone?.number) savedWithPhone++;
+                if (primaryEmailString) savedWithEmail++;
+                if (primaryPhoneString) savedWithPhone++;
                 
                 // Build notes with contact info from Clio
                 const notesParts = [];
                 
                 // Save email if present
-                if (primaryEmail?.address) {
-                  const label = primaryEmail.name || 'Email';
-                  notesParts.push(`${label}: ${primaryEmail.address}`);
+                if (primaryEmailString) {
+                  notesParts.push(`${primaryEmailLabel}: ${primaryEmailString}`);
                 }
                 
                 // Save phone if present
-                if (primaryPhone?.number) {
-                  const label = primaryPhone.name || 'Phone';
-                  notesParts.push(`${label}: ${primaryPhone.number}`);
+                if (primaryPhoneString) {
+                  notesParts.push(`${primaryPhoneLabel}: ${primaryPhoneString}`);
                 }
                 
                 // Save address if present
@@ -3142,8 +3172,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     c.first_name || null,
                     c.last_name || null,
                     c.company?.name || null,
-                    primaryEmail?.address || null,
-                    primaryPhone?.number || null,
+                    primaryEmailString || null,
+                    primaryPhoneString || null,
                     primaryAddr?.street || null,
                     primaryAddr?.city || null,
                     primaryAddr?.province || null,
