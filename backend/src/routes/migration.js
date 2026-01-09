@@ -167,7 +167,10 @@ async function clioGetContactsByInitial(accessToken, endpoint, params, onProgres
   const initials = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
   const types = ['Person', 'Company'];
   
-  console.log(`[CLIO API] Fetching contacts by initial + type to bypass 10k limit...`);
+  // Always order by id ascending to ensure consistent pagination and avoid 10k limit issues
+  const orderedParams = { ...params, order: 'id(asc)' };
+  
+  console.log(`[CLIO API] Fetching contacts by initial + type + order by id(asc) to bypass 10k limit...`);
   
   // First, fetch by initial A-Z for each type
   for (const type of types) {
@@ -178,7 +181,7 @@ async function clioGetContactsByInitial(accessToken, endpoint, params, onProgres
         const letterData = await clioGetPaginated(
           accessToken, 
           endpoint, 
-          { ...params, initial, type }, 
+          { ...orderedParams, initial, type }, 
           null
         );
         
@@ -210,7 +213,7 @@ async function clioGetContactsByInitial(accessToken, endpoint, params, onProgres
         const numData = await clioGetPaginated(
           accessToken, 
           endpoint, 
-          { ...params, initial, type }, 
+          { ...orderedParams, initial, type }, 
           null
         );
         
@@ -244,7 +247,7 @@ async function clioGetContactsByInitial(accessToken, endpoint, params, onProgres
       const catchAllData = await clioGetPaginated(
         accessToken, 
         endpoint, 
-        { ...params, type }, 
+        { ...orderedParams, type }, 
         null
       );
       
@@ -273,7 +276,7 @@ async function clioGetContactsByInitial(accessToken, endpoint, params, onProgres
     const finalCatchAll = await clioGetPaginated(
       accessToken, 
       endpoint, 
-      { ...params }, 
+      { ...orderedParams }, 
       null
     );
     
@@ -308,7 +311,10 @@ async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress,
   const statuses = ['Open', 'Pending', 'Closed', 'Archived'];
   const currentYear = new Date().getFullYear();
   
-  console.log(`[CLIO API] Fetching matters by status + year (bypasses 10k limit)...`);
+  // Always order by id ascending to ensure consistent pagination and avoid 10k limit issues
+  const orderedParams = { ...params, order: 'id(asc)' };
+  
+  console.log(`[CLIO API] Fetching matters by status + year + order by id(asc) (bypasses 10k limit)...`);
   
   // Helper to fetch and dedupe
   async function fetchBatch(batchParams, label) {
@@ -351,24 +357,24 @@ async function clioGetMattersByStatus(accessToken, endpoint, params, onProgress,
         const startDate = `${year}-01-01`;
         const endDate = `${year}-12-31`;
         await fetchBatch(
-          { ...params, status, 'open_date[]': [`>=${startDate}`, `<=${endDate}`] },
+          { ...orderedParams, status, 'open_date[]': [`>=${startDate}`, `<=${endDate}`] },
           `${status} matters ${year}`
         );
       }
       // Also fetch ones without open_date
       await fetchBatch(
-        { ...params, status },
+        { ...orderedParams, status },
         `${status} matters (no date filter)`
       );
     } else {
       // For Open/Pending, just fetch all (usually fewer)
-      await fetchBatch({ ...params, status }, `${status} matters`);
+      await fetchBatch({ ...orderedParams, status }, `${status} matters`);
     }
   }
   
   // CATCH-ALL: Fetch matters WITHOUT status filter to catch any with null/empty/custom status
   console.log(`[CLIO API] Running catch-all fetch for matters without status filter...`);
-  await fetchBatch({ ...params }, 'Catch-all matters');
+  await fetchBatch({ ...orderedParams }, 'Catch-all matters');
   
   console.log(`[CLIO API] Matters complete: ${allData.length} total records`);
   return allData;
@@ -382,7 +388,10 @@ async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgre
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
   
-  console.log(`[CLIO API] Fetching activities by status + TIME WINDOW (weekly for recent years to bypass 10k limit)...`);
+  // Always order by id ascending to ensure consistent pagination and avoid 10k limit issues
+  const orderedParams = { ...params, order: 'id(asc)' };
+  
+  console.log(`[CLIO API] Fetching activities by status + TIME WINDOW + order by id(asc) (weekly for recent years to bypass 10k limit)...`);
   
   // Helper to fetch a date range
   async function fetchDateRange(startDate, endDate, label) {
@@ -392,7 +401,7 @@ async function clioGetActivitiesByStatus(accessToken, endpoint, params, onProgre
           accessToken,
           endpoint,
           { 
-            ...params, 
+            ...orderedParams, 
             status,
             'date[]': [`>=${startDate}`, `<=${endDate}`]
           },
@@ -558,7 +567,10 @@ async function clioGetBillsByState(accessToken, endpoint, params, onProgress) {
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
   
-  console.log(`[CLIO API] Fetching bills by state + month (smallest batches)...`);
+  // Always order by id ascending to ensure consistent pagination and avoid 10k limit issues
+  const orderedParams = { ...params, order: 'id(asc)' };
+  
+  console.log(`[CLIO API] Fetching bills by state + month + order by id(asc) (smallest batches)...`);
   
   for (const state of states) {
     for (let year = 2000; year <= currentYear; year++) {
@@ -575,7 +587,7 @@ async function clioGetBillsByState(accessToken, endpoint, params, onProgress) {
             accessToken, 
             endpoint, 
             { 
-              ...params, 
+              ...orderedParams, 
               state,
               'issued_at[]': [`>=${startDate}`, `<=${endDate}`]
             }, 
