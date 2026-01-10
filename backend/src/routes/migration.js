@@ -3582,18 +3582,52 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             
             for (const a of filteredActivities) {
               try {
-                // Look up matter - try by Clio ID first, then by display_number
-                let matterId = a.matter?.id ? matterIdMap.get(`clio:${a.matter.id}`) : null;
-                if (!matterId && a.matter?.display_number) {
-                  matterId = matterIdMap.get(a.matter.display_number);
+                // Robust matter extraction - try multiple property names and formats
+                let matterClioId = null;
+                let matterDisplayNum = null;
+                
+                if (a.matter?.id) {
+                  matterClioId = a.matter.id;
+                  matterDisplayNum = a.matter.display_number || a.matter.number || a.matter.name;
+                } else if (a.matter_id) {
+                  matterClioId = a.matter_id; // Direct ID field
+                } else if (a.case?.id) {
+                  matterClioId = a.case.id; // Some APIs use 'case' instead of 'matter'
                 }
                 
-                // Look up user - try by Clio ID first, then by name
-                let userId = a.user?.id ? userIdMap.get(`clio:${a.user.id}`) : null;
-                if (!userId && a.user?.name) {
+                let matterId = matterClioId ? matterIdMap.get(`clio:${matterClioId}`) : null;
+                if (!matterId && matterDisplayNum) {
+                  matterId = matterIdMap.get(matterDisplayNum);
+                }
+                
+                // Robust user extraction - try multiple property names
+                let userClioId = null;
+                let userName = null;
+                let userEmail = null;
+                
+                if (a.user?.id) {
+                  userClioId = a.user.id;
+                  userName = a.user.name;
+                  userEmail = a.user.email;
+                } else if (a.user_id) {
+                  userClioId = a.user_id; // Direct ID field
+                } else if (a.attorney?.id) {
+                  userClioId = a.attorney.id; // Some APIs use 'attorney'
+                  userName = a.attorney.name;
+                } else if (a.timekeeper?.id) {
+                  userClioId = a.timekeeper.id; // Some APIs use 'timekeeper'
+                  userName = a.timekeeper.name;
+                }
+                
+                // Look up user - try by Clio ID first, then by email, then by name
+                let userId = userClioId ? userIdMap.get(`clio:${userClioId}`) : null;
+                if (!userId && userEmail) {
+                  userId = userIdMap.get(userEmail.toLowerCase());
+                }
+                if (!userId && userName) {
                   // Try to find user by name in the userIdMap
                   for (const [key, id] of userIdMap.entries()) {
-                    if (key.toLowerCase() === a.user.name.toLowerCase()) {
+                    if (key.toLowerCase() === userName.toLowerCase()) {
                       userId = id;
                       break;
                     }
@@ -3878,13 +3912,34 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             
             for (const b of filteredBills) {
               try {
-                const firstMatter = b.matters?.[0];
-                const matterId = firstMatter?.id ? matterIdMap.get(`clio:${firstMatter.id}`) : null;
-                const clientId = b.client?.id ? contactIdMap.get(`clio:${b.client.id}`) : null;
+                // Robust matter extraction - handle array or single object
+                let firstMatter = null;
+                if (Array.isArray(b.matters) && b.matters.length > 0) {
+                  firstMatter = b.matters[0];
+                } else if (b.matter && typeof b.matter === 'object') {
+                  firstMatter = b.matter; // Single matter object
+                } else if (b.matters && typeof b.matters === 'object' && !Array.isArray(b.matters)) {
+                  firstMatter = b.matters; // Single matter in 'matters' field
+                }
+                const matterClioId = firstMatter?.id || firstMatter?.clio_id;
+                const matterId = matterClioId ? matterIdMap.get(`clio:${matterClioId}`) : null;
                 
-                // Parse Clio financial fields (only using what's fetched)
-                const billTotal = parseFloat(b.total) || 0;
-                const billBalance = parseFloat(b.balance) || 0;
+                // Robust client extraction - handle different property names
+                let clientClioId = null;
+                if (b.client?.id) {
+                  clientClioId = b.client.id;
+                } else if (b.client?.clio_id) {
+                  clientClioId = b.client.clio_id;
+                } else if (b.contact?.id) {
+                  clientClioId = b.contact.id; // Some versions use 'contact' instead of 'client'
+                } else if (b.customer?.id) {
+                  clientClioId = b.customer.id; // Fallback for 'customer' naming
+                }
+                const clientId = clientClioId ? contactIdMap.get(`clio:${clientClioId}`) : null;
+                
+                // Parse Clio financial fields - try multiple property names
+                const billTotal = parseFloat(b.total) || parseFloat(b.amount) || parseFloat(b.grand_total) || 0;
+                const billBalance = parseFloat(b.balance) || parseFloat(b.balance_due) || parseFloat(b.outstanding) || 0;
                 const amountPaid = billTotal - billBalance;
                 
                 // Map Clio state to our status
