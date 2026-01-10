@@ -11850,10 +11850,28 @@ async function buildHotContext(userId, firmId) {
     const todayEvents = todayEventsResult.rows;
     const weekEvents = weekEventsResult.rows;
     const unbilled = unbilledTimeResult.rows[0];
-    const urgentMatters = urgentMattersResult.rows;
     const overdueInvoices = overdueInvoicesResult.rows;
     const weeklyStats = weeklyStatsResult.rows[0];
-    const recentActivity = recentActivityResult.rows;
+    const recentMatters = recentMattersResult.rows;
+    const tasksDueToday = tasksDueTodayResult.rows;
+    const todayTimeEntries = todayTimeEntriesResult.rows;
+
+    // Fetch recent documents for each recent matter (max 3 docs per matter)
+    const recentMatterDocs = new Map();
+    for (const matter of recentMatters.slice(0, 5)) {
+      try {
+        const docsResult = await query(`
+          SELECT name, type, uploaded_at
+          FROM documents
+          WHERE matter_id = $1
+          ORDER BY uploaded_at DESC
+          LIMIT 3
+        `, [matter.id]);
+        recentMatterDocs.set(matter.id, docsResult.rows);
+      } catch (e) {
+        // Skip on error
+      }
+    }
 
     // Build the hot context string
     let context = `
@@ -11880,6 +11898,31 @@ User: ${user?.first_name || 'Unknown'} ${user?.last_name || ''} (${user?.role ||
       context += `📅 TODAY'S SCHEDULE: No events scheduled\n\n`;
     }
 
+    // Tasks due today
+    if (tasksDueToday.length > 0) {
+      context += `✅ TASKS DUE TODAY:\n`;
+      for (const task of tasksDueToday) {
+        context += `• ${task.title}`;
+        if (task.priority === 'urgent' || task.priority === 'high') context += ` [${task.priority.toUpperCase()}]`;
+        if (task.matter_name) context += ` — ${task.matter_name}`;
+        context += `\n`;
+      }
+      context += `\n`;
+    }
+
+    // Today's logged time
+    if (todayTimeEntries.length > 0) {
+      const todayTotalHours = todayTimeEntries.reduce((sum, te) => sum + parseFloat(te.hours || 0), 0);
+      context += `⏱️ LOGGED TODAY: ${todayTotalHours.toFixed(1)} hrs\n`;
+      for (const entry of todayTimeEntries.slice(0, 3)) {
+        context += `• ${parseFloat(entry.hours).toFixed(1)} hrs: ${entry.description?.substring(0, 50) || 'No description'}`;
+        if (entry.matter_name) context += ` — ${entry.matter_name}`;
+        context += `\n`;
+      }
+      if (todayTimeEntries.length > 3) context += `  ...and ${todayTimeEntries.length - 3} more entries\n`;
+      context += `\n`;
+    }
+
     // Needs Attention Section
     let needsAttention = [];
     
@@ -11887,23 +11930,13 @@ User: ${user?.first_name || 'Unknown'} ${user?.last_name || ''} (${user?.role ||
     const unbilledHours = parseFloat(unbilled?.total_hours || 0);
     const unbilledAmount = parseFloat(unbilled?.total_amount || 0);
     if (unbilledHours > 0) {
-      needsAttention.push(`${unbilledHours.toFixed(1)} hrs unbilled time ($${unbilledAmount.toLocaleString()}) from last 7 days`);
+      needsAttention.push(`${unbilledHours.toFixed(1)} hrs unbilled ($${unbilledAmount.toLocaleString()}) from last 7 days`);
     }
     
     // Overdue invoices
     if (overdueInvoices.length > 0) {
       const totalOverdue = overdueInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount_due || 0), 0);
-      needsAttention.push(`${overdueInvoices.length} overdue invoice${overdueInvoices.length > 1 ? 's' : ''} ($${totalOverdue.toLocaleString()} total)`);
-    }
-    
-    // Urgent matters
-    if (urgentMatters.length > 0) {
-      const urgentCount = urgentMatters.filter(m => m.priority === 'urgent').length;
-      const highCount = urgentMatters.filter(m => m.priority === 'high').length;
-      let matterText = [];
-      if (urgentCount > 0) matterText.push(`${urgentCount} urgent`);
-      if (highCount > 0) matterText.push(`${highCount} high priority`);
-      needsAttention.push(`${matterText.join(', ')} matter${urgentMatters.length > 1 ? 's' : ''}`);
+      needsAttention.push(`${overdueInvoices.length} overdue invoice${overdueInvoices.length > 1 ? 's' : ''} ($${totalOverdue.toLocaleString()})`);
     }
     
     if (needsAttention.length > 0) {
@@ -11917,24 +11950,49 @@ User: ${user?.first_name || 'Unknown'} ${user?.last_name || ''} (${user?.role ||
     // This Week's Stats
     const billableHours = parseFloat(weeklyStats?.billable_hours || 0);
     const billableAmount = parseFloat(weeklyStats?.billable_amount || 0);
-    context += `📊 THIS WEEK:\n`;
-    context += `• Billable hours: ${billableHours.toFixed(1)} hrs ($${billableAmount.toLocaleString()})\n`;
-    context += `\n`;
+    context += `📊 THIS WEEK: ${billableHours.toFixed(1)} billable hrs ($${billableAmount.toLocaleString()})\n\n`;
 
-    // Urgent/High Priority Matters (details)
-    if (urgentMatters.length > 0) {
-      context += `🔥 PRIORITY MATTERS:\n`;
-      for (const matter of urgentMatters) {
-        context += `• ${matter.name} (${matter.number}) — ${matter.priority.toUpperCase()}`;
-        if (matter.client_name) context += ` — ${matter.client_name}`;
+    // RECENT MATTERS - The main section with rich context
+    if (recentMatters.length > 0) {
+      context += `📁 YOUR RECENT MATTERS:\n`;
+      for (const matter of recentMatters) {
+        const unbilledHrs = parseFloat(matter.unbilled_hours || 0);
+        const docCount = parseInt(matter.doc_count || 0);
+        
+        context += `\n▸ ${matter.name} (${matter.number})`;
+        if (matter.priority === 'urgent' || matter.priority === 'high') {
+          context += ` [${matter.priority.toUpperCase()}]`;
+        }
         context += `\n`;
+        
+        // Client info
+        if (matter.client_name) {
+          context += `  Client: ${matter.client_name}`;
+          if (matter.client_email) context += ` <${matter.client_email}>`;
+          context += `\n`;
+        }
+        
+        // Stats line
+        const stats = [];
+        if (unbilledHrs > 0) stats.push(`${unbilledHrs.toFixed(1)} hrs unbilled`);
+        if (docCount > 0) stats.push(`${docCount} docs`);
+        if (matter.recent_hours) stats.push(`${parseFloat(matter.recent_hours).toFixed(1)} hrs this week`);
+        if (stats.length > 0) {
+          context += `  ${stats.join(' | ')}\n`;
+        }
+        
+        // Recent documents (names only)
+        const docs = recentMatterDocs.get(matter.id) || [];
+        if (docs.length > 0) {
+          context += `  Recent docs: ${docs.map(d => d.name).join(', ')}\n`;
+        }
       }
       context += `\n`;
     }
 
     // Upcoming This Week
     if (weekEvents.length > 0) {
-      context += `📆 COMING UP THIS WEEK:\n`;
+      context += `📆 COMING UP:\n`;
       for (const event of weekEvents) {
         context += `• ${formatDateTime(event.start_time)}: ${event.title}`;
         if (event.matter_name) context += ` — ${event.matter_name}`;
