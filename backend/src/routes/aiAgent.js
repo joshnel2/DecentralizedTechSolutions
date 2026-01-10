@@ -11708,10 +11708,11 @@ async function buildHotContext(userId, firmId) {
       todayEventsResult,
       weekEventsResult,
       unbilledTimeResult,
-      urgentMattersResult,
       overdueInvoicesResult,
       weeklyStatsResult,
-      recentActivityResult
+      recentMattersResult,
+      tasksDueTodayResult,
+      todayTimeEntriesResult
     ] = await Promise.all([
       // 1. User info
       query(`SELECT first_name, last_name, role, hourly_rate FROM users WHERE id = $1`, [userId]),
@@ -11756,22 +11757,7 @@ async function buildHotContext(userId, firmId) {
           AND date >= CURRENT_DATE - INTERVAL '7 days'
       `, [firmId, userId]),
       
-      // 5. Urgent/high priority matters assigned to or responsible by user
-      query(`
-        SELECT m.name, m.number, m.priority, m.status, c.display_name as client_name
-        FROM matters m
-        LEFT JOIN clients c ON m.client_id = c.id
-        WHERE m.firm_id = $1 
-          AND m.status = 'active'
-          AND m.priority IN ('urgent', 'high')
-          AND (m.responsible_attorney = $2 OR EXISTS(
-            SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2
-          ))
-        ORDER BY CASE m.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 END
-        LIMIT 5
-      `, [firmId, userId]),
-      
-      // 6. Overdue invoices (for matters user is responsible for)
+      // 5. Overdue invoices (for matters user is responsible for)
       query(`
         SELECT i.number, i.amount_due, i.due_date, c.display_name as client_name, m.name as matter_name
         FROM invoices i
@@ -11785,7 +11771,7 @@ async function buildHotContext(userId, firmId) {
         LIMIT 5
       `, [firmId, userId]),
       
-      // 7. This week's billable hours (Mon-Sun) for the user
+      // 6. This week's billable hours (Mon-Sun) for the user
       query(`
         SELECT 
           SUM(CASE WHEN billable THEN hours ELSE 0 END) as billable_hours,
@@ -11798,16 +11784,64 @@ async function buildHotContext(userId, firmId) {
           AND date <= CURRENT_DATE
       `, [firmId, userId]),
       
-      // 8. Recent activity (what did they work on yesterday/recently)
+      // 7. RECENT MATTERS - Based on actual interaction (time entries), with rich context
       query(`
-        SELECT m.name as matter_name, m.number, SUM(te.hours) as hours, MAX(te.date) as last_date
+        WITH recent_matter_activity AS (
+          SELECT DISTINCT ON (m.id)
+            m.id,
+            m.name,
+            m.number,
+            m.status,
+            m.priority,
+            m.description,
+            c.display_name as client_name,
+            c.email as client_email,
+            c.phone as client_phone,
+            MAX(te.date) OVER (PARTITION BY m.id) as last_activity_date,
+            SUM(te.hours) OVER (PARTITION BY m.id) as recent_hours
+          FROM matters m
+          LEFT JOIN clients c ON m.client_id = c.id
+          LEFT JOIN time_entries te ON te.matter_id = m.id 
+            AND te.user_id = $2 
+            AND te.date >= CURRENT_DATE - INTERVAL '7 days'
+          WHERE m.firm_id = $1
+            AND m.status = 'active'
+            AND (m.responsible_attorney = $2 OR EXISTS(
+              SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2
+            ))
+          ORDER BY m.id, te.date DESC NULLS LAST
+        )
+        SELECT *,
+          (SELECT COALESCE(SUM(hours), 0) FROM time_entries WHERE matter_id = rma.id AND billed = false) as unbilled_hours,
+          (SELECT COALESCE(SUM(amount), 0) FROM time_entries WHERE matter_id = rma.id AND billed = false) as unbilled_amount,
+          (SELECT COUNT(*) FROM documents WHERE matter_id = rma.id) as doc_count
+        FROM recent_matter_activity rma
+        ORDER BY last_activity_date DESC NULLS LAST, recent_hours DESC NULLS LAST
+        LIMIT 5
+      `, [firmId, userId]),
+      
+      // 8. Tasks due today
+      query(`
+        SELECT t.title, t.priority, m.name as matter_name
+        FROM tasks t
+        LEFT JOIN matters m ON t.matter_id = m.id
+        WHERE t.firm_id = $1
+          AND t.assigned_to = $2
+          AND t.status != 'completed'
+          AND t.due_date = CURRENT_DATE
+        ORDER BY CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 ELSE 3 END
+        LIMIT 5
+      `, [firmId, userId]),
+      
+      // 9. Today's time entries (what they've already logged today)
+      query(`
+        SELECT te.hours, te.description, m.name as matter_name, m.number
         FROM time_entries te
-        JOIN matters m ON te.matter_id = m.id
-        WHERE te.firm_id = $1 
+        LEFT JOIN matters m ON te.matter_id = m.id
+        WHERE te.firm_id = $1
           AND te.user_id = $2
-          AND te.date >= CURRENT_DATE - INTERVAL '3 days'
-        GROUP BY m.id, m.name, m.number
-        ORDER BY MAX(te.date) DESC, SUM(te.hours) DESC
+          AND te.date = CURRENT_DATE
+        ORDER BY te.created_at DESC
         LIMIT 5
       `, [firmId, userId])
     ]);
