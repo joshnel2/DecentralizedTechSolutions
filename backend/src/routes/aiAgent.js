@@ -4452,7 +4452,9 @@ async function getDocument(args, user) {
 }
 
 async function readDocumentContent(args, user) {
-  const { document_id, max_length = 10000 } = args;
+  // GPT-4.1 has 1M token context - be generous with document content (100K chars = ~25K tokens)
+  const MAX_DOCUMENT_CHARS = 100000;
+  const { document_id, max_length = MAX_DOCUMENT_CHARS } = args;
   
   if (!document_id) {
     return { error: 'document_id is required' };
@@ -4460,7 +4462,7 @@ async function readDocumentContent(args, user) {
   
   const result = await query(
     `SELECT d.id, d.name, d.original_name, d.type, d.content_text, d.ai_summary, d.path, 
-            d.azure_path, d.external_path, d.folder_path, m.name as matter_name
+            d.azure_path, d.external_path, d.folder_path, d.size, m.name as matter_name
      FROM documents d
      LEFT JOIN matters m ON d.matter_id = m.id
      WHERE d.id = $1 AND d.firm_id = $2`,
@@ -4476,15 +4478,19 @@ async function readDocumentContent(args, user) {
   
   // If we have extracted content, return it
   if (doc.content_text && doc.content_text.trim().length > 0) {
-    const content = doc.content_text.substring(0, Math.min(parseInt(max_length), 50000));
+    const effectiveMax = Math.min(parseInt(max_length), MAX_DOCUMENT_CHARS);
+    const content = doc.content_text.substring(0, effectiveMax);
+    const truncated = doc.content_text.length > content.length;
+    
     return {
       id: doc.id,
       name: doc.name,
       type: doc.type,
       matter: doc.matter_name,
       content: content,
-      truncated: doc.content_text.length > content.length,
-      total_length: doc.content_text.length
+      truncated: truncated,
+      total_length: doc.content_text.length,
+      note: truncated ? `Document truncated at ${effectiveMax.toLocaleString()} characters. Full document is ${doc.content_text.length.toLocaleString()} characters.` : null
     };
   }
   
@@ -4610,7 +4616,9 @@ async function readDocumentContent(args, user) {
 }
 
 async function findAndReadDocument(args, user) {
-  const { document_name, matter_id, max_length = 10000 } = args;
+  // GPT-4.1 has 1M token context - be generous with document content
+  const MAX_DOCUMENT_CHARS = 100000;
+  const { document_name, matter_id, max_length = MAX_DOCUMENT_CHARS } = args;
   
   if (!document_name || document_name.length < 2) {
     return { error: 'document_name must be at least 2 characters' };
@@ -4687,16 +4695,20 @@ async function findAndReadDocument(args, user) {
   
   // If we have stored content, return it
   if (doc.content_text && doc.content_text.trim().length > 0) {
-    const content = doc.content_text.substring(0, Math.min(parseInt(max_length), 50000));
+    const effectiveMax = Math.min(parseInt(max_length), MAX_DOCUMENT_CHARS);
+    const content = doc.content_text.substring(0, effectiveMax);
+    const truncated = doc.content_text.length > content.length;
+    
     return {
       id: doc.id,
       name: doc.name,
       type: doc.type,
       matter: doc.matter_name,
       content: content,
-      truncated: doc.content_text.length > content.length,
+      truncated: truncated,
       total_length: doc.content_text.length,
-      other_matches: matches.length > 1 ? matches.slice(1).map(m => ({ id: m.id, name: m.name })) : null
+      other_matches: matches.length > 1 ? matches.slice(1).map(m => ({ id: m.id, name: m.name })) : null,
+      note: truncated ? `Document truncated at ${effectiveMax.toLocaleString()} characters. Full document is ${doc.content_text.length.toLocaleString()} characters.` : null
     };
   }
   
