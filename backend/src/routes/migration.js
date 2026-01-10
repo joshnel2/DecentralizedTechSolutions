@@ -4479,10 +4479,151 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         }
         
         // ============================================
+        // STEP 11: FETCH DOCUMENT METADATA (for perfect file matching)
+        // ============================================
+        // This creates a manifest of all Clio documents so when files are copied
+        // from Clio Drive to Azure, we can perfectly match them to matters
+        console.log('[CLIO IMPORT] Step 11: Fetching document metadata from Clio...');
+        let documentMetadataCount = 0;
+        
+        try {
+          addLog('📄 Fetching document metadata from Clio (for file matching)...');
+          
+          // Fetch documents from Clio - just metadata, not the actual files
+          const documents = await clioGetPaginated(accessToken, '/documents.json', {
+            fields: 'id,name,parent,matter,created_at,updated_at,content_type,latest_document_version',
+            order: 'id(asc)'
+          }, (count) => addLog(`📄 Fetched ${count} document records...`));
+          
+          console.log(`[CLIO IMPORT] Document metadata fetched: ${documents.length}`);
+          addLog(`✅ Found ${documents.length} documents in Clio`);
+          
+          // Also fetch folders to reconstruct paths
+          let folders = [];
+          try {
+            folders = await clioGetPaginated(accessToken, '/folders.json', {
+              fields: 'id,name,parent,matter',
+              order: 'id(asc)'
+            }, null);
+            console.log(`[CLIO IMPORT] Folder structure fetched: ${folders.length} folders`);
+          } catch (folderErr) {
+            console.log(`[CLIO IMPORT] Could not fetch folders: ${folderErr.message}`);
+          }
+          
+          // Build folder path lookup
+          const folderPathMap = new Map();
+          const folderById = new Map();
+          for (const f of folders) {
+            folderById.set(f.id, f);
+          }
+          
+          // Recursive function to build full path
+          const buildFolderPath = (folderId, visited = new Set()) => {
+            if (!folderId || visited.has(folderId)) return '';
+            visited.add(folderId);
+            
+            const folder = folderById.get(folderId);
+            if (!folder) return '';
+            
+            const parentPath = folder.parent?.id ? buildFolderPath(folder.parent.id, visited) : '';
+            return parentPath ? `${parentPath}/${folder.name}` : folder.name;
+          };
+          
+          // Build paths for all folders
+          for (const f of folders) {
+            const path = buildFolderPath(f.id);
+            folderPathMap.set(f.id, path);
+            
+            // Store folder in manifest
+            try {
+              const matterIdForFolder = f.matter?.id ? matterIdMap.get(`clio:${f.matter.id}`) : null;
+              await query(
+                `INSERT INTO clio_folder_manifest (firm_id, clio_id, clio_parent_id, clio_matter_id, name, full_path, matter_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)
+                 ON CONFLICT (firm_id, clio_id) DO UPDATE SET
+                   name = EXCLUDED.name,
+                   full_path = EXCLUDED.full_path,
+                   matter_id = EXCLUDED.matter_id`,
+                [firmId, f.id, f.parent?.id || null, f.matter?.id || null, f.name, path, matterIdForFolder]
+              );
+            } catch (err) {
+              // Skip folder errors
+            }
+          }
+          
+          // Store document metadata
+          for (const doc of documents) {
+            try {
+              // Build full path from folder
+              const folderPath = doc.parent?.id ? folderPathMap.get(doc.parent.id) : '';
+              const fullPath = folderPath ? `${folderPath}/${doc.name}` : doc.name;
+              
+              // Map Clio IDs to our IDs
+              const matterIdForDoc = doc.matter?.id ? matterIdMap.get(`clio:${doc.matter.id}`) : null;
+              
+              // Get file size from latest version if available
+              const fileSize = doc.latest_document_version?.size || null;
+              
+              await query(
+                `INSERT INTO clio_document_manifest 
+                  (firm_id, clio_id, clio_matter_id, clio_folder_id, name, clio_path, content_type, size, 
+                   matter_id, clio_created_at, clio_updated_at, match_status)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending')
+                 ON CONFLICT (firm_id, clio_id) DO UPDATE SET
+                   name = EXCLUDED.name,
+                   clio_path = EXCLUDED.clio_path,
+                   content_type = EXCLUDED.content_type,
+                   size = EXCLUDED.size,
+                   matter_id = EXCLUDED.matter_id,
+                   updated_at = NOW()`,
+                [
+                  firmId,
+                  doc.id,
+                  doc.matter?.id || null,
+                  doc.parent?.id || null,
+                  doc.name,
+                  fullPath,
+                  doc.content_type || null,
+                  fileSize,
+                  matterIdForDoc,
+                  doc.created_at || null,
+                  doc.updated_at || null
+                ]
+              );
+              documentMetadataCount++;
+              
+              if (documentMetadataCount % 500 === 0) {
+                addLog(`📄 Processed ${documentMetadataCount} document records...`);
+              }
+            } catch (err) {
+              if (!err.message.includes('duplicate')) {
+                console.log(`[CLIO IMPORT] Document manifest error: ${err.message}`);
+              }
+            }
+          }
+          
+          // Log summary
+          const manifestCount = await query(
+            'SELECT COUNT(*) FROM clio_document_manifest WHERE firm_id = $1',
+            [firmId]
+          );
+          const matchedCount = await query(
+            'SELECT COUNT(*) FROM clio_document_manifest WHERE firm_id = $1 AND matter_id IS NOT NULL',
+            [firmId]
+          );
+          
+          console.log(`[CLIO IMPORT] Document manifest: ${manifestCount.rows[0].count} total, ${matchedCount.rows[0].count} linked to matters`);
+          addLog(`📄 Document manifest complete: ${manifestCount.rows[0].count} documents, ${matchedCount.rows[0].count} linked to matters`);
+          addLog(`ℹ️ Copy files from Clio Drive to Azure, then use "Match Documents" to link them`);
+          
+        } catch (err) {
+          console.log(`[CLIO IMPORT] Document metadata error (non-fatal): ${err.message}`);
+          addLog(`⚠️ Could not fetch document metadata: ${err.message}`);
+        }
+        
+        // ============================================
         // COMPLETE
         // ============================================
-        // Note: Documents are NOT imported via API - firms drag files from Clio Drive to Apex Drive
-        // Permissions are based on matter assignments which are already imported above
         console.log('[CLIO IMPORT] All steps complete!');
         const prog = migrationProgress.get(connectionId);
         if (prog) {
@@ -4502,6 +4643,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             trustAccounts: trustAccountsCount,
             trustTransactions: trustTransactionsCount,
             lineItems: lineItemsCount,
+            documentMetadata: documentMetadataCount,
             warnings: warnings.length,
             userCredentials: userCredentials // Store credentials for portal display
           };
@@ -6073,6 +6215,295 @@ router.get('/check-user/:email', requireSecureAdmin, async (req, res) => {
   } catch (error) {
     console.error('Check user error:', error);
     res.status(500).json({ error: 'Failed to check user: ' + error.message });
+  }
+});
+
+// ============================================
+// CLIO DOCUMENT MANIFEST MATCHING
+// ============================================
+
+// Get document manifest status for a firm
+router.get('/documents/manifest/:firmId', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    
+    // Get manifest stats
+    const stats = await query(`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(CASE WHEN match_status = 'pending' THEN 1 END) as pending,
+        COUNT(CASE WHEN match_status = 'matched' THEN 1 END) as matched,
+        COUNT(CASE WHEN match_status = 'imported' THEN 1 END) as imported,
+        COUNT(CASE WHEN match_status = 'missing' THEN 1 END) as missing,
+        COUNT(CASE WHEN matter_id IS NOT NULL THEN 1 END) as linked_to_matter
+      FROM clio_document_manifest
+      WHERE firm_id = $1
+    `, [firmId]);
+    
+    // Get sample of pending documents
+    const pending = await query(`
+      SELECT clio_id, name, clio_path, content_type, size, matter_id
+      FROM clio_document_manifest
+      WHERE firm_id = $1 AND match_status = 'pending'
+      ORDER BY name
+      LIMIT 50
+    `, [firmId]);
+    
+    res.json({
+      success: true,
+      stats: stats.rows[0],
+      pendingSample: pending.rows
+    });
+  } catch (error) {
+    console.error('Get manifest error:', error);
+    res.status(500).json({ error: 'Failed to get manifest: ' + error.message });
+  }
+});
+
+// Match Azure files to Clio document manifest
+router.post('/documents/match-manifest', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.body;
+    
+    if (!firmId) {
+      return res.status(400).json({ error: 'firmId required' });
+    }
+    
+    console.log(`[DOC MATCH] Starting manifest matching for firm ${firmId}`);
+    
+    // Import Azure storage utilities
+    const { listFilesRecursive, isAzureConfigured } = await import('../utils/azureStorage.js');
+    
+    const azureConfigured = await isAzureConfigured();
+    if (!azureConfigured) {
+      return res.status(400).json({ error: 'Azure Storage not configured' });
+    }
+    
+    // Get all files from Azure for this firm
+    const firmPath = `firm-${firmId}`;
+    let azureFiles = [];
+    try {
+      azureFiles = await listFilesRecursive(firmPath);
+      console.log(`[DOC MATCH] Found ${azureFiles.length} files in Azure`);
+    } catch (err) {
+      console.log(`[DOC MATCH] Could not list Azure files: ${err.message}`);
+      return res.status(400).json({ error: 'Could not access Azure storage: ' + err.message });
+    }
+    
+    // Build filename lookup map
+    const filesByName = new Map();
+    const filesByPath = new Map();
+    for (const file of azureFiles) {
+      const name = file.name.split('/').pop().toLowerCase();
+      if (!filesByName.has(name)) {
+        filesByName.set(name, []);
+      }
+      filesByName.get(name).push(file);
+      filesByPath.set(file.name.toLowerCase(), file);
+    }
+    
+    // Get all pending documents from manifest
+    const pendingDocs = await query(`
+      SELECT id, clio_id, name, clio_path, size
+      FROM clio_document_manifest
+      WHERE firm_id = $1 AND match_status = 'pending'
+    `, [firmId]);
+    
+    console.log(`[DOC MATCH] Matching ${pendingDocs.rows.length} pending documents`);
+    
+    const results = {
+      matched: 0,
+      missing: 0,
+      errors: 0
+    };
+    
+    for (const doc of pendingDocs.rows) {
+      try {
+        const docNameLower = doc.name.toLowerCase();
+        let matchedFile = null;
+        let matchMethod = null;
+        let confidence = 0;
+        
+        // Method 1: Exact path match
+        if (doc.clio_path) {
+          const pathVariants = [
+            doc.clio_path.toLowerCase(),
+            `${firmPath}/${doc.clio_path}`.toLowerCase(),
+            `${firmPath}/documents/${doc.clio_path}`.toLowerCase()
+          ];
+          for (const pathVar of pathVariants) {
+            if (filesByPath.has(pathVar)) {
+              matchedFile = filesByPath.get(pathVar);
+              matchMethod = 'exact_path';
+              confidence = 100;
+              break;
+            }
+          }
+        }
+        
+        // Method 2: Filename match
+        if (!matchedFile && filesByName.has(docNameLower)) {
+          const candidates = filesByName.get(docNameLower);
+          if (candidates.length === 1) {
+            matchedFile = candidates[0];
+            matchMethod = 'filename_unique';
+            confidence = 90;
+          } else {
+            // Multiple files with same name - try to match by size
+            if (doc.size) {
+              const sizeMatch = candidates.find(f => f.size === doc.size);
+              if (sizeMatch) {
+                matchedFile = sizeMatch;
+                matchMethod = 'filename_size';
+                confidence = 85;
+              }
+            }
+            // If still no match, take first one but lower confidence
+            if (!matchedFile) {
+              matchedFile = candidates[0];
+              matchMethod = 'filename_first';
+              confidence = 60;
+            }
+          }
+        }
+        
+        // Update manifest with match result
+        if (matchedFile) {
+          await query(`
+            UPDATE clio_document_manifest
+            SET match_status = 'matched',
+                matched_azure_path = $1,
+                match_confidence = $2,
+                match_method = $3,
+                updated_at = NOW()
+            WHERE id = $4
+          `, [matchedFile.name, confidence, matchMethod, doc.id]);
+          results.matched++;
+        } else {
+          await query(`
+            UPDATE clio_document_manifest
+            SET match_status = 'missing',
+                updated_at = NOW()
+            WHERE id = $1
+          `, [doc.id]);
+          results.missing++;
+        }
+      } catch (err) {
+        console.log(`[DOC MATCH] Error matching ${doc.name}: ${err.message}`);
+        results.errors++;
+      }
+    }
+    
+    console.log(`[DOC MATCH] Complete: ${results.matched} matched, ${results.missing} missing, ${results.errors} errors`);
+    
+    res.json({
+      success: true,
+      results,
+      message: `Matched ${results.matched} documents. ${results.missing} files not found in Azure (copy them from Clio Drive).`
+    });
+  } catch (error) {
+    console.error('Match manifest error:', error);
+    res.status(500).json({ error: 'Failed to match manifest: ' + error.message });
+  }
+});
+
+// Import matched documents into documents table
+router.post('/documents/import-matched', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.body;
+    
+    if (!firmId) {
+      return res.status(400).json({ error: 'firmId required' });
+    }
+    
+    console.log(`[DOC IMPORT] Importing matched documents for firm ${firmId}`);
+    
+    // Get all matched documents
+    const matchedDocs = await query(`
+      SELECT m.*, mat.number as matter_number
+      FROM clio_document_manifest m
+      LEFT JOIN matters mat ON m.matter_id = mat.id
+      WHERE m.firm_id = $1 AND m.match_status = 'matched'
+    `, [firmId]);
+    
+    console.log(`[DOC IMPORT] Found ${matchedDocs.rows.length} matched documents to import`);
+    
+    const results = {
+      imported: 0,
+      skipped: 0,
+      errors: 0
+    };
+    
+    for (const doc of matchedDocs.rows) {
+      try {
+        // Check if document already exists
+        const existing = await query(
+          'SELECT id FROM documents WHERE firm_id = $1 AND path = $2',
+          [firmId, doc.matched_azure_path]
+        );
+        
+        if (existing.rows.length > 0) {
+          // Update manifest to point to existing document
+          await query(`
+            UPDATE clio_document_manifest
+            SET match_status = 'imported',
+                matched_document_id = $1,
+                updated_at = NOW()
+            WHERE id = $2
+          `, [existing.rows[0].id, doc.id]);
+          results.skipped++;
+          continue;
+        }
+        
+        // Create document record
+        const docResult = await query(`
+          INSERT INTO documents (
+            firm_id, matter_id, client_id, name, original_name, type, size, path,
+            owner_id, uploaded_by, privacy_level, status
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, 'team', 'final')
+          RETURNING id
+        `, [
+          firmId,
+          doc.matter_id,
+          doc.client_id,
+          doc.name,
+          doc.name,
+          doc.content_type,
+          doc.size,
+          doc.matched_azure_path,
+          doc.owner_id
+        ]);
+        
+        // Update manifest
+        await query(`
+          UPDATE clio_document_manifest
+          SET match_status = 'imported',
+              matched_document_id = $1,
+              updated_at = NOW()
+          WHERE id = $2
+        `, [docResult.rows[0].id, doc.id]);
+        
+        results.imported++;
+        
+        if (results.imported % 100 === 0) {
+          console.log(`[DOC IMPORT] Imported ${results.imported} documents...`);
+        }
+      } catch (err) {
+        console.log(`[DOC IMPORT] Error importing ${doc.name}: ${err.message}`);
+        results.errors++;
+      }
+    }
+    
+    console.log(`[DOC IMPORT] Complete: ${results.imported} imported, ${results.skipped} skipped, ${results.errors} errors`);
+    
+    res.json({
+      success: true,
+      results,
+      message: `Imported ${results.imported} documents into the system.`
+    });
+  } catch (error) {
+    console.error('Import matched error:', error);
+    res.status(500).json({ error: 'Failed to import matched documents: ' + error.message });
   }
 });
 
