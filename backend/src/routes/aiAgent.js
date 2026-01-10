@@ -11708,6 +11708,25 @@ NEVER fabricate errors or technical issues. If tools return data, use it confide
 // =============================================================================
 // HOT CONTEXT - User-specific awareness injected at conversation start
 // =============================================================================
+
+// Helper to format relative time (e.g., "2 hours ago", "yesterday")
+function formatTimeAgo(dateString) {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays === 1) return 'yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return formatDate(date);
+}
+
 async function buildHotContext(userId, firmId) {
   try {
     const todayStr = getTodayInTimezone(DEFAULT_TIMEZONE);
@@ -11885,6 +11904,35 @@ async function buildHotContext(userId, firmId) {
       }
     }
 
+    // Fetch recent emails from Outlook (if connected)
+    let recentEmails = [];
+    let unreadCount = 0;
+    try {
+      const outlookToken = await getOutlookAccessToken(firmId);
+      if (outlookToken) {
+        // Fetch today's emails (max 10)
+        const emailResponse = await fetch(
+          `https://graph.microsoft.com/v1.0/me/messages?$top=10&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,isRead,bodyPreview`,
+          { headers: { Authorization: `Bearer ${outlookToken}` } }
+        );
+        const emailData = await emailResponse.json();
+        
+        if (emailData.value && !emailData.error) {
+          recentEmails = emailData.value.map(e => ({
+            subject: e.subject,
+            from: e.from?.emailAddress?.name || e.from?.emailAddress?.address,
+            time: e.receivedDateTime,
+            isRead: e.isRead,
+            preview: e.bodyPreview?.substring(0, 80)
+          }));
+          unreadCount = recentEmails.filter(e => !e.isRead).length;
+        }
+      }
+    } catch (emailError) {
+      // Email fetch failed - not critical, continue without
+      console.log('[Hot Context] Could not fetch emails:', emailError.message);
+    }
+
     // Build the hot context string
     let context = `
 === YOUR CURRENT AWARENESS ===
@@ -11908,6 +11956,20 @@ User: ${user?.first_name || 'Unknown'} ${user?.last_name || ''} (${user?.role ||
       context += `\n`;
     } else {
       context += `📅 TODAY'S SCHEDULE: No events scheduled\n\n`;
+    }
+
+    // Recent emails (if Outlook connected)
+    if (recentEmails.length > 0) {
+      context += `📧 RECENT EMAILS`;
+      if (unreadCount > 0) context += ` (${unreadCount} unread)`;
+      context += `:\n`;
+      for (const email of recentEmails.slice(0, 5)) {
+        const readMarker = email.isRead ? '' : '• ';
+        const timeAgo = formatTimeAgo(email.time);
+        context += `${readMarker}${email.from}: "${email.subject?.substring(0, 50) || '(no subject)'}" (${timeAgo})\n`;
+      }
+      if (recentEmails.length > 5) context += `  ...and ${recentEmails.length - 5} more\n`;
+      context += `\n`;
     }
 
     // Tasks due today
