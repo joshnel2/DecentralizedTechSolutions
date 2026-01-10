@@ -3497,7 +3497,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 4/10: Importing time entries and expenses directly to DB...');
           updateProgress('activities', 'running', 0);
           try {
-            const activityFields = 'id,type,date,quantity,quantity_in_hours,rounded_quantity_in_hours,price,total,note,billed,non_billable,created_at,updated_at,matter{id,display_number,description},user{id,name,email},activity_description{id,name,code},bill{id}';
+            // Use simpler field format - some Clio accounts don't support nested syntax like {id,name,code}
+            const activityFields = 'id,type,date,quantity,quantity_in_hours,rounded_quantity_in_hours,price,total,note,billed,non_billable,created_at,updated_at,matter,user,activity_description,bill';
             
             let filteredActivities = [];
             
