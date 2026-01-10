@@ -2786,6 +2786,96 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         const filterClientClioIds = new Set();
         
         // ============================================
+        // PRE-LOAD EXISTING DATA MAPS (for when steps are skipped)
+        // This allows time entries/bills to link to already-imported users/matters
+        // ============================================
+        
+        // Pre-load userIdMap from database if we're skipping users but need to link activities
+        if (!includeUsers && includeActivities) {
+          console.log('[CLIO IMPORT] Pre-loading existing users from database for activity linking...');
+          try {
+            // Get all users for this firm and map by email
+            const existingUsers = await query(
+              'SELECT id, email, first_name, last_name FROM users WHERE firm_id = $1',
+              [firmId]
+            );
+            for (const user of existingUsers.rows) {
+              if (user.email) {
+                userIdMap.set(user.email.toLowerCase(), user.id);
+                // Also map by full name for fallback matching
+                const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim().toLowerCase();
+                if (fullName) userIdMap.set(fullName, user.id);
+              }
+            }
+            console.log(`[CLIO IMPORT] Pre-loaded ${existingUsers.rows.length} existing users into map`);
+            addLog(`📋 Loaded ${existingUsers.rows.length} existing users for linking`);
+            
+            // Also fetch Clio users to map Clio IDs to emails, then to our user IDs
+            const clioUsers = await clioGetAll(accessToken, '/users.json', {
+              fields: 'id,name,email'
+            }, null);
+            for (const cu of clioUsers) {
+              if (cu.email) {
+                const ourUserId = userIdMap.get(cu.email.toLowerCase());
+                if (ourUserId) {
+                  userIdMap.set(`clio:${cu.id}`, ourUserId);
+                }
+              }
+            }
+            console.log(`[CLIO IMPORT] Mapped ${clioUsers.length} Clio users to existing users`);
+          } catch (err) {
+            console.log(`[CLIO IMPORT] Could not pre-load users: ${err.message}`);
+          }
+        }
+        
+        // Pre-load matterIdMap from database if we're skipping matters but need to link activities/bills
+        if (!includeMatters && (includeActivities || includeBills)) {
+          console.log('[CLIO IMPORT] Pre-loading existing matters from database for activity/bill linking...');
+          try {
+            // Get all matters for this firm
+            const existingMatters = await query(
+              'SELECT id, number FROM matters WHERE firm_id = $1',
+              [firmId]
+            );
+            for (const matter of existingMatters.rows) {
+              if (matter.number) {
+                matterIdMap.set(matter.number, matter.id);
+                // The number format from Clio import is: {display_number}-{clio_id}
+                // Extract Clio ID from the end if present
+                const match = matter.number.match(/-(\d+)$/);
+                if (match) {
+                  matterIdMap.set(`clio:${match[1]}`, matter.id);
+                }
+              }
+            }
+            console.log(`[CLIO IMPORT] Pre-loaded ${existingMatters.rows.length} existing matters into map`);
+            addLog(`📋 Loaded ${existingMatters.rows.length} existing matters for linking`);
+          } catch (err) {
+            console.log(`[CLIO IMPORT] Could not pre-load matters: ${err.message}`);
+          }
+        }
+        
+        // Pre-load contactIdMap from database if we're skipping contacts but need to link bills
+        if (!includeContacts && includeBills) {
+          console.log('[CLIO IMPORT] Pre-loading existing clients from database for bill linking...');
+          try {
+            const existingClients = await query(
+              'SELECT id, display_name FROM clients WHERE firm_id = $1',
+              [firmId]
+            );
+            for (const client of existingClients.rows) {
+              if (client.display_name) {
+                contactIdMap.set(client.display_name.toLowerCase(), client.id);
+              }
+            }
+            console.log(`[CLIO IMPORT] Pre-loaded ${existingClients.rows.length} existing clients into map`);
+            addLog(`📋 Loaded ${existingClients.rows.length} existing clients for linking`);
+          } catch (err) {
+            console.log(`[CLIO IMPORT] Could not pre-load clients: ${err.message}`);
+          }
+        }
+        
+        // ============================================
         // STEP 1: IMPORT USERS (direct to DB)
         // ============================================
         if (!includeUsers) {
@@ -3238,6 +3328,28 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         if (!includeMatters) {
           console.log('[CLIO IMPORT] Step 3/10: SKIPPING matters');
           updateProgress('matters', 'skipped', 0);
+          
+          // If skipping matters but need activities/bills, extract Clio IDs from existing matter numbers
+          if (includeActivities || includeBills || includeCalendar) {
+            console.log('[CLIO IMPORT] Extracting Clio matter IDs from existing matters for activity/bill fetching...');
+            try {
+              const existingMatters = await query(
+                'SELECT number FROM matters WHERE firm_id = $1',
+                [firmId]
+              );
+              for (const matter of existingMatters.rows) {
+                // Extract Clio ID from matter number format: {display_number}-{clio_id}
+                const match = matter.number?.match(/-(\d+)$/);
+                if (match) {
+                  importedClioMatterIds.add(parseInt(match[1]));
+                }
+              }
+              console.log(`[CLIO IMPORT] Found ${importedClioMatterIds.size} Clio matter IDs from existing matters`);
+              addLog(`📋 Found ${importedClioMatterIds.size} existing matters for fetching activities/bills`);
+            } catch (err) {
+              console.log(`[CLIO IMPORT] Could not extract matter IDs: ${err.message}`);
+            }
+          }
         } else {
           console.log('[CLIO IMPORT] Step 3/10: Importing matters directly to DB...');
           updateProgress('matters', 'running', 0);
