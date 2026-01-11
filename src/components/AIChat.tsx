@@ -481,10 +481,11 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
       // Use voice chat endpoint for combined STT + AI + TTS
       const result = await aiApi.voiceChat(audioBlob, conversationHistory)
       
-      if (!result.text || result.text.trim() === '') {
+      if (!result.success || !result.userText || result.userText.trim() === '') {
         // No speech detected, restart listening
+        setVoiceState('idle')
         if (voiceMode) {
-          startListening()
+          setTimeout(() => startListening(), 500)
         }
         return
       }
@@ -493,7 +494,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
       const userMessage: Message = {
         id: crypto.randomUUID(),
         role: 'user',
-        content: result.text,
+        content: result.userText,
         timestamp: new Date(),
       }
       setMessages(prev => [...prev, userMessage])
@@ -502,16 +503,17 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
       const assistantMessage: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: result.response,
+        content: result.aiText,
         timestamp: new Date(),
         toolsUsed: result.toolsUsed,
       }
       setMessages(prev => [...prev, assistantMessage])
 
-      // Play the audio response if available
-      if (result.audioUrl) {
+      // Play the audio response if available (base64)
+      if (result.audio) {
         setVoiceState('speaking')
-        const audio = new Audio(result.audioUrl)
+        const audioUrl = `data:audio/mp3;base64,${result.audio}`
+        const audio = new Audio(audioUrl)
         audioRef.current = audio
         
         audio.onended = () => {
@@ -523,6 +525,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         }
 
         audio.onerror = () => {
+          console.error('Audio playback error')
           setVoiceState('idle')
           if (voiceMode) {
             setTimeout(() => startListening(), 500)
@@ -531,11 +534,11 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
 
         await audio.play()
       } else {
-        // No audio, use TTS separately
+        // No audio returned, use TTS separately
         setVoiceState('speaking')
         try {
-          const audioBlob = await aiApi.synthesizeSpeech(result.response)
-          const audioUrl = URL.createObjectURL(audioBlob)
+          const ttsBlob = await aiApi.synthesizeSpeech(result.aiText)
+          const audioUrl = URL.createObjectURL(ttsBlob)
           const audio = new Audio(audioUrl)
           audioRef.current = audio
 
@@ -833,41 +836,37 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           </div>
         )}
 
-        {/* Voice Mode Overlay */}
+        {/* Voice Mode Bar - compact indicator above input */}
         {voiceMode && (
-          <div className={styles.voiceModeOverlay}>
-            <div className={styles.voiceModeContent}>
-              <div 
-                className={`${styles.voiceOrb} ${styles[voiceState]}`}
-                style={{ 
-                  transform: `scale(${1 + audioLevel * 0.5})`,
-                  boxShadow: voiceState === 'listening' 
-                    ? `0 0 ${30 + audioLevel * 50}px rgba(99, 102, 241, ${0.3 + audioLevel * 0.4})`
-                    : undefined
-                }}
-              >
-                {voiceState === 'listening' && <Mic size={32} />}
-                {voiceState === 'processing' && <Loader2 size={32} className={styles.spinner} />}
-                {voiceState === 'speaking' && <Volume2 size={32} />}
-                {voiceState === 'idle' && <Mic size={32} />}
-              </div>
-              <div className={styles.voiceStateText}>
+          <div className={styles.voiceModeBar}>
+            <div 
+              className={`${styles.voiceIndicator} ${styles[voiceState]}`}
+              style={{ 
+                transform: voiceState === 'listening' ? `scale(${1 + audioLevel * 0.3})` : undefined
+              }}
+            >
+              {voiceState === 'listening' && <Mic size={18} />}
+              {voiceState === 'processing' && <Loader2 size={18} className={styles.spinner} />}
+              {voiceState === 'speaking' && <Volume2 size={18} />}
+              {voiceState === 'idle' && <Mic size={18} />}
+            </div>
+            <div className={styles.voiceInfo}>
+              <span className={styles.voiceStateLabel}>
                 {voiceState === 'listening' && 'Listening...'}
                 {voiceState === 'processing' && 'Thinking...'}
                 {voiceState === 'speaking' && 'Speaking...'}
                 {voiceState === 'idle' && 'Starting...'}
-              </div>
-              <p className={styles.voiceHint}>
-                {voiceState === 'listening' && 'Speak now - I\'ll respond when you pause'}
-                {voiceState === 'processing' && 'Processing your request'}
-                {voiceState === 'speaking' && 'Wait for me to finish speaking'}
-                {voiceState === 'idle' && 'Initializing microphone...'}
-              </p>
-              <button onClick={toggleVoiceMode} className={styles.exitVoiceBtnLarge}>
-                <X size={18} />
-                Exit Voice Mode
-              </button>
+              </span>
+              <span className={styles.voiceHintSmall}>
+                {voiceState === 'listening' && 'Speak now'}
+                {voiceState === 'processing' && 'Processing'}
+                {voiceState === 'speaking' && 'Wait for response'}
+                {voiceState === 'idle' && 'Initializing...'}
+              </span>
             </div>
+            <button onClick={toggleVoiceMode} className={styles.exitVoiceBtnSmall}>
+              <X size={16} />
+            </button>
           </div>
         )}
 

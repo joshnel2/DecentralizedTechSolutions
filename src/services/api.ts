@@ -857,29 +857,25 @@ export const aiApi = {
     return fetchWithAuth(`/ai/suggestions?page=${page}`);
   },
 
-  // Voice AI methods
-  async transcribeAudio(audioBlob: Blob): Promise<{ text: string; duration: number }> {
-    const formData = new FormData();
-    formData.append('audio', audioBlob, 'audio.webm');
-    
-    const headers: HeadersInit = {};
-    if (accessToken) {
-      headers['Authorization'] = `Bearer ${accessToken}`;
-    }
-    
-    const response = await fetch(`${API_URL}/v1/agent/voice/transcribe`, {
-      method: 'POST',
-      headers,
-      body: formData,
-      credentials: 'include',
+  // Voice AI methods - convert blob to base64 for API
+  async blobToBase64(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = (reader.result as string).split(',')[1];
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
     });
-    
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Transcription failed' }));
-      throw new ApiError(response.status, error.error || 'Transcription failed', error);
-    }
-    
-    return response.json();
+  },
+
+  async transcribeAudio(audioBlob: Blob): Promise<{ success: boolean; text: string; error?: string }> {
+    const audio = await this.blobToBase64(audioBlob);
+    return fetchWithAuth('/v1/agent/voice/transcribe', {
+      method: 'POST',
+      body: JSON.stringify({ audio, format: 'webm' }),
+    });
   },
 
   async synthesizeSpeech(text: string, voice?: string): Promise<Blob> {
@@ -905,34 +901,17 @@ export const aiApi = {
     return response.blob();
   },
 
-  async voiceChat(audioBlob: Blob, conversationHistory?: { role: string; content: string }[], voice?: string): Promise<{ text: string; response: string; audioUrl?: string; toolsUsed?: boolean }> {
-    const formData = new FormData();
-    formData.append('audio', audioBlob, 'audio.webm');
-    if (conversationHistory) {
-      formData.append('conversationHistory', JSON.stringify(conversationHistory));
-    }
-    if (voice) {
-      formData.append('voice', voice);
-    }
-    
-    const headers: HeadersInit = {};
-    if (accessToken) {
-      headers['Authorization'] = `Bearer ${accessToken}`;
-    }
-    
-    const response = await fetch(`${API_URL}/v1/agent/voice/chat`, {
+  async voiceChat(audioBlob: Blob, conversationHistory?: { role: string; content: string }[], voice?: string): Promise<{ success: boolean; userText: string; aiText: string; audio?: string; toolsUsed?: boolean }> {
+    const audio = await this.blobToBase64(audioBlob);
+    return fetchWithAuth('/v1/agent/voice/chat', {
       method: 'POST',
-      headers,
-      body: formData,
-      credentials: 'include',
+      body: JSON.stringify({ 
+        audio, 
+        format: 'webm',
+        voice: voice || 'en-US-JennyNeural',
+        conversationHistory: conversationHistory || []
+      }),
     });
-    
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Voice chat failed' }));
-      throw new ApiError(response.status, error.error || 'Voice chat failed', error);
-    }
-    
-    return response.json();
   },
 
   async getVoices(): Promise<{ voices: Array<{ name: string; locale: string; gender: string }> }> {
