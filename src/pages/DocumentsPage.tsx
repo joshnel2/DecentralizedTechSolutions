@@ -68,10 +68,51 @@ export function DocumentsPage() {
         const result = await wordOnlineApi.openDesktop(doc.id)
         
         if (result.desktopUrl) {
-          // Open using ms-word: protocol (opens in desktop Word)
-          // Note: If Office blocks this, the user will see Office's own protection message
-          window.location.href = result.desktopUrl
-          // Don't show any alerts - let the protocol handler (Word) take over
+          // Try to open using ms-word: protocol (opens in desktop Word)
+          // Create a hidden iframe to try the protocol without navigating away
+          const iframe = document.createElement('iframe')
+          iframe.style.display = 'none'
+          document.body.appendChild(iframe)
+          
+          // Set a timeout to detect if the protocol handler didn't work
+          const timeoutId = setTimeout(() => {
+            document.body.removeChild(iframe)
+            setIsOpeningWord(false)
+            // Protocol didn't work - offer alternatives
+            const choice = confirm(
+              'Could not open Microsoft Word automatically.\n\n' +
+              'Options:\n' +
+              '• Click OK to open in Word Online (browser)\n' +
+              '• Click Cancel to download the file\n\n' +
+              'Tip: Make sure Microsoft Office is installed on your computer.'
+            )
+            if (choice && result.webUrl) {
+              window.open(result.webUrl, '_blank')
+            } else {
+              downloadDocument(doc)
+            }
+          }, 2000)
+          
+          // Try to open the protocol
+          try {
+            iframe.contentWindow!.location.href = result.desktopUrl
+            // If we get here without error, the protocol might be working
+            setTimeout(() => {
+              clearTimeout(timeoutId)
+              try { document.body.removeChild(iframe) } catch (e) {}
+              setIsOpeningWord(false)
+            }, 3000)
+          } catch (e) {
+            // Protocol blocked - clear timeout and offer alternatives immediately
+            clearTimeout(timeoutId)
+            try { document.body.removeChild(iframe) } catch (e) {}
+            setIsOpeningWord(false)
+            if (result.webUrl) {
+              window.open(result.webUrl, '_blank')
+            } else {
+              downloadDocument(doc)
+            }
+          }
           return
         } else if (result.needsMicrosoftAuth) {
           // Microsoft not connected - offer to download instead
@@ -103,8 +144,8 @@ export function DocumentsPage() {
         // Open Word Online in new tab
         window.open(result.editUrl, '_blank')
       } else if (result.desktopUrl) {
-        // Desktop Word URL available
-        window.location.href = result.desktopUrl
+        // Try desktop Word URL in new window
+        window.open(result.desktopUrl, '_blank')
       } else if (result.fallback === 'desktop' || result.downloadUrl || result.needsMicrosoftAuth) {
         // Fallback to downloading
         const confirmed = confirm(
