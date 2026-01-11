@@ -775,8 +775,8 @@ router.post('/documents/:documentId/save', authenticate, async (req, res) => {
     let storageType = 'database';
 
     try {
-      // Try Azure Blob storage first
-      const { uploadFile, isAzureConfigured } = await import('../utils/azureStorage.js');
+      // Try Azure File Share storage first
+      const { uploadFileBuffer, isAzureConfigured } = await import('../utils/azureStorage.js');
       const azureEnabled = await isAzureConfigured();
       
       const originalName = doc.original_name || doc.name || 'document';
@@ -785,9 +785,9 @@ router.post('/documents/:documentId/save', authenticate, async (req, res) => {
       const versionFileName = `${baseName}_v${nextVersion}_${Date.now()}${ext}`;
 
       if (azureEnabled) {
-        // Store in Azure Blob
+        // Store in Azure File Share using buffer upload
         const azurePath = `versions/${documentId}/${versionFileName}`;
-        await uploadFile(azurePath, fileBuffer, req.user.firmId);
+        await uploadFileBuffer(fileBuffer, azurePath, req.user.firmId);
         versionContentUrl = azurePath;
         storageType = 'azure_blob';
         console.log(`[VERSION SAVE] Stored version ${nextVersion} in Azure: ${azurePath}`);
