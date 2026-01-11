@@ -278,56 +278,32 @@ export function DocumentVersionPanel({
       {/* Quick Actions - Main buttons */}
       <div className={styles.quickActions}>
         {isWordDoc ? (
-          <>
-            <button 
-              className={styles.openWordOnlineBtn}
-              onClick={async () => {
-                setSyncEnabled(true)
-                // Open directly in Word Online (browser) - works regardless of desktop Word account
-                try {
-                  const result = await wordOnlineApi.openDocument(document.id)
-                  if (result.editUrl) {
-                    window.open(result.editUrl, '_blank')
-                  } else if (result.needsMicrosoftAuth) {
-                    alert('Please connect Microsoft 365 in Settings → Integrations first.')
-                  } else {
-                    alert('Could not open Word Online. Try downloading instead.')
-                  }
-                } catch (err) {
-                  console.error('Word Online error:', err)
-                  alert('Could not connect to Word Online. Try downloading instead.')
-                }
-              }}
-            >
-              <ExternalLink size={16} />
-              Word Online
-            </button>
-            <button 
-              className={styles.downloadBtn}
-              onClick={onDownload}
-            >
-              <Download size={16} />
-              Download
-            </button>
-          </>
+          <button 
+            className={styles.openWordBtn}
+            onClick={() => {
+              setSyncEnabled(true) // Enable auto-sync when opening in Word
+              onOpenInWord(true)
+            }}
+          >
+            <Edit3 size={16} />
+            Open in Word
+          </button>
         ) : (
-          <>
-            <button 
-              className={styles.openBtn}
-              onClick={() => onOpenInWord()}
-            >
-              <ExternalLink size={16} />
-              Open File
-            </button>
-            <button 
-              className={styles.downloadBtn}
-              onClick={onDownload}
-            >
-              <Download size={16} />
-              Download
-            </button>
-          </>
+          <button 
+            className={styles.openBtn}
+            onClick={() => onOpenInWord()}
+          >
+            <ExternalLink size={16} />
+            Open File
+          </button>
         )}
+        <button 
+          className={styles.downloadBtn}
+          onClick={onDownload}
+        >
+          <Download size={16} />
+          Download
+        </button>
       </div>
 
       {/* Word Sync Status - shows when syncing is enabled */}
