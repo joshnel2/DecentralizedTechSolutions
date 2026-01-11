@@ -12889,27 +12889,51 @@ router.post('/voice/synthesize', authenticate, async (req, res) => {
 // Combined voice chat: transcribe -> AI -> synthesize
 router.post('/voice/chat', authenticate, async (req, res) => {
   try {
+    console.log('[Voice Chat] Request received');
+    
     if (!AZURE_SPEECH_KEY) {
-      return res.status(400).json({ error: 'Azure Speech not configured' });
+      console.log('[Voice Chat] ERROR: Azure Speech not configured');
+      return res.status(400).json({ error: 'Azure Speech not configured. Please add AZURE_SPEECH_KEY to environment.' });
     }
 
     const { audio, format = 'webm', voice = 'en-US-JennyNeural', conversationHistory = [] } = req.body;
     
     if (!audio) {
+      console.log('[Voice Chat] ERROR: No audio data');
       return res.status(400).json({ error: 'Audio data required' });
     }
 
+    console.log(`[Voice Chat] Audio received: ${audio.length} chars base64, format: ${format}`);
+    
     const user = req.user;
     
     // Step 1: Transcribe audio to text
     const audioBuffer = Buffer.from(audio, 'base64');
-    const sttUrl = `https://${AZURE_SPEECH_REGION}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-US`;
+    console.log(`[Voice Chat] Audio buffer size: ${audioBuffer.length} bytes`);
     
+    if (audioBuffer.length < 1000) {
+      console.log('[Voice Chat] Audio too short, likely no speech');
+      return res.json({
+        success: false,
+        userText: '',
+        aiText: 'I didn\'t hear anything. Please try speaking again.',
+        audio: null
+      });
+    }
+    
+    // Azure Speech STT endpoint
+    const sttUrl = `https://${AZURE_SPEECH_REGION}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-US`;
+    console.log(`[Voice Chat] STT URL: ${sttUrl}`);
+    
+    // Content type mapping - Azure prefers specific formats
     const contentTypes = {
       'webm': 'audio/webm; codecs=opus',
       'wav': 'audio/wav',
-      'ogg': 'audio/ogg; codecs=opus'
+      'ogg': 'audio/ogg; codecs=opus',
+      'mp3': 'audio/mpeg'
     };
+    
+    console.log(`[Voice Chat] Calling Azure STT with content-type: ${contentTypes[format]}`);
     
     const sttResponse = await fetch(sttUrl, {
       method: 'POST',
@@ -12921,17 +12945,28 @@ router.post('/voice/chat', authenticate, async (req, res) => {
       body: audioBuffer
     });
 
+    console.log(`[Voice Chat] STT response status: ${sttResponse.status}`);
+    
     if (!sttResponse.ok) {
-      return res.status(400).json({ error: 'Could not transcribe audio' });
+      const errorText = await sttResponse.text();
+      console.log(`[Voice Chat] STT ERROR: ${sttResponse.status} - ${errorText}`);
+      return res.status(400).json({ 
+        error: `Speech recognition failed: ${sttResponse.status}`,
+        details: errorText
+      });
     }
 
     const sttResult = await sttResponse.json();
+    console.log(`[Voice Chat] STT result:`, JSON.stringify(sttResult));
     
     if (sttResult.RecognitionStatus !== 'Success' || !sttResult.DisplayText) {
+      console.log(`[Voice Chat] No speech detected, status: ${sttResult.RecognitionStatus}`);
       return res.json({
         success: false,
         userText: '',
-        aiText: 'I couldn\'t understand that. Could you please try again?',
+        aiText: sttResult.RecognitionStatus === 'NoMatch' 
+          ? 'I couldn\'t understand that. Please speak more clearly.' 
+          : 'I didn\'t catch that. Please try again.',
         audio: null
       });
     }
