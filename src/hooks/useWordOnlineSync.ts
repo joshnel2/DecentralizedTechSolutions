@@ -20,12 +20,14 @@ interface UseWordOnlineSyncOptions {
  * Hook to automatically sync changes from Word Online/Desktop back to Apex
  * When a user edits a document in Word, this hook polls OneDrive for changes
  * and creates new versions in Apex when changes are detected.
+ * 
+ * AUTO-SYNC: Changes are automatically synced without user action.
  */
 export function useWordOnlineSync(options: UseWordOnlineSyncOptions) {
   const { 
     documentId, 
     enabled = true, 
-    pollInterval = 30000,
+    pollInterval = 15000, // Poll every 15 seconds for faster sync
     onVersionCreated 
   } = options
   

@@ -87,8 +87,15 @@ export function DocumentVersionPanel({
   // Downloading state
   const [downloadingVersion, setDownloadingVersion] = useState<number | null>(null)
   
-  // Word Online auto-sync - polls for changes when document is opened in Word
-  const [syncEnabled, setSyncEnabled] = useState(false)
+  // Check if document is a Word document
+  useEffect(() => {
+    const wordExtensions = ['.doc', '.docx', '.odt', '.rtf']
+    const name = document.name || document.originalName || ''
+    setIsWordDoc(wordExtensions.some(ext => name.toLowerCase().endsWith(ext)))
+  }, [document])
+
+  // Word Online auto-sync - ALWAYS polls for Word docs to detect changes automatically
+  const [syncEnabled, setSyncEnabled] = useState(true) // Always enabled by default
   const { 
     isSyncing, 
     lastSyncAt, 
@@ -97,21 +104,14 @@ export function DocumentVersionPanel({
     syncNow,
     error: syncError
   } = useWordOnlineSync({
-    documentId: syncEnabled ? document.id : null,
-    enabled: syncEnabled && isWordDoc,
-    pollInterval: 30000, // Poll every 30 seconds
+    documentId: isWordDoc ? document.id : null, // Only poll for Word docs
+    enabled: isWordDoc, // Always enabled for Word docs
+    pollInterval: 15000, // Poll every 15 seconds for faster sync
     onVersionCreated: (versionNumber) => {
       // Refresh version list when new version is synced
       fetchVersions()
     }
   })
-
-  // Check if document is a Word document
-  useEffect(() => {
-    const wordExtensions = ['.doc', '.docx', '.odt', '.rtf']
-    const name = document.name || document.originalName || ''
-    setIsWordDoc(wordExtensions.some(ext => name.toLowerCase().endsWith(ext)))
-  }, [document])
 
   // Fetch version history
   const fetchVersions = useCallback(async () => {
@@ -281,10 +281,7 @@ export function DocumentVersionPanel({
           <>
             <button 
               className={styles.openWordBtn}
-              onClick={() => {
-                setSyncEnabled(true) // Enable auto-sync when opening in Word
-                onOpenInWord(true)
-              }}
+              onClick={() => onOpenInWord(true)}
             >
               <Edit3 size={16} />
               Open in Word
@@ -292,7 +289,6 @@ export function DocumentVersionPanel({
             <button 
               className={styles.wordOnlineBtn}
               onClick={async () => {
-                setSyncEnabled(true)
                 try {
                   const result = await wordOnlineApi.openDocument(document.id)
                   console.log('[Word Online] API response:', result)
@@ -366,8 +362,8 @@ export function DocumentVersionPanel({
         </button>
       </div>
 
-      {/* Word Sync Status - shows when syncing is enabled */}
-      {syncEnabled && isWordDoc && (
+      {/* Word Sync Status - always shows for Word docs */}
+      {isWordDoc && (
         <div className={styles.syncStatus}>
           <div className={styles.syncInfo}>
             {isSyncing ? (
