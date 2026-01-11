@@ -1023,3 +1023,199 @@
     border-bottom-right-radius: 3px;
   }
 }
+
+/* Voice Mode Styles */
+.exitVoiceBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  color: #f87171;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+}
+
+.exitVoiceBtn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.micBtn {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 12px;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.micBtn:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.micBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.micBtn.micActive {
+  background: linear-gradient(135deg, #ef4444, #f97316);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: white;
+  animation: micPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes micPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+}
+
+/* Voice Mode Overlay */
+.voiceModeOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  background: linear-gradient(180deg, rgba(10, 15, 26, 0.98) 0%, rgba(17, 24, 39, 0.98) 50%, rgba(10, 15, 26, 0.98) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.voiceModeContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 40px;
+}
+
+.voiceOrb {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 24px;
+  transition: transform 0.1s ease, box-shadow 0.2s ease;
+  color: white;
+}
+
+.voiceOrb.idle {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(139, 92, 246, 0.2));
+  border: 2px solid rgba(99, 102, 241, 0.4);
+  animation: orbPulse 2s ease-in-out infinite;
+}
+
+.voiceOrb.listening {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border: 2px solid rgba(139, 92, 246, 0.6);
+  box-shadow: 0 0 30px rgba(99, 102, 241, 0.4);
+}
+
+.voiceOrb.processing {
+  background: linear-gradient(135deg, #8b5cf6, #a855f7);
+  border: 2px solid rgba(168, 85, 247, 0.6);
+  animation: orbRotate 2s linear infinite;
+}
+
+.voiceOrb.speaking {
+  background: linear-gradient(135deg, #10b981, #14b8a6);
+  border: 2px solid rgba(16, 185, 129, 0.6);
+  box-shadow: 0 0 30px rgba(16, 185, 129, 0.4);
+  animation: speakingPulse 0.8s ease-in-out infinite;
+}
+
+@keyframes orbPulse {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+@keyframes orbRotate {
+  from { box-shadow: 0 0 30px rgba(139, 92, 246, 0.4); }
+  to { box-shadow: 0 0 50px rgba(168, 85, 247, 0.6); }
+}
+
+@keyframes speakingPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+.voiceStateText {
+  font-size: 20px;
+  font-weight: 600;
+  color: #f1f5f9;
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+
+.voiceHint {
+  font-size: 14px;
+  color: #94a3b8;
+  margin-bottom: 32px;
+  max-width: 280px;
+  line-height: 1.5;
+}
+
+.exitVoiceBtnLarge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 10px;
+  color: #f87171;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.exitVoiceBtnLarge:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+  transform: translateY(-2px);
+}
+
+/* Mobile Voice Mode */
+@media (max-width: 768px) {
+  .voiceOrb {
+    width: 100px;
+    height: 100px;
+  }
+
+  .voiceStateText {
+    font-size: 18px;
+  }
+
+  .voiceHint {
+    font-size: 13px;
+    max-width: 260px;
+  }
+
+  .exitVoiceBtnLarge {
+    padding: 10px 20px;
+    font-size: 13px;
+  }
+}

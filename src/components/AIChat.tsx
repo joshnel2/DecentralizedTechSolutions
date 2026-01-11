@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Mail, Bot, Cpu, Terminal, AlertCircle, RefreshCw } from 'lucide-react'
+import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Mail, Bot, Cpu, Terminal, AlertCircle, RefreshCw, Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
 import { aiApi, documentsApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import styles from './AIChat.module.css'
+
+type VoiceState = 'idle' | 'listening' | 'processing' | 'speaking'
 
 interface NavigationInfo {
   type: string
@@ -87,6 +89,19 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const lastUserMessageRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  
+  // Voice mode state
+  const [voiceMode, setVoiceMode] = useState(false)
+  const [voiceState, setVoiceState] = useState<VoiceState>('idle')
+  const [audioLevel, setAudioLevel] = useState(0)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const animationFrameRef = useRef<number | null>(null)
 
   const currentPage = getPageFromPath(location.pathname)
   const pathContext = getContextFromPath(location.pathname)
@@ -331,6 +346,281 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
     setMessages([])
   }
 
+  // Voice mode cleanup
+  const cleanupVoiceMode = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current = null
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close()
+      audioContextRef.current = null
+    }
+    if (silenceTimeoutRef.current) {
+      clearTimeout(silenceTimeoutRef.current)
+      silenceTimeoutRef.current = null
+    }
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current)
+      animationFrameRef.current = null
+    }
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current = null
+    }
+    mediaRecorderRef.current = null
+    audioChunksRef.current = []
+    analyserRef.current = null
+    setAudioLevel(0)
+    setVoiceState('idle')
+  }, [])
+
+  // Start listening for voice input
+  const startListening = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        }
+      })
+      streamRef.current = stream
+
+      // Set up audio analysis for visual feedback
+      audioContextRef.current = new AudioContext()
+      const source = audioContextRef.current.createMediaStreamSource(stream)
+      analyserRef.current = audioContextRef.current.createAnalyser()
+      analyserRef.current.fftSize = 256
+      source.connect(analyserRef.current)
+
+      // Monitor audio levels
+      const monitorAudio = () => {
+        if (!analyserRef.current) return
+        const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount)
+        analyserRef.current.getByteFrequencyData(dataArray)
+        const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length
+        setAudioLevel(average / 255)
+        
+        // Reset silence timeout when audio is detected
+        if (average > 20) {
+          if (silenceTimeoutRef.current) {
+            clearTimeout(silenceTimeoutRef.current)
+          }
+          silenceTimeoutRef.current = setTimeout(() => {
+            // Stop recording after 2 seconds of silence
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+              mediaRecorderRef.current.stop()
+            }
+          }, 2000)
+        }
+        
+        animationFrameRef.current = requestAnimationFrame(monitorAudio)
+      }
+      monitorAudio()
+
+      // Set up media recorder
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      mediaRecorderRef.current = mediaRecorder
+      audioChunksRef.current = []
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data)
+        }
+      }
+
+      mediaRecorder.onstop = async () => {
+        if (audioChunksRef.current.length === 0) {
+          setVoiceState('idle')
+          // Restart listening if still in voice mode
+          if (voiceMode) {
+            startListening()
+          }
+          return
+        }
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        audioChunksRef.current = []
+        
+        // Process the voice input
+        await processVoiceInput(audioBlob)
+      }
+
+      mediaRecorder.start()
+      setVoiceState('listening')
+
+      // Auto-stop after 30 seconds max
+      setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          mediaRecorderRef.current.stop()
+        }
+      }, 30000)
+
+    } catch (error) {
+      console.error('Error starting voice:', error)
+      setVoiceMode(false)
+      cleanupVoiceMode()
+    }
+  }, [voiceMode, cleanupVoiceMode])
+
+  // Process voice input - transcribe, get AI response, and speak back
+  const processVoiceInput = async (audioBlob: Blob) => {
+    setVoiceState('processing')
+    
+    try {
+      // Build conversation history
+      const conversationHistory = messages.map(m => ({
+        role: m.role,
+        content: m.content,
+      }))
+
+      // Use voice chat endpoint for combined STT + AI + TTS
+      const result = await aiApi.voiceChat(audioBlob, conversationHistory)
+      
+      if (!result.text || result.text.trim() === '') {
+        // No speech detected, restart listening
+        if (voiceMode) {
+          startListening()
+        }
+        return
+      }
+
+      // Add user message to chat
+      const userMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: result.text,
+        timestamp: new Date(),
+      }
+      setMessages(prev => [...prev, userMessage])
+
+      // Add AI response to chat
+      const assistantMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: result.response,
+        timestamp: new Date(),
+        toolsUsed: result.toolsUsed,
+      }
+      setMessages(prev => [...prev, assistantMessage])
+
+      // Play the audio response if available
+      if (result.audioUrl) {
+        setVoiceState('speaking')
+        const audio = new Audio(result.audioUrl)
+        audioRef.current = audio
+        
+        audio.onended = () => {
+          setVoiceState('idle')
+          // Restart listening if still in voice mode
+          if (voiceMode) {
+            setTimeout(() => startListening(), 500)
+          }
+        }
+
+        audio.onerror = () => {
+          setVoiceState('idle')
+          if (voiceMode) {
+            setTimeout(() => startListening(), 500)
+          }
+        }
+
+        await audio.play()
+      } else {
+        // No audio, use TTS separately
+        setVoiceState('speaking')
+        try {
+          const audioBlob = await aiApi.synthesizeSpeech(result.response)
+          const audioUrl = URL.createObjectURL(audioBlob)
+          const audio = new Audio(audioUrl)
+          audioRef.current = audio
+
+          audio.onended = () => {
+            URL.revokeObjectURL(audioUrl)
+            setVoiceState('idle')
+            if (voiceMode) {
+              setTimeout(() => startListening(), 500)
+            }
+          }
+
+          audio.onerror = () => {
+            URL.revokeObjectURL(audioUrl)
+            setVoiceState('idle')
+            if (voiceMode) {
+              setTimeout(() => startListening(), 500)
+            }
+          }
+
+          await audio.play()
+        } catch (error) {
+          console.error('TTS error:', error)
+          setVoiceState('idle')
+          if (voiceMode) {
+            setTimeout(() => startListening(), 500)
+          }
+        }
+      }
+
+    } catch (error: any) {
+      console.error('Voice processing error:', error)
+      
+      // Add error message
+      const errorMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: error.message || "I couldn't process your voice input. Please try again.",
+        timestamp: new Date(),
+        isError: true,
+        isRetryable: true,
+      }
+      setMessages(prev => [...prev, errorMessage])
+      
+      setVoiceState('idle')
+      // Restart listening if still in voice mode
+      if (voiceMode) {
+        setTimeout(() => startListening(), 1000)
+      }
+    }
+  }
+
+  // Toggle voice mode
+  const toggleVoiceMode = useCallback(() => {
+    if (voiceMode) {
+      // Exiting voice mode
+      setVoiceMode(false)
+      cleanupVoiceMode()
+    } else {
+      // Entering voice mode
+      setVoiceMode(true)
+    }
+  }, [voiceMode, cleanupVoiceMode])
+
+  // Start listening when voice mode is activated
+  useEffect(() => {
+    if (voiceMode && voiceState === 'idle') {
+      startListening()
+    }
+  }, [voiceMode, voiceState, startListening])
+
+  // Cleanup on unmount or when chat is closed
+  useEffect(() => {
+    return () => {
+      cleanupVoiceMode()
+    }
+  }, [cleanupVoiceMode])
+
+  // Cleanup voice mode when chat is closed
+  useEffect(() => {
+    if (!isOpen && voiceMode) {
+      setVoiceMode(false)
+      cleanupVoiceMode()
+    }
+  }, [isOpen, voiceMode, cleanupVoiceMode])
+
   if (!isOpen) return null
 
   return (
@@ -349,10 +639,16 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
             </div>
           </div>
           <div className={styles.headerActions}>
-            {messages.length > 0 && (
+            {messages.length > 0 && !voiceMode && (
               <button onClick={clearChat} className={styles.clearBtn}>
                 <Terminal size={12} />
                 Clear
+              </button>
+            )}
+            {voiceMode && (
+              <button onClick={toggleVoiceMode} className={styles.exitVoiceBtn}>
+                <X size={14} />
+                Exit Voice
               </button>
             )}
             <button onClick={onClose} className={styles.closeBtn}>
@@ -537,6 +833,44 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           </div>
         )}
 
+        {/* Voice Mode Overlay */}
+        {voiceMode && (
+          <div className={styles.voiceModeOverlay}>
+            <div className={styles.voiceModeContent}>
+              <div 
+                className={`${styles.voiceOrb} ${styles[voiceState]}`}
+                style={{ 
+                  transform: `scale(${1 + audioLevel * 0.5})`,
+                  boxShadow: voiceState === 'listening' 
+                    ? `0 0 ${30 + audioLevel * 50}px rgba(99, 102, 241, ${0.3 + audioLevel * 0.4})`
+                    : undefined
+                }}
+              >
+                {voiceState === 'listening' && <Mic size={32} />}
+                {voiceState === 'processing' && <Loader2 size={32} className={styles.spinner} />}
+                {voiceState === 'speaking' && <Volume2 size={32} />}
+                {voiceState === 'idle' && <Mic size={32} />}
+              </div>
+              <div className={styles.voiceStateText}>
+                {voiceState === 'listening' && 'Listening...'}
+                {voiceState === 'processing' && 'Thinking...'}
+                {voiceState === 'speaking' && 'Speaking...'}
+                {voiceState === 'idle' && 'Starting...'}
+              </div>
+              <p className={styles.voiceHint}>
+                {voiceState === 'listening' && 'Speak now - I\'ll respond when you pause'}
+                {voiceState === 'processing' && 'Processing your request'}
+                {voiceState === 'speaking' && 'Wait for me to finish speaking'}
+                {voiceState === 'idle' && 'Initializing microphone...'}
+              </p>
+              <button onClick={toggleVoiceMode} className={styles.exitVoiceBtnLarge}>
+                <X size={18} />
+                Exit Voice Mode
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Input */}
         <div className={styles.inputArea}>
           <input
@@ -549,7 +883,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           <button
             onClick={() => fileInputRef.current?.click()}
             className={styles.attachBtn}
-            disabled={isLoading}
+            disabled={isLoading || voiceMode}
             title="Attach file"
           >
             <Paperclip size={18} />
@@ -561,12 +895,20 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={uploadedFile ? "Add a message or press send..." : "Ask anything..."}
-            disabled={isLoading}
+            disabled={isLoading || voiceMode}
             className={styles.input}
           />
           <button
+            onClick={toggleVoiceMode}
+            className={`${styles.micBtn} ${voiceMode ? styles.micActive : ''}`}
+            disabled={isLoading}
+            title={voiceMode ? "Exit voice mode" : "Start voice mode"}
+          >
+            {voiceMode ? <MicOff size={18} /> : <Mic size={18} />}
+          </button>
+          <button
             onClick={() => sendMessage()}
-            disabled={(!input.trim() && !uploadedFile) || isLoading}
+            disabled={(!input.trim() && !uploadedFile) || isLoading || voiceMode}
             className={styles.sendBtn}
           >
             {isLoading ? <Loader2 size={18} className={styles.spinner} /> : <Send size={18} />}

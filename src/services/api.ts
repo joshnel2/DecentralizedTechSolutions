@@ -856,6 +856,88 @@ export const aiApi = {
   async getSuggestions(page: string) {
     return fetchWithAuth(`/ai/suggestions?page=${page}`);
   },
+
+  // Voice AI methods
+  async transcribeAudio(audioBlob: Blob): Promise<{ text: string; duration: number }> {
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'audio.webm');
+    
+    const headers: HeadersInit = {};
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+    
+    const response = await fetch(`${API_URL}/v1/agent/voice/transcribe`, {
+      method: 'POST',
+      headers,
+      body: formData,
+      credentials: 'include',
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Transcription failed' }));
+      throw new ApiError(response.status, error.error || 'Transcription failed', error);
+    }
+    
+    return response.json();
+  },
+
+  async synthesizeSpeech(text: string, voice?: string): Promise<Blob> {
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+    };
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+    
+    const response = await fetch(`${API_URL}/v1/agent/voice/synthesize`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ text, voice }),
+      credentials: 'include',
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Synthesis failed' }));
+      throw new ApiError(response.status, error.error || 'Synthesis failed', error);
+    }
+    
+    return response.blob();
+  },
+
+  async voiceChat(audioBlob: Blob, conversationHistory?: { role: string; content: string }[], voice?: string): Promise<{ text: string; response: string; audioUrl?: string; toolsUsed?: boolean }> {
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'audio.webm');
+    if (conversationHistory) {
+      formData.append('conversationHistory', JSON.stringify(conversationHistory));
+    }
+    if (voice) {
+      formData.append('voice', voice);
+    }
+    
+    const headers: HeadersInit = {};
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+    
+    const response = await fetch(`${API_URL}/v1/agent/voice/chat`, {
+      method: 'POST',
+      headers,
+      body: formData,
+      credentials: 'include',
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Voice chat failed' }));
+      throw new ApiError(response.status, error.error || 'Voice chat failed', error);
+    }
+    
+    return response.json();
+  },
+
+  async getVoices(): Promise<{ voices: Array<{ name: string; locale: string; gender: string }> }> {
+    return fetchWithAuth('/v1/agent/voice/voices');
+  },
 };
 
 // ============================================
