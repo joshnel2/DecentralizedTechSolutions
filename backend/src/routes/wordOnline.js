@@ -2597,16 +2597,35 @@ async function updateActiveEditors(documentId) {
 }
 
 async function getWordOnlineUrl(graphItemId, accessToken) {
-  // This would call Microsoft Graph API to get the edit URL
-  // For now, return a placeholder
-  // In production, this would be:
-  // const response = await fetch(`${GRAPH_API_BASE}/me/drive/items/${graphItemId}`, {
-  //   headers: { 'Authorization': `Bearer ${accessToken}` }
-  // });
-  // const data = await response.json();
-  // return data.webUrl + '?action=edit';
-  
-  return `https://office.com/edit/${graphItemId}`;
+  try {
+    // Call Microsoft Graph API to get the file's webUrl
+    const response = await fetch(`${GRAPH_API_BASE}/me/drive/items/${graphItemId}`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    
+    if (!response.ok) {
+      console.error('[WORD ONLINE URL] Graph API error:', response.status);
+      return null;
+    }
+    
+    const data = await response.json();
+    
+    // The webUrl from OneDrive can be opened in Word Online
+    // Adding ?web=1 forces browser viewing, or we can use the native URL
+    if (data.webUrl) {
+      // For Word documents, append action=edit to open in edit mode
+      const editUrl = data.webUrl.includes('?') 
+        ? `${data.webUrl}&action=edit`
+        : `${data.webUrl}?action=edit`;
+      console.log(`[WORD ONLINE URL] Got edit URL: ${editUrl}`);
+      return editUrl;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('[WORD ONLINE URL] Error:', error.message);
+    return null;
+  }
 }
 
 // ============================================
