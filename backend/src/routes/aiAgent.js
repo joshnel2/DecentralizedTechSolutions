@@ -12746,6 +12746,314 @@ async function callAzureOpenAIWithTools(messages, tools, retryOptions = {}) {
   throw lastError || new Error('Failed to get AI response after retries');
 }
 
+// =============================================================================
+// VOICE AI ENDPOINTS - Speech-to-Text and Text-to-Speech
+// =============================================================================
+
+const AZURE_SPEECH_KEY = process.env.AZURE_SPEECH_KEY;
+const AZURE_SPEECH_REGION = process.env.AZURE_SPEECH_REGION || 'eastus';
+
+// Speech-to-Text: Convert audio to text
+router.post('/voice/transcribe', authenticate, async (req, res) => {
+  try {
+    if (!AZURE_SPEECH_KEY) {
+      return res.status(400).json({ error: 'Azure Speech not configured. Add AZURE_SPEECH_KEY to environment.' });
+    }
+
+    // Expect audio data as base64 in request body
+    const { audio, format = 'webm' } = req.body;
+    
+    if (!audio) {
+      return res.status(400).json({ error: 'Audio data required' });
+    }
+
+    // Convert base64 to buffer
+    const audioBuffer = Buffer.from(audio, 'base64');
+    
+    // Azure Speech-to-Text REST API
+    const sttUrl = `https://${AZURE_SPEECH_REGION}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-US`;
+    
+    // Determine content type based on format
+    const contentTypes = {
+      'webm': 'audio/webm; codecs=opus',
+      'wav': 'audio/wav',
+      'ogg': 'audio/ogg; codecs=opus',
+      'mp3': 'audio/mpeg'
+    };
+    
+    const response = await fetch(sttUrl, {
+      method: 'POST',
+      headers: {
+        'Ocp-Apim-Subscription-Key': AZURE_SPEECH_KEY,
+        'Content-Type': contentTypes[format] || 'audio/webm; codecs=opus',
+        'Accept': 'application/json'
+      },
+      body: audioBuffer
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[Voice] STT error:', response.status, errorText);
+      return res.status(response.status).json({ error: `Speech recognition failed: ${errorText}` });
+    }
+
+    const result = await response.json();
+    
+    if (result.RecognitionStatus === 'Success') {
+      res.json({
+        success: true,
+        text: result.DisplayText,
+        confidence: result.NBest?.[0]?.Confidence
+      });
+    } else if (result.RecognitionStatus === 'NoMatch') {
+      res.json({
+        success: false,
+        text: '',
+        error: 'Could not understand audio. Please try again.'
+      });
+    } else {
+      res.json({
+        success: false,
+        text: '',
+        error: `Recognition status: ${result.RecognitionStatus}`
+      });
+    }
+  } catch (error) {
+    console.error('[Voice] Transcription error:', error);
+    res.status(500).json({ error: 'Failed to transcribe audio: ' + error.message });
+  }
+});
+
+// Text-to-Speech: Convert text to audio
+router.post('/voice/synthesize', authenticate, async (req, res) => {
+  try {
+    if (!AZURE_SPEECH_KEY) {
+      return res.status(400).json({ error: 'Azure Speech not configured. Add AZURE_SPEECH_KEY to environment.' });
+    }
+
+    const { text, voice = 'en-US-JennyNeural' } = req.body;
+    
+    if (!text) {
+      return res.status(400).json({ error: 'Text required' });
+    }
+
+    // Limit text length to avoid huge audio files
+    const maxLength = 5000;
+    const truncatedText = text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+
+    // Build SSML for better control
+    const ssml = `
+      <speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>
+        <voice name='${voice}'>
+          ${escapeXml(truncatedText)}
+        </voice>
+      </speak>
+    `;
+
+    // Azure Text-to-Speech REST API
+    const ttsUrl = `https://${AZURE_SPEECH_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`;
+    
+    const response = await fetch(ttsUrl, {
+      method: 'POST',
+      headers: {
+        'Ocp-Apim-Subscription-Key': AZURE_SPEECH_KEY,
+        'Content-Type': 'application/ssml+xml',
+        'X-Microsoft-OutputFormat': 'audio-24khz-96kbitrate-mono-mp3',
+        'User-Agent': 'ApexLegal'
+      },
+      body: ssml
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[Voice] TTS error:', response.status, errorText);
+      return res.status(response.status).json({ error: `Speech synthesis failed: ${errorText}` });
+    }
+
+    // Get audio as buffer and return as base64
+    const audioBuffer = await response.arrayBuffer();
+    const base64Audio = Buffer.from(audioBuffer).toString('base64');
+    
+    res.json({
+      success: true,
+      audio: base64Audio,
+      format: 'mp3',
+      voice: voice
+    });
+  } catch (error) {
+    console.error('[Voice] Synthesis error:', error);
+    res.status(500).json({ error: 'Failed to synthesize speech: ' + error.message });
+  }
+});
+
+// Combined voice chat: transcribe -> AI -> synthesize
+router.post('/voice/chat', authenticate, async (req, res) => {
+  try {
+    if (!AZURE_SPEECH_KEY) {
+      return res.status(400).json({ error: 'Azure Speech not configured' });
+    }
+
+    const { audio, format = 'webm', voice = 'en-US-JennyNeural', conversationHistory = [] } = req.body;
+    
+    if (!audio) {
+      return res.status(400).json({ error: 'Audio data required' });
+    }
+
+    const user = req.user;
+    
+    // Step 1: Transcribe audio to text
+    const audioBuffer = Buffer.from(audio, 'base64');
+    const sttUrl = `https://${AZURE_SPEECH_REGION}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-US`;
+    
+    const contentTypes = {
+      'webm': 'audio/webm; codecs=opus',
+      'wav': 'audio/wav',
+      'ogg': 'audio/ogg; codecs=opus'
+    };
+    
+    const sttResponse = await fetch(sttUrl, {
+      method: 'POST',
+      headers: {
+        'Ocp-Apim-Subscription-Key': AZURE_SPEECH_KEY,
+        'Content-Type': contentTypes[format] || 'audio/webm; codecs=opus',
+        'Accept': 'application/json'
+      },
+      body: audioBuffer
+    });
+
+    if (!sttResponse.ok) {
+      return res.status(400).json({ error: 'Could not transcribe audio' });
+    }
+
+    const sttResult = await sttResponse.json();
+    
+    if (sttResult.RecognitionStatus !== 'Success' || !sttResult.DisplayText) {
+      return res.json({
+        success: false,
+        userText: '',
+        aiText: 'I couldn\'t understand that. Could you please try again?',
+        audio: null
+      });
+    }
+
+    const userText = sttResult.DisplayText;
+    console.log(`[Voice Chat] User said: "${userText}"`);
+
+    // Step 2: Get AI response (reuse existing chat logic)
+    // Build hot context
+    const hotContext = await buildHotContext(user.id, user.firmId);
+    
+    // Build system prompt
+    const baseSystemPrompt = getSystemPrompt().replace('{{USER_ROLE}}', user.role || 'staff');
+    const systemPrompt = hotContext ? `${baseSystemPrompt}\n\n${hotContext}` : baseSystemPrompt;
+    
+    // Build messages
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...conversationHistory.slice(-10), // Keep last 10 messages for context
+      { role: 'user', content: userText }
+    ];
+
+    // Call AI
+    const aiResponse = await callAzureOpenAI(messages, tools, user, req);
+    
+    // Process tool calls if any (simplified - just get final text)
+    let aiText = '';
+    if (aiResponse.content) {
+      aiText = aiResponse.content;
+    } else if (aiResponse.tool_calls) {
+      // Execute tools and get response
+      const toolResults = [];
+      for (const toolCall of aiResponse.tool_calls) {
+        const result = await executeTool(toolCall.function.name, JSON.parse(toolCall.function.arguments || '{}'), user, req);
+        toolResults.push({ tool: toolCall.function.name, result });
+      }
+      
+      // Get follow-up response
+      messages.push({ role: 'assistant', content: null, tool_calls: aiResponse.tool_calls });
+      for (let i = 0; i < aiResponse.tool_calls.length; i++) {
+        messages.push({
+          role: 'tool',
+          tool_call_id: aiResponse.tool_calls[i].id,
+          content: JSON.stringify(toolResults[i].result)
+        });
+      }
+      
+      const followUp = await callAzureOpenAI(messages, tools, user, req);
+      aiText = followUp.content || 'Done.';
+    }
+
+    console.log(`[Voice Chat] AI response: "${aiText.substring(0, 100)}..."`);
+
+    // Step 3: Synthesize AI response to speech
+    const ssml = `
+      <speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>
+        <voice name='${voice}'>
+          ${escapeXml(aiText.substring(0, 3000))}
+        </voice>
+      </speak>
+    `;
+
+    const ttsUrl = `https://${AZURE_SPEECH_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`;
+    
+    const ttsResponse = await fetch(ttsUrl, {
+      method: 'POST',
+      headers: {
+        'Ocp-Apim-Subscription-Key': AZURE_SPEECH_KEY,
+        'Content-Type': 'application/ssml+xml',
+        'X-Microsoft-OutputFormat': 'audio-24khz-96kbitrate-mono-mp3',
+        'User-Agent': 'ApexLegal'
+      },
+      body: ssml
+    });
+
+    let audioBase64 = null;
+    if (ttsResponse.ok) {
+      const audioBuffer = await ttsResponse.arrayBuffer();
+      audioBase64 = Buffer.from(audioBuffer).toString('base64');
+    }
+
+    res.json({
+      success: true,
+      userText: userText,
+      aiText: aiText,
+      audio: audioBase64,
+      audioFormat: 'mp3'
+    });
+
+  } catch (error) {
+    console.error('[Voice Chat] Error:', error);
+    res.status(500).json({ error: 'Voice chat failed: ' + error.message });
+  }
+});
+
+// Get available voices
+router.get('/voice/voices', authenticate, async (req, res) => {
+  // Return a curated list of good voices for legal assistant
+  res.json({
+    voices: [
+      { id: 'en-US-JennyNeural', name: 'Jenny', gender: 'Female', description: 'Friendly, professional' },
+      { id: 'en-US-GuyNeural', name: 'Guy', gender: 'Male', description: 'Professional, clear' },
+      { id: 'en-US-AriaNeural', name: 'Aria', gender: 'Female', description: 'Warm, conversational' },
+      { id: 'en-US-DavisNeural', name: 'Davis', gender: 'Male', description: 'Confident, authoritative' },
+      { id: 'en-US-SaraNeural', name: 'Sara', gender: 'Female', description: 'Soft, calm' },
+      { id: 'en-GB-SoniaNeural', name: 'Sonia (UK)', gender: 'Female', description: 'British accent' },
+      { id: 'en-GB-RyanNeural', name: 'Ryan (UK)', gender: 'Male', description: 'British accent' }
+    ],
+    default: 'en-US-JennyNeural'
+  });
+});
+
+// Helper to escape XML special characters for SSML
+function escapeXml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 // Named exports for server.js
 export { resumeIncompleteTasks };
 
