@@ -318,6 +318,35 @@ export function DocumentVersionPanel({
               <ExternalLink size={16} />
               Word Online
             </button>
+            <button 
+              className={styles.syncFromWordBtn}
+              onClick={async () => {
+                try {
+                  const result = await wordOnlineApi.saveFromWord(document.id)
+                  if (result.saved) {
+                    alert(`✓ Synced! Created Version ${result.versionNumber}`)
+                    fetchVersions() // Refresh version list
+                  } else if (result.reason === 'no_changes') {
+                    alert('No changes detected. The document is already up to date.')
+                  } else if (result.needsReauth) {
+                    alert('Please reconnect Microsoft 365 in Settings → Integrations.')
+                  } else {
+                    alert(result.message || 'Could not sync. Make sure you saved in Word Online first.')
+                  }
+                } catch (err: any) {
+                  console.error('Sync error:', err)
+                  if (err.status === 404) {
+                    alert('This document hasn\'t been opened in Word Online yet. Open it first, make changes, then sync.')
+                  } else {
+                    alert('Sync failed: ' + (err.message || 'Unknown error'))
+                  }
+                }
+              }}
+              title="Pull latest changes from Word Online"
+            >
+              <RefreshCw size={16} />
+              Sync from Word
+            </button>
           </>
         ) : (
           <button 
