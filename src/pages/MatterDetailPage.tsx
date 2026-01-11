@@ -507,19 +507,70 @@ export function MatterDetailPage() {
     try {
       if (preferDesktop) {
         const result = await wordOnlineApi.openDesktop(doc.id)
+        
         if (result.desktopUrl) {
+          // Open using ms-word: protocol (opens in desktop Word)
           window.location.href = result.desktopUrl
+          return
+        } else if (result.needsMicrosoftAuth) {
+          // Microsoft not connected - offer to download instead
+          const confirmed = confirm(
+            'Microsoft is not connected. Would you like to download the document to edit locally?\n\n' +
+            'Tip: Connect Microsoft in Settings → Integrations for seamless editing.'
+          )
+          if (confirmed) {
+            downloadDocument(doc)
+          }
+          return
+        } else if (result.downloadUrl) {
+          // Desktop upload failed but we can still download
+          const confirmed = confirm(
+            'Could not sync to cloud. Would you like to download and edit locally?\n\n' +
+            'After editing, upload the file back to save your changes.'
+          )
+          if (confirmed) {
+            downloadDocument(doc)
+          }
           return
         }
       }
-      // Fallback to open document
+      
+      // Fallback to Word Online
       const result = await wordOnlineApi.openDocument(doc.id)
+      
       if (result.editUrl) {
+        // Open Word Online in new tab
         window.open(result.editUrl, '_blank')
+      } else if (result.desktopUrl) {
+        // Desktop Word URL available
+        window.location.href = result.desktopUrl
+      } else if (result.fallback === 'desktop' || result.downloadUrl || result.needsMicrosoftAuth) {
+        // Fallback to downloading
+        const confirmed = confirm(
+          'Would you like to download the document to edit locally?'
+        )
+        if (confirmed) {
+          downloadDocument(doc)
+        }
+      } else {
+        // Only show error if we truly couldn't do anything
+        console.error('Open in Word failed:', result.message)
+        const confirmed = confirm(
+          'Could not open in Word. Would you like to download instead?'
+        )
+        if (confirmed) {
+          downloadDocument(doc)
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to open in Word:', error)
-      alert('Failed to open document in Word. Try downloading it instead.')
+      // Don't show alert for network/API errors - just offer download
+      const confirmed = confirm(
+        'Could not connect to Word service. Would you like to download the document instead?'
+      )
+      if (confirmed) {
+        downloadDocument(doc)
+      }
     }
   }
 

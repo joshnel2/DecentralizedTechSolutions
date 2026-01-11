@@ -1412,6 +1412,20 @@ router.get('/documents/:documentId/redline', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    // Get document info
+    const docResult = await query(
+      `SELECT d.id, d.name, d.original_name, d.path, d.folder_path, d.azure_path
+       FROM documents d
+       WHERE d.id = $1 AND d.firm_id = $2`,
+      [documentId, req.user.firmId]
+    );
+
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const doc = docResult.rows[0];
+
     // Get both versions
     const versionsResult = await query(
       `SELECT dv.*, u.first_name || ' ' || u.last_name as created_by_name
@@ -1430,8 +1444,121 @@ router.get('/documents/:documentId/redline', authenticate, async (req, res) => {
     }
 
     const [v1, v2] = versionsResult.rows;
-    const content1 = v1.content_text || '';
-    const content2 = v2.content_text || '';
+    
+    // Get content for each version, extracting from file if needed
+    let content1 = v1.content_text || '';
+    let content2 = v2.content_text || '';
+
+    // Try to extract content from files if content_text is missing
+    if (!content1 || !content2) {
+      const { extractTextFromBuffer } = await import('./documents.js').catch(() => ({}));
+      const { downloadFile } = await import('../utils/azureStorage.js').catch(() => ({}));
+      
+      // Helper to get version content
+      const getVersionContent = async (version) => {
+        if (version.content_text) return version.content_text;
+        
+        try {
+          let fileBuffer = null;
+          
+          // Try version file_path
+          if (version.file_path) {
+            const fs = await import('fs/promises');
+            try {
+              fileBuffer = await fs.readFile(version.file_path);
+            } catch (e) {
+              console.log(`[REDLINE] Version file not found: ${version.file_path}`);
+            }
+          }
+          
+          // Try version content_url (Azure Blob)
+          if (!fileBuffer && version.content_url) {
+            try {
+              const response = await fetch(version.content_url);
+              if (response.ok) {
+                fileBuffer = Buffer.from(await response.arrayBuffer());
+              }
+            } catch (e) {
+              console.log(`[REDLINE] Failed to fetch from content_url: ${e.message}`);
+            }
+          }
+          
+          // If version file not available, try current document file
+          // (for version 1, this might be the only option)
+          if (!fileBuffer && version.version_number === 1) {
+            // Try to get from Azure storage
+            if (downloadFile && (doc.folder_path || doc.azure_path || doc.path)) {
+              try {
+                const downloadPath = doc.folder_path || doc.azure_path || doc.path;
+                fileBuffer = await downloadFile(downloadPath);
+              } catch (e) {
+                console.log(`[REDLINE] Azure download failed: ${e.message}`);
+              }
+            }
+            
+            // Try local path
+            if (!fileBuffer && doc.path) {
+              const fs = await import('fs/promises');
+              try {
+                fileBuffer = await fs.readFile(doc.path);
+              } catch (e) {
+                console.log(`[REDLINE] Local file not found: ${doc.path}`);
+              }
+            }
+          }
+          
+          // Extract text from buffer if we have one
+          if (fileBuffer) {
+            const fileName = doc.original_name || doc.name;
+            const ext = fileName.toLowerCase().split('.').pop();
+            
+            if (ext === 'docx') {
+              try {
+                const mammoth = await import('mammoth');
+                const result = await mammoth.extractRawText({ buffer: fileBuffer });
+                const extractedText = result.value;
+                
+                // Cache the extracted content for future use
+                if (extractedText) {
+                  await query(
+                    `UPDATE document_versions SET content_text = $1, word_count = $2 WHERE id = $3`,
+                    [extractedText, extractedText.split(/\s+/).length, version.id]
+                  ).catch(e => console.log('[REDLINE] Failed to cache content:', e.message));
+                }
+                
+                return extractedText || '';
+              } catch (e) {
+                console.log(`[REDLINE] Mammoth extraction failed: ${e.message}`);
+              }
+            } else if (ext === 'txt' || ext === 'md') {
+              return fileBuffer.toString('utf-8');
+            }
+          }
+        } catch (e) {
+          console.error(`[REDLINE] Content extraction error for version ${version.version_number}:`, e);
+        }
+        
+        return '';
+      };
+
+      // Get content for both versions if missing
+      if (!content1) {
+        content1 = await getVersionContent(v1);
+      }
+      if (!content2) {
+        content2 = await getVersionContent(v2);
+      }
+    }
+
+    // Check if we have content to compare
+    if (!content1 && !content2) {
+      return res.status(400).json({ 
+        error: 'No text content available for comparison',
+        message: 'Neither version has extractable text content. Ensure documents are saved with text content.',
+        version1HasContent: !!content1,
+        version2HasContent: !!content2
+      });
+    }
 
     // Generate redline diff
     const redline = generateRedlineDiff(content1, content2);
@@ -1456,14 +1583,14 @@ router.get('/documents/:documentId/redline', authenticate, async (req, res) => {
         label: v1.version_label,
         createdBy: v1.created_by_name,
         createdAt: v1.created_at,
-        wordCount: v1.word_count,
+        wordCount: v1.word_count || content1.split(/\s+/).length,
       },
       version2: {
         number: v2.version_number,
         label: v2.version_label,
         createdBy: v2.created_by_name,
         createdAt: v2.created_at,
-        wordCount: v2.word_count,
+        wordCount: v2.word_count || content2.split(/\s+/).length,
       },
       redline: {
         html: redline.html,
