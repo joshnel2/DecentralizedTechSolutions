@@ -102,6 +102,12 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const animationFrameRef = useRef<number | null>(null)
+  const voiceModeRef = useRef(false) // Ref to avoid stale closures
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    voiceModeRef.current = voiceMode
+  }, [voiceMode])
 
   const currentPage = getPageFromPath(location.pathname)
   const pathContext = getContextFromPath(location.pathname)
@@ -428,29 +434,35 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
       audioChunksRef.current = []
 
       mediaRecorder.ondataavailable = (event) => {
+        console.log('[Voice] Data available:', event.data.size, 'bytes')
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data)
         }
       }
 
       mediaRecorder.onstop = async () => {
+        console.log('[Voice] Recording stopped, chunks:', audioChunksRef.current.length)
         if (audioChunksRef.current.length === 0) {
+          console.log('[Voice] No audio chunks, restarting...')
           setVoiceState('idle')
-          // Restart listening if still in voice mode
-          if (voiceMode) {
-            startListening()
+          // Restart listening if still in voice mode (use ref!)
+          if (voiceModeRef.current) {
+            setTimeout(() => startListening(), 500)
           }
           return
         }
 
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        console.log('[Voice] Created blob:', audioBlob.size, 'bytes')
         audioChunksRef.current = []
         
         // Process the voice input
         await processVoiceInput(audioBlob)
       }
 
-      mediaRecorder.start()
+      // Start recording with timeslice to ensure data is captured
+      mediaRecorder.start(1000) // Capture data every 1 second
+      console.log('[Voice] Recording started')
       setVoiceState('listening')
 
       // Auto-stop after 30 seconds max
@@ -469,6 +481,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
 
   // Process voice input - transcribe, get AI response, and speak back
   const processVoiceInput = async (audioBlob: Blob) => {
+    console.log('[Voice] Processing audio blob:', audioBlob.size, 'bytes')
     setVoiceState('processing')
     
     try {
@@ -478,17 +491,23 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         content: m.content,
       }))
 
+      console.log('[Voice] Calling voiceChat API...')
       // Use voice chat endpoint for combined STT + AI + TTS
       const result = await aiApi.voiceChat(audioBlob, conversationHistory)
+      console.log('[Voice] API response:', result)
       
       if (!result.success || !result.userText || result.userText.trim() === '') {
+        console.log('[Voice] No speech detected in result')
         // No speech detected, restart listening
         setVoiceState('idle')
-        if (voiceMode) {
+        if (voiceModeRef.current) {
           setTimeout(() => startListening(), 500)
         }
         return
       }
+
+      console.log('[Voice] User said:', result.userText)
+      console.log('[Voice] AI response:', result.aiText?.substring(0, 100))
 
       // Add user message to chat
       const userMessage: Message = {
@@ -511,29 +530,32 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
 
       // Play the audio response if available (base64)
       if (result.audio) {
+        console.log('[Voice] Playing audio response...')
         setVoiceState('speaking')
         const audioUrl = `data:audio/mp3;base64,${result.audio}`
         const audio = new Audio(audioUrl)
         audioRef.current = audio
         
         audio.onended = () => {
+          console.log('[Voice] Audio playback ended')
           setVoiceState('idle')
-          // Restart listening if still in voice mode
-          if (voiceMode) {
+          // Restart listening if still in voice mode (use ref!)
+          if (voiceModeRef.current) {
             setTimeout(() => startListening(), 500)
           }
         }
 
-        audio.onerror = () => {
-          console.error('Audio playback error')
+        audio.onerror = (e) => {
+          console.error('[Voice] Audio playback error:', e)
           setVoiceState('idle')
-          if (voiceMode) {
+          if (voiceModeRef.current) {
             setTimeout(() => startListening(), 500)
           }
         }
 
         await audio.play()
       } else {
+        console.log('[Voice] No audio in response, using TTS...')
         // No audio returned, use TTS separately
         setVoiceState('speaking')
         try {
@@ -545,7 +567,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           audio.onended = () => {
             URL.revokeObjectURL(audioUrl)
             setVoiceState('idle')
-            if (voiceMode) {
+            if (voiceModeRef.current) {
               setTimeout(() => startListening(), 500)
             }
           }
@@ -553,23 +575,23 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           audio.onerror = () => {
             URL.revokeObjectURL(audioUrl)
             setVoiceState('idle')
-            if (voiceMode) {
+            if (voiceModeRef.current) {
               setTimeout(() => startListening(), 500)
             }
           }
 
           await audio.play()
         } catch (error) {
-          console.error('TTS error:', error)
+          console.error('[Voice] TTS error:', error)
           setVoiceState('idle')
-          if (voiceMode) {
+          if (voiceModeRef.current) {
             setTimeout(() => startListening(), 500)
           }
         }
       }
 
     } catch (error: any) {
-      console.error('Voice processing error:', error)
+      console.error('[Voice] Processing error:', error)
       
       // Add error message
       const errorMessage: Message = {
@@ -583,8 +605,8 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
       setMessages(prev => [...prev, errorMessage])
       
       setVoiceState('idle')
-      // Restart listening if still in voice mode
-      if (voiceMode) {
+      // Restart listening if still in voice mode (use ref!)
+      if (voiceModeRef.current) {
         setTimeout(() => startListening(), 1000)
       }
     }
