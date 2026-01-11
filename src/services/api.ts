@@ -898,7 +898,19 @@ export const aiApi = {
       throw new ApiError(response.status, error.error || 'Synthesis failed', error);
     }
     
-    return response.blob();
+    // Backend returns JSON with base64 audio, convert to Blob
+    const data = await response.json();
+    if (!data.success || !data.audio) {
+      throw new ApiError(400, data.error || 'No audio returned', data);
+    }
+    
+    // Convert base64 to Blob
+    const binaryString = atob(data.audio);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: 'audio/mp3' });
   },
 
   async voiceChat(audioBlob: Blob, conversationHistory?: { role: string; content: string }[], voice?: string): Promise<{ success: boolean; userText: string; aiText: string; audio?: string; toolsUsed?: boolean }> {

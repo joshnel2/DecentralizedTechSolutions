@@ -12750,14 +12750,48 @@ async function callAzureOpenAIWithTools(messages, tools, retryOptions = {}) {
 // VOICE AI ENDPOINTS - Speech-to-Text and Text-to-Speech
 // =============================================================================
 
-const AZURE_SPEECH_KEY = process.env.AZURE_SPEECH_KEY;
-const AZURE_SPEECH_REGION = process.env.AZURE_SPEECH_REGION || 'eastus';
+// Get Azure Speech config from env or platform_settings
+let speechConfig = null;
+async function getSpeechConfig() {
+  if (speechConfig) return speechConfig;
+  
+  // Try environment variables first
+  if (process.env.AZURE_SPEECH_KEY) {
+    speechConfig = {
+      key: process.env.AZURE_SPEECH_KEY,
+      region: process.env.AZURE_SPEECH_REGION || 'eastus'
+    };
+    return speechConfig;
+  }
+  
+  // Fallback to platform_settings
+  try {
+    const settingsResult = await query(
+      `SELECT key, value FROM platform_settings WHERE key IN ('azure_speech_key', 'azure_speech_region')`
+    );
+    const settings = {};
+    settingsResult.rows.forEach(row => { settings[row.key] = row.value; });
+    
+    if (settings.azure_speech_key) {
+      speechConfig = {
+        key: settings.azure_speech_key,
+        region: settings.azure_speech_region || 'eastus'
+      };
+      return speechConfig;
+    }
+  } catch (err) {
+    console.log('[Speech] Could not load from platform_settings:', err.message);
+  }
+  
+  return null;
+}
 
 // Speech-to-Text: Convert audio to text
 router.post('/voice/transcribe', authenticate, async (req, res) => {
   try {
-    if (!AZURE_SPEECH_KEY) {
-      return res.status(400).json({ error: 'Azure Speech not configured. Add AZURE_SPEECH_KEY to environment.' });
+    const config = await getSpeechConfig();
+    if (!config) {
+      return res.status(400).json({ error: 'Azure Speech not configured. Add AZURE_SPEECH_KEY to environment or platform settings.' });
     }
 
     // Expect audio data as base64 in request body
@@ -12771,7 +12805,7 @@ router.post('/voice/transcribe', authenticate, async (req, res) => {
     const audioBuffer = Buffer.from(audio, 'base64');
     
     // Azure Speech-to-Text REST API
-    const sttUrl = `https://${AZURE_SPEECH_REGION}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-US`;
+    const sttUrl = `https://${config.region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-US`;
     
     // Determine content type based on format
     const contentTypes = {
@@ -12784,7 +12818,7 @@ router.post('/voice/transcribe', authenticate, async (req, res) => {
     const response = await fetch(sttUrl, {
       method: 'POST',
       headers: {
-        'Ocp-Apim-Subscription-Key': AZURE_SPEECH_KEY,
+        'Ocp-Apim-Subscription-Key': config.key,
         'Content-Type': contentTypes[format] || 'audio/webm; codecs=opus',
         'Accept': 'application/json'
       },
@@ -12827,8 +12861,9 @@ router.post('/voice/transcribe', authenticate, async (req, res) => {
 // Text-to-Speech: Convert text to audio
 router.post('/voice/synthesize', authenticate, async (req, res) => {
   try {
-    if (!AZURE_SPEECH_KEY) {
-      return res.status(400).json({ error: 'Azure Speech not configured. Add AZURE_SPEECH_KEY to environment.' });
+    const config = await getSpeechConfig();
+    if (!config) {
+      return res.status(400).json({ error: 'Azure Speech not configured. Add AZURE_SPEECH_KEY to environment or platform settings.' });
     }
 
     const { text, voice = 'en-US-JennyNeural' } = req.body;
@@ -12851,12 +12886,12 @@ router.post('/voice/synthesize', authenticate, async (req, res) => {
     `;
 
     // Azure Text-to-Speech REST API
-    const ttsUrl = `https://${AZURE_SPEECH_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`;
+    const ttsUrl = `https://${config.region}.tts.speech.microsoft.com/cognitiveservices/v1`;
     
     const response = await fetch(ttsUrl, {
       method: 'POST',
       headers: {
-        'Ocp-Apim-Subscription-Key': AZURE_SPEECH_KEY,
+        'Ocp-Apim-Subscription-Key': config.key,
         'Content-Type': 'application/ssml+xml',
         'X-Microsoft-OutputFormat': 'audio-24khz-96kbitrate-mono-mp3',
         'User-Agent': 'ApexLegal'
