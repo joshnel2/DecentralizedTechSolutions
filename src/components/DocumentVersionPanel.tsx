@@ -278,16 +278,40 @@ export function DocumentVersionPanel({
       {/* Quick Actions - Main buttons */}
       <div className={styles.quickActions}>
         {isWordDoc ? (
-          <button 
-            className={styles.openWordBtn}
-            onClick={() => {
-              setSyncEnabled(true) // Enable auto-sync when opening in Word
-              onOpenInWord(true)
-            }}
-          >
-            <Edit3 size={16} />
-            Open in Word
-          </button>
+          <>
+            <button 
+              className={styles.openWordBtn}
+              onClick={() => {
+                setSyncEnabled(true) // Enable auto-sync when opening in Word
+                onOpenInWord(true)
+              }}
+            >
+              <Edit3 size={16} />
+              Open in Word
+            </button>
+            <button 
+              className={styles.wordOnlineBtn}
+              onClick={async () => {
+                setSyncEnabled(true)
+                try {
+                  const result = await wordOnlineApi.openDocument(document.id)
+                  if (result.editUrl) {
+                    window.open(result.editUrl, '_blank')
+                  } else if (result.needsMicrosoftAuth) {
+                    alert('Please connect Microsoft 365 in Settings → Integrations first.')
+                  } else {
+                    onDownload()
+                  }
+                } catch (err) {
+                  console.error('Word Online error:', err)
+                  onDownload()
+                }
+              }}
+            >
+              <ExternalLink size={16} />
+              Word Online
+            </button>
+          </>
         ) : (
           <button 
             className={styles.openBtn}
