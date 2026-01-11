@@ -498,10 +498,22 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
       
       if (!result.success || !result.userText || result.userText.trim() === '') {
         console.log('[Voice] No speech detected in result')
-        // No speech detected, restart listening
+        
+        // Show the AI's response if there is one (e.g., "I couldn't understand that")
+        if (result.aiText) {
+          const assistantMessage: Message = {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: result.aiText,
+            timestamp: new Date(),
+          }
+          setMessages(prev => [...prev, assistantMessage])
+        }
+        
+        // Restart listening
         setVoiceState('idle')
         if (voiceModeRef.current) {
-          setTimeout(() => startListening(), 500)
+          setTimeout(() => startListening(), 1000)
         }
         return
       }
@@ -593,11 +605,21 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
     } catch (error: any) {
       console.error('[Voice] Processing error:', error)
       
+      // Extract detailed error message
+      let errorContent = "I couldn't process your voice input. Please try again."
+      if (error.data?.error) {
+        errorContent = error.data.error
+      } else if (error.data?.details) {
+        errorContent = `Error: ${error.data.details}`
+      } else if (error.message) {
+        errorContent = error.message
+      }
+      
       // Add error message
       const errorMessage: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: error.message || "I couldn't process your voice input. Please try again.",
+        content: errorContent,
         timestamp: new Date(),
         isError: true,
         isRetryable: true,
@@ -607,7 +629,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
       setVoiceState('idle')
       // Restart listening if still in voice mode (use ref!)
       if (voiceModeRef.current) {
-        setTimeout(() => startListening(), 1000)
+        setTimeout(() => startListening(), 2000)
       }
     }
   }
