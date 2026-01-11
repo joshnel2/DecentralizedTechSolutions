@@ -4,10 +4,11 @@ import {
   X, History, Clock, User, FileText, GitCompare, ExternalLink, 
   Download, ChevronDown, ChevronRight, RefreshCw, AlertCircle,
   Edit3, CheckCircle, ArrowUpRight, Loader2, Share2, Mail, 
-  Sparkles, Trash2, Eye
+  Sparkles, Trash2, Eye, Cloud
 } from 'lucide-react'
 import { wordOnlineApi, documentsApi } from '../services/api'
 import { format, formatDistanceToNow, parseISO } from 'date-fns'
+import { useWordOnlineSync } from '../hooks/useWordOnlineSync'
 import styles from './DocumentVersionPanel.module.css'
 
 interface Version {
@@ -85,6 +86,25 @@ export function DocumentVersionPanel({
   
   // Downloading state
   const [downloadingVersion, setDownloadingVersion] = useState<number | null>(null)
+  
+  // Word Online auto-sync - polls for changes when document is opened in Word
+  const [syncEnabled, setSyncEnabled] = useState(false)
+  const { 
+    isSyncing, 
+    lastSyncAt, 
+    lastSyncVersion,
+    hasChanges: hasWordChanges,
+    syncNow,
+    error: syncError
+  } = useWordOnlineSync({
+    documentId: syncEnabled ? document.id : null,
+    enabled: syncEnabled && isWordDoc,
+    pollInterval: 30000, // Poll every 30 seconds
+    onVersionCreated: (versionNumber) => {
+      // Refresh version list when new version is synced
+      fetchVersions()
+    }
+  })
 
   // Check if document is a Word document
   useEffect(() => {
@@ -260,7 +280,10 @@ export function DocumentVersionPanel({
         {isWordDoc ? (
           <button 
             className={styles.openWordBtn}
-            onClick={() => onOpenInWord(true)}
+            onClick={() => {
+              setSyncEnabled(true) // Enable auto-sync when opening in Word
+              onOpenInWord(true)
+            }}
           >
             <Edit3 size={16} />
             Open in Word
@@ -282,6 +305,50 @@ export function DocumentVersionPanel({
           Download
         </button>
       </div>
+
+      {/* Word Sync Status - shows when syncing is enabled */}
+      {syncEnabled && isWordDoc && (
+        <div className={styles.syncStatus}>
+          <div className={styles.syncInfo}>
+            {isSyncing ? (
+              <>
+                <Loader2 size={14} className={styles.spinner} />
+                <span>Syncing changes from Word...</span>
+              </>
+            ) : hasWordChanges ? (
+              <>
+                <Cloud size={14} />
+                <span>Changes detected in Word</span>
+                <button 
+                  className={styles.syncNowBtn}
+                  onClick={syncNow}
+                >
+                  Sync Now
+                </button>
+              </>
+            ) : lastSyncAt ? (
+              <>
+                <CheckCircle size={14} />
+                <span>
+                  Synced {formatDistanceToNow(lastSyncAt, { addSuffix: true })}
+                  {lastSyncVersion && ` (v${lastSyncVersion})`}
+                </span>
+              </>
+            ) : (
+              <>
+                <RefreshCw size={14} className={styles.spinner} />
+                <span>Auto-sync enabled - edit in Word, changes sync automatically</span>
+              </>
+            )}
+          </div>
+          {syncError && (
+            <div className={styles.syncError}>
+              <AlertCircle size={12} />
+              <span>{syncError}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Secondary Actions */}
       <div className={styles.secondaryActions}>
