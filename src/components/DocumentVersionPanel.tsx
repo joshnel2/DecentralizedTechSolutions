@@ -459,6 +459,50 @@ export function DocumentVersionPanel({
                 )}
               </button>
               <button 
+                className={styles.compareWordBtn}
+                onClick={async () => {
+                  // Download both versions for Word comparison
+                  const v1 = versions.find(v => v.versionNumber === selectedVersions[0])
+                  const v2 = versions.find(v => v.versionNumber === selectedVersions[1])
+                  if (!v1 || !v2) return
+                  
+                  try {
+                    // Download version 1
+                    const { blob: blob1, filename: fn1 } = await wordOnlineApi.downloadVersion(document.id, v1.versionNumber)
+                    const url1 = window.URL.createObjectURL(blob1)
+                    const a1 = window.document.createElement('a')
+                    a1.href = url1
+                    a1.download = `v${v1.versionNumber} - ${fn1 || document.name}`
+                    window.document.body.appendChild(a1)
+                    a1.click()
+                    window.URL.revokeObjectURL(url1)
+                    window.document.body.removeChild(a1)
+                    
+                    // Small delay then download version 2
+                    await new Promise(r => setTimeout(r, 500))
+                    
+                    const { blob: blob2, filename: fn2 } = await wordOnlineApi.downloadVersion(document.id, v2.versionNumber)
+                    const url2 = window.URL.createObjectURL(blob2)
+                    const a2 = window.document.createElement('a')
+                    a2.href = url2
+                    a2.download = `v${v2.versionNumber} - ${fn2 || document.name}`
+                    window.document.body.appendChild(a2)
+                    a2.click()
+                    window.URL.revokeObjectURL(url2)
+                    window.document.body.removeChild(a2)
+                    
+                    // Show instructions
+                    alert(`✓ Downloaded both versions!\n\nTo compare in Word:\n1. Open Microsoft Word\n2. Go to Review → Compare → Compare Documents\n3. Select "v${v1.versionNumber} - ${document.name}" as Original\n4. Select "v${v2.versionNumber} - ${document.name}" as Revised\n5. Click OK to see the redline`)
+                  } catch (err) {
+                    console.error('Failed to download versions:', err)
+                    alert('Failed to download versions. Please try again.')
+                  }
+                }}
+                disabled={isComparing}
+              >
+                <Download size={14} /> Compare in Word
+              </button>
+              <button 
                 className={styles.clearBtn}
                 onClick={() => {
                   setSelectedVersions([])
