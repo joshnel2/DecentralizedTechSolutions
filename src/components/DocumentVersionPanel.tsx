@@ -295,16 +295,23 @@ export function DocumentVersionPanel({
                 setSyncEnabled(true)
                 try {
                   const result = await wordOnlineApi.openDocument(document.id)
-                  if (result.editUrl) {
+                  console.log('[Word Online] API response:', result)
+                  
+                  if (result.editUrl && !result.editUrl.includes('office.com/edit/')) {
+                    // Valid edit URL - open in new tab
                     window.open(result.editUrl, '_blank')
                   } else if (result.needsMicrosoftAuth) {
                     alert('Please connect Microsoft 365 in Settings → Integrations first.')
+                  } else if (result.downloadUrl) {
+                    // No Word Online available - offer download
+                    const confirmed = confirm('Word Online is not available. Download the document instead?')
+                    if (confirmed) onDownload()
                   } else {
-                    onDownload()
+                    alert(result.message || 'Could not open Word Online. Try downloading instead.')
                   }
                 } catch (err) {
                   console.error('Word Online error:', err)
-                  onDownload()
+                  alert('Could not connect to Word Online. Try downloading instead.')
                 }
               }}
             >
