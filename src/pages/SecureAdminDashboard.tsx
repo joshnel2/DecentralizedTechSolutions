@@ -240,6 +240,8 @@ export default function SecureAdminDashboard() {
       calendar?: number;
       calendar_entries?: number;
       notes?: number;
+      documentMetadata?: number;
+      firmId?: string;
       warnings?: string[];
       userCredentials?: { email: string; firstName: string; lastName: string; name: string; password: string; role: string }[];
     };
@@ -2676,9 +2678,74 @@ Password: ${newPass}`
                                             Successfully imported: {clioProgress.summary.users} users, {clioProgress.summary.contacts} contacts, 
                                             {clioProgress.summary.matters} matters, {clioProgress.summary.activities} time entries,
                                             {clioProgress.summary.bills} bills, {clioProgress.summary.calendar_entries || clioProgress.summary.calendar} calendar events
+                                            {(clioProgress.summary.documentMetadata ?? 0) > 0 && (<>, <strong>{clioProgress.summary.documentMetadata}</strong> document records</>)}
                                           </p>
                                         </div>
                                       </div>
+                                      
+                                      {/* Document Migration Section */}
+                                      {(clioProgress.summary.documentMetadata ?? 0) > 0 && (
+                                        <div style={{ 
+                                          marginBottom: '1rem', 
+                                          padding: '1rem', 
+                                          background: 'linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%)', 
+                                          borderRadius: '12px',
+                                          color: 'white'
+                                        }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                                            <FileText size={20} />
+                                            <strong>📁 Document Migration</strong>
+                                          </div>
+                                          <p style={{ margin: '0 0 0.75rem 0', opacity: 0.95 }}>
+                                            <strong>{clioProgress.summary.documentMetadata}</strong> document records saved from Clio.
+                                          </p>
+                                          <div style={{ 
+                                            background: 'rgba(255,255,255,0.15)', 
+                                            padding: '0.75rem', 
+                                            borderRadius: '8px',
+                                            marginBottom: '0.75rem'
+                                          }}>
+                                            <strong>Next Steps:</strong>
+                                            <ol style={{ margin: '0.5rem 0 0 1.25rem', padding: 0 }}>
+                                              <li>Copy files from Clio Drive folder → Azure File Share (<code>firm-{'{id}'}</code> folder)</li>
+                                              <li>Click "Scan Documents" below to match files to matters</li>
+                                            </ol>
+                                          </div>
+                                          <button 
+                                            onClick={async () => {
+                                              const firmId = clioProgress.summary?.firmId
+                                              if (!firmId) {
+                                                showNotification('error', 'No firm ID found')
+                                                return
+                                              }
+                                              showNotification('success', 'Scanning Azure for documents...')
+                                              try {
+                                                const res = await fetch(`${API_URL}/migration/documents/match-manifest`, {
+                                                  method: 'POST',
+                                                  headers: getAuthHeaders(),
+                                                  body: JSON.stringify({ firmId })
+                                                })
+                                                const result = await res.json()
+                                                if (result.matched !== undefined) {
+                                                  showNotification('success', `✅ Matched ${result.matched} documents! ${result.missing || 0} files not found in Azure yet.`)
+                                                } else {
+                                                  showNotification('error', result.error || 'Scan failed')
+                                                }
+                                              } catch (err) {
+                                                showNotification('error', 'Failed to scan documents')
+                                              }
+                                            }}
+                                            className={styles.primaryBtn}
+                                            style={{ 
+                                              background: 'white', 
+                                              color: '#1D4ED8',
+                                              fontWeight: 600
+                                            }}
+                                          >
+                                            <RefreshCw size={16} /> Scan Documents
+                                          </button>
+                                        </div>
+                                      )}
                                       
                                       {/* Start New Migration Button */}
                                       <div style={{ marginBottom: '1rem', textAlign: 'right' }}>

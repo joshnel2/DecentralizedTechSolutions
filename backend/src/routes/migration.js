@@ -2659,7 +2659,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         matters: { status: 'pending', count: 0 },
         activities: { status: 'pending', count: 0 },
         bills: { status: 'pending', count: 0 },
-        calendar: { status: 'pending', count: 0 }
+        calendar: { status: 'pending', count: 0 },
+        documents: { status: 'pending', count: 0 }
       }
     });
     
@@ -4484,10 +4485,11 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // This creates a manifest of all Clio documents so when files are copied
         // from Clio Drive to Azure, we can perfectly match them to matters
         console.log('[CLIO IMPORT] Step 11: Fetching document metadata from Clio...');
+        updateProgress('documents', 'running', 0);
         let documentMetadataCount = 0;
         
         try {
-          addLog('📄 Fetching document metadata from Clio (for file matching)...');
+          addLog('📄 Fetching document manifest from Clio (for file matching after you copy files)...');
           
           // Fetch documents from Clio - just metadata, not the actual files
           const documents = await clioGetPaginated(accessToken, '/documents.json', {
@@ -4593,7 +4595,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               documentMetadataCount++;
               
               if (documentMetadataCount % 500 === 0) {
-                addLog(`📄 Processed ${documentMetadataCount} document records...`);
+                updateProgress('documents', 'running', documentMetadataCount);
+                addLog(`📄 Saved ${documentMetadataCount} document records to manifest...`);
               }
             } catch (err) {
               if (!err.message.includes('duplicate')) {
@@ -4612,13 +4615,17 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             [firmId]
           );
           
-          console.log(`[CLIO IMPORT] Document manifest: ${manifestCount.rows[0].count} total, ${matchedCount.rows[0].count} linked to matters`);
-          addLog(`📄 Document manifest complete: ${manifestCount.rows[0].count} documents, ${matchedCount.rows[0].count} linked to matters`);
-          addLog(`ℹ️ Copy files from Clio Drive to Azure, then use "Match Documents" to link them`);
+          const totalDocs = parseInt(manifestCount.rows[0].count);
+          const linkedDocs = parseInt(matchedCount.rows[0].count);
+          console.log(`[CLIO IMPORT] Document manifest: ${totalDocs} total, ${linkedDocs} linked to matters`);
+          updateProgress('documents', 'completed', totalDocs);
+          addLog(`✅ Document manifest saved: ${totalDocs} documents (${linkedDocs} linked to matters)`);
+          addLog(`📁 NEXT STEP: Copy files from Clio Drive to Azure, then click "Scan Documents" below`);
           
         } catch (err) {
           console.log(`[CLIO IMPORT] Document metadata error (non-fatal): ${err.message}`);
-          addLog(`⚠️ Could not fetch document metadata: ${err.message}`);
+          updateProgress('documents', 'error', documentMetadataCount, err.message);
+          addLog(`⚠️ Could not fetch document manifest: ${err.message}`);
         }
         
         // ============================================
