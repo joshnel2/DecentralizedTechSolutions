@@ -2787,12 +2787,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         const filterClientClioIds = new Set();
         
         // ============================================
-        // PRE-LOAD EXISTING DATA MAPS (for when steps are skipped)
-        // This allows time entries/bills to link to already-imported users/matters
+        // PRE-LOAD EXISTING DATA MAPS
+        // Always load existing users/matters/contacts when migrating to an existing firm
+        // This ensures time entries link correctly even when importing additional users
         // ============================================
         
-        // Pre-load userIdMap from database if we're skipping users but need to link activities
-        if (!includeUsers && includeActivities) {
+        // Pre-load userIdMap from database - ALWAYS do this for existing firms or when importing activities
+        // This ensures we can link time entries to ALL users in the firm, not just newly imported ones
+        if (existingFirmId || includeActivities) {
           console.log('[CLIO IMPORT] Pre-loading existing users from database for activity linking...');
           try {
             // Get all users for this firm and map by email
