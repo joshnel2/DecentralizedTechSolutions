@@ -2660,6 +2660,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         activities: { status: 'pending', count: 0 },
         bills: { status: 'pending', count: 0 },
         calendar: { status: 'pending', count: 0 },
+        notes: { status: 'pending', count: 0 },
+        tasks: { status: 'pending', count: 0 },
         documents: { status: 'pending', count: 0 }
       }
     });
@@ -3051,7 +3053,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           addLog('Starting contacts import from Clio...');
           updateProgress('contacts', 'running', 0);
           try {
-            const contactFields = 'id,name,first_name,last_name,type,company{id,name},email_addresses{id,address,name,primary},phone_numbers{id,number,name,primary},primary_email_address,primary_phone_number,addresses{id,street,city,province,postal_code,country,name,primary},primary_address';
+            const contactFields = 'id,name,first_name,last_name,type,company{id,name},email_addresses{id,address,name,primary},phone_numbers{id,number,name,primary},primary_email_address,primary_phone_number,addresses{id,street,city,province,postal_code,country,name,primary},primary_address,custom_field_values{id,field_name,value}';
             
             let filteredContacts = [];
             
@@ -3267,9 +3269,26 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 
                 const notes = notesParts.length > 0 ? `--- FROM CLIO ---\n${notesParts.join('\n')}` : null;
                 
+                // Build custom_fields from Clio custom_field_values
+                const customFields = {};
+                if (c.custom_field_values && Array.isArray(c.custom_field_values)) {
+                  c.custom_field_values.forEach(cf => {
+                    if (cf.field_name && cf.value) {
+                      customFields[cf.field_name] = cf.value;
+                    }
+                  });
+                }
+                
                 const result = await query(
-                  `INSERT INTO clients (firm_id, type, display_name, first_name, last_name, company_name, email, phone, address_street, address_city, address_state, address_zip, notes, is_active)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+                  `INSERT INTO clients (firm_id, type, display_name, first_name, last_name, company_name, email, phone, address_street, address_city, address_state, address_zip, notes, is_active, clio_id, custom_fields)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                   ON CONFLICT (firm_id, clio_id) WHERE clio_id IS NOT NULL DO UPDATE SET
+                     display_name = EXCLUDED.display_name,
+                     email = EXCLUDED.email,
+                     phone = EXCLUDED.phone,
+                     custom_fields = EXCLUDED.custom_fields,
+                     updated_at = NOW()
+                   RETURNING id`,
                   [
                     firmId,
                     isCompany ? 'company' : 'person',
@@ -3284,7 +3303,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     primaryAddr?.province || null,
                     primaryAddr?.postal_code || null,
                     notes,
-                    true
+                    true,
+                    c.id, // clio_id
+                    Object.keys(customFields).length > 0 ? JSON.stringify(customFields) : '{}'
                   ]
                 );
                 
@@ -3357,10 +3378,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 3/10: Importing matters directly to DB...');
           updateProgress('matters', 'running', 0);
           try {
-            // Fetch matters
+            // Fetch matters with custom fields and permissions
             const matters = await clioGetMattersByStatus(
               accessToken, '/matters.json',
-              { fields: 'id,display_number,description,status,open_date,close_date,billing_method,client{id,name},responsible_attorney{id,name},originating_attorney{id,name},practice_area{id,name}' },
+              { fields: 'id,display_number,description,status,open_date,close_date,billing_method,custom_rate,statute_of_limitations,location,client{id,name},responsible_attorney{id,name,rate},originating_attorney{id,name},practice_area{id,name},custom_field_values{id,field_name,value},permissions' },
               (count) => updateProgress('matters', 'running', count)
             );
             
@@ -3416,9 +3437,21 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   });
                 }
                 
+                // Determine visibility from Clio permissions
+                // If there are specific permissions set, it's restricted; otherwise firm-wide
+                const hasRestrictions = m.permissions && Array.isArray(m.permissions) && m.permissions.length > 0;
+                const visibility = hasRestrictions ? 'restricted' : 'firm_wide';
+                
                 const result = await query(
-                  `INSERT INTO matters (firm_id, client_id, number, name, description, type, status, responsible_attorney, originating_attorney, open_date, close_date, billing_type, billing_rate, statute_of_limitations, jurisdiction, custom_fields)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
+                  `INSERT INTO matters (firm_id, client_id, number, name, description, type, status, responsible_attorney, originating_attorney, open_date, close_date, billing_type, billing_rate, statute_of_limitations, jurisdiction, custom_fields, clio_id, visibility)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) 
+                   ON CONFLICT (firm_id, clio_id) WHERE clio_id IS NOT NULL DO UPDATE SET
+                     name = EXCLUDED.name,
+                     description = EXCLUDED.description,
+                     status = EXCLUDED.status,
+                     custom_fields = EXCLUDED.custom_fields,
+                     updated_at = NOW()
+                   RETURNING id`,
                   [
                     firmId,
                     clientId,
@@ -3435,13 +3468,34 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     billingRate,
                     m.statute_of_limitations || null,
                     m.location || null,
-                    Object.keys(customFields).length > 0 ? JSON.stringify(customFields) : '{}'
+                    Object.keys(customFields).length > 0 ? JSON.stringify(customFields) : '{}',
+                    m.id, // clio_id
+                    visibility
                   ]
                 );
                 
                 const matterId = result.rows[0].id;
                 matterIdMap.set(`clio:${m.id}`, matterId);
                 importedClioMatterIds.add(m.id); // Track for filtering time entries, bills, calendar
+                
+                // Import matter permissions if restricted
+                if (hasRestrictions && m.permissions) {
+                  for (const perm of m.permissions) {
+                    try {
+                      const permUserId = perm.user?.id ? userIdMap.get(`clio:${perm.user.id}`) : null;
+                      if (permUserId) {
+                        await query(
+                          `INSERT INTO matter_permissions (matter_id, user_id, permission_level, can_view_documents, can_view_notes, can_edit)
+                           VALUES ($1, $2, $3, $4, $5, $6)
+                           ON CONFLICT (matter_id, user_id) DO NOTHING`,
+                          [matterId, permUserId, 'view', true, true, false]
+                        );
+                      }
+                    } catch (permErr) {
+                      // Ignore permission errors
+                    }
+                  }
+                }
                 
                 // Create matter_assignments for responsible and originating attorneys
                 if (responsibleId) {
@@ -4014,7 +4068,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 6/10: Importing calendar directly to DB...');
           updateProgress('calendar', 'running', 0);
           try {
-            const calendarFields = 'id,summary,description,start_at,end_at,all_day,location,matter,attendees';
+            const calendarFields = 'id,summary,description,start_at,end_at,all_day,location,matter{id},attendees,reminders,recurrence_rule,permission,calendar_entry_type{id,name}';
             
             let filteredEvents = [];
             
@@ -4107,8 +4161,15 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const isPrivate = e.permission === 'private' || e.permission === 'private_no_time';
                 
                 await query(
-                  `INSERT INTO calendar_events (firm_id, matter_id, title, description, type, start_time, end_time, all_day, location, attendees, reminders, recurrence_rule, is_private)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+                  `INSERT INTO calendar_events (firm_id, matter_id, title, description, type, start_time, end_time, all_day, location, attendees, reminders, recurrence_rule, is_private, clio_id)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                   ON CONFLICT (firm_id, clio_id) WHERE clio_id IS NOT NULL DO UPDATE SET
+                     title = EXCLUDED.title,
+                     description = EXCLUDED.description,
+                     start_time = EXCLUDED.start_time,
+                     end_time = EXCLUDED.end_time,
+                     recurrence_rule = EXCLUDED.recurrence_rule,
+                     updated_at = NOW()`,
                   [
                     firmId,
                     matterId,
@@ -4122,7 +4183,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     JSON.stringify(attendees),
                     JSON.stringify(reminders),
                     e.recurrence_rule || null,
-                    isPrivate
+                    isPrivate,
+                    e.id // clio_id for deduplication
                   ]
                 );
                 
@@ -4143,92 +4205,214 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         }
         
         // ============================================
-        // STEP 7: IMPORT NOTES (direct to DB)
+        // STEP 7: IMPORT NOTES (to dedicated notes table)
         // ============================================
-        // Clio notes are attached to matters or contacts - we save them to custom_fields or notes field
-        console.log('[CLIO IMPORT] Step 7/10: Importing notes...');
+        console.log('[CLIO IMPORT] Step 7: Importing notes to notes table...');
+        updateProgress('notes', 'running', 0);
         let notesCount = 0;
         try {
           // Fetch notes from Clio - notes are attached to matters or contacts
           const notes = await clioGetPaginated(accessToken, '/notes.json', {
-            fields: 'id,subject,detail,date,matter{id},contact{id},created_at'
+            fields: 'id,subject,detail,date,type,matter{id},contact{id},user{id},created_at,updated_at'
           }, null);
           
           console.log(`[CLIO IMPORT] Notes fetched from Clio: ${notes.length}`);
-          
-          // Group notes by matter and contact
-          const matterNotes = new Map(); // matterClioId -> array of notes
-          const contactNotes = new Map(); // contactClioId -> array of notes
+          addLog(`📝 Fetched ${notes.length} notes from Clio`);
           
           for (const note of notes) {
-            const noteText = `[${note.date || note.created_at?.split('T')[0] || 'No date'}] ${note.subject || 'Note'}: ${note.detail || ''}`;
-            
-            if (note.matter?.id) {
-              const matterId = `clio:${note.matter.id}`;
-              if (!matterNotes.has(matterId)) {
-                matterNotes.set(matterId, []);
+            try {
+              const matterId = note.matter?.id ? matterIdMap.get(`clio:${note.matter.id}`) : null;
+              const clientId = note.contact?.id ? contactIdMap.get(`clio:${note.contact.id}`) : null;
+              const userId = note.user?.id ? userIdMap.get(`clio:${note.user.id}`) : null;
+              
+              // Skip if neither matter nor client is linked
+              if (!matterId && !clientId) continue;
+              
+              // Map note type
+              let noteType = 'general';
+              const clioType = (note.type || '').toLowerCase();
+              if (clioType.includes('phone') || clioType.includes('call')) noteType = 'phone_call';
+              else if (clioType.includes('meeting')) noteType = 'meeting';
+              else if (clioType.includes('email')) noteType = 'email';
+              else if (clioType.includes('court')) noteType = 'court';
+              else if (clioType.includes('research')) noteType = 'research';
+              
+              await query(
+                `INSERT INTO notes (firm_id, matter_id, client_id, user_id, subject, content, type, clio_id, clio_created_at, clio_updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                 ON CONFLICT (firm_id, clio_id) WHERE clio_id IS NOT NULL DO UPDATE SET
+                   subject = EXCLUDED.subject,
+                   content = EXCLUDED.content,
+                   type = EXCLUDED.type,
+                   updated_at = NOW()`,
+                [
+                  firmId,
+                  matterId,
+                  clientId,
+                  userId,
+                  note.subject || null,
+                  note.detail || note.content || '',
+                  noteType,
+                  note.id,
+                  note.created_at || null,
+                  note.updated_at || null
+                ]
+              );
+              notesCount++;
+              
+              if (notesCount % 100 === 0) {
+                updateProgress('notes', 'running', notesCount);
               }
-              matterNotes.get(matterId).push(noteText);
-            }
-            
-            if (note.contact?.id) {
-              const contactId = `clio:${note.contact.id}`;
-              if (!contactNotes.has(contactId)) {
-                contactNotes.set(contactId, []);
-              }
-              contactNotes.get(contactId).push(noteText);
-            }
-            notesCount++;
-          }
-          
-          // Update matters with their notes (stored in custom_fields JSON)
-          for (const [clioMatterId, notesList] of matterNotes) {
-            const apexMatterId = matterIdMap.get(clioMatterId);
-            if (apexMatterId) {
-              try {
-                // Get existing custom_fields and merge notes
-                const existing = await query('SELECT custom_fields FROM matters WHERE id = $1', [apexMatterId]);
-                const customFields = existing.rows[0]?.custom_fields || {};
-                customFields.clio_notes = notesList;
-                
-                await query(
-                  'UPDATE matters SET custom_fields = $1 WHERE id = $2',
-                  [JSON.stringify(customFields), apexMatterId]
-                );
-              } catch (err) {
-                // Skip silently
-              }
-            }
-          }
-          
-          // Update contacts with their notes (appended to notes TEXT field)
-          for (const [clioContactId, notesList] of contactNotes) {
-            const apexClientId = contactIdMap.get(clioContactId);
-            if (apexClientId) {
-              try {
-                // Get existing notes and append
-                const existing = await query('SELECT notes FROM clients WHERE id = $1', [apexClientId]);
-                let existingNotes = existing.rows[0]?.notes || '';
-                
-                if (existingNotes && !existingNotes.endsWith('\n')) {
-                  existingNotes += '\n';
-                }
-                existingNotes += '\n--- CLIO NOTES ---\n' + notesList.join('\n');
-                
-                await query(
-                  'UPDATE clients SET notes = $1 WHERE id = $2',
-                  [existingNotes, apexClientId]
-                );
-              } catch (err) {
-                // Skip silently
+            } catch (err) {
+              // Skip individual note errors
+              if (!err.message.includes('duplicate') && !err.message.includes('notes')) {
+                console.log(`[CLIO IMPORT] Note error: ${err.message}`);
               }
             }
           }
           
-          console.log(`[CLIO IMPORT] Notes processed: ${notesCount} (matters: ${matterNotes.size}, contacts: ${contactNotes.size})`);
+          updateProgress('notes', 'completed', notesCount);
+          console.log(`[CLIO IMPORT] Notes imported: ${notesCount}`);
+          addLog(`✅ Imported ${notesCount} notes`);
         } catch (err) {
           console.log(`[CLIO IMPORT] Notes error (non-fatal): ${err.message}`);
-          // Notes are optional - don't fail the import
+          updateProgress('notes', 'error', notesCount, err.message);
+          addLog(`⚠️ Notes import error: ${err.message}`);
+        }
+        
+        // ============================================
+        // STEP 7B: IMPORT TASKS (to dedicated tasks table)
+        // ============================================
+        console.log('[CLIO IMPORT] Step 7B: Importing tasks...');
+        updateProgress('tasks', 'running', 0);
+        let tasksCount = 0;
+        try {
+          // Fetch tasks from Clio
+          const tasks = await clioGetPaginated(accessToken, '/tasks.json', {
+            fields: 'id,name,description,priority,status,due_at,completed_at,reminder_at,matter{id},assignee{id},assigner{id},created_at,updated_at'
+          }, null);
+          
+          console.log(`[CLIO IMPORT] Tasks fetched from Clio: ${tasks.length}`);
+          addLog(`✅ Fetched ${tasks.length} tasks from Clio`);
+          
+          for (const task of tasks) {
+            try {
+              const matterId = task.matter?.id ? matterIdMap.get(`clio:${task.matter.id}`) : null;
+              const assignedTo = task.assignee?.id ? userIdMap.get(`clio:${task.assignee.id}`) : null;
+              const createdBy = task.assigner?.id ? userIdMap.get(`clio:${task.assigner.id}`) : null;
+              
+              // Map priority
+              let priority = 'medium';
+              const clioPriority = (task.priority || '').toLowerCase();
+              if (clioPriority === 'high' || clioPriority === 'urgent') priority = 'high';
+              else if (clioPriority === 'low') priority = 'low';
+              
+              // Map status
+              let status = 'pending';
+              const clioStatus = (task.status || '').toLowerCase();
+              if (clioStatus === 'complete' || clioStatus === 'completed') status = 'completed';
+              else if (clioStatus === 'in_progress' || clioStatus === 'in progress') status = 'in_progress';
+              
+              // Parse due date/time
+              const dueAt = task.due_at ? new Date(task.due_at) : null;
+              const dueDate = dueAt ? dueAt.toISOString().split('T')[0] : null;
+              const dueTime = dueAt ? dueAt.toISOString().split('T')[1].substring(0, 8) : null;
+              
+              await query(
+                `INSERT INTO tasks (firm_id, matter_id, assigned_to, created_by, name, description, priority, status, due_date, due_time, completed_at, reminder_at, clio_id, clio_created_at, clio_updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                 ON CONFLICT (firm_id, clio_id) WHERE clio_id IS NOT NULL DO UPDATE SET
+                   name = EXCLUDED.name,
+                   description = EXCLUDED.description,
+                   priority = EXCLUDED.priority,
+                   status = EXCLUDED.status,
+                   due_date = EXCLUDED.due_date,
+                   completed_at = EXCLUDED.completed_at,
+                   updated_at = NOW()`,
+                [
+                  firmId,
+                  matterId,
+                  assignedTo,
+                  createdBy,
+                  task.name || 'Untitled Task',
+                  task.description || null,
+                  priority,
+                  status,
+                  dueDate,
+                  dueTime,
+                  task.completed_at || null,
+                  task.reminder_at || null,
+                  task.id,
+                  task.created_at || null,
+                  task.updated_at || null
+                ]
+              );
+              tasksCount++;
+              
+              if (tasksCount % 100 === 0) {
+                updateProgress('tasks', 'running', tasksCount);
+              }
+            } catch (err) {
+              // Skip individual task errors
+              if (!err.message.includes('duplicate') && !err.message.includes('tasks')) {
+                console.log(`[CLIO IMPORT] Task error: ${err.message}`);
+              }
+            }
+          }
+          
+          updateProgress('tasks', 'completed', tasksCount);
+          console.log(`[CLIO IMPORT] Tasks imported: ${tasksCount}`);
+          addLog(`✅ Imported ${tasksCount} tasks`);
+        } catch (err) {
+          console.log(`[CLIO IMPORT] Tasks error (non-fatal): ${err.message}`);
+          updateProgress('tasks', 'error', tasksCount, err.message);
+          addLog(`⚠️ Tasks import error: ${err.message}`);
+        }
+        
+        // ============================================
+        // STEP 7C: IMPORT ACTIVITY CODES (UTBMS/LEDES)
+        // ============================================
+        console.log('[CLIO IMPORT] Step 7C: Importing activity codes...');
+        let activityCodesCount = 0;
+        try {
+          // Fetch activity descriptions from Clio (these are the activity codes)
+          const activityDescs = await clioGetPaginated(accessToken, '/activity_descriptions.json', {
+            fields: 'id,name,code,type,rate,visible_to_co_counsel,created_at,updated_at'
+          }, null);
+          
+          console.log(`[CLIO IMPORT] Activity codes fetched from Clio: ${activityDescs.length}`);
+          
+          for (const ad of activityDescs) {
+            try {
+              const code = ad.code || `CODE-${ad.id}`;
+              
+              await query(
+                `INSERT INTO activity_codes (firm_id, code, name, description, category, rate_override, clio_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)
+                 ON CONFLICT (firm_id, code) DO UPDATE SET
+                   name = EXCLUDED.name,
+                   rate_override = EXCLUDED.rate_override,
+                   updated_at = NOW()`,
+                [
+                  firmId,
+                  code,
+                  ad.name || code,
+                  null,
+                  ad.type || 'general',
+                  ad.rate ? parseFloat(ad.rate) : null,
+                  ad.id
+                ]
+              );
+              activityCodesCount++;
+            } catch (err) {
+              // Skip silently
+            }
+          }
+          
+          console.log(`[CLIO IMPORT] Activity codes imported: ${activityCodesCount}`);
+          addLog(`✅ Imported ${activityCodesCount} activity codes`);
+        } catch (err) {
+          console.log(`[CLIO IMPORT] Activity codes error (non-fatal): ${err.message}`);
         }
         
         // ============================================
@@ -4648,6 +4832,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             bills: counts.bills,
             calendar: counts.calendar,
             notes: notesCount,
+            tasks: tasksCount,
+            activityCodes: activityCodesCount,
             payments: paymentsCount,
             trustAccounts: trustAccountsCount,
             trustTransactions: trustTransactionsCount,
