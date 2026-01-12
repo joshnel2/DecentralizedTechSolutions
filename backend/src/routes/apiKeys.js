@@ -9,7 +9,7 @@ const router = Router();
 router.get('/', authenticate, requirePermission('settings:manage'), async (req, res) => {
   try {
     const result = await query(
-      `SELECT id, name, key_prefix, permissions, last_used, is_active, expires_at, created_by, created_at
+      `SELECT id, name, key_prefix, key_value, permissions, last_used, is_active, expires_at, created_by, created_at
        FROM api_keys
        WHERE firm_id = $1 AND is_active = true
        ORDER BY created_at DESC`,
@@ -20,8 +20,8 @@ router.get('/', authenticate, requirePermission('settings:manage'), async (req, 
       apiKeys: result.rows.map(k => ({
         id: k.id,
         name: k.name,
-        // Show prefix with masked rest
-        key: `${k.key_prefix}${'•'.repeat(32)}`,
+        // Return the full key for admins
+        key: k.key_value || `${k.key_prefix}${'•'.repeat(32)}`,
         keyPrefix: k.key_prefix,
         permissions: k.permissions || [],
         lastUsed: k.last_used,
@@ -53,10 +53,10 @@ router.post('/', authenticate, requirePermission('settings:manage'), async (req,
     const keyHash = hashToken(fullKey);
 
     const result = await query(
-      `INSERT INTO api_keys (firm_id, name, key_hash, key_prefix, permissions, expires_at, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, name, key_prefix, permissions, expires_at, created_at`,
-      [req.user.firmId, name, keyHash, keyPrefix, permissions, expiresAt || null, req.user.id]
+      `INSERT INTO api_keys (firm_id, name, key_hash, key_prefix, key_value, permissions, expires_at, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, name, key_prefix, key_value, permissions, expires_at, created_at`,
+      [req.user.firmId, name, keyHash, keyPrefix, fullKey, permissions, expiresAt || null, req.user.id]
     );
 
     const apiKey = result.rows[0];
