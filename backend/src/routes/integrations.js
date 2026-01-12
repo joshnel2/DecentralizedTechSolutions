@@ -150,6 +150,37 @@ router.get('/', authenticate, async (req, res) => {
       };
     });
 
+    // When Outlook is connected, Word Online and Calendar are automatically available
+    if (integrations.outlook?.isConnected) {
+      const outlookSettings = integrations.outlook.settings || {};
+      
+      // Add Word Online as a derived integration (uses same Microsoft auth)
+      integrations['word-online'] = {
+        id: 'word-online-via-outlook',
+        provider: 'word-online',
+        isConnected: true,
+        accountEmail: integrations.outlook.accountEmail,
+        accountName: 'Word Online (via Microsoft)',
+        syncEnabled: outlookSettings.enableWordOnline !== false,
+        settings: {
+          enabled: outlookSettings.enableWordOnline !== false,
+          coEditingEnabled: true,
+          autoSaveEnabled: true,
+        },
+        connectedAt: integrations.outlook.connectedAt,
+        description: 'Edit Word documents directly in browser with real-time collaboration',
+      };
+      
+      // Add calendar sync status to Outlook integration info
+      integrations.outlook.calendarSyncEnabled = outlookSettings.syncCalendar !== false;
+      integrations.outlook.calendarSyncStatus = {
+        enabled: outlookSettings.syncCalendar !== false,
+        autoSyncInterval: outlookSettings.autoSyncInterval || 15,
+        syncDirection: outlookSettings.syncDirection || 'both',
+        lastSyncAt: integrations.outlook.lastSyncAt,
+      };
+    }
+
     // Check if Apex Drive is configured (has a default drive configuration)
     try {
       const driveResult = await query(
@@ -908,10 +939,21 @@ router.get('/outlook/callback', async (req, res) => {
     });
     const userInfo = await userResponse.json();
 
-    // Store integration
+    // Default settings with calendar sync and Word Online ENABLED by default
+    const defaultSettings = {
+      syncCalendar: true,           // Auto-sync Outlook calendar to Apex calendar
+      syncEmail: true,              // Allow email integration
+      enableWordOnline: true,       // Enable Word Online document editing
+      autoSyncInterval: 15,         // Sync calendar every 15 minutes
+      syncDirection: 'both',        // Sync both ways (import from Outlook, export to Outlook)
+      importExistingEvents: true,   // Import existing calendar events on first sync
+      calendarCategories: ['all'],  // Sync all calendar categories
+    };
+
+    // Store integration with auto-enabled settings
     await query(
-      `INSERT INTO integrations (firm_id, provider, is_connected, account_email, account_name, access_token, refresh_token, token_expires_at, connected_by)
-       VALUES ($1, 'outlook', true, $2, $3, $4, $5, NOW() + INTERVAL '1 hour', $6)
+      `INSERT INTO integrations (firm_id, provider, is_connected, account_email, account_name, access_token, refresh_token, token_expires_at, connected_by, settings, sync_enabled)
+       VALUES ($1, 'outlook', true, $2, $3, $4, $5, NOW() + INTERVAL '1 hour', $6, $7, true)
        ON CONFLICT (firm_id, provider) DO UPDATE SET
          is_connected = true,
          account_email = $2,
@@ -919,16 +961,132 @@ router.get('/outlook/callback', async (req, res) => {
          access_token = $4,
          refresh_token = COALESCE($5, integrations.refresh_token),
          token_expires_at = NOW() + INTERVAL '1 hour',
-         connected_at = NOW()`,
-      [firmId, userInfo.mail || userInfo.userPrincipalName, userInfo.displayName, tokens.access_token, tokens.refresh_token, userId]
+         connected_at = NOW(),
+         settings = COALESCE(integrations.settings, $7),
+         sync_enabled = true`,
+      [firmId, userInfo.mail || userInfo.userPrincipalName, userInfo.displayName, tokens.access_token, tokens.refresh_token, userId, JSON.stringify(defaultSettings)]
     );
 
-    res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?success=outlook`);
+    // Automatically perform initial calendar sync in the background
+    performInitialCalendarSync(firmId, userId, tokens.access_token).catch(err => {
+      console.error('[Outlook Initial Sync] Calendar sync failed:', err.message);
+    });
+
+    console.log(`[Outlook Connect] Successfully connected for firm ${firmId}, user ${userId}. Calendar sync enabled.`);
+    res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?success=outlook&calendar_sync=enabled`);
   } catch (error) {
     console.error('Microsoft callback error:', error);
     res.redirect(`${process.env.FRONTEND_URL}/app/settings/integrations?error=callback_error`);
   }
 });
+
+// Helper function to perform initial calendar sync after Outlook connection
+async function performInitialCalendarSync(firmId, userId, accessToken) {
+  try {
+    console.log(`[Outlook Initial Sync] Starting calendar sync for firm ${firmId}...`);
+    
+    // Fetch calendar events (past 30 days + next 60 days for initial sync)
+    const now = new Date();
+    const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const twoMonthsAhead = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+
+    const eventsResponse = await fetch(
+      `https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${oneMonthAgo.toISOString()}&endDateTime=${twoMonthsAhead.toISOString()}&$top=250`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    const eventsData = await eventsResponse.json();
+    
+    if (eventsData.error) {
+      console.error('[Outlook Initial Sync] Failed to fetch events:', eventsData.error);
+      return;
+    }
+
+    let syncedCount = 0;
+    let skippedCount = 0;
+
+    for (const event of eventsData.value || []) {
+      // Check if event already exists (by external_id)
+      const existingEvent = await query(
+        `SELECT id FROM calendar_events WHERE firm_id = $1 AND external_id = $2`,
+        [firmId, event.id]
+      );
+
+      if (existingEvent.rows.length === 0) {
+        // Import the event
+        await query(
+          `INSERT INTO calendar_events (
+            firm_id, title, description, start_time, end_time, location, 
+            type, all_day, external_id, external_source, created_by, 
+            attendees, is_private
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'outlook', $10, $11, $12)`,
+          [
+            firmId,
+            event.subject || 'Untitled Event',
+            event.bodyPreview || event.body?.content || null,
+            event.start?.dateTime,
+            event.end?.dateTime,
+            event.location?.displayName || null,
+            mapOutlookEventType(event),
+            event.isAllDay || false,
+            event.id,
+            userId,
+            JSON.stringify(event.attendees?.map(a => ({
+              email: a.emailAddress?.address,
+              name: a.emailAddress?.name,
+              status: a.status?.response
+            })) || []),
+            event.sensitivity === 'private'
+          ]
+        );
+        syncedCount++;
+      } else {
+        skippedCount++;
+      }
+    }
+
+    // Update last sync timestamp
+    await query(
+      `UPDATE integrations SET last_sync_at = NOW() WHERE firm_id = $1 AND provider = 'outlook'`,
+      [firmId]
+    );
+
+    console.log(`[Outlook Initial Sync] Completed for firm ${firmId}: ${syncedCount} events synced, ${skippedCount} already existed`);
+  } catch (error) {
+    console.error('[Outlook Initial Sync] Error:', error);
+    throw error;
+  }
+}
+
+// Helper function to map Outlook event categories to Apex event types
+function mapOutlookEventType(event) {
+  const subject = (event.subject || '').toLowerCase();
+  const categories = event.categories || [];
+  
+  // Check for court-related events
+  if (subject.includes('court') || subject.includes('hearing') || subject.includes('trial') || 
+      subject.includes('deposition') || subject.includes('motion')) {
+    return 'court';
+  }
+  
+  // Check for deadline-related events
+  if (subject.includes('deadline') || subject.includes('due') || subject.includes('filing')) {
+    return 'deadline';
+  }
+  
+  // Check for task-related events
+  if (subject.includes('task') || subject.includes('todo') || subject.includes('reminder')) {
+    return 'task';
+  }
+  
+  // Check for client meetings
+  if (subject.includes('client') || subject.includes('consultation')) {
+    return 'meeting';
+  }
+  
+  // Default to meeting
+  return 'meeting';
+}
 
 // Disconnect Outlook
 router.post('/outlook/disconnect', authenticate, async (req, res) => {
