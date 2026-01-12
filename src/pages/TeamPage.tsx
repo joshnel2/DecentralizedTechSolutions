@@ -1,30 +1,76 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
+import { teamApi } from '../services/api'
 import { 
   Plus, Users, UserPlus, Shield, Trash2, Edit2,
-  Mail, MoreVertical, Eye, Key, XCircle, ArrowLeft
+  Mail, MoreVertical, Eye, Key, XCircle, ArrowLeft, RefreshCw
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './TeamPage.module.css'
 
-const teamMembers = [
-  { id: 'user-1', name: 'Alexandra Chen', email: 'admin@apex.law', role: 'owner', status: 'active' },
-  { id: 'user-2', name: 'Marcus Williams', email: 'm.williams@apex.law', role: 'attorney', status: 'active' },
-  { id: 'user-3', name: 'Sarah Johnson', email: 's.johnson@apex.law', role: 'paralegal', status: 'active' },
-  { id: 'user-4', name: 'David Park', email: 'd.park@apex.law', role: 'staff', status: 'active' }
-]
+interface TeamMember {
+  id: string
+  firstName?: string
+  lastName?: string
+  email: string
+  role: string
+  isActive: boolean
+  avatarUrl?: string
+  hourlyRate?: number
+}
+
+interface Group {
+  id: string
+  name: string
+  description: string
+  color: string
+  memberIds: string[]
+  permissions: string[]
+}
 
 export function TeamPage() {
   const navigate = useNavigate()
-  const { groups, addGroup, updateGroup, deleteGroup } = useDataStore()
+  const { groups, addGroup, updateGroup, deleteGroup, fetchGroups } = useDataStore()
   const { user } = useAuthStore()
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [showGroupModal, setShowGroupModal] = useState(false)
   const [editingGroup, setEditingGroup] = useState<any>(null)
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  
+  // Real team members from API
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Fetch team members from API
+  const fetchTeamMembers = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const response = await teamApi.getMembers()
+      if (response.teamMembers) {
+        setTeamMembers(response.teamMembers)
+      } else if (response.success && response.data) {
+        setTeamMembers(response.data)
+      } else if (Array.isArray(response)) {
+        setTeamMembers(response)
+      }
+    } catch (err) {
+      console.error('Failed to fetch team members:', err)
+      setError('Failed to load team members')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // Fetch on mount
+  useEffect(() => {
+    fetchTeamMembers()
+    fetchGroups?.()
+  }, [fetchTeamMembers, fetchGroups])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -70,74 +116,122 @@ export function TeamPage() {
       <section className={styles.section}>
         <div className={styles.sectionHeader}>
           <h2>Team Members</h2>
-          <span className={styles.count}>{teamMembers.length} members</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <span className={styles.count}>{teamMembers.length} members</span>
+            <button 
+              onClick={fetchTeamMembers} 
+              className={styles.refreshBtn}
+              disabled={loading}
+              title="Refresh team members"
+            >
+              <RefreshCw size={14} className={loading ? styles.spinning : ''} />
+            </button>
+          </div>
         </div>
 
-        <div className={styles.membersGrid}>
-          {teamMembers.map(member => (
-            <div key={member.id} className={styles.memberCard}>
-              <div className={styles.memberAvatar}>
-                {member.name.split(' ').map(n => n[0]).join('')}
-              </div>
-              <div className={styles.memberInfo}>
-                <h3>{member.name}</h3>
-                <p>{member.email}</p>
-                <span className={clsx(styles.roleBadge, styles[member.role])}>
-                  {member.role}
-                </span>
-              </div>
-              <div className={styles.menuWrapper} ref={openDropdownId === member.id ? dropdownRef : null}>
-                <button 
-                  className={styles.menuBtn}
-                  onClick={() => setOpenDropdownId(openDropdownId === member.id ? null : member.id)}
-                >
-                  <MoreVertical size={18} />
-                </button>
-                {openDropdownId === member.id && (
-                  <div className={styles.dropdown}>
-                    <button 
-                      className={styles.dropdownItem}
-                      onClick={() => {
-                        setOpenDropdownId(null)
-                        alert(`Viewing profile for ${member.name}`)
-                      }}
-                    >
-                      <Eye size={14} />
-                      View Profile
-                    </button>
-                    <button 
-                      className={styles.dropdownItem}
-                      onClick={() => {
-                        setOpenDropdownId(null)
-                        alert(`Edit role and permissions for ${member.name}`)
-                      }}
-                    >
-                      <Key size={14} />
-                      Edit Permissions
-                    </button>
-                    {member.role !== 'owner' && (
-                      <>
-                        <div className={styles.dropdownDivider} />
-                        <button 
-                          className={clsx(styles.dropdownItem, styles.danger)}
-                          onClick={() => {
-                            if (confirm(`Are you sure you want to remove ${member.name} from the team?`)) {
-                              alert(`${member.name} has been removed from the team.`)
-                              setOpenDropdownId(null)
-                            }
-                          }}
-                        >
-                          <XCircle size={14} />
-                          Remove from Team
-                        </button>
-                      </>
+        {error && (
+          <div className={styles.errorMessage}>
+            {error}
+            <button onClick={fetchTeamMembers}>Try again</button>
+          </div>
+        )}
+
+        {loading && teamMembers.length === 0 ? (
+          <div className={styles.loadingState}>Loading team members...</div>
+        ) : teamMembers.length === 0 ? (
+          <div className={styles.emptyState}>
+            <Users size={48} />
+            <h3>No team members yet</h3>
+            <p>Invite your first team member to get started</p>
+          </div>
+        ) : (
+          <div className={styles.membersGrid}>
+            {teamMembers.map(member => {
+              const fullName = `${member.firstName || ''} ${member.lastName || ''}`.trim() || member.email
+              const initials = member.firstName && member.lastName 
+                ? `${member.firstName[0]}${member.lastName[0]}`
+                : member.email?.[0]?.toUpperCase() || '?'
+              
+              return (
+                <div key={member.id} className={clsx(styles.memberCard, !member.isActive && styles.inactive)}>
+                  <div className={styles.memberAvatar}>
+                    {member.avatarUrl ? (
+                      <img src={member.avatarUrl} alt={fullName} />
+                    ) : (
+                      initials
                     )}
                   </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+                  <div className={styles.memberInfo}>
+                    <h3>{fullName}</h3>
+                    <p>{member.email}</p>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span className={clsx(styles.roleBadge, styles[member.role])}>
+                        {member.role}
+                      </span>
+                      {!member.isActive && (
+                        <span className={clsx(styles.roleBadge, styles.inactive)}>Inactive</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className={styles.menuWrapper} ref={openDropdownId === member.id ? dropdownRef : null}>
+                    <button 
+                      className={styles.menuBtn}
+                      onClick={() => setOpenDropdownId(openDropdownId === member.id ? null : member.id)}
+                    >
+                      <MoreVertical size={18} />
+                    </button>
+                    {openDropdownId === member.id && (
+                      <div className={styles.dropdown}>
+                        <button 
+                          className={styles.dropdownItem}
+                          onClick={() => {
+                            setOpenDropdownId(null)
+                            navigate(`/app/settings/team/${member.id}`)
+                          }}
+                        >
+                          <Eye size={14} />
+                          View Profile
+                        </button>
+                        <button 
+                          className={styles.dropdownItem}
+                          onClick={() => {
+                            setOpenDropdownId(null)
+                            navigate(`/app/settings/team/${member.id}/permissions`)
+                          }}
+                        >
+                          <Key size={14} />
+                          Edit Permissions
+                        </button>
+                        {member.role !== 'owner' && member.id !== user?.id && (
+                          <>
+                            <div className={styles.dropdownDivider} />
+                            <button 
+                              className={clsx(styles.dropdownItem, styles.danger)}
+                              onClick={async () => {
+                                if (confirm(`Are you sure you want to remove ${fullName} from the team?`)) {
+                                  try {
+                                    await teamApi.removeMember(member.id)
+                                    fetchTeamMembers()
+                                    setOpenDropdownId(null)
+                                  } catch (err) {
+                                    alert('Failed to remove team member')
+                                  }
+                                }
+                              }}
+                            >
+                              <XCircle size={14} />
+                              Remove from Team
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </section>
 
       {/* Groups */}

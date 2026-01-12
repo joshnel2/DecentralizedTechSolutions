@@ -542,6 +542,121 @@
   to { opacity: 1; }
 }
 
+/* Loading and States */
+.loadingState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl);
+  color: var(--apex-text);
+  font-size: 0.9375rem;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl) var(--space-xl);
+  text-align: center;
+  color: var(--apex-text);
+}
+
+.emptyState svg {
+  opacity: 0.3;
+  margin-bottom: var(--space-md);
+}
+
+.emptyState h3 {
+  font-size: 1.125rem;
+  color: var(--apex-light);
+  margin-bottom: var(--space-xs);
+}
+
+.emptyState p {
+  font-size: 0.875rem;
+}
+
+.errorMessage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--apex-error);
+  font-size: 0.875rem;
+  margin-bottom: var(--space-lg);
+}
+
+.errorMessage button {
+  background: rgba(239, 68, 68, 0.2);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--apex-error);
+  padding: var(--space-xs) var(--space-sm);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.errorMessage button:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.refreshBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.refreshBtn:hover:not(:disabled) {
+  background: var(--apex-muted);
+  color: var(--apex-white);
+  border-color: var(--apex-gold);
+}
+
+.refreshBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Inactive member styling */
+.memberCard.inactive {
+  opacity: 0.6;
+}
+
+.roleBadge.inactive {
+  background: rgba(148, 163, 184, 0.2);
+  color: var(--apex-text);
+}
+
+/* Avatar image */
+.memberAvatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
 /* ===== MOBILE RESPONSIVE STYLES ===== */
 @media (max-width: 768px) {
   .header {

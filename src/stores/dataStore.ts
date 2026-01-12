@@ -6,7 +6,8 @@ import {
   invoicesApi, 
   calendarApi, 
   documentsApi,
-  matterTypesApi 
+  matterTypesApi,
+  teamApi
 } from '../services/api'
 import type { 
   Client, Matter, TimeEntry, Invoice, CalendarEvent, 
@@ -102,7 +103,8 @@ interface DataState {
   addAPIKey: (data: any) => Promise<any>
   deleteAPIKey: (id: string) => Promise<void>
   
-  // Group actions (stub - uses team API)
+  // Group actions
+  fetchGroups: () => Promise<void>
   addGroup: (data: any) => Promise<any>
   updateGroup: (id: string, data: any) => Promise<void>
   deleteGroup: (id: string) => Promise<void>
@@ -344,25 +346,59 @@ export const useDataStore = create<DataState>()(
     set(state => ({ apiKeys: state.apiKeys.filter(k => k.id !== id) }))
   },
 
-  // Group actions (stub implementation)
-  addGroup: async (data) => {
-    const newGroup = {
-      id: crypto.randomUUID(),
-      ...data,
-      createdAt: new Date().toISOString(),
+  // Group actions
+  fetchGroups: async () => {
+    try {
+      const response = await teamApi.getGroups()
+      const groups = response.groups || response.data || (Array.isArray(response) ? response : [])
+      set({ groups })
+    } catch (error) {
+      console.error('Failed to fetch groups:', error)
     }
-    set(state => ({ groups: [...state.groups, newGroup] }))
-    return newGroup
+  },
+
+  addGroup: async (data) => {
+    try {
+      const response = await teamApi.createGroup(data)
+      const newGroup = response.group || response.data || response
+      set(state => ({ groups: [...state.groups, newGroup] }))
+      return newGroup
+    } catch (error) {
+      // Fallback to local creation if API fails
+      const newGroup = {
+        id: crypto.randomUUID(),
+        ...data,
+        createdAt: new Date().toISOString(),
+      }
+      set(state => ({ groups: [...state.groups, newGroup] }))
+      return newGroup
+    }
   },
 
   updateGroup: async (id, data) => {
-    set(state => ({
-      groups: state.groups.map(g => g.id === id ? { ...g, ...data } : g)
-    }))
+    try {
+      await teamApi.updateGroup(id, data)
+      set(state => ({
+        groups: state.groups.map(g => g.id === id ? { ...g, ...data } : g)
+      }))
+    } catch (error) {
+      console.error('Failed to update group:', error)
+      // Still update locally
+      set(state => ({
+        groups: state.groups.map(g => g.id === id ? { ...g, ...data } : g)
+      }))
+    }
   },
 
   deleteGroup: async (id) => {
-    set(state => ({ groups: state.groups.filter(g => g.id !== id) }))
+    try {
+      await teamApi.deleteGroup(id)
+      set(state => ({ groups: state.groups.filter(g => g.id !== id) }))
+    } catch (error) {
+      console.error('Failed to delete group:', error)
+      // Still delete locally
+      set(state => ({ groups: state.groups.filter(g => g.id !== id) }))
+    }
   },
 
   // Matter Type actions
