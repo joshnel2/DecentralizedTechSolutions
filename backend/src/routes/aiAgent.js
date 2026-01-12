@@ -38,11 +38,11 @@ const TOOLS = [
     type: "function",
     function: {
       name: "log_time",
-      description: "Log billable time for the user on a specific matter. Use this when the user wants to record time spent on a case.",
+      description: "Log billable time for the user on a specific matter. Supports FLEXIBLE MATCHING - you can pass a UUID, matter name, or partial name (e.g., 'Mount Kisco' will match 'Mount Kisco - Marsh Sanctuary').",
       parameters: {
         type: "object",
         properties: {
-          matter_id: { type: "string", description: "UUID of the matter. Use search_matters to find it." },
+          matter_id: { type: "string", description: "UUID of the matter OR matter name/partial name for flexible matching" },
           hours: { type: "number", description: "Hours to log (0.1 to 24)" },
           description: { type: "string", description: "Description of work performed" },
           date: { type: "string", description: "Date in YYYY-MM-DD format. Defaults to today." },
@@ -123,11 +123,11 @@ const TOOLS = [
     type: "function",
     function: {
       name: "search_matters",
-      description: "Search for matters by name, number, or client.",
+      description: "Search for matters by name, number, client, or keywords. Uses FLEXIBLE MATCHING - splits search into keywords and matches any matter containing any keyword in name, number, description, or client name. E.g., 'Mount Kisco' finds all Mount Kisco matters even if full name is 'Mount Kisco - Marsh Sanctuary'.",
       parameters: {
         type: "object",
         properties: {
-          search: { type: "string", description: "Search term" },
+          search: { type: "string", description: "Search term - can be partial name, keywords, or phrase" },
           status: { type: "string", enum: ["active", "pending", "closed", "on_hold"] },
           client_id: { type: "string", description: "Filter by client UUID" }
         },
@@ -139,11 +139,11 @@ const TOOLS = [
     type: "function",
     function: {
       name: "get_matter",
-      description: "Get comprehensive information about a matter including: details, documents (with content previews), linked emails, tasks, events, invoices, and billing stats. Use this to understand everything about a case.",
+      description: "Get comprehensive information about a matter including: details, documents (with content previews), linked emails, tasks, events, invoices, and billing stats. Supports FLEXIBLE MATCHING - you can pass a UUID, matter name, or partial name (e.g., 'Mount Kisco' will find 'Mount Kisco - Marsh Sanctuary'). If multiple matches exist, returns suggestions.",
       parameters: {
         type: "object",
         properties: {
-          matter_id: { type: "string", description: "UUID of the matter" }
+          matter_id: { type: "string", description: "UUID of the matter OR a matter name/partial name for flexible matching" }
         },
         required: ["matter_id"]
       }
@@ -2279,13 +2279,27 @@ async function logTime(args, user) {
     return { error: 'Hours must be between 0.1 and 24' };
   }
   
+  // Use flexible resolution to find the matter
+  const resolved = await resolveMatterReference(matter_id, user);
+  
+  if (resolved.error && !resolved.matter) {
+    // Could not find any matching matter - include suggestions if available
+    return { 
+      error: resolved.error,
+      suggestions: resolved.suggestions || [],
+      hint: resolved.hint || 'Use search_matters to find the correct matter'
+    };
+  }
+  
+  // Get the actual matter ID (might be different from input if we did name matching)
+  const actualMatterId = resolved.matter.id;
   const isAdmin = ['owner', 'admin'].includes(user.role);
   
   const matterResult = await query(
     `SELECT m.id, m.name, m.number, m.billing_rate, m.responsible_attorney, m.status,
             EXISTS(SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2) as user_is_assigned
      FROM matters m WHERE m.id = $1 AND m.firm_id = $3`,
-    [matter_id, user.id, user.firmId]
+    [actualMatterId, user.id, user.firmId]
   );
   
   if (matterResult.rows.length === 0) {
@@ -2315,12 +2329,12 @@ async function logTime(args, user) {
   const result = await query(
     `INSERT INTO time_entries (firm_id, matter_id, user_id, date, hours, description, billable, rate, activity_code, entry_type, ai_generated)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'ai_suggested', true) RETURNING *`,
-    [user.firmId, matter_id, user.id, entryDate, hours, description, billable, billingRate, activity_code || null]
+    [user.firmId, actualMatterId, user.id, entryDate, hours, description, billable, billingRate, activity_code || null]
   );
   
   const entry = result.rows[0];
   
-  return {
+  const response = {
     success: true,
     message: `Logged ${hours} hours to "${matter.name}" (${matter.number})`,
     data: {
@@ -2332,6 +2346,13 @@ async function logTime(args, user) {
       date: entry.date
     }
   };
+  
+  // Add resolution note if we matched by name instead of UUID
+  if (resolved.note) {
+    response._resolution = { note: resolved.note };
+  }
+  
+  return response;
 }
 
 async function getMyTimeEntries(args, user) {
@@ -2482,6 +2503,169 @@ async function deleteTimeEntry(args, user) {
 // =============================================================================
 // MATTER FUNCTIONS
 // =============================================================================
+
+// Helper function to flexibly resolve a matter reference (UUID, name, or partial name)
+// Returns: { matter: {...}, suggestions: [...] } or { error: '...', suggestions: [...] }
+async function resolveMatterReference(matterRef, user, options = {}) {
+  const { requireExactMatch = false } = options;
+  const firmId = user.firmId;
+  const isAdmin = ['owner', 'admin'].includes(user.role);
+  
+  if (!matterRef) {
+    return { error: 'Matter reference is required' };
+  }
+  
+  // Check if it's a valid UUID format
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const isUUID = uuidRegex.test(matterRef);
+  
+  if (isUUID) {
+    // Direct UUID lookup
+    let sql = `
+      SELECT m.id, m.name, m.number, m.status, m.priority, c.display_name as client_name
+      FROM matters m
+      LEFT JOIN clients c ON m.client_id = c.id
+      WHERE m.id = $1 AND m.firm_id = $2
+    `;
+    const params = [matterRef, firmId];
+    
+    if (!isAdmin) {
+      sql += ` AND (m.responsible_attorney = $3 OR EXISTS (
+        SELECT 1 FROM matter_assignments WHERE matter_id = m.id AND user_id = $3
+      ))`;
+      params.push(user.id);
+    }
+    
+    const result = await query(sql, params);
+    if (result.rows.length > 0) {
+      return { matter: result.rows[0] };
+    }
+    return { error: 'Matter not found with the provided ID' };
+  }
+  
+  // Not a UUID - search by name with flexible matching
+  const searchTerm = matterRef.trim().toLowerCase();
+  
+  // Split search term into keywords (words 3+ chars, excluding common words)
+  const stopWords = ['the', 'and', 'for', 'with', 'case', 'matter', 'file', 'client'];
+  const keywords = searchTerm
+    .split(/[\s\-_,./]+/)
+    .filter(word => word.length >= 2 && !stopWords.includes(word));
+  
+  // Build a flexible search query that:
+  // 1. Matches exact name (highest priority)
+  // 2. Matches name containing the full search term
+  // 3. Matches any keyword in the name, number, description, or client name
+  let sql = `
+    SELECT m.id, m.name, m.number, m.status, m.priority, m.description,
+           c.display_name as client_name,
+           CASE 
+             WHEN LOWER(m.name) = $2 THEN 100
+             WHEN LOWER(m.name) LIKE $3 THEN 80
+             WHEN LOWER(m.number) LIKE $3 THEN 75
+             WHEN LOWER(c.display_name) LIKE $3 THEN 70
+  `;
+  
+  const params = [firmId, searchTerm, `%${searchTerm}%`];
+  let idx = 4;
+  
+  // Add scoring for each keyword match
+  for (const keyword of keywords.slice(0, 5)) { // Limit to 5 keywords
+    sql += `
+             WHEN LOWER(m.name) LIKE $${idx} THEN 60
+             WHEN LOWER(m.number) LIKE $${idx} THEN 55
+             WHEN LOWER(c.display_name) LIKE $${idx} THEN 50
+             WHEN LOWER(m.description) LIKE $${idx} THEN 40
+    `;
+    params.push(`%${keyword}%`);
+    idx++;
+  }
+  
+  sql += `
+             ELSE 0
+           END as match_score
+    FROM matters m
+    LEFT JOIN clients c ON m.client_id = c.id
+    WHERE m.firm_id = $1
+  `;
+  
+  if (!isAdmin) {
+    sql += ` AND (m.responsible_attorney = $${idx} OR EXISTS (
+      SELECT 1 FROM matter_assignments WHERE matter_id = m.id AND user_id = $${idx}
+    ))`;
+    params.push(user.id);
+    idx++;
+  }
+  
+  // Build the WHERE conditions for matching
+  const matchConditions = [`LOWER(m.name) LIKE $3`, `LOWER(m.number) LIKE $3`, `LOWER(c.display_name) LIKE $3`];
+  
+  // Add keyword conditions
+  let keywordIdx = 4;
+  for (const keyword of keywords.slice(0, 5)) {
+    matchConditions.push(`LOWER(m.name) LIKE $${keywordIdx}`);
+    matchConditions.push(`LOWER(m.number) LIKE $${keywordIdx}`);
+    matchConditions.push(`LOWER(c.display_name) LIKE $${keywordIdx}`);
+    matchConditions.push(`LOWER(m.description) LIKE $${keywordIdx}`);
+    keywordIdx++;
+  }
+  
+  sql += ` AND (${matchConditions.join(' OR ')})`;
+  sql += ` ORDER BY match_score DESC, m.status = 'active' DESC, m.created_at DESC LIMIT 10`;
+  
+  const result = await query(sql, params);
+  
+  if (result.rows.length === 0) {
+    // No matches found - return error with helpful message
+    return { 
+      error: `No matters found matching "${matterRef}"`,
+      suggestions: [],
+      hint: 'Try searching with different keywords or check the matter list'
+    };
+  }
+  
+  // Format suggestions
+  const suggestions = result.rows.map(m => ({
+    id: m.id,
+    name: m.name,
+    number: m.number,
+    status: m.status,
+    priority: m.priority,
+    client: m.client_name,
+    match_score: m.match_score
+  }));
+  
+  // If there's exactly one match with a high score, return it directly
+  if (result.rows.length === 1 && result.rows[0].match_score >= 50) {
+    return { matter: suggestions[0], suggestions };
+  }
+  
+  // If the top result has a significantly higher score than others, use it
+  if (result.rows.length > 1 && 
+      result.rows[0].match_score >= 60 && 
+      result.rows[0].match_score > result.rows[1].match_score + 20) {
+    return { matter: suggestions[0], suggestions };
+  }
+  
+  // If exact match required but we have multiple possibilities, return suggestions
+  if (requireExactMatch) {
+    return {
+      error: `Multiple matters match "${matterRef}". Please specify which one.`,
+      suggestions: suggestions.slice(0, 5),
+      hint: `Found ${suggestions.length} matching matter(s)`
+    };
+  }
+  
+  // Multiple matches - return the best one but include suggestions for clarity
+  return { 
+    matter: suggestions[0], 
+    suggestions,
+    note: suggestions.length > 1 
+      ? `Using "${suggestions[0].name}" - ${suggestions.length - 1} other match(es) found`
+      : undefined
+  };
+}
+
 async function listMyMatters(args, user) {
   const { status, limit = 50 } = args;
   const isAdmin = ['owner', 'admin'].includes(user.role);
@@ -2539,26 +2723,97 @@ async function searchMatters(args, user) {
   const { search, status, client_id } = args;
   const isAdmin = ['owner', 'admin'].includes(user.role);
   
+  // If no search term, just list matters with optional filters
+  if (!search) {
+    let sql = `
+      SELECT m.id, m.name, m.number, m.status, m.priority, c.display_name as client_name
+      FROM matters m
+      LEFT JOIN clients c ON m.client_id = c.id
+      WHERE m.firm_id = $1
+    `;
+    const params = [user.firmId];
+    let idx = 2;
+    
+    if (!isAdmin) {
+      sql += ` AND (m.responsible_attorney = $${idx} OR EXISTS (SELECT 1 FROM matter_assignments WHERE matter_id = m.id AND user_id = $${idx}))`;
+      params.push(user.id);
+      idx++;
+    }
+    
+    if (status) {
+      sql += ` AND m.status = $${idx++}`;
+      params.push(status);
+    }
+    if (client_id) {
+      sql += ` AND m.client_id = $${idx++}`;
+      params.push(client_id);
+    }
+    
+    sql += ` ORDER BY m.created_at DESC LIMIT 25`;
+    const result = await query(sql, params);
+    
+    return {
+      matters: result.rows.map(m => ({
+        id: m.id,
+        name: m.name,
+        number: m.number,
+        status: m.status,
+        priority: m.priority,
+        client: m.client_name
+      })),
+      count: result.rows.length
+    };
+  }
+  
+  // Flexible search - split into keywords and match any
+  const searchTerm = search.trim().toLowerCase();
+  const stopWords = ['the', 'and', 'for', 'with', 'case', 'matter', 'file', 'client', 'vs', 'v.'];
+  const keywords = searchTerm
+    .split(/[\s\-_,./]+/)
+    .filter(word => word.length >= 2 && !stopWords.includes(word.toLowerCase()));
+  
+  // Build query with scoring for relevance
   let sql = `
-    SELECT m.id, m.name, m.number, m.status, m.priority, c.display_name as client_name
+    SELECT m.id, m.name, m.number, m.status, m.priority, m.description,
+           c.display_name as client_name,
+           CASE 
+             WHEN LOWER(m.name) = $2 THEN 100
+             WHEN LOWER(m.name) LIKE $3 THEN 80
+             WHEN LOWER(m.number) LIKE $3 THEN 75
+             WHEN LOWER(c.display_name) LIKE $3 THEN 70
+  `;
+  
+  const params = [user.firmId, searchTerm, `%${searchTerm}%`];
+  let idx = 4;
+  
+  // Add scoring for each keyword match
+  for (const keyword of keywords.slice(0, 5)) {
+    sql += `
+             WHEN LOWER(m.name) LIKE $${idx} THEN 60
+             WHEN LOWER(m.number) LIKE $${idx} THEN 55
+             WHEN LOWER(c.display_name) LIKE $${idx} THEN 50
+             WHEN LOWER(m.description) LIKE $${idx} THEN 40
+    `;
+    params.push(`%${keyword}%`);
+    idx++;
+  }
+  
+  sql += `
+             ELSE 0
+           END as match_score
     FROM matters m
     LEFT JOIN clients c ON m.client_id = c.id
     WHERE m.firm_id = $1
   `;
-  const params = [user.firmId];
-  let idx = 2;
   
   if (!isAdmin) {
-    sql += ` AND (m.responsible_attorney = $${idx} OR EXISTS (SELECT 1 FROM matter_assignments WHERE matter_id = m.id AND user_id = $${idx}))`;
+    sql += ` AND (m.responsible_attorney = $${idx} OR EXISTS (
+      SELECT 1 FROM matter_assignments WHERE matter_id = m.id AND user_id = $${idx}
+    ))`;
     params.push(user.id);
     idx++;
   }
   
-  if (search) {
-    sql += ` AND (m.name ILIKE $${idx} OR m.number ILIKE $${idx})`;
-    params.push(`%${search}%`);
-    idx++;
-  }
   if (status) {
     sql += ` AND m.status = $${idx++}`;
     params.push(status);
@@ -2568,9 +2823,36 @@ async function searchMatters(args, user) {
     params.push(client_id);
   }
   
-  sql += ` ORDER BY m.created_at DESC LIMIT 25`;
+  // Build match conditions - match full term OR any keyword
+  const matchConditions = [
+    `LOWER(m.name) LIKE $3`,
+    `LOWER(m.number) LIKE $3`,
+    `LOWER(c.display_name) LIKE $3`
+  ];
+  
+  let keywordIdx = 4;
+  for (const keyword of keywords.slice(0, 5)) {
+    matchConditions.push(`LOWER(m.name) LIKE $${keywordIdx}`);
+    matchConditions.push(`LOWER(m.number) LIKE $${keywordIdx}`);
+    matchConditions.push(`LOWER(c.display_name) LIKE $${keywordIdx}`);
+    matchConditions.push(`LOWER(m.description) LIKE $${keywordIdx}`);
+    keywordIdx++;
+  }
+  
+  sql += ` AND (${matchConditions.join(' OR ')})`;
+  sql += ` ORDER BY match_score DESC, m.status = 'active' DESC, m.created_at DESC LIMIT 25`;
   
   const result = await query(sql, params);
+  
+  // If no results with flexible search, provide helpful message
+  if (result.rows.length === 0) {
+    return {
+      matters: [],
+      count: 0,
+      search_term: search,
+      hint: `No matters found matching "${search}". Try different keywords or check the full matter list.`
+    };
+  }
   
   return {
     matters: result.rows.map(m => ({
@@ -2579,9 +2861,16 @@ async function searchMatters(args, user) {
       number: m.number,
       status: m.status,
       priority: m.priority,
-      client: m.client_name
+      client: m.client_name,
+      relevance: m.match_score > 70 ? 'high' : m.match_score > 40 ? 'medium' : 'low'
     })),
-    count: result.rows.length
+    count: result.rows.length,
+    search_term: search,
+    best_match: result.rows[0] ? {
+      id: result.rows[0].id,
+      name: result.rows[0].name,
+      confidence: result.rows[0].match_score >= 70 ? 'high' : 'medium'
+    } : null
   };
 }
 
@@ -2592,6 +2881,22 @@ async function getMatter(args, user) {
     return { error: 'matter_id is required' };
   }
   
+  // Use flexible resolution to find the matter
+  const resolved = await resolveMatterReference(matter_id, user);
+  
+  if (resolved.error && !resolved.matter) {
+    // Could not find any matching matter
+    return { 
+      error: resolved.error,
+      suggestions: resolved.suggestions || [],
+      hint: resolved.hint || 'Try using search_matters to find the correct matter ID'
+    };
+  }
+  
+  // Get the actual matter ID (might be different from input if we did name matching)
+  const actualMatterId = resolved.matter.id;
+  
+  // Now fetch full matter details using the resolved ID
   const result = await query(
     `SELECT m.*, c.display_name as client_name, c.email as client_email,
             u.first_name || ' ' || u.last_name as responsible_attorney_name
@@ -2599,7 +2904,7 @@ async function getMatter(args, user) {
      LEFT JOIN clients c ON m.client_id = c.id
      LEFT JOIN users u ON m.responsible_attorney = u.id
      WHERE m.id = $1 AND m.firm_id = $2`,
-    [matter_id, user.firmId]
+    [actualMatterId, user.firmId]
   );
   
   if (result.rows.length === 0) {
@@ -2608,6 +2913,9 @@ async function getMatter(args, user) {
   
   const m = result.rows[0];
   
+  // Include resolution note if we matched by name instead of UUID
+  const resolutionNote = resolved.note;
+  
   // Get summary stats
   const stats = await query(
     `SELECT 
@@ -2615,7 +2923,7 @@ async function getMatter(args, user) {
       COALESCE(SUM(amount), 0) as total_billed,
       COALESCE(SUM(CASE WHEN billed = false THEN amount ELSE 0 END), 0) as unbilled
      FROM time_entries WHERE matter_id = $1`,
-    [matter_id]
+    [actualMatterId]
   );
   
   // Get documents with content summaries
@@ -2627,7 +2935,7 @@ async function getMatter(args, user) {
      WHERE matter_id = $1 AND firm_id = $2
      ORDER BY uploaded_at DESC 
      LIMIT 15`,
-    [matter_id, user.firmId]
+    [actualMatterId, user.firmId]
   );
   
   const documents = docsResult.rows.map(d => ({
@@ -2648,7 +2956,7 @@ async function getMatter(args, user) {
      WHERE matter_id = $1 AND firm_id = $2
      ORDER BY received_at DESC 
      LIMIT 10`,
-    [matter_id, user.firmId]
+    [actualMatterId, user.firmId]
   );
   
   // Get upcoming events/tasks for this matter
@@ -2658,7 +2966,7 @@ async function getMatter(args, user) {
      WHERE matter_id = $1 AND firm_id = $2 AND (start_time >= NOW() OR type = 'task')
      ORDER BY start_time ASC 
      LIMIT 10`,
-    [matter_id, user.firmId]
+    [actualMatterId, user.firmId]
   );
   
   // Get invoices for this matter
@@ -2668,10 +2976,11 @@ async function getMatter(args, user) {
      WHERE matter_id = $1 AND firm_id = $2
      ORDER BY created_at DESC 
      LIMIT 5`,
-    [matter_id, user.firmId]
+    [actualMatterId, user.firmId]
   );
   
-  return {
+  // Build response with resolution info if applicable
+  const response = {
     id: m.id,
     name: m.name,
     number: m.number,
@@ -2724,6 +3033,21 @@ async function getMatter(args, user) {
       due_date: i.due_date
     }))
   };
+  
+  // Add resolution metadata if we matched by name instead of UUID
+  if (resolutionNote) {
+    response._resolution = {
+      note: resolutionNote,
+      matched_from: matter_id,
+      other_matches: resolved.suggestions?.slice(1, 4).map(s => ({
+        id: s.id,
+        name: s.name,
+        number: s.number
+      }))
+    };
+  }
+  
+  return response;
 }
 
 async function createMatter(args, user) {
@@ -6279,19 +6603,32 @@ async function getMatterSummary(args, user) {
     return { error: 'matter_id is required' };
   }
   
-  const matterCheck = await query('SELECT id, name, number FROM matters WHERE id = $1 AND firm_id = $2', [matter_id, user.firmId]);
+  // Use flexible resolution to find the matter
+  const resolved = await resolveMatterReference(matter_id, user);
+  
+  if (resolved.error && !resolved.matter) {
+    return { 
+      error: resolved.error,
+      suggestions: resolved.suggestions || [],
+      hint: resolved.hint || 'Use search_matters to find the correct matter'
+    };
+  }
+  
+  const actualMatterId = resolved.matter.id;
+  
+  const matterCheck = await query('SELECT id, name, number FROM matters WHERE id = $1 AND firm_id = $2', [actualMatterId, user.firmId]);
   if (matterCheck.rows.length === 0) {
     return { error: 'Matter not found' };
   }
   
   const [time, expenses, invoices, events] = await Promise.all([
     query(`SELECT SUM(hours) as hours, SUM(amount) as amount, SUM(CASE WHEN billed THEN amount ELSE 0 END) as billed
-           FROM time_entries WHERE matter_id = $1`, [matter_id]),
+           FROM time_entries WHERE matter_id = $1`, [actualMatterId]),
     query(`SELECT SUM(amount) as total, SUM(CASE WHEN billed THEN amount ELSE 0 END) as billed
-           FROM expenses WHERE matter_id = $1`, [matter_id]),
+           FROM expenses WHERE matter_id = $1`, [actualMatterId]),
     query(`SELECT SUM(total) as invoiced, SUM(amount_paid) as collected, SUM(amount_due) as outstanding
-           FROM invoices WHERE matter_id = $1`, [matter_id]),
-    query(`SELECT COUNT(*) as upcoming FROM calendar_events WHERE matter_id = $1 AND start_time >= NOW()`, [matter_id])
+           FROM invoices WHERE matter_id = $1`, [actualMatterId]),
+    query(`SELECT COUNT(*) as upcoming FROM calendar_events WHERE matter_id = $1 AND start_time >= NOW()`, [actualMatterId])
   ]);
   
   const matter = matterCheck.rows[0];
@@ -6323,7 +6660,20 @@ async function addMatterNote(args, user) {
     return { error: 'matter_id and content are required' };
   }
   
-  const matterCheck = await query('SELECT id, name, ai_summary FROM matters WHERE id = $1 AND firm_id = $2', [matter_id, user.firmId]);
+  // Use flexible resolution to find the matter
+  const resolved = await resolveMatterReference(matter_id, user);
+  
+  if (resolved.error && !resolved.matter) {
+    return { 
+      error: resolved.error,
+      suggestions: resolved.suggestions || [],
+      hint: resolved.hint || 'Use search_matters to find the correct matter'
+    };
+  }
+  
+  const actualMatterId = resolved.matter.id;
+  
+  const matterCheck = await query('SELECT id, name, ai_summary FROM matters WHERE id = $1 AND firm_id = $2', [actualMatterId, user.firmId]);
   if (matterCheck.rows.length === 0) {
     return { error: 'Matter not found' };
   }
@@ -6333,7 +6683,7 @@ async function addMatterNote(args, user) {
   const timestamp = formatDateTime(new Date());
   const newNote = `\n\n[${timestamp} - ${user.firstName} ${user.lastName}]\n${content}`;
   
-  await query('UPDATE matters SET ai_summary = $1 WHERE id = $2', [existingNotes + newNote, matter_id]);
+  await query('UPDATE matters SET ai_summary = $1 WHERE id = $2', [existingNotes + newNote, actualMatterId]);
   
   return {
     success: true,
@@ -11701,6 +12051,23 @@ HOW TO THINK:
     - Just use the most distinctive word from what the user said
     
     If the first search doesn't find it, try simpler terms or use list_documents to see what's available.
+
+16. FLEXIBLE MATTER LOOKUP - THIS IS CRITICAL
+    Both get_matter and search_matters support FLEXIBLE NAME MATCHING:
+    - You can pass a matter name or partial name, not just a UUID
+    - "Mount Kisco" will find "Mount Kisco - Marsh Sanctuary", "Mount Kisco - Morton", etc.
+    - Keywords are split and matched individually - "kisco marsh" finds "Mount Kisco - Marsh Sanctuary"
+    
+    When the user mentions a matter by name:
+    - Just use get_matter with the name they mentioned - it will find matches
+    - If multiple matters match, the response includes suggestions - present them to the user
+    - If you get suggestions, ask which specific matter they want
+    - NEVER say "Matter not found" if there are related matches - show the options instead
+    
+    Example: User says "Tell me about the Mount Kisco matter"
+    - Call get_matter with matter_id: "Mount Kisco" 
+    - If multiple matches: "I found several Mount Kisco matters: Marsh Sanctuary, Morton, and Attorneys. Which one?"
+    - If one match: Present the details
 
 NEVER fabricate errors or technical issues. If tools return data, use it confidently. Only mention problems if they actually occurred.`;
 }
