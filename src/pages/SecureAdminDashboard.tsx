@@ -2175,6 +2175,31 @@ Password: ${newPass}`
                                 <Edit2 size={14} />
                               </button>
                               <button 
+                                onClick={async () => {
+                                  showNotification('success', `Scanning documents for ${firm.name}...`)
+                                  try {
+                                    const res = await fetch(`${API_URL}/migration/documents/match-manifest`, {
+                                      method: 'POST',
+                                      headers: getAuthHeaders(),
+                                      body: JSON.stringify({ firmId: firm.id })
+                                    })
+                                    const result = await res.json()
+                                    if (result.matched !== undefined) {
+                                      showNotification('success', `✅ ${firm.name}: Matched ${result.matched} documents. ${result.missing || 0} files not found in Azure.`)
+                                    } else {
+                                      showNotification('error', result.error || 'Scan failed')
+                                    }
+                                  } catch (err) {
+                                    showNotification('error', 'Failed to scan documents')
+                                  }
+                                }}
+                                className={styles.editBtn}
+                                title="Scan documents from Azure"
+                                style={{ background: '#3B82F6' }}
+                              >
+                                <FileText size={14} />
+                              </button>
+                              <button 
                                 onClick={() => handleDeleteFirm(firm.id)}
                                 className={styles.deleteBtn}
                                 title="Delete firm"
