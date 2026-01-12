@@ -7,7 +7,8 @@ import {
   calendarApi, 
   documentsApi,
   matterTypesApi,
-  teamApi
+  teamApi,
+  apiKeysApi
 } from '../services/api'
 import type { 
   Client, Matter, TimeEntry, Invoice, CalendarEvent, 
@@ -99,7 +100,8 @@ interface DataState {
   markNotificationRead: (id: string) => void
   clearNotifications: () => void
   
-  // API Key actions (stub - not yet implemented on backend)
+  // API Key actions
+  fetchAPIKeys: () => Promise<void>
   addAPIKey: (data: any) => Promise<any>
   deleteAPIKey: (id: string) => Promise<void>
   
@@ -329,21 +331,38 @@ export const useDataStore = create<DataState>()(
     set({ notifications: [] })
   },
 
-  // API Key actions (stub implementation - full implementation needed when backend supports it)
-  addAPIKey: async (data) => {
-    // For now, create a local API key (won't persist to backend)
-    const newKey = {
-      id: crypto.randomUUID(),
-      ...data,
-      key: `apex_${crypto.randomUUID().replace(/-/g, '')}`,
-      createdAt: new Date().toISOString(),
+  // API Key actions
+  fetchAPIKeys: async () => {
+    try {
+      const response = await apiKeysApi.getAll()
+      const apiKeys = response.apiKeys || response.data || []
+      set({ apiKeys })
+    } catch (error) {
+      console.error('Failed to fetch API keys:', error)
     }
-    set(state => ({ apiKeys: [...state.apiKeys, newKey] }))
-    return newKey
+  },
+
+  addAPIKey: async (data) => {
+    try {
+      const response = await apiKeysApi.create(data)
+      const newKey = response.apiKey || response
+      // Add to local state (note: the full key is only returned on creation)
+      set(state => ({ apiKeys: [...state.apiKeys, newKey] }))
+      return newKey
+    } catch (error) {
+      console.error('Failed to create API key:', error)
+      throw error
+    }
   },
 
   deleteAPIKey: async (id) => {
-    set(state => ({ apiKeys: state.apiKeys.filter(k => k.id !== id) }))
+    try {
+      await apiKeysApi.revoke(id)
+      set(state => ({ apiKeys: state.apiKeys.filter(k => k.id !== id) }))
+    } catch (error) {
+      console.error('Failed to revoke API key:', error)
+      throw error
+    }
   },
 
   // Group actions

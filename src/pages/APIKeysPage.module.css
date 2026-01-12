@@ -395,3 +395,145 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* Header Actions */
+.headerActions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.secondaryBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-sm);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.secondaryBtn:hover:not(:disabled) {
+  background: var(--apex-muted);
+  color: var(--apex-white);
+  border-color: var(--apex-gold);
+}
+
+.secondaryBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* New Key Created Modal */
+.newKeyContent {
+  padding: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.warningBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--apex-error);
+}
+
+.warningBanner strong {
+  display: block;
+  color: var(--apex-white);
+  margin-bottom: 4px;
+}
+
+.warningBanner p {
+  font-size: 0.875rem;
+  color: var(--apex-text);
+  margin: 0;
+}
+
+.keyName {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.newKeyValue {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--apex-gold);
+}
+
+.newKeyValue code {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--apex-gold-bright);
+  word-break: break-all;
+}
+
+.newKeyValue button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  background: var(--apex-muted);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--apex-light);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.newKeyValue button:hover {
+  background: var(--apex-gold);
+  color: var(--apex-midnight);
+}
+
+.newKeyValue button.copied {
+  background: var(--apex-success);
+  color: white;
+}
+
+.usageExample {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.usageExample label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--apex-light);
+}
+
+.usageExample pre {
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  overflow-x: auto;
+  margin: 0;
+}

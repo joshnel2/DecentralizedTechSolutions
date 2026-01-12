@@ -1,21 +1,40 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAuthStore } from '../stores/authStore'
 import { 
   Plus, Key, Copy, Trash2, Eye, EyeOff, 
-  CheckCircle2, AlertCircle, ArrowLeft
+  CheckCircle2, AlertCircle, ArrowLeft, RefreshCw
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import styles from './APIKeysPage.module.css'
 
+interface NewKeyResponse {
+  id: string
+  name: string
+  key: string
+  permissions: string[]
+}
+
 export function APIKeysPage() {
   const navigate = useNavigate()
-  const { apiKeys, addAPIKey, deleteAPIKey } = useDataStore()
+  const { apiKeys, fetchAPIKeys, addAPIKey, deleteAPIKey } = useDataStore()
   const { user } = useAuthStore()
   const [showNewModal, setShowNewModal] = useState(false)
+  const [newKeyResult, setNewKeyResult] = useState<NewKeyResponse | null>(null)
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set())
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  // Fetch API keys on mount
+  useEffect(() => {
+    const loadKeys = async () => {
+      setLoading(true)
+      await fetchAPIKeys()
+      setLoading(false)
+    }
+    loadKeys()
+  }, [fetchAPIKeys])
 
   const toggleReveal = (id: string) => {
     setRevealedKeys(prev => {
@@ -50,13 +69,22 @@ export function APIKeysPage() {
           <h1>API Keys</h1>
           <p>Manage API keys for external integrations</p>
         </div>
-        <button 
-          className={styles.primaryBtn}
-          onClick={() => setShowNewModal(true)}
-        >
-          <Plus size={18} />
-          Create New Key
-        </button>
+        <div className={styles.headerActions}>
+          <button 
+            className={styles.secondaryBtn}
+            onClick={() => fetchAPIKeys()}
+            disabled={loading}
+          >
+            <RefreshCw size={16} className={loading ? styles.spinning : ''} />
+          </button>
+          <button 
+            className={styles.primaryBtn}
+            onClick={() => setShowNewModal(true)}
+          >
+            <Plus size={18} />
+            Create New Key
+          </button>
+        </div>
       </div>
 
       {/* Info Banner */}
@@ -140,10 +168,22 @@ export function APIKeysPage() {
       {showNewModal && (
         <NewKeyModal 
           onClose={() => setShowNewModal(false)}
-          onCreate={(data) => {
-            addAPIKey({ ...data, createdBy: user?.id })
-            setShowNewModal(false)
+          onCreate={async (data) => {
+            try {
+              const result = await addAPIKey(data)
+              setNewKeyResult(result)
+              setShowNewModal(false)
+            } catch (err) {
+              alert('Failed to create API key')
+            }
           }}
+        />
+      )}
+
+      {newKeyResult && (
+        <NewKeyCreatedModal
+          apiKey={newKeyResult}
+          onClose={() => setNewKeyResult(null)}
         />
       )}
     </div>
@@ -229,6 +269,66 @@ function NewKeyModal({ onClose, onCreate }: { onClose: () => void; onCreate: (da
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+function NewKeyCreatedModal({ apiKey, onClose }: { apiKey: NewKeyResponse; onClose: () => void }) {
+  const [copied, setCopied] = useState(false)
+
+  const copyKey = async () => {
+    await navigator.clipboard.writeText(apiKey.key)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className={styles.modalOverlay}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>API Key Created</h2>
+        </div>
+        <div className={styles.newKeyContent}>
+          <div className={styles.warningBanner}>
+            <AlertCircle size={20} />
+            <div>
+              <strong>Save this key now!</strong>
+              <p>This is the only time you'll be able to see the full key. Store it securely.</p>
+            </div>
+          </div>
+          
+          <div className={styles.formGroup}>
+            <label>Key Name</label>
+            <div className={styles.keyName}>{apiKey.name}</div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Your API Key</label>
+            <div className={styles.newKeyValue}>
+              <code>{apiKey.key}</code>
+              <button onClick={copyKey} className={copied ? styles.copied : ''}>
+                {copied ? <CheckCircle2 size={16} /> : <Copy size={16} />}
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+          </div>
+
+          <div className={styles.usageExample}>
+            <label>Usage Example</label>
+            <pre>
+{`curl -H "Authorization: Bearer ${apiKey.key}" \\
+  https://your-domain.apexlegal.app/api/matters`}
+            </pre>
+          </div>
+
+          <div className={styles.modalActions}>
+            <button onClick={onClose} className={styles.saveBtn}>
+              <CheckCircle2 size={16} />
+              I've Saved My Key
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )

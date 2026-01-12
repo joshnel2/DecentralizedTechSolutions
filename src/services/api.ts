@@ -743,6 +743,27 @@ export const teamApi = {
 };
 
 // ============================================
+// API KEYS API
+// ============================================
+
+export const apiKeysApi = {
+  async getAll() {
+    return fetchWithAuth('/api-keys');
+  },
+
+  async create(data: { name: string; permissions: string[]; expiresAt?: string }) {
+    return fetchWithAuth('/api-keys', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async revoke(id: string) {
+    return fetchWithAuth(`/api-keys/${id}`, { method: 'DELETE' });
+  },
+};
+
+// ============================================
 // FIRM API
 // ============================================
 
