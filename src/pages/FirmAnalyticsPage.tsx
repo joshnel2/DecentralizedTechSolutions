@@ -361,6 +361,34 @@ export function FirmAnalyticsPage() {
 
       {selectedTab === 'overview' && (
         <>
+          {/* No Data Warning */}
+          {!analyticsLoading && revenueMetrics.totalInvoiced === 0 && hoursMetrics.totalHours === 0 && (
+            <div style={{
+              background: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)',
+              color: 'white',
+              padding: '1.5rem',
+              borderRadius: '12px',
+              marginBottom: '1.5rem',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '1rem'
+            }}>
+              <AlertTriangle size={24} style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div>
+                <strong style={{ fontSize: '1.1rem' }}>No Data to Display</strong>
+                <p style={{ margin: '0.5rem 0 0 0', opacity: 0.95 }}>
+                  Analytics require <strong>time entries</strong> and <strong>invoices</strong> to calculate metrics. 
+                  To see data here:
+                </p>
+                <ul style={{ margin: '0.5rem 0 0 1rem', padding: 0 }}>
+                  <li>Record billable time entries for matters</li>
+                  <li>Create and send invoices to clients</li>
+                  <li>Try changing the date range to "All Time"</li>
+                </ul>
+              </div>
+            </div>
+          )}
+
           {/* KPI Cards */}
           <div className={styles.kpiGrid}>
             <div className={styles.kpiCard}>
