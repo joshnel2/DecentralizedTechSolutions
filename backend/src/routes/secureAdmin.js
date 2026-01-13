@@ -946,7 +946,7 @@ router.get('/firms/:id/details', requireSecureAdmin, async (req, res) => {
       query(`SELECT COUNT(*) as count FROM clients WHERE firm_id = $1`, [id]),
       query(`SELECT COUNT(*) as count FROM documents WHERE firm_id = $1`, [id]),
       query(`SELECT COUNT(*) as count FROM time_entries WHERE firm_id = $1`, [id]),
-      query(`SELECT COALESCE(SUM(EXTRACT(EPOCH FROM duration)/3600), 0) as hours FROM time_entries WHERE firm_id = $1`, [id]),
+      query(`SELECT COALESCE(SUM(hours), 0) as hours FROM time_entries WHERE firm_id = $1`, [id]),
       query(`SELECT COUNT(*) as count FROM invoices WHERE firm_id = $1`, [id]),
       query(`SELECT COUNT(*) as count FROM calendar_events WHERE firm_id = $1`, [id])
     ]);
