@@ -1,5 +1,7 @@
 # Apex - AI-Native Legal Practice Management
 
+<!-- v1.2.0 - API Keys & Team Management -->
+
 <p align="center">
   <img src="public/favicon.svg" width="80" height="80" alt="Apex Logo" />
 </p>
