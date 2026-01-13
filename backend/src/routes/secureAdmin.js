@@ -933,7 +933,13 @@ router.get('/firms/:id/details', requireSecureAdmin, async (req, res) => {
              (SELECT COUNT(*) FROM users WHERE firm_id = f.id) as users_count,
              (SELECT COUNT(*) FROM users WHERE firm_id = f.id AND is_active = true) as active_users_count,
              (SELECT COUNT(*) FROM matters WHERE firm_id = f.id) as matters_count,
-             (SELECT COUNT(*) FROM clients WHERE firm_id = f.id) as clients_count
+             (SELECT COUNT(*) FROM matters WHERE firm_id = f.id AND status = 'open') as open_matters_count,
+             (SELECT COUNT(*) FROM clients WHERE firm_id = f.id) as clients_count,
+             (SELECT COUNT(*) FROM documents WHERE firm_id = f.id) as documents_count,
+             (SELECT COUNT(*) FROM time_entries WHERE firm_id = f.id) as time_entries_count,
+             (SELECT COALESCE(SUM(EXTRACT(EPOCH FROM duration)/3600), 0) FROM time_entries WHERE firm_id = f.id) as total_hours,
+             (SELECT COUNT(*) FROM invoices WHERE firm_id = f.id) as invoices_count,
+             (SELECT COUNT(*) FROM calendar_events WHERE firm_id = f.id) as calendar_events_count
       FROM firms f
       WHERE f.id = $1
     `, [id]);
@@ -943,10 +949,23 @@ router.get('/firms/:id/details', requireSecureAdmin, async (req, res) => {
     }
 
     const usersResult = await query(`
-      SELECT id, email, first_name, last_name, role, is_active, email_verified, last_login_at, created_at
-      FROM users
-      WHERE firm_id = $1
-      ORDER BY created_at DESC
+      SELECT u.id, u.email, u.first_name, u.last_name, u.role, u.is_active, u.email_verified, 
+             u.last_login_at, u.created_at, u.hourly_rate,
+             (SELECT COUNT(*) FROM time_entries WHERE user_id = u.id) as time_entries_count,
+             (SELECT COUNT(*) FROM matters WHERE responsible_attorney_id = u.id OR originating_attorney_id = u.id) as matters_count
+      FROM users u
+      WHERE u.firm_id = $1
+      ORDER BY u.created_at DESC
+    `, [id]);
+    
+    // Get recent activity for this firm
+    const recentActivity = await query(`
+      SELECT 'time_entry' as type, te.id, te.description, te.created_at, u.first_name || ' ' || u.last_name as user_name
+      FROM time_entries te
+      LEFT JOIN users u ON te.user_id = u.id
+      WHERE te.firm_id = $1
+      ORDER BY te.created_at DESC
+      LIMIT 10
     `, [id]);
 
     const f = firmResult.rows[0];
@@ -970,7 +989,13 @@ router.get('/firms/:id/details', requireSecureAdmin, async (req, res) => {
           usersCount: parseInt(f.users_count) || 0,
           activeUsersCount: parseInt(f.active_users_count) || 0,
           mattersCount: parseInt(f.matters_count) || 0,
-          clientsCount: parseInt(f.clients_count) || 0
+          openMattersCount: parseInt(f.open_matters_count) || 0,
+          clientsCount: parseInt(f.clients_count) || 0,
+          documentsCount: parseInt(f.documents_count) || 0,
+          timeEntriesCount: parseInt(f.time_entries_count) || 0,
+          totalHours: parseFloat(f.total_hours) || 0,
+          invoicesCount: parseInt(f.invoices_count) || 0,
+          calendarEventsCount: parseInt(f.calendar_events_count) || 0
         }
       },
       users: usersResult.rows.map(u => ({
@@ -982,8 +1007,12 @@ router.get('/firms/:id/details', requireSecureAdmin, async (req, res) => {
         isActive: u.is_active,
         emailVerified: u.email_verified,
         lastLoginAt: u.last_login_at,
-        createdAt: u.created_at
-      }))
+        createdAt: u.created_at,
+        hourlyRate: u.hourly_rate,
+        timeEntriesCount: parseInt(u.time_entries_count) || 0,
+        mattersCount: parseInt(u.matters_count) || 0
+      })),
+      recentActivity: recentActivity.rows
     });
   } catch (error) {
     console.error('Firm details error:', error);

@@ -135,12 +135,64 @@ interface AccountLookupResult {
   }
 }
 
+interface FirmDetails {
+  firm: {
+    id: string
+    name: string
+    email: string
+    phone: string
+    website: string
+    address: string
+    city: string
+    state: string
+    zipCode: string
+    createdAt: string
+    updatedAt: string
+    stats: {
+      usersCount: number
+      activeUsersCount: number
+      mattersCount: number
+      openMattersCount: number
+      clientsCount: number
+      documentsCount: number
+      timeEntriesCount: number
+      totalHours: number
+      invoicesCount: number
+      calendarEventsCount: number
+    }
+  }
+  users: {
+    id: string
+    email: string
+    firstName: string
+    lastName: string
+    role: string
+    isActive: boolean
+    emailVerified: boolean
+    lastLoginAt: string
+    createdAt: string
+    hourlyRate: number
+    timeEntriesCount: number
+    mattersCount: number
+  }[]
+  recentActivity: {
+    type: string
+    id: string
+    description: string
+    created_at: string
+    user_name: string
+  }[]
+}
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
 const getAuthToken = () => sessionStorage.getItem('_sap_auth') || ''
 
 export default function SecureAdminDashboard() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'quick-onboard' | 'firms' | 'users' | 'account-tools' | 'migration' | 'audit' | 'integrations'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'quick-onboard' | 'firms' | 'firm-detail' | 'users' | 'account-tools' | 'migration' | 'audit' | 'integrations'>('overview')
+  const [selectedFirmId, setSelectedFirmId] = useState<string | null>(null)
+  const [firmDetails, setFirmDetails] = useState<FirmDetails | null>(null)
+  const [loadingFirmDetails, setLoadingFirmDetails] = useState(false)
   const [firms, setFirms] = useState<Firm[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
@@ -490,6 +542,40 @@ export default function SecureAdminDashboard() {
       'Authorization': token ? `Bearer ${token}` : '',
       'X-Admin-Auth': sessionStorage.getItem('_sap_auth') || ''
     }
+  }
+
+  // Load firm details
+  const loadFirmDetails = async (firmId: string) => {
+    setLoadingFirmDetails(true)
+    try {
+      const res = await fetch(`${API_URL}/secure-admin/firms/${firmId}/details`, {
+        headers: getAuthHeaders()
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setFirmDetails(data)
+        setSelectedFirmId(firmId)
+        setActiveTab('firm-detail')
+      } else {
+        showNotification('error', 'Failed to load firm details')
+      }
+    } catch (error) {
+      console.error('Failed to load firm details:', error)
+      showNotification('error', 'Failed to load firm details')
+    }
+    setLoadingFirmDetails(false)
+  }
+
+  // Handle firm click
+  const handleFirmClick = (firm: Firm) => {
+    loadFirmDetails(firm.id)
+  }
+
+  // Go back to firms list
+  const goBackToFirms = () => {
+    setSelectedFirmId(null)
+    setFirmDetails(null)
+    setActiveTab('firms')
   }
 
   const handleLogout = () => {
@@ -1549,13 +1635,22 @@ Password: ${newPass}`
             </button>
             <div className={styles.navDivider} />
             <button 
-              className={`${styles.navItem} ${activeTab === 'firms' ? styles.active : ''}`}
-              onClick={() => setActiveTab('firms')}
+              className={`${styles.navItem} ${activeTab === 'firms' || activeTab === 'firm-detail' ? styles.active : ''}`}
+              onClick={() => { setActiveTab('firms'); setSelectedFirmId(null); setFirmDetails(null); }}
             >
               <Building2 size={18} />
               <span>Firms</span>
               <span className={styles.navBadge}>{firms.length}</span>
             </button>
+            {activeTab === 'firm-detail' && firmDetails && (
+              <button 
+                className={`${styles.navItem} ${styles.subNavItem} ${styles.active}`}
+                onClick={() => {}}
+              >
+                <ChevronRight size={14} style={{ marginLeft: '0.5rem' }} />
+                <span style={{ fontSize: '0.875rem' }}>{firmDetails.firm.name}</span>
+              </button>
+            )}
             <button 
               className={`${styles.navItem} ${activeTab === 'users' ? styles.active : ''}`}
               onClick={() => setActiveTab('users')}
@@ -1598,14 +1693,41 @@ Password: ${newPass}`
             </div>
           ) : (
             <>
-              {/* Overview Tab */}
+              {/* Overview Tab - Command Center */}
               {activeTab === 'overview' && detailedStats && (
                 <div className={styles.overviewTab}>
-                  <h2 className={styles.pageTitle}>Platform Overview</h2>
+                  <div className={styles.commandCenterHeader}>
+                    <div>
+                      <h2 className={styles.pageTitle}>
+                        <Sparkles size={24} style={{ color: '#dc2626' }} />
+                        Command Center
+                      </h2>
+                      <p className={styles.pageSubtitle}>Your platform at a glance</p>
+                    </div>
+                    <div className={styles.quickActions}>
+                      <button 
+                        onClick={() => setActiveTab('quick-onboard')}
+                        className={styles.quickActionBtn}
+                      >
+                        <Zap size={18} />
+                        Onboard Firm
+                      </button>
+                      <button 
+                        onClick={() => setActiveTab('migration')}
+                        className={styles.quickActionBtnSecondary}
+                      >
+                        <Upload size={18} />
+                        Import Data
+                      </button>
+                    </div>
+                  </div>
                   
                   {/* Key Metrics */}
                   <div className={styles.metricsGrid}>
-                    <div className={styles.metricCard}>
+                    <div 
+                      className={`${styles.metricCard} ${styles.clickableMetric}`}
+                      onClick={() => setActiveTab('firms')}
+                    >
                       <div className={styles.metricIcon} style={{ background: 'rgba(59, 130, 246, 0.1)' }}>
                         <Building2 size={24} style={{ color: '#3b82f6' }} />
                       </div>
@@ -1617,8 +1739,12 @@ Password: ${newPass}`
                           +{detailedStats.overview.new_firms_30d} this month
                         </span>
                       </div>
+                      <ChevronRight size={16} className={styles.metricChevron} />
                     </div>
-                    <div className={styles.metricCard}>
+                    <div 
+                      className={`${styles.metricCard} ${styles.clickableMetric}`}
+                      onClick={() => setActiveTab('users')}
+                    >
                       <div className={styles.metricIcon} style={{ background: 'rgba(34, 197, 94, 0.1)' }}>
                         <Users size={24} style={{ color: '#22c55e' }} />
                       </div>
@@ -1630,6 +1756,7 @@ Password: ${newPass}`
                           +{detailedStats.overview.new_users_30d} this month
                         </span>
                       </div>
+                      <ChevronRight size={16} className={styles.metricChevron} />
                     </div>
                     <div className={styles.metricCard}>
                       <div className={styles.metricIcon} style={{ background: 'rgba(251, 191, 36, 0.1)' }}>
@@ -1639,11 +1766,13 @@ Password: ${newPass}`
                         <span className={styles.metricValue}>{detailedStats.overview.active_users}</span>
                         <span className={styles.metricLabel}>Active Users</span>
                         <span className={styles.metricSubtext}>
-                          {detailedStats.overview.active_today} active today
+                          <span className={styles.activeIndicator} /> {detailedStats.overview.active_today} online today
                         </span>
                       </div>
                     </div>
-                    <div className={styles.metricCard}>
+                    <div 
+                      className={`${styles.metricCard} ${parseInt(detailedStats.overview.unverified_users) > 0 ? styles.warningMetric : ''}`}
+                    >
                       <div className={styles.metricIcon} style={{ background: 'rgba(239, 68, 68, 0.1)' }}>
                         <AlertCircle size={24} style={{ color: '#ef4444' }} />
                       </div>
@@ -1657,62 +1786,103 @@ Password: ${newPass}`
                     </div>
                   </div>
 
-                  {/* Secondary Stats */}
-                  <div className={styles.secondaryStats}>
-                    <div className={styles.statItem}>
-                      <Briefcase size={16} />
-                      <span>{detailedStats.overview.total_matters} Matters</span>
-                    </div>
-                    <div className={styles.statItem}>
-                      <Users size={16} />
-                      <span>{detailedStats.overview.total_clients} Clients</span>
-                    </div>
-                    <div className={styles.statItem}>
-                      <Clock size={16} />
-                      <span>{detailedStats.overview.total_time_entries} Time Entries</span>
-                    </div>
-                    <div className={styles.statItem}>
-                      <FileText size={16} />
-                      <span>{detailedStats.overview.total_documents} Documents</span>
+                  {/* Platform Health Bar */}
+                  <div className={styles.platformHealth}>
+                    <h3>📊 Platform Data</h3>
+                    <div className={styles.healthStats}>
+                      <div className={styles.healthStat}>
+                        <Briefcase size={18} />
+                        <div>
+                          <span className={styles.healthValue}>{detailedStats.overview.total_matters}</span>
+                          <span className={styles.healthLabel}>Matters</span>
+                        </div>
+                      </div>
+                      <div className={styles.healthStat}>
+                        <Users size={18} />
+                        <div>
+                          <span className={styles.healthValue}>{detailedStats.overview.total_clients}</span>
+                          <span className={styles.healthLabel}>Clients</span>
+                        </div>
+                      </div>
+                      <div className={styles.healthStat}>
+                        <Clock size={18} />
+                        <div>
+                          <span className={styles.healthValue}>{detailedStats.overview.total_time_entries}</span>
+                          <span className={styles.healthLabel}>Time Entries</span>
+                        </div>
+                      </div>
+                      <div className={styles.healthStat}>
+                        <FileText size={18} />
+                        <div>
+                          <span className={styles.healthValue}>{detailedStats.overview.total_documents}</span>
+                          <span className={styles.healthLabel}>Documents</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Recent Activity */}
+                  {/* Recent Activity Grid */}
                   <div className={styles.recentGrid}>
                     <div className={styles.recentCard}>
-                      <h3>Recent Firms</h3>
+                      <div className={styles.recentCardHeader}>
+                        <h3><Building2 size={18} /> Recent Firms</h3>
+                        <button 
+                          onClick={() => setActiveTab('firms')}
+                          className={styles.viewAllBtn}
+                        >
+                          View all →
+                        </button>
+                      </div>
                       <div className={styles.recentList}>
                         {detailedStats.recentFirms.slice(0, 5).map(firm => (
-                          <div key={firm.id} className={styles.recentItem}>
+                          <div 
+                            key={firm.id} 
+                            className={`${styles.recentItem} ${styles.clickableItem}`}
+                            onClick={() => loadFirmDetails(firm.id)}
+                          >
                             <div className={styles.recentIcon}>
                               <Building2 size={16} />
                             </div>
                             <div className={styles.recentInfo}>
                               <span className={styles.recentName}>{firm.name}</span>
-                              <span className={styles.recentMeta}>{firm.user_count} users</span>
+                              <span className={styles.recentMeta}>
+                                {firm.user_count} {parseInt(firm.user_count) === 1 ? 'user' : 'users'}
+                              </span>
                             </div>
-                            <span className={styles.recentDate}>
-                              {new Date(firm.created_at).toLocaleDateString()}
-                            </span>
+                            <ChevronRight size={14} className={styles.itemChevron} />
                           </div>
                         ))}
                       </div>
                     </div>
                     <div className={styles.recentCard}>
-                      <h3>Recent Users</h3>
+                      <div className={styles.recentCardHeader}>
+                        <h3><Users size={18} /> Recent Users</h3>
+                        <button 
+                          onClick={() => setActiveTab('users')}
+                          className={styles.viewAllBtn}
+                        >
+                          View all →
+                        </button>
+                      </div>
                       <div className={styles.recentList}>
                         {detailedStats.recentUsers.slice(0, 5).map(user => (
-                          <div key={user.id} className={styles.recentItem}>
-                            <div className={styles.recentIcon}>
-                              <Users size={16} />
+                          <div 
+                            key={user.id} 
+                            className={`${styles.recentItem} ${styles.clickableItem}`}
+                            onClick={() => {
+                              setAccountLookup(user.email)
+                              setActiveTab('account-tools')
+                              setTimeout(() => handleAccountLookup(), 100)
+                            }}
+                          >
+                            <div className={styles.userRecentAvatar}>
+                              {user.first_name?.charAt(0)}{user.last_name?.charAt(0)}
                             </div>
                             <div className={styles.recentInfo}>
                               <span className={styles.recentName}>{user.first_name} {user.last_name}</span>
                               <span className={styles.recentMeta}>{user.firm_name || 'No firm'}</span>
                             </div>
-                            <span className={styles.recentDate}>
-                              {new Date(user.created_at).toLocaleDateString()}
-                            </span>
+                            <ChevronRight size={14} className={styles.itemChevron} />
                           </div>
                         ))}
                       </div>
@@ -1721,13 +1891,22 @@ Password: ${newPass}`
 
                   {/* Top Firms */}
                   <div className={styles.topFirmsCard}>
-                    <h3>Top Firms by User Count</h3>
+                    <div className={styles.recentCardHeader}>
+                      <h3>🏆 Top Firms by Team Size</h3>
+                    </div>
                     <div className={styles.topFirmsList}>
                       {detailedStats.topFirms.slice(0, 5).map((firm, index) => (
-                        <div key={firm.id} className={styles.topFirmItem}>
-                          <span className={styles.topFirmRank}>#{index + 1}</span>
+                        <div 
+                          key={firm.id} 
+                          className={`${styles.topFirmItem} ${styles.clickableItem}`}
+                          onClick={() => loadFirmDetails(firm.id)}
+                        >
+                          <span className={`${styles.topFirmRank} ${index < 3 ? styles[`rank${index + 1}`] : ''}`}>
+                            {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
+                          </span>
                           <span className={styles.topFirmName}>{firm.name}</span>
                           <span className={styles.topFirmCount}>{firm.user_count} users</span>
+                          <ChevronRight size={14} className={styles.itemChevron} />
                         </div>
                       ))}
                     </div>
@@ -2155,18 +2334,31 @@ Password: ${newPass}`
                       </thead>
                       <tbody>
                         {filteredFirms.map(firm => (
-                          <tr key={firm.id}>
-                            <td className={styles.firmName}>{firm.name}</td>
+                          <tr 
+                            key={firm.id} 
+                            className={styles.clickableRow}
+                            onClick={() => handleFirmClick(firm)}
+                          >
+                            <td className={styles.firmName}>
+                              <div className={styles.firmNameCell}>
+                                <span>{firm.name}</span>
+                                <ChevronRight size={14} className={styles.rowChevron} />
+                              </div>
+                            </td>
                             <td>{firm.domain || '—'}</td>
                             <td>
                               <span className={`${styles.badge} ${styles[firm.status || 'active']}`}>
                                 {firm.status || 'active'}
                               </span>
                             </td>
-                            <td>{firm.users_count || 0}</td>
+                            <td>
+                              <span className={styles.userCountBadge}>
+                                {firm.users_count || 0}
+                              </span>
+                            </td>
                             <td>{firm.subscription_tier || 'Professional'}</td>
                             <td>{new Date(firm.created_at).toLocaleDateString()}</td>
-                            <td className={styles.actions}>
+                            <td className={styles.actions} onClick={(e) => e.stopPropagation()}>
                               <button 
                                 onClick={() => { setEditingFirm(firm); setShowFirmModal(true) }}
                                 className={styles.editBtn}
@@ -2213,6 +2405,261 @@ Password: ${newPass}`
                     </table>
                     {filteredFirms.length === 0 && (
                       <div className={styles.emptyState}>No firms found</div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Firm Detail View */}
+              {activeTab === 'firm-detail' && firmDetails && (
+                <div className={styles.firmDetailView}>
+                  {/* Header with back button */}
+                  <div className={styles.firmDetailHeader}>
+                    <button onClick={goBackToFirms} className={styles.backButton}>
+                      <ChevronRight size={18} style={{ transform: 'rotate(180deg)' }} />
+                      Back to Firms
+                    </button>
+                    <div className={styles.firmDetailActions}>
+                      <button 
+                        onClick={() => { 
+                          const firm = firms.find(f => f.id === selectedFirmId)
+                          if (firm) { setEditingFirm(firm); setShowFirmModal(true) }
+                        }}
+                        className={styles.secondaryBtn}
+                      >
+                        <Edit2 size={16} />
+                        Edit Firm
+                      </button>
+                      <button 
+                        onClick={() => { setEditingUser(null); setShowUserModal(true) }}
+                        className={styles.addBtn}
+                      >
+                        <UserPlus size={16} />
+                        Add User
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Firm Info Card */}
+                  <div className={styles.firmInfoCard}>
+                    <div className={styles.firmInfoHeader}>
+                      <div className={styles.firmAvatar}>
+                        <Building2 size={32} />
+                      </div>
+                      <div className={styles.firmInfoMain}>
+                        <h1 className={styles.firmDetailName}>{firmDetails.firm.name}</h1>
+                        <div className={styles.firmMeta}>
+                          {firmDetails.firm.email && (
+                            <span><Mail size={14} /> {firmDetails.firm.email}</span>
+                          )}
+                          {firmDetails.firm.phone && (
+                            <span>📞 {firmDetails.firm.phone}</span>
+                          )}
+                          {firmDetails.firm.website && (
+                            <span><ExternalLink size={14} /> {firmDetails.firm.website}</span>
+                          )}
+                        </div>
+                        <div className={styles.firmCreatedAt}>
+                          Created {new Date(firmDetails.firm.createdAt).toLocaleDateString('en-US', { 
+                            year: 'numeric', month: 'long', day: 'numeric' 
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Stats Grid */}
+                    <div className={styles.firmStatsGrid}>
+                      <div className={styles.firmStatCard}>
+                        <div className={styles.firmStatIcon} style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
+                          <Users size={20} />
+                        </div>
+                        <div className={styles.firmStatContent}>
+                          <span className={styles.firmStatValue}>{firmDetails.firm.stats.usersCount}</span>
+                          <span className={styles.firmStatLabel}>Users</span>
+                          <span className={styles.firmStatSub}>{firmDetails.firm.stats.activeUsersCount} active</span>
+                        </div>
+                      </div>
+                      <div className={styles.firmStatCard}>
+                        <div className={styles.firmStatIcon} style={{ background: 'rgba(34, 197, 94, 0.1)', color: '#22c55e' }}>
+                          <Briefcase size={20} />
+                        </div>
+                        <div className={styles.firmStatContent}>
+                          <span className={styles.firmStatValue}>{firmDetails.firm.stats.mattersCount}</span>
+                          <span className={styles.firmStatLabel}>Matters</span>
+                          <span className={styles.firmStatSub}>{firmDetails.firm.stats.openMattersCount} open</span>
+                        </div>
+                      </div>
+                      <div className={styles.firmStatCard}>
+                        <div className={styles.firmStatIcon} style={{ background: 'rgba(251, 191, 36, 0.1)', color: '#fbbf24' }}>
+                          <Users size={20} />
+                        </div>
+                        <div className={styles.firmStatContent}>
+                          <span className={styles.firmStatValue}>{firmDetails.firm.stats.clientsCount}</span>
+                          <span className={styles.firmStatLabel}>Clients</span>
+                        </div>
+                      </div>
+                      <div className={styles.firmStatCard}>
+                        <div className={styles.firmStatIcon} style={{ background: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6' }}>
+                          <FileText size={20} />
+                        </div>
+                        <div className={styles.firmStatContent}>
+                          <span className={styles.firmStatValue}>{firmDetails.firm.stats.documentsCount}</span>
+                          <span className={styles.firmStatLabel}>Documents</span>
+                        </div>
+                      </div>
+                      <div className={styles.firmStatCard}>
+                        <div className={styles.firmStatIcon} style={{ background: 'rgba(236, 72, 153, 0.1)', color: '#ec4899' }}>
+                          <Clock size={20} />
+                        </div>
+                        <div className={styles.firmStatContent}>
+                          <span className={styles.firmStatValue}>{firmDetails.firm.stats.totalHours.toFixed(1)}</span>
+                          <span className={styles.firmStatLabel}>Hours Logged</span>
+                          <span className={styles.firmStatSub}>{firmDetails.firm.stats.timeEntriesCount} entries</span>
+                        </div>
+                      </div>
+                      <div className={styles.firmStatCard}>
+                        <div className={styles.firmStatIcon} style={{ background: 'rgba(99, 102, 241, 0.1)', color: '#6366f1' }}>
+                          <Activity size={20} />
+                        </div>
+                        <div className={styles.firmStatContent}>
+                          <span className={styles.firmStatValue}>{firmDetails.firm.stats.calendarEventsCount}</span>
+                          <span className={styles.firmStatLabel}>Calendar Events</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Users Section */}
+                  <div className={styles.firmUsersSection}>
+                    <div className={styles.sectionHeaderBar}>
+                      <h2><Users size={20} /> Team Members ({firmDetails.users.length})</h2>
+                      <button 
+                        onClick={async () => {
+                          showNotification('success', `Scanning documents for ${firmDetails.firm.name}...`)
+                          try {
+                            const res = await fetch(`${API_URL}/secure-admin/firms/${selectedFirmId}/scan-documents`, {
+                              method: 'POST',
+                              headers: getAuthHeaders()
+                            })
+                            const result = await res.json()
+                            if (result.success) {
+                              showNotification('success', result.message)
+                              loadFirmDetails(selectedFirmId!)
+                            } else {
+                              showNotification('error', result.error || 'Scan failed')
+                            }
+                          } catch (err) {
+                            showNotification('error', 'Failed to scan documents')
+                          }
+                        }}
+                        className={styles.secondaryBtn}
+                      >
+                        <RefreshCw size={16} />
+                        Scan Documents
+                      </button>
+                    </div>
+
+                    {firmDetails.users.length === 0 ? (
+                      <div className={styles.emptyUsersState}>
+                        <Users size={48} />
+                        <h3>No users yet</h3>
+                        <p>Add the first team member to this firm</p>
+                        <button 
+                          onClick={() => { setEditingUser(null); setShowUserModal(true) }}
+                          className={styles.addBtn}
+                        >
+                          <UserPlus size={16} />
+                          Add User
+                        </button>
+                      </div>
+                    ) : (
+                      <div className={styles.userCardsGrid}>
+                        {firmDetails.users.map(user => (
+                          <div key={user.id} className={styles.userCard}>
+                            <div className={styles.userCardHeader}>
+                              <div className={styles.userCardAvatar}>
+                                {user.firstName.charAt(0)}{user.lastName.charAt(0)}
+                              </div>
+                              <div className={styles.userCardInfo}>
+                                <span className={styles.userCardName}>
+                                  {user.firstName} {user.lastName}
+                                </span>
+                                <span className={styles.userCardEmail}>{user.email}</span>
+                              </div>
+                              <div className={styles.userCardBadges}>
+                                <span className={`${styles.roleBadge} ${styles[user.role]}`}>
+                                  {user.role}
+                                </span>
+                                <span className={`${styles.statusDot} ${user.isActive ? styles.active : styles.inactive}`} 
+                                  title={user.isActive ? 'Active' : 'Inactive'} />
+                              </div>
+                            </div>
+                            <div className={styles.userCardStats}>
+                              <div className={styles.userCardStat}>
+                                <Briefcase size={14} />
+                                <span>{user.mattersCount} matters</span>
+                              </div>
+                              <div className={styles.userCardStat}>
+                                <Clock size={14} />
+                                <span>{user.timeEntriesCount} time entries</span>
+                              </div>
+                              {user.hourlyRate && (
+                                <div className={styles.userCardStat}>
+                                  <span style={{ fontSize: '14px' }}>💰</span>
+                                  <span>${user.hourlyRate}/hr</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className={styles.userCardMeta}>
+                              {user.lastLoginAt ? (
+                                <span>Last login: {new Date(user.lastLoginAt).toLocaleDateString()}</span>
+                              ) : (
+                                <span className={styles.neverLoggedIn}>Never logged in</span>
+                              )}
+                              {!user.emailVerified && (
+                                <span className={styles.unverifiedBadge}>
+                                  <AlertCircle size={12} /> Unverified
+                                </span>
+                              )}
+                            </div>
+                            <div className={styles.userCardActions}>
+                              <button 
+                                onClick={() => { 
+                                  setAccountLookup(user.email)
+                                  setActiveTab('account-tools')
+                                  setTimeout(() => handleAccountLookup(), 100)
+                                }}
+                                className={styles.userCardBtn}
+                                title="Account Tools"
+                              >
+                                <Settings size={14} />
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  // Reset password for this user
+                                  const userObj = users.find(u => u.id === user.id)
+                                  if (userObj) resetPasswordAndCopy(userObj)
+                                }}
+                                className={styles.userCardBtn}
+                                title="Reset Password"
+                                style={{ background: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6' }}
+                              >
+                                <Key size={14} />
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  const userObj = users.find(u => u.id === user.id)
+                                  if (userObj) { setEditingUser(userObj); setShowUserModal(true) }
+                                }}
+                                className={styles.userCardBtn}
+                                title="Edit User"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -4132,7 +4579,14 @@ Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
         <UserModal
           user={editingUser}
           firms={firms}
-          onSave={handleSaveUser}
+          defaultFirmId={selectedFirmId}
+          onSave={async (data) => {
+            await handleSaveUser(data)
+            // Refresh firm details if we're on firm detail view
+            if (selectedFirmId && activeTab === 'firm-detail') {
+              loadFirmDetails(selectedFirmId)
+            }
+          }}
           onClose={() => { setShowUserModal(false); setEditingUser(null) }}
         />
       )}
@@ -4284,11 +4738,13 @@ function FirmModal({
 function UserModal({ 
   user, 
   firms,
+  defaultFirmId,
   onSave, 
   onClose 
 }: { 
   user: User | null
   firms: Firm[]
+  defaultFirmId?: string | null
   onSave: (data: Partial<User> & { password?: string }) => void
   onClose: () => void 
 }) {
@@ -4297,7 +4753,7 @@ function UserModal({
     first_name: user?.first_name || '',
     last_name: user?.last_name || '',
     role: user?.role || 'attorney',
-    firm_id: user?.firm_id || '',
+    firm_id: user?.firm_id || defaultFirmId || '',
     status: user?.status || 'active',
     password: ''
   })
