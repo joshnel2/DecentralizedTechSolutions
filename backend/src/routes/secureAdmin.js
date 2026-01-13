@@ -928,47 +928,59 @@ router.get('/firms/:id/details', requireSecureAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const firmResult = await query(`
-      SELECT f.*,
-             (SELECT COUNT(*) FROM users WHERE firm_id = f.id) as users_count,
-             (SELECT COUNT(*) FROM users WHERE firm_id = f.id AND is_active = true) as active_users_count,
-             (SELECT COUNT(*) FROM matters WHERE firm_id = f.id) as matters_count,
-             (SELECT COUNT(*) FROM matters WHERE firm_id = f.id AND status = 'open') as open_matters_count,
-             (SELECT COUNT(*) FROM clients WHERE firm_id = f.id) as clients_count,
-             (SELECT COUNT(*) FROM documents WHERE firm_id = f.id) as documents_count,
-             (SELECT COUNT(*) FROM time_entries WHERE firm_id = f.id) as time_entries_count,
-             (SELECT COALESCE(SUM(EXTRACT(EPOCH FROM duration)/3600), 0) FROM time_entries WHERE firm_id = f.id) as total_hours,
-             (SELECT COUNT(*) FROM invoices WHERE firm_id = f.id) as invoices_count,
-             (SELECT COUNT(*) FROM calendar_events WHERE firm_id = f.id) as calendar_events_count
-      FROM firms f
-      WHERE f.id = $1
-    `, [id]);
+    // Get basic firm info first
+    const firmResult = await query(`SELECT * FROM firms WHERE id = $1`, [id]);
 
     if (firmResult.rows.length === 0) {
       return res.status(404).json({ error: 'Firm not found' });
     }
 
+    const f = firmResult.rows[0];
+
+    // Get counts separately to avoid complex subquery issues
+    const [usersCount, activeUsersCount, mattersCount, openMattersCount, clientsCount, documentsCount, timeEntriesCount, totalHoursResult, invoicesCount, calendarCount] = await Promise.all([
+      query(`SELECT COUNT(*) as count FROM users WHERE firm_id = $1`, [id]),
+      query(`SELECT COUNT(*) as count FROM users WHERE firm_id = $1 AND is_active = true`, [id]),
+      query(`SELECT COUNT(*) as count FROM matters WHERE firm_id = $1`, [id]),
+      query(`SELECT COUNT(*) as count FROM matters WHERE firm_id = $1 AND status = 'open'`, [id]),
+      query(`SELECT COUNT(*) as count FROM clients WHERE firm_id = $1`, [id]),
+      query(`SELECT COUNT(*) as count FROM documents WHERE firm_id = $1`, [id]),
+      query(`SELECT COUNT(*) as count FROM time_entries WHERE firm_id = $1`, [id]),
+      query(`SELECT COALESCE(SUM(EXTRACT(EPOCH FROM duration)/3600), 0) as hours FROM time_entries WHERE firm_id = $1`, [id]),
+      query(`SELECT COUNT(*) as count FROM invoices WHERE firm_id = $1`, [id]),
+      query(`SELECT COUNT(*) as count FROM calendar_events WHERE firm_id = $1`, [id])
+    ]);
+
+    // Get users with their stats
     const usersResult = await query(`
       SELECT u.id, u.email, u.first_name, u.last_name, u.role, u.is_active, u.email_verified, 
-             u.last_login_at, u.created_at, u.hourly_rate,
-             (SELECT COUNT(*) FROM time_entries WHERE user_id = u.id) as time_entries_count,
-             (SELECT COUNT(*) FROM matters WHERE responsible_attorney_id = u.id OR originating_attorney_id = u.id) as matters_count
+             u.last_login_at, u.created_at, u.hourly_rate
       FROM users u
       WHERE u.firm_id = $1
       ORDER BY u.created_at DESC
     `, [id]);
-    
-    // Get recent activity for this firm
-    const recentActivity = await query(`
-      SELECT 'time_entry' as type, te.id, te.description, te.created_at, u.first_name || ' ' || u.last_name as user_name
-      FROM time_entries te
-      LEFT JOIN users u ON te.user_id = u.id
-      WHERE te.firm_id = $1
-      ORDER BY te.created_at DESC
-      LIMIT 10
-    `, [id]);
 
-    const f = firmResult.rows[0];
+    // Get user stats separately
+    const usersWithStats = await Promise.all(usersResult.rows.map(async (u) => {
+      const [timeEntries, matters] = await Promise.all([
+        query(`SELECT COUNT(*) as count FROM time_entries WHERE user_id = $1`, [u.id]),
+        query(`SELECT COUNT(*) as count FROM matters WHERE responsible_attorney = $1 OR originating_attorney = $1`, [u.id])
+      ]);
+      return {
+        id: u.id,
+        email: u.email,
+        firstName: u.first_name,
+        lastName: u.last_name,
+        role: u.role,
+        isActive: u.is_active,
+        emailVerified: u.email_verified,
+        lastLoginAt: u.last_login_at,
+        createdAt: u.created_at,
+        hourlyRate: u.hourly_rate,
+        timeEntriesCount: parseInt(timeEntries.rows[0]?.count) || 0,
+        mattersCount: parseInt(matters.rows[0]?.count) || 0
+      };
+    }));
 
     logAudit('VIEW_FIRM_DETAILS', `Viewed details for firm: ${f.name}`, req.ip);
 
@@ -986,33 +998,20 @@ router.get('/firms/:id/details', requireSecureAdmin, async (req, res) => {
         createdAt: f.created_at,
         updatedAt: f.updated_at,
         stats: {
-          usersCount: parseInt(f.users_count) || 0,
-          activeUsersCount: parseInt(f.active_users_count) || 0,
-          mattersCount: parseInt(f.matters_count) || 0,
-          openMattersCount: parseInt(f.open_matters_count) || 0,
-          clientsCount: parseInt(f.clients_count) || 0,
-          documentsCount: parseInt(f.documents_count) || 0,
-          timeEntriesCount: parseInt(f.time_entries_count) || 0,
-          totalHours: parseFloat(f.total_hours) || 0,
-          invoicesCount: parseInt(f.invoices_count) || 0,
-          calendarEventsCount: parseInt(f.calendar_events_count) || 0
+          usersCount: parseInt(usersCount.rows[0]?.count) || 0,
+          activeUsersCount: parseInt(activeUsersCount.rows[0]?.count) || 0,
+          mattersCount: parseInt(mattersCount.rows[0]?.count) || 0,
+          openMattersCount: parseInt(openMattersCount.rows[0]?.count) || 0,
+          clientsCount: parseInt(clientsCount.rows[0]?.count) || 0,
+          documentsCount: parseInt(documentsCount.rows[0]?.count) || 0,
+          timeEntriesCount: parseInt(timeEntriesCount.rows[0]?.count) || 0,
+          totalHours: parseFloat(totalHoursResult.rows[0]?.hours) || 0,
+          invoicesCount: parseInt(invoicesCount.rows[0]?.count) || 0,
+          calendarEventsCount: parseInt(calendarCount.rows[0]?.count) || 0
         }
       },
-      users: usersResult.rows.map(u => ({
-        id: u.id,
-        email: u.email,
-        firstName: u.first_name,
-        lastName: u.last_name,
-        role: u.role,
-        isActive: u.is_active,
-        emailVerified: u.email_verified,
-        lastLoginAt: u.last_login_at,
-        createdAt: u.created_at,
-        hourlyRate: u.hourly_rate,
-        timeEntriesCount: parseInt(u.time_entries_count) || 0,
-        mattersCount: parseInt(u.matters_count) || 0
-      })),
-      recentActivity: recentActivity.rows
+      users: usersWithStats,
+      recentActivity: []
     });
   } catch (error) {
     console.error('Firm details error:', error);
