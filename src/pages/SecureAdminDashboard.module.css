@@ -226,6 +226,14 @@
   color: #f87171;
 }
 
+.subNavItem {
+  padding-left: 1.5rem !important;
+  font-size: 0.875rem;
+  background: rgba(220, 38, 38, 0.08) !important;
+  border-left: 2px solid #dc2626;
+  margin-left: 0.5rem;
+}
+
 .navDivider {
   height: 1px;
   background: rgba(255, 255, 255, 0.1);
@@ -2873,5 +2881,1011 @@
   .primaryBtn, .secondaryBtn {
     width: 100%;
     justify-content: center;
+  }
+}
+
+/* ============================================
+   FIRM DETAIL VIEW STYLES
+   ============================================ */
+
+.firmDetailView {
+  max-width: 1400px;
+}
+
+.firmDetailHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.backButton {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #9ca3af;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.backButton:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.firmDetailActions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.firmInfoCard {
+  background: linear-gradient(135deg, rgba(20, 20, 30, 0.95) 0%, rgba(30, 30, 45, 0.95) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 2rem;
+  margin-bottom: 2rem;
+}
+
+.firmInfoHeader {
+  display: flex;
+  gap: 1.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 1.5rem;
+}
+
+.firmAvatar {
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  border-radius: 16px;
+  color: white;
+  flex-shrink: 0;
+}
+
+.firmInfoMain {
+  flex: 1;
+}
+
+.firmDetailName {
+  margin: 0 0 0.5rem;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.firmMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.firmMeta span {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.9375rem;
+  color: #9ca3af;
+}
+
+.firmMeta svg {
+  color: #6b7280;
+}
+
+.firmCreatedAt {
+  font-size: 0.8125rem;
+  color: #6b7280;
+}
+
+.firmStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 1rem;
+}
+
+.firmStatCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.875rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+
+.firmStatCard:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.firmStatIcon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.firmStatContent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.firmStatValue {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+.firmStatLabel {
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.firmStatSub {
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
+/* Users Section in Firm Detail */
+.firmUsersSection {
+  background: rgba(20, 20, 30, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 1.5rem;
+}
+
+.sectionHeaderBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sectionHeaderBar h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.sectionHeaderBar h2 svg {
+  color: #dc2626;
+}
+
+.emptyUsersState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  text-align: center;
+  color: #6b7280;
+}
+
+.emptyUsersState svg {
+  margin-bottom: 1rem;
+  opacity: 0.4;
+}
+
+.emptyUsersState h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.125rem;
+  color: #9ca3af;
+}
+
+.emptyUsersState p {
+  margin: 0 0 1.5rem;
+}
+
+.userCardsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.userCard {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 1.25rem;
+  transition: all 0.2s ease;
+}
+
+.userCard:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.userCardHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.userCardAvatar {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: white;
+  flex-shrink: 0;
+}
+
+.userCardInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.userCardName {
+  display: block;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 0.125rem;
+}
+
+.userCardEmail {
+  display: block;
+  font-size: 0.8125rem;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.userCardBadges {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.statusDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.statusDot.active {
+  background: #22c55e;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+}
+
+.statusDot.inactive {
+  background: #6b7280;
+}
+
+.userCardStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.userCardStat {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  color: #9ca3af;
+}
+
+.userCardStat svg {
+  color: #6b7280;
+}
+
+.userCardMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.neverLoggedIn {
+  color: #f59e0b;
+}
+
+.unverifiedBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: 4px;
+  color: #ef4444;
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.userCardActions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.userCardBtn {
+  padding: 0.5rem 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #9ca3af;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.userCardBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+/* Clickable Table Rows */
+.clickableRow {
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.clickableRow:hover {
+  background: rgba(220, 38, 38, 0.05) !important;
+}
+
+.clickableRow:hover .rowChevron {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
+.firmNameCell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rowChevron {
+  color: #dc2626;
+  opacity: 0;
+  transition: all 0.15s ease;
+}
+
+.userCountBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 0.5rem;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #3b82f6;
+}
+
+/* ============================================
+   COMMAND CENTER OVERVIEW STYLES
+   ============================================ */
+
+.commandCenterHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 2rem;
+}
+
+.quickActions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.quickActionBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quickActionBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(220, 38, 38, 0.35);
+}
+
+.quickActionBtnSecondary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  color: #e5e7eb;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quickActionBtnSecondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.clickableMetric {
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.clickableMetric:hover {
+  transform: translateY(-2px);
+  border-color: rgba(220, 38, 38, 0.3);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.clickableMetric:hover .metricChevron {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
+.metricChevron {
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #dc2626;
+  opacity: 0;
+  transition: all 0.2s ease;
+}
+
+.warningMetric {
+  border-color: rgba(239, 68, 68, 0.3);
+  animation: pulseWarning 2s infinite;
+}
+
+@keyframes pulseWarning {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.1); }
+}
+
+.activeIndicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: #22c55e;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Platform Health Bar */
+.platformHealth {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  padding: 1.25rem 1.5rem;
+  background: linear-gradient(135deg, rgba(20, 20, 30, 0.95) 0%, rgba(30, 30, 45, 0.8) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  margin-bottom: 2rem;
+}
+
+.platformHealth h3 {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.healthStats {
+  display: flex;
+  gap: 2.5rem;
+  flex: 1;
+}
+
+.healthStat {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.healthStat svg {
+  color: #dc2626;
+}
+
+.healthStat > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.healthValue {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+.healthLabel {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+/* Recent Card Improvements */
+.recentCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.recentCardHeader h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.recentCardHeader h3 svg {
+  color: #dc2626;
+}
+
+.viewAllBtn {
+  padding: 0.375rem 0.75rem;
+  background: none;
+  border: none;
+  color: #dc2626;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.viewAllBtn:hover {
+  color: #ef4444;
+}
+
+.clickableItem {
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.clickableItem:hover {
+  background: rgba(220, 38, 38, 0.05);
+  padding-left: 1rem;
+}
+
+.clickableItem:hover .itemChevron {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
+.itemChevron {
+  color: #dc2626;
+  opacity: 0;
+  margin-left: auto;
+  transition: all 0.15s ease;
+}
+
+.userRecentAvatar {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: white;
+  flex-shrink: 0;
+}
+
+/* Top Firms Improvements */
+.rank1 {
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%) !important;
+  color: #000 !important;
+}
+
+.rank2 {
+  background: linear-gradient(135deg, #9ca3af 0%, #6b7280 100%) !important;
+  color: #fff !important;
+}
+
+.rank3 {
+  background: linear-gradient(135deg, #d97706 0%, #b45309 100%) !important;
+  color: #fff !important;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 1200px) {
+  .firmStatsGrid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .healthStats {
+    flex-wrap: wrap;
+    gap: 1.5rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .firmDetailHeader {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: stretch;
+  }
+  
+  .firmDetailActions {
+    width: 100%;
+  }
+  
+  .firmDetailActions button {
+    flex: 1;
+  }
+  
+  .firmInfoHeader {
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .firmAvatar {
+    margin: 0 auto;
+  }
+  
+  .firmMeta {
+    justify-content: center;
+  }
+  
+  .firmStatsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .userCardsGrid {
+    grid-template-columns: 1fr;
+  }
+  
+  .commandCenterHeader {
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  .quickActions {
+    width: 100%;
+  }
+  
+  .quickActions button {
+    flex: 1;
+    justify-content: center;
+  }
+  
+  .platformHealth {
+    flex-direction: column;
+    gap: 1rem;
+    text-align: center;
+  }
+  
+  .healthStats {
+    justify-content: center;
+  }
+}
+
+/* ============================================
+   MIGRATION COMPLETION STYLES
+   ============================================ */
+
+.migrationCompleteContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.migrationSuccessBanner {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1.5rem 2rem;
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+  border-radius: 16px;
+  color: white;
+}
+
+.successIcon {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 16px;
+  flex-shrink: 0;
+}
+
+.successContent h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.successContent p {
+  margin: 0;
+  opacity: 0.9;
+  font-size: 1rem;
+}
+
+.migrationStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.75rem;
+}
+
+.migrationStatItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 1rem 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.migrationStatItem svg {
+  color: #dc2626;
+}
+
+.statNumber {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1;
+}
+
+.statLabel {
+  font-size: 0.6875rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.migrationActionsRow {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  padding: 1rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Document Migration Card */
+.documentMigrationCard {
+  background: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 16px;
+  padding: 1.5rem;
+}
+
+.docMigrationHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+.docMigrationTitle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.875rem;
+}
+
+.docMigrationTitle svg {
+  color: #3b82f6;
+  margin-top: 0.125rem;
+}
+
+.docMigrationTitle h4 {
+  margin: 0 0 0.25rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.docMigrationTitle p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #9ca3af;
+}
+
+.docMigrationBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  background: rgba(251, 191, 36, 0.15);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #fbbf24;
+}
+
+.docMigrationSteps {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.docStep {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.docStepNumber {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 50%;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #3b82f6;
+  flex-shrink: 0;
+}
+
+.docStepContent {
+  flex: 1;
+}
+
+.docStepContent strong {
+  display: block;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #e5e7eb;
+  margin-bottom: 0.25rem;
+}
+
+.docStepContent p {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #9ca3af;
+  line-height: 1.5;
+}
+
+.docStepContent code {
+  background: rgba(59, 130, 246, 0.15);
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: #60a5fa;
+}
+
+.scanDocumentsBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.875rem 1.5rem;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.scanDocumentsBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.35);
+}
+
+.docMigrationNote {
+  margin: 1rem 0 0;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  color: #9ca3af;
+  text-align: center;
+}
+
+.docMigrationNote strong {
+  color: #e5e7eb;
+}
+
+.noNewUsersNote {
+  padding: 1rem 1.25rem;
+  background: rgba(100, 100, 100, 0.1);
+  border-radius: 12px;
+}
+
+.noNewUsersNote p {
+  color: #9ca3af;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.noNewUsersNote p:not(:last-child) {
+  margin-bottom: 0.75rem;
+}
+
+.noNewUsersNote strong {
+  color: #e5e7eb;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .migrationStatsGrid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .migrationActionsRow {
+    flex-direction: column;
+  }
+  
+  .migrationActionsRow button {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .docMigrationHeader {
+    flex-direction: column;
+    gap: 0.75rem;
   }
 }
