@@ -2615,12 +2615,12 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
       includeBills = true, 
       includeCalendar = true,
       filterByUser = false,
-      filterUserEmail = null
+      filterUserEmails = null
     } = req.body;
     
     console.log('[CLIO IMPORT] Starting import for connection:', connectionId, 'firmName:', firmName);
     console.log('[CLIO IMPORT] Include options:', { includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar });
-    console.log('[CLIO IMPORT] User filter:', { filterByUser, filterUserEmail });
+    console.log('[CLIO IMPORT] User filter:', { filterByUser, filterUserEmails });
     
     if (!connectionId) {
       console.error('[CLIO IMPORT] No connection ID provided');
@@ -2644,7 +2644,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
     }
     
     // Store options for background process
-    const importOptions = { existingFirmId, includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar, filterByUser, filterUserEmail };
+    const importOptions = { existingFirmId, includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar, filterByUser, filterUserEmails };
     
     // Initialize progress
     migrationProgress.set(connectionId, {
@@ -2750,40 +2750,65 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         }
         
         // ============================================
-        // USER-SPECIFIC MIGRATION: Find Clio user ID by email
+        // USER-SPECIFIC MIGRATION: Find Clio user IDs by emails
         // ============================================
-        let filterClioUserId = null;
-        if (filterByUser && filterUserEmail) {
-          console.log(`[CLIO IMPORT] User-specific migration enabled. Finding Clio user with email: ${filterUserEmail}`);
-          addLog(`🔍 Looking up Clio user: ${filterUserEmail}`);
+        let filterClioUserIds = [];
+        if (filterByUser && filterUserEmails) {
+          // Parse emails - support comma-separated and newline-separated
+          const emailList = filterUserEmails
+            .split(/[,\n]/)
+            .map(e => e.trim().toLowerCase())
+            .filter(e => e && e.includes('@'));
+          
+          console.log(`[CLIO IMPORT] User-specific migration enabled. Finding ${emailList.length} Clio users`);
+          addLog(`🔍 Looking up ${emailList.length} Clio user(s): ${emailList.join(', ')}`);
           
           try {
-            // Fetch all users from Clio to find the one with matching email
+            // Fetch all users from Clio to find matching ones
             const allClioUsers = await clioGetAll(accessToken, '/users.json', {
               fields: 'id,name,email'
             }, null);
             
-            const matchingUser = allClioUsers.find(u => 
-              u.email && u.email.toLowerCase() === filterUserEmail.toLowerCase()
-            );
+            const foundUsers = [];
+            const notFoundEmails = [];
             
-            if (matchingUser) {
-              filterClioUserId = matchingUser.id;
-              console.log(`[CLIO IMPORT] Found Clio user: ${matchingUser.name} (ID: ${filterClioUserId})`);
-              addLog(`✅ Found Clio user: ${matchingUser.name} (ID: ${filterClioUserId})`);
-              addLog(`📋 Will only import matters where this user is the responsible attorney`);
-            } else {
-              console.log(`[CLIO IMPORT] WARNING: No Clio user found with email: ${filterUserEmail}`);
-              addLog(`⚠️ No Clio user found with email: ${filterUserEmail}`);
-              addLog(`Proceeding with full import (no user filter applied)`);
-              warnings.push(`User-specific filter requested but no user found with email: ${filterUserEmail}. Importing all data.`);
+            for (const email of emailList) {
+              const matchingUser = allClioUsers.find(u => 
+                u.email && u.email.toLowerCase() === email
+              );
+              
+              if (matchingUser) {
+                filterClioUserIds.push(matchingUser.id);
+                foundUsers.push({ email, name: matchingUser.name, id: matchingUser.id });
+              } else {
+                notFoundEmails.push(email);
+              }
+            }
+            
+            if (foundUsers.length > 0) {
+              console.log(`[CLIO IMPORT] Found ${foundUsers.length} Clio users:`, foundUsers.map(u => u.name));
+              addLog(`✅ Found ${foundUsers.length} Clio user(s):`);
+              foundUsers.forEach(u => addLog(`   • ${u.name} (${u.email})`));
+              addLog(`📋 Will only import matters where these users are the responsible attorney`);
+            }
+            
+            if (notFoundEmails.length > 0) {
+              console.log(`[CLIO IMPORT] WARNING: ${notFoundEmails.length} emails not found:`, notFoundEmails);
+              addLog(`⚠️ ${notFoundEmails.length} email(s) not found in Clio: ${notFoundEmails.join(', ')}`);
+              warnings.push(`Some users not found in Clio: ${notFoundEmails.join(', ')}`);
+            }
+            
+            if (filterClioUserIds.length === 0) {
+              addLog(`⚠️ No matching users found. Proceeding with full import.`);
+              warnings.push(`No matching users found for filter. Importing all data.`);
             }
           } catch (err) {
-            console.error(`[CLIO IMPORT] Error looking up filter user: ${err.message}`);
-            addLog(`⚠️ Error looking up user: ${err.message}. Proceeding with full import.`);
-            warnings.push(`Could not look up filter user: ${err.message}`);
+            console.error(`[CLIO IMPORT] Error looking up filter users: ${err.message}`);
+            addLog(`⚠️ Error looking up users: ${err.message}. Proceeding with full import.`);
+            warnings.push(`Could not look up filter users: ${err.message}`);
           }
         }
+        
         
         // Track client IDs for contact filtering (populated during matters import)
         const filterClientClioIds = new Set();
@@ -2900,10 +2925,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             
             // If user-specific filter is active, only import that single user
             let filteredUsers = users;
-            if (filterClioUserId) {
-              filteredUsers = users.filter(u => u.id === filterClioUserId);
-              console.log(`[CLIO IMPORT] User filter applied: importing only 1 user (${filterUserEmail})`);
-              addLog(`👤 Importing only 1 user: ${filterUserEmail}`);
+            if (filterClioUserIds.length > 0) {
+              filteredUsers = users.filter(u => filterClioUserIds.includes(u.id));
+              console.log(`[CLIO IMPORT] User filter applied: importing ${filteredUsers.length} user(s)`);
+              addLog(`👤 Importing ${filteredUsers.length} user(s) based on filter`);
             }
             
             let skippedNoEmail = 0;
@@ -3015,7 +3040,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // ============================================
         // PRE-FETCH: Get client IDs for user-specific contact filtering
         // ============================================
-        if (filterClioUserId && includeContacts) {
+        if (filterClioUserIds.length > 0 && includeContacts) {
           console.log(`[CLIO IMPORT] Pre-fetching matters to identify clients for user filter...`);
           addLog(`🔍 Identifying which contacts to import...`);
           
@@ -3029,7 +3054,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             
             // Collect client IDs from user's matters
             for (const m of mattersList) {
-              if (m.responsible_attorney?.id === filterClioUserId && m.client?.id) {
+              if (filterClioUserIds.includes(m.responsible_attorney?.id) && m.client?.id) {
                 filterClientClioIds.add(m.client.id);
               }
             }
@@ -3058,7 +3083,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             let filteredContacts = [];
             
             // If user-specific filter is active, fetch only those specific contacts by ID (much faster)
-            if (filterClioUserId && filterClientClioIds.size > 0) {
+            if (filterClioUserIds.length > 0 && filterClientClioIds.size > 0) {
               console.log(`[CLIO IMPORT] Fetching ${filterClientClioIds.size} specific contacts by ID...`);
               addLog(`📇 Fetching ${filterClientClioIds.size} contacts for user's matters...`);
               
@@ -3387,9 +3412,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             
             // If user-specific filter is active, filter matters
             let filteredMatters = matters;
-            if (filterClioUserId) {
+            if (filterClioUserIds.length > 0) {
               filteredMatters = matters.filter(m => 
-                m.responsible_attorney?.id === filterClioUserId
+                filterClioUserIds.includes(m.responsible_attorney?.id)
               );
               console.log(`[CLIO IMPORT] User filter applied: ${filteredMatters.length} of ${matters.length} matters where user is responsible attorney`);
               addLog(`📋 Filtered to ${filteredMatters.length} matters (from ${matters.length} total) where user is responsible attorney`);
@@ -3560,21 +3585,23 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             let filteredActivities = [];
             
             // If user-specific filter, fetch activities BY USER ID (not by matter)
-            // This gets ALL time entries for this user, even on matters where they're not the responsible attorney
-            if (filterClioUserId) {
-              console.log(`[CLIO IMPORT] Fetching ALL activities for user ${filterClioUserId}...`);
-              addLog(`⏱️ Fetching all time entries for this user...`);
+            // This gets ALL time entries for these users, even on matters where they're not the responsible attorney
+            if (filterClioUserIds.length > 0) {
+              console.log(`[CLIO IMPORT] Fetching ALL activities for ${filterClioUserIds.length} user(s)...`);
+              addLog(`⏱️ Fetching all time entries for ${filterClioUserIds.length} user(s)...`);
               
               try {
-                // Fetch activities by user_id - this gets ALL the user's time entries
-                const userActivities = await clioGetPaginated(
-                  accessToken, '/activities.json',
-                  { fields: activityFields, user_id: filterClioUserId, order: 'id(asc)' },
-                  (count) => updateProgress('activities', 'running', count)
-                );
-                filteredActivities.push(...userActivities);
-                console.log(`[CLIO IMPORT] Fetched ${filteredActivities.length} activities for user`);
-                addLog(`✅ Fetched ${filteredActivities.length} time entries for user`);
+                // Fetch activities for each user
+                for (const userId of filterClioUserIds) {
+                  const userActivities = await clioGetPaginated(
+                    accessToken, '/activities.json',
+                    { fields: activityFields, user_id: userId, order: 'id(asc)' },
+                    (count) => updateProgress('activities', 'running', filteredActivities.length + count)
+                  );
+                  filteredActivities.push(...userActivities);
+                }
+                console.log(`[CLIO IMPORT] Fetched ${filteredActivities.length} activities for ${filterClioUserIds.length} user(s)`);
+                addLog(`✅ Fetched ${filteredActivities.length} time entries for ${filterClioUserIds.length} user(s)`);
               } catch (err) {
                 console.log(`[CLIO IMPORT] Could not fetch activities by user_id: ${err.message}`);
                 addLog(`⚠️ Error fetching time entries: ${err.message}`);
@@ -3846,7 +3873,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             let filteredBills = [];
             
             // If user-specific filter, fetch bills for imported matters AND by client IDs
-            if (filterClioUserId) {
+            if (filterClioUserIds.length > 0) {
               const seenBillIds = new Set(); // Bills can appear for multiple matters/clients
               
               // First, try fetching bills by matter IDs
@@ -4073,7 +4100,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             let filteredEvents = [];
             
             // If user-specific filter, fetch calendar entries only for the imported matters
-            if (filterClioUserId && importedClioMatterIds.size > 0) {
+            if (filterClioUserIds.length > 0 && importedClioMatterIds.size > 0) {
               console.log(`[CLIO IMPORT] Fetching calendar events for ${importedClioMatterIds.size} matters...`);
               addLog(`📅 Fetching calendar events for ${importedClioMatterIds.size} matters...`);
               
@@ -4094,12 +4121,12 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   console.log(`[CLIO IMPORT] Could not fetch calendar for matter ${matterIds[i]}: ${err.message}`);
                 }
               }
-              console.log(`[CLIO IMPORT] Fetched ${filteredEvents.length} calendar events for user's matters`);
-              addLog(`✅ Fetched ${filteredEvents.length} calendar events for user's matters`);
-            } else if (filterClioUserId && importedClioMatterIds.size === 0) {
+              console.log(`[CLIO IMPORT] Fetched ${filteredEvents.length} calendar events for filtered users' matters`);
+              addLog(`✅ Fetched ${filteredEvents.length} calendar events for filtered users' matters`);
+            } else if (filterClioUserIds.length > 0 && importedClioMatterIds.size === 0) {
               // User filter active but no matters were imported
-              console.log(`[CLIO IMPORT] No matters imported for user, skipping calendar`);
-              addLog(`⚠️ No matters found for this user, skipping calendar events`);
+              console.log(`[CLIO IMPORT] No matters imported for filtered users, skipping calendar`);
+              addLog(`⚠️ No matters found for filtered users, skipping calendar events`);
             } else {
               // No filter - fetch all calendar events
               const events = await clioGetAll(accessToken, '/calendar_entries.json', {
