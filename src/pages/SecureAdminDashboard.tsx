@@ -3141,98 +3141,55 @@ Password: ${newPass}`
                                     </div>
                                   )}
                                   {clioProgress.status === 'completed' && clioProgress.summary && (
-                                    <>
-                                      <div className={styles.clioSummary} style={{ background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)', padding: '1.5rem', borderRadius: '12px', marginBottom: '1rem' }}>
-                                        <CheckCircle2 size={32} />
-                                        <div>
-                                          <strong style={{ fontSize: '1.25rem' }}>🎉 Migration Complete!</strong>
-                                          <p style={{ marginTop: '0.5rem', opacity: 0.9 }}>
-                                            Successfully imported: {clioProgress.summary.users} users, {clioProgress.summary.contacts} contacts, 
-                                            {clioProgress.summary.matters} matters, {clioProgress.summary.activities} time entries,
-                                            {clioProgress.summary.bills} bills, {clioProgress.summary.calendar_entries || clioProgress.summary.calendar} calendar events
-                                            {(clioProgress.summary.documentMetadata ?? 0) > 0 && (<>, <strong>{clioProgress.summary.documentMetadata}</strong> document records</>)}
-                                          </p>
+                                    <div className={styles.migrationCompleteContainer}>
+                                      {/* Success Banner */}
+                                      <div className={styles.migrationSuccessBanner}>
+                                        <div className={styles.successIcon}>
+                                          <CheckCircle2 size={40} />
+                                        </div>
+                                        <div className={styles.successContent}>
+                                          <h3>🎉 Migration Complete!</h3>
+                                          <p>Successfully imported data from Clio</p>
                                         </div>
                                       </div>
-                                      
-                                      {/* Document Migration Section */}
-                                      {(clioProgress.summary.documentMetadata ?? 0) > 0 && (
-                                        <div style={{ 
-                                          marginBottom: '1rem', 
-                                          padding: '1rem', 
-                                          background: 'linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%)', 
-                                          borderRadius: '12px',
-                                          color: 'white'
-                                        }}>
-                                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                                            <FileText size={20} />
-                                            <strong>📁 Document Migration</strong>
-                                          </div>
-                                          <p style={{ margin: '0 0 0.75rem 0', opacity: 0.95 }}>
-                                            <strong>{clioProgress.summary.documentMetadata}</strong> document records saved from Clio.
-                                          </p>
-                                          <div style={{ 
-                                            background: 'rgba(255,255,255,0.15)', 
-                                            padding: '0.75rem', 
-                                            borderRadius: '8px',
-                                            marginBottom: '0.75rem'
-                                          }}>
-                                            <strong>Next Steps:</strong>
-                                            <ol style={{ margin: '0.5rem 0 0 1.25rem', padding: 0 }}>
-                                              <li>Copy files from Clio Drive folder → Azure File Share (<code>firm-{'{id}'}</code> folder)</li>
-                                              <li>Click "Scan Documents" below to match files to matters</li>
-                                            </ol>
-                                          </div>
-                                          <button 
-                                            onClick={async () => {
-                                              const firmId = clioProgress.summary?.firmId
-                                              if (!firmId) {
-                                                showNotification('error', 'No firm ID found')
-                                                return
-                                              }
-                                              showNotification('success', 'Scanning Azure for documents...')
-                                              try {
-                                                const res = await fetch(`${API_URL}/migration/documents/match-manifest`, {
-                                                  method: 'POST',
-                                                  headers: getAuthHeaders(),
-                                                  body: JSON.stringify({ firmId })
-                                                })
-                                                const result = await res.json()
-                                                if (result.matched !== undefined) {
-                                                  showNotification('success', `✅ Matched ${result.matched} documents! ${result.missing || 0} files not found in Azure yet.`)
-                                                } else {
-                                                  showNotification('error', result.error || 'Scan failed')
-                                                }
-                                              } catch (err) {
-                                                showNotification('error', 'Failed to scan documents')
-                                              }
-                                            }}
-                                            className={styles.primaryBtn}
-                                            style={{ 
-                                              background: 'white', 
-                                              color: '#1D4ED8',
-                                              fontWeight: 600
-                                            }}
-                                          >
-                                            <RefreshCw size={16} /> Scan Documents
-                                          </button>
+
+                                      {/* Summary Stats Grid */}
+                                      <div className={styles.migrationStatsGrid}>
+                                        <div className={styles.migrationStatItem}>
+                                          <Users size={18} />
+                                          <span className={styles.statNumber}>{clioProgress.summary.users || 0}</span>
+                                          <span className={styles.statLabel}>Users</span>
                                         </div>
-                                      )}
-                                      
-                                      {/* Start New Migration Button */}
-                                      <div style={{ marginBottom: '1rem', textAlign: 'right' }}>
-                                        <button 
-                                          onClick={disconnectClio}
-                                          className={styles.secondaryBtn}
-                                          style={{ marginRight: '0.5rem' }}
-                                        >
-                                          <Plus size={16} /> Start New Migration
-                                        </button>
+                                        <div className={styles.migrationStatItem}>
+                                          <span style={{ fontSize: '18px' }}>👤</span>
+                                          <span className={styles.statNumber}>{clioProgress.summary.contacts || 0}</span>
+                                          <span className={styles.statLabel}>Contacts</span>
+                                        </div>
+                                        <div className={styles.migrationStatItem}>
+                                          <Briefcase size={18} />
+                                          <span className={styles.statNumber}>{clioProgress.summary.matters || 0}</span>
+                                          <span className={styles.statLabel}>Matters</span>
+                                        </div>
+                                        <div className={styles.migrationStatItem}>
+                                          <Clock size={18} />
+                                          <span className={styles.statNumber}>{clioProgress.summary.activities || 0}</span>
+                                          <span className={styles.statLabel}>Time Entries</span>
+                                        </div>
+                                        <div className={styles.migrationStatItem}>
+                                          <span style={{ fontSize: '18px' }}>💵</span>
+                                          <span className={styles.statNumber}>{clioProgress.summary.bills || 0}</span>
+                                          <span className={styles.statLabel}>Bills</span>
+                                        </div>
+                                        <div className={styles.migrationStatItem}>
+                                          <span style={{ fontSize: '18px' }}>📅</span>
+                                          <span className={styles.statNumber}>{clioProgress.summary.calendar_entries || clioProgress.summary.calendar || 0}</span>
+                                          <span className={styles.statLabel}>Events</span>
+                                        </div>
                                       </div>
-                                      
-                                      {/* User Credentials Section */}
-                                      {Array.isArray(clioProgress.summary.userCredentials) && clioProgress.summary.userCredentials.length > 0 ? (
-                                        <div className={styles.credentialsSection} style={{ marginTop: '1rem', border: '2px solid #F59E0B', background: 'rgba(245, 158, 11, 0.1)' }}>
+
+                                      {/* User Credentials Section - MOST IMPORTANT, show first */}
+                                      {Array.isArray(clioProgress.summary.userCredentials) && clioProgress.summary.userCredentials.length > 0 && (
+                                        <div className={styles.credentialsSection} style={{ border: '2px solid #F59E0B', background: 'rgba(245, 158, 11, 0.1)' }}>
                                           <div className={styles.credentialsHeader}>
                                             <Key size={20} />
                                             <h4>🔐 User Login Credentials ({clioProgress.summary.userCredentials.length} users)</h4>
@@ -3300,18 +3257,122 @@ Password: ${cred.password}`
                                             ))}
                                           </div>
                                         </div>
-                                      ) : (
-                                        <div style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(100, 100, 100, 0.1)', borderRadius: '8px' }}>
-                                          <p style={{ color: '#888', margin: 0 }}>
-                                            ℹ️ No new user accounts were created. Users may have been skipped due to missing email addresses, 
-                                            or imported to an existing firm where accounts already existed.
-                                          </p>
-                                          <p style={{ color: '#888', marginTop: '0.5rem', fontSize: '0.875rem' }}>
-                                            To reset a user's password, go to the <strong>Users</strong> tab and click the 🔑 key icon next to any user.
+                                      )}
+
+                                      {/* Action Buttons Row */}
+                                      <div className={styles.migrationActionsRow}>
+                                        <button 
+                                          onClick={() => {
+                                            const firmId = clioProgress.summary?.firmId
+                                            if (firmId) {
+                                              loadFirmDetails(firmId)
+                                            } else {
+                                              setActiveTab('firms')
+                                            }
+                                          }}
+                                          className={styles.primaryBtn}
+                                        >
+                                          <Building2 size={16} />
+                                          View Firm
+                                        </button>
+                                        <button 
+                                          onClick={disconnectClio}
+                                          className={styles.secondaryBtn}
+                                        >
+                                          <Plus size={16} />
+                                          Start New Migration
+                                        </button>
+                                      </div>
+
+                                      {/* Document Migration Section - Separate "What's Next" Card */}
+                                      {(clioProgress.summary.documentMetadata ?? 0) > 0 && (
+                                        <div className={styles.documentMigrationCard}>
+                                          <div className={styles.docMigrationHeader}>
+                                            <div className={styles.docMigrationTitle}>
+                                              <FileText size={20} />
+                                              <div>
+                                                <h4>📁 Document Files</h4>
+                                                <p>{clioProgress.summary.documentMetadata} document records from Clio</p>
+                                              </div>
+                                            </div>
+                                            <span className={styles.docMigrationBadge}>
+                                              <Clock size={12} /> Action Needed
+                                            </span>
+                                          </div>
+                                          
+                                          <div className={styles.docMigrationSteps}>
+                                            <div className={styles.docStep}>
+                                              <div className={styles.docStepNumber}>1</div>
+                                              <div className={styles.docStepContent}>
+                                                <strong>Export files from Clio</strong>
+                                                <p>In Clio, go to Documents → Export, or use Clio Drive to download your files</p>
+                                              </div>
+                                            </div>
+                                            <div className={styles.docStep}>
+                                              <div className={styles.docStepNumber}>2</div>
+                                              <div className={styles.docStepContent}>
+                                                <strong>Upload to Azure File Share</strong>
+                                                <p>Copy the files into the <code>firm-{clioProgress.summary.firmId?.slice(0, 8)}...</code> folder in Azure</p>
+                                              </div>
+                                            </div>
+                                            <div className={styles.docStep}>
+                                              <div className={styles.docStepNumber}>3</div>
+                                              <div className={styles.docStepContent}>
+                                                <strong>Scan & match documents</strong>
+                                                <p>Click below to automatically match uploaded files to their matters</p>
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          <button 
+                                            onClick={async () => {
+                                              const firmId = clioProgress.summary?.firmId
+                                              if (!firmId) {
+                                                showNotification('error', 'No firm ID found')
+                                                return
+                                              }
+                                              showNotification('success', 'Scanning Azure for documents...')
+                                              try {
+                                                const res = await fetch(`${API_URL}/migration/documents/match-manifest`, {
+                                                  method: 'POST',
+                                                  headers: getAuthHeaders(),
+                                                  body: JSON.stringify({ firmId })
+                                                })
+                                                const result = await res.json()
+                                                if (result.matched !== undefined) {
+                                                  showNotification('success', `✅ Matched ${result.matched} documents! ${result.missing || 0} files not found in Azure yet.`)
+                                                } else {
+                                                  showNotification('error', result.error || 'Scan failed')
+                                                }
+                                              } catch (err) {
+                                                showNotification('error', 'Failed to scan documents')
+                                              }
+                                            }}
+                                            className={styles.scanDocumentsBtn}
+                                          >
+                                            <RefreshCw size={18} />
+                                            Scan & Match Documents
+                                          </button>
+                                          
+                                          <p className={styles.docMigrationNote}>
+                                            💡 <strong>Tip:</strong> You can also scan documents anytime from the firm's detail page
                                           </p>
                                         </div>
                                       )}
-                                    </>
+
+                                      {/* No new users message */}
+                                      {(!clioProgress.summary.userCredentials || clioProgress.summary.userCredentials.length === 0) && (
+                                        <div className={styles.noNewUsersNote}>
+                                          <p>
+                                            ℹ️ No new user accounts were created. Users may have been skipped due to missing email addresses, 
+                                            or imported to an existing firm where accounts already existed.
+                                          </p>
+                                          <p>
+                                            To reset a user's password, go to the <strong>Firms</strong> tab → click into the firm → use the 🔑 button on any user.
+                                          </p>
+                                        </div>
+                                      )}
+                                    </div>
                                   )}
                                 </div>
                               )}
