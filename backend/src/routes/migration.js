@@ -2659,7 +2659,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         matters: { status: 'pending', count: 0 },
         activities: { status: 'pending', count: 0 },
         bills: { status: 'pending', count: 0 },
-        calendar: { status: 'pending', count: 0 }
+        calendar: { status: 'pending', count: 0 },
+        tasks: { status: 'pending', count: 0 },
+        activityCodes: { status: 'pending', count: 0 }
       }
     });
     
@@ -4229,6 +4231,208 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         }
         
         // ============================================
+        // STEP 7B: IMPORT TASKS (to dedicated tasks table if exists)
+        // ============================================
+        console.log('[CLIO IMPORT] Step 7B: Importing tasks...');
+        updateProgress('tasks', 'running', 0);
+        let tasksCount = 0;
+        try {
+          // First check if tasks table exists
+          const tasksTableCheck = await query(`
+            SELECT EXISTS (
+              SELECT 1 FROM information_schema.tables 
+              WHERE table_schema = 'public' AND table_name = 'tasks'
+            ) as exists
+          `);
+          
+          if (!tasksTableCheck.rows[0]?.exists) {
+            console.log('[CLIO IMPORT] Tasks table does not exist - skipping tasks import');
+            addLog('⚠️ Tasks table not found - skipping (run migration to enable)');
+            updateProgress('tasks', 'completed', 0);
+          } else {
+            // Fetch tasks from Clio
+            const tasks = await clioGetPaginated(accessToken, '/tasks.json', {
+              fields: 'id,name,description,priority,status,due_at,completed_at,reminder_at,matter{id},assignee{id},assigner{id},created_at,updated_at'
+            }, null);
+            
+            console.log(`[CLIO IMPORT] Tasks fetched from Clio: ${tasks.length}`);
+            addLog(`📋 Fetched ${tasks.length} tasks from Clio`);
+            
+            for (const task of tasks) {
+              try {
+                const matterId = task.matter?.id ? matterIdMap.get(`clio:${task.matter.id}`) : null;
+                const assignedTo = task.assignee?.id ? userIdMap.get(`clio:${task.assignee.id}`) : null;
+                const createdBy = task.assigner?.id ? userIdMap.get(`clio:${task.assigner.id}`) : null;
+                
+                // Map priority
+                let priority = 'medium';
+                const clioPriority = (task.priority || '').toLowerCase();
+                if (clioPriority === 'high' || clioPriority === 'urgent') priority = 'high';
+                else if (clioPriority === 'low') priority = 'low';
+                
+                // Map status
+                let status = 'pending';
+                const clioStatus = (task.status || '').toLowerCase();
+                if (clioStatus === 'complete' || clioStatus === 'completed') status = 'completed';
+                else if (clioStatus === 'in_progress' || clioStatus === 'in progress') status = 'in_progress';
+                
+                // Parse due date/time
+                const dueAt = task.due_at ? new Date(task.due_at) : null;
+                const dueDate = dueAt ? dueAt.toISOString().split('T')[0] : null;
+                const dueTime = dueAt ? dueAt.toISOString().split('T')[1].substring(0, 8) : null;
+                
+                // Check if tasks table has clio_id column for upsert
+                const hasClioId = await query(`
+                  SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'tasks' AND column_name = 'clio_id'
+                  ) as exists
+                `);
+                
+                if (hasClioId.rows[0]?.exists) {
+                  // Use upsert with clio_id
+                  await query(
+                    `INSERT INTO tasks (firm_id, matter_id, assigned_to, created_by, name, description, priority, status, due_date, due_time, completed_at, reminder_at, clio_id, clio_created_at, clio_updated_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                     ON CONFLICT (firm_id, clio_id) WHERE clio_id IS NOT NULL DO UPDATE SET
+                       name = EXCLUDED.name,
+                       description = EXCLUDED.description,
+                       priority = EXCLUDED.priority,
+                       status = EXCLUDED.status,
+                       due_date = EXCLUDED.due_date,
+                       completed_at = EXCLUDED.completed_at,
+                       updated_at = NOW()`,
+                    [
+                      firmId,
+                      matterId,
+                      assignedTo,
+                      createdBy,
+                      task.name || 'Untitled Task',
+                      task.description || null,
+                      priority,
+                      status,
+                      dueDate,
+                      dueTime,
+                      task.completed_at || null,
+                      task.reminder_at || null,
+                      task.id,
+                      task.created_at || null,
+                      task.updated_at || null
+                    ]
+                  );
+                } else {
+                  // Simple insert without clio_id
+                  await query(
+                    `INSERT INTO tasks (firm_id, matter_id, assigned_to, created_by, name, description, priority, status, due_date, due_time, completed_at, reminder_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+                    [
+                      firmId,
+                      matterId,
+                      assignedTo,
+                      createdBy,
+                      task.name || 'Untitled Task',
+                      task.description || null,
+                      priority,
+                      status,
+                      dueDate,
+                      dueTime,
+                      task.completed_at || null,
+                      task.reminder_at || null
+                    ]
+                  );
+                }
+                tasksCount++;
+                
+                if (tasksCount % 100 === 0) {
+                  updateProgress('tasks', 'running', tasksCount);
+                }
+              } catch (err) {
+                // Skip individual task errors
+                if (!err.message.includes('duplicate')) {
+                  console.log(`[CLIO IMPORT] Task error: ${err.message}`);
+                }
+              }
+            }
+            
+            updateProgress('tasks', 'completed', tasksCount);
+            console.log(`[CLIO IMPORT] Tasks imported: ${tasksCount}`);
+            addLog(`✅ Imported ${tasksCount} tasks`);
+          }
+        } catch (err) {
+          console.log(`[CLIO IMPORT] Tasks error (non-fatal): ${err.message}`);
+          updateProgress('tasks', 'error', tasksCount, err.message);
+          addLog(`⚠️ Tasks import error: ${err.message}`);
+        }
+        
+        // ============================================
+        // STEP 7C: IMPORT ACTIVITY CODES (UTBMS/LEDES)
+        // ============================================
+        console.log('[CLIO IMPORT] Step 7C: Importing activity codes...');
+        updateProgress('activityCodes', 'running', 0);
+        let activityCodesCount = 0;
+        try {
+          // First check if activity_codes table exists
+          const activityCodesTableCheck = await query(`
+            SELECT EXISTS (
+              SELECT 1 FROM information_schema.tables 
+              WHERE table_schema = 'public' AND table_name = 'activity_codes'
+            ) as exists
+          `);
+          
+          if (!activityCodesTableCheck.rows[0]?.exists) {
+            console.log('[CLIO IMPORT] Activity codes table does not exist - skipping');
+            addLog('⚠️ Activity codes table not found - skipping (run migration to enable)');
+            updateProgress('activityCodes', 'completed', 0);
+          } else {
+            // Fetch activity descriptions from Clio (these are the activity codes)
+            const activityDescs = await clioGetPaginated(accessToken, '/activity_descriptions.json', {
+              fields: 'id,name,code,type,rate,visible_to_co_counsel,created_at,updated_at'
+            }, null);
+            
+            console.log(`[CLIO IMPORT] Activity codes fetched from Clio: ${activityDescs.length}`);
+            addLog(`📋 Fetched ${activityDescs.length} activity codes from Clio`);
+            
+            for (const ad of activityDescs) {
+              try {
+                const code = ad.code || `CODE-${ad.id}`;
+                
+                await query(
+                  `INSERT INTO activity_codes (firm_id, code, name, description, category, rate_override, clio_id)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)
+                   ON CONFLICT (firm_id, code) DO UPDATE SET
+                     name = EXCLUDED.name,
+                     rate_override = EXCLUDED.rate_override,
+                     updated_at = NOW()`,
+                  [
+                    firmId,
+                    code,
+                    ad.name || code,
+                    null,
+                    ad.type || 'general',
+                    ad.rate ? parseFloat(ad.rate) : null,
+                    ad.id
+                  ]
+                );
+                activityCodesCount++;
+              } catch (err) {
+                // Skip silently - might be missing columns
+                if (!err.message.includes('duplicate') && !err.message.includes('column')) {
+                  console.log(`[CLIO IMPORT] Activity code error: ${err.message}`);
+                }
+              }
+            }
+            
+            updateProgress('activityCodes', 'completed', activityCodesCount);
+            console.log(`[CLIO IMPORT] Activity codes imported: ${activityCodesCount}`);
+            addLog(`✅ Imported ${activityCodesCount} activity codes`);
+          }
+        } catch (err) {
+          console.log(`[CLIO IMPORT] Activity codes error (non-fatal): ${err.message}`);
+          updateProgress('activityCodes', 'error', activityCodesCount, err.message);
+          addLog(`⚠️ Activity codes import error: ${err.message}`);
+        }
+        
+        // ============================================
         // STEP 8: IMPORT PAYMENTS (direct to DB)
         // ============================================
         console.log('[CLIO IMPORT] Step 8/10: Importing payments...');
@@ -4639,6 +4843,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             bills: counts.bills,
             calendar: counts.calendar,
             notes: notesCount,
+            tasks: tasksCount,
+            activityCodes: activityCodesCount,
             payments: paymentsCount,
             trustAccounts: trustAccountsCount,
             trustTransactions: trustTransactionsCount,
