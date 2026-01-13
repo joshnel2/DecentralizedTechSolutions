@@ -952,7 +952,7 @@ router.get('/firms/:id/details', requireSecureAdmin, async (req, res) => {
       SELECT u.id, u.email, u.first_name, u.last_name, u.role, u.is_active, u.email_verified, 
              u.last_login_at, u.created_at, u.hourly_rate,
              (SELECT COUNT(*) FROM time_entries WHERE user_id = u.id) as time_entries_count,
-             (SELECT COUNT(*) FROM matters WHERE responsible_attorney_id = u.id OR originating_attorney_id = u.id) as matters_count
+             (SELECT COUNT(*) FROM matters WHERE responsible_attorney = u.id OR originating_attorney = u.id) as matters_count
       FROM users u
       WHERE u.firm_id = $1
       ORDER BY u.created_at DESC
