@@ -83,6 +83,14 @@ import { PrivacyPage } from './pages/PrivacyPage'
 import { TermsPage } from './pages/TermsPage'
 import { EULAPage } from './pages/EULAPage'
 import { CompliancePage } from './pages/CompliancePage'
+// Developer Portal
+import { DeveloperLayout } from './pages/developer/DeveloperLayout'
+import { DeveloperHome } from './pages/developer/DeveloperHome'
+import { GettingStarted } from './pages/developer/GettingStarted'
+import { Authentication } from './pages/developer/Authentication'
+import { ApiReference } from './pages/developer/ApiReference'
+import { RateLimits } from './pages/developer/RateLimits'
+import { DeveloperApps } from './pages/developer/DeveloperApps'
 
 // Scroll to top on route changes
 function ScrollToTop() {
@@ -196,6 +204,16 @@ function AppContent() {
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/eula" element={<EULAPage />} />
       <Route path="/compliance" element={<CompliancePage />} />
+      
+      {/* Developer Portal */}
+      <Route path="/developer" element={<DeveloperLayout />}>
+        <Route index element={<DeveloperHome />} />
+        <Route path="getting-started" element={<GettingStarted />} />
+        <Route path="authentication" element={<Authentication />} />
+        <Route path="api-reference" element={<ApiReference />} />
+        <Route path="rate-limits" element={<RateLimits />} />
+        <Route path="apps" element={<DeveloperApps />} />
+      </Route>
       
       {/* Firm Setup */}
       <Route path="/setup" element={

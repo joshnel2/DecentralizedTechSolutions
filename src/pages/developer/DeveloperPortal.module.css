@@ -1,0 +1,1024 @@
+/* Developer Portal Styles */
+.developerPortal {
+  min-height: 100vh;
+  background: var(--apex-midnight);
+  color: var(--apex-light);
+}
+
+/* Header */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.headerContent {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 var(--space-xl);
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  text-decoration: none;
+  color: var(--apex-white);
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 500;
+}
+
+.logoIcon {
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apex-midnight);
+}
+
+.headerNav {
+  display: flex;
+  gap: var(--space-xl);
+}
+
+.headerNav a {
+  color: var(--apex-text);
+  text-decoration: none;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.headerNav a:hover {
+  color: var(--apex-white);
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.signInBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.signInBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+.userMenu {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.backToApp {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--apex-text);
+  text-decoration: none;
+  font-size: 0.875rem;
+  transition: color 0.2s ease;
+}
+
+.backToApp:hover {
+  color: var(--apex-gold);
+}
+
+.userAvatar {
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+.mobileMenuBtn {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--apex-light);
+  cursor: pointer;
+  padding: var(--space-xs);
+}
+
+/* Main Container */
+.mainContainer {
+  display: flex;
+  max-width: 1400px;
+  margin: 0 auto;
+  min-height: calc(100vh - 64px);
+}
+
+/* Sidebar */
+.sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  padding: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebarNav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  text-decoration: none;
+  font-size: 0.9375rem;
+  transition: all 0.2s ease;
+}
+
+.navItem:hover {
+  background: var(--apex-slate);
+  color: var(--apex-white);
+}
+
+.navItem.active {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--apex-gold);
+}
+
+.navItem.locked {
+  opacity: 0.7;
+}
+
+.navItem .chevron {
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.navItem:hover .chevron,
+.navItem.active .chevron {
+  opacity: 1;
+}
+
+.authBadge {
+  margin-left: auto;
+  padding: 2px 8px;
+  background: var(--apex-slate);
+  border-radius: var(--radius-sm);
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--apex-text);
+}
+
+.sidebarFooter {
+  margin-top: auto;
+  padding-top: var(--space-xl);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.versionBadge {
+  display: inline-block;
+  padding: 4px 12px;
+  background: var(--apex-slate);
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--apex-text);
+  margin-bottom: var(--space-md);
+}
+
+.supportLink {
+  display: block;
+  color: var(--apex-subtle);
+  font-size: 0.8125rem;
+  text-decoration: none;
+}
+
+.supportLink:hover {
+  color: var(--apex-gold);
+}
+
+/* Content */
+.content {
+  flex: 1;
+  padding: var(--space-2xl);
+  max-width: 900px;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .headerNav {
+    display: none;
+  }
+
+  .mobileMenuBtn {
+    display: block;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 64px;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    background: var(--apex-deep);
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    z-index: 99;
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .content {
+    padding: var(--space-lg);
+  }
+}
+
+@media (max-width: 640px) {
+  .headerContent {
+    padding: 0 var(--space-md);
+  }
+
+  .backToApp {
+    display: none;
+  }
+}
+
+/* ========================================
+   Documentation Page Styles
+   ======================================== */
+
+.docPage {
+  animation: fadeIn 0.3s ease;
+}
+
+.docHeader {
+  margin-bottom: var(--space-2xl);
+}
+
+.docHeader h1 {
+  font-family: var(--font-serif);
+  font-size: 2.5rem;
+  font-weight: 400;
+  color: var(--apex-white);
+  margin-bottom: var(--space-md);
+}
+
+.docHeader p {
+  font-size: 1.125rem;
+  color: var(--apex-text);
+  line-height: 1.6;
+}
+
+.docSection {
+  margin-bottom: var(--space-2xl);
+}
+
+.docSection h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.docSection h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--apex-light);
+  margin: var(--space-lg) 0 var(--space-md);
+}
+
+.docSection p {
+  color: var(--apex-text);
+  line-height: 1.7;
+  margin-bottom: var(--space-md);
+}
+
+.docSection ul,
+.docSection ol {
+  color: var(--apex-text);
+  line-height: 1.7;
+  margin-bottom: var(--space-md);
+  padding-left: var(--space-lg);
+}
+
+.docSection li {
+  margin-bottom: var(--space-sm);
+}
+
+/* Code blocks */
+.codeBlock {
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  margin: var(--space-md) 0;
+  overflow-x: auto;
+}
+
+.codeBlock pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--apex-light);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.codeBlock code {
+  font-family: inherit;
+}
+
+.codeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.codeLanguage {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--apex-gold);
+  text-transform: uppercase;
+}
+
+.copyBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 4px 8px;
+  background: var(--apex-muted);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--apex-text);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.copyBtn:hover {
+  background: var(--apex-gold);
+  color: var(--apex-midnight);
+}
+
+.copyBtn.copied {
+  background: var(--apex-success);
+  color: white;
+}
+
+/* Inline code */
+.inlineCode {
+  background: var(--apex-slate);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  color: var(--apex-gold-bright);
+}
+
+/* Info/Warning boxes */
+.infoBox {
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: var(--radius-md);
+  margin: var(--space-lg) 0;
+}
+
+.infoBox.warning {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.infoBox.error {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.infoBox svg {
+  flex-shrink: 0;
+  color: #3B82F6;
+}
+
+.infoBox.warning svg {
+  color: var(--apex-gold);
+}
+
+.infoBox.error svg {
+  color: var(--apex-error);
+}
+
+.infoBox p {
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+/* Quick Links / Cards */
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: var(--space-lg);
+  margin: var(--space-xl) 0;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-lg);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.card:hover {
+  border-color: var(--apex-gold);
+  transform: translateY(-2px);
+}
+
+.cardIcon {
+  width: 48px;
+  height: 48px;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apex-gold);
+  margin-bottom: var(--space-md);
+}
+
+.card h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: var(--space-xs);
+}
+
+.card p {
+  font-size: 0.875rem;
+  color: var(--apex-text);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* API Endpoint */
+.endpoint {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  margin: var(--space-lg) 0;
+  overflow: hidden;
+}
+
+.endpointHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--apex-slate);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.methodBadge {
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.methodBadge.get {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--apex-success);
+}
+
+.methodBadge.post {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3B82F6;
+}
+
+.methodBadge.put {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--apex-gold);
+}
+
+.methodBadge.delete {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--apex-error);
+}
+
+.endpointPath {
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+  color: var(--apex-light);
+}
+
+.endpointBody {
+  padding: var(--space-lg);
+}
+
+.endpointDesc {
+  color: var(--apex-text);
+  margin-bottom: var(--space-lg);
+}
+
+/* Parameter table */
+.paramTable {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--space-md) 0;
+}
+
+.paramTable th,
+.paramTable td {
+  text-align: left;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.paramTable th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--apex-subtle);
+}
+
+.paramTable td {
+  font-size: 0.875rem;
+  color: var(--apex-text);
+}
+
+.paramTable code {
+  background: var(--apex-slate);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--apex-gold-bright);
+}
+
+.required {
+  color: var(--apex-error);
+  font-size: 0.75rem;
+  margin-left: var(--space-xs);
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: var(--space-xs);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: var(--space-lg);
+}
+
+.tab {
+  padding: var(--space-sm) var(--space-md);
+  background: none;
+  border: none;
+  color: var(--apex-text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all 0.2s ease;
+}
+
+.tab:hover {
+  color: var(--apex-white);
+}
+
+.tab.active {
+  color: var(--apex-gold);
+  border-bottom-color: var(--apex-gold);
+}
+
+/* Apps Page */
+.appsPage {
+  animation: fadeIn 0.3s ease;
+}
+
+.appsHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: var(--space-2xl);
+}
+
+.appsHeader h1 {
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  font-weight: 400;
+  color: var(--apex-white);
+  margin-bottom: var(--space-sm);
+}
+
+.appsHeader p {
+  color: var(--apex-text);
+}
+
+.createAppBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.createAppBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+.appsList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.appCard {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+}
+
+.appCardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: var(--space-lg);
+}
+
+.appInfo h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: var(--space-xs);
+}
+
+.appInfo p {
+  font-size: 0.875rem;
+  color: var(--apex-text);
+}
+
+.appMeta {
+  display: flex;
+  gap: var(--space-lg);
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.appKeySection {
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.appKeyLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--apex-subtle);
+  text-transform: uppercase;
+  margin-bottom: var(--space-sm);
+}
+
+.appKeyValue {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.appKeyValue code {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--apex-light);
+  word-break: break-all;
+}
+
+.appKeyActions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.appKeyActions button {
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--apex-muted);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--apex-text);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.appKeyActions button:hover {
+  background: var(--apex-gold);
+  color: var(--apex-midnight);
+}
+
+.appPermissions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.permBadge {
+  padding: 4px 10px;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--apex-gold);
+}
+
+.appActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.deleteBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  background: none;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--apex-error);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.deleteBtn:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Empty state */
+.emptyState {
+  text-align: center;
+  padding: var(--space-3xl);
+}
+
+.emptyState svg {
+  color: var(--apex-subtle);
+  opacity: 0.3;
+  margin-bottom: var(--space-lg);
+}
+
+.emptyState h3 {
+  font-size: 1.25rem;
+  color: var(--apex-white);
+  margin-bottom: var(--space-sm);
+}
+
+.emptyState p {
+  color: var(--apex-text);
+  margin-bottom: var(--space-lg);
+}
+
+/* Login Required */
+.loginRequired {
+  text-align: center;
+  padding: var(--space-3xl);
+}
+
+.loginRequired h2 {
+  font-family: var(--font-serif);
+  font-size: 1.75rem;
+  color: var(--apex-white);
+  margin-bottom: var(--space-md);
+}
+
+.loginRequired p {
+  color: var(--apex-text);
+  margin-bottom: var(--space-xl);
+}
+
+/* Modal */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--space-lg);
+}
+
+.modal {
+  width: 100%;
+  max-width: 500px;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg) var(--space-xl);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.modalHeader h2 {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: var(--apex-white);
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--apex-text);
+  cursor: pointer;
+}
+
+.modalForm {
+  padding: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.formGroup label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--apex-light);
+}
+
+.formGroup input[type="text"],
+.formGroup textarea {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  font-family: inherit;
+}
+
+.formGroup input:focus,
+.formGroup textarea:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.permissionsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-sm);
+}
+
+.permissionItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.permissionItem:hover {
+  background: var(--apex-muted);
+}
+
+.permissionItem input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--apex-gold);
+}
+
+.permissionItem span {
+  font-size: 0.8125rem;
+  color: var(--apex-light);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.cancelBtn {
+  padding: var(--space-sm) var(--space-lg);
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.saveBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

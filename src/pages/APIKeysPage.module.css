@@ -1,6 +1,98 @@
 .apiKeysPage {
-  max-width: 900px;
+  max-width: 700px;
   animation: fadeIn var(--transition-slow) ease;
+}
+
+/* Developer Portal Card */
+.developerPortalCard {
+  display: flex;
+  gap: var(--space-xl);
+  padding: var(--space-2xl);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-xl);
+  margin-top: var(--space-xl);
+}
+
+.developerPortalCard .cardIcon {
+  width: 80px;
+  height: 80px;
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apex-midnight);
+  flex-shrink: 0;
+}
+
+.developerPortalCard .cardContent {
+  flex: 1;
+}
+
+.developerPortalCard h2 {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: var(--apex-white);
+  margin-bottom: var(--space-sm);
+}
+
+.developerPortalCard p {
+  color: var(--apex-text);
+  line-height: 1.6;
+  margin-bottom: var(--space-lg);
+}
+
+.features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-xl);
+}
+
+.feature {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--apex-light);
+  font-size: 0.9375rem;
+}
+
+.feature svg {
+  color: var(--apex-gold);
+}
+
+.portalBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-xl);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.portalBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-glow);
+}
+
+@media (max-width: 640px) {
+  .developerPortalCard {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .features {
+    justify-content: center;
+  }
 }
 
 .backButton {
