@@ -8,7 +8,8 @@ import {
   Mail, ToggleLeft, ToggleRight, ArrowRightLeft, Zap,
   TrendingUp, UserCheck, AlertCircle, BarChart3, Copy,
   Settings, ChevronDown, ExternalLink, Briefcase, FileText,
-  ShieldCheck, Check, X, Sparkles, Brain, Wand2
+  ShieldCheck, Check, X, Sparkles, Brain, Wand2, FolderSync,
+  HardDrive, FileSearch, ArrowRight
 } from 'lucide-react'
 import styles from './SecureAdminDashboard.module.css'
 
@@ -361,6 +362,17 @@ export default function SecureAdminDashboard() {
 
   // Bulk Import state
   const [showBulkModal, setShowBulkModal] = useState(false)
+  
+  // Scan Documents state
+  const [scanningFirmId, setScanningFirmId] = useState<string | null>(null)
+  const [scanResult, setScanResult] = useState<{ firmId: string; message: string; success: boolean } | null>(null)
+  
+  // Firm Detail state
+  const [selectedFirmDetail, setSelectedFirmDetail] = useState<Firm | null>(null)
+  const [firmManifestStats, setFirmManifestStats] = useState<any>(null)
+  const [loadingManifest, setLoadingManifest] = useState(false)
+  const [matchingDocuments, setMatchingDocuments] = useState(false)
+  const [importingDocuments, setImportingDocuments] = useState(false)
   const [bulkUsers, setBulkUsers] = useState('')
   const [bulkFirmId, setBulkFirmId] = useState('')
   const [bulkDefaultPassword, setBulkDefaultPassword] = useState('')
@@ -797,6 +809,100 @@ export default function SecureAdminDashboard() {
       console.error('Failed to delete firm:', error)
       showNotification('error', 'Failed to delete firm')
     }
+  }
+
+  // Scan documents for a firm
+  const handleScanDocuments = async (firmId: string) => {
+    setScanningFirmId(firmId)
+    setScanResult(null)
+    try {
+      const res = await fetch(`${API_URL}/secure-admin/firms/${firmId}/scan-documents`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setScanResult({ firmId, message: data.message, success: true })
+        showNotification('success', data.message)
+      } else {
+        setScanResult({ firmId, message: data.error || 'Scan failed', success: false })
+        showNotification('error', data.error || 'Scan failed')
+      }
+    } catch (error) {
+      setScanResult({ firmId, message: 'Scan failed', success: false })
+      showNotification('error', 'Failed to scan documents')
+    } finally {
+      setScanningFirmId(null)
+    }
+  }
+
+  // Open firm detail view with document manifest info
+  const handleViewFirmDetail = async (firm: Firm) => {
+    setSelectedFirmDetail(firm)
+    setLoadingManifest(true)
+    try {
+      const res = await fetch(`${API_URL}/migration/documents/manifest/${firm.id}`, {
+        headers: getAuthHeaders()
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setFirmManifestStats(data)
+      } else {
+        setFirmManifestStats(null)
+      }
+    } catch (error) {
+      console.error('Failed to load manifest:', error)
+      setFirmManifestStats(null)
+    }
+    setLoadingManifest(false)
+  }
+
+  // Match Azure files to Clio document manifest
+  const handleMatchDocuments = async () => {
+    if (!selectedFirmDetail) return
+    setMatchingDocuments(true)
+    try {
+      const res = await fetch(`${API_URL}/migration/documents/match-manifest`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ firmId: selectedFirmDetail.id })
+      })
+      const data = await res.json()
+      if (res.ok) {
+        showNotification('success', data.message)
+        // Reload manifest stats
+        handleViewFirmDetail(selectedFirmDetail)
+      } else {
+        showNotification('error', data.error || 'Match failed')
+      }
+    } catch (error) {
+      showNotification('error', 'Failed to match documents')
+    }
+    setMatchingDocuments(false)
+  }
+
+  // Import matched documents
+  const handleImportMatchedDocuments = async () => {
+    if (!selectedFirmDetail) return
+    setImportingDocuments(true)
+    try {
+      const res = await fetch(`${API_URL}/migration/documents/import-matched`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ firmId: selectedFirmDetail.id })
+      })
+      const data = await res.json()
+      if (res.ok) {
+        showNotification('success', data.message)
+        // Reload manifest stats
+        handleViewFirmDetail(selectedFirmDetail)
+      } else {
+        showNotification('error', data.error || 'Import failed')
+      }
+    } catch (error) {
+      showNotification('error', 'Failed to import documents')
+    }
+    setImportingDocuments(false)
   }
 
   // User CRUD operations
@@ -2154,7 +2260,27 @@ Password: ${newPass}`
                       <tbody>
                         {filteredFirms.map(firm => (
                           <tr key={firm.id}>
-                            <td className={styles.firmName}>{firm.name}</td>
+                            <td className={styles.firmName}>
+                              <button 
+                                onClick={() => handleViewFirmDetail(firm)}
+                                style={{ 
+                                  background: 'none', 
+                                  border: 'none', 
+                                  color: '#3B82F6', 
+                                  cursor: 'pointer',
+                                  padding: 0,
+                                  fontWeight: 500,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }}
+                                title="Click to view firm details & document migration"
+                              >
+                                <Building2 size={14} />
+                                {firm.name}
+                                <ArrowRight size={12} style={{ opacity: 0.5 }} />
+                              </button>
+                            </td>
                             <td>{firm.domain || '—'}</td>
                             <td>
                               <span className={`${styles.badge} ${styles[firm.status || 'active']}`}>
@@ -2165,6 +2291,23 @@ Password: ${newPass}`
                             <td>{firm.subscription_tier || 'Professional'}</td>
                             <td>{new Date(firm.created_at).toLocaleDateString()}</td>
                             <td className={styles.actions}>
+                              <button 
+                                onClick={() => handleViewFirmDetail(firm)}
+                                className={styles.viewBtn}
+                                title="View firm details & document migration"
+                                style={{ background: '#3B82F6' }}
+                              >
+                                <HardDrive size={14} />
+                              </button>
+                              <button 
+                                onClick={() => handleScanDocuments(firm.id)}
+                                disabled={scanningFirmId === firm.id}
+                                className={styles.editBtn}
+                                title="Quick scan Azure files"
+                                style={{ background: scanningFirmId === firm.id ? '#6B7280' : '#10B981' }}
+                              >
+                                {scanningFirmId === firm.id ? <Clock size={14} className="animate-spin" /> : <FolderSync size={14} />}
+                              </button>
                               <button 
                                 onClick={() => { setEditingFirm(firm); setShowFirmModal(true) }}
                                 className={styles.editBtn}
@@ -4090,6 +4233,174 @@ bob@example.com, Bob, Wilson, partner"
               </button>
               <button onClick={handleBulkImport} className={styles.saveBtn}>
                 Import Users
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Firm Detail / Document Migration Modal */}
+      {selectedFirmDetail && (
+        <div className={styles.modalOverlay} onClick={() => setSelectedFirmDetail(null)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: 0 }}>
+                <Building2 size={24} />
+                {selectedFirmDetail.name}
+              </h2>
+              <button 
+                onClick={() => setSelectedFirmDetail(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '24px' }}>
+              <p style={{ color: '#6B7280', margin: '0 0 8px 0' }}>Firm ID: <code style={{ background: '#F3F4F6', padding: '2px 6px', borderRadius: '4px' }}>{selectedFirmDetail.id}</code></p>
+              <p style={{ color: '#6B7280', margin: 0 }}>Status: <span className={`${styles.badge} ${styles[selectedFirmDetail.status || 'active']}`}>{selectedFirmDetail.status || 'active'}</span></p>
+            </div>
+
+            {/* Document Migration Section */}
+            <div style={{ background: '#F9FAFB', padding: '20px', borderRadius: '12px', marginBottom: '20px' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 16px 0', fontSize: '16px' }}>
+                <HardDrive size={18} />
+                Document Migration (Clio → APX Drive)
+              </h3>
+
+              {loadingManifest ? (
+                <div style={{ textAlign: 'center', padding: '20px', color: '#6B7280' }}>
+                  <Clock size={24} className="animate-spin" />
+                  <p>Loading document manifest...</p>
+                </div>
+              ) : firmManifestStats?.stats ? (
+                <>
+                  {/* Manifest Stats */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
+                    <div style={{ background: 'white', padding: '16px', borderRadius: '8px', textAlign: 'center', border: '1px solid #E5E7EB' }}>
+                      <div style={{ fontSize: '24px', fontWeight: 600, color: '#3B82F6' }}>{firmManifestStats.stats.total || 0}</div>
+                      <div style={{ fontSize: '12px', color: '#6B7280' }}>Total in Manifest</div>
+                    </div>
+                    <div style={{ background: 'white', padding: '16px', borderRadius: '8px', textAlign: 'center', border: '1px solid #E5E7EB' }}>
+                      <div style={{ fontSize: '24px', fontWeight: 600, color: '#F59E0B' }}>{firmManifestStats.stats.pending || 0}</div>
+                      <div style={{ fontSize: '12px', color: '#6B7280' }}>Pending Match</div>
+                    </div>
+                    <div style={{ background: 'white', padding: '16px', borderRadius: '8px', textAlign: 'center', border: '1px solid #E5E7EB' }}>
+                      <div style={{ fontSize: '24px', fontWeight: 600, color: '#10B981' }}>{firmManifestStats.stats.matched || 0}</div>
+                      <div style={{ fontSize: '12px', color: '#6B7280' }}>Matched</div>
+                    </div>
+                    <div style={{ background: 'white', padding: '16px', borderRadius: '8px', textAlign: 'center', border: '1px solid #E5E7EB' }}>
+                      <div style={{ fontSize: '24px', fontWeight: 600, color: '#8B5CF6' }}>{firmManifestStats.stats.imported || 0}</div>
+                      <div style={{ fontSize: '12px', color: '#6B7280' }}>Imported</div>
+                    </div>
+                    <div style={{ background: 'white', padding: '16px', borderRadius: '8px', textAlign: 'center', border: '1px solid #E5E7EB' }}>
+                      <div style={{ fontSize: '24px', fontWeight: 600, color: '#EF4444' }}>{firmManifestStats.stats.missing || 0}</div>
+                      <div style={{ fontSize: '12px', color: '#6B7280' }}>Missing in Azure</div>
+                    </div>
+                    <div style={{ background: 'white', padding: '16px', borderRadius: '8px', textAlign: 'center', border: '1px solid #E5E7EB' }}>
+                      <div style={{ fontSize: '24px', fontWeight: 600, color: '#6366F1' }}>{firmManifestStats.stats.linked_to_matter || 0}</div>
+                      <div style={{ fontSize: '12px', color: '#6B7280' }}>Linked to Matter</div>
+                    </div>
+                  </div>
+
+                  {/* Migration Steps */}
+                  <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #E5E7EB', marginBottom: '16px' }}>
+                    <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#374151' }}>Migration Steps:</h4>
+                    <ol style={{ margin: 0, paddingLeft: '20px', color: '#6B7280', fontSize: '14px', lineHeight: '1.8' }}>
+                      <li>✅ Clio metadata already scanned ({firmManifestStats.stats.total} documents)</li>
+                      <li>📁 Copy files from Clio Drive to Azure File Share</li>
+                      <li>🔍 Click "Scan & Match" to match files to manifest</li>
+                      <li>📥 Click "Import Matched" to create document records</li>
+                    </ol>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <button
+                      onClick={handleMatchDocuments}
+                      disabled={matchingDocuments}
+                      style={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        padding: '12px 16px',
+                        background: matchingDocuments ? '#9CA3AF' : '#3B82F6',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: matchingDocuments ? 'not-allowed' : 'pointer',
+                        fontWeight: 500
+                      }}
+                    >
+                      {matchingDocuments ? <Clock size={18} className="animate-spin" /> : <FileSearch size={18} />}
+                      {matchingDocuments ? 'Matching...' : 'Scan & Match Files'}
+                    </button>
+                    <button
+                      onClick={handleImportMatchedDocuments}
+                      disabled={importingDocuments || (firmManifestStats.stats.matched || 0) === 0}
+                      style={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        padding: '12px 16px',
+                        background: importingDocuments ? '#9CA3AF' : (firmManifestStats.stats.matched || 0) === 0 ? '#D1D5DB' : '#10B981',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: importingDocuments || (firmManifestStats.stats.matched || 0) === 0 ? 'not-allowed' : 'pointer',
+                        fontWeight: 500
+                      }}
+                    >
+                      {importingDocuments ? <Clock size={18} className="animate-spin" /> : <Download size={18} />}
+                      {importingDocuments ? 'Importing...' : `Import Matched (${firmManifestStats.stats.matched || 0})`}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '20px', color: '#6B7280' }}>
+                  <FileText size={32} style={{ marginBottom: '12px', opacity: 0.5 }} />
+                  <p style={{ margin: '0 0 8px 0' }}>No Clio document manifest found.</p>
+                  <p style={{ margin: 0, fontSize: '14px' }}>Run a Clio import first, or use the Quick Scan button to scan Azure files directly.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Scan Section */}
+            <div style={{ background: '#F0FDF4', padding: '16px', borderRadius: '8px', border: '1px solid #BBF7D0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <h4 style={{ margin: '0 0 4px 0', fontSize: '14px', color: '#166534' }}>Quick Scan Azure Files</h4>
+                  <p style={{ margin: 0, fontSize: '13px', color: '#15803D' }}>Scan Azure and auto-match files to matters by folder name (without Clio manifest)</p>
+                </div>
+                <button
+                  onClick={() => handleScanDocuments(selectedFirmDetail.id)}
+                  disabled={scanningFirmId === selectedFirmDetail.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '10px 16px',
+                    background: scanningFirmId === selectedFirmDetail.id ? '#9CA3AF' : '#10B981',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: scanningFirmId === selectedFirmDetail.id ? 'not-allowed' : 'pointer',
+                    fontWeight: 500
+                  }}
+                >
+                  {scanningFirmId === selectedFirmDetail.id ? <Clock size={16} className="animate-spin" /> : <FolderSync size={16} />}
+                  {scanningFirmId === selectedFirmDetail.id ? 'Scanning...' : 'Quick Scan'}
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.modalActions} style={{ marginTop: '20px' }}>
+              <button onClick={() => setSelectedFirmDetail(null)} className={styles.cancelBtn}>
+                Close
               </button>
             </div>
           </div>
