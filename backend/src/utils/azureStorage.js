@@ -282,6 +282,46 @@ export async function ensureFirmFolder(firmId) {
   }
 }
 
+// List all files recursively in a directory path
+export async function listFilesRecursive(directoryPath) {
+  try {
+    const shareClient = await getShareClient();
+    const files = [];
+    
+    async function scanDirectory(dirPath) {
+      try {
+        const dirClient = shareClient.getDirectoryClient(dirPath);
+        
+        for await (const item of dirClient.listFilesAndDirectories()) {
+          const itemPath = dirPath ? `${dirPath}/${item.name}` : item.name;
+          
+          if (item.kind === 'directory') {
+            // Recursively scan subdirectory
+            await scanDirectory(itemPath);
+          } else {
+            files.push({
+              name: itemPath,
+              size: item.properties?.contentLength || 0,
+              lastModified: item.properties?.lastModified || null,
+              etag: item.properties?.etag || null
+            });
+          }
+        }
+      } catch (err) {
+        // Directory might not exist, that's OK
+        console.log(`[AZURE] Could not scan ${dirPath}: ${err.message}`);
+      }
+    }
+    
+    await scanDirectory(directoryPath);
+    console.log(`[AZURE] Found ${files.length} files in ${directoryPath}`);
+    return files;
+  } catch (error) {
+    console.error('[AZURE] List files recursive failed:', error.message);
+    throw error;
+  }
+}
+
 // Get Azure connection info for mapping drive
 export async function getConnectionInfo(firmId) {
   const config = await getAzureConfig();
@@ -328,6 +368,7 @@ export default {
   downloadFile,
   deleteFile,
   listFiles,
+  listFilesRecursive,
   isAzureConfigured,
   ensureFirmFolder,
   getConnectionInfo
