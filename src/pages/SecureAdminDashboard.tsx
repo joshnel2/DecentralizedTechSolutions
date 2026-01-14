@@ -4276,146 +4276,145 @@ bob@example.com, Bob, Wilson, partner"
         </div>
       )}
 
-      {/* Firm Detail Modal with Tabs */}
+      {/* Firm Detail Modal - Clean & Modern */}
       {selectedFirmDetail && (
         <div className={styles.modalOverlay} onClick={() => setSelectedFirmDetail(null)}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '800px', maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexShrink: 0 }}>
-              <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: 0 }}>
-                <Building2 size={24} />
-                {selectedFirmDetail.name}
-              </h2>
-              <button 
-                onClick={() => setSelectedFirmDetail(null)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}
-              >
-                <X size={20} />
-              </button>
+          <div 
+            onClick={e => e.stopPropagation()} 
+            style={{ 
+              background: 'white',
+              borderRadius: '16px',
+              width: '90%',
+              maxWidth: '900px',
+              maxHeight: '85vh',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+            }}
+          >
+            {/* Header with gradient */}
+            <div style={{ 
+              background: 'linear-gradient(135deg, #1E3A5F 0%, #2D5A87 100%)',
+              padding: '24px 32px',
+              color: 'white'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <h2 style={{ margin: '0 0 8px 0', fontSize: '24px', fontWeight: 600 }}>{selectedFirmDetail.name}</h2>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '14px', opacity: 0.9 }}>
+                    <span style={{ 
+                      background: 'rgba(255,255,255,0.2)', 
+                      padding: '4px 12px', 
+                      borderRadius: '20px',
+                      fontSize: '12px'
+                    }}>
+                      {selectedFirmDetail.status || 'active'}
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Users size={14} /> {firmUsers.length} users
+                    </span>
+                    {firmStats && (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Briefcase size={14} /> {firmStats.matters} matters
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedFirmDetail(null)}
+                  style={{ 
+                    background: 'rgba(255,255,255,0.1)', 
+                    border: 'none', 
+                    borderRadius: '8px',
+                    padding: '8px',
+                    cursor: 'pointer', 
+                    color: 'white',
+                    transition: 'background 0.2s'
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
             {/* Tabs */}
-            <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', borderBottom: '1px solid #E5E7EB', paddingBottom: '0', flexShrink: 0 }}>
-              <button
-                onClick={() => setFirmDetailTab('overview')}
-                style={{
-                  padding: '10px 20px',
-                  background: 'none',
-                  border: 'none',
-                  borderBottom: firmDetailTab === 'overview' ? '2px solid #3B82F6' : '2px solid transparent',
-                  color: firmDetailTab === 'overview' ? '#3B82F6' : '#6B7280',
-                  fontWeight: firmDetailTab === 'overview' ? 600 : 400,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                <BarChart3 size={16} />
-                Overview
-              </button>
-              <button
-                onClick={() => setFirmDetailTab('users')}
-                style={{
-                  padding: '10px 20px',
-                  background: 'none',
-                  border: 'none',
-                  borderBottom: firmDetailTab === 'users' ? '2px solid #3B82F6' : '2px solid transparent',
-                  color: firmDetailTab === 'users' ? '#3B82F6' : '#6B7280',
-                  fontWeight: firmDetailTab === 'users' ? 600 : 400,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                <Users size={16} />
-                Users ({firmUsers.length})
-              </button>
-              <button
-                onClick={() => setFirmDetailTab('documents')}
-                style={{
-                  padding: '10px 20px',
-                  background: 'none',
-                  border: 'none',
-                  borderBottom: firmDetailTab === 'documents' ? '2px solid #3B82F6' : '2px solid transparent',
-                  color: firmDetailTab === 'documents' ? '#3B82F6' : '#6B7280',
-                  fontWeight: firmDetailTab === 'documents' ? 600 : 400,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                <HardDrive size={16} />
-                Documents
-              </button>
+            <div style={{ 
+              display: 'flex', 
+              gap: '0', 
+              borderBottom: '1px solid #E5E7EB',
+              background: '#FAFAFA'
+            }}>
+              {[
+                { id: 'overview', icon: BarChart3, label: 'Overview' },
+                { id: 'users', icon: Users, label: `Users (${firmUsers.length})` },
+                { id: 'documents', icon: FileText, label: 'Documents' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setFirmDetailTab(tab.id as any)}
+                  style={{
+                    padding: '16px 24px',
+                    background: firmDetailTab === tab.id ? 'white' : 'transparent',
+                    border: 'none',
+                    borderBottom: firmDetailTab === tab.id ? '3px solid #3B82F6' : '3px solid transparent',
+                    color: firmDetailTab === tab.id ? '#1F2937' : '#6B7280',
+                    fontWeight: firmDetailTab === tab.id ? 600 : 400,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '14px',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <tab.icon size={18} />
+                  {tab.label}
+                </button>
+              ))}
             </div>
 
-            {/* Tab Content */}
-            <div style={{ flex: 1, overflowY: 'auto', paddingRight: '8px' }}>
+            {/* Content */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
+              
               {/* Overview Tab */}
               {firmDetailTab === 'overview' && (
                 <div>
-                  {/* Firm Info */}
-                  <div style={{ marginBottom: '20px' }}>
-                    <p style={{ color: '#6B7280', margin: '0 0 8px 0' }}>
-                      Firm ID: <code style={{ background: '#F3F4F6', padding: '2px 6px', borderRadius: '4px', fontSize: '12px' }}>{selectedFirmDetail.id}</code>
-                      <button 
-                        onClick={() => { navigator.clipboard.writeText(selectedFirmDetail.id); showNotification('success', 'Copied!') }}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', marginLeft: '6px', color: '#6B7280' }}
-                      >
-                        <Copy size={14} />
-                      </button>
-                    </p>
-                    <p style={{ color: '#6B7280', margin: 0 }}>
-                      Status: <span className={`${styles.badge} ${styles[selectedFirmDetail.status || 'active']}`}>{selectedFirmDetail.status || 'active'}</span>
-                    </p>
-                  </div>
-
-                  {/* Stats Grid */}
                   {loadingFirmData ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#6B7280' }}>
-                      <Clock size={24} className="animate-spin" />
-                      <p>Loading firm data...</p>
+                    <div style={{ textAlign: 'center', padding: '60px', color: '#6B7280' }}>
+                      <RefreshCw size={32} className="animate-spin" style={{ marginBottom: '16px' }} />
+                      <p style={{ margin: 0 }}>Loading firm data...</p>
                     </div>
                   ) : firmStats ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
-                      <div style={{ background: '#F0F9FF', padding: '16px', borderRadius: '8px', textAlign: 'center' }}>
-                        <div style={{ fontSize: '28px', fontWeight: 600, color: '#0369A1' }}>{firmStats.users}</div>
-                        <div style={{ fontSize: '12px', color: '#0284C7' }}>Users</div>
-                        <div style={{ fontSize: '11px', color: '#6B7280' }}>{firmStats.activeUsers} active</div>
-                      </div>
-                      <div style={{ background: '#F0FDF4', padding: '16px', borderRadius: '8px', textAlign: 'center' }}>
-                        <div style={{ fontSize: '28px', fontWeight: 600, color: '#15803D' }}>{firmStats.matters}</div>
-                        <div style={{ fontSize: '12px', color: '#16A34A' }}>Matters</div>
-                        <div style={{ fontSize: '11px', color: '#6B7280' }}>{firmStats.openMatters} open</div>
-                      </div>
-                      <div style={{ background: '#FEF3C7', padding: '16px', borderRadius: '8px', textAlign: 'center' }}>
-                        <div style={{ fontSize: '28px', fontWeight: 600, color: '#B45309' }}>{firmStats.clients}</div>
-                        <div style={{ fontSize: '12px', color: '#D97706' }}>Clients</div>
-                      </div>
-                      <div style={{ background: '#F5F3FF', padding: '16px', borderRadius: '8px', textAlign: 'center' }}>
-                        <div style={{ fontSize: '28px', fontWeight: 600, color: '#7C3AED' }}>{firmStats.documents}</div>
-                        <div style={{ fontSize: '12px', color: '#8B5CF6' }}>Documents</div>
-                      </div>
-                      <div style={{ background: '#FFF7ED', padding: '16px', borderRadius: '8px', textAlign: 'center' }}>
-                        <div style={{ fontSize: '28px', fontWeight: 600, color: '#C2410C' }}>{firmStats.timeEntries}</div>
-                        <div style={{ fontSize: '12px', color: '#EA580C' }}>Time Entries</div>
-                        <div style={{ fontSize: '11px', color: '#6B7280' }}>{firmStats.totalHours?.toFixed(1)}h total</div>
-                      </div>
-                      <div style={{ background: '#ECFDF5', padding: '16px', borderRadius: '8px', textAlign: 'center' }}>
-                        <div style={{ fontSize: '28px', fontWeight: 600, color: '#047857' }}>{firmStats.invoices}</div>
-                        <div style={{ fontSize: '12px', color: '#059669' }}>Invoices</div>
-                      </div>
-                      <div style={{ background: '#EFF6FF', padding: '16px', borderRadius: '8px', textAlign: 'center' }}>
-                        <div style={{ fontSize: '28px', fontWeight: 600, color: '#1D4ED8' }}>{firmStats.calendarEvents}</div>
-                        <div style={{ fontSize: '12px', color: '#2563EB' }}>Calendar Events</div>
-                      </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+                      {[
+                        { label: 'Users', value: firmStats.users, sub: `${firmStats.activeUsers} active`, color: '#3B82F6', bg: '#EFF6FF' },
+                        { label: 'Matters', value: firmStats.matters, sub: `${firmStats.openMatters} open`, color: '#10B981', bg: '#ECFDF5' },
+                        { label: 'Clients', value: firmStats.clients, color: '#F59E0B', bg: '#FFFBEB' },
+                        { label: 'Documents', value: firmStats.documents, color: '#8B5CF6', bg: '#F5F3FF' },
+                        { label: 'Time Entries', value: firmStats.timeEntries, sub: `${firmStats.totalHours?.toFixed(0)}h`, color: '#EF4444', bg: '#FEF2F2' },
+                        { label: 'Invoices', value: firmStats.invoices, color: '#06B6D4', bg: '#ECFEFF' },
+                        { label: 'Calendar', value: firmStats.calendarEvents, color: '#EC4899', bg: '#FDF2F8' }
+                      ].map((stat, i) => (
+                        <div key={i} style={{ 
+                          background: stat.bg, 
+                          padding: '20px', 
+                          borderRadius: '12px',
+                          transition: 'transform 0.2s',
+                          cursor: 'default'
+                        }}>
+                          <div style={{ fontSize: '32px', fontWeight: 700, color: stat.color }}>{stat.value}</div>
+                          <div style={{ fontSize: '14px', color: stat.color, fontWeight: 500 }}>{stat.label}</div>
+                          {stat.sub && <div style={{ fontSize: '12px', color: '#6B7280', marginTop: '4px' }}>{stat.sub}</div>}
+                        </div>
+                      ))}
                     </div>
                   ) : (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#6B7280' }}>
-                      <p>Could not load firm stats</p>
+                    <div style={{ textAlign: 'center', padding: '60px', color: '#6B7280' }}>
+                      <AlertCircle size={32} style={{ marginBottom: '16px', opacity: 0.5 }} />
+                      <p style={{ margin: 0 }}>Could not load firm statistics</p>
                     </div>
                   )}
                 </div>
@@ -4425,185 +4424,91 @@ bob@example.com, Bob, Wilson, partner"
               {firmDetailTab === 'users' && (
                 <div>
                   {loadingFirmData ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#6B7280' }}>
-                      <Clock size={24} className="animate-spin" />
-                      <p>Loading users...</p>
+                    <div style={{ textAlign: 'center', padding: '60px', color: '#6B7280' }}>
+                      <RefreshCw size={32} className="animate-spin" style={{ marginBottom: '16px' }} />
+                      <p style={{ margin: 0 }}>Loading users...</p>
                     </div>
                   ) : firmUsers.length > 0 ? (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                        <thead>
-                          <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
-                            <th style={{ padding: '12px', textAlign: 'left', fontWeight: 500 }}>Name</th>
-                            <th style={{ padding: '12px', textAlign: 'left', fontWeight: 500 }}>Email</th>
-                            <th style={{ padding: '12px', textAlign: 'left', fontWeight: 500 }}>Role</th>
-                            <th style={{ padding: '12px', textAlign: 'center', fontWeight: 500 }}>Status</th>
-                            <th style={{ padding: '12px', textAlign: 'right', fontWeight: 500 }}>Last Login</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {firmUsers.map(user => (
-                            <tr key={user.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
-                              <td style={{ padding: '12px' }}>
-                                <div style={{ fontWeight: 500 }}>{user.first_name} {user.last_name}</div>
-                              </td>
-                              <td style={{ padding: '12px', color: '#6B7280' }}>{user.email}</td>
-                              <td style={{ padding: '12px' }}>
-                                <span style={{
-                                  padding: '2px 8px',
-                                  borderRadius: '4px',
-                                  fontSize: '12px',
-                                  background: user.role === 'owner' ? '#FEF3C7' : user.role === 'admin' ? '#DBEAFE' : '#F3F4F6',
-                                  color: user.role === 'owner' ? '#B45309' : user.role === 'admin' ? '#1D4ED8' : '#374151'
-                                }}>
-                                  {user.role}
-                                </span>
-                              </td>
-                              <td style={{ padding: '12px', textAlign: 'center' }}>
-                                <span style={{
-                                  padding: '2px 8px',
-                                  borderRadius: '4px',
-                                  fontSize: '12px',
-                                  background: user.is_active ? '#DCFCE7' : '#FEE2E2',
-                                  color: user.is_active ? '#166534' : '#991B1B'
-                                }}>
-                                  {user.is_active ? 'Active' : 'Inactive'}
-                                </span>
-                              </td>
-                              <td style={{ padding: '12px', textAlign: 'right', color: '#6B7280', fontSize: '13px' }}>
-                                {user.last_login ? new Date(user.last_login).toLocaleDateString() : 'Never'}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div style={{ display: 'grid', gap: '12px' }}>
+                      {firmUsers.map(user => (
+                        <div key={user.id} style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'space-between',
+                          padding: '16px 20px',
+                          background: '#F9FAFB',
+                          borderRadius: '12px',
+                          border: '1px solid #E5E7EB'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                            <div style={{ 
+                              width: '44px', 
+                              height: '44px', 
+                              borderRadius: '50%', 
+                              background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: 'white',
+                              fontWeight: 600,
+                              fontSize: '16px'
+                            }}>
+                              {user.first_name?.[0]}{user.last_name?.[0]}
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 600, color: '#1F2937' }}>{user.first_name} {user.last_name}</div>
+                              <div style={{ fontSize: '13px', color: '#6B7280' }}>{user.email}</div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <span style={{
+                              padding: '4px 12px',
+                              borderRadius: '20px',
+                              fontSize: '12px',
+                              fontWeight: 500,
+                              background: user.role === 'owner' ? '#FEF3C7' : user.role === 'admin' ? '#DBEAFE' : '#F3F4F6',
+                              color: user.role === 'owner' ? '#B45309' : user.role === 'admin' ? '#1D4ED8' : '#374151'
+                            }}>
+                              {user.role}
+                            </span>
+                            <span style={{
+                              width: '8px',
+                              height: '8px',
+                              borderRadius: '50%',
+                              background: user.is_active ? '#10B981' : '#EF4444'
+                            }} title={user.is_active ? 'Active' : 'Inactive'} />
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ) : (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#6B7280' }}>
-                      <Users size={32} style={{ marginBottom: '12px', opacity: 0.5 }} />
-                      <p>No users found for this firm</p>
+                    <div style={{ textAlign: 'center', padding: '60px', color: '#6B7280' }}>
+                      <Users size={48} style={{ marginBottom: '16px', opacity: 0.3 }} />
+                      <p style={{ margin: 0, fontSize: '16px' }}>No users in this firm</p>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Documents Tab */}
+              {/* Documents Tab - Simplified with ONE button */}
               {firmDetailTab === 'documents' && (
                 <div>
-                  {/* Document Migration Section */}
-                  <div style={{ background: '#F9FAFB', padding: '20px', borderRadius: '12px', marginBottom: '20px' }}>
-                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 16px 0', fontSize: '16px' }}>
-                      <HardDrive size={18} />
-                      Document Migration (Clio → APX Drive)
-                    </h3>
-
-                    {loadingManifest ? (
-                      <div style={{ textAlign: 'center', padding: '20px', color: '#6B7280' }}>
-                        <Clock size={24} className="animate-spin" />
-                        <p>Loading document manifest...</p>
-                      </div>
-                    ) : firmManifestStats?.stats ? (
-                      <>
-                        {/* Manifest Stats */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
-                          <div style={{ background: 'white', padding: '16px', borderRadius: '8px', textAlign: 'center', border: '1px solid #E5E7EB' }}>
-                            <div style={{ fontSize: '24px', fontWeight: 600, color: '#3B82F6' }}>{firmManifestStats.stats.total || 0}</div>
-                            <div style={{ fontSize: '12px', color: '#6B7280' }}>Total in Manifest</div>
-                          </div>
-                          <div style={{ background: 'white', padding: '16px', borderRadius: '8px', textAlign: 'center', border: '1px solid #E5E7EB' }}>
-                            <div style={{ fontSize: '24px', fontWeight: 600, color: '#F59E0B' }}>{firmManifestStats.stats.pending || 0}</div>
-                            <div style={{ fontSize: '12px', color: '#6B7280' }}>Pending Match</div>
-                          </div>
-                          <div style={{ background: 'white', padding: '16px', borderRadius: '8px', textAlign: 'center', border: '1px solid #E5E7EB' }}>
-                            <div style={{ fontSize: '24px', fontWeight: 600, color: '#10B981' }}>{firmManifestStats.stats.matched || 0}</div>
-                            <div style={{ fontSize: '12px', color: '#6B7280' }}>Matched</div>
-                          </div>
-                          <div style={{ background: 'white', padding: '16px', borderRadius: '8px', textAlign: 'center', border: '1px solid #E5E7EB' }}>
-                            <div style={{ fontSize: '24px', fontWeight: 600, color: '#8B5CF6' }}>{firmManifestStats.stats.imported || 0}</div>
-                            <div style={{ fontSize: '12px', color: '#6B7280' }}>Imported</div>
-                          </div>
-                          <div style={{ background: 'white', padding: '16px', borderRadius: '8px', textAlign: 'center', border: '1px solid #E5E7EB' }}>
-                            <div style={{ fontSize: '24px', fontWeight: 600, color: '#EF4444' }}>{firmManifestStats.stats.missing || 0}</div>
-                            <div style={{ fontSize: '12px', color: '#6B7280' }}>Missing in Azure</div>
-                          </div>
-                          <div style={{ background: 'white', padding: '16px', borderRadius: '8px', textAlign: 'center', border: '1px solid #E5E7EB' }}>
-                            <div style={{ fontSize: '24px', fontWeight: 600, color: '#6366F1' }}>{firmManifestStats.stats.linked_to_matter || 0}</div>
-                            <div style={{ fontSize: '12px', color: '#6B7280' }}>Linked to Matter</div>
-                          </div>
-                        </div>
-
-                        {/* Migration Steps */}
-                        <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #E5E7EB', marginBottom: '16px' }}>
-                          <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#374151' }}>Migration Steps:</h4>
-                          <ol style={{ margin: 0, paddingLeft: '20px', color: '#6B7280', fontSize: '14px', lineHeight: '1.8' }}>
-                            <li>✅ Clio metadata already scanned ({firmManifestStats.stats.total} documents)</li>
-                            <li>📁 Copy files from Clio Drive to Azure File Share</li>
-                            <li>🔍 Click "Scan & Match" to match files to manifest</li>
-                            <li>📥 Click "Import Matched" to create document records</li>
-                          </ol>
-                        </div>
-
-                        {/* Action Buttons */}
-                        <div style={{ display: 'flex', gap: '12px' }}>
-                          <button
-                            onClick={handleMatchDocuments}
-                            disabled={matchingDocuments}
-                            style={{
-                              flex: 1,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '8px',
-                              padding: '12px 16px',
-                              background: matchingDocuments ? '#9CA3AF' : '#3B82F6',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '8px',
-                              cursor: matchingDocuments ? 'not-allowed' : 'pointer',
-                              fontWeight: 500
-                            }}
-                          >
-                            {matchingDocuments ? <Clock size={18} className="animate-spin" /> : <FileSearch size={18} />}
-                            {matchingDocuments ? 'Matching...' : 'Scan & Match Files'}
-                          </button>
-                          <button
-                            onClick={handleImportMatchedDocuments}
-                            disabled={importingDocuments || (firmManifestStats.stats.matched || 0) === 0}
-                            style={{
-                              flex: 1,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '8px',
-                              padding: '12px 16px',
-                              background: importingDocuments ? '#9CA3AF' : (firmManifestStats.stats.matched || 0) === 0 ? '#D1D5DB' : '#10B981',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '8px',
-                              cursor: importingDocuments || (firmManifestStats.stats.matched || 0) === 0 ? 'not-allowed' : 'pointer',
-                              fontWeight: 500
-                            }}
-                          >
-                            {importingDocuments ? <Clock size={18} className="animate-spin" /> : <Download size={18} />}
-                            {importingDocuments ? 'Importing...' : `Import Matched (${firmManifestStats.stats.matched || 0})`}
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <div style={{ textAlign: 'center', padding: '20px', color: '#6B7280' }}>
-                        <FileText size={32} style={{ marginBottom: '12px', opacity: 0.5 }} />
-                        <p style={{ margin: '0 0 8px 0' }}>No Clio document manifest found.</p>
-                        <p style={{ margin: 0, fontSize: '14px' }}>Run a Clio import first, or use the Quick Scan button below.</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Quick Scan Section */}
-                  <div style={{ background: '#F0FDF4', padding: '16px', borderRadius: '8px', border: '1px solid #BBF7D0' }}>
+                  {/* Main Scan Section */}
+                  <div style={{ 
+                    background: 'linear-gradient(135deg, #059669 0%, #10B981 100%)',
+                    borderRadius: '16px',
+                    padding: '32px',
+                    color: 'white',
+                    marginBottom: '24px'
+                  }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div>
-                        <h4 style={{ margin: '0 0 4px 0', fontSize: '14px', color: '#166534' }}>Quick Scan Azure Files</h4>
-                        <p style={{ margin: 0, fontSize: '13px', color: '#15803D' }}>Scan Azure and auto-match files to matters by folder name</p>
+                        <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: 600 }}>
+                          Scan Documents from Azure
+                        </h3>
+                        <p style={{ margin: 0, opacity: 0.9, fontSize: '14px', maxWidth: '400px' }}>
+                          After copying files from Clio Drive to Azure, click this button to scan and import them into the system.
+                        </p>
                       </div>
                       <button
                         onClick={() => handleScanDocuments(selectedFirmDetail.id)}
@@ -4611,30 +4516,77 @@ bob@example.com, Bob, Wilson, partner"
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '6px',
-                          padding: '10px 16px',
-                          background: scanningFirmId === selectedFirmDetail.id ? '#9CA3AF' : '#10B981',
-                          color: 'white',
+                          gap: '10px',
+                          padding: '16px 32px',
+                          background: 'white',
+                          color: '#059669',
                           border: 'none',
-                          borderRadius: '6px',
+                          borderRadius: '12px',
                           cursor: scanningFirmId === selectedFirmDetail.id ? 'not-allowed' : 'pointer',
-                          fontWeight: 500
+                          fontWeight: 600,
+                          fontSize: '16px',
+                          boxShadow: '0 4px 14px rgba(0,0,0,0.1)',
+                          transition: 'transform 0.2s, box-shadow 0.2s',
+                          opacity: scanningFirmId === selectedFirmDetail.id ? 0.7 : 1
                         }}
+                        onMouseOver={e => { if (scanningFirmId !== selectedFirmDetail.id) { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.15)' }}}
+                        onMouseOut={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,0.1)' }}
                       >
-                        {scanningFirmId === selectedFirmDetail.id ? <Clock size={16} className="animate-spin" /> : <FolderSync size={16} />}
-                        {scanningFirmId === selectedFirmDetail.id ? 'Scanning...' : 'Quick Scan'}
+                        {scanningFirmId === selectedFirmDetail.id ? (
+                          <>
+                            <RefreshCw size={20} className="animate-spin" />
+                            Scanning...
+                          </>
+                        ) : (
+                          <>
+                            <FolderSync size={20} />
+                            Scan Documents
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>
+
+                  {/* Status Cards */}
+                  {firmManifestStats?.stats && (
+                    <div>
+                      <h4 style={{ margin: '0 0 16px 0', color: '#374151', fontSize: '14px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Migration Status
+                      </h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                        <div style={{ background: '#F0F9FF', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
+                          <div style={{ fontSize: '28px', fontWeight: 700, color: '#0369A1' }}>{firmManifestStats.stats.total || 0}</div>
+                          <div style={{ fontSize: '13px', color: '#0284C7' }}>Total Docs</div>
+                        </div>
+                        <div style={{ background: '#F0FDF4', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
+                          <div style={{ fontSize: '28px', fontWeight: 700, color: '#15803D' }}>{firmManifestStats.stats.imported || 0}</div>
+                          <div style={{ fontSize: '13px', color: '#16A34A' }}>Imported</div>
+                        </div>
+                        <div style={{ background: '#FEF3C7', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
+                          <div style={{ fontSize: '28px', fontWeight: 700, color: '#B45309' }}>{firmManifestStats.stats.pending || 0}</div>
+                          <div style={{ fontSize: '13px', color: '#D97706' }}>Pending</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Help Text */}
+                  <div style={{ 
+                    marginTop: '24px', 
+                    padding: '16px 20px', 
+                    background: '#F9FAFB', 
+                    borderRadius: '12px',
+                    border: '1px solid #E5E7EB'
+                  }}>
+                    <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', color: '#374151' }}>How it works:</h4>
+                    <ol style={{ margin: 0, paddingLeft: '20px', color: '#6B7280', fontSize: '14px', lineHeight: '1.8' }}>
+                      <li>Copy files from Clio Drive to Azure File Share</li>
+                      <li>Click "Scan Documents" above</li>
+                      <li>Documents are automatically matched to matters and imported</li>
+                    </ol>
+                  </div>
                 </div>
               )}
-            </div>
-
-            {/* Footer */}
-            <div className={styles.modalActions} style={{ marginTop: '20px', flexShrink: 0 }}>
-              <button onClick={() => setSelectedFirmDetail(null)} className={styles.cancelBtn}>
-                Close
-              </button>
             </div>
           </div>
         </div>
