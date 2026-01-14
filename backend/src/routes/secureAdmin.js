@@ -219,6 +219,89 @@ router.put('/firms/:id', requireSecureAdmin, async (req, res) => {
   }
 });
 
+// Get users for a specific firm
+router.get('/firms/:id/users', requireSecureAdmin, async (req, res) => {
+  try {
+    const firmId = req.params.id;
+    
+    const result = await query(`
+      SELECT 
+        id, email, first_name, last_name, role, 
+        is_active, email_verified, phone, hourly_rate,
+        created_at, last_login_at, updated_at
+      FROM users 
+      WHERE firm_id = $1
+      ORDER BY 
+        CASE role 
+          WHEN 'owner' THEN 1 
+          WHEN 'admin' THEN 2 
+          WHEN 'partner' THEN 3 
+          WHEN 'attorney' THEN 4 
+          WHEN 'paralegal' THEN 5 
+          ELSE 6 
+        END,
+        first_name ASC
+    `, [firmId]);
+
+    res.json({
+      users: result.rows.map(u => ({
+        id: u.id,
+        email: u.email,
+        first_name: u.first_name,
+        last_name: u.last_name,
+        role: u.role,
+        is_active: u.is_active !== false,
+        email_verified: u.email_verified,
+        phone: u.phone,
+        hourly_rate: u.hourly_rate,
+        created_at: u.created_at,
+        last_login: u.last_login_at
+      }))
+    });
+  } catch (error) {
+    console.error('Get firm users error:', error);
+    res.status(500).json({ error: 'Failed to retrieve firm users' });
+  }
+});
+
+// Get stats for a specific firm
+router.get('/firms/:id/stats', requireSecureAdmin, async (req, res) => {
+  try {
+    const firmId = req.params.id;
+    
+    const result = await query(`
+      SELECT 
+        (SELECT COUNT(*) FROM users WHERE firm_id = $1) as users,
+        (SELECT COUNT(*) FROM users WHERE firm_id = $1 AND is_active = true) as active_users,
+        (SELECT COUNT(*) FROM clients WHERE firm_id = $1) as clients,
+        (SELECT COUNT(*) FROM matters WHERE firm_id = $1) as matters,
+        (SELECT COUNT(*) FROM matters WHERE firm_id = $1 AND status = 'Open') as open_matters,
+        (SELECT COUNT(*) FROM documents WHERE firm_id = $1) as documents,
+        (SELECT COUNT(*) FROM time_entries WHERE firm_id = $1) as time_entries,
+        (SELECT COALESCE(SUM(hours), 0) FROM time_entries WHERE firm_id = $1) as total_hours,
+        (SELECT COUNT(*) FROM invoices WHERE firm_id = $1) as invoices,
+        (SELECT COUNT(*) FROM calendar_events WHERE firm_id = $1) as calendar_events
+    `, [firmId]);
+
+    const stats = result.rows[0];
+    res.json({
+      users: parseInt(stats.users),
+      activeUsers: parseInt(stats.active_users),
+      clients: parseInt(stats.clients),
+      matters: parseInt(stats.matters),
+      openMatters: parseInt(stats.open_matters),
+      documents: parseInt(stats.documents),
+      timeEntries: parseInt(stats.time_entries),
+      totalHours: parseFloat(stats.total_hours),
+      invoices: parseInt(stats.invoices),
+      calendarEvents: parseInt(stats.calendar_events)
+    });
+  } catch (error) {
+    console.error('Get firm stats error:', error);
+    res.status(500).json({ error: 'Failed to retrieve firm stats' });
+  }
+});
+
 router.delete('/firms/:id', requireSecureAdmin, async (req, res) => {
   try {
     const firmId = req.params.id;
