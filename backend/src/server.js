@@ -41,6 +41,10 @@ import aiAgentRoutes, { resumeIncompleteTasks } from './routes/aiAgent.js';
 import stripeConnectRoutes from './routes/stripeConnect.js';
 import notificationRoutes from './routes/notifications.js';
 
+// Background Agent (Amplifier-powered)
+import backgroundAgentRoutes from './routes/backgroundAgent.js';
+import amplifierService from './services/amplifierService.js';
+
 // Import middleware
 import { apiLimiter } from './middleware/rateLimit.js';
 
@@ -115,6 +119,9 @@ app.use('/api/v1/agent', aiAgentRoutes);
 app.use('/api/stripe/connect', stripeConnectRoutes);
 app.use('/api/notifications', notificationRoutes);
 
+// Background Agent (Amplifier-powered) - separate from normal AI
+app.use('/api/v1/background-agent', backgroundAgentRoutes);
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);
@@ -172,6 +179,7 @@ app.listen(PORT, () => {
 ║     • Billing:    /api/v1/billing                         ║
 ║     • Analytics:  /api/v1/analytics                       ║
 ║     • AI Agent:   /api/v1/agent                           ║
+║     • Background: /api/v1/background-agent (Amplifier)    ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
   `);
@@ -189,6 +197,20 @@ app.listen(PORT, () => {
       console.error('Error resuming incomplete AI tasks:', err);
     });
   }, 10000); // Wait 10 seconds after startup
+  
+  // Initialize Amplifier background agent service
+  setTimeout(async () => {
+    try {
+      const configured = await amplifierService.configure();
+      if (configured) {
+        console.log('✓ Amplifier background agent initialized');
+      } else {
+        console.log('⚠ Amplifier background agent not available');
+      }
+    } catch (err) {
+      console.error('Amplifier initialization error:', err);
+    }
+  }, 15000); // Wait 15 seconds after startup
 });
 
 export default app;

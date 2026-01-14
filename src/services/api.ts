@@ -855,6 +855,46 @@ export const aiApi = {
     });
   },
 
+  // ============================================
+  // BACKGROUND AGENT API (Amplifier-powered)
+  // ============================================
+  
+  // Check if background agent is available
+  async getBackgroundAgentStatus() {
+    return fetchWithAuth('/v1/background-agent/status');
+  },
+
+  // Start a background task
+  async startBackgroundTask(goal: string, options?: Record<string, any>) {
+    return fetchWithAuth('/v1/background-agent/tasks', {
+      method: 'POST',
+      body: JSON.stringify({ goal, options }),
+    });
+  },
+
+  // Get all background tasks
+  async getBackgroundTasks(limit?: number) {
+    const query = limit ? `?limit=${limit}` : '';
+    return fetchWithAuth(`/v1/background-agent/tasks${query}`);
+  },
+
+  // Get active background task
+  async getActiveBackgroundTask() {
+    return fetchWithAuth('/v1/background-agent/tasks/active');
+  },
+
+  // Get specific background task
+  async getBackgroundTask(taskId: string) {
+    return fetchWithAuth(`/v1/background-agent/tasks/${taskId}`);
+  },
+
+  // Cancel background task
+  async cancelBackgroundTask(taskId: string) {
+    return fetchWithAuth(`/v1/background-agent/tasks/${taskId}/cancel`, {
+      method: 'POST',
+    });
+  },
+
   // Background task management
   async getActiveTask() {
     return fetchWithAuth('/v1/agent/tasks/active/current');

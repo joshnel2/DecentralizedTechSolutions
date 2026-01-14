@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bot, X, CheckCircle, AlertCircle, StopCircle, MessageSquare } from 'lucide-react'
+import { Bot, X, CheckCircle, AlertCircle, StopCircle, MessageSquare, Rocket } from 'lucide-react'
 import { aiApi } from '../services/api'
 import styles from './BackgroundTaskBar.module.css'
 
@@ -13,6 +13,7 @@ interface ActiveTask {
   currentStep: string
   summary?: string
   result?: any
+  isAmplifier?: boolean  // Track if this is an Amplifier background task
 }
 
 export function BackgroundTaskBar() {
@@ -25,12 +26,64 @@ export function BackgroundTaskBar() {
   const [polling, setPolling] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
 
-  // Check task status
+  // Check task status - supports both regular AI Agent and Amplifier background tasks
   const checkActiveTask = useCallback(async () => {
     // Don't poll if we've cancelled or already complete
     if (isCancelling || isCancelled) return
     
     try {
+      // Check if current task is Amplifier-based
+      if (activeTask?.isAmplifier) {
+        // Poll Amplifier background agent
+        const response = await aiApi.getActiveBackgroundTask()
+        if (response.active && response.task) {
+          const task = response.task
+          
+          if (task.status === 'cancelled') {
+            setIsCancelled(true)
+            setPolling(false)
+            setActiveTask(prev => prev ? { ...prev, status: 'cancelled', currentStep: 'Cancelled' } : null)
+            setTimeout(() => setActiveTask(null), 2000)
+            return
+          }
+          
+          setActiveTask({
+            id: task.id,
+            goal: task.goal,
+            status: task.status,
+            progressPercent: task.progress?.progressPercent || 5,
+            iterations: task.progress?.iterations || 0,
+            currentStep: task.progress?.currentStep || 'Working...',
+            summary: task.result?.summary,
+            result: task.result,
+            isAmplifier: true
+          })
+          setIsComplete(false)
+          setHasError(task.status === 'error' || task.status === 'failed')
+        } else if (activeTask && !response.active) {
+          // Task completed
+          try {
+            const taskDetails = await aiApi.getBackgroundTask(activeTask.id)
+            if (taskDetails?.task) {
+              setCompletedTask({
+                ...activeTask,
+                summary: taskDetails.task.result?.summary,
+                result: taskDetails.task.result,
+                status: taskDetails.task.status
+              })
+            }
+          } catch (e) {
+            setCompletedTask(activeTask)
+          }
+          setIsComplete(true)
+          setPolling(false)
+        } else {
+          setPolling(false)
+        }
+        return
+      }
+      
+      // Regular AI Agent task polling
       const response = await aiApi.getActiveTask()
       if (response.active && response.task) {
         const task = response.task
@@ -52,7 +105,8 @@ export function BackgroundTaskBar() {
           iterations: task.iterations || 0,
           currentStep: task.current_step || task.progress?.currentStep || 'Working...',
           summary: task.summary,
-          result: task.result
+          result: task.result,
+          isAmplifier: false
         })
         setIsComplete(false)
         setHasError(task.status === 'error' || task.status === 'failed')
@@ -86,16 +140,20 @@ export function BackgroundTaskBar() {
   // Listen for background task started event
   useEffect(() => {
     const handleTaskStarted = (event: CustomEvent) => {
+      const isAmplifier = event.detail.isAmplifier !== false // Default to true for new Amplifier tasks
       setActiveTask({
         id: event.detail.taskId,
         goal: event.detail.goal,
         status: 'running',
         progressPercent: 5,
         iterations: 0,
-        currentStep: 'Starting...'
+        currentStep: isAmplifier ? 'Starting Amplifier agent...' : 'Starting...',
+        isAmplifier
       })
       setIsComplete(false)
       setHasError(false)
+      setIsCancelled(false)
+      setIsCancelling(false)
       setPolling(true)
     }
 
@@ -150,7 +208,12 @@ export function BackgroundTaskBar() {
     setActiveTask(prev => prev ? { ...prev, status: 'cancelling', currentStep: 'Stopping agent...' } : null)
     
     try {
-      await aiApi.cancelTask(activeTask.id)
+      // Use appropriate cancel API based on task type
+      if (activeTask.isAmplifier) {
+        await aiApi.cancelBackgroundTask(activeTask.id)
+      } else {
+        await aiApi.cancelTask(activeTask.id)
+      }
       setIsCancelled(true)
       setActiveTask(prev => prev ? { ...prev, status: 'cancelled', currentStep: 'Cancelled' } : null)
       // Auto-dismiss after 2 seconds
@@ -226,6 +289,8 @@ export function BackgroundTaskBar() {
               <AlertCircle size={20} />
             ) : isCancelledState ? (
               <StopCircle size={20} />
+            ) : activeTask?.isAmplifier ? (
+              <Rocket size={20} className={styles.spinning} />
             ) : (
               <Bot size={20} className={styles.spinning} />
             )}
@@ -237,7 +302,7 @@ export function BackgroundTaskBar() {
                 {isComplete ? 'Background Task Complete' : 
                  hasError ? 'Task Error' : 
                  isCancelledState ? 'Task Cancelled' :
-                 'Background Agent Working'}
+                 activeTask?.isAmplifier ? 'Amplifier Agent Working' : 'Background Agent Working'}
               </div>
               {!isComplete && !hasError && !isCancelledState && (
                 <div className={styles.iterations}>

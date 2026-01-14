@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Mail, Bot, Cpu, Terminal, AlertCircle, RefreshCw, Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
+import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Mail, Bot, Cpu, Terminal, AlertCircle, RefreshCw, Mic, MicOff, Volume2, VolumeX, ToggleLeft, ToggleRight, Rocket } from 'lucide-react'
 import { aiApi, documentsApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import styles from './AIChat.module.css'
@@ -94,6 +94,10 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   const [voiceMode, setVoiceMode] = useState(false)
   const [voiceState, setVoiceState] = useState<VoiceState>('idle')
   const [audioLevel, setAudioLevel] = useState(0)
+  
+  // Background agent mode state
+  const [backgroundMode, setBackgroundMode] = useState(false)
+  const [backgroundAvailable, setBackgroundAvailable] = useState<boolean | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -108,6 +112,19 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
   useEffect(() => {
     voiceModeRef.current = voiceMode
   }, [voiceMode])
+  
+  // Check background agent availability when panel opens
+  useEffect(() => {
+    if (isOpen && backgroundAvailable === null) {
+      aiApi.getBackgroundAgentStatus()
+        .then(status => {
+          setBackgroundAvailable(status.available && status.configured)
+        })
+        .catch(() => {
+          setBackgroundAvailable(false)
+        })
+    }
+  }, [isOpen, backgroundAvailable])
 
   const currentPage = getPageFromPath(location.pathname)
   const pathContext = getContextFromPath(location.pathname)
@@ -223,6 +240,35 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
     setIsLoading(true)
 
     try {
+      // BACKGROUND MODE: Start a background task with Amplifier
+      if (backgroundMode && backgroundAvailable) {
+        const result = await aiApi.startBackgroundTask(
+          text || `Analyze and summarize this document: ${currentFile?.name}`
+        )
+        
+        const assistantMessage: Message = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: `🚀 **Background task started!**\n\nYour task has been submitted to the background agent (powered by Microsoft Amplifier).\n\n**Goal:** ${result.task?.goal || text}\n**Task ID:** ${result.task?.id || 'Unknown'}\n\nYou can close this panel and continue working. Check the progress bar at the bottom of the screen to monitor the task.`,
+          timestamp: new Date(),
+          toolsUsed: true,
+        }
+        
+        setMessages(prev => [...prev, assistantMessage])
+        
+        // Dispatch event to notify BackgroundTaskBar
+        window.dispatchEvent(new CustomEvent('backgroundTaskStarted', {
+          detail: {
+            taskId: result.task?.id,
+            goal: result.task?.goal || text
+          }
+        }))
+        
+        setIsLoading(false)
+        return
+      }
+
+      // NORMAL MODE: Use AI Agent with function calling
       // Build conversation history for context
       const conversationHistory = messages.map(m => ({
         role: m.role,
@@ -250,7 +296,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         } : {})
       }
       
-      // Always use AI Agent with function calling (can take actions immediately!)
+      // Use AI Agent with function calling (can take actions immediately!)
       response = await aiApi.agentChat(
         text || `Analyze and summarize this document: ${currentFile?.name}`, 
         conversationHistory, 
@@ -677,15 +723,28 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         <div className={styles.header}>
           <div className={styles.headerTitle}>
             <div className={styles.headerIcon}>
-              <Terminal size={16} />
+              {backgroundMode ? <Rocket size={16} /> : <Terminal size={16} />}
               <div className={styles.headerIconPulse} />
             </div>
             <div className={styles.headerText}>
               <span className={styles.headerMain}>APEX AI</span>
-              <span className={styles.headerSub}>v2.0 • Your Legal Assistant</span>
+              <span className={styles.headerSub}>
+                {backgroundMode ? 'Background Agent (Amplifier)' : 'v2.0 • Your Legal Assistant'}
+              </span>
             </div>
           </div>
           <div className={styles.headerActions}>
+            {/* Background Mode Toggle */}
+            {backgroundAvailable && (
+              <button
+                onClick={() => setBackgroundMode(!backgroundMode)}
+                className={`${styles.backgroundToggle} ${backgroundMode ? styles.backgroundToggleActive : ''}`}
+                title={backgroundMode ? 'Switch to Normal Mode' : 'Switch to Background Mode'}
+              >
+                {backgroundMode ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
+                <span>{backgroundMode ? 'Background' : 'Normal'}</span>
+              </button>
+            )}
             {messages.length > 0 && !voiceMode && (
               <button onClick={clearChat} className={styles.clearBtn}>
                 <Terminal size={12} />
@@ -704,7 +763,13 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           </div>
         </div>
 
-        {/* Mode Toggle - removed, using Quick Mode only */}
+        {/* Background Mode Banner */}
+        {backgroundMode && (
+          <div className={styles.backgroundBanner}>
+            <Rocket size={14} />
+            <span>Background Mode: Tasks run autonomously using Microsoft Amplifier</span>
+          </div>
+        )}
 
         {/* Messages */}
         <div className={styles.messages} ref={messagesContainerRef}>
