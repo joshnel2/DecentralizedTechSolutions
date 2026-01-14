@@ -200,4 +200,77 @@ router.post('/tasks/:id/cancel', authenticate, async (req, res) => {
   }
 });
 
+/**
+ * Get task history from database
+ */
+router.get('/history', authenticate, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const history = await amplifierService.getTaskHistory(req.user.id, req.user.firmId, limit);
+    
+    res.json({
+      history,
+      count: history.length
+    });
+  } catch (error) {
+    console.error('Error getting task history:', error);
+    res.status(500).json({ error: 'Failed to get task history' });
+  }
+});
+
+/**
+ * Get learned patterns
+ */
+router.get('/learnings', authenticate, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const patterns = await amplifierService.getLearnedPatterns(req.user.firmId, req.user.id, limit);
+    
+    res.json({
+      patterns,
+      count: patterns.length
+    });
+  } catch (error) {
+    console.error('Error getting learned patterns:', error);
+    res.status(500).json({ error: 'Failed to get learned patterns' });
+  }
+});
+
+/**
+ * Get available tools (for documentation/UI)
+ */
+router.get('/tools', authenticate, async (req, res) => {
+  try {
+    // Import tool definitions
+    const { AMPLIFIER_TOOLS } = await import('../services/amplifier/toolBridge.js');
+    
+    const tools = Object.entries(AMPLIFIER_TOOLS).map(([name, tool]) => ({
+      name,
+      description: tool.description,
+      parameters: tool.parameters,
+      required: tool.required
+    }));
+    
+    res.json({
+      tools,
+      count: tools.length,
+      categories: [
+        { name: 'Time Entries', tools: ['log_time', 'get_my_time_entries'] },
+        { name: 'Matters', tools: ['list_my_matters', 'search_matters', 'get_matter', 'create_matter', 'update_matter', 'close_matter'] },
+        { name: 'Clients', tools: ['list_clients', 'get_client', 'create_client', 'update_client'] },
+        { name: 'Invoices', tools: ['list_invoices', 'create_invoice', 'send_invoice', 'record_payment'] },
+        { name: 'Documents', tools: ['list_documents', 'read_document_content', 'create_document', 'search_document_content'] },
+        { name: 'Calendar', tools: ['get_calendar_events', 'create_calendar_event'] },
+        { name: 'Tasks', tools: ['list_tasks', 'create_task', 'complete_task'] },
+        { name: 'Reports', tools: ['generate_report', 'get_firm_analytics'] },
+        { name: 'Team', tools: ['list_team_members'] },
+        { name: 'Planning', tools: ['think_and_plan', 'evaluate_progress', 'task_complete', 'log_work'] }
+      ]
+    });
+  } catch (error) {
+    console.error('Error getting tools:', error);
+    res.status(500).json({ error: 'Failed to get tools' });
+  }
+});
+
 export default router;

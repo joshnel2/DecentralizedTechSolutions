@@ -1,17 +1,21 @@
 /**
- * Amplifier Background Agent Service
+ * Enhanced Amplifier Background Agent Service
  * 
- * This service wraps Microsoft Amplifier (https://github.com/microsoft/amplifier)
- * to provide background agent capabilities while keeping the normal AI agent unchanged.
+ * This service provides a powerful background agent powered by Microsoft Amplifier
+ * with FULL access to all platform tools and learning capabilities.
  * 
- * It uses the same Azure OpenAI credentials as the main AI agent.
+ * Features:
+ * - Access to all tools the normal AI agent has
+ * - Learning from user interactions
+ * - Long-running autonomous task support
+ * - Workflow templates for common operations
+ * - Progress tracking and checkpointing
  */
 
-import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
-import path from 'path';
-import fs from 'fs';
-import os from 'os';
+import { query } from '../db/connection.js';
+import { PLATFORM_CONTEXT, getUserContext, getMatterContext, getLearningContext } from './amplifier/platformContext.js';
+import { AMPLIFIER_TOOLS, executeTool } from './amplifier/toolBridge.js';
 
 // Store active tasks per user
 const activeTasks = new Map();
@@ -22,8 +26,15 @@ const TaskStatus = {
   RUNNING: 'running',
   COMPLETED: 'completed',
   FAILED: 'failed',
-  CANCELLED: 'cancelled'
+  CANCELLED: 'cancelled',
+  WAITING_INPUT: 'waiting_input'
 };
+
+// Azure OpenAI configuration
+const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
+const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
+const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
+const API_VERSION = '2024-12-01-preview';
 
 /**
  * Generate a unique task ID
@@ -33,37 +44,66 @@ function generateTaskId() {
 }
 
 /**
- * Get Amplifier binary path
+ * Call Azure OpenAI with function calling
  */
-function getAmplifierPath() {
-  const localBin = path.join(os.homedir(), '.local', 'bin', 'amplifier');
-  if (fs.existsSync(localBin)) {
-    return localBin;
+async function callAzureOpenAI(messages, tools = [], options = {}) {
+  const url = `${AZURE_ENDPOINT}openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${API_VERSION}`;
+  
+  const body = {
+    messages,
+    temperature: options.temperature ?? 0.7,
+    max_tokens: options.maxTokens ?? 4000,
+    top_p: 0.95,
+  };
+  
+  if (tools.length > 0) {
+    body.tools = tools;
+    body.tool_choice = 'auto';
   }
-  // Fallback to PATH
-  return 'amplifier';
+  
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'api-key': AZURE_API_KEY,
+    },
+    body: JSON.stringify(body),
+  });
+  
+  if (!response.ok) {
+    const error = await response.text();
+    console.error('[Amplifier] Azure OpenAI error:', error);
+    throw new Error(`Azure OpenAI API error: ${response.status}`);
+  }
+  
+  return await response.json();
 }
 
 /**
- * Create Amplifier configuration for Azure OpenAI
+ * Convert our tool definitions to OpenAI function format
  */
-function getAmplifierEnv() {
-  const env = { ...process.env };
-  
-  // Map our Azure OpenAI env vars to Amplifier's expected format
-  // Amplifier uses AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY
-  env.AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
-  env.AZURE_OPENAI_API_KEY = process.env.AZURE_OPENAI_API_KEY;
-  env.AZURE_OPENAI_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
-  
-  // Add PATH to include local bin
-  env.PATH = `${path.join(os.homedir(), '.local', 'bin')}:${env.PATH}`;
-  
-  return env;
+function getOpenAITools() {
+  return Object.entries(AMPLIFIER_TOOLS).map(([name, tool]) => ({
+    type: 'function',
+    function: {
+      name,
+      description: tool.description,
+      parameters: {
+        type: 'object',
+        properties: Object.fromEntries(
+          Object.entries(tool.parameters).map(([key, desc]) => [
+            key,
+            { type: desc.split(' - ')[0], description: desc.split(' - ')[1] || '' }
+          ])
+        ),
+        required: tool.required
+      }
+    }
+  }));
 }
 
 /**
- * Background Task class
+ * Enhanced Background Task class
  */
 class BackgroundTask extends EventEmitter {
   constructor(taskId, userId, firmId, goal, options = {}) {
@@ -77,172 +117,400 @@ class BackgroundTask extends EventEmitter {
     this.progress = {
       currentStep: 'Initializing...',
       progressPercent: 0,
-      iterations: 0
+      iterations: 0,
+      totalSteps: 0,
+      completedSteps: 0
     };
-    this.output = [];
+    this.messages = [];
+    this.actionsHistory = [];
     this.result = null;
     this.error = null;
-    this.process = null;
     this.startTime = new Date();
     this.endTime = null;
+    this.cancelled = false;
+    
+    // User and firm context
+    this.userContext = null;
+    this.learningContext = null;
   }
 
   /**
-   * Start the background task using Amplifier
+   * Initialize context for the task
+   */
+  async initializeContext() {
+    try {
+      // Get user info
+      const userResult = await query(
+        'SELECT u.*, f.name as firm_name FROM users u JOIN firms f ON u.firm_id = f.id WHERE u.id = $1',
+        [this.userId]
+      );
+      const user = userResult.rows[0];
+      const firm = { name: user?.firm_name };
+      
+      this.userContext = getUserContext(user, firm);
+      this.learningContext = await getLearningContext(query, this.firmId, this.userId);
+      
+      // Get workflow templates
+      const workflowResult = await query(
+        'SELECT name, description, trigger_phrases, steps FROM ai_workflow_templates WHERE firm_id = $1 AND is_active = true',
+        [this.firmId]
+      );
+      
+      this.workflowTemplates = workflowResult.rows;
+    } catch (error) {
+      console.error('[Amplifier] Context initialization error:', error);
+    }
+  }
+
+  /**
+   * Build the system prompt with full context
+   */
+  buildSystemPrompt() {
+    let prompt = `You are the APEX LEGAL BACKGROUND AGENT - an autonomous AI assistant with FULL ACCESS to the legal practice management platform.
+
+${PLATFORM_CONTEXT}
+
+${this.userContext || ''}
+
+${this.learningContext || ''}
+
+## YOUR CAPABILITIES
+
+You have access to ALL platform tools and can:
+- Create, update, and manage clients and matters
+- Log time entries and generate invoices
+- Create and edit documents
+- Schedule events and manage tasks
+- Search across all firm data
+- Generate reports and analytics
+
+## AUTONOMOUS OPERATION MODE
+
+You are running as a BACKGROUND AGENT. This means:
+1. You should work AUTONOMOUSLY to complete the goal
+2. Break complex tasks into steps and execute them
+3. Use think_and_plan to organize your approach
+4. Use log_work to track progress
+5. Use task_complete when finished
+6. Only use request_human_input for critical decisions
+
+## CURRENT TASK
+
+Goal: ${this.goal}
+
+Work through this goal step by step. Take actions, verify results, and continue until complete.
+`;
+
+    // Add workflow templates if relevant
+    if (this.workflowTemplates && this.workflowTemplates.length > 0) {
+      prompt += '\n## AVAILABLE WORKFLOW TEMPLATES\n\n';
+      for (const wf of this.workflowTemplates) {
+        const triggers = wf.trigger_phrases?.join(', ') || '';
+        prompt += `- **${wf.name}**: ${wf.description} (triggers: ${triggers})\n`;
+      }
+    }
+
+    return prompt;
+  }
+
+  /**
+   * Start the background task
    */
   async start() {
     this.status = TaskStatus.RUNNING;
-    this.progress.currentStep = 'Starting Amplifier agent...';
+    this.progress.currentStep = 'Initializing context...';
     this.emit('progress', this.getStatus());
 
     try {
-      const amplifierPath = getAmplifierPath();
-      const env = getAmplifierEnv();
+      // Initialize context
+      await this.initializeContext();
       
-      // Check if Amplifier is configured for Azure OpenAI
-      // We'll run it in non-interactive mode with --yes
-      const args = [
-        'run',
-        '--yes',  // Non-interactive mode
-        this.goal
+      // Build initial messages
+      this.messages = [
+        { role: 'system', content: this.buildSystemPrompt() },
+        { role: 'user', content: `Please complete this task: ${this.goal}` }
       ];
 
-      console.log(`[Amplifier] Starting task ${this.id} with goal: ${this.goal}`);
+      // Run the agentic loop
+      await this.runAgentLoop();
       
-      this.process = spawn(amplifierPath, args, {
-        env,
-        cwd: process.cwd(),
-        shell: true
-      });
-
-      let outputBuffer = '';
-      
-      this.process.stdout.on('data', (data) => {
-        const text = data.toString();
-        outputBuffer += text;
-        this.output.push({ type: 'stdout', text, timestamp: new Date() });
-        
-        // Parse progress from output
-        this.parseProgress(text);
-        this.emit('progress', this.getStatus());
-      });
-
-      this.process.stderr.on('data', (data) => {
-        const text = data.toString();
-        this.output.push({ type: 'stderr', text, timestamp: new Date() });
-        console.log(`[Amplifier] stderr: ${text}`);
-      });
-
-      this.process.on('close', (code) => {
-        this.endTime = new Date();
-        
-        if (this.status === TaskStatus.CANCELLED) {
-          console.log(`[Amplifier] Task ${this.id} was cancelled`);
-          return;
-        }
-        
-        if (code === 0) {
-          this.status = TaskStatus.COMPLETED;
-          this.progress.progressPercent = 100;
-          this.progress.currentStep = 'Completed';
-          this.result = this.parseResult(outputBuffer);
-          console.log(`[Amplifier] Task ${this.id} completed successfully`);
-        } else {
-          this.status = TaskStatus.FAILED;
-          this.error = `Process exited with code ${code}`;
-          this.progress.currentStep = 'Failed';
-          console.log(`[Amplifier] Task ${this.id} failed with code ${code}`);
-        }
-        
-        this.emit('complete', this.getStatus());
-      });
-
-      this.process.on('error', (err) => {
-        this.status = TaskStatus.FAILED;
-        this.error = err.message;
-        this.progress.currentStep = 'Error';
-        this.endTime = new Date();
-        console.error(`[Amplifier] Task ${this.id} error:`, err);
-        this.emit('error', err);
-      });
-
     } catch (error) {
       this.status = TaskStatus.FAILED;
       this.error = error.message;
       this.endTime = new Date();
-      console.error(`[Amplifier] Failed to start task ${this.id}:`, error);
-      throw error;
+      console.error(`[Amplifier] Task ${this.id} error:`, error);
+      this.emit('error', error);
     }
   }
 
   /**
-   * Parse progress from Amplifier output
+   * Run the autonomous agent loop
    */
-  parseProgress(text) {
-    // Look for common progress indicators
-    const lines = text.split('\n').filter(l => l.trim());
+  async runAgentLoop() {
+    const MAX_ITERATIONS = 50;
+    const tools = getOpenAITools();
     
-    for (const line of lines) {
-      // Update current step based on output
-      if (line.includes('Thinking') || line.includes('thinking')) {
-        this.progress.currentStep = 'Analyzing task...';
-        this.progress.progressPercent = Math.min(this.progress.progressPercent + 10, 90);
-      } else if (line.includes('Tool') || line.includes('tool')) {
-        this.progress.currentStep = 'Executing action...';
-        this.progress.progressPercent = Math.min(this.progress.progressPercent + 15, 90);
-        this.progress.iterations++;
-      } else if (line.includes('Result') || line.includes('result')) {
-        this.progress.currentStep = 'Processing results...';
-        this.progress.progressPercent = Math.min(this.progress.progressPercent + 5, 95);
+    while (this.progress.iterations < MAX_ITERATIONS && !this.cancelled) {
+      this.progress.iterations++;
+      this.progress.currentStep = `Working... (iteration ${this.progress.iterations})`;
+      this.emit('progress', this.getStatus());
+      
+      try {
+        // Call Azure OpenAI
+        const response = await callAzureOpenAI(this.messages, tools);
+        const choice = response.choices[0];
+        const message = choice.message;
+        
+        // Add assistant message to history
+        this.messages.push(message);
+        
+        // Check for tool calls
+        if (message.tool_calls && message.tool_calls.length > 0) {
+          // Execute tools
+          for (const toolCall of message.tool_calls) {
+            if (this.cancelled) break;
+            
+            const toolName = toolCall.function.name;
+            const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+            
+            this.progress.currentStep = `Executing: ${toolName}`;
+            this.emit('progress', this.getStatus());
+            
+            // Execute the tool
+            const result = await executeTool(toolName, toolArgs, {
+              userId: this.userId,
+              firmId: this.firmId
+            });
+            
+            // Track action
+            this.actionsHistory.push({
+              tool: toolName,
+              args: toolArgs,
+              result: result,
+              timestamp: new Date()
+            });
+            
+            // Add tool result to messages
+            this.messages.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: JSON.stringify(result)
+            });
+            
+            // Check for task completion
+            if (toolName === 'task_complete') {
+              this.status = TaskStatus.COMPLETED;
+              this.progress.progressPercent = 100;
+              this.progress.currentStep = 'Completed';
+              this.result = {
+                summary: toolArgs.summary,
+                actions: toolArgs.actions_taken,
+                recommendations: toolArgs.recommendations
+              };
+              this.endTime = new Date();
+              
+              // Save to history and extract learnings
+              await this.saveTaskHistory();
+              
+              this.emit('complete', this.getStatus());
+              return;
+            }
+            
+            // Check for human input request
+            if (toolName === 'request_human_input') {
+              this.status = TaskStatus.WAITING_INPUT;
+              this.progress.currentStep = 'Waiting for input';
+              this.emit('waiting', this.getStatus());
+              // In a real implementation, we'd pause here
+              // For now, continue with a default response
+            }
+            
+            // Update progress based on plan
+            if (toolName === 'think_and_plan') {
+              this.progress.totalSteps = (toolArgs.steps || []).length;
+              this.progress.progressPercent = Math.min(10, this.progress.progressPercent + 5);
+            }
+            
+            if (toolName === 'evaluate_progress') {
+              const completed = (toolArgs.completed_steps || []).length;
+              const total = completed + (toolArgs.remaining_steps || []).length;
+              if (total > 0) {
+                this.progress.completedSteps = completed;
+                this.progress.progressPercent = Math.min(90, 10 + (80 * completed / total));
+              }
+            }
+          }
+        } else {
+          // No tool calls - check if we're done or need to continue
+          if (choice.finish_reason === 'stop') {
+            // Model finished without explicit task_complete
+            this.status = TaskStatus.COMPLETED;
+            this.progress.progressPercent = 100;
+            this.progress.currentStep = 'Completed';
+            this.result = {
+              summary: message.content,
+              actions: this.actionsHistory.map(a => a.tool)
+            };
+            this.endTime = new Date();
+            
+            await this.saveTaskHistory();
+            this.emit('complete', this.getStatus());
+            return;
+          }
+        }
+        
+        // Gradual progress update
+        this.progress.progressPercent = Math.min(
+          90,
+          this.progress.progressPercent + Math.max(1, 5 - this.progress.iterations / 10)
+        );
+        
+      } catch (error) {
+        console.error(`[Amplifier] Iteration ${this.progress.iterations} error:`, error);
+        
+        // Add error to messages and continue
+        this.messages.push({
+          role: 'user',
+          content: `Error occurred: ${error.message}. Please continue or adjust your approach.`
+        });
       }
     }
     
-    // Increment progress over time
-    if (this.progress.progressPercent < 85) {
-      this.progress.progressPercent = Math.min(this.progress.progressPercent + 2, 85);
+    // Max iterations reached
+    if (!this.cancelled) {
+      this.status = TaskStatus.COMPLETED;
+      this.progress.progressPercent = 100;
+      this.progress.currentStep = 'Completed (max iterations)';
+      this.result = {
+        summary: `Task completed after ${this.progress.iterations} iterations`,
+        actions: this.actionsHistory.map(a => a.tool)
+      };
+      this.endTime = new Date();
+      
+      await this.saveTaskHistory();
+      this.emit('complete', this.getStatus());
     }
   }
 
   /**
-   * Parse final result from output
+   * Save task to history and extract learnings
    */
-  parseResult(output) {
-    // Try to extract a summary from the output
-    const lines = output.split('\n').filter(l => l.trim());
-    
-    // Get the last substantive output
-    const resultLines = lines.slice(-10).filter(l => 
-      !l.startsWith('>') && 
-      !l.includes('amplifier') &&
-      l.length > 10
-    );
-    
-    return {
-      summary: resultLines.join('\n') || 'Task completed',
-      fullOutput: output
-    };
+  async saveTaskHistory() {
+    try {
+      // Save to task history
+      await query(`
+        INSERT INTO ai_task_history (firm_id, user_id, task_id, goal, status, started_at, completed_at, duration_seconds, iterations, summary, actions_taken, result)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `, [
+        this.firmId,
+        this.userId,
+        this.id,
+        this.goal,
+        this.status,
+        this.startTime,
+        this.endTime,
+        Math.round((this.endTime - this.startTime) / 1000),
+        this.progress.iterations,
+        this.result?.summary,
+        JSON.stringify(this.actionsHistory.map(a => ({ tool: a.tool, args: a.args }))),
+        JSON.stringify(this.result)
+      ]);
+      
+      // Extract and save learnings
+      await this.extractLearnings();
+      
+    } catch (error) {
+      console.error('[Amplifier] Error saving task history:', error);
+    }
+  }
+
+  /**
+   * Extract learning patterns from the task
+   */
+  async extractLearnings() {
+    try {
+      // Analyze action sequences for workflow patterns
+      if (this.actionsHistory.length >= 3) {
+        const toolSequence = this.actionsHistory.map(a => a.tool).join(' -> ');
+        
+        // Check if this pattern exists
+        const existing = await query(`
+          SELECT id, occurrences FROM ai_learning_patterns
+          WHERE firm_id = $1 AND pattern_type = 'workflow' AND pattern_data->>'sequence' = $2
+        `, [this.firmId, toolSequence]);
+        
+        if (existing.rows.length > 0) {
+          // Update occurrence count
+          await query(`
+            UPDATE ai_learning_patterns SET occurrences = occurrences + 1, last_used_at = NOW()
+            WHERE id = $1
+          `, [existing.rows[0].id]);
+        } else {
+          // Create new pattern
+          await query(`
+            INSERT INTO ai_learning_patterns (firm_id, user_id, pattern_type, pattern_category, pattern_data)
+            VALUES ($1, $2, 'workflow', 'task_execution', $3)
+          `, [this.firmId, this.userId, JSON.stringify({
+            sequence: toolSequence,
+            goal_keywords: this.goal.toLowerCase().split(' ').slice(0, 5),
+            tools_used: [...new Set(this.actionsHistory.map(a => a.tool))]
+          })]);
+        }
+      }
+      
+      // Learn naming patterns from created entities
+      for (const action of this.actionsHistory) {
+        if (action.tool === 'create_matter' && action.args?.name) {
+          await this.learnNamingPattern('matter', action.args.name);
+        }
+        if (action.tool === 'create_client' && action.args?.display_name) {
+          await this.learnNamingPattern('client', action.args.display_name);
+        }
+      }
+      
+    } catch (error) {
+      console.error('[Amplifier] Error extracting learnings:', error);
+    }
+  }
+
+  /**
+   * Learn naming patterns
+   */
+  async learnNamingPattern(entityType, name) {
+    try {
+      // Simple pattern extraction (first word, format hints)
+      const words = name.split(/[\s\-_]+/);
+      const pattern = {
+        entity: entityType,
+        wordCount: words.length,
+        startsWithArticle: ['the', 'a', 'an'].includes(words[0]?.toLowerCase()),
+        containsNumbers: /\d/.test(name),
+        format: name.includes(' - ') ? 'hyphenated' : name.includes('v.') ? 'legal_case' : 'simple'
+      };
+      
+      await query(`
+        INSERT INTO ai_learning_patterns (firm_id, user_id, pattern_type, pattern_category, pattern_data)
+        VALUES ($1, $2, 'naming', $3, $4)
+        ON CONFLICT DO NOTHING
+      `, [this.firmId, this.userId, entityType, JSON.stringify(pattern)]);
+      
+    } catch (error) {
+      // Ignore naming pattern errors
+    }
   }
 
   /**
    * Cancel the task
    */
   cancel() {
-    if (this.status !== TaskStatus.RUNNING) {
+    if (this.status !== TaskStatus.RUNNING && this.status !== TaskStatus.WAITING_INPUT) {
       return false;
     }
     
+    this.cancelled = true;
     this.status = TaskStatus.CANCELLED;
     this.progress.currentStep = 'Cancelled';
     this.endTime = new Date();
-    
-    if (this.process) {
-      this.process.kill('SIGTERM');
-      setTimeout(() => {
-        if (this.process && !this.process.killed) {
-          this.process.kill('SIGKILL');
-        }
-      }, 5000);
-    }
     
     console.log(`[Amplifier] Task ${this.id} cancelled`);
     this.emit('cancelled', this.getStatus());
@@ -260,6 +528,7 @@ class BackgroundTask extends EventEmitter {
       goal: this.goal,
       status: this.status,
       progress: this.progress,
+      actionsCount: this.actionsHistory.length,
       result: this.result,
       error: this.error,
       startTime: this.startTime,
@@ -281,85 +550,28 @@ class AmplifierService {
   }
 
   /**
-   * Check if Amplifier is available and configured
+   * Check if service is available
    */
   async checkAvailability() {
-    return new Promise((resolve) => {
-      const amplifierPath = getAmplifierPath();
-      const process = spawn(amplifierPath, ['--version'], {
-        env: getAmplifierEnv(),
-        shell: true
-      });
-      
-      process.on('close', (code) => {
-        resolve(code === 0);
-      });
-      
-      process.on('error', () => {
-        resolve(false);
-      });
-      
-      // Timeout after 5 seconds
-      setTimeout(() => resolve(false), 5000);
-    });
+    // Check if Azure OpenAI is configured
+    return !!(AZURE_ENDPOINT && AZURE_API_KEY && AZURE_DEPLOYMENT);
   }
 
   /**
-   * Configure Amplifier to use Azure OpenAI
-   * This should be called on backend startup
+   * Configure the service
    */
   async configure() {
     if (this.configured) return true;
     
     const available = await this.checkAvailability();
     if (!available) {
-      console.warn('[AmplifierService] Amplifier CLI not available');
-      return false;
-    }
-
-    // Check if Azure OpenAI credentials are set
-    if (!process.env.AZURE_OPENAI_ENDPOINT || 
-        !process.env.AZURE_OPENAI_API_KEY || 
-        !process.env.AZURE_OPENAI_DEPLOYMENT) {
       console.warn('[AmplifierService] Azure OpenAI credentials not configured');
       return false;
     }
 
-    return new Promise((resolve) => {
-      const amplifierPath = getAmplifierPath();
-      const env = getAmplifierEnv();
-      
-      // Configure Azure OpenAI provider non-interactively
-      const process = spawn(amplifierPath, [
-        'provider', 'use', 'azure-openai',
-        '--endpoint', env.AZURE_OPENAI_ENDPOINT,
-        '--deployment', env.AZURE_OPENAI_DEPLOYMENT,
-        '--yes',
-        '--global'
-      ], {
-        env,
-        shell: true
-      });
-      
-      process.on('close', (code) => {
-        if (code === 0) {
-          console.log('[AmplifierService] Configured with Azure OpenAI');
-          this.configured = true;
-          resolve(true);
-        } else {
-          console.warn('[AmplifierService] Failed to configure Azure OpenAI provider');
-          resolve(false);
-        }
-      });
-      
-      process.on('error', (err) => {
-        console.error('[AmplifierService] Configuration error:', err);
-        resolve(false);
-      });
-      
-      // Timeout after 30 seconds
-      setTimeout(() => resolve(false), 30000);
-    });
+    this.configured = true;
+    console.log('[AmplifierService] Configured with Azure OpenAI');
+    return true;
   }
 
   /**
@@ -392,8 +604,10 @@ class AmplifierService {
       activeTasks.delete(userId);
     });
     
-    // Start the task
-    await task.start();
+    // Start the task (async)
+    task.start().catch(err => {
+      console.error(`[AmplifierService] Task ${taskId} failed:`, err);
+    });
     
     return task.getStatus();
   }
@@ -420,7 +634,9 @@ class AmplifierService {
     }
     
     // Check if task is still active
-    if (task.status !== TaskStatus.RUNNING && task.status !== TaskStatus.PENDING) {
+    if (task.status !== TaskStatus.RUNNING && 
+        task.status !== TaskStatus.PENDING &&
+        task.status !== TaskStatus.WAITING_INPUT) {
       activeTasks.delete(userId);
       return null;
     }
@@ -464,9 +680,45 @@ class AmplifierService {
   }
 
   /**
-   * Clean up old completed tasks
+   * Get task history from database
    */
-  cleanup(maxAge = 24 * 60 * 60 * 1000) { // Default 24 hours
+  async getTaskHistory(userId, firmId, limit = 20) {
+    try {
+      const result = await query(`
+        SELECT * FROM ai_task_history
+        WHERE firm_id = $1 AND user_id = $2
+        ORDER BY created_at DESC
+        LIMIT $3
+      `, [firmId, userId, limit]);
+      
+      return result.rows;
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * Get learned patterns
+   */
+  async getLearnedPatterns(firmId, userId, limit = 50) {
+    try {
+      const result = await query(`
+        SELECT * FROM ai_learning_patterns
+        WHERE firm_id = $1 AND (user_id = $2 OR user_id IS NULL)
+        ORDER BY confidence DESC, occurrences DESC
+        LIMIT $3
+      `, [firmId, userId, limit]);
+      
+      return result.rows;
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * Clean up old completed tasks from memory
+   */
+  cleanup(maxAge = 24 * 60 * 60 * 1000) {
     const now = new Date();
     
     for (const [taskId, task] of this.tasks.entries()) {

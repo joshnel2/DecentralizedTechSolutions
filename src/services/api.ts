@@ -895,6 +895,23 @@ export const aiApi = {
     });
   },
 
+  // Get background task history
+  async getBackgroundTaskHistory(limit?: number) {
+    const query = limit ? `?limit=${limit}` : '';
+    return fetchWithAuth(`/v1/background-agent/history${query}`);
+  },
+
+  // Get learned patterns
+  async getLearnedPatterns(limit?: number) {
+    const query = limit ? `?limit=${limit}` : '';
+    return fetchWithAuth(`/v1/background-agent/learnings${query}`);
+  },
+
+  // Get available tools
+  async getBackgroundAgentTools() {
+    return fetchWithAuth('/v1/background-agent/tools');
+  },
+
   // Background task management
   async getActiveTask() {
     return fetchWithAuth('/v1/agent/tasks/active/current');
