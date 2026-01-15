@@ -1,45 +1,26 @@
--- Migration: Add checkpoint support for resumable AI tasks
--- This allows long-running background tasks to resume after server restarts
+-- AI Task Checkpoints Table
+-- Stores checkpoints for background agent tasks to enable recovery
+-- This allows tasks to potentially resume after server restarts
 
--- Add checkpoint column if it doesn't exist
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                   WHERE table_name = 'ai_tasks' AND column_name = 'checkpoint') THEN
-        ALTER TABLE ai_tasks ADD COLUMN checkpoint JSONB;
-    END IF;
-END $$;
+CREATE TABLE IF NOT EXISTS ai_task_checkpoints (
+  task_id VARCHAR(100) PRIMARY KEY,
+  firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  
+  -- Checkpoint data
+  checkpoint_data JSONB NOT NULL,
+  iteration INTEGER DEFAULT 0,
+  
+  -- Timestamps
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- Add checkpoint_at column if it doesn't exist
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                   WHERE table_name = 'ai_tasks' AND column_name = 'checkpoint_at') THEN
-        ALTER TABLE ai_tasks ADD COLUMN checkpoint_at TIMESTAMP WITH TIME ZONE;
-    END IF;
-END $$;
+-- Index for fast lookups
+CREATE INDEX IF NOT EXISTS idx_task_checkpoints_firm ON ai_task_checkpoints(firm_id);
+CREATE INDEX IF NOT EXISTS idx_task_checkpoints_user ON ai_task_checkpoints(user_id);
+CREATE INDEX IF NOT EXISTS idx_task_checkpoints_updated ON ai_task_checkpoints(updated_at DESC);
 
--- Add current_step column for better progress tracking
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                   WHERE table_name = 'ai_tasks' AND column_name = 'current_step') THEN
-        ALTER TABLE ai_tasks ADD COLUMN current_step TEXT;
-    END IF;
-END $$;
-
--- Add step_count column for total steps
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                   WHERE table_name = 'ai_tasks' AND column_name = 'step_count') THEN
-        ALTER TABLE ai_tasks ADD COLUMN step_count INTEGER DEFAULT 0;
-    END IF;
-END $$;
-
--- Index for finding incomplete tasks to resume
-CREATE INDEX IF NOT EXISTS idx_ai_tasks_resumable 
-    ON ai_tasks(status, checkpoint_at) 
-    WHERE status = 'running' AND checkpoint IS NOT NULL;
-
-SELECT 'AI task checkpoint migration completed!' as status;
+-- Clean up old checkpoints (older than 24 hours)
+-- This can be run periodically to prevent table bloat
+-- DELETE FROM ai_task_checkpoints WHERE updated_at < NOW() - INTERVAL '24 hours';

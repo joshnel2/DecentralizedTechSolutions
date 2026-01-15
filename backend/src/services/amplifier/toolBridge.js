@@ -367,17 +367,85 @@ export const AMPLIFIER_TOOLS = {
 /**
  * Execute a tool call for Amplifier
  * This function routes tool calls to the appropriate handler
+ * 
+ * AUTONOMOUS OPERATION: Returns structured results with error details
+ * so the AI agent can adapt and recover without human intervention
  */
 export async function executeTool(toolName, params, context) {
   const { userId, firmId, token } = context;
   
-  console.log(`[Amplifier Tool] Executing: ${toolName}`, params);
+  console.log(`[Amplifier Tool] Executing: ${toolName}`, JSON.stringify(params).substring(0, 200));
+  
+  // Validate required context
+  if (!userId || !firmId) {
+    return { 
+      error: 'Missing user context',
+      suggestion: 'Internal error - please try again'
+    };
+  }
   
   try {
-    // Import the actual tool implementations from aiAgent
-    // For now, we'll implement key tools directly here
+    // Execute the tool with timeout protection
+    const timeoutMs = 30000; // 30 second timeout per tool
+    const result = await Promise.race([
+      executeToolInternal(toolName, params, userId, firmId),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Tool execution timed out')), timeoutMs)
+      )
+    ]);
     
-    switch (toolName) {
+    return result;
+    
+  } catch (error) {
+    console.error(`[Amplifier Tool] Error executing ${toolName}:`, error);
+    
+    // Return structured error so AI can adapt
+    return { 
+      error: error.message,
+      tool: toolName,
+      suggestion: getSuggestionForError(toolName, error.message)
+    };
+  }
+}
+
+/**
+ * Get helpful suggestions for common errors
+ */
+function getSuggestionForError(toolName, errorMessage) {
+  const lowerError = errorMessage.toLowerCase();
+  
+  if (lowerError.includes('not found')) {
+    return `The requested item was not found. Try using list_${toolName.split('_')[1] || 'items'} or search_matters to find available items first.`;
+  }
+  
+  if (lowerError.includes('permission') || lowerError.includes('unauthorized')) {
+    return 'You may not have permission for this action. Try a different approach or check if the item belongs to this firm.';
+  }
+  
+  if (lowerError.includes('required') || lowerError.includes('missing')) {
+    return 'Some required parameters are missing. Check the tool definition and provide all required fields.';
+  }
+  
+  if (lowerError.includes('invalid')) {
+    return 'The provided parameters are invalid. Check the format and try again with corrected values.';
+  }
+  
+  if (lowerError.includes('duplicate')) {
+    return 'This item already exists. Try updating the existing item instead of creating a new one.';
+  }
+  
+  if (lowerError.includes('timeout')) {
+    return 'The operation took too long. Try with simpler parameters or break into smaller steps.';
+  }
+  
+  return 'Try an alternative approach or different parameters.';
+}
+
+/**
+ * Internal tool execution - separated for timeout handling
+ */
+async function executeToolInternal(toolName, params, userId, firmId) {
+  switch (toolName) {
       // ============== TIME ENTRIES ==============
       case 'log_time':
         return await logTime(params, userId, firmId);
@@ -467,17 +535,58 @@ export async function executeTool(toolName, params, context) {
       
       // ============== PLANNING (pass-through) ==============
       case 'think_and_plan':
+        return { 
+          success: true, 
+          message: 'Plan created - now execute each step', 
+          plan: {
+            goal: params.goal,
+            analysis: params.analysis,
+            steps: params.steps,
+            stepCount: (params.steps || []).length
+          }
+        };
+      
       case 'evaluate_progress':
+        const completedCount = (params.completed_steps || []).length;
+        const remainingCount = (params.remaining_steps || []).length;
+        return { 
+          success: true, 
+          message: 'Progress evaluated', 
+          progress: {
+            completed: completedCount,
+            remaining: remainingCount,
+            percentComplete: completedCount + remainingCount > 0 
+              ? Math.round((completedCount / (completedCount + remainingCount)) * 100) 
+              : 0,
+            confidence: params.confidence || 50
+          }
+        };
+      
       case 'task_complete':
+        return { 
+          success: true, 
+          message: 'Task marked as complete',
+          summary: params.summary,
+          actionsCount: (params.actions_taken || []).length,
+          hasRecommendations: (params.recommendations || []).length > 0
+        };
+      
       case 'log_work':
-        return { success: true, message: 'Planning step recorded', data: params };
+        return { 
+          success: true, 
+          message: 'Work logged',
+          logged: {
+            action: params.action,
+            result: params.result,
+            nextStep: params.next_step
+          }
+        };
       
       default:
-        return { error: `Unknown tool: ${toolName}` };
-    }
-  } catch (error) {
-    console.error(`[Amplifier Tool] Error executing ${toolName}:`, error);
-    return { error: error.message };
+        return { 
+          error: `Unknown tool: ${toolName}`,
+          suggestion: 'Check available tools and use a valid tool name'
+        };
   }
 }
 

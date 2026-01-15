@@ -54,12 +54,23 @@ function generateTaskId() {
 }
 
 /**
- * Call Azure OpenAI with function calling
+ * Sleep for a given number of milliseconds
+ */
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Call Azure OpenAI with function calling and AUTOMATIC RETRY
  * Uses the SAME configuration and request format as the normal AI agent (aiAgent.js)
  * This ensures the background agent behaves identically to the normal agent
+ * 
+ * Includes exponential backoff retry for transient failures (429, 500, 502, 503, 504)
  */
 async function callAzureOpenAI(messages, tools = [], options = {}) {
   const config = getAzureConfig();
+  const MAX_RETRIES = 4;
+  const INITIAL_DELAY = 2000; // 2 seconds
   
   // Validate configuration before making request
   if (!config.endpoint || !config.apiKey || !config.deployment) {
@@ -84,41 +95,91 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
     body.tool_choice = 'auto';
   }
   
-  console.log(`[Amplifier] Calling Azure OpenAI: ${config.deployment} with ${tools.length} tools`);
+  let lastError = null;
   
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'api-key': config.apiKey,
-    },
-    body: JSON.stringify(body),
-  });
-  
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[Amplifier] Azure OpenAI error:', errorText);
-    console.error('[Amplifier] Request URL:', url);
-    console.error('[Amplifier] Deployment:', config.deployment);
-    console.error('[Amplifier] Status:', response.status);
-    
-    // Parse error for better messaging
-    let errorMessage = `Azure OpenAI API error: ${response.status}`;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const errorJson = JSON.parse(errorText);
-      if (errorJson.error?.message) {
-        errorMessage = errorJson.error.message;
+      console.log(`[Amplifier] Calling Azure OpenAI (attempt ${attempt}/${MAX_RETRIES}): ${config.deployment} with ${tools.length} tools`);
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': config.apiKey,
+        },
+        body: JSON.stringify(body),
+      });
+      
+      // Check for retryable status codes
+      const retryableStatuses = [429, 500, 502, 503, 504];
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        
+        // Parse error for better messaging
+        let errorMessage = `Azure OpenAI API error: ${response.status}`;
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.error?.message) {
+            errorMessage = errorJson.error.message;
+          }
+        } catch {
+          errorMessage = `Azure OpenAI API error: ${response.status} - ${errorText.substring(0, 200)}`;
+        }
+        
+        // Retry if this is a transient error and we have attempts left
+        if (retryableStatuses.includes(response.status) && attempt < MAX_RETRIES) {
+          const delay = INITIAL_DELAY * Math.pow(2, attempt - 1); // Exponential backoff
+          console.log(`[Amplifier] Retryable error (${response.status}), waiting ${delay}ms before retry...`);
+          await sleep(delay);
+          lastError = new Error(errorMessage);
+          continue;
+        }
+        
+        console.error('[Amplifier] Azure OpenAI error:', errorText);
+        console.error('[Amplifier] Request URL:', url);
+        console.error('[Amplifier] Deployment:', config.deployment);
+        console.error('[Amplifier] Status:', response.status);
+        
+        throw new Error(errorMessage);
       }
-    } catch {
-      errorMessage = `Azure OpenAI API error: ${response.status} - ${errorText.substring(0, 200)}`;
+      
+      const data = await response.json();
+      console.log(`[Amplifier] Azure OpenAI response received, choices: ${data.choices?.length || 0}`);
+      return data;
+      
+    } catch (error) {
+      lastError = error;
+      
+      // If it's a network error and we have attempts left, retry
+      if (error.name === 'TypeError' && error.message.includes('fetch') && attempt < MAX_RETRIES) {
+        const delay = INITIAL_DELAY * Math.pow(2, attempt - 1);
+        console.log(`[Amplifier] Network error, waiting ${delay}ms before retry...`);
+        await sleep(delay);
+        continue;
+      }
+      
+      // If it's not retryable, throw immediately
+      if (!lastError.message?.includes('429') && 
+          !lastError.message?.includes('500') && 
+          !lastError.message?.includes('502') &&
+          !lastError.message?.includes('503') &&
+          !lastError.message?.includes('504')) {
+        throw error;
+      }
+      
+      // On last attempt, throw
+      if (attempt === MAX_RETRIES) {
+        throw error;
+      }
+      
+      const delay = INITIAL_DELAY * Math.pow(2, attempt - 1);
+      console.log(`[Amplifier] Error on attempt ${attempt}, waiting ${delay}ms before retry...`);
+      await sleep(delay);
     }
-    
-    throw new Error(errorMessage);
   }
   
-  const data = await response.json();
-  console.log(`[Amplifier] Azure OpenAI response received, choices: ${data.choices?.length || 0}`);
-  return data;
+  throw lastError || new Error('Failed after maximum retries');
 }
 
 /**
@@ -163,6 +224,7 @@ function getOpenAITools() {
 
 /**
  * Enhanced Background Task class
+ * Supports autonomous execution, checkpointing, and recovery
  */
 class BackgroundTask extends EventEmitter {
   constructor(taskId, userId, firmId, goal, options = {}) {
@@ -191,6 +253,60 @@ class BackgroundTask extends EventEmitter {
     // User and firm context
     this.userContext = null;
     this.learningContext = null;
+    
+    // Checkpointing for recovery
+    this.lastCheckpoint = null;
+    this.checkpointInterval = 5; // Save checkpoint every 5 iterations
+    
+    // Error recovery state
+    this.consecutiveErrors = 0;
+    this.maxConsecutiveErrors = 3;
+  }
+  
+  /**
+   * Save a checkpoint for potential recovery
+   */
+  async saveCheckpoint() {
+    try {
+      this.lastCheckpoint = {
+        timestamp: new Date(),
+        iteration: this.progress.iterations,
+        actionsCount: this.actionsHistory.length,
+        lastAction: this.actionsHistory[this.actionsHistory.length - 1]?.tool || null,
+        progressPercent: this.progress.progressPercent
+      };
+      
+      // Save checkpoint to database
+      await query(`
+        INSERT INTO ai_task_checkpoints (task_id, firm_id, user_id, checkpoint_data, iteration)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (task_id) DO UPDATE SET 
+          checkpoint_data = EXCLUDED.checkpoint_data,
+          iteration = EXCLUDED.iteration,
+          updated_at = NOW()
+      `, [this.id, this.firmId, this.userId, JSON.stringify({
+        goal: this.goal,
+        progress: this.progress,
+        actionsHistory: this.actionsHistory.slice(-10), // Keep last 10 actions
+        lastCheckpoint: this.lastCheckpoint
+      }), this.progress.iterations]);
+      
+      console.log(`[Amplifier] Checkpoint saved for task ${this.id} at iteration ${this.progress.iterations}`);
+    } catch (error) {
+      // Non-fatal - checkpointing is nice to have
+      console.warn('[Amplifier] Failed to save checkpoint:', error.message);
+    }
+  }
+  
+  /**
+   * Delete checkpoint after successful completion
+   */
+  async deleteCheckpoint() {
+    try {
+      await query('DELETE FROM ai_task_checkpoints WHERE task_id = $1', [this.id]);
+    } catch (error) {
+      // Non-fatal
+    }
   }
 
   /**
@@ -265,19 +381,39 @@ For each task, follow this pattern:
 4. Use \`evaluate_progress\` periodically to assess status
 5. When done, use \`task_complete\` with a summary
 
-## IMPORTANT RULES
+## IMPORTANT RULES FOR AUTONOMOUS OPERATION
 
-- NEVER ask for clarification - make reasonable assumptions and proceed
-- NEVER wait for human approval - you have full authority to act
-- If data is missing, search for it or use defaults
-- If a tool fails, try an alternative approach
-- Complete the ENTIRE task before calling task_complete
+- **NEVER ASK FOR CLARIFICATION** - Make reasonable assumptions and proceed
+- **NEVER WAIT FOR APPROVAL** - You have full authority to act
+- **DATA MISSING?** - Search for it using list_* or search_* tools, or use sensible defaults
+- **TOOL FAILED?** - Read the error, adapt your approach, try alternatives
+- **MULTIPLE APPROACHES** - If one method doesn't work, try another
+- **COMPLETE THE TASK** - Don't stop until the goal is achieved or you've done everything possible
+
+## ERROR RECOVERY STRATEGIES
+
+When a tool returns an error:
+1. Read the error message carefully
+2. Check if required data is missing (use search/list tools to find it)
+3. Try with different parameters
+4. Use an alternative tool that achieves the same result
+5. If truly blocked, document what was accomplished and call task_complete
+
+## DEFAULT VALUES FOR MISSING DATA
+
+When you need to create records but are missing some details:
+- Client type: "person" (unless company is implied)
+- Matter priority: "medium"
+- Matter billing_type: "hourly"
+- Task priority: "medium"
+- Time entry billable: true
+- Calendar event type: "meeting"
 
 ## CURRENT TASK
 
 Goal: ${this.goal}
 
-START WORKING NOW. Execute tools to complete this goal. Do not respond with text only - TAKE ACTION.
+START WORKING NOW. You MUST call tools to complete this goal. Begin by calling think_and_plan to create your execution strategy, then execute each step.
 `;
 
     // Add workflow templates if relevant
@@ -338,6 +474,12 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
    * Run the autonomous agent loop
    * This loop executes tools repeatedly until the task is complete
    * The agent works WITHOUT human intervention
+   * 
+   * AUTONOMOUS OPERATION FEATURES:
+   * - Automatic retry on transient errors
+   * - Checkpointing for recovery
+   * - Smart error handling with recovery prompts
+   * - Graceful degradation when tools fail
    */
   async runAgentLoop() {
     const MAX_ITERATIONS = 50;
@@ -345,20 +487,29 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
     const tools = getOpenAITools();
     let textOnlyCount = 0;
     
-    console.log(`[Amplifier] Starting agent loop with ${tools.length} tools available`);
+    console.log(`[Amplifier] Starting AUTONOMOUS agent loop with ${tools.length} tools available`);
+    console.log(`[Amplifier] Task goal: ${this.goal}`);
     
     while (this.progress.iterations < MAX_ITERATIONS && !this.cancelled) {
       this.progress.iterations++;
-      this.progress.currentStep = `Working... (step ${this.progress.iterations})`;
+      this.progress.currentStep = `Working autonomously... (step ${this.progress.iterations})`;
       this.emit('progress', this.getStatus());
+      
+      // Save checkpoint periodically
+      if (this.progress.iterations % this.checkpointInterval === 0) {
+        await this.saveCheckpoint();
+      }
       
       try {
         console.log(`[Amplifier] Iteration ${this.progress.iterations}: calling Azure OpenAI`);
         
-        // Call Azure OpenAI with tools
+        // Call Azure OpenAI with tools (includes automatic retry)
         const response = await callAzureOpenAI(this.messages, tools);
         const choice = response.choices[0];
         const message = choice.message;
+        
+        // Reset error counter on successful API call
+        this.consecutiveErrors = 0;
         
         // Add assistant message to history
         this.messages.push(message);
@@ -369,7 +520,7 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
           
           console.log(`[Amplifier] Iteration ${this.progress.iterations}: ${message.tool_calls.length} tool(s) to execute`);
           
-          // Execute all tool calls
+          // Execute all tool calls with individual error handling
           for (const toolCall of message.tool_calls) {
             if (this.cancelled) break;
             
@@ -380,26 +531,42 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
               toolArgs = JSON.parse(toolCall.function.arguments || '{}');
             } catch (parseError) {
               console.error(`[Amplifier] Failed to parse tool arguments for ${toolName}:`, toolCall.function.arguments);
-              toolArgs = {};
+              // Send error result so AI can adapt
+              this.messages.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                content: JSON.stringify({ error: 'Failed to parse arguments. Please try with different formatting.' })
+              });
+              continue;
             }
             
             console.log(`[Amplifier] Executing tool: ${toolName}`);
             this.progress.currentStep = `Executing: ${toolName}`;
             this.emit('progress', this.getStatus());
             
-            // Execute the tool
-            const result = await executeTool(toolName, toolArgs, {
-              userId: this.userId,
-              firmId: this.firmId
-            });
+            // Execute the tool with error isolation
+            let result;
+            try {
+              result = await executeTool(toolName, toolArgs, {
+                userId: this.userId,
+                firmId: this.firmId
+              });
+            } catch (toolError) {
+              console.error(`[Amplifier] Tool ${toolName} threw error:`, toolError.message);
+              result = { 
+                error: toolError.message,
+                suggestion: 'Try an alternative approach or different parameters'
+              };
+            }
             
-            console.log(`[Amplifier] Tool ${toolName} result:`, result.success !== undefined ? (result.success ? 'success' : 'failed') : 'completed');
+            console.log(`[Amplifier] Tool ${toolName} result:`, result.success !== undefined ? (result.success ? 'success' : 'failed') : (result.error ? 'error' : 'completed'));
             
-            // Track action in history
+            // Track action in history (even failures for learning)
             this.actionsHistory.push({
               tool: toolName,
               args: toolArgs,
               result: result,
+              success: !result.error,
               timestamp: new Date()
             });
             
@@ -412,19 +579,22 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             
             // Check for explicit task completion
             if (toolName === 'task_complete') {
-              console.log(`[Amplifier] Task ${this.id} marked as complete`);
+              console.log(`[Amplifier] Task ${this.id} marked as complete by agent`);
               this.status = TaskStatus.COMPLETED;
               this.progress.progressPercent = 100;
               this.progress.currentStep = 'Completed successfully';
               this.result = {
                 summary: toolArgs.summary || 'Task completed',
                 actions: toolArgs.actions_taken || this.actionsHistory.map(a => a.tool),
-                recommendations: toolArgs.recommendations || []
+                recommendations: toolArgs.recommendations || [],
+                totalIterations: this.progress.iterations,
+                successfulActions: this.actionsHistory.filter(a => a.success).length
               };
               this.endTime = new Date();
               
-              // Save to history and extract learnings
+              // Save to history, extract learnings, and clean up checkpoint
               await this.saveTaskHistory();
+              await this.deleteCheckpoint();
               
               this.emit('complete', this.getStatus());
               return;
@@ -465,29 +635,51 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
               this.progress.currentStep = 'Completed';
               this.result = {
                 summary: message.content || `Completed: ${this.goal}`,
-                actions: this.actionsHistory.map(a => a.tool)
+                actions: this.actionsHistory.map(a => a.tool),
+                totalIterations: this.progress.iterations,
+                successfulActions: this.actionsHistory.filter(a => a.success !== false).length
               };
               this.endTime = new Date();
               
               await this.saveTaskHistory();
+              await this.deleteCheckpoint();
               this.emit('complete', this.getStatus());
               return;
             }
             
             // If no actions were taken and AI just responded with text, prompt it to take action
             if (textOnlyCount < MAX_TEXT_ONLY_RESPONSES) {
-              console.log(`[Amplifier] Re-prompting AI to take action`);
+              console.log(`[Amplifier] Re-prompting AI to take action (attempt ${textOnlyCount})`);
               this.messages.push({
                 role: 'user',
-                content: 'You must call tools to complete this task. Do NOT just respond with text. Start by calling think_and_plan, then execute the necessary tools. Call tools NOW.'
+                content: `IMPORTANT: You are a background agent that must take action. Do NOT just respond with text.
+
+Your task is: ${this.goal}
+
+You MUST call tools to complete this task. Start by calling the think_and_plan tool to create an execution plan, then call the appropriate tools to complete each step.
+
+Available actions include: log_time, create_matter, create_client, create_document, create_task, create_calendar_event, list_my_matters, search_matters, generate_report, and more.
+
+Call a tool NOW to begin working on this task.`
               });
             } else {
-              // AI keeps responding with text only - something is wrong
-              console.error(`[Amplifier] Task ${this.id} failed: AI not calling tools`);
-              this.status = TaskStatus.FAILED;
-              this.error = 'Agent did not execute any actions. The AI model may not support function calling.';
+              // AI keeps responding with text only - try one more forceful prompt or complete
+              console.warn(`[Amplifier] Task ${this.id}: AI not calling tools after ${textOnlyCount} attempts`);
+              
+              // If we got here without any actions, consider it a completion with the text response
+              this.status = TaskStatus.COMPLETED;
+              this.progress.progressPercent = 100;
+              this.progress.currentStep = 'Completed (informational response)';
+              this.result = {
+                summary: message.content || `Processed request: ${this.goal}`,
+                actions: [],
+                note: 'The agent provided an informational response rather than taking actions'
+              };
               this.endTime = new Date();
-              this.emit('error', new Error(this.error));
+              
+              await this.saveTaskHistory();
+              await this.deleteCheckpoint();
+              this.emit('complete', this.getStatus());
               return;
             }
           }
@@ -503,9 +695,13 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
         
       } catch (error) {
         console.error(`[Amplifier] Iteration ${this.progress.iterations} error:`, error);
+        this.consecutiveErrors++;
         
-        // If it's a configuration error, fail immediately
-        if (error.message.includes('not configured') || error.message.includes('401') || error.message.includes('403')) {
+        // If it's a configuration/auth error, fail immediately
+        if (error.message.includes('not configured') || 
+            error.message.includes('401') || 
+            error.message.includes('403') ||
+            error.message.includes('invalid')) {
           this.status = TaskStatus.FAILED;
           this.error = error.message;
           this.endTime = new Date();
@@ -513,27 +709,53 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
           return;
         }
         
-        // For other errors, add to messages and let AI recover
+        // If too many consecutive errors, fail the task
+        if (this.consecutiveErrors >= this.maxConsecutiveErrors) {
+          console.error(`[Amplifier] Task ${this.id} failed: ${this.consecutiveErrors} consecutive errors`);
+          this.status = TaskStatus.FAILED;
+          this.error = `Task failed after ${this.consecutiveErrors} consecutive errors. Last error: ${error.message}`;
+          this.endTime = new Date();
+          await this.saveCheckpoint(); // Save for potential manual recovery
+          this.emit('error', new Error(this.error));
+          return;
+        }
+        
+        // For recoverable errors, add to messages and let AI adapt
+        console.log(`[Amplifier] Recoverable error (${this.consecutiveErrors}/${this.maxConsecutiveErrors}), prompting AI to adapt...`);
         this.messages.push({
           role: 'user',
-          content: `An error occurred: ${error.message}. Please continue with an alternative approach or call task_complete if the goal has been achieved.`
+          content: `An error occurred: ${error.message}
+
+Please adapt your approach:
+1. If you were trying to access specific data, try a search or list operation first
+2. If a tool failed, try an alternative tool or approach
+3. If you've made progress toward the goal, you can call task_complete with what was accomplished
+4. Continue working autonomously - do not wait for human input
+
+Original goal: ${this.goal}`
         });
       }
     }
     
-    // Max iterations reached
+    // Max iterations reached - complete with what we have
     if (!this.cancelled) {
       console.log(`[Amplifier] Task ${this.id} reached max iterations (${MAX_ITERATIONS})`);
       this.status = TaskStatus.COMPLETED;
       this.progress.progressPercent = 100;
-      this.progress.currentStep = 'Completed (max iterations)';
+      this.progress.currentStep = 'Completed (max iterations reached)';
+      
+      const successfulActions = this.actionsHistory.filter(a => a.success !== false);
       this.result = {
-        summary: `Task processed over ${this.progress.iterations} iterations. Actions: ${this.actionsHistory.map(a => a.tool).join(', ')}`,
-        actions: this.actionsHistory.map(a => a.tool)
+        summary: `Task processed over ${this.progress.iterations} iterations with ${successfulActions.length} successful actions.`,
+        actions: this.actionsHistory.map(a => a.tool),
+        totalIterations: this.progress.iterations,
+        successfulActions: successfulActions.length,
+        note: 'Maximum iterations reached - task may need follow-up'
       };
       this.endTime = new Date();
       
       await this.saveTaskHistory();
+      await this.deleteCheckpoint();
       this.emit('complete', this.getStatus());
     }
   }
