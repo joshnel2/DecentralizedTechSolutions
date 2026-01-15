@@ -152,10 +152,22 @@ class BackgroundTask extends EventEmitter {
       this.user = userResult.rows[0];
       this.firm = { name: this.user?.firm_name, id: this.firmId };
       
-      this.userContext = getUserContext(this.user, this.firm);
-      this.learningContext = await getLearningContext(query, this.firmId, this.userId);
+      if (this.user) {
+        this.userContext = getUserContext(this.user, this.firm);
+      } else {
+        console.warn('[Amplifier] User not found, using minimal context');
+        this.userContext = '';
+      }
       
-      // Get user-specific learning patterns
+      // Try to get learning context (tables may not exist)
+      try {
+        this.learningContext = await getLearningContext(query, this.firmId, this.userId);
+      } catch (e) {
+        console.log('[Amplifier] Learning context not available:', e.message);
+        this.learningContext = '';
+      }
+      
+      // Get user-specific learning patterns (tables may not exist)
       try {
         this.userPatterns = await getUserPatterns(this.userId, this.firmId, {
           minConfidence: 0.3,
@@ -169,15 +181,26 @@ class BackgroundTask extends EventEmitter {
       // Try to detect matter type from goal
       this.matterType = this.detectMatterType(this.goal);
       
-      // Get workflow templates
-      const workflowResult = await query(
-        'SELECT name, description, trigger_phrases, steps FROM ai_workflow_templates WHERE firm_id = $1 AND is_active = true',
-        [this.firmId]
-      );
-      
-      this.workflowTemplates = workflowResult.rows;
+      // Get workflow templates (tables may not exist)
+      try {
+        const workflowResult = await query(
+          'SELECT name, description, trigger_phrases, steps FROM ai_workflow_templates WHERE firm_id = $1 AND is_active = true',
+          [this.firmId]
+        );
+        this.workflowTemplates = workflowResult.rows;
+      } catch (e) {
+        console.log('[Amplifier] Workflow templates not available:', e.message);
+        this.workflowTemplates = [];
+      }
     } catch (error) {
       console.error('[Amplifier] Context initialization error:', error);
+      // Set defaults so the agent can still run
+      this.user = null;
+      this.firm = { name: 'Unknown Firm', id: this.firmId };
+      this.userContext = '';
+      this.learningContext = '';
+      this.userPatterns = [];
+      this.workflowTemplates = [];
     }
   }
   

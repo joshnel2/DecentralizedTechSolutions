@@ -430,7 +430,7 @@ export async function learnFromSiteInteraction(userId, firmId, interaction) {
 export async function getUserPatterns(userId, firmId, options = {}) {
   const { patternTypes, minConfidence = 0.2, limit = 100 } = options;
 
-  let query = `
+  let sql = `
     SELECT *
     FROM ai_learning_patterns
     WHERE user_id = $1 AND firm_id = $2 AND confidence >= $3
@@ -438,14 +438,14 @@ export async function getUserPatterns(userId, firmId, options = {}) {
   const params = [userId, firmId, minConfidence];
 
   if (patternTypes && patternTypes.length > 0) {
-    query += ` AND pattern_type = ANY($4)`;
+    sql += ` AND pattern_type = ANY($4)`;
     params.push(patternTypes);
   }
 
-  query += ` ORDER BY confidence DESC, updated_at DESC LIMIT $${params.length + 1}`;
+  sql += ` ORDER BY confidence DESC, updated_at DESC LIMIT $${params.length + 1}`;
   params.push(limit);
 
-  const result = await db.query(query, params);
+  const result = await db.query(sql, params);
   return result.rows;
 }
 
@@ -455,7 +455,7 @@ export async function getUserPatterns(userId, firmId, options = {}) {
 export async function getFirmPatterns(firmId, options = {}) {
   const { patternTypes, minConfidence = 0.5, limit = 50 } = options;
 
-  let query = `
+  let sql = `
     SELECT 
       pattern_type,
       pattern_data,
@@ -468,11 +468,11 @@ export async function getFirmPatterns(firmId, options = {}) {
   const params = [firmId, minConfidence];
 
   if (patternTypes && patternTypes.length > 0) {
-    query += ` AND pattern_type = ANY($3)`;
+    sql += ` AND pattern_type = ANY($3)`;
     params.push(patternTypes);
   }
 
-  query += ` 
+  sql += ` 
     GROUP BY pattern_type, pattern_data
     HAVING COUNT(DISTINCT user_id) >= 2
     ORDER BY total_occurrences DESC
@@ -480,7 +480,7 @@ export async function getFirmPatterns(firmId, options = {}) {
   `;
   params.push(limit);
 
-  const result = await db.query(query, params);
+  const result = await db.query(sql, params);
   return result.rows;
 }
 
