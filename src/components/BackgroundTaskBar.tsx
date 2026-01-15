@@ -182,52 +182,9 @@ export function BackgroundTaskBar() {
     return () => clearInterval(intervalId)
   }, [polling, isComplete, checkActiveTask])
 
-  // Also check on mount for any existing tasks (check both regular and Amplifier agents)
-  useEffect(() => {
-    const checkExisting = async () => {
-      try {
-        // First check for Amplifier background tasks
-        const amplifierResponse = await aiApi.getActiveBackgroundTask()
-        if (amplifierResponse.active && amplifierResponse.task) {
-          const task = amplifierResponse.task
-          isAmplifierRef.current = true
-          setActiveTask({
-            id: task.id,
-            goal: task.goal,
-            status: task.status,
-            progressPercent: task.progress?.progressPercent || 5,
-            iterations: task.progress?.iterations || 0,
-            currentStep: task.progress?.currentStep || 'Working...',
-            summary: task.result?.summary,
-            result: task.result,
-            isAmplifier: true
-          })
-          setPolling(true)
-          return // Found an Amplifier task, no need to check regular agent
-        }
-        
-        // Fall back to checking regular AI agent
-        const response = await aiApi.getActiveTask()
-        if (response.active && response.task) {
-          const task = response.task
-          isAmplifierRef.current = false
-          setActiveTask({
-            id: task.id,
-            goal: task.goal,
-            status: task.status,
-            progressPercent: task.progress?.progressPercent || task.progressPercent || 5,
-            iterations: task.iterations || 0,
-            currentStep: task.current_step || task.progress?.currentStep || 'Working...',
-            isAmplifier: false
-          })
-          setPolling(true)
-        }
-      } catch (e) {
-        // No active task
-      }
-    }
-    checkExisting()
-  }, [])
+  // NOTE: Removed automatic check for existing tasks on mount
+  // The progress bar should ONLY show when explicitly triggered by 'backgroundTaskStarted' event
+  // This prevents the bar from showing up unexpectedly when users are just chatting normally
 
   const handleCancel = async () => {
     if (!activeTask || isCancelling) return
