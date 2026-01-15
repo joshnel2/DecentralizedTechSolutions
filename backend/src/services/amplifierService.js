@@ -91,10 +91,27 @@ function getOpenAITools() {
       parameters: {
         type: 'object',
         properties: Object.fromEntries(
-          Object.entries(tool.parameters).map(([key, desc]) => [
-            key,
-            { type: desc.split(' - ')[0], description: desc.split(' - ')[1] || '' }
-          ])
+          Object.entries(tool.parameters).map(([key, desc]) => {
+            const typePart = desc.split(' - ')[0];
+            const descPart = desc.split(' - ')[1] || '';
+            
+            // Handle array types - OpenAI requires an "items" schema for arrays
+            if (typePart === 'array') {
+              // Provide a generic items schema for arrays
+              // The description often hints at the structure (e.g., "[{description, amount}]")
+              return [key, {
+                type: 'array',
+                description: descPart,
+                items: {
+                  type: 'object',
+                  properties: {},
+                  additionalProperties: true
+                }
+              }];
+            }
+            
+            return [key, { type: typePart, description: descPart }];
+          })
         ),
         required: tool.required
       }
