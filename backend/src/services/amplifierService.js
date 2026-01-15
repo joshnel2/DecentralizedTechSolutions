@@ -30,11 +30,20 @@ const TaskStatus = {
   WAITING_INPUT: 'waiting_input'
 };
 
-// Azure OpenAI configuration
-const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
-const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
-const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
-const API_VERSION = '2024-12-01-preview';
+// Azure OpenAI configuration - use same API version as normal AI chat (ai.js)
+// Read at runtime to ensure dotenv has loaded
+const API_VERSION = '2024-02-15-preview';
+
+/**
+ * Get Azure OpenAI configuration (read at runtime to avoid timing issues)
+ */
+function getAzureConfig() {
+  return {
+    endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+    apiKey: process.env.AZURE_OPENAI_API_KEY,
+    deployment: process.env.AZURE_OPENAI_DEPLOYMENT
+  };
+}
 
 /**
  * Generate a unique task ID
@@ -45,14 +54,17 @@ function generateTaskId() {
 
 /**
  * Call Azure OpenAI with function calling
+ * Uses the same configuration and request format as the normal AI chat (ai.js)
  */
 async function callAzureOpenAI(messages, tools = [], options = {}) {
-  const url = `${AZURE_ENDPOINT}openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${API_VERSION}`;
+  const config = getAzureConfig();
+  const url = `${config.endpoint}openai/deployments/${config.deployment}/chat/completions?api-version=${API_VERSION}`;
   
+  // Match the same request body format as ai.js
   const body = {
     messages,
     temperature: options.temperature ?? 0.7,
-    max_tokens: options.maxTokens ?? 4000,
+    max_tokens: options.max_tokens ?? 4000,
     top_p: 0.95,
   };
   
@@ -65,7 +77,7 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'api-key': AZURE_API_KEY,
+      'api-key': config.apiKey,
     },
     body: JSON.stringify(body),
   });
@@ -73,7 +85,9 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
   if (!response.ok) {
     const error = await response.text();
     console.error('[Amplifier] Azure OpenAI error:', error);
-    throw new Error(`Azure OpenAI API error: ${response.status}`);
+    console.error('[Amplifier] Request URL:', url);
+    console.error('[Amplifier] Deployment:', config.deployment);
+    throw new Error(`Azure OpenAI API error: ${response.status} - ${error}`);
   }
   
   return await response.json();
@@ -570,8 +584,9 @@ class AmplifierService {
    * Check if service is available
    */
   async checkAvailability() {
-    // Check if Azure OpenAI is configured
-    return !!(AZURE_ENDPOINT && AZURE_API_KEY && AZURE_DEPLOYMENT);
+    // Check if Azure OpenAI is configured (read at runtime)
+    const config = getAzureConfig();
+    return !!(config.endpoint && config.apiKey && config.deployment);
   }
 
   /**
@@ -582,12 +597,20 @@ class AmplifierService {
     
     const available = await this.checkAvailability();
     if (!available) {
+      const config = getAzureConfig();
       console.warn('[AmplifierService] Azure OpenAI credentials not configured');
+      console.warn('[AmplifierService] AZURE_OPENAI_ENDPOINT:', config.endpoint ? 'set' : 'MISSING');
+      console.warn('[AmplifierService] AZURE_OPENAI_API_KEY:', config.apiKey ? 'set' : 'MISSING');
+      console.warn('[AmplifierService] AZURE_OPENAI_DEPLOYMENT:', config.deployment ? 'set' : 'MISSING');
       return false;
     }
 
+    const config = getAzureConfig();
     this.configured = true;
     console.log('[AmplifierService] Configured with Azure OpenAI');
+    console.log('[AmplifierService] Using API version:', API_VERSION);
+    console.log('[AmplifierService] Endpoint:', config.endpoint);
+    console.log('[AmplifierService] Deployment:', config.deployment);
     return true;
   }
 
