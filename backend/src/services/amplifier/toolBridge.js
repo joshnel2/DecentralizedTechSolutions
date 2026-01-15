@@ -10,6 +10,11 @@
 
 import { query, withTransaction } from '../../db/connection.js';
 import { formatDate, formatDateTime, getTodayInTimezone } from '../../utils/dateUtils.js';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import PDFDocument from 'pdfkit';
+import { uploadFile, isAzureConfigured } from '../../utils/azureStorage.js';
 
 /**
  * Complete list of tools available to Amplifier
@@ -423,6 +428,9 @@ export async function executeTool(toolName, params, context) {
       
       case 'create_invoice':
         return await createInvoice(params, userId, firmId);
+
+      case 'send_invoice':
+        return await sendInvoice(params, userId, firmId);
       
       case 'record_payment':
         return await recordPayment(params, userId, firmId);
@@ -433,6 +441,9 @@ export async function executeTool(toolName, params, context) {
       
       case 'read_document_content':
         return await readDocumentContent(params, userId, firmId);
+
+      case 'create_document':
+        return await createDocument(params, userId, firmId);
       
       case 'search_document_content':
         return await searchDocumentContent(params, userId, firmId);
@@ -830,6 +841,37 @@ async function createInvoice(params, userId, firmId) {
   return { success: true, invoice: result.rows[0] };
 }
 
+async function sendInvoice(params, userId, firmId) {
+  const { invoice_id } = params;
+  
+  if (!invoice_id) {
+    return { error: 'invoice_id is required' };
+  }
+  
+  const existing = await query(
+    'SELECT id, number, status FROM invoices WHERE id = $1 AND firm_id = $2',
+    [invoice_id, firmId]
+  );
+  
+  if (!existing.rows.length) {
+    return { error: 'Invoice not found' };
+  }
+  
+  if (existing.rows[0].status !== 'draft') {
+    return { error: 'Invoice has already been sent' };
+  }
+  
+  await query(
+    `UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = $1`,
+    [invoice_id]
+  );
+  
+  return {
+    success: true,
+    message: `Invoice ${existing.rows[0].number} marked as sent`
+  };
+}
+
 async function recordPayment(params, userId, firmId) {
   const { invoice_id, amount, payment_method, payment_date } = params;
   
@@ -880,7 +922,7 @@ async function readDocumentContent(params, userId, firmId) {
   const { document_id, max_length = 10000 } = params;
   
   const result = await query(`
-    SELECT original_name, extracted_text 
+    SELECT name, original_name, content_text 
     FROM documents 
     WHERE id = $1 AND firm_id = $2
   `, [document_id, firmId]);
@@ -888,23 +930,268 @@ async function readDocumentContent(params, userId, firmId) {
   if (!result.rows.length) return { error: 'Document not found' };
   
   const doc = result.rows[0];
-  const content = doc.extracted_text || '';
+  const content = doc.content_text || '';
+  const safeMax = Number.isFinite(Number(max_length)) ? Number(max_length) : 10000;
   
   return {
-    name: doc.original_name,
-    content: content.substring(0, max_length),
-    truncated: content.length > max_length
+    name: doc.original_name || doc.name,
+    content: content.substring(0, safeMax),
+    truncated: content.length > safeMax,
+    note: content ? undefined : 'No extracted text available for this document'
   };
+}
+
+async function createDocument(params, userId, firmId) {
+  const { name, content, matter_id, client_id, tags } = params;
+  
+  if (!name || !content) {
+    return { error: 'Document name and content are required' };
+  }
+  
+  let userName = 'Apex User';
+  try {
+    const userResult = await query(
+      'SELECT first_name, last_name FROM users WHERE id = $1',
+      [userId]
+    );
+    if (userResult.rows.length > 0) {
+      const first = userResult.rows[0].first_name || '';
+      const last = userResult.rows[0].last_name || '';
+      userName = `${first} ${last}`.trim() || userName;
+    }
+  } catch (error) {
+    // Fallback to default name if lookup fails
+  }
+  
+  try {
+    let baseName = name.replace(/\s*\(AI\)\s*$/, '').replace(/\.(txt|pdf|doc|docx)$/i, '');
+    const docName = `${baseName} (AI).pdf`;
+    
+    const timestamp = Date.now();
+    const safeName = baseName.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const filename = `${timestamp}-${safeName}_AI.pdf`;
+    
+    const uploadsDir = path.join(process.cwd(), 'uploads', 'ai-generated');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    
+    const filePath = path.join(uploadsDir, filename);
+    const relativePath = `uploads/ai-generated/${filename}`;
+    
+    let folderPath = 'ai-generated';
+    if (matter_id) {
+      const matterResult = await query(
+        'SELECT name FROM matters WHERE id = $1 AND firm_id = $2',
+        [matter_id, firmId]
+      );
+      if (matterResult.rows.length > 0) {
+        const matterName = matterResult.rows[0].name.replace(/[^a-zA-Z0-9 ]/g, '_');
+        folderPath = `matters/${matterName}/ai-generated`;
+      }
+    }
+    const azurePath = `${folderPath}/${filename}`;
+    
+    const doc = new PDFDocument({
+      size: 'LETTER',
+      margins: { top: 72, bottom: 72, left: 72, right: 72 }
+    });
+    
+    const writeStream = fs.createWriteStream(filePath);
+    doc.pipe(writeStream);
+    
+    doc.fontSize(18).font('Helvetica-Bold').text(baseName, { align: 'center' });
+    doc.moveDown(0.5);
+    
+    doc.fontSize(10).font('Helvetica').fillColor('#666666')
+      .text(
+        `Generated by Background Agent for ${userName} - ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`,
+        { align: 'center' }
+      );
+    doc.moveDown(1.5);
+    
+    doc.strokeColor('#cccccc').lineWidth(1)
+      .moveTo(72, doc.y).lineTo(540, doc.y).stroke();
+    doc.moveDown(1);
+    
+    doc.fillColor('#000000').fontSize(12).font('Helvetica');
+    
+    const lines = content.split('\n');
+    for (const line of lines) {
+      if (line.startsWith('### ')) {
+        doc.moveDown(0.5);
+        doc.font('Helvetica-Bold').fontSize(12).text(line.replace('### ', ''));
+        doc.font('Helvetica').fontSize(12);
+      } else if (line.startsWith('## ')) {
+        doc.moveDown(0.5);
+        doc.font('Helvetica-Bold').fontSize(14).text(line.replace('## ', ''));
+        doc.font('Helvetica').fontSize(12);
+      } else if (line.startsWith('# ')) {
+        doc.moveDown(0.5);
+        doc.font('Helvetica-Bold').fontSize(16).text(line.replace('# ', ''));
+        doc.font('Helvetica').fontSize(12);
+      } else if (line.startsWith('**') && line.endsWith('**')) {
+        doc.font('Helvetica-Bold').text(line.replace(/\*\*/g, ''));
+        doc.font('Helvetica');
+      } else if (line.startsWith('- ') || line.startsWith('* ')) {
+        doc.text(`  - ${line.substring(2)}`, { indent: 20 });
+      } else if (line.match(/^\d+\.\s/)) {
+        doc.text(`  ${line}`, { indent: 20 });
+      } else if (line.trim() === '') {
+        doc.moveDown(0.5);
+      } else {
+        doc.text(line);
+      }
+    }
+    
+    doc.end();
+    
+    await new Promise((resolve, reject) => {
+      writeStream.on('finish', resolve);
+      writeStream.on('error', reject);
+    });
+    
+    const stats = fs.statSync(filePath);
+    const fileSize = stats.size;
+    
+    let azureResult = null;
+    try {
+      const azureEnabled = await isAzureConfigured();
+      if (azureEnabled) {
+        azureResult = await uploadFile(filePath, azurePath, firmId);
+        console.log(`[Amplifier Document] Uploaded to Azure: ${azureResult.path}`);
+      }
+    } catch (azureError) {
+      console.error('[Amplifier Document] Azure upload failed (continuing with local):', azureError.message);
+    }
+    
+    const privacyLevel = matter_id ? 'team' : 'private';
+    const contentHash = crypto.createHash('sha256').update(content).digest('hex');
+    const tagList = Array.isArray(tags)
+      ? tags
+      : typeof tags === 'string' && tags.trim().length > 0
+        ? tags.split(',').map(tag => tag.trim()).filter(Boolean)
+        : ['ai-generated'];
+    
+    const result = await query(
+      `INSERT INTO documents (
+        firm_id, matter_id, client_id, name, original_name, type, file_type, size, file_size, path,
+        content_text, content_extracted_at, content_hash, tags, status, uploaded_by,
+        owner_id, privacy_level, folder_path, external_path
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12, $13, 'final', $14, $15, $16, $17, $18)
+      RETURNING id, name`,
+      [
+        firmId,
+        matter_id || null,
+        client_id || null,
+        docName,
+        docName,
+        'application/pdf',
+        'pdf',
+        fileSize,
+        fileSize,
+        relativePath,
+        content,
+        contentHash,
+        tagList,
+        userId,
+        userId,
+        privacyLevel,
+        folderPath,
+        azureResult ? azureResult.path : null
+      ]
+    );
+    
+    const savedDoc = result.rows[0];
+    
+    try {
+      await query(
+        `INSERT INTO document_permissions (
+          document_id, firm_id, user_id, permission_level,
+          can_view, can_download, can_edit, can_delete, can_share, can_manage_permissions,
+          created_by
+        ) VALUES ($1, $2, $3, 'full', true, true, true, true, true, true, $3)
+        ON CONFLICT DO NOTHING`,
+        [savedDoc.id, firmId, userId]
+      );
+    } catch (permError) {
+      console.log('[Amplifier Document] Permission auto-create skipped');
+    }
+    
+    try {
+      const wordCount = content.split(/\s+/).filter(word => word).length;
+      await query(
+        `INSERT INTO document_versions (
+          document_id, firm_id, version_number, version_label,
+          content_text, content_hash, change_summary, change_type,
+          word_count, character_count, file_size, created_by, created_by_name, source
+        ) VALUES ($1, $2, 1, 'AI Generated', $3, $4, 'Document created by background agent', 'create', $5, $6, $7, $8, $9, 'ai')`,
+        [
+          savedDoc.id, firmId, content, contentHash,
+          wordCount, content.length, fileSize,
+          userId, userName
+        ]
+      );
+    } catch (versionError) {
+      console.log('[Amplifier Document] Initial version creation skipped:', versionError.message);
+    }
+    
+    await query(
+      `INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
+       VALUES ($1, $2, 'document.ai_created', 'document', $3, $4)`,
+      [firmId, userId, savedDoc.id, JSON.stringify({ 
+        name: docName, 
+        size: fileSize, 
+        azureUploaded: !!azureResult,
+        ownerId: userId,
+        privacyLevel
+      })]
+    );
+    
+    let locationInfo = '';
+    if (matter_id) {
+      const matterRes = await query('SELECT name, number FROM matters WHERE id = $1', [matter_id]);
+      if (matterRes.rows.length > 0) {
+        locationInfo = ` and attached to matter "${matterRes.rows[0].name}" (${matterRes.rows[0].number})`;
+      }
+    } else if (client_id) {
+      const clientRes = await query('SELECT display_name FROM clients WHERE id = $1', [client_id]);
+      if (clientRes.rows.length > 0) {
+        locationInfo = ` and attached to client "${clientRes.rows[0].display_name}"`;
+      }
+    }
+    
+    const driveInfo = azureResult ? ' The document has been saved to the firm drive.' : '';
+    
+    return {
+      success: true,
+      message: `Created PDF document "${savedDoc.name}"${locationInfo}.${driveInfo} You are the owner and have full access to this document.`,
+      data: {
+        id: savedDoc.id,
+        name: savedDoc.name,
+        type: 'pdf',
+        matter_id,
+        client_id,
+        owner_id: userId,
+        privacy_level: privacyLevel,
+        azure_uploaded: !!azureResult,
+        content_preview: content.substring(0, 200) + (content.length > 200 ? '...' : '')
+      }
+    };
+  } catch (error) {
+    console.error('[Amplifier Document] Error creating document:', error);
+    return { error: 'Failed to create document: ' + error.message };
+  }
 }
 
 async function searchDocumentContent(params, userId, firmId) {
   const { search_term, matter_id, client_id } = params;
   
   let sql = `
-    SELECT id, original_name, matter_id,
-      SUBSTRING(extracted_text FROM POSITION(LOWER($2) IN LOWER(extracted_text)) FOR 200) as excerpt
+    SELECT id, name, original_name, matter_id,
+      SUBSTRING(COALESCE(content_text, '') FROM POSITION(LOWER($2) IN LOWER(COALESCE(content_text, ''))) FOR 200) as excerpt
     FROM documents
-    WHERE firm_id = $1 AND LOWER(extracted_text) LIKE $3
+    WHERE firm_id = $1 AND LOWER(COALESCE(content_text, '')) LIKE $3
   `;
   const values = [firmId, search_term, `%${search_term.toLowerCase()}%`];
   let idx = 4;

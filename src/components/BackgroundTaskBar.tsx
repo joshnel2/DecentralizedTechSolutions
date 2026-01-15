@@ -16,6 +16,11 @@ interface ActiveTask {
   isAmplifier?: boolean  // Track if this is an Amplifier background task
 }
 
+const clampPercent = (value: number | null | undefined, fallback = 0) => {
+  const resolved = typeof value === 'number' && Number.isFinite(value) ? value : fallback
+  return Math.min(100, Math.max(0, resolved))
+}
+
 export function BackgroundTaskBar() {
   const navigate = useNavigate()
   const [activeTask, setActiveTask] = useState<ActiveTask | null>(null)
@@ -41,6 +46,7 @@ export function BackgroundTaskBar() {
         const response = await aiApi.getActiveBackgroundTask()
         if (response.active && response.task) {
           const task = response.task
+          const progressPercent = clampPercent(task.progress?.progressPercent, 5)
           
           if (task.status === 'cancelled') {
             setIsCancelled(true)
@@ -54,7 +60,7 @@ export function BackgroundTaskBar() {
             id: task.id,
             goal: task.goal,
             status: task.status,
-            progressPercent: task.progress?.progressPercent || 5,
+            progressPercent,
             iterations: task.progress?.iterations || 0,
             currentStep: task.progress?.currentStep || 'Working...',
             summary: task.result?.summary,
@@ -68,15 +74,31 @@ export function BackgroundTaskBar() {
           try {
             const taskDetails = await aiApi.getBackgroundTask(activeTask.id)
             if (taskDetails?.task) {
+              const finalStatus = taskDetails.task.status || activeTask.status
+              const finalProgress = clampPercent(
+                taskDetails.task.progress?.progressPercent,
+                activeTask.progressPercent
+              )
+              const finalStep = taskDetails.task.progress?.currentStep || activeTask.currentStep || 'Completed'
               setCompletedTask({
                 ...activeTask,
+                status: finalStatus,
+                progressPercent: finalProgress,
+                currentStep: finalStep,
                 summary: taskDetails.task.result?.summary,
                 result: taskDetails.task.result,
-                status: taskDetails.task.status
               })
+              setActiveTask(prev => prev ? {
+                ...prev,
+                status: finalStatus,
+                progressPercent: finalProgress,
+                currentStep: finalStep
+              } : prev)
+              setHasError(finalStatus === 'error' || finalStatus === 'failed')
             }
           } catch (e) {
             setCompletedTask(activeTask)
+            setHasError(activeTask.status === 'error' || activeTask.status === 'failed')
           }
           setIsComplete(true)
           setPolling(false)
@@ -139,6 +161,49 @@ export function BackgroundTaskBar() {
       console.error('Error checking active task:', error)
     }
   }, [activeTask, isCancelling, isCancelled])
+
+  // Check for existing Amplifier task on mount (handles page refresh)
+  useEffect(() => {
+    let isMounted = true
+    
+    const checkExistingTask = async () => {
+      try {
+        const response = await aiApi.getActiveBackgroundTask()
+        if (!isMounted) return
+        
+        if (response.active && response.task) {
+          const task = response.task
+          const progressPercent = clampPercent(task.progress?.progressPercent, 5)
+          
+          isAmplifierRef.current = true
+          setActiveTask({
+            id: task.id,
+            goal: task.goal,
+            status: task.status,
+            progressPercent,
+            iterations: task.progress?.iterations || 0,
+            currentStep: task.progress?.currentStep || 'Working...',
+            summary: task.result?.summary,
+            result: task.result,
+            isAmplifier: true
+          })
+          setIsComplete(false)
+          setHasError(task.status === 'error' || task.status === 'failed')
+          setIsCancelled(false)
+          setIsCancelling(false)
+          setPolling(true)
+        }
+      } catch (error) {
+        console.error('Error checking existing background task:', error)
+      }
+    }
+    
+    checkExistingTask()
+    
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   // Listen for background task started event
   useEffect(() => {
@@ -263,17 +328,19 @@ export function BackgroundTaskBar() {
   // Only render when there's an active task or recently completed task
   if (!activeTask) return null
 
+  const isErrorState = hasError || activeTask.status === 'error' || activeTask.status === 'failed'
   const isCancelledState = isCancelled || activeTask.status === 'cancelled' || activeTask.status === 'cancelling'
+  const isDoneState = isComplete && !isErrorState && !isCancelledState
 
   return (
-    <div className={`${styles.taskBar} ${isComplete ? styles.complete : ''} ${hasError ? styles.error : ''} ${isCancelledState ? styles.cancelled : ''}`}>
+    <div className={`${styles.taskBar} ${isDoneState ? styles.complete : ''} ${isErrorState ? styles.error : ''} ${isCancelledState ? styles.cancelled : ''}`}>
       <div className={styles.content}>
         {/* Clickable area - goes to AI Assistant page */}
         <div className={styles.clickableArea} onClick={handleViewProgress} title="Click to view progress">
           <div className={styles.icon}>
-            {isComplete ? (
+            {isDoneState ? (
               <CheckCircle size={20} />
-            ) : hasError ? (
+            ) : isErrorState ? (
               <AlertCircle size={20} />
             ) : isCancelledState ? (
               <StopCircle size={20} />
@@ -287,12 +354,12 @@ export function BackgroundTaskBar() {
           <div className={styles.info}>
             <div className={styles.header}>
               <div className={styles.title}>
-                {isComplete ? 'Background Task Complete' : 
-                 hasError ? 'Task Error' : 
+                {isErrorState ? 'Task Error' : 
                  isCancelledState ? 'Task Cancelled' :
+                 isDoneState ? 'Background Task Complete' : 
                  activeTask?.isAmplifier ? 'Amplifier Agent Working' : 'Background Agent Working'}
               </div>
-              {!isComplete && !hasError && !isCancelledState && (
+              {!isDoneState && !isErrorState && !isCancelledState && (
                 <div className={styles.iterations}>
                   Step {activeTask.iterations || 1}
                 </div>
@@ -306,11 +373,11 @@ export function BackgroundTaskBar() {
             <div className={styles.progressBar}>
               <div 
                 className={styles.progressFill} 
-                style={{ width: `${isComplete ? 100 : activeTask.progressPercent}%` }}
+                style={{ width: `${isDoneState ? 100 : activeTask.progressPercent}%` }}
               />
             </div>
             <div className={styles.progressText}>
-              {isComplete ? 'Done!' : isCancelledState ? 'Stopped' : `${activeTask.progressPercent}%`}
+              {isDoneState ? 'Done!' : isErrorState ? 'Failed' : isCancelledState ? 'Stopped' : `${activeTask.progressPercent}%`}
             </div>
           </div>
         </div>
@@ -326,7 +393,7 @@ export function BackgroundTaskBar() {
               View Summary
             </button>
           )}
-          {!isComplete && !hasError && !isCancelledState && (
+          {!isComplete && !isErrorState && !isCancelledState && (
             <>
               <button 
                 onClick={handleViewProgress} 
