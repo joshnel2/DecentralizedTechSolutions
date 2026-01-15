@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import { getTodayInTimezone } from '../utils/dateUtils.js';
+import { learnFromTimeEntry } from '../services/learningService.js';
 
 const router = Router();
 
@@ -174,6 +175,17 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
     );
 
     const te = result.rows[0];
+    
+    // Learn from time entry style (async, non-blocking)
+    learnFromTimeEntry(req.user.id, req.user.firmId, {
+      description: te.description,
+      hours: parseFloat(te.hours),
+      activity_code: te.activity_code,
+      billable: te.billable
+    }).catch(err => {
+      console.log('Time entry learning capture failed (non-critical):', err.message);
+    });
+    
     res.status(201).json({
       id: te.id,
       matterId: te.matter_id,

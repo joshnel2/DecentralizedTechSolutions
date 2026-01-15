@@ -16,6 +16,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import amplifierService from '../services/amplifierService.js';
+import { learnFromSiteInteraction, getUserPatterns } from '../services/learningService.js';
 
 const router = Router();
 
@@ -270,6 +271,62 @@ router.get('/tools', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Error getting tools:', error);
     res.status(500).json({ error: 'Failed to get tools' });
+  }
+});
+
+/**
+ * Track user site interaction for learning
+ */
+router.post('/interactions', authenticate, async (req, res) => {
+  try {
+    const { action, page, feature, data = {} } = req.body;
+    
+    if (!action) {
+      return res.status(400).json({ error: 'Action is required' });
+    }
+    
+    // Track the interaction asynchronously
+    learnFromSiteInteraction(req.user.id, req.user.firmId, {
+      action,
+      page,
+      feature,
+      data
+    }).catch(err => {
+      console.log('Interaction tracking failed (non-critical):', err.message);
+    });
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error tracking interaction:', error);
+    res.status(500).json({ error: 'Failed to track interaction' });
+  }
+});
+
+/**
+ * Get user's learning patterns (for debugging/UI)
+ */
+router.get('/my-patterns', authenticate, async (req, res) => {
+  try {
+    const patterns = await getUserPatterns(req.user.id, req.user.firmId, {
+      minConfidence: 0.2,
+      limit: 100
+    });
+    
+    // Group by pattern type
+    const grouped = {};
+    for (const p of patterns) {
+      const type = p.pattern_type || 'other';
+      if (!grouped[type]) grouped[type] = [];
+      grouped[type].push(p);
+    }
+    
+    res.json({
+      patterns: grouped,
+      totalCount: patterns.length
+    });
+  } catch (error) {
+    console.error('Error getting patterns:', error);
+    res.status(500).json({ error: 'Failed to get patterns' });
   }
 });
 

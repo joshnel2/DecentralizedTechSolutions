@@ -8,6 +8,7 @@ import {
   formatDateTime,
   formatMonthYear
 } from '../utils/dateUtils.js';
+import { learnFromChatConversation } from '../services/learningService.js';
 
 const router = Router();
 
@@ -717,6 +718,17 @@ ${pageContext}`;
        VALUES ($1, $2, 'ai.chat', 'ai', $3)`,
       [req.user.firmId, req.user.id, JSON.stringify({ page, messageLength: message.length, hasImage })]
     ).catch(() => {}); // Don't fail if logging fails
+
+    // Learn from this chat conversation (async, non-blocking)
+    learnFromChatConversation(
+      req.user.id,
+      req.user.firmId,
+      [...conversationHistory, { role: 'user', content: message }],
+      response,
+      [] // toolsUsed - will be populated by agent routes
+    ).catch(err => {
+      console.log('Learning capture failed (non-critical):', err.message);
+    });
 
     res.json({
       response,

@@ -7,7 +7,10 @@
  * - Navigate and use all features
  * - Learn from user interactions
  * - Perform long-running autonomous tasks
+ * - Act as an experienced lawyer
  */
+
+import { LEGAL_KNOWLEDGE, getPracticeAreaKnowledge, getUserLearningPrompt } from './legalKnowledge.js';
 
 /**
  * Complete platform knowledge for Amplifier
@@ -170,6 +173,36 @@ Pay attention to:
 - Preferences for communication style
 `;
 
+// Export combined system prompt builder
+export function buildSystemPrompt(user, firm, matter = null, patterns = [], matterType = null) {
+  let prompt = PLATFORM_CONTEXT;
+  
+  // Add comprehensive legal knowledge
+  prompt += LEGAL_KNOWLEDGE;
+  
+  // Add practice-area specific knowledge if matter type is known
+  if (matterType) {
+    prompt += getPracticeAreaKnowledge(matterType);
+  }
+  
+  // Add user context
+  if (user && firm) {
+    prompt += getUserContext(user, firm);
+  }
+  
+  // Add matter context if working on specific matter
+  if (matter) {
+    prompt += getMatterContext(matter, matter.client, matter.stats);
+  }
+  
+  // Add user-specific learned patterns
+  if (patterns && patterns.length > 0) {
+    prompt += getUserLearningPrompt(patterns);
+  }
+  
+  return prompt;
+}
+
 /**
  * Generate user-specific context
  */
@@ -248,7 +281,11 @@ export async function getLearningContext(query, firmId, userId) {
 
 export default {
   PLATFORM_CONTEXT,
+  LEGAL_KNOWLEDGE,
   getUserContext,
   getMatterContext,
-  getLearningContext
+  getLearningContext,
+  buildSystemPrompt,
+  getPracticeAreaKnowledge,
+  getUserLearningPrompt
 };

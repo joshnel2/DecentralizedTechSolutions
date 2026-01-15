@@ -912,6 +912,19 @@ export const aiApi = {
     return fetchWithAuth('/v1/background-agent/tools');
   },
 
+  // Track user interaction for learning
+  async trackInteraction(action: string, page?: string, feature?: string, data?: Record<string, unknown>) {
+    return fetchWithAuth('/v1/background-agent/interactions', {
+      method: 'POST',
+      body: JSON.stringify({ action, page, feature, data }),
+    });
+  },
+
+  // Get user's learning patterns
+  async getMyPatterns() {
+    return fetchWithAuth('/v1/background-agent/my-patterns');
+  },
+
   // Background task management
   async getActiveTask() {
     return fetchWithAuth('/v1/agent/tasks/active/current');

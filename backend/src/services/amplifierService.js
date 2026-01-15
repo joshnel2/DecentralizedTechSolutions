@@ -14,8 +14,9 @@
 
 import { EventEmitter } from 'events';
 import { query } from '../db/connection.js';
-import { PLATFORM_CONTEXT, getUserContext, getMatterContext, getLearningContext } from './amplifier/platformContext.js';
+import { PLATFORM_CONTEXT, getUserContext, getMatterContext, getLearningContext, buildSystemPrompt, LEGAL_KNOWLEDGE } from './amplifier/platformContext.js';
 import { AMPLIFIER_TOOLS, executeTool } from './amplifier/toolBridge.js';
+import { getUserPatterns, learnFromChatConversation, learnFromDocumentEdit, learnFromTimeEntry, learnFromCalendarEvent, learnFromSiteInteraction, PATTERN_TYPES } from '../learningService.js';
 
 // Store active tasks per user
 const activeTasks = new Map();
@@ -132,6 +133,10 @@ class BackgroundTask extends EventEmitter {
     // User and firm context
     this.userContext = null;
     this.learningContext = null;
+    this.userPatterns = [];
+    this.matterType = null;
+    this.user = null;
+    this.firm = null;
   }
 
   /**
@@ -144,11 +149,25 @@ class BackgroundTask extends EventEmitter {
         'SELECT u.*, f.name as firm_name FROM users u JOIN firms f ON u.firm_id = f.id WHERE u.id = $1',
         [this.userId]
       );
-      const user = userResult.rows[0];
-      const firm = { name: user?.firm_name };
+      this.user = userResult.rows[0];
+      this.firm = { name: this.user?.firm_name, id: this.firmId };
       
-      this.userContext = getUserContext(user, firm);
+      this.userContext = getUserContext(this.user, this.firm);
       this.learningContext = await getLearningContext(query, this.firmId, this.userId);
+      
+      // Get user-specific learning patterns
+      try {
+        this.userPatterns = await getUserPatterns(this.userId, this.firmId, {
+          minConfidence: 0.3,
+          limit: 50
+        });
+      } catch (e) {
+        console.log('[Amplifier] Learning patterns not available yet');
+        this.userPatterns = [];
+      }
+      
+      // Try to detect matter type from goal
+      this.matterType = this.detectMatterType(this.goal);
       
       // Get workflow templates
       const workflowResult = await query(
@@ -161,28 +180,68 @@ class BackgroundTask extends EventEmitter {
       console.error('[Amplifier] Context initialization error:', error);
     }
   }
+  
+  /**
+   * Detect matter type from goal text
+   */
+  detectMatterType(goal) {
+    const goalLower = goal.toLowerCase();
+    
+    if (goalLower.includes('litigation') || goalLower.includes('lawsuit') || goalLower.includes('complaint') || goalLower.includes('motion')) {
+      return 'litigation';
+    }
+    if (goalLower.includes('corporate') || goalLower.includes('merger') || goalLower.includes('acquisition') || goalLower.includes('contract')) {
+      return 'corporate';
+    }
+    if (goalLower.includes('real estate') || goalLower.includes('property') || goalLower.includes('lease') || goalLower.includes('title')) {
+      return 'real_estate';
+    }
+    if (goalLower.includes('family') || goalLower.includes('divorce') || goalLower.includes('custody') || goalLower.includes('child support')) {
+      return 'family';
+    }
+    if (goalLower.includes('estate') || goalLower.includes('will') || goalLower.includes('trust') || goalLower.includes('probate')) {
+      return 'estate';
+    }
+    if (goalLower.includes('immigration') || goalLower.includes('visa') || goalLower.includes('citizenship')) {
+      return 'immigration';
+    }
+    if (goalLower.includes('criminal') || goalLower.includes('defense') || goalLower.includes('prosecution')) {
+      return 'criminal';
+    }
+    
+    return null;
+  }
 
   /**
    * Build the system prompt with full context
    */
   buildSystemPrompt() {
+    // Use the comprehensive buildSystemPrompt with legal knowledge
     let prompt = `You are the APEX LEGAL BACKGROUND AGENT - an autonomous AI assistant with FULL ACCESS to the legal practice management platform.
 
-${PLATFORM_CONTEXT}
+You are an EXPERIENCED LAWYER with deep knowledge of legal practice. You think, write, and act like a seasoned attorney.
 
-${this.userContext || ''}
+${buildSystemPrompt(this.user, this.firm, null, this.userPatterns, this.matterType)}
 
-${this.learningContext || ''}
+## YOUR CAPABILITIES AS A LAWYER
 
-## YOUR CAPABILITIES
-
-You have access to ALL platform tools and can:
+You can:
+- Draft legal documents with proper structure and terminology
+- Manage cases following best practices for each practice area
+- Bill time with detailed, professional descriptions
+- Communicate in a professional legal manner
+- Follow ethical guidelines and maintain confidentiality
 - Create, update, and manage clients and matters
 - Log time entries and generate invoices
 - Create and edit documents
 - Schedule events and manage tasks
 - Search across all firm data
 - Generate reports and analytics
+
+## USER-SPECIFIC PREFERENCES
+
+I'm working for ${this.user?.firstName || 'this user'} ${this.user?.lastName || ''}.
+${this.userPatterns.length > 0 ? `I've learned ${this.userPatterns.length} patterns about how they work.` : 'I will learn their preferences as we work together.'}
 
 ## AUTONOMOUS OPERATION MODE
 
@@ -199,6 +258,7 @@ You are running as a BACKGROUND AGENT. This means:
 Goal: ${this.goal}
 
 Work through this goal step by step. Take actions, verify results, and continue until complete.
+Think like a lawyer. Act like a lawyer. Deliver results a lawyer would be proud of.
 `;
 
     // Add workflow templates if relevant

@@ -10,6 +10,7 @@ import { authenticate, requirePermission } from '../middleware/auth.js';
 import { buildDocumentAccessFilter, canAccessDocument, requireDocumentAccess, FULL_ACCESS_ROLES } from '../middleware/documentAccess.js';
 import mammoth from 'mammoth';
 import { uploadFile, isAzureConfigured, downloadFile } from '../utils/azureStorage.js';
+import { learnFromDocumentEdit } from '../services/learningService.js';
 
 // Use createRequire for CommonJS modules
 import { createRequire } from 'module';
@@ -1309,13 +1310,15 @@ router.get('/download-all/zip', authenticate, requirePermission('documents:view'
 router.put('/:id', authenticate, requirePermission('documents:edit'), async (req, res) => {
   try {
     const existing = await query(
-      'SELECT id FROM documents WHERE id = $1 AND firm_id = $2',
+      'SELECT id, content_text, type FROM documents WHERE id = $1 AND firm_id = $2',
       [req.params.id, req.user.firmId]
     );
 
     if (existing.rows.length === 0) {
       return res.status(404).json({ error: 'Document not found' });
     }
+    
+    const oldDocument = existing.rows[0];
 
     const { name, matterId, clientId, tags, isConfidential, status, aiSummary, content, externalPath, externalType } = req.body;
 
@@ -1355,6 +1358,21 @@ router.put('/:id', authenticate, requirePermission('documents:edit'), async (req
 
     const d = result.rows[0];
     console.log(`[DOCUMENTS] Updated document ${d.id}: ${d.name}`);
+    
+    // Learn from document content edits (async, non-blocking)
+    if (content !== undefined && oldDocument.content_text) {
+      learnFromDocumentEdit(
+        req.user.id,
+        req.user.firmId,
+        d.id,
+        oldDocument.content_text,
+        content,
+        oldDocument.type || 'unknown'
+      ).catch(err => {
+        console.log('Document learning capture failed (non-critical):', err.message);
+      });
+    }
+    
     res.json({
       id: d.id,
       name: d.name,

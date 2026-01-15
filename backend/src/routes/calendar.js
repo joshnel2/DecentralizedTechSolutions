@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
+import { learnFromCalendarEvent } from '../services/learningService.js';
 
 const router = Router();
 
@@ -134,6 +135,21 @@ router.post('/', authenticate, requirePermission('calendar:create'), async (req,
     );
 
     const e = result.rows[0];
+    
+    // Learn from calendar event patterns (async, non-blocking)
+    const durationMinutes = e.start_time && e.end_time 
+      ? Math.round((new Date(e.end_time) - new Date(e.start_time)) / 60000)
+      : null;
+    
+    learnFromCalendarEvent(req.user.id, req.user.firmId, {
+      event_type: e.type,
+      duration_minutes: durationMinutes,
+      start_time: e.start_time,
+      reminder_minutes: e.reminders?.[0]?.minutes || null
+    }, 'created').catch(err => {
+      console.log('Calendar learning capture failed (non-critical):', err.message);
+    });
+    
     res.status(201).json({
       id: e.id,
       title: e.title,
