@@ -221,27 +221,108 @@ Billing Summary:
 
 /**
  * Get learning context from stored patterns
+ * Enhanced to provide actionable insights to the agent
  */
 export async function getLearningContext(query, firmId, userId) {
-  // This will be populated from the learning database
   try {
-    const patterns = await query(`
-      SELECT pattern_type, pattern_data, confidence
+    // Get high-confidence workflow patterns
+    const workflows = await query(`
+      SELECT pattern_data, occurrences, confidence
       FROM ai_learning_patterns
-      WHERE firm_id = $1 AND (user_id = $2 OR user_id IS NULL)
-      ORDER BY confidence DESC
-      LIMIT 20
+      WHERE firm_id = $1 AND pattern_type = 'workflow' AND confidence >= 0.6
+      ORDER BY occurrences DESC, confidence DESC
+      LIMIT 5
+    `, [firmId]);
+    
+    // Get user request patterns (what they commonly ask for)
+    const requests = await query(`
+      SELECT pattern_data, occurrences
+      FROM ai_learning_patterns
+      WHERE firm_id = $1 AND user_id = $2 AND pattern_type = 'request'
+      ORDER BY occurrences DESC
+      LIMIT 5
     `, [firmId, userId]);
     
-    if (!patterns.rows.length) return '';
+    // Get corrections (things to avoid)
+    const corrections = await query(`
+      SELECT pattern_data
+      FROM ai_learning_patterns
+      WHERE firm_id = $1 AND pattern_type = 'correction'
+      ORDER BY created_at DESC
+      LIMIT 3
+    `, [firmId]);
     
-    let context = '\n## LEARNED PATTERNS\n\n';
-    for (const p of patterns.rows) {
-      context += `- ${p.pattern_type}: ${JSON.stringify(p.pattern_data)}\n`;
+    // Get naming patterns
+    const naming = await query(`
+      SELECT pattern_category, pattern_data
+      FROM ai_learning_patterns
+      WHERE firm_id = $1 AND pattern_type = 'naming'
+      ORDER BY occurrences DESC
+      LIMIT 5
+    `, [firmId]);
+    
+    // Get timing preferences
+    const timing = await query(`
+      SELECT pattern_data, occurrences
+      FROM ai_learning_patterns
+      WHERE firm_id = $1 AND user_id = $2 AND pattern_type = 'timing'
+      ORDER BY occurrences DESC
+      LIMIT 3
+    `, [firmId, userId]);
+    
+    let context = '\n## LEARNED FROM THIS USER/FIRM\n\n';
+    
+    if (workflows.rows.length > 0) {
+      context += '### Preferred Workflows (use these approaches when applicable):\n';
+      for (const w of workflows.rows) {
+        const data = w.pattern_data;
+        context += `- For goals like "${(data.goal_keywords || []).join(' ')}": ${data.sequence} (used ${w.occurrences} times, ${Math.round(w.confidence * 100)}% confidence)\n`;
+      }
+      context += '\n';
     }
-    return context;
+    
+    if (requests.rows.length > 0) {
+      context += '### Common Request Types:\n';
+      for (const r of requests.rows) {
+        const data = r.pattern_data;
+        context += `- ${data.category} requests (${(data.verbs || []).join(', ')}) - asked ${r.occurrences} times\n`;
+      }
+      context += '\n';
+    }
+    
+    if (corrections.rows.length > 0) {
+      context += '### IMPORTANT - Avoid These Mistakes:\n';
+      for (const c of corrections.rows) {
+        const data = c.pattern_data;
+        context += `- When asked about "${data.original_goal?.substring(0, 50)}...": ${data.what_went_wrong || 'User was not satisfied'}. Instead: ${data.correct_approach || 'Try a different approach'}\n`;
+      }
+      context += '\n';
+    }
+    
+    if (naming.rows.length > 0) {
+      context += '### Naming Conventions Used:\n';
+      for (const n of naming.rows) {
+        const data = n.pattern_data;
+        context += `- ${n.pattern_category}: ${data.format} format`;
+        if (data.wordCount) context += `, typically ${data.wordCount} words`;
+        context += '\n';
+      }
+      context += '\n';
+    }
+    
+    if (timing.rows.length > 0) {
+      const mostActive = timing.rows[0]?.pattern_data;
+      if (mostActive) {
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        context += `### User Activity Pattern:\n`;
+        context += `- Most active: ${dayNames[mostActive.day_of_week]} ${mostActive.time_slot}\n\n`;
+      }
+    }
+    
+    return context.trim() ? context : '';
   } catch (e) {
-    // Table may not exist yet
+    // Table may not exist yet - this is fine
+    console.log('[Amplifier] Learning context not available:', e.message);
     return '';
   }
 }

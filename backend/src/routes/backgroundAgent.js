@@ -237,6 +237,55 @@ router.get('/learnings', authenticate, async (req, res) => {
 });
 
 /**
+ * Submit feedback on a completed task
+ * This helps the agent learn from user satisfaction
+ */
+router.post('/tasks/:id/feedback', authenticate, async (req, res) => {
+  try {
+    const { rating, feedback, correction } = req.body;
+    
+    // Validate rating
+    if (rating !== undefined && (rating < 1 || rating > 5)) {
+      return res.status(400).json({ error: 'Rating must be between 1 and 5' });
+    }
+    
+    // Record feedback for learning
+    const result = await amplifierService.recordFeedback(
+      req.params.id,
+      req.user.id,
+      req.user.firmId,
+      { rating, feedback, correction }
+    );
+    
+    if (!result.success) {
+      return res.status(404).json({ error: result.error || 'Task not found' });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Feedback recorded - the agent will learn from this',
+      task: result.task
+    });
+  } catch (error) {
+    console.error('Error recording feedback:', error);
+    res.status(500).json({ error: 'Failed to record feedback' });
+  }
+});
+
+/**
+ * Get learning statistics for the user/firm
+ */
+router.get('/learning-stats', authenticate, async (req, res) => {
+  try {
+    const stats = await amplifierService.getLearningStats(req.user.firmId, req.user.id);
+    res.json(stats);
+  } catch (error) {
+    console.error('Error getting learning stats:', error);
+    res.status(500).json({ error: 'Failed to get learning stats' });
+  }
+});
+
+/**
  * Get available tools (for documentation/UI)
  */
 router.get('/tools', authenticate, async (req, res) => {

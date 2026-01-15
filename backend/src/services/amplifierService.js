@@ -457,11 +457,14 @@ Work through this goal step by step. Take actions, verify results, and continue 
 
   /**
    * Extract learning patterns from the task
+   * Enhanced to learn from ANY task, not just complex ones
    */
   async extractLearnings() {
     try {
-      // Analyze action sequences for workflow patterns
-      if (this.actionsHistory.length >= 3) {
+      console.log(`[Amplifier] Extracting learnings from task with ${this.actionsHistory.length} actions`);
+      
+      // 1. Learn from ANY task with actions (lowered from 3 to 1)
+      if (this.actionsHistory.length >= 1) {
         const toolSequence = this.actionsHistory.map(a => a.tool).join(' -> ');
         
         // Check if this pattern exists
@@ -476,6 +479,7 @@ Work through this goal step by step. Take actions, verify results, and continue 
             UPDATE ai_learning_patterns SET occurrences = occurrences + 1, last_used_at = NOW()
             WHERE id = $1
           `, [existing.rows[0].id]);
+          console.log(`[Amplifier] Updated existing workflow pattern: ${toolSequence}`);
         } else {
           // Create new pattern
           await query(`
@@ -483,13 +487,19 @@ Work through this goal step by step. Take actions, verify results, and continue 
             VALUES ($1, $2, 'workflow', 'task_execution', $3)
           `, [this.firmId, this.userId, JSON.stringify({
             sequence: toolSequence,
-            goal_keywords: this.goal.toLowerCase().split(' ').slice(0, 5),
-            tools_used: [...new Set(this.actionsHistory.map(a => a.tool))]
+            goal_keywords: this.goal.toLowerCase().split(' ').slice(0, 10),
+            tools_used: [...new Set(this.actionsHistory.map(a => a.tool))],
+            duration_seconds: Math.round((this.endTime - this.startTime) / 1000),
+            success: this.status === 'completed'
           })]);
+          console.log(`[Amplifier] Created new workflow pattern: ${toolSequence}`);
         }
       }
       
-      // Learn naming patterns from created entities
+      // 2. Learn user request patterns (what kind of things they ask for)
+      await this.learnRequestPattern();
+      
+      // 3. Learn naming patterns from created entities
       for (const action of this.actionsHistory) {
         if (action.tool === 'create_matter' && action.args?.name) {
           await this.learnNamingPattern('matter', action.args.name);
@@ -497,10 +507,164 @@ Work through this goal step by step. Take actions, verify results, and continue 
         if (action.tool === 'create_client' && action.args?.display_name) {
           await this.learnNamingPattern('client', action.args.display_name);
         }
+        if (action.tool === 'create_document' && action.args?.name) {
+          await this.learnNamingPattern('document', action.args.name);
+        }
+        if (action.tool === 'create_calendar_event' && action.args?.title) {
+          await this.learnNamingPattern('event', action.args.title);
+        }
       }
+      
+      // 4. Learn timing preferences (when user submits tasks)
+      await this.learnTimingPattern();
+      
+      // 5. Learn billing preferences
+      await this.learnBillingPatterns();
+      
+      console.log(`[Amplifier] Learning extraction complete for task ${this.id}`);
       
     } catch (error) {
       console.error('[Amplifier] Error extracting learnings:', error);
+    }
+  }
+  
+  /**
+   * Learn what kinds of requests users make
+   */
+  async learnRequestPattern() {
+    try {
+      const goalLower = this.goal.toLowerCase();
+      
+      // Categorize the request
+      let category = 'general';
+      if (goalLower.match(/invoice|bill|payment|charge/)) category = 'billing';
+      else if (goalLower.match(/time|hour|log|track/)) category = 'time_tracking';
+      else if (goalLower.match(/document|file|upload|draft/)) category = 'documents';
+      else if (goalLower.match(/client|customer|contact/)) category = 'clients';
+      else if (goalLower.match(/matter|case|project/)) category = 'matters';
+      else if (goalLower.match(/calendar|event|meeting|schedule/)) category = 'scheduling';
+      else if (goalLower.match(/task|todo|reminder/)) category = 'tasks';
+      else if (goalLower.match(/report|analytics|summary/)) category = 'reporting';
+      
+      // Extract key verbs
+      const verbs = [];
+      if (goalLower.match(/create|add|new|make/)) verbs.push('create');
+      if (goalLower.match(/update|change|modify|edit/)) verbs.push('update');
+      if (goalLower.match(/delete|remove|cancel/)) verbs.push('delete');
+      if (goalLower.match(/find|search|look|get|show|list/)) verbs.push('query');
+      if (goalLower.match(/send|email|notify/)) verbs.push('communicate');
+      
+      const patternKey = `${category}:${verbs.sort().join(',')}`;
+      
+      // Check if pattern exists
+      const existing = await query(`
+        SELECT id, occurrences FROM ai_learning_patterns
+        WHERE firm_id = $1 AND user_id = $2 AND pattern_type = 'request' AND pattern_data->>'key' = $3
+      `, [this.firmId, this.userId, patternKey]);
+      
+      if (existing.rows.length > 0) {
+        await query(`
+          UPDATE ai_learning_patterns SET occurrences = occurrences + 1, last_used_at = NOW()
+          WHERE id = $1
+        `, [existing.rows[0].id]);
+      } else {
+        await query(`
+          INSERT INTO ai_learning_patterns (firm_id, user_id, pattern_type, pattern_category, pattern_data)
+          VALUES ($1, $2, 'request', $3, $4)
+        `, [this.firmId, this.userId, category, JSON.stringify({
+          key: patternKey,
+          category,
+          verbs,
+          sample_goal: this.goal.substring(0, 200)
+        })]);
+      }
+    } catch (error) {
+      console.error('[Amplifier] Error learning request pattern:', error);
+    }
+  }
+  
+  /**
+   * Learn when users typically submit tasks
+   */
+  async learnTimingPattern() {
+    try {
+      const hour = this.startTime.getHours();
+      const dayOfWeek = this.startTime.getDay();
+      const timeSlot = hour < 9 ? 'early_morning' : 
+                       hour < 12 ? 'morning' : 
+                       hour < 14 ? 'midday' : 
+                       hour < 17 ? 'afternoon' : 
+                       hour < 20 ? 'evening' : 'night';
+      
+      const patternKey = `${dayOfWeek}:${timeSlot}`;
+      
+      const existing = await query(`
+        SELECT id, occurrences FROM ai_learning_patterns
+        WHERE firm_id = $1 AND user_id = $2 AND pattern_type = 'timing' AND pattern_data->>'key' = $3
+      `, [this.firmId, this.userId, patternKey]);
+      
+      if (existing.rows.length > 0) {
+        await query(`
+          UPDATE ai_learning_patterns SET occurrences = occurrences + 1, last_used_at = NOW()
+          WHERE id = $1
+        `, [existing.rows[0].id]);
+      } else {
+        await query(`
+          INSERT INTO ai_learning_patterns (firm_id, user_id, pattern_type, pattern_category, pattern_data)
+          VALUES ($1, $2, 'timing', 'usage', $3)
+        `, [this.firmId, this.userId, JSON.stringify({
+          key: patternKey,
+          day_of_week: dayOfWeek,
+          time_slot: timeSlot,
+          hour
+        })]);
+      }
+    } catch (error) {
+      console.error('[Amplifier] Error learning timing pattern:', error);
+    }
+  }
+  
+  /**
+   * Learn billing patterns from time entries and invoices
+   */
+  async learnBillingPatterns() {
+    try {
+      for (const action of this.actionsHistory) {
+        if (action.tool === 'log_time' && action.args) {
+          const { hours, billable } = action.args;
+          const patternKey = `time:${billable ? 'billable' : 'non_billable'}`;
+          
+          const existing = await query(`
+            SELECT id, occurrences, pattern_data FROM ai_learning_patterns
+            WHERE firm_id = $1 AND user_id = $2 AND pattern_type = 'billing' AND pattern_data->>'key' = $3
+          `, [this.firmId, this.userId, patternKey]);
+          
+          if (existing.rows.length > 0) {
+            // Update with running average
+            const data = existing.rows[0].pattern_data;
+            const newAvg = ((data.avg_hours || 0) * existing.rows[0].occurrences + hours) / (existing.rows[0].occurrences + 1);
+            
+            await query(`
+              UPDATE ai_learning_patterns 
+              SET occurrences = occurrences + 1, 
+                  last_used_at = NOW(),
+                  pattern_data = pattern_data || $2::jsonb
+              WHERE id = $1
+            `, [existing.rows[0].id, JSON.stringify({ avg_hours: newAvg })]);
+          } else {
+            await query(`
+              INSERT INTO ai_learning_patterns (firm_id, user_id, pattern_type, pattern_category, pattern_data)
+              VALUES ($1, $2, 'billing', 'time_entry', $3)
+            `, [this.firmId, this.userId, JSON.stringify({
+              key: patternKey,
+              billable,
+              avg_hours: hours
+            })]);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[Amplifier] Error learning billing pattern:', error);
     }
   }
 
@@ -751,7 +915,197 @@ class AmplifierService {
       
       return result.rows;
     } catch (error) {
+      console.error('[AmplifierService] Error getting learned patterns:', error);
       return [];
+    }
+  }
+
+  /**
+   * Record user feedback on a completed task
+   * This is crucial for learning from user satisfaction
+   */
+  async recordFeedback(taskId, userId, firmId, feedback) {
+    try {
+      const { rating, feedback: feedbackText, correction } = feedback;
+      
+      console.log(`[AmplifierService] Recording feedback for task ${taskId}: rating=${rating}`);
+      
+      // Update task history with feedback
+      const updateResult = await query(`
+        UPDATE ai_task_history
+        SET 
+          learnings = COALESCE(learnings, '{}'::jsonb) || $4::jsonb
+        WHERE task_id = $1 AND user_id = $2 AND firm_id = $3
+        RETURNING *
+      `, [taskId, userId, firmId, JSON.stringify({
+        user_rating: rating,
+        user_feedback: feedbackText,
+        user_correction: correction,
+        feedback_at: new Date().toISOString()
+      })]);
+      
+      if (updateResult.rows.length === 0) {
+        return { success: false, error: 'Task not found in history' };
+      }
+      
+      const taskHistory = updateResult.rows[0];
+      
+      // Learn from the feedback
+      if (rating) {
+        // Learn satisfaction pattern
+        const satisfactionLevel = rating >= 4 ? 'positive' : rating <= 2 ? 'negative' : 'neutral';
+        
+        // If positive, reinforce the workflow pattern
+        if (satisfactionLevel === 'positive' && taskHistory.actions_taken) {
+          const actions = typeof taskHistory.actions_taken === 'string' 
+            ? JSON.parse(taskHistory.actions_taken) 
+            : taskHistory.actions_taken;
+          
+          if (actions.length > 0) {
+            const sequence = actions.map(a => a.tool).join(' -> ');
+            
+            // Boost confidence for this workflow
+            await query(`
+              UPDATE ai_learning_patterns
+              SET confidence = LEAST(0.99, confidence + 0.05),
+                  occurrences = occurrences + 1,
+                  last_used_at = NOW()
+              WHERE firm_id = $1 AND pattern_type = 'workflow' AND pattern_data->>'sequence' = $2
+            `, [firmId, sequence]);
+            
+            console.log(`[AmplifierService] Boosted confidence for workflow: ${sequence}`);
+          }
+        }
+        
+        // If negative, reduce confidence and learn what went wrong
+        if (satisfactionLevel === 'negative') {
+          const actions = typeof taskHistory.actions_taken === 'string' 
+            ? JSON.parse(taskHistory.actions_taken) 
+            : taskHistory.actions_taken;
+          
+          if (actions && actions.length > 0) {
+            const sequence = actions.map(a => a.tool).join(' -> ');
+            
+            // Reduce confidence for this workflow
+            await query(`
+              UPDATE ai_learning_patterns
+              SET confidence = GREATEST(0.10, confidence - 0.1),
+                  last_used_at = NOW()
+              WHERE firm_id = $1 AND pattern_type = 'workflow' AND pattern_data->>'sequence' = $2
+            `, [firmId, sequence]);
+            
+            console.log(`[AmplifierService] Reduced confidence for workflow: ${sequence}`);
+          }
+          
+          // Store the negative feedback as a learning pattern to avoid
+          if (correction) {
+            await query(`
+              INSERT INTO ai_learning_patterns (firm_id, user_id, pattern_type, pattern_category, pattern_data, confidence)
+              VALUES ($1, $2, 'correction', 'user_feedback', $3, 0.80)
+            `, [firmId, userId, JSON.stringify({
+              original_goal: taskHistory.goal,
+              what_went_wrong: feedbackText,
+              correct_approach: correction,
+              task_id: taskId
+            })]);
+            
+            console.log(`[AmplifierService] Stored correction pattern from user feedback`);
+          }
+        }
+      }
+      
+      return { 
+        success: true, 
+        task: {
+          id: taskHistory.task_id,
+          goal: taskHistory.goal,
+          feedback_recorded: true
+        }
+      };
+    } catch (error) {
+      console.error('[AmplifierService] Error recording feedback:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get learning statistics for a user/firm
+   */
+  async getLearningStats(firmId, userId) {
+    try {
+      // Get pattern counts by type
+      const patternCounts = await query(`
+        SELECT pattern_type, COUNT(*) as count, AVG(confidence) as avg_confidence
+        FROM ai_learning_patterns
+        WHERE firm_id = $1 AND (user_id = $2 OR user_id IS NULL)
+        GROUP BY pattern_type
+      `, [firmId, userId]);
+      
+      // Get task completion stats
+      const taskStats = await query(`
+        SELECT 
+          COUNT(*) as total_tasks,
+          COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_tasks,
+          COUNT(CASE WHEN learnings->>'user_rating' IS NOT NULL THEN 1 END) as rated_tasks,
+          AVG((learnings->>'user_rating')::numeric) as avg_rating
+        FROM ai_task_history
+        WHERE firm_id = $1 AND user_id = $2
+      `, [firmId, userId]);
+      
+      // Get top learned workflows
+      const topWorkflows = await query(`
+        SELECT pattern_data, occurrences, confidence
+        FROM ai_learning_patterns
+        WHERE firm_id = $1 AND pattern_type = 'workflow'
+        ORDER BY occurrences DESC, confidence DESC
+        LIMIT 5
+      `, [firmId]);
+      
+      // Get recent learning activity
+      const recentLearning = await query(`
+        SELECT pattern_type, pattern_data, created_at
+        FROM ai_learning_patterns
+        WHERE firm_id = $1 AND (user_id = $2 OR user_id IS NULL)
+        ORDER BY created_at DESC
+        LIMIT 10
+      `, [firmId, userId]);
+      
+      return {
+        patterns: {
+          byType: patternCounts.rows.reduce((acc, row) => {
+            acc[row.pattern_type] = {
+              count: parseInt(row.count),
+              avgConfidence: parseFloat(row.avg_confidence || 0).toFixed(2)
+            };
+            return acc;
+          }, {}),
+          total: patternCounts.rows.reduce((sum, row) => sum + parseInt(row.count), 0)
+        },
+        tasks: {
+          total: parseInt(taskStats.rows[0]?.total_tasks || 0),
+          completed: parseInt(taskStats.rows[0]?.completed_tasks || 0),
+          rated: parseInt(taskStats.rows[0]?.rated_tasks || 0),
+          avgRating: parseFloat(taskStats.rows[0]?.avg_rating || 0).toFixed(1)
+        },
+        topWorkflows: topWorkflows.rows.map(row => ({
+          ...row.pattern_data,
+          occurrences: row.occurrences,
+          confidence: parseFloat(row.confidence).toFixed(2)
+        })),
+        recentLearning: recentLearning.rows.map(row => ({
+          type: row.pattern_type,
+          data: row.pattern_data,
+          learnedAt: row.created_at
+        }))
+      };
+    } catch (error) {
+      console.error('[AmplifierService] Error getting learning stats:', error);
+      return {
+        patterns: { byType: {}, total: 0 },
+        tasks: { total: 0, completed: 0, rated: 0, avgRating: 0 },
+        topWorkflows: [],
+        recentLearning: []
+      };
     }
   }
 
