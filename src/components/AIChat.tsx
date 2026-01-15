@@ -241,32 +241,43 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
 
     try {
       // BACKGROUND MODE: Start a background task with Amplifier
+      // But ONLY for actual task requests, not simple greetings/questions
       if (backgroundMode && backgroundAvailable) {
-        const result = await aiApi.startBackgroundTask(
-          text || `Analyze and summarize this document: ${currentFile?.name}`
-        )
+        // Check if this looks like an actual task vs simple conversation
+        const lowerText = text.toLowerCase().trim()
+        const isSimpleGreeting = /^(hi|hello|hey|good morning|good afternoon|good evening|thanks|thank you|ok|okay|yes|no|sure|bye|goodbye)[\s!.,?]*$/i.test(lowerText)
+        const isSimpleQuestion = /^(what|how|who|when|where|why|can you|could you|do you|are you|is there|will you).*\?$/i.test(lowerText) && lowerText.length < 50
+        const isTaskRequest = /^(create|make|add|update|delete|remove|send|draft|generate|log|schedule|set up|close|open|find|search|list|get|show|analyze|review|prepare|bill|invoice)/i.test(lowerText)
         
-        const assistantMessage: Message = {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: `🚀 **Background task started!**\n\nYour task has been submitted to the background agent (powered by Microsoft Amplifier).\n\n**Goal:** ${result.task?.goal || text}\n**Task ID:** ${result.task?.id || 'Unknown'}\n\nYou can close this panel and continue working. Check the progress bar at the bottom of the screen to monitor the task.`,
-          timestamp: new Date(),
-          toolsUsed: true,
-        }
-        
-        setMessages(prev => [...prev, assistantMessage])
-        
-        // Dispatch event to notify BackgroundTaskBar
-        window.dispatchEvent(new CustomEvent('backgroundTaskStarted', {
-          detail: {
-            taskId: result.task?.id,
-            goal: result.task?.goal || text,
-            isAmplifier: true  // Explicitly mark as Amplifier background task
+        // Only start background task for actual task commands, not greetings or simple questions
+        if (isTaskRequest || (lowerText.length > 30 && !isSimpleGreeting && !isSimpleQuestion)) {
+          const result = await aiApi.startBackgroundTask(
+            text || `Analyze and summarize this document: ${currentFile?.name}`
+          )
+          
+          const assistantMessage: Message = {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: `🚀 **Background task started!**\n\nYour task has been submitted to the background agent (powered by Microsoft Amplifier).\n\n**Goal:** ${result.task?.goal || text}\n**Task ID:** ${result.task?.id || 'Unknown'}\n\nYou can close this panel and continue working. Check the progress bar at the bottom of the screen to monitor the task.`,
+            timestamp: new Date(),
+            toolsUsed: true,
           }
-        }))
-        
-        setIsLoading(false)
-        return
+          
+          setMessages(prev => [...prev, assistantMessage])
+          
+          // Dispatch event to notify BackgroundTaskBar
+          window.dispatchEvent(new CustomEvent('backgroundTaskStarted', {
+            detail: {
+              taskId: result.task?.id,
+              goal: result.task?.goal || text,
+              isAmplifier: true  // Explicitly mark as Amplifier background task
+            }
+          }))
+          
+          setIsLoading(false)
+          return
+        }
+        // If not a task request, fall through to normal chat even in background mode
       }
 
       // NORMAL MODE: Use AI Agent with function calling
