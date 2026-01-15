@@ -30,9 +30,10 @@ const TaskStatus = {
   WAITING_INPUT: 'waiting_input'
 };
 
-// Azure OpenAI configuration - use same API version as normal AI chat (ai.js)
+// Azure OpenAI configuration - use SAME API version as normal AI agent (aiAgent.js)
+// This MUST match the version in routes/aiAgent.js for consistency
 // Read at runtime to ensure dotenv has loaded
-const API_VERSION = '2024-02-15-preview';
+const API_VERSION = '2024-12-01-preview';
 
 /**
  * Get Azure OpenAI configuration (read at runtime to avoid timing issues)
@@ -54,13 +55,22 @@ function generateTaskId() {
 
 /**
  * Call Azure OpenAI with function calling
- * Uses the same configuration and request format as the normal AI chat (ai.js)
+ * Uses the SAME configuration and request format as the normal AI agent (aiAgent.js)
+ * This ensures the background agent behaves identically to the normal agent
  */
 async function callAzureOpenAI(messages, tools = [], options = {}) {
   const config = getAzureConfig();
-  const url = `${config.endpoint}openai/deployments/${config.deployment}/chat/completions?api-version=${API_VERSION}`;
   
-  // Match the same request body format as ai.js
+  // Validate configuration before making request
+  if (!config.endpoint || !config.apiKey || !config.deployment) {
+    throw new Error('Azure OpenAI not configured: missing endpoint, API key, or deployment');
+  }
+  
+  // Build URL - ensure endpoint ends properly
+  const endpoint = config.endpoint.endsWith('/') ? config.endpoint.slice(0, -1) : config.endpoint;
+  const url = `${endpoint}/openai/deployments/${config.deployment}/chat/completions?api-version=${API_VERSION}`;
+  
+  // Match the EXACT request body format as aiAgent.js for consistency
   const body = {
     messages,
     temperature: options.temperature ?? 0.7,
@@ -68,10 +78,13 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
     top_p: 0.95,
   };
   
+  // Add tools for function calling (agent mode)
   if (tools.length > 0) {
     body.tools = tools;
     body.tool_choice = 'auto';
   }
+  
+  console.log(`[Amplifier] Calling Azure OpenAI: ${config.deployment} with ${tools.length} tools`);
   
   const response = await fetch(url, {
     method: 'POST',
@@ -83,14 +96,29 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
   });
   
   if (!response.ok) {
-    const error = await response.text();
-    console.error('[Amplifier] Azure OpenAI error:', error);
+    const errorText = await response.text();
+    console.error('[Amplifier] Azure OpenAI error:', errorText);
     console.error('[Amplifier] Request URL:', url);
     console.error('[Amplifier] Deployment:', config.deployment);
-    throw new Error(`Azure OpenAI API error: ${response.status} - ${error}`);
+    console.error('[Amplifier] Status:', response.status);
+    
+    // Parse error for better messaging
+    let errorMessage = `Azure OpenAI API error: ${response.status}`;
+    try {
+      const errorJson = JSON.parse(errorText);
+      if (errorJson.error?.message) {
+        errorMessage = errorJson.error.message;
+      }
+    } catch {
+      errorMessage = `Azure OpenAI API error: ${response.status} - ${errorText.substring(0, 200)}`;
+    }
+    
+    throw new Error(errorMessage);
   }
   
-  return await response.json();
+  const data = await response.json();
+  console.log(`[Amplifier] Azure OpenAI response received, choices: ${data.choices?.length || 0}`);
+  return data;
 }
 
 /**
@@ -195,9 +223,10 @@ class BackgroundTask extends EventEmitter {
 
   /**
    * Build the system prompt with full context
+   * This prompt enables FULLY AUTONOMOUS operation without human intervention
    */
   buildSystemPrompt() {
-    let prompt = `You are the APEX LEGAL BACKGROUND AGENT - an autonomous AI assistant with FULL ACCESS to the legal practice management platform.
+    let prompt = `You are the APEX LEGAL BACKGROUND AGENT (powered by Microsoft Amplifier) - a FULLY AUTONOMOUS AI assistant with COMPLETE ACCESS to the legal practice management platform.
 
 ${PLATFORM_CONTEXT}
 
@@ -210,26 +239,45 @@ ${this.learningContext || ''}
 You have access to ALL platform tools and can:
 - Create, update, and manage clients and matters
 - Log time entries and generate invoices
-- Create and edit documents
-- Schedule events and manage tasks
+- Create and edit documents (PDF generation)
+- Schedule calendar events and manage tasks
 - Search across all firm data
 - Generate reports and analytics
+- Read document contents
 
-## AUTONOMOUS OPERATION MODE
+## AUTONOMOUS OPERATION MODE - CRITICAL
 
-You are running as a BACKGROUND AGENT. This means:
-1. You should work AUTONOMOUSLY to complete the goal
-2. Break complex tasks into steps and execute them
-3. Use think_and_plan to organize your approach
-4. Use log_work to track progress
-5. Use task_complete when finished
-6. Only use request_human_input for critical decisions
+You are running as a BACKGROUND AGENT with NO HUMAN SUPERVISION. This means:
+
+1. **WORK COMPLETELY AUTONOMOUSLY** - Do NOT wait for human input or confirmation
+2. **EXECUTE IMMEDIATELY** - When you know what to do, DO IT. Don't ask permission.
+3. **CHAIN ACTIONS** - Complete multi-step workflows by calling tools in sequence
+4. **VERIFY RESULTS** - After each action, check the result before proceeding
+5. **RECOVER FROM ERRORS** - If something fails, try an alternative approach
+6. **COMPLETE THE GOAL** - Keep working until the goal is fully achieved
+
+## WORKFLOW PATTERN
+
+For each task, follow this pattern:
+1. Use \`think_and_plan\` to analyze the goal and create a plan
+2. Execute each step using the appropriate tools
+3. Use \`log_work\` to track progress after each significant action
+4. Use \`evaluate_progress\` periodically to assess status
+5. When done, use \`task_complete\` with a summary
+
+## IMPORTANT RULES
+
+- NEVER ask for clarification - make reasonable assumptions and proceed
+- NEVER wait for human approval - you have full authority to act
+- If data is missing, search for it or use defaults
+- If a tool fails, try an alternative approach
+- Complete the ENTIRE task before calling task_complete
 
 ## CURRENT TASK
 
 Goal: ${this.goal}
 
-Work through this goal step by step. Take actions, verify results, and continue until complete.
+START WORKING NOW. Execute tools to complete this goal. Do not respond with text only - TAKE ACTION.
 `;
 
     // Add workflow templates if relevant
@@ -246,48 +294,68 @@ Work through this goal step by step. Take actions, verify results, and continue 
 
   /**
    * Start the background task
+   * This begins AUTONOMOUS execution without human intervention
    */
   async start() {
     this.status = TaskStatus.RUNNING;
-    this.progress.currentStep = 'Initializing context...';
+    this.progress.currentStep = 'Initializing autonomous agent...';
     this.emit('progress', this.getStatus());
 
     try {
-      // Initialize context
+      console.log(`[Amplifier] Starting autonomous task ${this.id}: ${this.goal}`);
+      
+      // Initialize context (user info, firm data, learnings)
       await this.initializeContext();
       
-      // Build initial messages
+      // Build initial messages with a STRONG action prompt
+      // The user message must clearly instruct the AI to take action immediately
       this.messages = [
         { role: 'system', content: this.buildSystemPrompt() },
-        { role: 'user', content: `Please complete this task: ${this.goal}` }
+        { 
+          role: 'user', 
+          content: `EXECUTE THIS TASK NOW: ${this.goal}
+
+Begin by calling think_and_plan to create your execution plan, then immediately start calling tools to complete each step. Do NOT respond with just text - you MUST call tools to take action.`
+        }
       ];
 
-      // Run the agentic loop
+      console.log(`[Amplifier] Task ${this.id} context initialized, starting agent loop`);
+      
+      // Run the agentic loop (autonomous execution)
       await this.runAgentLoop();
       
     } catch (error) {
       this.status = TaskStatus.FAILED;
       this.error = error.message;
       this.endTime = new Date();
-      console.error(`[Amplifier] Task ${this.id} error:`, error);
+      console.error(`[Amplifier] Task ${this.id} failed:`, error);
+      console.error(`[Amplifier] Error stack:`, error.stack);
       this.emit('error', error);
     }
   }
 
   /**
    * Run the autonomous agent loop
+   * This loop executes tools repeatedly until the task is complete
+   * The agent works WITHOUT human intervention
    */
   async runAgentLoop() {
     const MAX_ITERATIONS = 50;
+    const MAX_TEXT_ONLY_RESPONSES = 3; // Max times AI can respond with only text before we re-prompt
     const tools = getOpenAITools();
+    let textOnlyCount = 0;
+    
+    console.log(`[Amplifier] Starting agent loop with ${tools.length} tools available`);
     
     while (this.progress.iterations < MAX_ITERATIONS && !this.cancelled) {
       this.progress.iterations++;
-      this.progress.currentStep = `Working... (iteration ${this.progress.iterations})`;
+      this.progress.currentStep = `Working... (step ${this.progress.iterations})`;
       this.emit('progress', this.getStatus());
       
       try {
-        // Call Azure OpenAI
+        console.log(`[Amplifier] Iteration ${this.progress.iterations}: calling Azure OpenAI`);
+        
+        // Call Azure OpenAI with tools
         const response = await callAzureOpenAI(this.messages, tools);
         const choice = response.choices[0];
         const message = choice.message;
@@ -295,15 +363,27 @@ Work through this goal step by step. Take actions, verify results, and continue 
         // Add assistant message to history
         this.messages.push(message);
         
-        // Check for tool calls
+        // Check for tool calls (this is what makes it an AGENT)
         if (message.tool_calls && message.tool_calls.length > 0) {
-          // Execute tools
+          textOnlyCount = 0; // Reset text-only counter
+          
+          console.log(`[Amplifier] Iteration ${this.progress.iterations}: ${message.tool_calls.length} tool(s) to execute`);
+          
+          // Execute all tool calls
           for (const toolCall of message.tool_calls) {
             if (this.cancelled) break;
             
             const toolName = toolCall.function.name;
-            const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+            let toolArgs = {};
             
+            try {
+              toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+            } catch (parseError) {
+              console.error(`[Amplifier] Failed to parse tool arguments for ${toolName}:`, toolCall.function.arguments);
+              toolArgs = {};
+            }
+            
+            console.log(`[Amplifier] Executing tool: ${toolName}`);
             this.progress.currentStep = `Executing: ${toolName}`;
             this.emit('progress', this.getStatus());
             
@@ -313,7 +393,9 @@ Work through this goal step by step. Take actions, verify results, and continue 
               firmId: this.firmId
             });
             
-            // Track action
+            console.log(`[Amplifier] Tool ${toolName} result:`, result.success !== undefined ? (result.success ? 'success' : 'failed') : 'completed');
+            
+            // Track action in history
             this.actionsHistory.push({
               tool: toolName,
               args: toolArgs,
@@ -321,22 +403,23 @@ Work through this goal step by step. Take actions, verify results, and continue 
               timestamp: new Date()
             });
             
-            // Add tool result to messages
+            // Add tool result to messages so AI knows what happened
             this.messages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
               content: JSON.stringify(result)
             });
             
-            // Check for task completion
+            // Check for explicit task completion
             if (toolName === 'task_complete') {
+              console.log(`[Amplifier] Task ${this.id} marked as complete`);
               this.status = TaskStatus.COMPLETED;
               this.progress.progressPercent = 100;
-              this.progress.currentStep = 'Completed';
+              this.progress.currentStep = 'Completed successfully';
               this.result = {
-                summary: toolArgs.summary,
-                actions: toolArgs.actions_taken,
-                recommendations: toolArgs.recommendations
+                summary: toolArgs.summary || 'Task completed',
+                actions: toolArgs.actions_taken || this.actionsHistory.map(a => a.tool),
+                recommendations: toolArgs.recommendations || []
               };
               this.endTime = new Date();
               
@@ -347,19 +430,10 @@ Work through this goal step by step. Take actions, verify results, and continue 
               return;
             }
             
-            // Check for human input request
-            if (toolName === 'request_human_input') {
-              this.status = TaskStatus.WAITING_INPUT;
-              this.progress.currentStep = 'Waiting for input';
-              this.emit('waiting', this.getStatus());
-              // In a real implementation, we'd pause here
-              // For now, continue with a default response
-            }
-            
-            // Update progress based on plan
+            // Update progress based on planning tools
             if (toolName === 'think_and_plan') {
               this.progress.totalSteps = (toolArgs.steps || []).length;
-              this.progress.progressPercent = Math.min(10, this.progress.progressPercent + 5);
+              this.progress.progressPercent = Math.min(15, this.progress.progressPercent + 10);
             }
             
             if (toolName === 'evaluate_progress') {
@@ -367,53 +441,94 @@ Work through this goal step by step. Take actions, verify results, and continue 
               const total = completed + (toolArgs.remaining_steps || []).length;
               if (total > 0) {
                 this.progress.completedSteps = completed;
-                this.progress.progressPercent = Math.min(90, 10 + (80 * completed / total));
+                this.progress.progressPercent = Math.min(90, 15 + (75 * completed / total));
               }
+            }
+            
+            if (toolName === 'log_work') {
+              // Increment progress for each logged work item
+              this.progress.progressPercent = Math.min(90, this.progress.progressPercent + 5);
             }
           }
         } else {
-          // No tool calls - check if we're done or need to continue
+          // No tool calls - AI just responded with text
+          textOnlyCount++;
+          console.log(`[Amplifier] Iteration ${this.progress.iterations}: text-only response (count: ${textOnlyCount})`);
+          
+          // Check if finish_reason indicates completion
           if (choice.finish_reason === 'stop') {
-            // Model finished without explicit task_complete
-            this.status = TaskStatus.COMPLETED;
-            this.progress.progressPercent = 100;
-            this.progress.currentStep = 'Completed';
-            this.result = {
-              summary: message.content,
-              actions: this.actionsHistory.map(a => a.tool)
-            };
-            this.endTime = new Date();
+            // If we've done some work and the AI seems done, complete the task
+            if (this.actionsHistory.length > 0) {
+              console.log(`[Amplifier] Task ${this.id} completed after ${this.actionsHistory.length} actions`);
+              this.status = TaskStatus.COMPLETED;
+              this.progress.progressPercent = 100;
+              this.progress.currentStep = 'Completed';
+              this.result = {
+                summary: message.content || `Completed: ${this.goal}`,
+                actions: this.actionsHistory.map(a => a.tool)
+              };
+              this.endTime = new Date();
+              
+              await this.saveTaskHistory();
+              this.emit('complete', this.getStatus());
+              return;
+            }
             
-            await this.saveTaskHistory();
-            this.emit('complete', this.getStatus());
-            return;
+            // If no actions were taken and AI just responded with text, prompt it to take action
+            if (textOnlyCount < MAX_TEXT_ONLY_RESPONSES) {
+              console.log(`[Amplifier] Re-prompting AI to take action`);
+              this.messages.push({
+                role: 'user',
+                content: 'You must call tools to complete this task. Do NOT just respond with text. Start by calling think_and_plan, then execute the necessary tools. Call tools NOW.'
+              });
+            } else {
+              // AI keeps responding with text only - something is wrong
+              console.error(`[Amplifier] Task ${this.id} failed: AI not calling tools`);
+              this.status = TaskStatus.FAILED;
+              this.error = 'Agent did not execute any actions. The AI model may not support function calling.';
+              this.endTime = new Date();
+              this.emit('error', new Error(this.error));
+              return;
+            }
           }
         }
         
         // Gradual progress update
-        this.progress.progressPercent = Math.min(
-          90,
-          this.progress.progressPercent + Math.max(1, 5 - this.progress.iterations / 10)
-        );
+        if (this.progress.progressPercent < 90) {
+          this.progress.progressPercent = Math.min(
+            90,
+            this.progress.progressPercent + Math.max(1, 3 - textOnlyCount)
+          );
+        }
         
       } catch (error) {
         console.error(`[Amplifier] Iteration ${this.progress.iterations} error:`, error);
         
-        // Add error to messages and continue
+        // If it's a configuration error, fail immediately
+        if (error.message.includes('not configured') || error.message.includes('401') || error.message.includes('403')) {
+          this.status = TaskStatus.FAILED;
+          this.error = error.message;
+          this.endTime = new Date();
+          this.emit('error', error);
+          return;
+        }
+        
+        // For other errors, add to messages and let AI recover
         this.messages.push({
           role: 'user',
-          content: `Error occurred: ${error.message}. Please continue or adjust your approach.`
+          content: `An error occurred: ${error.message}. Please continue with an alternative approach or call task_complete if the goal has been achieved.`
         });
       }
     }
     
     // Max iterations reached
     if (!this.cancelled) {
+      console.log(`[Amplifier] Task ${this.id} reached max iterations (${MAX_ITERATIONS})`);
       this.status = TaskStatus.COMPLETED;
       this.progress.progressPercent = 100;
       this.progress.currentStep = 'Completed (max iterations)';
       this.result = {
-        summary: `Task completed after ${this.progress.iterations} iterations`,
+        summary: `Task processed over ${this.progress.iterations} iterations. Actions: ${this.actionsHistory.map(a => a.tool).join(', ')}`,
         actions: this.actionsHistory.map(a => a.tool)
       };
       this.endTime = new Date();

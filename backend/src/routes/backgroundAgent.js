@@ -21,33 +21,50 @@ const router = Router();
 
 /**
  * Check if background agent service is available
+ * This endpoint is called by the frontend to determine if background mode should be shown
  */
 router.get('/status', authenticate, async (req, res) => {
   try {
     const available = await amplifierService.checkAvailability();
-    const configured = amplifierService.configured;
+    
+    // If not available, try to configure
+    let configured = amplifierService.configured;
+    if (available && !configured) {
+      configured = await amplifierService.configure();
+    }
+    
+    console.log(`[BackgroundAgent] Status check: available=${available}, configured=${configured}`);
     
     res.json({
       available,
       configured,
       provider: 'amplifier',
       aiProvider: 'azure-openai',
-      message: available 
-        ? 'Background agent is ready' 
-        : 'Background agent is not available - Amplifier CLI may not be installed'
+      // More descriptive message for debugging
+      message: available && configured
+        ? 'Background agent is ready - autonomous task execution enabled'
+        : !available
+        ? 'Background agent unavailable - Azure OpenAI credentials not configured (check AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT)'
+        : 'Background agent not yet configured'
     });
   } catch (error) {
-    console.error('Error checking background agent status:', error);
-    res.status(500).json({ error: 'Failed to check background agent status' });
+    console.error('[BackgroundAgent] Error checking status:', error);
+    res.status(500).json({ 
+      error: 'Failed to check background agent status',
+      details: error.message
+    });
   }
 });
 
 /**
  * Start a new background task
+ * This begins AUTONOMOUS execution of the task without human intervention
  */
 router.post('/tasks', authenticate, async (req, res) => {
   try {
     const { goal, options = {} } = req.body;
+    
+    console.log(`[BackgroundAgent] Task start request from user ${req.user.id}: ${goal?.substring(0, 100)}`);
     
     if (!goal || typeof goal !== 'string' || goal.trim().length === 0) {
       return res.status(400).json({ 
@@ -55,36 +72,41 @@ router.post('/tasks', authenticate, async (req, res) => {
       });
     }
     
-    // Check if service is available
+    // Check if service is available (Azure OpenAI credentials are set)
     const available = await amplifierService.checkAvailability();
     if (!available) {
+      console.error('[BackgroundAgent] Service not available - Azure OpenAI not configured');
       return res.status(503).json({ 
         error: 'Background agent is not available',
-        details: 'Amplifier CLI is not installed or configured'
+        details: 'Azure OpenAI credentials are not configured. Please set AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT environment variables.'
       });
     }
     
-    // Configure if not already done
+    // Configure service if not already done
     if (!amplifierService.configured) {
+      console.log('[BackgroundAgent] Configuring service...');
       const configured = await amplifierService.configure();
       if (!configured) {
+        console.error('[BackgroundAgent] Failed to configure service');
         return res.status(503).json({ 
           error: 'Background agent could not be configured',
-          details: 'Check Azure OpenAI credentials'
+          details: 'Failed to initialize Azure OpenAI connection. Check your credentials.'
         });
       }
     }
     
-    // Check for existing active task
+    // Check for existing active task (only one task per user at a time)
     const existingTask = amplifierService.getActiveTask(req.user.id);
     if (existingTask) {
+      console.log(`[BackgroundAgent] User ${req.user.id} already has active task: ${existingTask.id}`);
       return res.status(409).json({ 
         error: 'You already have an active background task',
         activeTask: existingTask
       });
     }
     
-    // Start the task
+    // Start the autonomous task
+    console.log(`[BackgroundAgent] Starting autonomous task for user ${req.user.id}`);
     const task = await amplifierService.startTask(
       req.user.id,
       req.user.firmId,
@@ -92,16 +114,19 @@ router.post('/tasks', authenticate, async (req, res) => {
       options
     );
     
+    console.log(`[BackgroundAgent] Task ${task.id} started successfully`);
+    
     res.status(201).json({
       success: true,
       task,
-      message: 'Background task started'
+      message: 'Background task started - working autonomously'
     });
     
   } catch (error) {
-    console.error('Error starting background task:', error);
+    console.error('[BackgroundAgent] Error starting task:', error);
     res.status(500).json({ 
-      error: error.message || 'Failed to start background task' 
+      error: error.message || 'Failed to start background task',
+      details: 'An unexpected error occurred while starting the background task'
     });
   }
 });

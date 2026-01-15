@@ -7,7 +7,7 @@ import { useTemplateStore } from '../stores/templateStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
 import { AIChat } from './AIChat'
-// BackgroundTaskBar removed - using quick mode only for now
+import { BackgroundTaskBar } from './BackgroundTaskBar'
 import { EmailCompose } from './EmailCompose'
 import { EmailComposeProvider } from '../contexts/EmailComposeContext'
 import { integrationsApi } from '../services/api'
@@ -506,7 +506,8 @@ export function Layout() {
         onClose={closeChat} 
       />
       
-      {/* Background Task Progress Bar - disabled for now */}
+      {/* Background Agent Task Progress Bar - shows when Amplifier tasks are running */}
+      <BackgroundTaskBar />
       
       {/* Global Email Compose (Gmail-style) */}
       <EmailCompose />
