@@ -10,7 +10,10 @@
  * - Calendar management patterns
  */
 
-import db from '../db/index.js';
+import { query } from '../db/connection.js';
+
+// Create a db-like wrapper for consistency
+const db = { query };
 
 /**
  * Pattern types for learning

@@ -16,7 +16,7 @@ import { EventEmitter } from 'events';
 import { query } from '../db/connection.js';
 import { PLATFORM_CONTEXT, getUserContext, getMatterContext, getLearningContext, buildSystemPrompt, LEGAL_KNOWLEDGE } from './amplifier/platformContext.js';
 import { AMPLIFIER_TOOLS, executeTool } from './amplifier/toolBridge.js';
-import { getUserPatterns, learnFromChatConversation, learnFromDocumentEdit, learnFromTimeEntry, learnFromCalendarEvent, learnFromSiteInteraction, PATTERN_TYPES } from '../learningService.js';
+import { getUserPatterns, learnFromChatConversation, learnFromDocumentEdit, learnFromTimeEntry, learnFromCalendarEvent, learnFromSiteInteraction, PATTERN_TYPES } from './learningService.js';
 
 // Store active tasks per user
 const activeTasks = new Map();
