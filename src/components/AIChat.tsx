@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Mail, Bot, Cpu, Terminal, AlertCircle, RefreshCw, Mic, MicOff, Volume2, VolumeX, ToggleLeft, ToggleRight, Rocket } from 'lucide-react'
+import { Sparkles, Send, X, Loader2, MessageSquare, ChevronRight, Zap, ExternalLink, Paperclip, FileText, Image, File, Mail, Bot, Cpu, Terminal, AlertCircle, RefreshCw, Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
 import { aiApi, documentsApi } from '../services/api'
 import { useAIChat } from '../contexts/AIChatContext'
 import styles from './AIChat.module.css'
@@ -724,28 +724,17 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         <div className={styles.header}>
           <div className={styles.headerTitle}>
             <div className={styles.headerIcon}>
-              {backgroundMode ? <Rocket size={16} /> : <Terminal size={16} />}
+              <Terminal size={16} />
               <div className={styles.headerIconPulse} />
             </div>
             <div className={styles.headerText}>
               <span className={styles.headerMain}>APEX AI</span>
-              <span className={styles.headerSub}>
-                {backgroundMode ? 'Background Agent (Amplifier)' : 'v2.0 • Your Legal Assistant'}
-              </span>
+              <span className={styles.headerSub}>v2.0 • Your Legal Assistant</span>
             </div>
           </div>
           <div className={styles.headerActions}>
-            {/* Background Mode Toggle */}
-            {backgroundAvailable && (
-              <button
-                onClick={() => setBackgroundMode(!backgroundMode)}
-                className={`${styles.backgroundToggle} ${backgroundMode ? styles.backgroundToggleActive : ''}`}
-                title={backgroundMode ? 'Switch to Normal Mode' : 'Switch to Background Mode'}
-              >
-                {backgroundMode ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
-                <span>{backgroundMode ? 'Background' : 'Normal'}</span>
-              </button>
-            )}
+            {/* Background Mode Toggle - Hidden to prevent confusion with normal chat */}
+            {/* The background agent is available via dedicated API but not exposed in this UI */}
             {messages.length > 0 && !voiceMode && (
               <button onClick={clearChat} className={styles.clearBtn}>
                 <Terminal size={12} />
@@ -764,13 +753,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           </div>
         </div>
 
-        {/* Background Mode Banner */}
-        {backgroundMode && (
-          <div className={styles.backgroundBanner}>
-            <Rocket size={14} />
-            <span>Background Mode: Tasks run autonomously using Microsoft Amplifier</span>
-          </div>
-        )}
+        {/* Background Mode Banner - Hidden since toggle is removed */}
 
         {/* Messages */}
         <div className={styles.messages} ref={messagesContainerRef}>
