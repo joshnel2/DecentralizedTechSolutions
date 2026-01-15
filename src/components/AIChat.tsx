@@ -260,7 +260,8 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         window.dispatchEvent(new CustomEvent('backgroundTaskStarted', {
           detail: {
             taskId: result.task?.id,
-            goal: result.task?.goal || text
+            goal: result.task?.goal || text,
+            isAmplifier: true  // Explicitly mark as Amplifier background task
           }
         }))
         

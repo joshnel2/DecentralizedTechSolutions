@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bot, X, CheckCircle, AlertCircle, StopCircle, MessageSquare, Rocket } from 'lucide-react'
 import { aiApi } from '../services/api'
@@ -25,6 +25,9 @@ export function BackgroundTaskBar() {
   const [hasError, setHasError] = useState(false)
   const [polling, setPolling] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
+  
+  // Use ref to track isAmplifier immediately (avoids race condition with state updates)
+  const isAmplifierRef = useRef(false)
 
   // Check task status - supports both regular AI Agent and Amplifier background tasks
   const checkActiveTask = useCallback(async () => {
@@ -32,8 +35,8 @@ export function BackgroundTaskBar() {
     if (isCancelling || isCancelled) return
     
     try {
-      // Check if current task is Amplifier-based
-      if (activeTask?.isAmplifier) {
+      // Use ref to check if current task is Amplifier-based (avoids race condition with state)
+      if (isAmplifierRef.current) {
         // Poll Amplifier background agent
         const response = await aiApi.getActiveBackgroundTask()
         if (response.active && response.task) {
@@ -141,6 +144,10 @@ export function BackgroundTaskBar() {
   useEffect(() => {
     const handleTaskStarted = (event: CustomEvent) => {
       const isAmplifier = event.detail.isAmplifier !== false // Default to true for new Amplifier tasks
+      
+      // Update ref immediately (before state update) to avoid race condition
+      isAmplifierRef.current = isAmplifier
+      
       setActiveTask({
         id: event.detail.taskId,
         goal: event.detail.goal,
@@ -175,20 +182,43 @@ export function BackgroundTaskBar() {
     return () => clearInterval(intervalId)
   }, [polling, isComplete, checkActiveTask])
 
-  // Also check on mount for any existing tasks
+  // Also check on mount for any existing tasks (check both regular and Amplifier agents)
   useEffect(() => {
     const checkExisting = async () => {
       try {
+        // First check for Amplifier background tasks
+        const amplifierResponse = await aiApi.getActiveBackgroundTask()
+        if (amplifierResponse.active && amplifierResponse.task) {
+          const task = amplifierResponse.task
+          isAmplifierRef.current = true
+          setActiveTask({
+            id: task.id,
+            goal: task.goal,
+            status: task.status,
+            progressPercent: task.progress?.progressPercent || 5,
+            iterations: task.progress?.iterations || 0,
+            currentStep: task.progress?.currentStep || 'Working...',
+            summary: task.result?.summary,
+            result: task.result,
+            isAmplifier: true
+          })
+          setPolling(true)
+          return // Found an Amplifier task, no need to check regular agent
+        }
+        
+        // Fall back to checking regular AI agent
         const response = await aiApi.getActiveTask()
         if (response.active && response.task) {
           const task = response.task
+          isAmplifierRef.current = false
           setActiveTask({
             id: task.id,
             goal: task.goal,
             status: task.status,
             progressPercent: task.progress?.progressPercent || task.progressPercent || 5,
             iterations: task.iterations || 0,
-            currentStep: task.current_step || task.progress?.currentStep || 'Working...'
+            currentStep: task.current_step || task.progress?.currentStep || 'Working...',
+            isAmplifier: false
           })
           setPolling(true)
         }
@@ -242,6 +272,7 @@ export function BackgroundTaskBar() {
     setIsComplete(false)
     setIsCancelled(false)
     setIsCancelling(false)
+    isAmplifierRef.current = false
   }
 
   const handleViewSummary = () => {
