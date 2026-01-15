@@ -247,9 +247,8 @@ export function BackgroundTaskBar() {
     return () => clearInterval(intervalId)
   }, [polling, isComplete, checkActiveTask])
 
-  // NOTE: Removed automatic check for existing tasks on mount
-  // The progress bar should ONLY show when explicitly triggered by 'backgroundTaskStarted' event
-  // This prevents the bar from showing up unexpectedly when users are just chatting normally
+  // NOTE: Only auto-check for Amplifier background tasks on mount
+  // This keeps the bar scoped to background agent work and avoids normal chat noise
 
   const handleCancel = async () => {
     if (!activeTask || isCancelling) return
