@@ -979,8 +979,42 @@ async function listTasks(params, userId, firmId) {
     values.push(matter_id);
   }
   if (assigned_to) {
+    // Resolve assigned_to to a user ID
+    let assigneeId = userId; // Default to current user
+    
+    if (assigned_to === 'me') {
+      assigneeId = userId;
+    } else if (assigned_to.match(/^[0-9a-f-]{36}$/i)) {
+      // It's a UUID, use directly
+      assigneeId = assigned_to;
+    } else if (assigned_to.includes('@')) {
+      // It's an email, look up the user
+      const userResult = await query(
+        'SELECT id FROM users WHERE firm_id = $1 AND LOWER(email) = LOWER($2)',
+        [firmId, assigned_to]
+      );
+      if (userResult.rows.length > 0) {
+        assigneeId = userResult.rows[0].id;
+      } else {
+        // User not found, return empty results
+        return { tasks: [], message: `User not found: ${assigned_to}` };
+      }
+    } else {
+      // Try to match by name
+      const userResult = await query(
+        `SELECT id FROM users WHERE firm_id = $1 AND (
+          LOWER(first_name || ' ' || last_name) LIKE LOWER($2) OR
+          LOWER(last_name) LIKE LOWER($2)
+        )`,
+        [firmId, `%${assigned_to}%`]
+      );
+      if (userResult.rows.length > 0) {
+        assigneeId = userResult.rows[0].id;
+      }
+    }
+    
     sql += ` AND assignee = $${idx++}`;
-    values.push(assigned_to === 'me' ? userId : assigned_to);
+    values.push(assigneeId);
   }
   
   sql += ' ORDER BY due_date NULLS LAST, created_at DESC LIMIT 50';
@@ -992,11 +1026,44 @@ async function listTasks(params, userId, firmId) {
 async function createTask(params, userId, firmId) {
   const { title, due_date, priority = 'medium', matter_id, assigned_to } = params;
   
+  // Resolve assigned_to to a user ID
+  let assigneeId = userId; // Default to current user
+  
+  if (assigned_to) {
+    if (assigned_to === 'me') {
+      assigneeId = userId;
+    } else if (assigned_to.match(/^[0-9a-f-]{36}$/i)) {
+      // It's a UUID, use directly
+      assigneeId = assigned_to;
+    } else if (assigned_to.includes('@')) {
+      // It's an email, look up the user
+      const userResult = await query(
+        'SELECT id FROM users WHERE firm_id = $1 AND LOWER(email) = LOWER($2)',
+        [firmId, assigned_to]
+      );
+      if (userResult.rows.length > 0) {
+        assigneeId = userResult.rows[0].id;
+      }
+    } else {
+      // Try to match by name
+      const userResult = await query(
+        `SELECT id FROM users WHERE firm_id = $1 AND (
+          LOWER(first_name || ' ' || last_name) LIKE LOWER($2) OR
+          LOWER(last_name) LIKE LOWER($2)
+        )`,
+        [firmId, `%${assigned_to}%`]
+      );
+      if (userResult.rows.length > 0) {
+        assigneeId = userResult.rows[0].id;
+      }
+    }
+  }
+  
   const result = await query(`
     INSERT INTO matter_tasks (firm_id, matter_id, name, due_date, priority, assignee, status)
     VALUES ($1, $2, $3, $4, $5, $6, 'pending')
     RETURNING *
-  `, [firmId, matter_id || null, title, due_date || null, priority, assigned_to || userId]);
+  `, [firmId, matter_id || null, title, due_date || null, priority, assigneeId]);
   
   return { success: true, task: result.rows[0] };
 }
