@@ -45,6 +45,30 @@ const MEMORY_MESSAGE_PREFIX = '## TASK MEMORY';
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+const getRetryAfterMs = (response, errorText) => {
+  if (response?.headers) {
+    const retryAfterHeader = response.headers.get('retry-after');
+    if (retryAfterHeader) {
+      const retryAfterSeconds = Number.parseInt(retryAfterHeader, 10);
+      if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+        return retryAfterSeconds * 1000;
+      }
+    }
+  }
+  
+  if (typeof errorText === 'string') {
+    const match = errorText.match(/retry after (\d+)\s*seconds/i);
+    if (match) {
+      const retryAfterSeconds = Number.parseInt(match[1], 10);
+      if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+        return retryAfterSeconds * 1000;
+      }
+    }
+  }
+  
+  return null;
+};
+
 let persistenceAvailable = true;
 let persistenceWarningLogged = false;
 
@@ -111,7 +135,7 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
   console.log(`[Amplifier] Calling Azure OpenAI: ${config.deployment} with ${tools.length} tools`);
   
   const retryableStatuses = new Set([429, 500, 502, 503, 504]);
-  const maxAttempts = 3;
+  const maxAttempts = 5;
   
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const response = await fetch(url, {
@@ -131,6 +155,7 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
     
     const errorText = await response.text();
     const isRetryable = retryableStatuses.has(response.status);
+    const retryAfterMs = response.status === 429 ? getRetryAfterMs(response, errorText) : null;
     console.error('[Amplifier] Azure OpenAI error:', errorText);
     console.error('[Amplifier] Request URL:', url);
     console.error('[Amplifier] Deployment:', config.deployment);
@@ -149,7 +174,8 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
       throw new Error(errorMessage);
     }
     
-    const delay = 1000 * Math.pow(2, attempt - 1);
+    const baseDelay = 1000 * Math.pow(2, attempt - 1);
+    const delay = retryAfterMs ? Math.max(baseDelay, retryAfterMs) : baseDelay;
     console.warn(`[Amplifier] Retryable error, retrying in ${delay}ms (attempt ${attempt}/${maxAttempts})`);
     await sleep(delay);
   }
@@ -863,6 +889,17 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
         
       } catch (error) {
         console.error(`[Amplifier] Iteration ${this.progress.iterations} error:`, error);
+
+        const rateLimitMatch = typeof error.message === 'string'
+          ? error.message.match(/retry after (\d+)\s*seconds/i)
+          : null;
+        if (error.message?.includes('RateLimitReached') || error.message?.includes('rate limit') || rateLimitMatch) {
+          const retryAfterMs = rateLimitMatch ? Number.parseInt(rateLimitMatch[1], 10) * 1000 : 30000;
+          const safeDelay = Number.isFinite(retryAfterMs) ? Math.max(5000, retryAfterMs) : 30000;
+          this.progress.currentStep = `Rate limited - retrying in ${Math.round(safeDelay / 1000)}s`;
+          await sleep(safeDelay);
+          continue;
+        }
         
         // If it's a configuration error, fail immediately
         if (error.message.includes('not configured') || error.message.includes('401') || error.message.includes('403')) {
