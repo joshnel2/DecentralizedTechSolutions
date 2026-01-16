@@ -43,6 +43,8 @@ const clampPercent = (value: number | undefined | null, fallback = 0) => {
   return Math.min(100, Math.max(0, resolved))
 }
 
+const backgroundApi = aiApi as any
+
 export function BackgroundAgentPage() {
   const location = useLocation()
   const [status, setStatus] = useState<AgentStatus | null>(null)
@@ -50,13 +52,16 @@ export function BackgroundAgentPage() {
   const [recentTasks, setRecentTasks] = useState<BackgroundTask[]>([])
   const [tools, setTools] = useState<BackgroundToolsResponse | null>(null)
   const [summary, setSummary] = useState<BackgroundSummary | null>(null)
+  const [goalInput, setGoalInput] = useState('')
+  const [startError, setStartError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [polling, setPolling] = useState(true)
   const [isCancelling, setIsCancelling] = useState(false)
+  const [isStarting, setIsStarting] = useState(false)
 
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await aiApi.getBackgroundAgentStatus()
+      const response = await backgroundApi.getBackgroundAgentStatus()
       setStatus(response)
     } catch (error) {
       setStatus({ available: false, configured: false, message: 'Background agent status unavailable' })
@@ -65,7 +70,7 @@ export function BackgroundAgentPage() {
 
   const fetchTools = useCallback(async () => {
     try {
-      const response = await aiApi.getBackgroundAgentTools()
+      const response = await backgroundApi.getBackgroundAgentTools()
       setTools(response)
     } catch (error) {
       setTools(null)
@@ -74,7 +79,7 @@ export function BackgroundAgentPage() {
 
   const fetchActiveTask = useCallback(async () => {
     try {
-      const response = await aiApi.getActiveBackgroundTask()
+      const response = await backgroundApi.getActiveBackgroundTask()
       if (response.active && response.task) {
         setActiveTask(response.task)
       } else {
@@ -87,7 +92,7 @@ export function BackgroundAgentPage() {
 
   const fetchRecentTasks = useCallback(async () => {
     try {
-      const response = await aiApi.getBackgroundTasks(8)
+      const response = await backgroundApi.getBackgroundTasks(8)
       setRecentTasks(response.tasks || [])
     } catch (error) {
       setRecentTasks([])
@@ -129,11 +134,38 @@ export function BackgroundAgentPage() {
     setSummary(null)
   }
 
+  const handleStartTask = async () => {
+    const goal = goalInput.trim()
+    if (!goal || isStarting) return
+    setIsStarting(true)
+    setStartError(null)
+    try {
+      const response = await backgroundApi.startBackgroundTask(goal)
+      const task = response?.task
+      if (task?.id) {
+        window.dispatchEvent(new CustomEvent('backgroundTaskStarted', {
+          detail: {
+            taskId: task.id,
+            goal: task.goal || goal,
+            isAmplifier: true
+          }
+        }))
+      }
+      setGoalInput('')
+      await fetchActiveTask()
+      await fetchRecentTasks()
+    } catch (error: any) {
+      setStartError(error?.message || 'Failed to start background task')
+    } finally {
+      setIsStarting(false)
+    }
+  }
+
   const handleCancel = async () => {
     if (!activeTask || isCancelling) return
     setIsCancelling(true)
     try {
-      await aiApi.cancelBackgroundTask(activeTask.id)
+      await backgroundApi.cancelBackgroundTask(activeTask.id)
       await fetchActiveTask()
       await fetchRecentTasks()
     } finally {
@@ -179,6 +211,37 @@ export function BackgroundAgentPage() {
           <span>{status.message || 'Background agent is not configured.'}</span>
         </div>
       )}
+
+      <div className={styles.card}>
+        <div className={styles.cardHeader}>
+          <h2>Start Background Task</h2>
+        </div>
+        <div className={styles.taskForm}>
+          <textarea
+            className={styles.taskInput}
+            placeholder="Describe the legal task you want handled..."
+            value={goalInput}
+            onChange={event => setGoalInput(event.target.value)}
+            rows={3}
+          />
+          <div className={styles.taskActions}>
+            <button
+              className={styles.startBtn}
+              onClick={handleStartTask}
+              disabled={!goalInput.trim() || isStarting || !status?.available}
+            >
+              {isStarting ? <Loader2 size={16} className={styles.spin} /> : <Rocket size={16} />}
+              Start Task
+            </button>
+            {!status?.available && (
+              <span className={styles.taskHint}>Background agent is not available.</span>
+            )}
+          </div>
+          {startError && (
+            <div className={styles.taskError}>{startError}</div>
+          )}
+        </div>
+      </div>
 
       {summary && (
         <div className={styles.card}>

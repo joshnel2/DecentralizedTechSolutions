@@ -87,6 +87,58 @@
   font-weight: 600;
 }
 
+.taskForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.taskInput {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.7);
+  color: #e2e8f0;
+  font-size: 13px;
+  resize: vertical;
+  min-height: 90px;
+}
+
+.taskInput::placeholder {
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.taskActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.startBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.startBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.taskHint {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
 .textBtn {
   background: none;
   border: none;
