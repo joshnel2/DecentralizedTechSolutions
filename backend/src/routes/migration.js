@@ -2620,12 +2620,13 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
       includeActivities = true, 
       includeBills = true, 
       includeCalendar = true,
+      includeDocuments = true,
       filterByUser = false,
       filterUserEmail = null
     } = req.body;
     
     console.log('[CLIO IMPORT] Starting import for connection:', connectionId, 'firmName:', firmName);
-    console.log('[CLIO IMPORT] Include options:', { includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar });
+    console.log('[CLIO IMPORT] Include options:', { includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar, includeDocuments });
     console.log('[CLIO IMPORT] User filter:', { filterByUser, filterUserEmail });
     
     if (!connectionId) {
@@ -2650,7 +2651,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
     }
     
     // Store options for background process
-    const importOptions = { existingFirmId, includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar, filterByUser, filterUserEmail };
+    const importOptions = { existingFirmId, includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar, includeDocuments, filterByUser, filterUserEmail };
     
     // Initialize progress
     migrationProgress.set(connectionId, {
@@ -2666,6 +2667,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         activities: { status: 'pending', count: 0 },
         bills: { status: 'pending', count: 0 },
         calendar: { status: 'pending', count: 0 },
+        documents: { status: 'pending', count: 0 },
         tasks: { status: 'pending', count: 0 },
         activityCodes: { status: 'pending', count: 0 }
       }
@@ -4689,146 +4691,205 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         }
         
         // ============================================
-        // STEP 11: FETCH DOCUMENT METADATA (for perfect file matching)
+        // STEP 11: DOCUMENTS - Fetch metadata and stream to Azure
         // ============================================
-        // This creates a manifest of all Clio documents so when files are copied
-        // from Clio Drive to Azure, we can perfectly match them to matters
-        console.log('[CLIO IMPORT] Step 11: Fetching document metadata from Clio...');
         let documentMetadataCount = 0;
+        let documentsStreamedCount = 0;
+        let documentsFailedCount = 0;
         
-        try {
-          addLog('📄 Fetching document metadata from Clio (for file matching)...');
+        if (!includeDocuments) {
+          console.log('[CLIO IMPORT] Step 11: SKIPPING documents');
+          updateProgress('documents', 'skipped', 0);
+          addLog('📄 Skipping documents (not selected)');
+        } else {
+          console.log('[CLIO IMPORT] Step 11: Fetching and streaming documents from Clio to Azure...');
+          updateProgress('documents', 'running', 0);
           
-          // Fetch documents from Clio - just metadata, not the actual files
-          const documents = await clioGetPaginated(accessToken, '/documents.json', {
-            fields: 'id,name,parent,matter,created_at,updated_at,content_type,latest_document_version',
-            order: 'id(asc)'
-          }, (count) => addLog(`📄 Fetched ${count} document records...`));
-          
-          console.log(`[CLIO IMPORT] Document metadata fetched: ${documents.length}`);
-          addLog(`✅ Found ${documents.length} documents in Clio`);
-          
-          // Also fetch folders to reconstruct paths
-          let folders = [];
           try {
-            folders = await clioGetPaginated(accessToken, '/folders.json', {
-              fields: 'id,name,parent,matter',
+            addLog('📄 Fetching document list from Clio...');
+            
+            // Build matter ID map for document matching (clio_id -> our_id)
+            const docMatterIdMap = new Map();
+            for (const [key, value] of matterIdMap.entries()) {
+              // matterIdMap has format 'clio:123' -> uuid
+              if (key.startsWith('clio:')) {
+                const clioId = parseInt(key.replace('clio:', ''));
+                docMatterIdMap.set(clioId, value);
+              }
+            }
+            
+            // Fetch documents from Clio - including filename for proper extension handling
+            const documents = await clioGetPaginated(accessToken, '/documents.json', {
+              fields: 'id,name,filename,parent,matter,created_at,updated_at,content_type,latest_document_version{id,size,filename}',
               order: 'id(asc)'
-            }, null);
-            console.log(`[CLIO IMPORT] Folder structure fetched: ${folders.length} folders`);
-          } catch (folderErr) {
-            console.log(`[CLIO IMPORT] Could not fetch folders: ${folderErr.message}`);
-          }
-          
-          // Build folder path lookup
-          const folderPathMap = new Map();
-          const folderById = new Map();
-          for (const f of folders) {
-            folderById.set(f.id, f);
-          }
-          
-          // Recursive function to build full path
-          const buildFolderPath = (folderId, visited = new Set()) => {
-            if (!folderId || visited.has(folderId)) return '';
-            visited.add(folderId);
+            }, (count) => {
+              addLog(`📄 Fetched ${count} document records...`);
+              updateProgress('documents', 'running', count);
+            });
             
-            const folder = folderById.get(folderId);
-            if (!folder) return '';
+            console.log(`[CLIO IMPORT] Document metadata fetched: ${documents.length}`);
+            addLog(`✅ Found ${documents.length} documents in Clio`);
             
-            const parentPath = folder.parent?.id ? buildFolderPath(folder.parent.id, visited) : '';
-            return parentPath ? `${parentPath}/${folder.name}` : folder.name;
-          };
-          
-          // Build paths for all folders
-          for (const f of folders) {
-            const path = buildFolderPath(f.id);
-            folderPathMap.set(f.id, path);
-            
-            // Store folder in manifest
+            // Also fetch folders to reconstruct paths
+            let folders = [];
             try {
-              const matterIdForFolder = f.matter?.id ? matterIdMap.get(`clio:${f.matter.id}`) : null;
-              await query(
-                `INSERT INTO clio_folder_manifest (firm_id, clio_id, clio_parent_id, clio_matter_id, name, full_path, matter_id)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)
-                 ON CONFLICT (firm_id, clio_id) DO UPDATE SET
-                   name = EXCLUDED.name,
-                   full_path = EXCLUDED.full_path,
-                   matter_id = EXCLUDED.matter_id`,
-                [firmId, f.id, f.parent?.id || null, f.matter?.id || null, f.name, path, matterIdForFolder]
-              );
-            } catch (err) {
-              // Skip folder errors
+              folders = await clioGetPaginated(accessToken, '/folders.json', {
+                fields: 'id,name,parent,matter',
+                order: 'id(asc)'
+              }, null);
+              console.log(`[CLIO IMPORT] Folder structure fetched: ${folders.length} folders`);
+            } catch (folderErr) {
+              console.log(`[CLIO IMPORT] Could not fetch folders: ${folderErr.message}`);
             }
-          }
-          
-          // Store document metadata
-          for (const doc of documents) {
-            try {
-              // Build full path from folder
-              const folderPath = doc.parent?.id ? folderPathMap.get(doc.parent.id) : '';
-              const fullPath = folderPath ? `${folderPath}/${doc.name}` : doc.name;
+            
+            // Build folder path lookup
+            const folderPathMap = new Map();
+            const folderById = new Map();
+            for (const f of folders) {
+              folderById.set(f.id, f);
+            }
+            
+            // Recursive function to build full path
+            const buildFolderPath = (folderId, visited = new Set()) => {
+              if (!folderId || visited.has(folderId)) return '';
+              visited.add(folderId);
               
-              // Map Clio IDs to our IDs
-              const matterIdForDoc = doc.matter?.id ? matterIdMap.get(`clio:${doc.matter.id}`) : null;
+              const folder = folderById.get(folderId);
+              if (!folder) return '';
               
-              // Get file size from latest version if available
-              const fileSize = doc.latest_document_version?.size || null;
+              const parentPath = folder.parent?.id ? buildFolderPath(folder.parent.id, visited) : '';
+              return parentPath ? `${parentPath}/${folder.name}` : folder.name;
+            };
+            
+            // Build paths for all folders and store in manifest
+            for (const f of folders) {
+              const path = buildFolderPath(f.id);
+              folderPathMap.set(f.id, path);
               
-              await query(
-                `INSERT INTO clio_document_manifest 
-                  (firm_id, clio_id, clio_matter_id, clio_folder_id, name, clio_path, content_type, size, 
-                   matter_id, clio_created_at, clio_updated_at, match_status)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending')
-                 ON CONFLICT (firm_id, clio_id) DO UPDATE SET
-                   name = EXCLUDED.name,
-                   clio_path = EXCLUDED.clio_path,
-                   content_type = EXCLUDED.content_type,
-                   size = EXCLUDED.size,
-                   matter_id = EXCLUDED.matter_id,
-                   updated_at = NOW()`,
-                [
-                  firmId,
-                  doc.id,
-                  doc.matter?.id || null,
-                  doc.parent?.id || null,
-                  doc.name,
-                  fullPath,
-                  doc.content_type || null,
-                  fileSize,
-                  matterIdForDoc,
-                  doc.created_at || null,
-                  doc.updated_at || null
-                ]
-              );
-              documentMetadataCount++;
-              
-              if (documentMetadataCount % 500 === 0) {
-                addLog(`📄 Processed ${documentMetadataCount} document records...`);
-              }
-            } catch (err) {
-              if (!err.message.includes('duplicate')) {
-                console.log(`[CLIO IMPORT] Document manifest error: ${err.message}`);
+              try {
+                const matterIdForFolder = f.matter?.id ? docMatterIdMap.get(f.matter.id) : null;
+                await query(
+                  `INSERT INTO clio_folder_manifest (firm_id, clio_id, clio_parent_id, clio_matter_id, name, full_path, matter_id)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)
+                   ON CONFLICT (firm_id, clio_id) DO UPDATE SET
+                     name = EXCLUDED.name,
+                     full_path = EXCLUDED.full_path,
+                     matter_id = EXCLUDED.matter_id`,
+                  [firmId, f.id, f.parent?.id || null, f.matter?.id || null, f.name, path, matterIdForFolder]
+                );
+              } catch (err) {
+                // Skip folder errors
               }
             }
+            
+            // Store document metadata in manifest first
+            addLog('📄 Storing document metadata...');
+            for (const doc of documents) {
+              try {
+                const folderPath = doc.parent?.id ? folderPathMap.get(doc.parent.id) : '';
+                const originalFilename = doc.latest_document_version?.filename || doc.filename || doc.name;
+                const fullPath = folderPath ? `${folderPath}/${originalFilename}` : originalFilename;
+                const matterIdForDoc = doc.matter?.id ? docMatterIdMap.get(doc.matter.id) : null;
+                const fileSize = doc.latest_document_version?.size || null;
+                
+                await query(
+                  `INSERT INTO clio_document_manifest 
+                    (firm_id, clio_id, clio_matter_id, clio_folder_id, name, clio_path, content_type, size, 
+                     matter_id, clio_created_at, clio_updated_at, match_status)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending')
+                   ON CONFLICT (firm_id, clio_id) DO UPDATE SET
+                     name = EXCLUDED.name,
+                     clio_path = EXCLUDED.clio_path,
+                     content_type = EXCLUDED.content_type,
+                     size = EXCLUDED.size,
+                     matter_id = EXCLUDED.matter_id,
+                     updated_at = NOW()`,
+                  [firmId, doc.id, doc.matter?.id || null, doc.parent?.id || null, originalFilename, fullPath, 
+                   doc.content_type || null, fileSize, matterIdForDoc, doc.created_at || null, doc.updated_at || null]
+                );
+                documentMetadataCount++;
+              } catch (err) {
+                if (!err.message.includes('duplicate')) {
+                  console.log(`[CLIO IMPORT] Document manifest error: ${err.message}`);
+                }
+              }
+            }
+            
+            addLog(`✅ Stored ${documentMetadataCount} documents in manifest`);
+            
+            // Now stream documents to Azure
+            addLog('📤 Streaming documents from Clio to Azure (no local disk)...');
+            console.log('[CLIO IMPORT] Starting document streaming to Azure...');
+            
+            // Get pending documents from manifest
+            const pendingDocs = await query(`
+              SELECT * FROM clio_document_manifest 
+              WHERE firm_id = $1 AND match_status = 'pending'
+              ORDER BY clio_id
+            `, [firmId]);
+            
+            const totalDocs = pendingDocs.rows.length;
+            console.log(`[CLIO IMPORT] ${totalDocs} documents to stream`);
+            
+            // Stream documents in batches
+            const BATCH_SIZE = 5;
+            for (let i = 0; i < totalDocs; i += BATCH_SIZE) {
+              const batch = pendingDocs.rows.slice(i, i + BATCH_SIZE);
+              
+              // Process batch concurrently
+              await Promise.all(batch.map(async (manifest) => {
+                try {
+                  const result = await batchStreamDocuments(accessToken, firmId, {
+                    batchSize: 1,
+                    limit: 1,
+                    matterIdMap: docMatterIdMap,
+                    onProgress: () => {}
+                  });
+                  
+                  // Actually use streamDocumentToAzure for each document
+                  const streamResult = await streamDocumentToAzure(accessToken, manifest, firmId, {
+                    matterIdMap: docMatterIdMap
+                  });
+                  
+                  if (streamResult.success) {
+                    documentsStreamedCount++;
+                  } else {
+                    documentsFailedCount++;
+                  }
+                } catch (err) {
+                  console.log(`[CLIO IMPORT] Stream error for ${manifest.name}: ${err.message}`);
+                  documentsFailedCount++;
+                }
+              }));
+              
+              // Progress update
+              const processed = Math.min(i + BATCH_SIZE, totalDocs);
+              updateProgress('documents', 'running', documentsStreamedCount);
+              
+              if (processed % 20 === 0 || processed === totalDocs) {
+                addLog(`📤 Streamed ${documentsStreamedCount}/${totalDocs} documents to Azure...`);
+              }
+              
+              // Small delay between batches
+              if (i + BATCH_SIZE < totalDocs) {
+                await new Promise(r => setTimeout(r, 300));
+              }
+            }
+            
+            // Final status
+            updateProgress('documents', 'completed', documentsStreamedCount);
+            console.log(`[CLIO IMPORT] Documents complete: ${documentsStreamedCount} streamed, ${documentsFailedCount} failed`);
+            addLog(`✅ Documents complete: ${documentsStreamedCount} streamed to Azure, ${documentsFailedCount} failed`);
+            
+            if (documentsFailedCount > 0) {
+              addLog(`⚠️ ${documentsFailedCount} documents failed - can retry from Firm Documents tab`);
+            }
+            
+          } catch (err) {
+            console.log(`[CLIO IMPORT] Document streaming error: ${err.message}`);
+            addLog(`⚠️ Document streaming error: ${err.message}`);
+            updateProgress('documents', 'error', documentsStreamedCount);
           }
-          
-          // Log summary
-          const manifestCount = await query(
-            'SELECT COUNT(*) FROM clio_document_manifest WHERE firm_id = $1',
-            [firmId]
-          );
-          const matchedCount = await query(
-            'SELECT COUNT(*) FROM clio_document_manifest WHERE firm_id = $1 AND matter_id IS NOT NULL',
-            [firmId]
-          );
-          
-          console.log(`[CLIO IMPORT] Document manifest: ${manifestCount.rows[0].count} total, ${matchedCount.rows[0].count} linked to matters`);
-          addLog(`📄 Document manifest complete: ${manifestCount.rows[0].count} documents, ${matchedCount.rows[0].count} linked to matters`);
-          addLog(`ℹ️ Copy files from Clio Drive to Azure, then use "Match Documents" to link them`);
-          
-        } catch (err) {
-          console.log(`[CLIO IMPORT] Document metadata error (non-fatal): ${err.message}`);
-          addLog(`⚠️ Could not fetch document metadata: ${err.message}`);
         }
         
         // ============================================
@@ -4856,6 +4917,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             trustTransactions: trustTransactionsCount,
             lineItems: lineItemsCount,
             documentMetadata: documentMetadataCount,
+            documentsStreamed: documentsStreamedCount,
+            documentsFailed: documentsFailedCount,
             warnings: warnings.length,
             userCredentials: userCredentials // Store credentials for portal display
           };

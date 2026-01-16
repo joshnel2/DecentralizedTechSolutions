@@ -208,6 +208,7 @@ export default function SecureAdminDashboard() {
   const [includeActivities, setIncludeActivities] = useState(() => sessionStorage.getItem('clio_includeActivities') !== 'false')
   const [includeBills, setIncludeBills] = useState(() => sessionStorage.getItem('clio_includeBills') !== 'false')
   const [includeCalendar, setIncludeCalendar] = useState(() => sessionStorage.getItem('clio_includeCalendar') !== 'false')
+  const [includeDocuments, setIncludeDocuments] = useState(() => sessionStorage.getItem('clio_includeDocuments') !== 'false')
   
   // Migrate to existing firm option
   const [useExistingFirm, setUseExistingFirm] = useState(() => sessionStorage.getItem('clio_useExistingFirm') === 'true')
@@ -224,6 +225,7 @@ export default function SecureAdminDashboard() {
   useEffect(() => { sessionStorage.setItem('clio_includeActivities', String(includeActivities)) }, [includeActivities])
   useEffect(() => { sessionStorage.setItem('clio_includeBills', String(includeBills)) }, [includeBills])
   useEffect(() => { sessionStorage.setItem('clio_includeCalendar', String(includeCalendar)) }, [includeCalendar])
+  useEffect(() => { sessionStorage.setItem('clio_includeDocuments', String(includeDocuments)) }, [includeDocuments])
   useEffect(() => { sessionStorage.setItem('clio_useExistingFirm', String(useExistingFirm)) }, [useExistingFirm])
   useEffect(() => { sessionStorage.setItem('clio_existingFirmId', selectedExistingFirmId) }, [selectedExistingFirmId])
   useEffect(() => { sessionStorage.setItem('clio_filterByUser', String(filterByUser)) }, [filterByUser])
@@ -1514,6 +1516,7 @@ export default function SecureAdminDashboard() {
     const storedIncludeActivities = sessionStorage.getItem('clio_includeActivities') !== 'false'
     const storedIncludeBills = sessionStorage.getItem('clio_includeBills') !== 'false'
     const storedIncludeCalendar = sessionStorage.getItem('clio_includeCalendar') !== 'false'
+    const storedIncludeDocuments = sessionStorage.getItem('clio_includeDocuments') !== 'false'
     const storedFilterByUser = sessionStorage.getItem('clio_filterByUser') === 'true'
     const storedFilterUserEmail = sessionStorage.getItem('clio_filterUserEmail') || ''
     
@@ -1526,6 +1529,7 @@ export default function SecureAdminDashboard() {
       includeActivities: storedIncludeActivities,
       includeBills: storedIncludeBills,
       includeCalendar: storedIncludeCalendar,
+      includeDocuments: storedIncludeDocuments,
       filterByUser: storedFilterByUser,
       filterUserEmail: storedFilterUserEmail
     })
@@ -1545,6 +1549,7 @@ export default function SecureAdminDashboard() {
           includeActivities: storedIncludeActivities,
           includeBills: storedIncludeBills,
           includeCalendar: storedIncludeCalendar,
+          includeDocuments: storedIncludeDocuments,
           filterByUser: storedFilterByUser,
           filterUserEmail: storedFilterByUser ? storedFilterUserEmail : null
         })
@@ -2857,6 +2862,10 @@ Password: ${newPass}`
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                                       <input type="checkbox" checked={includeCalendar} onChange={(e) => setIncludeCalendar(e.target.checked)} />
                                       <span style={{ fontSize: '0.85rem' }}>Calendar</span>
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', background: 'rgba(124, 58, 237, 0.1)', padding: '4px 8px', borderRadius: '6px', border: '1px solid rgba(124, 58, 237, 0.3)' }}>
+                                      <input type="checkbox" checked={includeDocuments} onChange={(e) => setIncludeDocuments(e.target.checked)} />
+                                      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#7C3AED' }}>Documents (Stream to Azure)</span>
                                     </label>
                                   </div>
                                 </div>
