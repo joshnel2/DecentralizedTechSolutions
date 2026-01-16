@@ -15,7 +15,7 @@
 import { EventEmitter } from 'events';
 import { query } from '../db/connection.js';
 import { PLATFORM_CONTEXT, getUserContext, getMatterContext, getLearningContext } from './amplifier/platformContext.js';
-import { AMPLIFIER_TOOLS, executeTool } from './amplifier/toolBridge.js';
+import { AMPLIFIER_TOOLS, AMPLIFIER_OPENAI_TOOLS, executeTool } from './amplifier/toolBridge.js';
 
 // Store active tasks per user
 const activeTasks = new Map();
@@ -145,6 +145,10 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
  * Convert our tool definitions to OpenAI function format
  */
 function getOpenAITools() {
+  if (Array.isArray(AMPLIFIER_OPENAI_TOOLS) && AMPLIFIER_OPENAI_TOOLS.length > 0) {
+    return AMPLIFIER_OPENAI_TOOLS;
+  }
+  
   return Object.entries(AMPLIFIER_TOOLS).map(([name, tool]) => ({
     type: 'function',
     function: {
@@ -217,6 +221,7 @@ class BackgroundTask extends EventEmitter {
     this.userContext = null;
     this.learningContext = null;
     this.systemPrompt = null;
+    this.userRecord = null;
   }
 
   /**
@@ -231,6 +236,16 @@ class BackgroundTask extends EventEmitter {
       );
       const user = userResult.rows[0];
       const firm = { name: user?.firm_name };
+      
+      this.userRecord = user ? {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role,
+        firmId: user.firm_id,
+        twoFactorEnabled: user.two_factor_enabled,
+      } : null;
       
       this.userContext = getUserContext(user, firm);
       this.learningContext = await getLearningContext(query, this.firmId, this.userId);
@@ -632,7 +647,8 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             // Execute the tool
             const result = await executeTool(toolName, toolArgs, {
               userId: this.userId,
-              firmId: this.firmId
+              firmId: this.firmId,
+              user: this.userRecord
             });
             
             console.log(`[Amplifier] Tool ${toolName} result:`, result.success !== undefined ? (result.success ? 'success' : 'failed') : 'completed');

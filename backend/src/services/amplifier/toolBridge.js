@@ -17,6 +17,7 @@ import crypto from 'crypto';
 import PDFDocument from 'pdfkit';
 import { uploadFile, downloadFile, isAzureConfigured } from '../../utils/azureStorage.js';
 import { extractTextFromFile } from '../../routes/documents.js';
+import { TOOLS as AGENT_TOOLS, executeTool as executeAgentTool } from '../../routes/aiAgent.js';
 
 /**
  * Complete list of tools available to Amplifier
@@ -25,7 +26,7 @@ import { extractTextFromFile } from '../../routes/documents.js';
  * 2. Executes a database query directly
  * 3. Performs business logic
  */
-export const AMPLIFIER_TOOLS = {
+const BASE_AMPLIFIER_TOOLS = {
   // ============== TIME ENTRIES ==============
   log_time: {
     description: "Log billable time for the user on a specific matter",
@@ -371,123 +372,78 @@ export const AMPLIFIER_TOOLS = {
   }
 };
 
+function buildToolMapFromAgent(tools = []) {
+  const toolMap = {};
+  
+  for (const tool of tools) {
+    const fn = tool?.function || {};
+    if (!fn.name) continue;
+    const properties = fn.parameters?.properties || {};
+    const parameters = Object.fromEntries(
+      Object.entries(properties).map(([key, schema]) => {
+        const type = schema?.type || 'string';
+        const description = schema?.description ? `${type} - ${schema.description}` : type;
+        return [key, description];
+      })
+    );
+    toolMap[fn.name] = {
+      description: fn.description || '',
+      parameters,
+      required: fn.parameters?.required || []
+    };
+  }
+  
+  return toolMap;
+}
+
+export const AMPLIFIER_OPENAI_TOOLS = AGENT_TOOLS;
+export const AMPLIFIER_TOOLS = { ...BASE_AMPLIFIER_TOOLS, ...buildToolMapFromAgent(AGENT_TOOLS) };
+
+async function loadUserContext(userId, firmId) {
+  if (!userId || !firmId) return null;
+  
+  try {
+    const result = await query(
+      `SELECT id, email, first_name, last_name, role, firm_id, is_active, two_factor_enabled
+       FROM users WHERE id = $1 AND firm_id = $2`,
+      [userId, firmId]
+    );
+    
+    if (result.rows.length === 0) return null;
+    const user = result.rows[0];
+    if (!user.is_active) return null;
+    
+    return {
+      id: user.id,
+      email: user.email,
+      firstName: user.first_name,
+      lastName: user.last_name,
+      role: user.role,
+      firmId: user.firm_id,
+      twoFactorEnabled: user.two_factor_enabled,
+    };
+  } catch (error) {
+    console.error('[Amplifier Tool] Failed to load user:', error.message);
+    return null;
+  }
+}
+
 /**
  * Execute a tool call for Amplifier
  * This function routes tool calls to the appropriate handler
  */
 export async function executeTool(toolName, params, context) {
-  const { userId, firmId, token } = context;
+  const { userId, firmId, user: providedUser } = context || {};
   
   console.log(`[Amplifier Tool] Executing: ${toolName}`, params);
   
+  const user = providedUser || await loadUserContext(userId, firmId);
+  if (!user) {
+    return { error: 'User not found or inactive' };
+  }
+  
   try {
-    // Import the actual tool implementations from aiAgent
-    // For now, we'll implement key tools directly here
-    
-    switch (toolName) {
-      // ============== TIME ENTRIES ==============
-      case 'log_time':
-        return await logTime(params, userId, firmId);
-      
-      case 'get_my_time_entries':
-        return await getTimeEntries(params, userId, firmId);
-      
-      // ============== MATTERS ==============
-      case 'list_my_matters':
-        return await listMatters(params, userId, firmId);
-      
-      case 'search_matters':
-        return await searchMatters(params, userId, firmId);
-      
-      case 'get_matter':
-        return await getMatter(params, userId, firmId);
-      
-      case 'create_matter':
-        return await createMatter(params, userId, firmId);
-      
-      case 'update_matter':
-        return await updateMatter(params, userId, firmId);
-      
-      case 'close_matter':
-        return await closeMatter(params, userId, firmId);
-      
-      // ============== CLIENTS ==============
-      case 'list_clients':
-        return await listClients(params, userId, firmId);
-      
-      case 'get_client':
-        return await getClient(params, userId, firmId);
-      
-      case 'create_client':
-        return await createClient(params, userId, firmId);
-      
-      case 'update_client':
-        return await updateClient(params, userId, firmId);
-      
-      // ============== INVOICES ==============
-      case 'list_invoices':
-        return await listInvoices(params, userId, firmId);
-      
-      case 'create_invoice':
-        return await createInvoice(params, userId, firmId);
-
-      case 'send_invoice':
-        return await sendInvoice(params, userId, firmId);
-      
-      case 'record_payment':
-        return await recordPayment(params, userId, firmId);
-      
-      // ============== DOCUMENTS ==============
-      case 'list_documents':
-        return await listDocuments(params, userId, firmId);
-      
-      case 'read_document_content':
-        return await readDocumentContent(params, userId, firmId);
-
-      case 'create_document':
-        return await createDocument(params, userId, firmId);
-      
-      case 'search_document_content':
-        return await searchDocumentContent(params, userId, firmId);
-      
-      // ============== CALENDAR ==============
-      case 'get_calendar_events':
-        return await getCalendarEvents(params, userId, firmId);
-      
-      case 'create_calendar_event':
-        return await createCalendarEvent(params, userId, firmId);
-      
-      // ============== TASKS ==============
-      case 'list_tasks':
-        return await listTasks(params, userId, firmId);
-      
-      case 'create_task':
-        return await createTask(params, userId, firmId);
-      
-      case 'complete_task':
-        return await completeTask(params, userId, firmId);
-      
-      // ============== REPORTS ==============
-      case 'generate_report':
-        return await generateReport(params, userId, firmId);
-      
-      case 'get_firm_analytics':
-        return await getFirmAnalytics(params, userId, firmId);
-      
-      // ============== TEAM ==============
-      case 'list_team_members':
-        return await listTeamMembers(params, userId, firmId);
-      
-      // ============== PLANNING (pass-through) ==============
-      case 'think_and_plan':
-      case 'evaluate_progress':
-      case 'task_complete':
-      case 'log_work':
-        return { success: true, message: 'Planning step recorded', data: params };
-      
-      default:
-        return { error: `Unknown tool: ${toolName}` };
-    }
+    return await executeAgentTool(toolName, params, user, null);
   } catch (error) {
     console.error(`[Amplifier Tool] Error executing ${toolName}:`, error);
     return { error: error.message };
