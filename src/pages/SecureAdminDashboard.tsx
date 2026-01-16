@@ -374,6 +374,25 @@ export default function SecureAdminDashboard() {
   const [matchingDocuments, setMatchingDocuments] = useState(false)
   const [importingDocuments, setImportingDocuments] = useState(false)
   const [firmDetailTab, setFirmDetailTab] = useState<'overview' | 'users' | 'documents'>('overview')
+  
+  // Document streaming state
+  const [streamingStatus, setStreamingStatus] = useState<{
+    total: number
+    pending: number
+    imported: number
+    errors: number
+    linkedToMatters: number
+    totalSizeMB: string
+  } | null>(null)
+  const [fetchingManifest, setFetchingManifest] = useState(false)
+  const [streamingDocuments, setStreamingDocuments] = useState(false)
+  const [streamProgress, setStreamProgress] = useState<{
+    status: string
+    processed?: number
+    total?: number
+    success?: number
+    failed?: number
+  } | null>(null)
   const [firmUsers, setFirmUsers] = useState<User[]>([])
   const [firmStats, setFirmStats] = useState<{ 
     users: number; 
@@ -886,6 +905,21 @@ export default function SecureAdminDashboard() {
         const manifestData = await manifestRes.json()
         setFirmManifestStats(manifestData)
       }
+      
+      // Also fetch streaming status
+      try {
+        const streamRes = await fetch(`${API_URL}/migration/documents/stream-status/${firm.id}`, {
+          headers: getAuthHeaders()
+        })
+        if (streamRes.ok) {
+          const streamData = await streamRes.json()
+          if (streamData.success) {
+            setStreamingStatus(streamData.status)
+          }
+        }
+      } catch (e) {
+        console.log('Streaming status not available:', e)
+      }
     } catch (error) {
       console.error('Failed to load firm data:', error)
     }
@@ -940,6 +974,138 @@ export default function SecureAdminDashboard() {
       showNotification('error', 'Failed to import documents')
     }
     setImportingDocuments(false)
+  }
+
+  // Fetch document streaming status
+  const fetchStreamingStatus = async (firmId: string) => {
+    try {
+      const res = await fetch(`${API_URL}/migration/documents/stream-status/${firmId}`, {
+        headers: getAuthHeaders()
+      })
+      const data = await res.json()
+      if (data.success) {
+        setStreamingStatus(data.status)
+      }
+    } catch (e) {
+      console.error('Failed to fetch streaming status:', e)
+    }
+  }
+
+  // Fetch document manifest from Clio (metadata only)
+  const handleFetchDocumentManifest = async () => {
+    if (!selectedFirmDetail || !clioConnectionId) {
+      showNotification('error', 'Please connect to Clio first from the Migration tab')
+      return
+    }
+    
+    setFetchingManifest(true)
+    try {
+      const res = await fetch(`${API_URL}/migration/documents/fetch-manifest`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ 
+          firmId: selectedFirmDetail.id,
+          connectionId: clioConnectionId
+        })
+      })
+      const data = await res.json()
+      if (data.success) {
+        showNotification('success', data.message)
+        await fetchStreamingStatus(selectedFirmDetail.id)
+      } else {
+        showNotification('error', data.error || 'Failed to fetch manifest')
+      }
+    } catch {
+      showNotification('error', 'Failed to fetch document manifest from Clio')
+    }
+    setFetchingManifest(false)
+  }
+
+  // Stream documents from Clio to Azure
+  const handleStreamDocumentsToAzure = async () => {
+    if (!selectedFirmDetail || !clioConnectionId) {
+      showNotification('error', 'Please connect to Clio first from the Migration tab')
+      return
+    }
+    
+    setStreamingDocuments(true)
+    setStreamProgress({ status: 'starting', processed: 0, total: streamingStatus?.pending || 0 })
+    
+    try {
+      const res = await fetch(`${API_URL}/migration/documents/stream-to-azure`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ 
+          firmId: selectedFirmDetail.id,
+          connectionId: clioConnectionId,
+          batchSize: 5  // Process 5 documents at a time
+        })
+      })
+      const data = await res.json()
+      if (data.success) {
+        showNotification('success', data.message)
+        setStreamProgress({ 
+          status: 'complete', 
+          processed: data.success + data.failed, 
+          total: data.success + data.failed,
+          success: data.success,
+          failed: data.failed
+        })
+        await fetchStreamingStatus(selectedFirmDetail.id)
+        // Reload manifest stats
+        handleViewFirmDetail(selectedFirmDetail)
+      } else {
+        showNotification('error', data.error || 'Streaming failed')
+        setStreamProgress({ status: 'error' })
+      }
+    } catch (e) {
+      showNotification('error', 'Failed to stream documents')
+      setStreamProgress({ status: 'error' })
+    }
+    setStreamingDocuments(false)
+  }
+
+  // Reset failed documents to pending
+  const handleResetFailedDocuments = async () => {
+    if (!selectedFirmDetail) return
+    
+    try {
+      const res = await fetch(`${API_URL}/migration/documents/reset-failed`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ firmId: selectedFirmDetail.id })
+      })
+      const data = await res.json()
+      if (data.success) {
+        showNotification('success', data.message)
+        await fetchStreamingStatus(selectedFirmDetail.id)
+      } else {
+        showNotification('error', data.error || 'Reset failed')
+      }
+    } catch {
+      showNotification('error', 'Failed to reset documents')
+    }
+  }
+
+  // Sync document permissions
+  const handleSyncPermissions = async () => {
+    if (!selectedFirmDetail) return
+    
+    try {
+      const res = await fetch(`${API_URL}/migration/documents/sync-permissions`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ firmId: selectedFirmDetail.id })
+      })
+      const data = await res.json()
+      if (data.success) {
+        showNotification('success', data.message)
+      } else {
+        showNotification('error', data.error || 'Sync failed')
+      }
+    } catch {
+      showNotification('error', 'Failed to sync permissions')
+    }
   }
 
   // User CRUD operations
@@ -4648,6 +4814,200 @@ bob@example.com, Bob, Wilson, partner"
             {/* Documents Tab */}
             {firmDetailTab === 'documents' && (
               <div>
+                {/* Stream from Clio Card - NEW FEATURE */}
+                <div style={{ 
+                  background: 'linear-gradient(135deg, #7C3AED 0%, #8B5CF6 100%)',
+                  borderRadius: '20px',
+                  padding: '40px 48px',
+                  color: 'white',
+                  marginBottom: '32px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+                    <div style={{ maxWidth: '500px' }}>
+                      <h2 style={{ margin: '0 0 12px 0', fontSize: '28px', fontWeight: 700 }}>
+                        Stream Documents from Clio
+                      </h2>
+                      <p style={{ margin: 0, opacity: 0.9, fontSize: '16px', lineHeight: 1.6 }}>
+                        Stream documents directly from Clio API to Azure Storage. No local disk required - files are transferred using memory streaming for maximum efficiency.
+                      </p>
+                    </div>
+                    {clioConnectionId ? (
+                      <div style={{ 
+                        background: 'rgba(255,255,255,0.2)', 
+                        padding: '8px 16px', 
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontWeight: 500
+                      }}>
+                        Clio Connected
+                      </div>
+                    ) : (
+                      <div style={{ 
+                        background: 'rgba(255,255,255,0.15)', 
+                        padding: '8px 16px', 
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontWeight: 500
+                      }}>
+                        Connect via Migration tab first
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Streaming Status */}
+                  {streamingStatus && (
+                    <div style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(4, 1fr)', 
+                      gap: '16px',
+                      marginBottom: '24px'
+                    }}>
+                      <div style={{ background: 'rgba(255,255,255,0.15)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '28px', fontWeight: 700 }}>{streamingStatus.total}</div>
+                        <div style={{ fontSize: '13px', opacity: 0.9 }}>Total</div>
+                      </div>
+                      <div style={{ background: 'rgba(255,255,255,0.15)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '28px', fontWeight: 700 }}>{streamingStatus.pending}</div>
+                        <div style={{ fontSize: '13px', opacity: 0.9 }}>Pending</div>
+                      </div>
+                      <div style={{ background: 'rgba(255,255,255,0.15)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '28px', fontWeight: 700 }}>{streamingStatus.imported}</div>
+                        <div style={{ fontSize: '13px', opacity: 0.9 }}>Imported</div>
+                      </div>
+                      <div style={{ background: 'rgba(255,255,255,0.15)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '28px', fontWeight: 700 }}>{streamingStatus.totalSizeMB} MB</div>
+                        <div style={{ fontSize: '13px', opacity: 0.9 }}>Total Size</div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Progress Bar */}
+                  {streamProgress && streamProgress.status !== 'complete' && (
+                    <div style={{ marginBottom: '24px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px' }}>
+                        <span>Streaming in progress...</span>
+                        <span>{streamProgress.processed || 0} / {streamProgress.total || 0}</span>
+                      </div>
+                      <div style={{ background: 'rgba(255,255,255,0.2)', borderRadius: '8px', height: '8px', overflow: 'hidden' }}>
+                        <div style={{ 
+                          background: 'white', 
+                          height: '100%', 
+                          width: `${streamProgress.total ? ((streamProgress.processed || 0) / streamProgress.total) * 100 : 0}%`,
+                          transition: 'width 0.3s ease'
+                        }} />
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Action Buttons */}
+                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={handleFetchDocumentManifest}
+                      disabled={fetchingManifest || !clioConnectionId}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '14px 24px',
+                        background: 'white',
+                        color: '#7C3AED',
+                        border: 'none',
+                        borderRadius: '10px',
+                        cursor: fetchingManifest || !clioConnectionId ? 'not-allowed' : 'pointer',
+                        fontWeight: 600,
+                        fontSize: '15px',
+                        opacity: fetchingManifest || !clioConnectionId ? 0.7 : 1
+                      }}
+                    >
+                      {fetchingManifest ? (
+                        <><RefreshCw size={18} className="animate-spin" /> Fetching...</>
+                      ) : (
+                        <>1. Fetch Document List</>
+                      )}
+                    </button>
+                    
+                    <button
+                      onClick={handleStreamDocumentsToAzure}
+                      disabled={streamingDocuments || !clioConnectionId || !streamingStatus?.pending}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '14px 24px',
+                        background: 'white',
+                        color: '#7C3AED',
+                        border: 'none',
+                        borderRadius: '10px',
+                        cursor: streamingDocuments || !clioConnectionId || !streamingStatus?.pending ? 'not-allowed' : 'pointer',
+                        fontWeight: 600,
+                        fontSize: '15px',
+                        opacity: streamingDocuments || !clioConnectionId || !streamingStatus?.pending ? 0.7 : 1
+                      }}
+                    >
+                      {streamingDocuments ? (
+                        <><RefreshCw size={18} className="animate-spin" /> Streaming...</>
+                      ) : (
+                        <>2. Stream to Azure ({streamingStatus?.pending || 0} pending)</>
+                      )}
+                    </button>
+                    
+                    <button
+                      onClick={handleSyncPermissions}
+                      disabled={!streamingStatus?.imported}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '14px 24px',
+                        background: 'rgba(255,255,255,0.2)',
+                        color: 'white',
+                        border: '1px solid rgba(255,255,255,0.3)',
+                        borderRadius: '10px',
+                        cursor: !streamingStatus?.imported ? 'not-allowed' : 'pointer',
+                        fontWeight: 600,
+                        fontSize: '15px',
+                        opacity: !streamingStatus?.imported ? 0.7 : 1
+                      }}
+                    >
+                      3. Sync Permissions
+                    </button>
+                    
+                    {streamingStatus && streamingStatus.errors > 0 && (
+                      <button
+                        onClick={handleResetFailedDocuments}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '14px 24px',
+                          background: 'rgba(239, 68, 68, 0.2)',
+                          color: 'white',
+                          border: '1px solid rgba(239, 68, 68, 0.5)',
+                          borderRadius: '10px',
+                          cursor: 'pointer',
+                          fontWeight: 600,
+                          fontSize: '15px'
+                        }}
+                      >
+                        Reset {streamingStatus.errors} Failed
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* OR Divider */}
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '16px', 
+                  marginBottom: '32px',
+                  color: '#94A3B8'
+                }}>
+                  <div style={{ flex: 1, height: '1px', background: '#E2E8F0' }} />
+                  <span style={{ fontWeight: 500, fontSize: '14px' }}>OR MANUAL MIGRATION</span>
+                  <div style={{ flex: 1, height: '1px', background: '#E2E8F0' }} />
+                </div>
+
                 {/* Big Scan Button Card */}
                 <div style={{ 
                   background: 'linear-gradient(135deg, #059669 0%, #10B981 100%)',

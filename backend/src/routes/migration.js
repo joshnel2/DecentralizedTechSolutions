@@ -2,6 +2,12 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { query } from '../db/connection.js';
+import {
+  streamDocumentToAzure,
+  batchStreamDocuments,
+  fetchDocumentManifestFromClio,
+  getDocumentMigrationStatus
+} from '../services/clioDocumentStreaming.js';
 
 const router = Router();
 
@@ -6710,6 +6716,322 @@ router.post('/documents/import-matched', requireSecureAdmin, async (req, res) =>
   } catch (error) {
     console.error('Import matched error:', error);
     res.status(500).json({ error: 'Failed to import matched documents: ' + error.message });
+  }
+});
+
+// ============================================
+// CLIO DOCUMENT STREAMING MIGRATION
+// ============================================
+// Stream documents directly from Clio API to Azure Storage
+// No local disk storage - pure memory streaming!
+
+// Get document streaming migration status
+router.get('/documents/stream-status/:firmId', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    
+    const status = await getDocumentMigrationStatus(firmId);
+    
+    // Get recent errors
+    const recentErrors = await query(`
+      SELECT clio_id, name, clio_path, updated_at
+      FROM clio_document_manifest
+      WHERE firm_id = $1 AND match_status = 'error'
+      ORDER BY updated_at DESC
+      LIMIT 10
+    `, [firmId]);
+    
+    res.json({
+      success: true,
+      status,
+      recentErrors: recentErrors.rows
+    });
+  } catch (error) {
+    console.error('Get stream status error:', error);
+    res.status(500).json({ error: 'Failed to get status: ' + error.message });
+  }
+});
+
+// Fetch document metadata from Clio and populate manifest
+// This prepares documents for streaming without downloading
+router.post('/documents/fetch-manifest', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId, connectionId } = req.body;
+    
+    if (!firmId || !connectionId) {
+      return res.status(400).json({ error: 'firmId and connectionId required' });
+    }
+    
+    // Get Clio access token from connection
+    const connection = clioConnections.get(connectionId);
+    if (!connection) {
+      return res.status(401).json({ error: 'Clio connection not found. Please reconnect.' });
+    }
+    
+    console.log(`[DOC STREAM] Fetching document manifest for firm ${firmId}...`);
+    
+    // Build matter ID mapping if we have migrated matters
+    const matterIdMap = new Map();
+    try {
+      const matters = await query(
+        `SELECT id, clio_id FROM matters WHERE firm_id = $1 AND clio_id IS NOT NULL`,
+        [firmId]
+      );
+      for (const m of matters.rows) {
+        matterIdMap.set(m.clio_id, m.id);
+      }
+      console.log(`[DOC STREAM] Loaded ${matterIdMap.size} matter mappings`);
+    } catch (e) {
+      console.log(`[DOC STREAM] Could not load matter mappings: ${e.message}`);
+    }
+    
+    const result = await fetchDocumentManifestFromClio(connection.accessToken, firmId, {
+      matterIdMap,
+      onProgress: (progress) => {
+        console.log(`[DOC STREAM] Progress: ${JSON.stringify(progress)}`);
+      }
+    });
+    
+    res.json({
+      success: true,
+      message: `Fetched ${result.documentsFound} documents and ${result.foldersFound} folders from Clio.`,
+      ...result
+    });
+  } catch (error) {
+    console.error('Fetch manifest error:', error);
+    res.status(500).json({ error: 'Failed to fetch manifest: ' + error.message });
+  }
+});
+
+// Stream documents from Clio directly to Azure
+// This downloads files from Clio and uploads to Azure using memory only
+router.post('/documents/stream-to-azure', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId, connectionId, batchSize = 5, limit = null } = req.body;
+    
+    if (!firmId || !connectionId) {
+      return res.status(400).json({ error: 'firmId and connectionId required' });
+    }
+    
+    // Get Clio access token from connection
+    const connection = clioConnections.get(connectionId);
+    if (!connection) {
+      return res.status(401).json({ error: 'Clio connection not found. Please reconnect.' });
+    }
+    
+    console.log(`[DOC STREAM] Starting document streaming for firm ${firmId}...`);
+    
+    // Build ID mappings from previous migration
+    const matterIdMap = new Map();
+    const clientIdMap = new Map();
+    const userIdMap = new Map();
+    
+    try {
+      const matters = await query(`SELECT id, clio_id FROM matters WHERE firm_id = $1 AND clio_id IS NOT NULL`, [firmId]);
+      for (const m of matters.rows) matterIdMap.set(m.clio_id, m.id);
+      
+      const clients = await query(`SELECT id, clio_id FROM clients WHERE firm_id = $1 AND clio_id IS NOT NULL`, [firmId]);
+      for (const c of clients.rows) clientIdMap.set(c.clio_id, c.id);
+      
+      const users = await query(`SELECT id, clio_id FROM users WHERE firm_id = $1 AND clio_id IS NOT NULL`, [firmId]);
+      for (const u of users.rows) userIdMap.set(u.clio_id, u.id);
+      
+      console.log(`[DOC STREAM] Loaded mappings: ${matterIdMap.size} matters, ${clientIdMap.size} clients, ${userIdMap.size} users`);
+    } catch (e) {
+      console.log(`[DOC STREAM] Could not load some mappings: ${e.message}`);
+    }
+    
+    const result = await batchStreamDocuments(connection.accessToken, firmId, {
+      batchSize: Math.min(batchSize, 20),  // Cap at 20 to prevent memory issues
+      limit: limit || null,
+      matterIdMap,
+      clientIdMap,
+      userIdMap,
+      onProgress: (progress) => {
+        console.log(`[DOC STREAM] Progress: ${progress.processed}/${progress.total} (${progress.success} success, ${progress.failed} failed)`);
+      }
+    });
+    
+    res.json({
+      success: true,
+      message: `Streamed ${result.success} documents to Azure. ${result.failed} failed.`,
+      ...result
+    });
+  } catch (error) {
+    console.error('Stream to Azure error:', error);
+    res.status(500).json({ error: 'Failed to stream documents: ' + error.message });
+  }
+});
+
+// Stream a single document (for testing or retrying)
+router.post('/documents/stream-single', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId, connectionId, clioDocumentId } = req.body;
+    
+    if (!firmId || !connectionId || !clioDocumentId) {
+      return res.status(400).json({ error: 'firmId, connectionId, and clioDocumentId required' });
+    }
+    
+    const connection = clioConnections.get(connectionId);
+    if (!connection) {
+      return res.status(401).json({ error: 'Clio connection not found. Please reconnect.' });
+    }
+    
+    // Get the manifest entry
+    const manifestResult = await query(`
+      SELECT * FROM clio_document_manifest
+      WHERE firm_id = $1 AND clio_id = $2
+    `, [firmId, clioDocumentId]);
+    
+    if (manifestResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found in manifest' });
+    }
+    
+    const manifest = manifestResult.rows[0];
+    
+    const result = await streamDocumentToAzure(connection.accessToken, manifest, firmId);
+    
+    res.json({
+      success: result.success,
+      message: result.success ? `Streamed ${manifest.name} to Azure` : `Failed: ${result.error}`,
+      ...result
+    });
+  } catch (error) {
+    console.error('Stream single error:', error);
+    res.status(500).json({ error: 'Failed to stream document: ' + error.message });
+  }
+});
+
+// Reset failed documents to pending for retry
+router.post('/documents/reset-failed', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.body;
+    
+    if (!firmId) {
+      return res.status(400).json({ error: 'firmId required' });
+    }
+    
+    const result = await query(`
+      UPDATE clio_document_manifest
+      SET match_status = 'pending', updated_at = NOW()
+      WHERE firm_id = $1 AND match_status = 'error'
+      RETURNING clio_id, name
+    `, [firmId]);
+    
+    res.json({
+      success: true,
+      reset: result.rows.length,
+      message: `Reset ${result.rows.length} failed documents to pending.`
+    });
+  } catch (error) {
+    console.error('Reset failed error:', error);
+    res.status(500).json({ error: 'Failed to reset documents: ' + error.message });
+  }
+});
+
+// Get document permissions mapping info
+router.get('/documents/permissions-info/:firmId', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    
+    // Get permission stats
+    const docStats = await query(`
+      SELECT 
+        privacy_level,
+        COUNT(*) as count
+      FROM documents
+      WHERE firm_id = $1
+      GROUP BY privacy_level
+    `, [firmId]);
+    
+    const permStats = await query(`
+      SELECT 
+        permission_level,
+        COUNT(*) as count
+      FROM document_permissions
+      WHERE firm_id = $1
+      GROUP BY permission_level
+    `, [firmId]);
+    
+    const ownerStats = await query(`
+      SELECT 
+        COUNT(CASE WHEN owner_id IS NOT NULL THEN 1 END) as with_owner,
+        COUNT(CASE WHEN owner_id IS NULL THEN 1 END) as without_owner
+      FROM documents
+      WHERE firm_id = $1
+    `, [firmId]);
+    
+    res.json({
+      success: true,
+      privacyLevels: docStats.rows.reduce((acc, r) => { acc[r.privacy_level] = parseInt(r.count); return acc; }, {}),
+      permissionLevels: permStats.rows.reduce((acc, r) => { acc[r.permission_level] = parseInt(r.count); return acc; }, {}),
+      ownershipStats: ownerStats.rows[0]
+    });
+  } catch (error) {
+    console.error('Get permissions info error:', error);
+    res.status(500).json({ error: 'Failed to get permissions info: ' + error.message });
+  }
+});
+
+// Bulk update document permissions based on matter assignments
+router.post('/documents/sync-permissions', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.body;
+    
+    if (!firmId) {
+      return res.status(400).json({ error: 'firmId required' });
+    }
+    
+    console.log(`[DOC PERM] Syncing document permissions for firm ${firmId}...`);
+    
+    // Update privacy level based on matter assignment
+    // Documents linked to matters get 'team' access
+    // Documents not linked get 'firm' access
+    const updateResult = await query(`
+      UPDATE documents
+      SET privacy_level = CASE 
+        WHEN matter_id IS NOT NULL THEN 'team'
+        ELSE 'firm'
+      END,
+      updated_at = NOW()
+      WHERE firm_id = $1
+      RETURNING id, matter_id, privacy_level
+    `, [firmId]);
+    
+    // For documents with owners, ensure owner has full permissions
+    const ownerDocs = await query(`
+      SELECT d.id, d.owner_id, d.firm_id
+      FROM documents d
+      WHERE d.firm_id = $1 AND d.owner_id IS NOT NULL
+    `, [firmId]);
+    
+    let permissionsCreated = 0;
+    for (const doc of ownerDocs.rows) {
+      try {
+        await query(`
+          INSERT INTO document_permissions (
+            document_id, firm_id, user_id, permission_level,
+            can_view, can_download, can_edit, can_delete, can_share, can_manage_permissions
+          ) VALUES ($1, $2, $3, 'full', true, true, true, true, true, true)
+          ON CONFLICT DO NOTHING
+        `, [doc.id, doc.firm_id, doc.owner_id]);
+        permissionsCreated++;
+      } catch (e) {
+        // Skip errors
+      }
+    }
+    
+    console.log(`[DOC PERM] Updated ${updateResult.rows.length} documents, created ${permissionsCreated} owner permissions`);
+    
+    res.json({
+      success: true,
+      documentsUpdated: updateResult.rows.length,
+      permissionsCreated,
+      message: `Updated privacy for ${updateResult.rows.length} documents and created ${permissionsCreated} owner permissions.`
+    });
+  } catch (error) {
+    console.error('Sync permissions error:', error);
+    res.status(500).json({ error: 'Failed to sync permissions: ' + error.message });
   }
 });
 
