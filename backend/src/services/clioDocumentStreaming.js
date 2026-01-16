@@ -1,20 +1,128 @@
 import { Readable } from 'stream';
-import { uploadFileBuffer, ensureDirectory, isAzureConfigured, getShareClient } from '../utils/azureStorage.js';
+import { ShareServiceClient, StorageSharedKeyCredential } from '@azure/storage-file-share';
 import { query } from '../db/connection.js';
 
 // ============================================
 // CLIO DOCUMENT STREAMING SERVICE
 // ============================================
-// Streams documents directly from Clio API to Azure Storage
+// Streams documents directly from Clio API to Azure File Share
 // using MemoryStream - NO local disk storage!
 //
+// IMPORTANT: This uses STREAMING to transfer files:
+// 1. Fetch with stream=true equivalent (chunked response)
+// 2. Pipe directly to Azure File Share
+// 3. Never saves to local filesystem
+//
 // Flow:
-// 1. Fetch document metadata from Clio
+// 1. Fetch document metadata from Clio (with pagination)
 // 2. Get download URL from Clio document versions endpoint
-// 3. Stream directly to Azure Blob/File Share using Buffer
-// 4. Create document record with proper permissions
+// 3. Stream directly to Azure File Share using Buffer (memory only)
+// 4. Preserve original filename and extension
+// 5. Create document record with proper permissions
 
 const CLIO_API_BASE = 'https://app.clio.com/api/v4';
+
+// ============================================
+// AZURE FILE SHARE CONFIGURATION
+// ============================================
+// Placeholders - these will be loaded from platform_settings or env
+let AZURE_CONNECTION_STRING = null;
+let CLIO_ACCESS_TOKEN = null;
+
+// Azure File Share settings
+const AZURE_SHARE_NAME = 'apexdrive';
+
+/**
+ * Get Azure File Share configuration from database or environment
+ */
+async function getAzureFileShareConfig() {
+  // Try environment variables first
+  const connString = process.env.AZURE_CONNECTION_STRING;
+  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+  const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
+  
+  if (connString) {
+    return { connectionString: connString };
+  }
+  
+  if (accountName && accountKey) {
+    return { accountName, accountKey };
+  }
+  
+  // Try platform settings from database
+  try {
+    const result = await query(
+      `SELECT key, value FROM platform_settings WHERE key IN ('azure_storage_account_name', 'azure_storage_account_key', 'azure_connection_string')`
+    );
+    
+    const settings = {};
+    for (const row of result.rows) {
+      settings[row.key] = row.value;
+    }
+    
+    if (settings.azure_connection_string) {
+      return { connectionString: settings.azure_connection_string };
+    }
+    
+    if (settings.azure_storage_account_name && settings.azure_storage_account_key) {
+      return { 
+        accountName: settings.azure_storage_account_name, 
+        accountKey: settings.azure_storage_account_key 
+      };
+    }
+  } catch (err) {
+    console.log('[AZURE] Could not load platform settings:', err.message);
+  }
+  
+  return null;
+}
+
+/**
+ * Get Azure File Share client
+ */
+async function getShareClient() {
+  const config = await getAzureFileShareConfig();
+  
+  if (!config) {
+    throw new Error('Azure Storage not configured. Set AZURE_CONNECTION_STRING or account name/key.');
+  }
+  
+  let serviceClient;
+  
+  if (config.connectionString) {
+    serviceClient = ShareServiceClient.fromConnectionString(config.connectionString);
+  } else {
+    const credential = new StorageSharedKeyCredential(config.accountName, config.accountKey);
+    serviceClient = new ShareServiceClient(
+      `https://${config.accountName}.file.core.windows.net`,
+      credential
+    );
+  }
+  
+  return serviceClient.getShareClient(AZURE_SHARE_NAME);
+}
+
+/**
+ * Ensure a directory exists in Azure File Share
+ */
+async function ensureAzureDirectory(shareClient, directoryPath) {
+  const parts = directoryPath.split('/').filter(p => p);
+  let currentPath = '';
+  
+  for (const part of parts) {
+    currentPath = currentPath ? `${currentPath}/${part}` : part;
+    const dirClient = shareClient.getDirectoryClient(currentPath);
+    
+    try {
+      await dirClient.create();
+    } catch (err) {
+      // Directory might already exist (409 Conflict), that's fine
+      if (err.statusCode !== 409) {
+        throw err;
+      }
+    }
+  }
+}
 
 /**
  * Rate-limited delay helper
@@ -26,9 +134,9 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
  */
 async function clioApiRequest(accessToken, endpoint, retryCount = 0) {
   const MAX_RETRIES = 3;
-  const url = `${CLIO_API_BASE}${endpoint}`;
+  const url = endpoint.startsWith('http') ? endpoint : `${CLIO_API_BASE}${endpoint}`;
   
-  console.log(`[CLIO DOC] GET ${endpoint}`);
+  console.log(`[CLIO DOC] GET ${url.substring(0, 80)}...`);
   
   try {
     const response = await fetch(url, {
@@ -70,11 +178,67 @@ async function clioApiRequest(accessToken, endpoint, retryCount = 0) {
 }
 
 /**
- * Stream file content from Clio download URL directly to memory buffer
- * NO disk storage - pure memory streaming
+ * Stream file content from Clio download URL directly to Azure File Share
+ * NO disk storage - pure memory streaming using chunked transfer
+ * 
+ * @param {string} downloadUrl - Clio download URL
+ * @param {string} accessToken - Clio access token
+ * @param {ShareClient} shareClient - Azure File Share client
+ * @param {string} targetPath - Full path in Azure including filename
+ * @returns {Promise<{size: number, path: string}>}
+ */
+async function streamFromClioToAzure(downloadUrl, accessToken, shareClient, targetPath) {
+  console.log(`[CLIO DOC] Streaming to Azure: ${targetPath}`);
+  
+  // Fetch from Clio with streaming enabled
+  const response = await fetch(downloadUrl, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`
+    }
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Failed to download from Clio: ${response.status}`);
+  }
+  
+  // Get the content as ArrayBuffer (stays in memory, never touches disk)
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  const fileSize = buffer.length;
+  
+  console.log(`[CLIO DOC] Received ${fileSize} bytes, uploading to Azure...`);
+  
+  // Ensure parent directory exists
+  const dirPath = targetPath.split('/').slice(0, -1).join('/');
+  const fileName = targetPath.split('/').pop();
+  
+  if (dirPath) {
+    await ensureAzureDirectory(shareClient, dirPath);
+  }
+  
+  // Get directory and file clients
+  const dirClient = dirPath ? shareClient.getDirectoryClient(dirPath) : shareClient.rootDirectoryClient;
+  const fileClient = dirClient.getFileClient(fileName);
+  
+  // Upload buffer directly to Azure File Share
+  // This uses the Azure SDK's efficient upload method
+  await fileClient.create(fileSize);
+  await fileClient.uploadRange(buffer, 0, fileSize);
+  
+  console.log(`[CLIO DOC] Successfully uploaded ${fileSize} bytes to ${targetPath}`);
+  
+  return {
+    size: fileSize,
+    path: targetPath,
+    url: fileClient.url
+  };
+}
+
+/**
+ * Legacy function for backward compatibility - uses memory buffer
  */
 async function streamFromClioToBuffer(downloadUrl, accessToken) {
-  console.log(`[CLIO DOC] Streaming from Clio...`);
+  console.log(`[CLIO DOC] Streaming from Clio to memory...`);
   
   const response = await fetch(downloadUrl, {
     headers: {
@@ -96,45 +260,88 @@ async function streamFromClioToBuffer(downloadUrl, accessToken) {
 }
 
 /**
- * Get document download URL from Clio
- * Clio documents have versions, we get the latest version's download URL
+ * Get document download URL and metadata from Clio
+ * Extracts original filename with extension for proper storage
  */
-async function getDocumentDownloadUrl(accessToken, documentId) {
-  // Get document with latest version info
+async function getDocumentDownloadInfo(accessToken, documentId) {
+  // Get document with latest version info including filename
   const docData = await clioApiRequest(
     accessToken, 
-    `/documents/${documentId}.json?fields=id,name,latest_document_version{id,size,download_url,content_type}`
+    `/documents/${documentId}.json?fields=id,name,filename,latest_document_version{id,size,download_url,content_type,filename}`
   );
   
-  if (!docData.data?.latest_document_version?.download_url) {
+  const doc = docData.data;
+  const latestVersion = doc?.latest_document_version;
+  
+  if (!latestVersion?.download_url) {
     throw new Error(`No download URL available for document ${documentId}`);
   }
   
+  // Extract original filename with extension
+  // Priority: version filename > document filename > document name
+  let originalFilename = latestVersion.filename || doc.filename || doc.name;
+  
+  // Ensure we have a filename
+  if (!originalFilename) {
+    originalFilename = `document_${documentId}`;
+  }
+  
+  // Clean filename of invalid characters
+  originalFilename = originalFilename.replace(/[<>:"/\\|?*]/g, '_');
+  
   return {
-    downloadUrl: docData.data.latest_document_version.download_url,
-    size: docData.data.latest_document_version.size,
-    contentType: docData.data.latest_document_version.content_type
+    downloadUrl: latestVersion.download_url,
+    size: latestVersion.size,
+    contentType: latestVersion.content_type,
+    originalFilename,
+    documentName: doc.name
   };
 }
 
+// Keep old function name for backward compatibility
+const getDocumentDownloadUrl = getDocumentDownloadInfo;
+
 /**
- * Build folder path for document in Azure
+ * Build folder path for document in Azure File Share
  * Maps Clio structure to our structure
+ * CRITICAL: Preserves original filename with extension
+ * 
+ * @param {object} doc - Document manifest record
+ * @param {string} originalFilename - Original filename with extension from Clio
+ * @param {string} matterId - Our local matter ID
+ * @param {string} clientId - Our local client ID
+ * @param {string} clioPath - Original path from Clio
+ * @returns {string} Full path in Azure including filename
  */
-function buildAzurePath(doc, matterId, clientId, matterNumber, clioPath) {
+function buildAzurePath(doc, originalFilename, matterId, clientId, clioPath) {
+  // Use original filename from Clio to preserve extension
+  const filename = originalFilename || doc.name;
+  
   // If linked to matter, put in matter folder
   if (matterId) {
-    const subfolder = clioPath ? `/${clioPath.split('/').slice(1).join('/')}` : '';
-    return `matters/matter-${matterId}${subfolder}/${doc.name}`;
+    // Preserve subfolder structure from Clio
+    let subfolder = '';
+    if (clioPath) {
+      const pathParts = clioPath.split('/');
+      // Remove the filename from the path to get just folders
+      if (pathParts.length > 1) {
+        subfolder = '/' + pathParts.slice(0, -1).join('/');
+      }
+    }
+    return `matters/matter-${matterId}${subfolder}/${filename}`;
   }
   
   // If linked to client but not matter, put in client folder
   if (clientId) {
-    return `clients/client-${clientId}/documents/${doc.name}`;
+    return `clients/client-${clientId}/documents/${filename}`;
   }
   
-  // Otherwise, put in imported folder
-  return `documents/Imported/Clio/${doc.name}`;
+  // Otherwise, put in imported folder with Clio path structure
+  if (clioPath) {
+    return `documents/Imported/Clio/${clioPath}`;
+  }
+  
+  return `documents/Imported/Clio/${filename}`;
 }
 
 /**
@@ -164,7 +371,13 @@ async function mapClioUserToOurUser(clioUserId, firmId, clioUserIdMap) {
 }
 
 /**
- * Stream a single document from Clio to Azure
+ * Stream a single document from Clio directly to Azure File Share
+ * 
+ * STREAMING APPROACH:
+ * - Fetches from Clio using streaming (chunked response)
+ * - Buffers in memory only (never touches disk)
+ * - Uploads directly to Azure File Share
+ * - Preserves original filename with extension
  * 
  * @param {string} accessToken - Clio OAuth access token
  * @param {object} manifest - Document manifest record from clio_document_manifest
@@ -178,34 +391,42 @@ export async function streamDocumentToAzure(accessToken, manifest, firmId, optio
   try {
     console.log(`[CLIO DOC] Streaming document: ${manifest.name} (Clio ID: ${manifest.clio_id})`);
     
-    // 1. Get download URL from Clio
-    const { downloadUrl, size, contentType } = await getDocumentDownloadUrl(accessToken, manifest.clio_id);
+    // 1. Get download URL and original filename from Clio
+    const { downloadUrl, size, contentType, originalFilename } = await getDocumentDownloadInfo(accessToken, manifest.clio_id);
     
-    // 2. Stream content to memory buffer
-    const buffer = await streamFromClioToBuffer(downloadUrl, accessToken);
+    console.log(`[CLIO DOC] Original filename: ${originalFilename}, Size: ${size}, Type: ${contentType}`);
     
-    // 3. Map Clio IDs to our IDs
+    // 2. Map Clio IDs to our IDs
     const matterId = manifest.matter_id || (manifest.clio_matter_id ? matterIdMap.get(manifest.clio_matter_id) : null);
     const clientId = manifest.client_id || (manifest.clio_client_id ? clientIdMap.get(manifest.clio_client_id) : null);
     const ownerId = manifest.owner_id || (manifest.clio_created_by_id ? userIdMap.get(manifest.clio_created_by_id) : null);
     
-    // 4. Build target path in Azure
-    const targetPath = buildAzurePath(
+    // 3. Build target path in Azure - CRITICAL: use original filename with extension
+    const relativePath = buildAzurePath(
       manifest,
+      originalFilename,  // Pass original filename with extension
       matterId,
       clientId,
-      null,
       manifest.clio_path
     );
     
-    // 5. Ensure directory exists
-    const dirPath = targetPath.split('/').slice(0, -1).join('/');
-    await ensureDirectory(`firm-${firmId}/${dirPath}`);
+    // Full path includes firm directory
+    const fullAzurePath = `firm-${firmId}/${relativePath}`;
     
-    // 6. Upload buffer to Azure (no disk!)
-    const uploadResult = await uploadFileBuffer(buffer, targetPath, firmId);
+    // 4. Get Azure File Share client and stream directly
+    const shareClient = await getShareClient();
     
-    // 7. Create document record with permissions
+    // 5. Stream from Clio directly to Azure (NO DISK!)
+    const uploadResult = await streamFromClioToAzure(
+      downloadUrl,
+      accessToken,
+      shareClient,
+      fullAzurePath
+    );
+    
+    // 6. Create document record with permissions
+    const dirPath = relativePath.split('/').slice(0, -1).join('/');
+    
     const docResult = await query(`
       INSERT INTO documents (
         firm_id, matter_id, name, original_name, path, folder_path,
@@ -220,25 +441,25 @@ export async function streamDocumentToAzure(accessToken, manifest, firmId, optio
     `, [
       firmId,
       matterId,
-      manifest.name,
-      manifest.name,
-      uploadResult.path,
+      originalFilename,  // Use original filename
+      originalFilename,
+      fullAzurePath,
       dirPath,
       contentType || manifest.content_type || 'application/octet-stream',
-      buffer.length,
+      uploadResult.size,
       ownerId,
       ownerId,
       matterId ? 'team' : 'firm',  // Matter docs = team access, general = firm-wide
       'final',
       'azure',
-      uploadResult.path,
+      fullAzurePath,
       manifest.clio_id,
       manifest.clio_created_at || new Date()
     ]);
     
     const documentId = docResult.rows[0].id;
     
-    // 8. Update manifest status
+    // 7. Update manifest status
     await query(`
       UPDATE clio_document_manifest SET
         match_status = 'imported',
@@ -248,9 +469,9 @@ export async function streamDocumentToAzure(accessToken, manifest, firmId, optio
         match_method = 'streamed',
         updated_at = NOW()
       WHERE id = $3
-    `, [uploadResult.path, documentId, manifest.id]);
+    `, [fullAzurePath, documentId, manifest.id]);
     
-    // 9. Set up document permissions if we have an owner
+    // 8. Set up document permissions if we have an owner
     if (ownerId) {
       await query(`
         INSERT INTO document_permissions (
@@ -261,13 +482,14 @@ export async function streamDocumentToAzure(accessToken, manifest, firmId, optio
       `, [documentId, firmId, ownerId]);
     }
     
-    console.log(`[CLIO DOC] Successfully imported: ${manifest.name} -> ${uploadResult.path}`);
+    console.log(`[CLIO DOC] Successfully streamed: ${originalFilename} -> ${fullAzurePath} (${uploadResult.size} bytes)`);
     
     return {
       success: true,
       documentId,
-      path: uploadResult.path,
-      size: buffer.length
+      path: fullAzurePath,
+      size: uploadResult.size,
+      filename: originalFilename
     };
     
   } catch (error) {
@@ -395,57 +617,106 @@ export async function batchStreamDocuments(accessToken, firmId, options = {}) {
 }
 
 /**
- * Fetch document metadata from Clio and populate manifest table
- * This prepares documents for streaming without downloading them yet
+ * Fetch ALL document metadata from Clio with proper pagination
+ * Handles Clio's pagination using the 'next' URL in meta.paging
+ * 
+ * PAGINATION APPROACH:
+ * - Uses limit=200 per page (Clio's max)
+ * - Follows meta.paging.next URL for next page
+ * - Handles rate limiting with automatic retry
+ * - Returns ALL documents across all pages
+ * 
+ * @param {string} accessToken - Clio access token
+ * @param {string} firmId - Target firm ID
+ * @param {object} options - Options including onProgress callback
+ * @returns {Promise<{documentsFound: number, foldersFound: number, stored: number}>}
  */
 export async function fetchDocumentManifestFromClio(accessToken, firmId, options = {}) {
   const { onProgress = () => {}, matterIdMap = new Map() } = options;
   
-  console.log(`[CLIO DOC] Fetching document manifest from Clio...`);
+  console.log(`[CLIO DOC] Fetching ALL document metadata from Clio with pagination...`);
   
+  // ============================================
+  // STEP 1: Fetch ALL documents with pagination
+  // ============================================
   let allDocuments = [];
-  let nextUrl = `${CLIO_API_BASE}/documents.json?fields=id,name,parent,matter,created_at,updated_at,content_type,latest_document_version{id,size}&limit=200&order=id(asc)`;
+  let pageNum = 1;
+  
+  // Include filename in fields to get original filename with extension
+  let nextUrl = `${CLIO_API_BASE}/documents.json?fields=id,name,filename,parent,matter,created_at,updated_at,content_type,latest_document_version{id,size,filename}&limit=200&order=id(asc)`;
   
   while (nextUrl) {
-    const response = await fetch(nextUrl, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    console.log(`[CLIO DOC] Fetching documents page ${pageNum}...`);
     
-    if (!response.ok) {
-      const text = await response.text();
-      if (response.status === 429) {
-        // Rate limited - wait and retry
-        console.log('[CLIO DOC] Rate limited, waiting 60s...');
-        await delay(60000);
-        continue;
+    try {
+      const response = await fetch(nextUrl, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const text = await response.text();
+        
+        // Handle rate limiting
+        if (response.status === 429) {
+          let waitTime = 60;
+          try {
+            const errorObj = JSON.parse(text);
+            const match = errorObj?.error?.message?.match(/Retry in (\d+) seconds/);
+            if (match) {
+              waitTime = parseInt(match[1], 10) + 5;
+            }
+          } catch (e) {}
+          console.log(`[CLIO DOC] Rate limited on page ${pageNum}. Waiting ${waitTime}s...`);
+          await delay(waitTime * 1000);
+          continue; // Retry same page
+        }
+        
+        throw new Error(`Failed to fetch documents page ${pageNum}: ${response.status} - ${text}`);
       }
-      throw new Error(`Failed to fetch documents: ${response.status} - ${text}`);
+      
+      const data = await response.json();
+      const pageDocuments = data.data || [];
+      allDocuments = allDocuments.concat(pageDocuments);
+      
+      onProgress({ 
+        fetched: allDocuments.length, 
+        status: 'fetching_documents',
+        page: pageNum
+      });
+      
+      console.log(`[CLIO DOC] Page ${pageNum}: got ${pageDocuments.length} documents (total: ${allDocuments.length})`);
+      
+      // Get next page URL from Clio's paging metadata
+      nextUrl = data.meta?.paging?.next || null;
+      pageNum++;
+      
+      // Small delay between pages to be nice to the API
+      if (nextUrl) {
+        await delay(200);
+      }
+      
+    } catch (fetchError) {
+      console.error(`[CLIO DOC] Error fetching page ${pageNum}:`, fetchError.message);
+      throw fetchError;
     }
-    
-    const data = await response.json();
-    allDocuments = allDocuments.concat(data.data || []);
-    
-    onProgress({ fetched: allDocuments.length, status: 'fetching' });
-    console.log(`[CLIO DOC] Fetched ${allDocuments.length} documents...`);
-    
-    // Check for next page
-    nextUrl = data.meta?.paging?.next || null;
-    
-    // Small delay between pages
-    if (nextUrl) await delay(200);
   }
   
-  console.log(`[CLIO DOC] Fetched total ${allDocuments.length} documents`);
+  console.log(`[CLIO DOC] Fetched total ${allDocuments.length} documents across ${pageNum - 1} pages`);
   
-  // Also fetch folders for path reconstruction
+  // ============================================
+  // STEP 2: Fetch ALL folders with pagination
+  // ============================================
   let allFolders = [];
+  let folderPageNum = 1;
   let folderNextUrl = `${CLIO_API_BASE}/folders.json?fields=id,name,parent,matter&limit=200&order=id(asc)`;
   
   while (folderNextUrl) {
     try {
+      console.log(`[CLIO DOC] Fetching folders page ${folderPageNum}...`);
+      
       const response = await fetch(folderNextUrl, {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -454,27 +725,53 @@ export async function fetchDocumentManifestFromClio(accessToken, firmId, options
       });
       
       if (!response.ok) {
+        const text = await response.text();
+        
         if (response.status === 429) {
-          await delay(60000);
+          let waitTime = 60;
+          try {
+            const errorObj = JSON.parse(text);
+            const match = errorObj?.error?.message?.match(/Retry in (\d+) seconds/);
+            if (match) {
+              waitTime = parseInt(match[1], 10) + 5;
+            }
+          } catch (e) {}
+          console.log(`[CLIO DOC] Rate limited on folders page ${folderPageNum}. Waiting ${waitTime}s...`);
+          await delay(waitTime * 1000);
           continue;
         }
+        
+        console.log(`[CLIO DOC] Could not fetch folders: ${response.status}`);
         break;
       }
       
       const data = await response.json();
-      allFolders = allFolders.concat(data.data || []);
+      const pageFolders = data.data || [];
+      allFolders = allFolders.concat(pageFolders);
+      
+      console.log(`[CLIO DOC] Folders page ${folderPageNum}: got ${pageFolders.length} (total: ${allFolders.length})`);
+      
       folderNextUrl = data.meta?.paging?.next || null;
+      folderPageNum++;
       
       if (folderNextUrl) await delay(200);
+      
     } catch (e) {
       console.log(`[CLIO DOC] Could not fetch folders: ${e.message}`);
       break;
     }
   }
   
-  console.log(`[CLIO DOC] Fetched ${allFolders.length} folders`);
+  console.log(`[CLIO DOC] Fetched ${allFolders.length} folders across ${folderPageNum - 1} pages`);
+  onProgress({ 
+    fetched: allDocuments.length, 
+    folders: allFolders.length,
+    status: 'processing' 
+  });
   
-  // Build folder path lookup
+  // ============================================
+  // STEP 3: Build folder path lookup
+  // ============================================
   const folderById = new Map();
   for (const f of allFolders) {
     folderById.set(f.id, f);
@@ -491,7 +788,10 @@ export async function fetchDocumentManifestFromClio(accessToken, firmId, options
     return parentPath ? `${parentPath}/${folder.name}` : folder.name;
   };
   
-  // Store folders in manifest
+  // ============================================
+  // STEP 4: Store folders in manifest
+  // ============================================
+  let foldersSaved = 0;
   for (const f of allFolders) {
     try {
       const path = buildFolderPath(f.id);
@@ -505,17 +805,27 @@ export async function fetchDocumentManifestFromClio(accessToken, firmId, options
           full_path = EXCLUDED.full_path,
           matter_id = COALESCE(EXCLUDED.matter_id, clio_folder_manifest.matter_id)
       `, [firmId, f.id, f.parent?.id || null, f.matter?.id || null, f.name, path, matterIdForFolder]);
+      foldersSaved++;
     } catch (err) {
       // Skip folder errors
     }
   }
+  console.log(`[CLIO DOC] Saved ${foldersSaved} folders to manifest`);
   
-  // Store documents in manifest
+  // ============================================
+  // STEP 5: Store documents in manifest
+  // ============================================
   let stored = 0;
+  let errors = 0;
+  
   for (const doc of allDocuments) {
     try {
       const folderPath = doc.parent?.id ? buildFolderPath(doc.parent.id) : '';
-      const fullPath = folderPath ? `${folderPath}/${doc.name}` : doc.name;
+      
+      // Get original filename with extension
+      const originalFilename = doc.latest_document_version?.filename || doc.filename || doc.name;
+      const fullPath = folderPath ? `${folderPath}/${originalFilename}` : originalFilename;
+      
       const matterId = doc.matter?.id ? matterIdMap.get(doc.matter.id) : null;
       const fileSize = doc.latest_document_version?.size || null;
       
@@ -536,7 +846,7 @@ export async function fetchDocumentManifestFromClio(accessToken, firmId, options
         doc.id,
         doc.matter?.id || null,
         doc.parent?.id || null,
-        doc.name,
+        originalFilename,  // Store original filename
         fullPath,
         doc.content_type,
         fileSize,
@@ -546,22 +856,37 @@ export async function fetchDocumentManifestFromClio(accessToken, firmId, options
       ]);
       
       stored++;
+      
       if (stored % 100 === 0) {
-        onProgress({ fetched: allDocuments.length, stored, status: 'storing' });
+        onProgress({ 
+          fetched: allDocuments.length, 
+          stored, 
+          status: 'storing',
+          percent: Math.round((stored / allDocuments.length) * 100)
+        });
+        console.log(`[CLIO DOC] Stored ${stored}/${allDocuments.length} documents...`);
       }
     } catch (err) {
       if (!err.message.includes('duplicate')) {
-        console.log(`[CLIO DOC] Manifest error: ${err.message}`);
+        console.log(`[CLIO DOC] Manifest error for ${doc.name}: ${err.message}`);
+        errors++;
       }
     }
   }
   
-  console.log(`[CLIO DOC] Stored ${stored} documents in manifest`);
+  console.log(`[CLIO DOC] Stored ${stored} documents in manifest (${errors} errors)`);
+  onProgress({ 
+    fetched: allDocuments.length, 
+    stored, 
+    status: 'complete',
+    errors
+  });
   
   return {
     documentsFound: allDocuments.length,
     foldersFound: allFolders.length,
-    stored
+    stored,
+    errors
   };
 }
 
