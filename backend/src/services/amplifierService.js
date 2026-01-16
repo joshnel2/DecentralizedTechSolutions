@@ -45,6 +45,20 @@ const MEMORY_MESSAGE_PREFIX = '## TASK MEMORY';
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+let persistenceAvailable = true;
+let persistenceWarningLogged = false;
+
+function markPersistenceUnavailable(error) {
+  if (!error?.message) return;
+  if (error.message.includes('ai_background_tasks')) {
+    persistenceAvailable = false;
+    if (!persistenceWarningLogged) {
+      persistenceWarningLogged = true;
+      console.warn('[AmplifierService] Background task persistence disabled (ai_background_tasks missing). Apply migration to enable checkpoints.');
+    }
+  }
+}
+
 /**
  * Get Azure OpenAI configuration (read at runtime to avoid timing issues)
  */
@@ -303,7 +317,48 @@ class BackgroundTask extends EventEmitter {
     const recentMessages = this.messages.slice(-12).filter(message => !this.isMemoryMessage(message));
     const memoryMessage = { role: 'system', content: this.buildMemorySummary() };
 
-    this.messages = [systemMessage, memoryMessage, ...recentMessages].filter(Boolean);
+    this.messages = this.normalizeMessages([systemMessage, memoryMessage, ...recentMessages].filter(Boolean));
+  }
+
+  normalizeMessages(messages) {
+    const normalized = [];
+    const pendingToolCalls = new Set();
+
+    for (const message of messages) {
+      if (!message) continue;
+
+      if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+        normalized.push(message);
+        for (const toolCall of message.tool_calls) {
+          if (toolCall?.id) pendingToolCalls.add(toolCall.id);
+        }
+        continue;
+      }
+
+      if (message.role === 'tool') {
+        if (message.tool_call_id && pendingToolCalls.has(message.tool_call_id)) {
+          normalized.push(message);
+          pendingToolCalls.delete(message.tool_call_id);
+        }
+        continue;
+      }
+
+      if (message.role === 'assistant') {
+        pendingToolCalls.clear();
+        normalized.push(message);
+        continue;
+      }
+
+      if (message.role === 'user') {
+        pendingToolCalls.clear();
+        normalized.push(message);
+        continue;
+      }
+
+      normalized.push(message);
+    }
+
+    return normalized;
   }
 
   getToolStepLabel(toolName, toolArgs = {}) {
@@ -346,7 +401,7 @@ class BackgroundTask extends EventEmitter {
     this.compactMessagesIfNeeded();
 
     return {
-      messages: JSON.parse(JSON.stringify(this.messages)),
+      messages: JSON.parse(JSON.stringify(this.normalizeMessages(this.messages))),
       actionsHistory: this.actionsHistory.slice(-200),
       progress: this.progress,
       result: this.result,
@@ -358,6 +413,7 @@ class BackgroundTask extends EventEmitter {
   }
 
   async saveCheckpoint(reason = 'periodic') {
+    if (!persistenceAvailable) return;
     const now = Date.now();
     if (now - this.lastCheckpointAt < CHECKPOINT_INTERVAL_MS && reason === 'periodic') {
       return;
@@ -400,7 +456,10 @@ class BackgroundTask extends EventEmitter {
         ]
       );
     } catch (error) {
-      console.error('[Amplifier] Failed to save checkpoint:', error.message);
+      markPersistenceUnavailable(error);
+      if (persistenceAvailable) {
+        console.error('[Amplifier] Failed to save checkpoint:', error.message);
+      }
     }
   }
 
@@ -416,6 +475,7 @@ class BackgroundTask extends EventEmitter {
   }
 
   async persistCompletion(status, errorMessage = null) {
+    if (!persistenceAvailable) return;
     try {
       const storedError = status === TaskStatus.FAILED ? (this.error || errorMessage) : null;
       await query(
@@ -437,7 +497,10 @@ class BackgroundTask extends EventEmitter {
         ]
       );
     } catch (error) {
-      console.error('[Amplifier] Failed to persist completion:', error.message);
+      markPersistenceUnavailable(error);
+      if (persistenceAvailable) {
+        console.error('[Amplifier] Failed to persist completion:', error.message);
+      }
     }
   }
 
@@ -607,6 +670,7 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
       try {
         console.log(`[Amplifier] Iteration ${this.progress.iterations}: calling Azure OpenAI`);
 
+        this.messages = this.normalizeMessages(this.messages);
         this.compactMessagesIfNeeded();
         
         // Call Azure OpenAI with tools
@@ -1194,6 +1258,7 @@ class AmplifierService {
    * Resume background tasks from checkpoints after restart
    */
   async resumePendingTasks() {
+    if (!persistenceAvailable) return;
     try {
       const result = await query(
         `SELECT id, firm_id, user_id, goal, status, progress, result, error, iterations, max_iterations, options, checkpoint, started_at
@@ -1225,7 +1290,10 @@ class AmplifierService {
         });
       }
     } catch (error) {
-      console.error('[AmplifierService] Failed to resume background tasks:', error.message);
+      markPersistenceUnavailable(error);
+      if (persistenceAvailable) {
+        console.error('[AmplifierService] Failed to resume background tasks:', error.message);
+      }
     }
   }
 
@@ -1273,6 +1341,7 @@ class AmplifierService {
   async getTask(taskId) {
     const task = this.tasks.get(taskId);
     if (task) return task.getStatus();
+    if (!persistenceAvailable) return null;
     
     try {
       const result = await query(
@@ -1298,7 +1367,10 @@ class AmplifierService {
         duration: row.started_at ? (new Date(row.completed_at || Date.now()) - new Date(row.started_at)) / 1000 : null
       };
     } catch (error) {
-      console.error('[AmplifierService] Error fetching task from storage:', error.message);
+      markPersistenceUnavailable(error);
+      if (persistenceAvailable) {
+        console.error('[AmplifierService] Error fetching task from storage:', error.message);
+      }
       return null;
     }
   }
@@ -1313,6 +1385,8 @@ class AmplifierService {
       if (task) return task.getStatus();
       activeTasks.delete(userId);
     }
+    
+    if (!persistenceAvailable) return null;
     
     try {
       const result = await query(
@@ -1354,7 +1428,10 @@ class AmplifierService {
       
       return this.tasks.get(row.id)?.getStatus() || null;
     } catch (error) {
-      console.error('[AmplifierService] Error checking active task:', error.message);
+      markPersistenceUnavailable(error);
+      if (persistenceAvailable) {
+        console.error('[AmplifierService] Error checking active task:', error.message);
+      }
       return null;
     }
   }
@@ -1369,6 +1446,10 @@ class AmplifierService {
       if (task.userId === userId) {
         inMemoryTasks.push(task.getStatus());
       }
+    }
+    
+    if (!persistenceAvailable) {
+      return inMemoryTasks.slice(0, limit);
     }
     
     try {
@@ -1402,7 +1483,10 @@ class AmplifierService {
       
       return Array.from(merged.values()).sort((a, b) => new Date(b.startTime) - new Date(a.startTime)).slice(0, limit);
     } catch (error) {
-      console.error('[AmplifierService] Error loading stored tasks:', error.message);
+      markPersistenceUnavailable(error);
+      if (persistenceAvailable) {
+        console.error('[AmplifierService] Error loading stored tasks:', error.message);
+      }
       return inMemoryTasks.slice(0, limit);
     }
   }
@@ -1415,14 +1499,19 @@ class AmplifierService {
     
     if (!task) {
       // Attempt to cancel stored task that isn't loaded in memory
-      query(
-        `UPDATE ai_background_tasks
-         SET status = 'cancelled', completed_at = NOW(), updated_at = NOW()
-         WHERE id = $1 AND user_id = $2`,
-        [taskId, userId]
-      ).catch(error => {
-        console.error('[AmplifierService] Failed to cancel stored task:', error.message);
-      });
+      if (persistenceAvailable) {
+        query(
+          `UPDATE ai_background_tasks
+           SET status = 'cancelled', completed_at = NOW(), updated_at = NOW()
+           WHERE id = $1 AND user_id = $2`,
+          [taskId, userId]
+        ).catch(error => {
+          markPersistenceUnavailable(error);
+          if (persistenceAvailable) {
+            console.error('[AmplifierService] Failed to cancel stored task:', error.message);
+          }
+        });
+      }
       return true;
     }
     

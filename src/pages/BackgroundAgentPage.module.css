@@ -1,0 +1,285 @@
+.page {
+  padding: 24px;
+  color: #e2e8f0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.title h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.title p {
+  margin: 2px 0 0;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.refreshBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.6);
+  color: #e2e8f0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.refreshBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(248, 113, 113, 0.15);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: #fecaca;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.card {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.cardHeader h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.textBtn {
+  background: none;
+  border: none;
+  color: #a855f7;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.emptyState {
+  color: #94a3b8;
+  font-size: 13px;
+  padding: 8px 0;
+}
+
+.task {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.taskHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.taskGoal {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.taskStep {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.progressRow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.progressBar {
+  width: 100%;
+  height: 8px;
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #a855f7);
+  transition: width 0.4s ease;
+}
+
+.progressMeta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #cbd5f5;
+}
+
+.taskSummary {
+  font-size: 13px;
+  color: #e2e8f0;
+  background: rgba(148, 163, 184, 0.1);
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.taskError {
+  font-size: 13px;
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.15);
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.taskList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.taskRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  padding-bottom: 8px;
+}
+
+.taskRow:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.taskGoalSmall {
+  font-size: 13px;
+  color: #e2e8f0;
+}
+
+.taskMeta {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.summaryBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summaryGoal {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.summaryText {
+  font-size: 13px;
+  color: #e2e8f0;
+}
+
+.toolGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.toolCategory {
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.toolCategory ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: #cbd5f5;
+}
+
+.toolHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #e2e8f0;
+  font-weight: 600;
+}
+
+.cancelBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.1);
+  color: #fca5a5;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cancelBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.complete {
+  color: #22c55e;
+}
+
+.error {
+  color: #f87171;
+}
+
+.cancelled {
+  color: #94a3b8;
+}
+
+.running {
+  color: #a855f7;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

@@ -21,6 +21,7 @@ import { TimeTrackingPage } from './pages/TimeTrackingPage'
 import { ReportsPage } from './pages/ReportsPage'
 import { DocumentsPage } from './pages/DocumentsPage'
 import { AIAssistantPage } from './pages/AIAssistantPage'
+import { BackgroundAgentPage } from './pages/BackgroundAgentPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SettingsHubPage } from './pages/SettingsHubPage'
 import { FirmSettingsPage } from './pages/FirmSettingsPage'
@@ -223,6 +224,7 @@ function AppContent() {
         <Route path="documents/permissions" element={<FolderPermissionsPage />} />
         <Route path="document-automation" element={<DocumentAutomationPage />} />
         <Route path="ai" element={<AIAssistantPage />} />
+        <Route path="background-agent" element={<BackgroundAgentPage />} />
         <Route path="ai/redline" element={<RedlineAIPage />} />
         
         {/* Analytics */}
