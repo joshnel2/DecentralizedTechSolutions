@@ -15,7 +15,7 @@
 import { EventEmitter } from 'events';
 import { query } from '../db/connection.js';
 import { PLATFORM_CONTEXT, getUserContext, getMatterContext, getLearningContext } from './amplifier/platformContext.js';
-import { AMPLIFIER_TOOLS, executeTool } from './amplifier/toolBridge.js';
+import { AMPLIFIER_TOOLS, AMPLIFIER_OPENAI_TOOLS, executeTool } from './amplifier/toolBridge.js';
 
 // Store active tasks per user
 const activeTasks = new Map();
@@ -34,6 +34,16 @@ const TaskStatus = {
 // This MUST match the version in routes/aiAgent.js for consistency
 // Read at runtime to ensure dotenv has loaded
 const API_VERSION = '2024-12-01-preview';
+
+// Background agent runtime defaults (tuned for long-running legal tasks)
+const DEFAULT_MAX_ITERATIONS = 120;
+const DEFAULT_MAX_RUNTIME_MINUTES = 90;
+const CHECKPOINT_INTERVAL_MS = 15000;
+const MESSAGE_COMPACT_MAX_CHARS = 12000;
+const MESSAGE_COMPACT_MAX_MESSAGES = 24;
+const MEMORY_MESSAGE_PREFIX = '## TASK MEMORY';
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * Get Azure OpenAI configuration (read at runtime to avoid timing issues)
@@ -86,45 +96,59 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
   
   console.log(`[Amplifier] Calling Azure OpenAI: ${config.deployment} with ${tools.length} tools`);
   
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'api-key': config.apiKey,
-    },
-    body: JSON.stringify(body),
-  });
+  const retryableStatuses = new Set([429, 500, 502, 503, 504]);
+  const maxAttempts = 3;
   
-  if (!response.ok) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': config.apiKey,
+      },
+      body: JSON.stringify(body),
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      console.log(`[Amplifier] Azure OpenAI response received, choices: ${data.choices?.length || 0}`);
+      return data;
+    }
+    
     const errorText = await response.text();
+    const isRetryable = retryableStatuses.has(response.status);
     console.error('[Amplifier] Azure OpenAI error:', errorText);
     console.error('[Amplifier] Request URL:', url);
     console.error('[Amplifier] Deployment:', config.deployment);
     console.error('[Amplifier] Status:', response.status);
     
-    // Parse error for better messaging
-    let errorMessage = `Azure OpenAI API error: ${response.status}`;
-    try {
-      const errorJson = JSON.parse(errorText);
-      if (errorJson.error?.message) {
-        errorMessage = errorJson.error.message;
+    if (!isRetryable || attempt === maxAttempts) {
+      let errorMessage = `Azure OpenAI API error: ${response.status}`;
+      try {
+        const errorJson = JSON.parse(errorText);
+        if (errorJson.error?.message) {
+          errorMessage = errorJson.error.message;
+        }
+      } catch {
+        errorMessage = `Azure OpenAI API error: ${response.status} - ${errorText.substring(0, 200)}`;
       }
-    } catch {
-      errorMessage = `Azure OpenAI API error: ${response.status} - ${errorText.substring(0, 200)}`;
+      throw new Error(errorMessage);
     }
     
-    throw new Error(errorMessage);
+    const delay = 1000 * Math.pow(2, attempt - 1);
+    console.warn(`[Amplifier] Retryable error, retrying in ${delay}ms (attempt ${attempt}/${maxAttempts})`);
+    await sleep(delay);
   }
-  
-  const data = await response.json();
-  console.log(`[Amplifier] Azure OpenAI response received, choices: ${data.choices?.length || 0}`);
-  return data;
 }
 
 /**
  * Convert our tool definitions to OpenAI function format
  */
 function getOpenAITools() {
+  if (Array.isArray(AMPLIFIER_OPENAI_TOOLS) && AMPLIFIER_OPENAI_TOOLS.length > 0) {
+    return AMPLIFIER_OPENAI_TOOLS;
+  }
+  
   return Object.entries(AMPLIFIER_TOOLS).map(([name, tool]) => ({
     type: 'function',
     function: {
@@ -187,10 +211,17 @@ class BackgroundTask extends EventEmitter {
     this.startTime = new Date();
     this.endTime = null;
     this.cancelled = false;
+    this.maxIterations = options.maxIterations || options.max_iterations || DEFAULT_MAX_ITERATIONS;
+    this.maxRuntimeMs = (options.maxRuntimeMinutes || options.max_runtime_minutes || DEFAULT_MAX_RUNTIME_MINUTES) * 60 * 1000;
+    this.lastCheckpointAt = 0;
+    this.plan = null;
+    this.recentTools = [];
     
     // User and firm context
     this.userContext = null;
     this.learningContext = null;
+    this.systemPrompt = null;
+    this.userRecord = null;
   }
 
   /**
@@ -206,6 +237,16 @@ class BackgroundTask extends EventEmitter {
       const user = userResult.rows[0];
       const firm = { name: user?.firm_name };
       
+      this.userRecord = user ? {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role,
+        firmId: user.firm_id,
+        twoFactorEnabled: user.two_factor_enabled,
+      } : null;
+      
       this.userContext = getUserContext(user, firm);
       this.learningContext = await getLearningContext(query, this.firmId, this.userId);
       
@@ -218,6 +259,185 @@ class BackgroundTask extends EventEmitter {
       this.workflowTemplates = workflowResult.rows;
     } catch (error) {
       console.error('[Amplifier] Context initialization error:', error);
+    }
+  }
+
+  isMemoryMessage(message) {
+    return message?.role === 'system' && message?.content?.startsWith(MEMORY_MESSAGE_PREFIX);
+  }
+
+  buildMemorySummary() {
+    const actionLines = this.actionsHistory.slice(-12).map(action => {
+      const status = action?.result?.error ? 'error' : 'ok';
+      return `- ${action.tool}: ${status}`;
+    });
+
+    const planLines = Array.isArray(this.plan?.steps)
+      ? this.plan.steps.map((step, index) => `${index + 1}. ${step}`)
+      : [];
+
+    const summaryParts = [
+      `${MEMORY_MESSAGE_PREFIX}`,
+      `Goal: ${this.goal}`,
+      this.progress?.currentStep ? `Current step: ${this.progress.currentStep}` : null,
+      planLines.length ? `Plan:\n${planLines.join('\n')}` : null,
+      actionLines.length ? `Recent actions:\n${actionLines.join('\n')}` : null,
+    ].filter(Boolean);
+
+    const summary = summaryParts.join('\n');
+    return summary.length > 4000 ? `${summary.substring(0, 4000)}…` : summary;
+  }
+
+  compactMessagesIfNeeded() {
+    const totalChars = this.messages.reduce((sum, message) => {
+      const contentSize = message?.content?.length || 0;
+      const toolSize = message?.tool_calls ? JSON.stringify(message.tool_calls).length : 0;
+      return sum + contentSize + toolSize;
+    }, 0);
+
+    if (this.messages.length <= MESSAGE_COMPACT_MAX_MESSAGES && totalChars <= MESSAGE_COMPACT_MAX_CHARS) {
+      return;
+    }
+
+    const systemMessage = this.messages.find(message => message.role === 'system' && !this.isMemoryMessage(message));
+    const recentMessages = this.messages.slice(-12).filter(message => !this.isMemoryMessage(message));
+    const memoryMessage = { role: 'system', content: this.buildMemorySummary() };
+
+    this.messages = [systemMessage, memoryMessage, ...recentMessages].filter(Boolean);
+  }
+
+  getToolStepLabel(toolName, toolArgs = {}) {
+    switch (toolName) {
+      case 'create_document':
+        return `Drafting document${toolArgs.name ? `: ${toolArgs.name}` : ''}`;
+      case 'read_document_content':
+        return `Reading document${toolArgs.document_id ? ` (${toolArgs.document_id})` : ''}`;
+      case 'search_document_content':
+        return `Searching documents for "${toolArgs.search_term || 'text'}"`;
+      case 'create_invoice':
+        return `Preparing invoice${toolArgs.client_id ? ` for client ${toolArgs.client_id}` : ''}`;
+      case 'send_invoice':
+        return `Sending invoice${toolArgs.invoice_id ? ` ${toolArgs.invoice_id}` : ''}`;
+      case 'log_time':
+        return `Logging time${toolArgs.matter_id ? ` to ${toolArgs.matter_id}` : ''}`;
+      case 'create_task':
+        return `Creating task${toolArgs.title ? `: ${toolArgs.title}` : ''}`;
+      case 'create_calendar_event':
+        return `Scheduling event${toolArgs.title ? `: ${toolArgs.title}` : ''}`;
+      case 'create_matter':
+        return `Creating matter${toolArgs.name ? `: ${toolArgs.name}` : ''}`;
+      case 'update_matter':
+        return `Updating matter${toolArgs.matter_id ? ` ${toolArgs.matter_id}` : ''}`;
+      case 'close_matter':
+        return `Closing matter${toolArgs.matter_id ? ` ${toolArgs.matter_id}` : ''}`;
+      case 'list_clients':
+        return 'Reviewing clients';
+      case 'list_matters':
+      case 'list_my_matters':
+        return 'Reviewing matters';
+      case 'list_documents':
+        return 'Reviewing documents';
+      default:
+        return `Executing: ${toolName}`;
+    }
+  }
+
+  buildCheckpointPayload() {
+    this.compactMessagesIfNeeded();
+
+    return {
+      messages: JSON.parse(JSON.stringify(this.messages)),
+      actionsHistory: this.actionsHistory.slice(-200),
+      progress: this.progress,
+      result: this.result,
+      error: this.error,
+      iterations: this.progress.iterations,
+      plan: this.plan,
+      systemPrompt: this.systemPrompt,
+    };
+  }
+
+  async saveCheckpoint(reason = 'periodic') {
+    const now = Date.now();
+    if (now - this.lastCheckpointAt < CHECKPOINT_INTERVAL_MS && reason === 'periodic') {
+      return;
+    }
+    this.lastCheckpointAt = now;
+
+    const checkpoint = this.buildCheckpointPayload();
+
+    try {
+      await query(
+        `INSERT INTO ai_background_tasks (
+          id, firm_id, user_id, goal, status, progress, result, error, started_at, iterations,
+          max_iterations, options, checkpoint, checkpoint_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
+        ON CONFLICT (id) DO UPDATE SET
+          status = EXCLUDED.status,
+          progress = EXCLUDED.progress,
+          result = EXCLUDED.result,
+          error = EXCLUDED.error,
+          iterations = EXCLUDED.iterations,
+          max_iterations = EXCLUDED.max_iterations,
+          options = EXCLUDED.options,
+          checkpoint = EXCLUDED.checkpoint,
+          checkpoint_at = NOW(),
+          updated_at = NOW()`,
+        [
+          this.id,
+          this.firmId,
+          this.userId,
+          this.goal,
+          this.status,
+          this.progress,
+          this.result,
+          this.error,
+          this.startTime,
+          this.progress.iterations,
+          this.maxIterations,
+          this.options || {},
+          checkpoint
+        ]
+      );
+    } catch (error) {
+      console.error('[Amplifier] Failed to save checkpoint:', error.message);
+    }
+  }
+
+  loadCheckpoint(checkpoint) {
+    if (!checkpoint) return;
+    this.messages = Array.isArray(checkpoint.messages) ? checkpoint.messages : this.messages;
+    this.actionsHistory = Array.isArray(checkpoint.actionsHistory) ? checkpoint.actionsHistory : this.actionsHistory;
+    this.progress = checkpoint.progress || this.progress;
+    this.result = checkpoint.result || this.result;
+    this.error = checkpoint.error || this.error;
+    this.plan = checkpoint.plan || this.plan;
+    this.systemPrompt = checkpoint.systemPrompt || this.systemPrompt;
+  }
+
+  async persistCompletion(status, errorMessage = null) {
+    try {
+      const storedError = status === TaskStatus.FAILED ? (this.error || errorMessage) : null;
+      await query(
+        `UPDATE ai_background_tasks
+         SET status = $1,
+             progress = $2,
+             result = $3,
+             error = $4,
+             completed_at = $5,
+             updated_at = NOW()
+         WHERE id = $6`,
+        [
+          status,
+          this.progress,
+          this.result,
+          storedError,
+          this.endTime,
+          this.id
+        ]
+      );
+    } catch (error) {
+      console.error('[Amplifier] Failed to persist completion:', error.message);
     }
   }
 
@@ -265,6 +485,14 @@ For each task, follow this pattern:
 4. Use \`evaluate_progress\` periodically to assess status
 5. When done, use \`task_complete\` with a summary
 
+## LONG-RUN TASK GUIDELINES
+
+- You are allowed to run for a long time on complex legal work
+- Break large goals into phases with clear milestones
+- Keep the work moving forward; do not stall or loop
+- Use \`log_work\` after each milestone so progress stays visible
+- If a step fails, recover and continue with an alternative approach
+
 ## IMPORTANT RULES
 
 - NEVER ask for clarification - make reasonable assumptions and proceed
@@ -296,29 +524,34 @@ START WORKING NOW. Execute tools to complete this goal. Do not respond with text
    * Start the background task
    * This begins AUTONOMOUS execution without human intervention
    */
-  async start() {
+  async start({ resumeFromCheckpoint = false } = {}) {
     this.status = TaskStatus.RUNNING;
-    this.progress.currentStep = 'Initializing autonomous agent...';
+    this.progress.currentStep = resumeFromCheckpoint ? 'Resuming autonomous agent...' : 'Initializing autonomous agent...';
     this.emit('progress', this.getStatus());
 
     try {
       console.log(`[Amplifier] Starting autonomous task ${this.id}: ${this.goal}`);
       
-      // Initialize context (user info, firm data, learnings)
-      await this.initializeContext();
-      
-      // Build initial messages with a STRONG action prompt
-      // The user message must clearly instruct the AI to take action immediately
-      this.messages = [
-        { role: 'system', content: this.buildSystemPrompt() },
-        { 
-          role: 'user', 
-          content: `EXECUTE THIS TASK NOW: ${this.goal}
+      if (!resumeFromCheckpoint) {
+        // Initialize context (user info, firm data, learnings)
+        await this.initializeContext();
+        
+        // Build initial messages with a STRONG action prompt
+        // The user message must clearly instruct the AI to take action immediately
+        this.systemPrompt = this.buildSystemPrompt();
+        this.messages = [
+          { role: 'system', content: this.systemPrompt },
+          { 
+            role: 'user', 
+            content: `EXECUTE THIS TASK NOW: ${this.goal}
 
 Begin by calling think_and_plan to create your execution plan, then immediately start calling tools to complete each step. Do NOT respond with just text - you MUST call tools to take action.`
-        }
-      ];
+          }
+        ];
+      }
 
+      await this.saveCheckpoint('start');
+      
       console.log(`[Amplifier] Task ${this.id} context initialized, starting agent loop`);
       
       // Run the agentic loop (autonomous execution)
@@ -330,6 +563,8 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
       this.endTime = new Date();
       console.error(`[Amplifier] Task ${this.id} failed:`, error);
       console.error(`[Amplifier] Error stack:`, error.stack);
+      await this.saveTaskHistory();
+      await this.persistCompletion(TaskStatus.FAILED, error.message);
       this.emit('error', error);
     }
   }
@@ -340,7 +575,7 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
    * The agent works WITHOUT human intervention
    */
   async runAgentLoop() {
-    const MAX_ITERATIONS = 50;
+    const MAX_ITERATIONS = this.maxIterations;
     const MAX_TEXT_ONLY_RESPONSES = 3; // Max times AI can respond with only text before we re-prompt
     const tools = getOpenAITools();
     let textOnlyCount = 0;
@@ -348,15 +583,37 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
     console.log(`[Amplifier] Starting agent loop with ${tools.length} tools available`);
     
     while (this.progress.iterations < MAX_ITERATIONS && !this.cancelled) {
+      const elapsedMs = Date.now() - this.startTime.getTime();
+      if (elapsedMs > this.maxRuntimeMs) {
+        console.warn(`[Amplifier] Task ${this.id} reached max runtime (${this.maxRuntimeMs}ms)`);
+        this.status = TaskStatus.COMPLETED;
+        this.progress.progressPercent = 100;
+        this.progress.currentStep = 'Completed (time limit reached)';
+        this.result = {
+          summary: `Time limit reached after ${Math.round(elapsedMs / 60000)} minutes. Partial results saved.`,
+          actions: this.actionsHistory.map(a => a.tool)
+        };
+        this.endTime = new Date();
+        await this.saveTaskHistory();
+        await this.persistCompletion(TaskStatus.COMPLETED);
+        this.emit('complete', this.getStatus());
+        return;
+      }
+
       this.progress.iterations++;
       this.progress.currentStep = `Working... (step ${this.progress.iterations})`;
       this.emit('progress', this.getStatus());
       
       try {
         console.log(`[Amplifier] Iteration ${this.progress.iterations}: calling Azure OpenAI`);
+
+        this.compactMessagesIfNeeded();
         
         // Call Azure OpenAI with tools
-        const response = await callAzureOpenAI(this.messages, tools);
+        const response = await callAzureOpenAI(this.messages, tools, {
+          temperature: this.options?.temperature ?? 0.3,
+          max_tokens: this.options?.max_tokens ?? 4000
+        });
         const choice = response.choices[0];
         const message = choice.message;
         
@@ -384,13 +641,14 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             }
             
             console.log(`[Amplifier] Executing tool: ${toolName}`);
-            this.progress.currentStep = `Executing: ${toolName}`;
+            this.progress.currentStep = this.getToolStepLabel(toolName, toolArgs);
             this.emit('progress', this.getStatus());
             
             // Execute the tool
             const result = await executeTool(toolName, toolArgs, {
               userId: this.userId,
-              firmId: this.firmId
+              firmId: this.firmId,
+              user: this.userRecord
             });
             
             console.log(`[Amplifier] Tool ${toolName} result:`, result.success !== undefined ? (result.success ? 'success' : 'failed') : 'completed');
@@ -409,6 +667,9 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
               tool_call_id: toolCall.id,
               content: JSON.stringify(result)
             });
+
+            this.recentTools.push(toolName);
+            if (this.recentTools.length > 6) this.recentTools.shift();
             
             // Check for explicit task completion
             if (toolName === 'task_complete') {
@@ -425,6 +686,7 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
               
               // Save to history and extract learnings
               await this.saveTaskHistory();
+              await this.persistCompletion(TaskStatus.COMPLETED);
               
               this.emit('complete', this.getStatus());
               return;
@@ -432,6 +694,7 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             
             // Update progress based on planning tools
             if (toolName === 'think_and_plan') {
+              this.plan = toolArgs;
               this.progress.totalSteps = (toolArgs.steps || []).length;
               this.progress.progressPercent = Math.min(15, this.progress.progressPercent + 10);
             }
@@ -443,12 +706,33 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
                 this.progress.completedSteps = completed;
                 this.progress.progressPercent = Math.min(90, 15 + (75 * completed / total));
               }
+              if (toolArgs.remaining_steps && toolArgs.remaining_steps.length > 0) {
+                this.progress.currentStep = `Next: ${toolArgs.remaining_steps[0]}`;
+              }
             }
             
             if (toolName === 'log_work') {
               // Increment progress for each logged work item
               this.progress.progressPercent = Math.min(90, this.progress.progressPercent + 5);
+              if (this.progress.totalSteps > 0) {
+                this.progress.completedSteps = Math.min(
+                  this.progress.totalSteps,
+                  (this.progress.completedSteps || 0) + 1
+                );
+              }
+              if (toolArgs.next_step) {
+                this.progress.currentStep = toolArgs.next_step;
+              }
             }
+
+            if (this.recentTools.length === 6 && this.recentTools.every(t => t === toolName)) {
+              this.messages.push({
+                role: 'user',
+                content: `You have used ${toolName} repeatedly without progress. Try a different tool or a new approach to complete: "${this.goal}".`
+              });
+            }
+
+            await this.saveCheckpoint('periodic');
           }
         } else {
           // No tool calls - AI just responded with text
@@ -470,6 +754,7 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
               this.endTime = new Date();
               
               await this.saveTaskHistory();
+              await this.persistCompletion(TaskStatus.COMPLETED);
               this.emit('complete', this.getStatus());
               return;
             }
@@ -487,6 +772,8 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
               this.status = TaskStatus.FAILED;
               this.error = 'Agent did not execute any actions. The AI model may not support function calling.';
               this.endTime = new Date();
+              await this.saveTaskHistory();
+              await this.persistCompletion(TaskStatus.FAILED);
               this.emit('error', new Error(this.error));
               return;
             }
@@ -495,11 +782,11 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
         
         // Gradual progress update
         if (this.progress.progressPercent < 90) {
-          this.progress.progressPercent = Math.min(
-            90,
-            this.progress.progressPercent + Math.max(1, 3 - textOnlyCount)
-          );
+          const increment = Math.max(1, Math.round(60 / Math.max(1, MAX_ITERATIONS)));
+          this.progress.progressPercent = Math.min(90, this.progress.progressPercent + increment);
         }
+
+        await this.saveCheckpoint('periodic');
         
       } catch (error) {
         console.error(`[Amplifier] Iteration ${this.progress.iterations} error:`, error);
@@ -509,6 +796,8 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
           this.status = TaskStatus.FAILED;
           this.error = error.message;
           this.endTime = new Date();
+          await this.saveTaskHistory();
+          await this.persistCompletion(TaskStatus.FAILED, error.message);
           this.emit('error', error);
           return;
         }
@@ -518,6 +807,8 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
           role: 'user',
           content: `An error occurred: ${error.message}. Please continue with an alternative approach or call task_complete if the goal has been achieved.`
         });
+
+        await this.saveCheckpoint('periodic');
       }
     }
     
@@ -534,6 +825,7 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
       this.endTime = new Date();
       
       await this.saveTaskHistory();
+      await this.persistCompletion(TaskStatus.COMPLETED);
       this.emit('complete', this.getStatus());
     }
   }
@@ -545,8 +837,11 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
     try {
       // Save to task history
       await query(`
-        INSERT INTO ai_task_history (firm_id, user_id, task_id, goal, status, started_at, completed_at, duration_seconds, iterations, summary, actions_taken, result)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        INSERT INTO ai_task_history (
+          firm_id, user_id, task_id, goal, status, started_at, completed_at, duration_seconds,
+          iterations, summary, actions_taken, result, error
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       `, [
         this.firmId,
         this.userId,
@@ -559,7 +854,8 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
         this.progress.iterations,
         this.result?.summary,
         JSON.stringify(this.actionsHistory.map(a => ({ tool: a.tool, args: a.args }))),
-        JSON.stringify(this.result)
+        JSON.stringify(this.result),
+        this.error
       ]);
       
       // Extract and save learnings
@@ -823,6 +1119,7 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
     this.endTime = new Date();
     
     console.log(`[Amplifier] Task ${this.id} cancelled`);
+    this.persistCompletion(TaskStatus.CANCELLED);
     this.emit('cancelled', this.getStatus());
     return true;
   }
@@ -894,11 +1191,50 @@ class AmplifierService {
   }
 
   /**
+   * Resume background tasks from checkpoints after restart
+   */
+  async resumePendingTasks() {
+    try {
+      const result = await query(
+        `SELECT id, firm_id, user_id, goal, status, progress, result, error, iterations, max_iterations, options, checkpoint, started_at
+         FROM ai_background_tasks
+         WHERE status IN ('running', 'pending') AND checkpoint IS NOT NULL`
+      );
+
+      for (const row of result.rows) {
+        if (this.tasks.has(row.id)) continue;
+        const task = new BackgroundTask(row.id, row.user_id, row.firm_id, row.goal, row.options || {});
+        task.progress = row.progress || task.progress;
+        task.result = row.result || null;
+        task.error = row.error || null;
+        task.startTime = row.started_at ? new Date(row.started_at) : task.startTime;
+        task.progress.iterations = row.iterations || task.progress.iterations;
+        task.maxIterations = row.max_iterations || task.maxIterations;
+        task.status = TaskStatus.RUNNING;
+        task.loadCheckpoint(row.checkpoint);
+
+        this.tasks.set(task.id, task);
+        activeTasks.set(task.userId, task.id);
+
+        task.on('complete', () => activeTasks.delete(task.userId));
+        task.on('error', () => activeTasks.delete(task.userId));
+        task.on('cancelled', () => activeTasks.delete(task.userId));
+
+        task.start({ resumeFromCheckpoint: true }).catch(err => {
+          console.error(`[AmplifierService] Resumed task ${task.id} failed:`, err);
+        });
+      }
+    } catch (error) {
+      console.error('[AmplifierService] Failed to resume background tasks:', error.message);
+    }
+  }
+
+  /**
    * Start a new background task
    */
   async startTask(userId, firmId, goal, options = {}) {
     // Check if user already has an active task
-    const existingTask = this.getActiveTask(userId);
+    const existingTask = await this.getActiveTask(userId);
     if (existingTask) {
       throw new Error('User already has an active background task');
     }
@@ -934,51 +1270,141 @@ class AmplifierService {
   /**
    * Get task by ID
    */
-  getTask(taskId) {
+  async getTask(taskId) {
     const task = this.tasks.get(taskId);
-    return task ? task.getStatus() : null;
+    if (task) return task.getStatus();
+    
+    try {
+      const result = await query(
+        `SELECT id, firm_id, user_id, goal, status, progress, result, error, iterations, max_iterations, options,
+                started_at, completed_at, checkpoint
+         FROM ai_background_tasks WHERE id = $1`,
+        [taskId]
+      );
+      if (!result.rows.length) return null;
+      const row = result.rows[0];
+      return {
+        id: row.id,
+        userId: row.user_id,
+        firmId: row.firm_id,
+        goal: row.goal,
+        status: row.status,
+        progress: row.progress,
+        actionsCount: Array.isArray(row.checkpoint?.actionsHistory) ? row.checkpoint.actionsHistory.length : 0,
+        result: row.result,
+        error: row.error,
+        startTime: row.started_at,
+        endTime: row.completed_at,
+        duration: row.started_at ? (new Date(row.completed_at || Date.now()) - new Date(row.started_at)) / 1000 : null
+      };
+    } catch (error) {
+      console.error('[AmplifierService] Error fetching task from storage:', error.message);
+      return null;
+    }
   }
 
   /**
    * Get active task for user
    */
-  getActiveTask(userId) {
+  async getActiveTask(userId) {
     const taskId = activeTasks.get(userId);
-    if (!taskId) return null;
-    
-    const task = this.tasks.get(taskId);
-    if (!task) {
+    if (taskId) {
+      const task = this.tasks.get(taskId);
+      if (task) return task.getStatus();
       activeTasks.delete(userId);
-      return null;
     }
     
-    // Check if task is still active
-    if (task.status !== TaskStatus.RUNNING && 
-        task.status !== TaskStatus.PENDING &&
-        task.status !== TaskStatus.WAITING_INPUT) {
-      activeTasks.delete(userId);
+    try {
+      const result = await query(
+        `SELECT id, firm_id, user_id, goal, status, progress, result, error, iterations, max_iterations, options, checkpoint, started_at
+         FROM ai_background_tasks
+         WHERE user_id = $1 AND status IN ('running', 'pending')
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [userId]
+      );
+      
+      if (!result.rows.length) return null;
+      const row = result.rows[0];
+      
+      if (!this.tasks.has(row.id)) {
+        const task = new BackgroundTask(row.id, row.user_id, row.firm_id, row.goal, row.options || {});
+        task.progress = row.progress || task.progress;
+        task.result = row.result || null;
+        task.error = row.error || null;
+        task.startTime = row.started_at ? new Date(row.started_at) : task.startTime;
+        task.progress.iterations = row.iterations || task.progress.iterations;
+        task.maxIterations = row.max_iterations || task.maxIterations;
+        task.status = TaskStatus.RUNNING;
+        task.loadCheckpoint(row.checkpoint);
+
+        this.tasks.set(task.id, task);
+        activeTasks.set(task.userId, task.id);
+
+        task.on('complete', () => activeTasks.delete(task.userId));
+        task.on('error', () => activeTasks.delete(task.userId));
+        task.on('cancelled', () => activeTasks.delete(task.userId));
+
+        task.start({ resumeFromCheckpoint: true }).catch(err => {
+          console.error(`[AmplifierService] On-demand resume failed for ${task.id}:`, err);
+        });
+
+        return task.getStatus();
+      }
+      
+      return this.tasks.get(row.id)?.getStatus() || null;
+    } catch (error) {
+      console.error('[AmplifierService] Error checking active task:', error.message);
       return null;
     }
-    
-    return task.getStatus();
   }
 
   /**
    * Get all tasks for user
    */
-  getUserTasks(userId, limit = 10) {
-    const userTasks = [];
+  async getUserTasks(userId, limit = 10) {
+    const inMemoryTasks = [];
     
     for (const task of this.tasks.values()) {
       if (task.userId === userId) {
-        userTasks.push(task.getStatus());
+        inMemoryTasks.push(task.getStatus());
       }
     }
     
-    // Sort by start time descending
-    userTasks.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
-    
-    return userTasks.slice(0, limit);
+    try {
+      const result = await query(
+        `SELECT id, firm_id, user_id, goal, status, progress, result, error, started_at, completed_at, iterations
+         FROM ai_background_tasks
+         WHERE user_id = $1
+         ORDER BY COALESCE(completed_at, started_at) DESC
+         LIMIT $2`,
+        [userId, limit]
+      );
+      
+      const storedTasks = result.rows.map(row => ({
+        id: row.id,
+        userId: row.user_id,
+        firmId: row.firm_id,
+        goal: row.goal,
+        status: row.status,
+        progress: row.progress,
+        iterations: row.iterations,
+        result: row.result,
+        error: row.error,
+        startTime: row.started_at,
+        endTime: row.completed_at,
+        duration: row.started_at ? (new Date(row.completed_at || Date.now()) - new Date(row.started_at)) / 1000 : null
+      }));
+      
+      const merged = new Map();
+      for (const task of storedTasks) merged.set(task.id, task);
+      for (const task of inMemoryTasks) merged.set(task.id, task);
+      
+      return Array.from(merged.values()).sort((a, b) => new Date(b.startTime) - new Date(a.startTime)).slice(0, limit);
+    } catch (error) {
+      console.error('[AmplifierService] Error loading stored tasks:', error.message);
+      return inMemoryTasks.slice(0, limit);
+    }
   }
 
   /**
@@ -988,7 +1414,16 @@ class AmplifierService {
     const task = this.tasks.get(taskId);
     
     if (!task) {
-      throw new Error('Task not found');
+      // Attempt to cancel stored task that isn't loaded in memory
+      query(
+        `UPDATE ai_background_tasks
+         SET status = 'cancelled', completed_at = NOW(), updated_at = NOW()
+         WHERE id = $1 AND user_id = $2`,
+        [taskId, userId]
+      ).catch(error => {
+        console.error('[AmplifierService] Failed to cancel stored task:', error.message);
+      });
+      return true;
     }
     
     if (task.userId !== userId) {

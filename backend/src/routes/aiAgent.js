@@ -13491,7 +13491,7 @@ function escapeXml(text) {
     .replace(/'/g, '&apos;');
 }
 
-// Named exports for server.js
-export { resumeIncompleteTasks };
+// Named exports for server.js / background agent tool reuse
+export { resumeIncompleteTasks, executeTool, TOOLS };
 
 export default router;

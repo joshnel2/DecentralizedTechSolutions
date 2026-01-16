@@ -96,7 +96,7 @@ router.post('/tasks', authenticate, async (req, res) => {
     }
     
     // Check for existing active task (only one task per user at a time)
-    const existingTask = amplifierService.getActiveTask(req.user.id);
+    const existingTask = await amplifierService.getActiveTask(req.user.id);
     if (existingTask) {
       console.log(`[BackgroundAgent] User ${req.user.id} already has active task: ${existingTask.id}`);
       return res.status(409).json({ 
@@ -137,7 +137,7 @@ router.post('/tasks', authenticate, async (req, res) => {
 router.get('/tasks', authenticate, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 10;
-    const tasks = amplifierService.getUserTasks(req.user.id, limit);
+    const tasks = await amplifierService.getUserTasks(req.user.id, limit);
     
     res.json({
       tasks,
@@ -154,7 +154,7 @@ router.get('/tasks', authenticate, async (req, res) => {
  */
 router.get('/tasks/active', authenticate, async (req, res) => {
   try {
-    const task = amplifierService.getActiveTask(req.user.id);
+    const task = await amplifierService.getActiveTask(req.user.id);
     
     res.json({
       active: !!task,
@@ -171,7 +171,7 @@ router.get('/tasks/active', authenticate, async (req, res) => {
  */
 router.get('/tasks/:id', authenticate, async (req, res) => {
   try {
-    const task = amplifierService.getTask(req.params.id);
+    const task = await amplifierService.getTask(req.params.id);
     
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
@@ -203,7 +203,7 @@ router.post('/tasks/:id/cancel', authenticate, async (req, res) => {
       });
     }
     
-    const task = amplifierService.getTask(req.params.id);
+    const task = await amplifierService.getTask(req.params.id);
     
     res.json({
       success: true,

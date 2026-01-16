@@ -204,6 +204,7 @@ app.listen(PORT, () => {
       const configured = await amplifierService.configure();
       if (configured) {
         console.log('✓ Amplifier background agent initialized');
+        await amplifierService.resumePendingTasks();
       } else {
         console.log('⚠ Amplifier background agent not available');
       }
