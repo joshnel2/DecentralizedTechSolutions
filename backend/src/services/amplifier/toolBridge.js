@@ -11,10 +11,12 @@
 import { query, withTransaction } from '../../db/connection.js';
 import { formatDate, formatDateTime, getTodayInTimezone } from '../../utils/dateUtils.js';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import PDFDocument from 'pdfkit';
-import { uploadFile, isAzureConfigured } from '../../utils/azureStorage.js';
+import { uploadFile, downloadFile, isAzureConfigured } from '../../utils/azureStorage.js';
+import { extractTextFromFile } from '../../routes/documents.js';
 
 /**
  * Complete list of tools available to Amplifier
@@ -918,11 +920,56 @@ async function listDocuments(params, userId, firmId) {
   return { documents: result.rows };
 }
 
+async function extractDocumentText(doc, firmId) {
+  const fileName = doc.original_name || doc.name || 'document';
+  
+  // Prefer local file path if available
+  if (doc.path && fs.existsSync(doc.path)) {
+    return await extractTextFromFile(doc.path, fileName, doc.type);
+  }
+  
+  // Fallback to Azure File Share when configured
+  try {
+    const azureEnabled = await isAzureConfigured();
+    if (azureEnabled) {
+      const prefix = `firm-${firmId}/`;
+      const candidatePaths = [doc.azure_path, doc.external_path, doc.path].filter(Boolean)
+        .map(pathValue => pathValue.startsWith(prefix) ? pathValue.slice(prefix.length) : pathValue);
+      
+      for (const remotePath of candidatePaths) {
+        try {
+          const buffer = await downloadFile(remotePath, firmId);
+          if (!buffer || buffer.length === 0) continue;
+          
+          const tempPath = path.join(
+            os.tmpdir(),
+            `amp-doc-${Date.now()}-${Math.random().toString(36).slice(2)}${path.extname(fileName)}`
+          );
+          
+          await fs.promises.writeFile(tempPath, buffer);
+          try {
+            const extracted = await extractTextFromFile(tempPath, fileName, doc.type);
+            if (extracted) return extracted;
+          } finally {
+            await fs.promises.unlink(tempPath).catch(() => null);
+          }
+        } catch (error) {
+          // Try next path
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[Amplifier Tool] Azure download failed:', error.message);
+  }
+  
+  return null;
+}
+
 async function readDocumentContent(params, userId, firmId) {
   const { document_id, max_length = 10000 } = params;
   
   const result = await query(`
-    SELECT name, original_name, content_text 
+    SELECT name, original_name, content_text, path, external_path, azure_path, type 
     FROM documents 
     WHERE id = $1 AND firm_id = $2
   `, [document_id, firmId]);
@@ -930,8 +977,23 @@ async function readDocumentContent(params, userId, firmId) {
   if (!result.rows.length) return { error: 'Document not found' };
   
   const doc = result.rows[0];
-  const content = doc.content_text || '';
+  let content = doc.content_text || '';
   const safeMax = Number.isFinite(Number(max_length)) ? Number(max_length) : 10000;
+  
+  if (!content) {
+    const extracted = await extractDocumentText(doc, firmId);
+    if (extracted) {
+      content = extracted;
+      try {
+        await query(
+          `UPDATE documents SET content_text = $1, content_extracted_at = NOW() WHERE id = $2`,
+          [content, document_id]
+        );
+      } catch (error) {
+        console.error('[Amplifier Tool] Failed to store extracted content:', error.message);
+      }
+    }
+  }
   
   return {
     name: doc.original_name || doc.name,

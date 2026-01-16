@@ -11,6 +11,8 @@ interface ActiveTask {
   progressPercent: number
   iterations: number
   currentStep: string
+  totalSteps?: number
+  completedSteps?: number
   summary?: string
   result?: any
   isAmplifier?: boolean  // Track if this is an Amplifier background task
@@ -62,6 +64,8 @@ export function BackgroundTaskBar() {
             status: task.status,
             progressPercent,
             iterations: task.progress?.iterations || 0,
+            totalSteps: task.progress?.totalSteps,
+            completedSteps: task.progress?.completedSteps,
             currentStep: task.progress?.currentStep || 'Working...',
             summary: task.result?.summary,
             result: task.result,
@@ -85,6 +89,8 @@ export function BackgroundTaskBar() {
                 status: finalStatus,
                 progressPercent: finalProgress,
                 currentStep: finalStep,
+                totalSteps: taskDetails.task.progress?.totalSteps,
+                completedSteps: taskDetails.task.progress?.completedSteps,
                 summary: taskDetails.task.result?.summary,
                 result: taskDetails.task.result,
               })
@@ -92,7 +98,9 @@ export function BackgroundTaskBar() {
                 ...prev,
                 status: finalStatus,
                 progressPercent: finalProgress,
-                currentStep: finalStep
+                currentStep: finalStep,
+                totalSteps: taskDetails.task.progress?.totalSteps,
+                completedSteps: taskDetails.task.progress?.completedSteps,
               } : prev)
               setHasError(finalStatus === 'error' || finalStatus === 'failed')
             }
@@ -128,6 +136,8 @@ export function BackgroundTaskBar() {
           status: task.status,
           progressPercent: task.progress?.progressPercent || task.progressPercent || 5,
           iterations: task.iterations || 0,
+          totalSteps: task.progress?.totalSteps,
+          completedSteps: task.progress?.completedSteps,
           currentStep: task.current_step || task.progress?.currentStep || 'Working...',
           summary: task.summary,
           result: task.result,
@@ -182,6 +192,8 @@ export function BackgroundTaskBar() {
             status: task.status,
             progressPercent,
             iterations: task.progress?.iterations || 0,
+            totalSteps: task.progress?.totalSteps,
+            completedSteps: task.progress?.completedSteps,
             currentStep: task.progress?.currentStep || 'Working...',
             summary: task.result?.summary,
             result: task.result,
@@ -330,6 +342,9 @@ export function BackgroundTaskBar() {
   const isErrorState = hasError || activeTask.status === 'error' || activeTask.status === 'failed'
   const isCancelledState = isCancelled || activeTask.status === 'cancelled' || activeTask.status === 'cancelling'
   const isDoneState = isComplete && !isErrorState && !isCancelledState
+  const stepLabel = activeTask.totalSteps
+    ? `Step ${Math.min(activeTask.completedSteps ?? activeTask.iterations ?? 1, activeTask.totalSteps)} of ${activeTask.totalSteps}`
+    : `Step ${activeTask.iterations || 1}`
 
   return (
     <div className={`${styles.taskBar} ${isDoneState ? styles.complete : ''} ${isErrorState ? styles.error : ''} ${isCancelledState ? styles.cancelled : ''}`}>
@@ -360,7 +375,7 @@ export function BackgroundTaskBar() {
               </div>
               {!isDoneState && !isErrorState && !isCancelledState && (
                 <div className={styles.iterations}>
-                  Step {activeTask.iterations || 1}
+                  {stepLabel}
                 </div>
               )}
             </div>
