@@ -319,21 +319,15 @@ export function BackgroundTaskBar() {
         status: taskToShow.status
       }))
     }
-    // Navigate to AI assistant page
-    navigate('/app/ai')
+    // Navigate to Background Agent page
+    navigate('/app/background-agent')
     // Dismiss the bar
     handleDismiss()
-    // Trigger the AI chat to open and show the summary
-    setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('openAIChat', { 
-        detail: { showTaskSummary: true } 
-      }))
-    }, 100)
   }
 
   const handleViewProgress = () => {
-    // Navigate to AI Assistant page to view progress
-    navigate('/app/ai')
+    // Navigate to Background Agent page to view progress
+    navigate('/app/background-agent')
   }
 
   // Only render when there's an active task or recently completed task
