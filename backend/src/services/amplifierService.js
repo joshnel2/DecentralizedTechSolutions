@@ -322,36 +322,39 @@ class BackgroundTask extends EventEmitter {
 
   normalizeMessages(messages) {
     const normalized = [];
-    const pendingToolCalls = new Set();
 
-    for (const message of messages) {
+    for (let i = 0; i < messages.length; i += 1) {
+      const message = messages[i];
       if (!message) continue;
 
       if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
-        normalized.push(message);
-        for (const toolCall of message.tool_calls) {
-          if (toolCall?.id) pendingToolCalls.add(toolCall.id);
+        const toolCallIds = new Set(message.tool_calls.map(toolCall => toolCall?.id).filter(Boolean));
+        const toolMessages = [];
+        let j = i + 1;
+
+        for (; j < messages.length; j += 1) {
+          const next = messages[j];
+          if (!next || next.role !== 'tool') break;
+          if (next.tool_call_id && toolCallIds.has(next.tool_call_id)) {
+            toolMessages.push(next);
+            toolCallIds.delete(next.tool_call_id);
+          } else {
+            // Ignore tool responses that don't match the current tool_call group
+          }
         }
+
+        if (toolCallIds.size === 0) {
+          normalized.push(message, ...toolMessages);
+        } else {
+          console.warn('[Amplifier] Dropping incomplete tool_call group before model call');
+        }
+
+        i = j - 1;
         continue;
       }
 
       if (message.role === 'tool') {
-        if (message.tool_call_id && pendingToolCalls.has(message.tool_call_id)) {
-          normalized.push(message);
-          pendingToolCalls.delete(message.tool_call_id);
-        }
-        continue;
-      }
-
-      if (message.role === 'assistant') {
-        pendingToolCalls.clear();
-        normalized.push(message);
-        continue;
-      }
-
-      if (message.role === 'user') {
-        pendingToolCalls.clear();
-        normalized.push(message);
+        // Skip orphan tool messages to avoid Azure errors
         continue;
       }
 
@@ -709,11 +712,17 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             this.emit('progress', this.getStatus());
             
             // Execute the tool
-            const result = await executeTool(toolName, toolArgs, {
-              userId: this.userId,
-              firmId: this.firmId,
-              user: this.userRecord
-            });
+            let result;
+            try {
+              result = await executeTool(toolName, toolArgs, {
+                userId: this.userId,
+                firmId: this.firmId,
+                user: this.userRecord
+              });
+            } catch (toolError) {
+              console.error(`[Amplifier] Tool ${toolName} execution failed:`, toolError);
+              result = { error: toolError?.message || 'Tool execution failed' };
+            }
             
             console.log(`[Amplifier] Tool ${toolName} result:`, result.success !== undefined ? (result.success ? 'success' : 'failed') : 'completed');
             
