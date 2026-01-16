@@ -9,6 +9,16 @@ import path from 'path';
 // Get Azure credentials from environment or platform settings
 let azureConfig = null;
 
+function normalizeAzurePath(remotePath) {
+  if (!remotePath) return '';
+  const normalized = remotePath
+    .replace(/\\/g, '/')
+    .replace(/\/{2,}/g, '/')
+    .trim()
+    .replace(/^\/+/, '');
+  return normalized;
+}
+
 export async function getAzureConfig() {
   if (azureConfig) return azureConfig;
   
@@ -107,7 +117,11 @@ export async function uploadFile(localPath, remotePath, firmId) {
     const shareClient = await getShareClient();
     
     // Build the full path: firm-{firmId}/{remotePath}
-    const fullPath = `firm-${firmId}/${remotePath}`;
+    const safePath = normalizeAzurePath(remotePath);
+    if (!safePath) {
+      throw new Error('Invalid remote path for Azure upload');
+    }
+    const fullPath = `firm-${firmId}/${safePath}`;
     const dirPath = path.dirname(fullPath);
     const fileName = path.basename(fullPath);
     
@@ -146,7 +160,11 @@ export async function uploadFileBuffer(buffer, remotePath, firmId) {
     const shareClient = await getShareClient();
     
     // Build the full path: firm-{firmId}/{remotePath}
-    const fullPath = `firm-${firmId}/${remotePath}`;
+    const safePath = normalizeAzurePath(remotePath);
+    if (!safePath) {
+      throw new Error('Invalid remote path for Azure upload');
+    }
+    const fullPath = `firm-${firmId}/${safePath}`;
     const dirPath = path.dirname(fullPath);
     const fileName = path.basename(fullPath);
     
@@ -182,7 +200,11 @@ export async function downloadFile(remotePath, firmId) {
     const shareClient = await getShareClient();
     
     // Build the full path: firm-{firmId}/{remotePath}
-    const fullPath = `firm-${firmId}/${remotePath}`;
+    const safePath = normalizeAzurePath(remotePath);
+    if (!safePath) {
+      throw new Error('Invalid remote path for Azure download');
+    }
+    const fullPath = `firm-${firmId}/${safePath}`;
     const dirPath = path.dirname(fullPath);
     const fileName = path.basename(fullPath);
     

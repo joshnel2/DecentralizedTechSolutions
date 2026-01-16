@@ -1173,13 +1173,19 @@ router.get('/:id/download', authenticate, requirePermission('documents:view'), a
 
         // Determine the Azure path - try azure_path, external_path, then construct from folder_path
         let azurePath = doc.azure_path || doc.external_path || 
-          (doc.folder_path ? `${doc.folder_path}/${downloadFilename}` : downloadFilename);
+          (doc.folder_path ? path.posix.join(doc.folder_path, downloadFilename) : downloadFilename);
         
         // Strip firm prefix if already present (downloadFile will add it)
         const firmPrefix = `firm-${req.user.firmId}/`;
         if (azurePath.startsWith(firmPrefix)) {
           azurePath = azurePath.substring(firmPrefix.length);
         }
+
+        // Normalize slashes to avoid invalid Azure paths
+        azurePath = azurePath
+          .replace(/\\/g, '/')
+          .replace(/\/{2,}/g, '/')
+          .replace(/^\/+/, '');
         
         console.log(`[DOWNLOAD] Downloading from Azure: ${azurePath}`);
         
