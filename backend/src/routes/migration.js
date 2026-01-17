@@ -4713,18 +4713,40 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           
           try {
             // ============================================
+            // 0. PRE-FLIGHT CHECK: Verify Clio token can access documents
+            // ============================================
+            addLog('🔍 Checking Clio document access...');
+            try {
+              const testDoc = await clioRequest(accessToken, '/documents.json', { limit: 1 });
+              if (testDoc.data) {
+                console.log(`[CLIO IMPORT] Clio document access OK - found ${testDoc.data.length} test doc(s)`);
+                addLog('✅ Clio document access verified');
+              }
+            } catch (clioErr) {
+              console.error('[CLIO IMPORT] Clio document access failed:', clioErr.message);
+              addLog(`⚠️ Cannot access Clio documents: ${clioErr.message}`);
+              addLog('ℹ️ Check if your Clio app has document permissions');
+              updateProgress('documents', 'error', 0);
+              throw new Error(`Clio document access failed: ${clioErr.message}`);
+            }
+            
+            // ============================================
             // 1. ENSURE AZURE FIRM FOLDER EXISTS
             // ============================================
             // This creates firm-{firmId}/ folder in Azure File Share
             // Works for both new firms and existing firms
-            const { ensureFirmFolder, isAzureConfigured } = await import('../utils/azureStorage.js');
+            const { ensureFirmFolder, isAzureConfigured, getAzureConfig } = await import('../utils/azureStorage.js');
             
             const azureConfigured = await isAzureConfigured();
             if (!azureConfigured) {
               addLog('⚠️ Azure Storage not configured - skipping document streaming');
-              addLog('ℹ️ Configure Azure in Admin Portal → Platform Settings to enable documents');
+              addLog('ℹ️ Configure Azure in Admin Portal → Platform Settings → Azure Storage');
               updateProgress('documents', 'skipped', 0);
             } else {
+              // Log Azure config for debugging
+              const azConfig = await getAzureConfig();
+              console.log(`[CLIO IMPORT] Azure configured: account=${azConfig?.accountName}, share=${azConfig?.shareName}`);
+              addLog(`📁 Azure Storage: ${azConfig?.accountName}/${azConfig?.shareName}`);
               // Create firm folder in Azure (idempotent - safe to call multiple times)
               const folderResult = await ensureFirmFolder(firmId);
               if (folderResult.success) {
@@ -4893,6 +4915,11 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               if (totalDocs === 0) {
                 addLog('ℹ️ No pending documents to stream');
               } else {
+                addLog(`📤 Starting to stream ${totalDocs} documents to Azure...`);
+                
+                // Track errors for summary
+                const errorDetails = [];
+                
                 // Stream documents in batches of 5 (concurrent)
                 const BATCH_SIZE = 5;
                 for (let i = 0; i < totalDocs; i += BATCH_SIZE) {
@@ -4909,10 +4936,13 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                         documentsStreamedCount++;
                       } else {
                         documentsFailedCount++;
+                        errorDetails.push({ name: manifest.name, error: streamResult.error || 'Unknown error' });
+                        console.log(`[CLIO IMPORT] Stream failed for ${manifest.name}: ${streamResult.error}`);
                       }
                     } catch (err) {
-                      console.log(`[CLIO IMPORT] Stream error for ${manifest.name}: ${err.message}`);
+                      console.error(`[CLIO IMPORT] Stream error for ${manifest.name}: ${err.message}`);
                       documentsFailedCount++;
+                      errorDetails.push({ name: manifest.name, error: err.message });
                     }
                   }));
                   
@@ -4921,13 +4951,23 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   updateProgress('documents', 'running', documentsStreamedCount);
                   
                   if (processed % 25 === 0 || processed === totalDocs) {
-                    addLog(`📤 Streamed ${documentsStreamedCount}/${totalDocs} to Azure...`);
+                    addLog(`📤 Progress: ${documentsStreamedCount}/${totalDocs} streamed, ${documentsFailedCount} failed`);
                   }
                   
                   // Small delay between batches to respect rate limits
                   if (i + BATCH_SIZE < totalDocs) {
                     await new Promise(r => setTimeout(r, 300));
                   }
+                }
+                
+                // Log error summary if there were failures
+                if (errorDetails.length > 0 && errorDetails.length <= 10) {
+                  addLog(`⚠️ Failed documents:`);
+                  errorDetails.forEach(e => addLog(`   - ${e.name}: ${e.error}`));
+                } else if (errorDetails.length > 10) {
+                  addLog(`⚠️ First 5 errors:`);
+                  errorDetails.slice(0, 5).forEach(e => addLog(`   - ${e.name}: ${e.error}`));
+                  addLog(`   ... and ${errorDetails.length - 5} more`);
                 }
               }
               
