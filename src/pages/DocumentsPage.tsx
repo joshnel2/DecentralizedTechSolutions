@@ -570,22 +570,30 @@ export function DocumentsPage() {
               </button>
             </>
           )}
-          <button 
-            className={styles.primaryBtn} 
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
-          >
+          <label className={styles.primaryBtn} htmlFor="document-file-upload">
             <Upload size={18} />
             {isUploading ? 'Uploading...' : 'Upload'}
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            style={{ display: 'none' }}
-            onChange={handleFileSelect}
-            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp"
-          />
+            <input
+              ref={fileInputRef}
+              id="document-file-upload"
+              type="file"
+              multiple
+              onChange={handleFileSelect}
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp"
+              disabled={isUploading}
+              style={{
+                position: 'absolute',
+                width: '1px',
+                height: '1px',
+                padding: 0,
+                margin: '-1px',
+                overflow: 'hidden',
+                clip: 'rect(0, 0, 0, 0)',
+                whiteSpace: 'nowrap',
+                border: 0
+              }}
+            />
+          </label>
         </div>
       </div>
 
