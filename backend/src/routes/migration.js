@@ -4447,8 +4447,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         let paymentsCount = 0;
         try {
           // Fetch payments from Clio - these are actual payment records
+          // Note: Clio payments API has limited fields - using only valid ones
           const payments = await clioGetPaginated(accessToken, '/payments.json', {
-            fields: 'id,date,amount,note,payment_type,bill{id,number},contact{id,name},matter{id,display_number},created_at'
+            fields: 'id,date,amount,description,type,contact{id,name},created_at'
           }, null);
           
           console.log(`[CLIO IMPORT] Payments fetched from Clio: ${payments.length}`);
@@ -4484,10 +4485,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               const amount = parseFloat(p.amount) || 0;
               if (amount <= 0) continue;
               
-              // Map Clio payment_type to our payment_method
+              // Map Clio type to our payment_method
               let paymentMethod = 'other';
-              if (p.payment_type) {
-                const pt = p.payment_type.toLowerCase();
+              if (p.type) {
+                const pt = p.type.toLowerCase();
                 if (pt.includes('check') || pt.includes('cheque')) paymentMethod = 'check';
                 else if (pt.includes('credit') || pt.includes('card')) paymentMethod = 'credit_card';
                 else if (pt.includes('wire') || pt.includes('transfer') || pt.includes('ach')) paymentMethod = 'bank_transfer';
@@ -4504,8 +4505,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   amount,
                   paymentMethod,
                   p.date || new Date().toISOString().split('T')[0],
-                  p.note || null,
-                  p.bill?.number ? `Clio Bill #${p.bill.number}` : null,
+                  p.description || null,
+                  `Clio Payment ${p.id}`,
                   p.created_at || new Date().toISOString()
                 ]
               );
