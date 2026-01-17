@@ -40,19 +40,20 @@ async function getAzureFileShareConfig() {
   const connString = process.env.AZURE_CONNECTION_STRING;
   const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
   const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
+  const shareName = process.env.AZURE_FILE_SHARE_NAME || 'apexdrive';
   
   if (connString) {
-    return { connectionString: connString };
+    return { connectionString: connString, shareName };
   }
   
   if (accountName && accountKey) {
-    return { accountName, accountKey };
+    return { accountName, accountKey, shareName };
   }
   
   // Try platform settings from database
   try {
     const result = await query(
-      `SELECT key, value FROM platform_settings WHERE key IN ('azure_storage_account_name', 'azure_storage_account_key', 'azure_connection_string')`
+      `SELECT key, value FROM platform_settings WHERE key IN ('azure_storage_account_name', 'azure_storage_account_key', 'azure_connection_string', 'azure_file_share_name')`
     );
     
     const settings = {};
@@ -61,13 +62,17 @@ async function getAzureFileShareConfig() {
     }
     
     if (settings.azure_connection_string) {
-      return { connectionString: settings.azure_connection_string };
+      return { 
+        connectionString: settings.azure_connection_string,
+        shareName: settings.azure_file_share_name || 'apexdrive'
+      };
     }
     
     if (settings.azure_storage_account_name && settings.azure_storage_account_key) {
       return { 
         accountName: settings.azure_storage_account_name, 
-        accountKey: settings.azure_storage_account_key 
+        accountKey: settings.azure_storage_account_key,
+        shareName: settings.azure_file_share_name || 'apexdrive'
       };
     }
   } catch (err) {
@@ -75,6 +80,14 @@ async function getAzureFileShareConfig() {
   }
   
   return null;
+}
+
+/**
+ * Check if Azure Storage is configured
+ */
+async function isAzureConfigured() {
+  const config = await getAzureFileShareConfig();
+  return config !== null;
 }
 
 /**
@@ -99,7 +112,9 @@ async function getShareClient() {
     );
   }
   
-  return serviceClient.getShareClient(AZURE_SHARE_NAME);
+  // Get share name from config or default to 'apexdrive'
+  const shareName = config.shareName || AZURE_SHARE_NAME;
+  return serviceClient.getShareClient(shareName);
 }
 
 /**
