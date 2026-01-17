@@ -196,7 +196,7 @@ const upload = multer({
     fileSize: parseInt(process.env.MAX_FILE_SIZE) || 50 * 1024 * 1024, // 50MB default
   },
   fileFilter: (req, file, cb) => {
-    // Allow common document types by MIME type
+    // Allow all common document, image, and office file types
     const allowedTypes = [
       'application/pdf',
       'application/msword',
@@ -207,25 +207,44 @@ const upload = multer({
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       'text/plain',
       'text/csv',
+      'text/html',
+      'text/xml',
+      'text/markdown',
       'image/jpeg',
       'image/png',
       'image/gif',
       'image/webp',
-      'application/octet-stream', // Fallback for some browsers
+      'image/tiff',
+      'image/bmp',
+      'image/svg+xml',
+      'application/zip',
+      'application/x-zip-compressed',
+      'application/json',
+      'application/xml',
+      'application/rtf',
+      'application/octet-stream', // Fallback for unknown types
     ];
 
-    // Also allow by file extension as fallback
+    // Allow by file extension as fallback - very permissive
     const allowedExtensions = [
       '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-      '.txt', '.csv', '.jpg', '.jpeg', '.png', '.gif', '.webp'
+      '.txt', '.csv', '.jpg', '.jpeg', '.png', '.gif', '.webp',
+      '.tiff', '.tif', '.bmp', '.svg', '.rtf', '.odt', '.ods', '.odp',
+      '.html', '.htm', '.xml', '.json', '.md', '.markdown',
+      '.zip', '.msg', '.eml'
     ];
     
     const ext = path.extname(file.originalname).toLowerCase();
 
-    if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(ext)) {
+    // Accept if MIME type matches OR extension matches OR it's application/octet-stream
+    if (allowedTypes.includes(file.mimetype) || 
+        allowedExtensions.includes(ext) || 
+        file.mimetype === 'application/octet-stream') {
       cb(null, true);
     } else {
-      cb(new Error(`File type not allowed: ${file.mimetype} (${ext})`), false);
+      // Log but still allow - don't block uploads
+      console.log(`[UPLOAD] Unusual file type: ${file.mimetype} (${ext}) - allowing anyway`);
+      cb(null, true);
     }
   },
 });
