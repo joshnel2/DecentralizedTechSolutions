@@ -199,6 +199,7 @@ const upload = multer({
     // Allow common document types by MIME type
     const allowedTypes = [
       'application/pdf',
+      'application/x-pdf', // Alternative PDF MIME type
       'application/msword',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/vnd.ms-excel',
@@ -214,17 +215,22 @@ const upload = multer({
       'application/octet-stream', // Fallback for some browsers
     ];
 
-    // Also allow by file extension as fallback
+    // Also allow by file extension as fallback - this is the primary check for reliability
     const allowedExtensions = [
       '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
       '.txt', '.csv', '.jpg', '.jpeg', '.png', '.gif', '.webp'
     ];
     
     const ext = path.extname(file.originalname).toLowerCase();
+    
+    // Log upload attempt for debugging
+    console.log(`[UPLOAD] File: ${file.originalname}, MIME: ${file.mimetype}, Ext: ${ext}`);
 
-    if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(ext)) {
+    // Accept if extension matches (most reliable) OR if MIME type matches
+    if (allowedExtensions.includes(ext) || allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
+      console.log(`[UPLOAD] Rejected: ${file.originalname} (${file.mimetype})`);
       cb(new Error(`File type not allowed: ${file.mimetype} (${ext})`), false);
     }
   },
@@ -669,11 +675,28 @@ async function extractTextFromFile(filePath, originalName, mimeType = null) {
   return textContent || null;
 }
 
+// Multer error handling wrapper
+const handleUpload = (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      console.error('[UPLOAD] Multer error:', err.message);
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File is too large. Maximum size is 50MB.' });
+      }
+      if (err.message && err.message.includes('File type not allowed')) {
+        return res.status(400).json({ error: err.message });
+      }
+      return res.status(400).json({ error: 'Upload failed: ' + err.message });
+    }
+    next();
+  });
+};
+
 // Upload document
-router.post('/', authenticate, requirePermission('documents:upload'), upload.single('file'), async (req, res) => {
+router.post('/', authenticate, requirePermission('documents:upload'), handleUpload, async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+      return res.status(400).json({ error: 'No file uploaded. Please select a file to upload.' });
     }
 
     const { matterId, clientId, tags, isConfidential = false, status = 'draft' } = req.body;

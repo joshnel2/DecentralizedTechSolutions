@@ -474,9 +474,10 @@ export function DocumentsPage() {
       setShowUploadModal(false)
       setPendingFiles([])
       setSelectedMatterId('')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Upload failed:', error)
-      alert('Failed to upload file. Please try again.')
+      const errorMessage = error?.message || error?.data?.error || 'Failed to upload file. Please try again.'
+      alert(errorMessage)
     } finally {
       setIsUploading(false)
     }
@@ -579,7 +580,7 @@ export function DocumentsPage() {
               type="file"
               multiple
               onChange={handleFileSelect}
-              accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp"
+              accept=".pdf,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp,image/*"
               disabled={isUploading}
               style={{
                 position: 'absolute',
