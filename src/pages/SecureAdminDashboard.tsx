@@ -386,6 +386,12 @@ export default function SecureAdminDashboard() {
     linkedToMatters: number
     totalSizeMB: string
   } | null>(null)
+  const [azureStorageInfo, setAzureStorageInfo] = useState<{
+    account: string
+    share: string
+    fullPath: string
+    firmFolder: string
+  } | null>(null)
   const [fetchingManifest, setFetchingManifest] = useState(false)
   const [streamingDocuments, setStreamingDocuments] = useState(false)
   const [streamProgress, setStreamProgress] = useState<{
@@ -987,6 +993,15 @@ export default function SecureAdminDashboard() {
       const data = await res.json()
       if (data.success) {
         setStreamingStatus(data.status)
+        // Store Azure storage info for display
+        if (data.azureStorage) {
+          setAzureStorageInfo({
+            account: data.azureStorage.account,
+            share: data.azureStorage.share,
+            fullPath: data.azureStorage.fullPath,
+            firmFolder: data.firmInfo?.azureFolder || `firm-${firmId}`
+          })
+        }
       }
     } catch (e) {
       console.error('Failed to fetch streaming status:', e)
@@ -4909,6 +4924,32 @@ bob@example.com, Bob, Wilson, partner"
                       </div>
                     )}
                   </div>
+                  
+                  {/* Azure Storage Location */}
+                  {azureStorageInfo && (
+                    <div style={{ 
+                      background: 'rgba(255,255,255,0.1)', 
+                      padding: '16px 20px', 
+                      borderRadius: '12px',
+                      marginBottom: '20px',
+                      border: '1px solid rgba(255,255,255,0.2)'
+                    }}>
+                      <div style={{ fontSize: '14px', opacity: 0.8, marginBottom: '8px' }}>📂 Azure Storage Location:</div>
+                      <div style={{ 
+                        fontFamily: 'monospace', 
+                        fontSize: '13px', 
+                        background: 'rgba(0,0,0,0.2)', 
+                        padding: '10px 14px', 
+                        borderRadius: '6px',
+                        wordBreak: 'break-all'
+                      }}>
+                        {azureStorageInfo.fullPath}
+                      </div>
+                      <div style={{ fontSize: '12px', opacity: 0.7, marginTop: '8px' }}>
+                        Account: <strong>{azureStorageInfo.account}</strong> | Share: <strong>{azureStorageInfo.share}</strong> | Folder: <strong>{azureStorageInfo.firmFolder}</strong>
+                      </div>
+                    </div>
+                  )}
                   
                   {/* Streaming Status */}
                   {streamingStatus && (
