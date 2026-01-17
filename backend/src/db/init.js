@@ -56,28 +56,6 @@ async function runMigrations(client) {
     // Create unique constraint for deduplication
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_time_entries_clio_unique ON time_entries(firm_id, clio_id) WHERE clio_id IS NOT NULL;`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_clio_unique ON expenses(firm_id, clio_id) WHERE clio_id IS NOT NULL;`,
-    
-    // Add clio_id column to documents table for Clio document streaming
-    `DO $$ 
-     BEGIN 
-       IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name = 'documents' AND column_name = 'clio_id') THEN
-         ALTER TABLE documents ADD COLUMN clio_id BIGINT;
-       END IF;
-       IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name = 'documents' AND column_name = 'storage_location') THEN
-         ALTER TABLE documents ADD COLUMN storage_location VARCHAR(50) DEFAULT 'local';
-       END IF;
-       IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                      WHERE table_name = 'documents' AND column_name = 'created_at') THEN
-         ALTER TABLE documents ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
-       END IF;
-     END $$;`,
-    
-    // Create indexes for document streaming
-    `CREATE INDEX IF NOT EXISTS idx_documents_clio_id ON documents(clio_id) WHERE clio_id IS NOT NULL;`,
-    `CREATE INDEX IF NOT EXISTS idx_documents_storage_location ON documents(storage_location);`,
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_firm_path_unique ON documents(firm_id, path) WHERE path IS NOT NULL;`,
   ];
 
   for (const migration of migrations) {
