@@ -701,7 +701,7 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
           u.last_name as attorney_last
         FROM matters m
         LEFT JOIN clients c ON m.client_id = c.id
-        LEFT JOIN users u ON m.responsible_attorney_id = u.id
+        LEFT JOIN users u ON m.responsible_attorney = u.id
         WHERE m.id = $1
       `, [matterId]);
       
