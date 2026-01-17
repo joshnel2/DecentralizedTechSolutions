@@ -2878,9 +2878,9 @@ Password: ${newPass}`
                                       fontSize: '0.8rem',
                                       color: '#6B7280'
                                     }}>
-                                      <strong style={{ color: '#7C3AED' }}>Note:</strong> Documents require Azure Storage to be configured in{' '}
-                                      <strong>Platform Settings</strong> (azure_storage_account_name, azure_storage_account_key, azure_file_share_name).
-                                      Without this, documents will be skipped.
+                                      <strong style={{ color: '#7C3AED' }}>Requires Azure Storage:</strong> Go to{' '}
+                                      <strong>Platform Settings → Azure Storage (Apex Drive)</strong> and enter your storage account name, key, and file share name.
+                                      Without this, documents will be skipped during migration.
                                     </div>
                                   )}
                                 </div>
