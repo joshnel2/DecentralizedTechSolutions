@@ -1428,6 +1428,46 @@ router.post('/platform-settings/test/:provider', requireSecureAdmin, async (req,
       });
     }
 
+    if (provider === 'azure_storage') {
+      // Actually test the Azure connection by trying to list the root directory
+      try {
+        const { getShareClient, isAzureConfigured, getAzureConfig } = await import('../utils/azureStorage.js');
+        
+        const configured = await isAzureConfigured();
+        if (!configured) {
+          return res.json({ 
+            success: false, 
+            message: 'Azure Storage credentials not configured. Enter Storage Account Name, Key, and File Share Name.' 
+          });
+        }
+        
+        const config = await getAzureConfig();
+        console.log('[AZURE TEST] Testing connection to:', config.accountName, '/', config.shareName);
+        
+        // Try to get the share client and list root directory
+        const shareClient = await getShareClient();
+        const rootDir = shareClient.getDirectoryClient('');
+        
+        // Try to list files (this will fail if credentials are wrong)
+        let fileCount = 0;
+        for await (const item of rootDir.listFilesAndDirectories()) {
+          fileCount++;
+          if (fileCount >= 5) break; // Just check first few
+        }
+        
+        return res.json({ 
+          success: true, 
+          message: `Azure Storage connected successfully! Account: ${config.accountName}, Share: ${config.shareName}. Found ${fileCount}+ items in root.`
+        });
+      } catch (azureError) {
+        console.error('[AZURE TEST] Connection failed:', azureError.message);
+        return res.json({ 
+          success: false, 
+          message: `Azure connection failed: ${azureError.message}. Check your credentials.`
+        });
+      }
+    }
+
     res.status(400).json({ error: 'Unknown provider' });
   } catch (error) {
     console.error('Test integration error:', error);

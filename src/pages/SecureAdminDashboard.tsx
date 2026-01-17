@@ -4370,12 +4370,44 @@ Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
                           </div>
                         </div>
                         {integrationSettings.azure_storage_account_name?.isConfigured && integrationSettings.azure_storage_account_key?.isConfigured ? (
-                          <p style={{ color: '#10b981', fontSize: '0.75rem', marginTop: '1rem', fontWeight: '500' }}>
-                            ✓ Azure Storage is configured and ready. Firm admins can now enable Apex Drive from their Settings.
-                          </p>
+                          <div style={{ marginTop: '1rem' }}>
+                            <p style={{ color: '#10b981', fontSize: '0.75rem', fontWeight: '500', marginBottom: '0.75rem' }}>
+                              ✓ Azure Storage credentials saved.
+                            </p>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch(`${API_URL}/secure-admin/platform-settings/test/azure_storage`, {
+                                    method: 'POST',
+                                    headers: { 'X-Admin-Auth': getAuthToken() }
+                                  });
+                                  const data = await res.json();
+                                  if (data.success) {
+                                    showNotification('success', data.message);
+                                  } else {
+                                    showNotification('error', data.message || 'Connection test failed');
+                                  }
+                                } catch (e) {
+                                  showNotification('error', 'Failed to test connection');
+                                }
+                              }}
+                              style={{
+                                padding: '0.5rem 1rem',
+                                background: '#0078d4',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                fontSize: '0.8rem',
+                                fontWeight: '500'
+                              }}
+                            >
+                              Test Azure Connection
+                            </button>
+                          </div>
                         ) : (
                           <p style={{ color: '#64748b', fontSize: '0.75rem', marginTop: '1rem' }}>
-                            After saving, firm admins can enable Apex Drive from their Settings. Documents will be stored in this Azure File Share.
+                            After saving, click "Test Azure Connection" to verify it works. Documents will be stored in this Azure File Share.
                           </p>
                         )}
                       </div>
