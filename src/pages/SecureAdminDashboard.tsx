@@ -2868,6 +2868,21 @@ Password: ${newPass}`
                                       <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#7C3AED' }}>Documents (Stream to Azure)</span>
                                     </label>
                                   </div>
+                                  {includeDocuments && (
+                                    <div style={{ 
+                                      marginTop: '0.75rem', 
+                                      padding: '0.75rem 1rem', 
+                                      background: 'rgba(124, 58, 237, 0.08)', 
+                                      borderRadius: '8px',
+                                      border: '1px solid rgba(124, 58, 237, 0.2)',
+                                      fontSize: '0.8rem',
+                                      color: '#6B7280'
+                                    }}>
+                                      <strong style={{ color: '#7C3AED' }}>Note:</strong> Documents require Azure Storage to be configured in{' '}
+                                      <strong>Platform Settings</strong> (azure_storage_account_name, azure_storage_account_key, azure_file_share_name).
+                                      Without this, documents will be skipped.
+                                    </div>
+                                  )}
                                 </div>
                                 
                                 {/* User-Specific Migration */}
