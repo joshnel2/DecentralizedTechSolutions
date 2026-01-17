@@ -389,7 +389,7 @@ export async function streamDocumentToAzure(accessToken, manifest, firmId, optio
   const { matterIdMap = new Map(), clientIdMap = new Map(), userIdMap = new Map() } = options;
   
   try {
-    console.log(`[CLIO DOC] Streaming document: ${manifest.name} (Clio ID: ${manifest.clio_id})`);
+    console.log(`[CLIO DOC] Streaming document: ${manifest.name} (Clio ID: ${manifest.clio_id}) -> firm-${firmId}`);
     
     // 1. Get download URL and original filename from Clio
     const { downloadUrl, size, contentType, originalFilename } = await getDocumentDownloadInfo(accessToken, manifest.clio_id);

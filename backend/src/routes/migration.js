@@ -4706,6 +4706,35 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           updateProgress('documents', 'running', 0);
           
           try {
+            // ============================================
+            // 1. SETUP AZURE & LOG FIRM FOLDER
+            // ============================================
+            const { ensureFirmFolder, isAzureConfigured, getAzureConfig } = await import('../utils/azureStorage.js');
+            
+            const azureConfigured = await isAzureConfigured();
+            if (!azureConfigured) {
+              addLog('⚠️ Azure Storage not configured - skipping document streaming');
+              addLog('ℹ️ Configure Azure in Admin Portal → Platform Settings → Azure Storage');
+              updateProgress('documents', 'skipped', 0);
+            } else {
+              // Log Azure config and firmId for debugging
+              const azConfig = await getAzureConfig();
+              console.log(`[CLIO IMPORT] *** Documents will be stored in: firm-${firmId} ***`);
+              console.log(`[CLIO IMPORT] *** Firm name: ${actualFirmName}, Firm ID: ${firmId} ***`);
+              console.log(`[CLIO IMPORT] Azure: account=${azConfig?.accountName}, share=${azConfig?.shareName}`);
+              addLog(`📁 Target folder: firm-${firmId} (${actualFirmName})`);
+              addLog(`📁 Azure Storage: ${azConfig?.accountName}/${azConfig?.shareName}`);
+              
+              // Create firm folder in Azure
+              const folderResult = await ensureFirmFolder(firmId);
+              if (folderResult.success) {
+                console.log(`[CLIO IMPORT] Azure firm folder ready: ${folderResult.path}`);
+                addLog(`📁 Azure folder created/verified: ${folderResult.path}`);
+              } else {
+                console.error(`[CLIO IMPORT] Failed to create firm folder: ${folderResult.error}`);
+                addLog(`⚠️ Failed to create firm folder: ${folderResult.error}`);
+              }
+            
             addLog('📄 Fetching document list from Clio...');
             
             // Build matter ID map for document matching (clio_id -> our_id)
@@ -4879,12 +4908,15 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             // Final status
             updateProgress('documents', 'completed', documentsStreamedCount);
             console.log(`[CLIO IMPORT] Documents complete: ${documentsStreamedCount} streamed, ${documentsFailedCount} failed`);
-            addLog(`✅ Documents complete: ${documentsStreamedCount} streamed to Azure, ${documentsFailedCount} failed`);
+            console.log(`[CLIO IMPORT] *** Documents stored in Azure folder: firm-${firmId} ***`);
+            addLog(`✅ Documents: ${documentsStreamedCount} streamed to Azure, ${documentsFailedCount} failed`);
+            addLog(`📂 Location: Azure File Share → firm-${firmId}/`);
             
             if (documentsFailedCount > 0) {
               addLog(`⚠️ ${documentsFailedCount} documents failed - can retry from Firm Documents tab`);
             }
             
+            } // End of Azure configured check
           } catch (err) {
             console.log(`[CLIO IMPORT] Document streaming error: ${err.message}`);
             addLog(`⚠️ Document streaming error: ${err.message}`);
@@ -6804,10 +6836,50 @@ router.get('/documents/stream-status/:firmId', requireSecureAdmin, async (req, r
       LIMIT 10
     `, [firmId]);
     
+    // Get sample of successfully imported documents to show paths
+    const recentImports = await query(`
+      SELECT clio_id, name, matched_azure_path, updated_at
+      FROM clio_document_manifest
+      WHERE firm_id = $1 AND match_status = 'imported'
+      ORDER BY updated_at DESC
+      LIMIT 5
+    `, [firmId]);
+    
+    // Also check actual documents table to confirm storage
+    const documentsInDb = await query(`
+      SELECT COUNT(*) as count, 
+             COUNT(CASE WHEN external_path LIKE 'firm-%' THEN 1 END) as azure_count
+      FROM documents
+      WHERE firm_id = $1 AND storage_location = 'azure'
+    `, [firmId]);
+    
+    // Get firm name for display
+    const firmResult = await query('SELECT name FROM firms WHERE id = $1', [firmId]);
+    const firmName = firmResult.rows[0]?.name || 'Unknown';
+    
+    // Get Azure config to show the full storage location
+    const { getAzureConfig } = await import('../utils/azureStorage.js');
+    const azureConfig = await getAzureConfig();
+    
     res.json({
       success: true,
       status,
-      recentErrors: recentErrors.rows
+      firmInfo: {
+        id: firmId,
+        name: firmName,
+        azureFolder: `firm-${firmId}`
+      },
+      azureStorage: azureConfig ? {
+        account: azureConfig.accountName,
+        share: azureConfig.shareName,
+        fullPath: `\\\\${azureConfig.accountName}.file.core.windows.net\\${azureConfig.shareName}\\firm-${firmId}`
+      } : null,
+      documentsInDb: {
+        total: parseInt(documentsInDb.rows[0]?.count) || 0,
+        azureCount: parseInt(documentsInDb.rows[0]?.azure_count) || 0
+      },
+      recentErrors: recentErrors.rows,
+      recentImports: recentImports.rows
     });
   } catch (error) {
     console.error('Get stream status error:', error);
