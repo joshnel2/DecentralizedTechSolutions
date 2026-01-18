@@ -4901,7 +4901,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending')
                      ON CONFLICT (firm_id, clio_id) DO UPDATE SET
                        name = EXCLUDED.name, clio_path = EXCLUDED.clio_path, content_type = EXCLUDED.content_type,
-                       size = EXCLUDED.size, matter_id = EXCLUDED.matter_id, updated_at = NOW()`,
+                       size = EXCLUDED.size, matter_id = EXCLUDED.matter_id, match_status = 'pending', updated_at = NOW()`,
                     [firmId, doc.id, doc.matter?.id || null, doc.parent?.id || null, originalFilename, fullPath, 
                      doc.content_type || null, fileSize, matterIdForDoc, doc.created_at || null, doc.updated_at || null]
                   );
