@@ -474,10 +474,9 @@ export function DocumentsPage() {
       setShowUploadModal(false)
       setPendingFiles([])
       setSelectedMatterId('')
-    } catch (error: any) {
+    } catch (error) {
       console.error('Upload failed:', error)
-      const errorMessage = error?.message || error?.data?.error || 'Failed to upload file. Please try again.'
-      alert(errorMessage)
+      alert('Failed to upload file. Please try again.')
     } finally {
       setIsUploading(false)
     }
@@ -571,30 +570,22 @@ export function DocumentsPage() {
               </button>
             </>
           )}
-          <label className={styles.primaryBtn} htmlFor="document-file-upload">
+          <button 
+            className={styles.primaryBtn} 
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+          >
             <Upload size={18} />
             {isUploading ? 'Uploading...' : 'Upload'}
-            <input
-              ref={fileInputRef}
-              id="document-file-upload"
-              type="file"
-              multiple
-              onChange={handleFileSelect}
-              accept=".pdf,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp,image/*"
-              disabled={isUploading}
-              style={{
-                position: 'absolute',
-                width: '1px',
-                height: '1px',
-                padding: 0,
-                margin: '-1px',
-                overflow: 'hidden',
-                clip: 'rect(0, 0, 0, 0)',
-                whiteSpace: 'nowrap',
-                border: 0
-              }}
-            />
-          </label>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            style={{ display: 'none' }}
+            onChange={handleFileSelect}
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp"
+          />
         </div>
       </div>
 

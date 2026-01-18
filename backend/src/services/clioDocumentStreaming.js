@@ -318,33 +318,23 @@ const getDocumentDownloadUrl = getDocumentDownloadInfo;
 
 /**
  * Build folder path for document in Azure File Share
- * Uses Clio-style hierarchical structure: Matters/{ClientName}/{MatterNumber - MatterName}/
+ * Maps Clio structure to our structure
  * CRITICAL: Preserves original filename with extension
  * 
  * @param {object} doc - Document manifest record
  * @param {string} originalFilename - Original filename with extension from Clio
- * @param {object} matterInfo - Matter info with name, number, clientName
- * @param {object} clientInfo - Client info with name
+ * @param {string} matterId - Our local matter ID
+ * @param {string} clientId - Our local client ID
  * @param {string} clioPath - Original path from Clio
  * @returns {string} Full path in Azure including filename
  */
-function buildAzurePath(doc, originalFilename, matterInfo, clientInfo, clioPath) {
+function buildAzurePath(doc, originalFilename, matterId, clientId, clioPath) {
   // Use original filename from Clio to preserve extension
   const filename = originalFilename || doc.name;
   
-  // Sanitize function to clean names for file paths
-  const sanitize = (str) => (str || '').replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
-  
-  // If linked to matter, use Clio-style folder structure
-  if (matterInfo && matterInfo.id) {
-    const clientName = sanitize(matterInfo.clientName) || 'No Client';
-    const matterNumber = sanitize(matterInfo.number) || '';
-    const matterName = sanitize(matterInfo.name) || 'Untitled Matter';
-    
-    // Format: Matters/ClientName/MatterNumber - MatterName/
-    let matterFolder = matterNumber ? `${matterNumber} - ${matterName}` : matterName;
-    
-    // Preserve subfolder structure from Clio path
+  // If linked to matter, put in matter folder
+  if (matterId) {
+    // Preserve subfolder structure from Clio
     let subfolder = '';
     if (clioPath) {
       const pathParts = clioPath.split('/');
@@ -353,22 +343,20 @@ function buildAzurePath(doc, originalFilename, matterInfo, clientInfo, clioPath)
         subfolder = '/' + pathParts.slice(0, -1).join('/');
       }
     }
-    
-    return `Matters/${clientName}/${matterFolder}${subfolder}/${filename}`;
+    return `matters/matter-${matterId}${subfolder}/${filename}`;
   }
   
   // If linked to client but not matter, put in client folder
-  if (clientInfo && clientInfo.id) {
-    const clientName = sanitize(clientInfo.name) || 'Unknown Client';
-    return `Clients/${clientName}/Documents/${filename}`;
+  if (clientId) {
+    return `clients/client-${clientId}/documents/${filename}`;
   }
   
   // Otherwise, put in imported folder with Clio path structure
   if (clioPath) {
-    return `Documents/Imported/Clio/${clioPath}`;
+    return `documents/Imported/Clio/${clioPath}`;
   }
   
-  return `Documents/Imported/Clio/${filename}`;
+  return `documents/Imported/Clio/${filename}`;
 }
 
 /**
@@ -428,60 +416,22 @@ export async function streamDocumentToAzure(accessToken, manifest, firmId, optio
     const clientId = manifest.client_id || (manifest.clio_client_id ? clientIdMap.get(manifest.clio_client_id) : null);
     const ownerId = manifest.owner_id || (manifest.clio_created_by_id ? userIdMap.get(manifest.clio_created_by_id) : null);
     
-    // 3. Get matter and client details for proper folder structure
-    let matterInfo = null;
-    let clientInfo = null;
-    
-    if (matterId) {
-      try {
-        const matterResult = await query(`
-          SELECT m.id, m.name, m.number, c.display_name as client_name
-          FROM matters m
-          LEFT JOIN clients c ON m.client_id = c.id
-          WHERE m.id = $1
-        `, [matterId]);
-        
-        if (matterResult.rows.length > 0) {
-          const row = matterResult.rows[0];
-          matterInfo = {
-            id: row.id,
-            name: row.name,
-            number: row.number,
-            clientName: row.client_name
-          };
-        }
-      } catch (e) {
-        console.log(`[CLIO DOC] Could not fetch matter info: ${e.message}`);
-      }
-    }
-    
-    if (!matterInfo && clientId) {
-      try {
-        const clientResult = await query(`SELECT id, display_name as name FROM clients WHERE id = $1`, [clientId]);
-        if (clientResult.rows.length > 0) {
-          clientInfo = clientResult.rows[0];
-        }
-      } catch (e) {
-        console.log(`[CLIO DOC] Could not fetch client info: ${e.message}`);
-      }
-    }
-    
-    // 4. Build target path in Azure - CRITICAL: use original filename with extension
+    // 3. Build target path in Azure - CRITICAL: use original filename with extension
     const relativePath = buildAzurePath(
       manifest,
       originalFilename,  // Pass original filename with extension
-      matterInfo,
-      clientInfo,
+      matterId,
+      clientId,
       manifest.clio_path
     );
     
     // Full path includes firm directory
     const fullAzurePath = `firm-${firmId}/${relativePath}`;
     
-    // 5. Get Azure File Share client and stream directly
+    // 4. Get Azure File Share client and stream directly
     const shareClient = await getShareClient();
     
-    // 6. Stream from Clio directly to Azure (NO DISK!)
+    // 5. Stream from Clio directly to Azure (NO DISK!)
     const uploadResult = await streamFromClioToAzure(
       downloadUrl,
       accessToken,
@@ -489,9 +439,8 @@ export async function streamDocumentToAzure(accessToken, manifest, firmId, optio
       fullAzurePath
     );
     
-    // 7. Create document record with permissions
+    // 6. Create document record with permissions
     const dirPath = relativePath.split('/').slice(0, -1).join('/');
-    const actualMatterId = matterInfo ? matterInfo.id : null;
     
     const docResult = await query(`
       INSERT INTO documents (
@@ -506,7 +455,7 @@ export async function streamDocumentToAzure(accessToken, manifest, firmId, optio
       RETURNING id
     `, [
       firmId,
-      actualMatterId,
+      matterId,
       originalFilename,  // Use original filename
       originalFilename,
       fullAzurePath,
@@ -515,7 +464,7 @@ export async function streamDocumentToAzure(accessToken, manifest, firmId, optio
       uploadResult.size,
       ownerId,
       ownerId,
-      actualMatterId ? 'team' : 'firm',  // Matter docs = team access, general = firm-wide
+      matterId ? 'team' : 'firm',  // Matter docs = team access, general = firm-wide
       'final',
       'azure',
       fullAzurePath,
