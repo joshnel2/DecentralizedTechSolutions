@@ -34,6 +34,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import AgentConfig, load_dotenv_if_available
 from legal_workflow import MetacognitiveAgent
 
+# Import the Super Lawyer agent (advanced IRAC-based reasoning)
+try:
+    from lawyer_brain import SuperLawyerAgent
+    SUPER_LAWYER_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: SuperLawyerAgent not available: {e}")
+    SUPER_LAWYER_AVAILABLE = False
+
 # Load environment variables
 load_dotenv_if_available()
 
@@ -269,7 +277,13 @@ class BackgroundWorker:
     
     def _process_task(self, task: Task) -> Dict[str, Any]:
         """
-        Process a single task using the MetacognitiveAgent.
+        Process a single task using the SuperLawyerAgent (or MetacognitiveAgent fallback).
+        
+        The SuperLawyerAgent uses:
+        - IRAC methodology (Issue, Rule, Analysis, Conclusion)
+        - Self-critique and refinement
+        - Learning from user preferences
+        - Same tools as the normal AI chat
         
         Args:
             task: The task to process
@@ -291,7 +305,13 @@ class BackgroundWorker:
             def log_callback(message: str):
                 self.logger.info(f"[Task {task.id}] {message}")
             
-            agent = MetacognitiveAgent(self.config, log_callback)
+            # Use SuperLawyerAgent if available (preferred - has IRAC + learning)
+            if SUPER_LAWYER_AVAILABLE:
+                self.logger.info(f"[Task {task.id}] Using SuperLawyerAgent (IRAC + Learning)")
+                agent = SuperLawyerAgent(self.config, log_callback)
+            else:
+                self.logger.info(f"[Task {task.id}] Using MetacognitiveAgent (fallback)")
+                agent = MetacognitiveAgent(self.config, log_callback)
             
             # Run the task
             result = agent.run(task.goal)
@@ -463,8 +483,21 @@ def main():
         default=5,
         help="Seconds between polling for tasks"
     )
+    parser.add_argument(
+        "--agent-type",
+        type=str,
+        choices=["super_lawyer", "metacognitive", "auto"],
+        default="auto",
+        help="Which agent to use: super_lawyer (IRAC+learning), metacognitive, or auto (best available)"
+    )
     
     args = parser.parse_args()
+    
+    # Print agent availability info
+    if SUPER_LAWYER_AVAILABLE:
+        print("✓ SuperLawyerAgent available (IRAC methodology + learning)")
+    else:
+        print("⚠ SuperLawyerAgent not available, using MetacognitiveAgent")
     
     if args.add_task:
         add_task_to_queue(args.add_task, queue_file=args.queue_file)
