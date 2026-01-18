@@ -97,14 +97,17 @@ async function getShareClient() {
   const config = await getAzureFileShareConfig();
   
   if (!config) {
+    console.error('[AZURE] NO AZURE CONFIG FOUND - check env vars or platform_settings');
     throw new Error('Azure Storage not configured. Set AZURE_CONNECTION_STRING or account name/key.');
   }
   
   let serviceClient;
   
   if (config.connectionString) {
+    console.log('[AZURE] Using connection string');
     serviceClient = ShareServiceClient.fromConnectionString(config.connectionString);
   } else {
+    console.log(`[AZURE] Using account: ${config.accountName}`);
     const credential = new StorageSharedKeyCredential(config.accountName, config.accountKey);
     serviceClient = new ShareServiceClient(
       `https://${config.accountName}.file.core.windows.net`,
@@ -114,6 +117,7 @@ async function getShareClient() {
   
   // Get share name from config or default to 'apexdrive'
   const shareName = config.shareName || AZURE_SHARE_NAME;
+  console.log(`[AZURE] Using share: ${shareName}`);
   return serviceClient.getShareClient(shareName);
 }
 
@@ -205,48 +209,64 @@ async function clioApiRequest(accessToken, endpoint, retryCount = 0) {
 async function streamFromClioToAzure(downloadUrl, accessToken, shareClient, targetPath) {
   console.log(`[CLIO DOC] Streaming to Azure: ${targetPath}`);
   
-  // Fetch from Clio with streaming enabled
-  const response = await fetch(downloadUrl, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`
+  // Fetch from Clio with timeout
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout
+  
+  try {
+    const response = await fetch(downloadUrl, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      },
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeout);
+    
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`Clio download failed: ${response.status} - ${errorText.substring(0, 200)}`);
     }
-  });
-  
-  if (!response.ok) {
-    throw new Error(`Failed to download from Clio: ${response.status}`);
+    
+    // Get the content as ArrayBuffer (stays in memory, never touches disk)
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const fileSize = buffer.length;
+    
+    if (fileSize === 0) {
+      throw new Error('Downloaded file is empty (0 bytes)');
+    }
+    
+    console.log(`[CLIO DOC] Downloaded ${fileSize} bytes from Clio, uploading to Azure...`);
+    
+    // Ensure parent directory exists
+    const dirPath = targetPath.split('/').slice(0, -1).join('/');
+    const fileName = targetPath.split('/').pop();
+    
+    if (dirPath) {
+      await ensureAzureDirectory(shareClient, dirPath);
+    }
+    
+    // Get directory and file clients
+    const dirClient = dirPath ? shareClient.getDirectoryClient(dirPath) : shareClient.rootDirectoryClient;
+    const fileClient = dirClient.getFileClient(fileName);
+    
+    // Upload buffer directly to Azure File Share
+    await fileClient.create(fileSize);
+    await fileClient.uploadRange(buffer, 0, fileSize);
+    
+    console.log(`[CLIO DOC] SUCCESS: ${fileSize} bytes -> ${targetPath}`);
+    
+    return {
+      size: fileSize,
+      path: targetPath,
+      url: fileClient.url
+    };
+  } catch (error) {
+    clearTimeout(timeout);
+    console.error(`[CLIO DOC] FAILED upload to ${targetPath}:`, error.message);
+    throw error;
   }
-  
-  // Get the content as ArrayBuffer (stays in memory, never touches disk)
-  const arrayBuffer = await response.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  const fileSize = buffer.length;
-  
-  console.log(`[CLIO DOC] Received ${fileSize} bytes, uploading to Azure...`);
-  
-  // Ensure parent directory exists
-  const dirPath = targetPath.split('/').slice(0, -1).join('/');
-  const fileName = targetPath.split('/').pop();
-  
-  if (dirPath) {
-    await ensureAzureDirectory(shareClient, dirPath);
-  }
-  
-  // Get directory and file clients
-  const dirClient = dirPath ? shareClient.getDirectoryClient(dirPath) : shareClient.rootDirectoryClient;
-  const fileClient = dirClient.getFileClient(fileName);
-  
-  // Upload buffer directly to Azure File Share
-  // This uses the Azure SDK's efficient upload method
-  await fileClient.create(fileSize);
-  await fileClient.uploadRange(buffer, 0, fileSize);
-  
-  console.log(`[CLIO DOC] Successfully uploaded ${fileSize} bytes to ${targetPath}`);
-  
-  return {
-    size: fileSize,
-    path: targetPath,
-    url: fileClient.url
-  };
 }
 
 /**
