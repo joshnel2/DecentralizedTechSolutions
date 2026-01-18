@@ -544,17 +544,20 @@ export async function streamDocumentToAzure(accessToken, manifest, firmId, optio
  */
 export async function batchStreamDocuments(accessToken, firmId, options = {}) {
   const { 
-    batchSize = 10, 
+    batchSize = 50,  // High concurrency - Clio rate limit is ~50 concurrent
     onProgress = () => {},
     limit = null,  // Optional limit for testing
     matterIdMap = new Map(),
     clientIdMap = new Map(),
     userIdMap = new Map(),
-    customFirmFolder = null  // Allow override of the firm folder path
+    customFirmFolder = null,  // Allow override of the firm folder path
+    maxRetries = 3,  // Retry failed uploads
+    sortBySize = true  // Process smaller files first for faster progress
   } = options;
   
   const firmFolder = customFirmFolder || `firm-${firmId}`;
   console.log(`[CLIO DOC] Starting batch document stream for firm ${firmId} -> ${firmFolder}`);
+  console.log(`[CLIO DOC] OPTIMIZED: batchSize=${batchSize}, maxRetries=${maxRetries}, concurrent=true`);
   
   // Check Azure configuration
   const azureConfigured = await isAzureConfigured();
@@ -588,53 +591,102 @@ export async function batchStreamDocuments(accessToken, firmId, options = {}) {
   const results = {
     success: 0,
     failed: 0,
-    errors: []
+    errors: [],
+    retried: 0
   };
   
-  // Process in batches to avoid memory issues
-  for (let i = 0; i < documents.length; i += batchSize) {
-    const batch = documents.slice(i, i + batchSize);
-    
-    // Process batch concurrently
-    const batchPromises = batch.map(async (doc) => {
-      try {
-        const result = await streamDocumentToAzure(accessToken, doc, firmId, {
-          matterIdMap,
-          clientIdMap,
-          userIdMap,
-          customFirmFolder
-        });
-        
-        if (result.success) {
-          results.success++;
-        } else {
-          results.failed++;
-          results.errors.push({ id: doc.clio_id, name: doc.name, error: result.error });
-        }
-      } catch (err) {
-        results.failed++;
-        results.errors.push({ id: doc.clio_id, name: doc.name, error: err.message });
+  // Sort by file size if enabled (smaller files first for faster progress feedback)
+  let sortedDocs = documents;
+  if (sortBySize) {
+    sortedDocs = [...documents].sort((a, b) => (a.size || 0) - (b.size || 0));
+    console.log(`[CLIO DOC] Sorted documents by size (smallest first)`);
+  }
+  
+  // Helper function to stream with retry
+  const streamWithRetry = async (doc, retriesLeft) => {
+    try {
+      const result = await streamDocumentToAzure(accessToken, doc, firmId, {
+        matterIdMap,
+        clientIdMap,
+        userIdMap,
+        customFirmFolder
+      });
+      
+      if (result.success) {
+        return { success: true };
+      } else if (retriesLeft > 0 && isRetryableError(result.error)) {
+        results.retried++;
+        await delay(1000); // Wait 1s before retry
+        return streamWithRetry(doc, retriesLeft - 1);
+      } else {
+        return { success: false, error: result.error };
       }
-    });
+    } catch (err) {
+      if (retriesLeft > 0 && isRetryableError(err.message)) {
+        results.retried++;
+        await delay(1000);
+        return streamWithRetry(doc, retriesLeft - 1);
+      }
+      return { success: false, error: err.message };
+    }
+  };
+  
+  // Process in batches with high concurrency
+  const startTime = Date.now();
+  for (let i = 0; i < sortedDocs.length; i += batchSize) {
+    const batch = sortedDocs.slice(i, i + batchSize);
     
-    await Promise.all(batchPromises);
+    // Process batch concurrently (all at once, no staggering)
+    const batchResults = await Promise.all(
+      batch.map(doc => streamWithRetry(doc, maxRetries))
+    );
     
-    // Progress update
-    const processed = Math.min(i + batchSize, documents.length);
+    // Count results
+    for (let j = 0; j < batchResults.length; j++) {
+      if (batchResults[j].success) {
+        results.success++;
+      } else {
+        results.failed++;
+        results.errors.push({ 
+          id: batch[j].clio_id, 
+          name: batch[j].name, 
+          error: batchResults[j].error 
+        });
+      }
+    }
+    
+    // Progress update with ETA
+    const processed = Math.min(i + batchSize, sortedDocs.length);
+    const elapsed = Date.now() - startTime;
+    const rate = processed / (elapsed / 1000); // docs per second
+    const remaining = sortedDocs.length - processed;
+    const etaSeconds = remaining / rate;
+    
     onProgress({
-      total: documents.length,
+      total: sortedDocs.length,
       processed,
       success: results.success,
       failed: results.failed,
-      status: processed < documents.length ? 'processing' : 'complete',
+      retried: results.retried,
+      status: processed < sortedDocs.length ? 'processing' : 'complete',
       currentBatch: Math.floor(i / batchSize) + 1,
-      totalBatches: Math.ceil(documents.length / batchSize)
+      totalBatches: Math.ceil(sortedDocs.length / batchSize),
+      docsPerSecond: rate.toFixed(1),
+      etaMinutes: Math.ceil(etaSeconds / 60)
     });
     
-    // Rate limiting delay between batches
-    if (i + batchSize < documents.length) {
-      await delay(500); // 500ms between batches
+    // Minimal delay - Clio allows ~50 concurrent, we're doing batches of 50
+    // No delay needed between batches since we wait for completion
+    if (i + batchSize < sortedDocs.length) {
+      await delay(100); // 100ms between batches - just enough for cleanup
     }
+  }
+  
+  // Helper to check if error is retryable
+  function isRetryableError(error) {
+    if (!error) return false;
+    const retryable = ['timeout', 'ETIMEDOUT', 'ECONNRESET', 'socket hang up', '429', '503', '502'];
+    return retryable.some(r => error.toLowerCase().includes(r.toLowerCase()));
   }
   
   console.log(`[CLIO DOC] Batch complete: ${results.success} success, ${results.failed} failed`);

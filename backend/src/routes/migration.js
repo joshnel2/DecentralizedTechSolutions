@@ -7068,7 +7068,7 @@ router.post('/documents/stream-to-azure', requireSecureAdmin, async (req, res) =
     }
     
     const result = await batchStreamDocuments(connection.accessToken, firmId, {
-      batchSize: Math.min(batchSize, 20),  // Cap at 20 to prevent memory issues
+      batchSize: Math.min(batchSize, 50),  // Cap at 50 - Clio's concurrent limit
       limit: limit || null,
       matterIdMap,
       clientIdMap,
