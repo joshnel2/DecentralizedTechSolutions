@@ -401,10 +401,18 @@ async function mapClioUserToOurUser(clioUserId, firmId, clioUserIdMap) {
  * @returns {Promise<{success: boolean, documentId?: string, error?: string}>}
  */
 export async function streamDocumentToAzure(accessToken, manifest, firmId, options = {}) {
-  const { matterIdMap = new Map(), clientIdMap = new Map(), userIdMap = new Map() } = options;
+  const { 
+    matterIdMap = new Map(), 
+    clientIdMap = new Map(), 
+    userIdMap = new Map(),
+    customFirmFolder = null  // Allow override of the firm folder path
+  } = options;
+  
+  // Determine the firm folder - use custom if provided, otherwise default to firm-{firmId}
+  const firmFolder = customFirmFolder || `firm-${firmId}`;
   
   try {
-    console.log(`[CLIO DOC] Streaming document: ${manifest.name} (Clio ID: ${manifest.clio_id}) -> firm-${firmId}`);
+    console.log(`[CLIO DOC] Streaming document: ${manifest.name} (Clio ID: ${manifest.clio_id}) -> ${firmFolder}`);
     
     // 1. Get download URL and original filename from Clio
     const { downloadUrl, size, contentType, originalFilename } = await getDocumentDownloadInfo(accessToken, manifest.clio_id);
@@ -425,8 +433,8 @@ export async function streamDocumentToAzure(accessToken, manifest, firmId, optio
       manifest.clio_path
     );
     
-    // Full path includes firm directory
-    const fullAzurePath = `firm-${firmId}/${relativePath}`;
+    // Full path includes firm directory (uses custom folder if provided)
+    const fullAzurePath = `${firmFolder}/${relativePath}`;
     
     // 4. Get Azure File Share client and stream directly
     const shareClient = await getShareClient();
@@ -541,10 +549,12 @@ export async function batchStreamDocuments(accessToken, firmId, options = {}) {
     limit = null,  // Optional limit for testing
     matterIdMap = new Map(),
     clientIdMap = new Map(),
-    userIdMap = new Map()
+    userIdMap = new Map(),
+    customFirmFolder = null  // Allow override of the firm folder path
   } = options;
   
-  console.log(`[CLIO DOC] Starting batch document stream for firm ${firmId}`);
+  const firmFolder = customFirmFolder || `firm-${firmId}`;
+  console.log(`[CLIO DOC] Starting batch document stream for firm ${firmId} -> ${firmFolder}`);
   
   // Check Azure configuration
   const azureConfigured = await isAzureConfigured();
@@ -591,7 +601,8 @@ export async function batchStreamDocuments(accessToken, firmId, options = {}) {
         const result = await streamDocumentToAzure(accessToken, doc, firmId, {
           matterIdMap,
           clientIdMap,
-          userIdMap
+          userIdMap,
+          customFirmFolder
         });
         
         if (result.success) {

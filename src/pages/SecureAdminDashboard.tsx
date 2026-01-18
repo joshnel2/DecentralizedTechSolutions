@@ -209,6 +209,7 @@ export default function SecureAdminDashboard() {
   const [includeBills, setIncludeBills] = useState(() => sessionStorage.getItem('clio_includeBills') !== 'false')
   const [includeCalendar, setIncludeCalendar] = useState(() => sessionStorage.getItem('clio_includeCalendar') !== 'false')
   const [includeDocuments, setIncludeDocuments] = useState(() => sessionStorage.getItem('clio_includeDocuments') !== 'false')
+  const [customAzureFolder, setCustomAzureFolder] = useState(() => sessionStorage.getItem('clio_customAzureFolder') || '')
   
   // Migrate to existing firm option
   const [useExistingFirm, setUseExistingFirm] = useState(() => sessionStorage.getItem('clio_useExistingFirm') === 'true')
@@ -226,6 +227,7 @@ export default function SecureAdminDashboard() {
   useEffect(() => { sessionStorage.setItem('clio_includeBills', String(includeBills)) }, [includeBills])
   useEffect(() => { sessionStorage.setItem('clio_includeCalendar', String(includeCalendar)) }, [includeCalendar])
   useEffect(() => { sessionStorage.setItem('clio_includeDocuments', String(includeDocuments)) }, [includeDocuments])
+  useEffect(() => { sessionStorage.setItem('clio_customAzureFolder', customAzureFolder) }, [customAzureFolder])
   useEffect(() => { sessionStorage.setItem('clio_useExistingFirm', String(useExistingFirm)) }, [useExistingFirm])
   useEffect(() => { sessionStorage.setItem('clio_existingFirmId', selectedExistingFirmId) }, [selectedExistingFirmId])
   useEffect(() => { sessionStorage.setItem('clio_filterByUser', String(filterByUser)) }, [filterByUser])
@@ -1055,7 +1057,8 @@ export default function SecureAdminDashboard() {
         body: JSON.stringify({ 
           firmId: selectedFirmDetail.id,
           connectionId: clioConnectionId,
-          batchSize: 5  // Process 5 documents at a time
+          batchSize: 5,  // Process 5 documents at a time
+          customFirmFolder: customAzureFolder.trim() || null  // Pass custom folder if specified
         })
       })
       const data = await res.json()
@@ -1532,6 +1535,7 @@ export default function SecureAdminDashboard() {
     const storedIncludeBills = sessionStorage.getItem('clio_includeBills') !== 'false'
     const storedIncludeCalendar = sessionStorage.getItem('clio_includeCalendar') !== 'false'
     const storedIncludeDocuments = sessionStorage.getItem('clio_includeDocuments') !== 'false'
+    const storedCustomAzureFolder = sessionStorage.getItem('clio_customAzureFolder') || ''
     const storedFilterByUser = sessionStorage.getItem('clio_filterByUser') === 'true'
     const storedFilterUserEmail = sessionStorage.getItem('clio_filterUserEmail') || ''
     
@@ -1565,6 +1569,7 @@ export default function SecureAdminDashboard() {
           includeBills: storedIncludeBills,
           includeCalendar: storedIncludeCalendar,
           includeDocuments: storedIncludeDocuments,
+          customFirmFolder: storedCustomAzureFolder.trim() || null,
           filterByUser: storedFilterByUser,
           filterUserEmail: storedFilterByUser ? storedFilterUserEmail : null
         })
@@ -1617,6 +1622,8 @@ export default function SecureAdminDashboard() {
           includeActivities,
           includeBills,
           includeCalendar,
+          includeDocuments,
+          customFirmFolder: customAzureFolder.trim() || null,
           filterByUser,
           filterUserEmail: filterByUser ? filterUserEmail : null
         })
@@ -2896,6 +2903,30 @@ Password: ${newPass}`
                                       <strong style={{ color: '#7C3AED' }}>Requires Azure Storage:</strong> Go to{' '}
                                       <strong>Platform Settings → Azure Storage (Apex Drive)</strong> and enter your storage account name, key, and file share name.
                                       Without this, documents will be skipped during migration.
+                                      
+                                      <div style={{ marginTop: '0.75rem' }}>
+                                        <label style={{ display: 'block', fontWeight: 500, marginBottom: '0.25rem', color: '#7C3AED' }}>
+                                          Custom Azure Folder Path (optional)
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={customAzureFolder}
+                                          onChange={(e) => setCustomAzureFolder(e.target.value)}
+                                          placeholder="e.g., firm-54639e17-b1e1-44ff-ac1c-ffbf15211752"
+                                          style={{
+                                            width: '100%',
+                                            padding: '0.5rem',
+                                            borderRadius: '6px',
+                                            border: '1px solid rgba(124, 58, 237, 0.3)',
+                                            background: 'white',
+                                            fontSize: '0.85rem',
+                                            fontFamily: 'monospace'
+                                          }}
+                                        />
+                                        <p style={{ fontSize: '0.75rem', color: '#888', marginTop: '0.25rem' }}>
+                                          Leave blank to auto-generate from firm ID. Use this to target an existing firm's folder.
+                                        </p>
+                                      </div>
                                     </div>
                                   )}
                                 </div>

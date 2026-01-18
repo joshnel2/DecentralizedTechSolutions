@@ -2621,12 +2621,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
       includeBills = true, 
       includeCalendar = true,
       includeDocuments = true,
+      customFirmFolder = null,
       filterByUser = false,
       filterUserEmail = null
     } = req.body;
     
     console.log('[CLIO IMPORT] Starting import for connection:', connectionId, 'firmName:', firmName);
     console.log('[CLIO IMPORT] Include options:', { includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar, includeDocuments });
+    console.log('[CLIO IMPORT] Custom Azure folder:', customFirmFolder || '(auto-generate from firmId)');
     console.log('[CLIO IMPORT] User filter:', { filterByUser, filterUserEmail });
     
     if (!connectionId) {
@@ -2651,7 +2653,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
     }
     
     // Store options for background process
-    const importOptions = { existingFirmId, includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar, includeDocuments, filterByUser, filterUserEmail };
+    const importOptions = { existingFirmId, includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar, includeDocuments, customFirmFolder, filterByUser, filterUserEmail };
     
     // Initialize progress
     migrationProgress.set(connectionId, {
@@ -4746,13 +4748,23 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             } else {
               // Log Azure config and firmId for debugging
               const azConfig = await getAzureConfig();
-              console.log(`[CLIO IMPORT] *** Documents will be stored in: firm-${firmId} ***`);
+              // Use custom folder if specified, otherwise use default firm-{firmId}
+              const targetFirmFolder = customFirmFolder || `firm-${firmId}`;
+              console.log(`[CLIO IMPORT] *** Documents will be stored in: ${targetFirmFolder} ***`);
               console.log(`[CLIO IMPORT] *** Firm name: ${actualFirmName}, Firm ID: ${firmId} ***`);
+              if (customFirmFolder) {
+                console.log(`[CLIO IMPORT] *** Using CUSTOM folder override: ${customFirmFolder} ***`);
+              }
               console.log(`[CLIO IMPORT] Azure configured: account=${azConfig?.accountName}, share=${azConfig?.shareName}`);
-              addLog(`📁 Target folder: firm-${firmId} (${actualFirmName})`);
+              addLog(`📁 Target folder: ${targetFirmFolder} (${actualFirmName})`);
+              if (customFirmFolder) {
+                addLog(`📁 Using custom folder: ${customFirmFolder}`);
+              }
               addLog(`📁 Azure Storage: ${azConfig?.accountName}/${azConfig?.shareName}`);
               // Create firm folder in Azure (idempotent - safe to call multiple times)
-              const folderResult = await ensureFirmFolder(firmId);
+              // If using custom folder, extract the firm ID from it or use the folder directly
+              const folderFirmId = customFirmFolder ? customFirmFolder.replace(/^firm-/, '') : firmId;
+              const folderResult = await ensureFirmFolder(folderFirmId);
               if (folderResult.success) {
                 console.log(`[CLIO IMPORT] Azure firm folder ready: ${folderResult.path}`);
                 addLog(`📁 Azure folder created/verified: ${folderResult.path}`);
@@ -4936,7 +4948,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   await Promise.all(batch.map(async (manifest) => {
                     try {
                       const streamResult = await streamDocumentToAzure(accessToken, manifest, firmId, {
-                        matterIdMap: docMatterIdMap
+                        matterIdMap: docMatterIdMap,
+                        customFirmFolder: customFirmFolder || null
                       });
                       
                       if (streamResult.success) {
@@ -7015,10 +7028,15 @@ router.post('/documents/fetch-manifest', requireSecureAdmin, async (req, res) =>
 // This downloads files from Clio and uploads to Azure using memory only
 router.post('/documents/stream-to-azure', requireSecureAdmin, async (req, res) => {
   try {
-    const { firmId, connectionId, batchSize = 5, limit = null } = req.body;
+    const { firmId, connectionId, batchSize = 5, limit = null, customFirmFolder = null } = req.body;
     
     if (!firmId || !connectionId) {
       return res.status(400).json({ error: 'firmId and connectionId required' });
+    }
+    
+    // Log if custom folder is specified
+    if (customFirmFolder) {
+      console.log(`[DOC STREAM] Using custom Azure folder: ${customFirmFolder}`);
     }
     
     // Get Clio access token from connection
@@ -7055,6 +7073,7 @@ router.post('/documents/stream-to-azure', requireSecureAdmin, async (req, res) =
       matterIdMap,
       clientIdMap,
       userIdMap,
+      customFirmFolder,  // Pass custom folder if specified
       onProgress: (progress) => {
         console.log(`[DOC STREAM] Progress: ${progress.processed}/${progress.total} (${progress.success} success, ${progress.failed} failed)`);
       }
