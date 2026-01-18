@@ -997,7 +997,6 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
             type="file"
             ref={fileInputRef}
             onChange={handleFileSelect}
-            accept=".pdf,.doc,.docx,.txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.webp"
             style={{ display: 'none' }}
           />
           <button

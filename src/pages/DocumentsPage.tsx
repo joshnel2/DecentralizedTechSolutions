@@ -584,7 +584,6 @@ export function DocumentsPage() {
             multiple
             style={{ display: 'none' }}
             onChange={handleFileSelect}
-            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp"
           />
         </div>
       </div>
