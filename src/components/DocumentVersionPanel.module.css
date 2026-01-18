@@ -194,10 +194,11 @@
   justify-content: center;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
-  background: var(--apex-slate);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
   border-radius: 8px;
-  color: var(--apex-light);
+  color: var(--apex-midnight);
+  font-weight: 600;
   font-weight: 500;
   font-size: 0.875rem;
   cursor: pointer;
@@ -205,9 +206,9 @@
 }
 
 .downloadBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: var(--apex-gold);
-  color: var(--apex-gold);
+  background: linear-gradient(135deg, var(--apex-gold-bright) 0%, var(--apex-gold) 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3);
 }
 
 /* Word Sync Status */
