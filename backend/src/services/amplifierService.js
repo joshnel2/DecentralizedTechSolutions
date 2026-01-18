@@ -114,25 +114,28 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
     throw new Error('Azure OpenAI not configured: missing endpoint, API key, or deployment');
   }
   
-  // Build URL - ensure endpoint ends properly
-  const endpoint = config.endpoint.endsWith('/') ? config.endpoint.slice(0, -1) : config.endpoint;
-  const url = `${endpoint}/openai/deployments/${config.deployment}/chat/completions?api-version=${API_VERSION}`;
+  // Build URL - EXACT same format as aiAgent.js
+  // aiAgent.js uses: `${AZURE_ENDPOINT}openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${API_VERSION}`
+  // The endpoint should include trailing slash, but we handle both cases
+  const baseEndpoint = config.endpoint.endsWith('/') ? config.endpoint : `${config.endpoint}/`;
+  const url = `${baseEndpoint}openai/deployments/${config.deployment}/chat/completions?api-version=${API_VERSION}`;
   
   // Match the EXACT request body format as aiAgent.js for consistency
   const body = {
     messages,
     temperature: options.temperature ?? 0.7,
     max_tokens: options.max_tokens ?? 4000,
-    top_p: 0.95,
   };
   
-  // Add tools for function calling (agent mode)
+  // Add tools for function calling (agent mode) - EXACT same as aiAgent.js
   if (tools.length > 0) {
     body.tools = tools;
     body.tool_choice = 'auto';
+    body.parallel_tool_calls = false; // Match aiAgent.js
   }
   
   console.log(`[Amplifier] Calling Azure OpenAI: ${config.deployment} with ${tools.length} tools`);
+  console.log(`[Amplifier] Request URL: ${url}`);
   
   const retryableStatuses = new Set([429, 500, 502, 503, 504]);
   const maxAttempts = 5;
@@ -156,10 +159,14 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
     const errorText = await response.text();
     const isRetryable = retryableStatuses.has(response.status);
     const retryAfterMs = response.status === 429 ? getRetryAfterMs(response, errorText) : null;
-    console.error('[Amplifier] Azure OpenAI error:', errorText);
-    console.error('[Amplifier] Request URL:', url);
-    console.error('[Amplifier] Deployment:', config.deployment);
-    console.error('[Amplifier] Status:', response.status);
+    
+    // Enhanced error logging for debugging
+    console.error(`[Amplifier] Azure OpenAI error (attempt ${attempt}/${maxAttempts}):`);
+    console.error('[Amplifier]   Status:', response.status);
+    console.error('[Amplifier]   URL:', url);
+    console.error('[Amplifier]   Deployment:', config.deployment);
+    console.error('[Amplifier]   API Key present:', !!config.apiKey, '(length:', config.apiKey?.length || 0, ')');
+    console.error('[Amplifier]   Error:', errorText.substring(0, 500));
     
     if (!isRetryable || attempt === maxAttempts) {
       let errorMessage = `Azure OpenAI API error: ${response.status}`;
