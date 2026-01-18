@@ -4939,8 +4939,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 // Track errors for summary
                 const errorDetails = [];
                 
-                // Stream documents in batches of 5 (concurrent)
-                const BATCH_SIZE = 5;
+                // Stream documents in batches of 50 (Clio rate limit)
+                const BATCH_SIZE = 50;
                 for (let i = 0; i < totalDocs; i += BATCH_SIZE) {
                   const batch = pendingDocs.rows.slice(i, i + BATCH_SIZE);
                   
@@ -4957,10 +4957,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                       } else {
                         documentsFailedCount++;
                         errorDetails.push({ name: manifest.name, error: streamResult.error || 'Unknown error' });
-                        console.log(`[CLIO IMPORT] Stream failed for ${manifest.name}: ${streamResult.error}`);
                       }
                     } catch (err) {
-                      console.error(`[CLIO IMPORT] Stream error for ${manifest.name}: ${err.message}`);
                       documentsFailedCount++;
                       errorDetails.push({ name: manifest.name, error: err.message });
                     }
@@ -4969,15 +4967,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   // Progress update
                   const processed = Math.min(i + BATCH_SIZE, totalDocs);
                   updateProgress('documents', 'running', documentsStreamedCount);
-                  
-                  if (processed % 25 === 0 || processed === totalDocs) {
-                    addLog(`📤 Progress: ${documentsStreamedCount}/${totalDocs} streamed, ${documentsFailedCount} failed`);
-                  }
-                  
-                  // Small delay between batches to respect rate limits
-                  if (i + BATCH_SIZE < totalDocs) {
-                    await new Promise(r => setTimeout(r, 300));
-                  }
+                  addLog(`📤 Progress: ${documentsStreamedCount}/${totalDocs} streamed, ${documentsFailedCount} failed`);
                 }
                 
                 // Log error summary if there were failures
