@@ -43,6 +43,7 @@ import notificationRoutes from './routes/notifications.js';
 
 // Background Agent (Amplifier-powered)
 import backgroundAgentRoutes from './routes/backgroundAgent.js';
+import agentStreamRoutes from './routes/agentStream.js';
 import amplifierService from './services/amplifierService.js';
 
 // Import middleware
@@ -121,6 +122,10 @@ app.use('/api/notifications', notificationRoutes);
 
 // Background Agent (Amplifier-powered) - separate from normal AI
 app.use('/api/v1/background-agent', backgroundAgentRoutes);
+
+// Agent Streaming (SSE for real-time Glass Cockpit UI)
+app.use('/api/v1/agent-stream', agentStreamRoutes);
+app.use('/api/v1/background-agent/stream', agentStreamRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

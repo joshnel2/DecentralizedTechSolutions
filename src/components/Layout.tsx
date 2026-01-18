@@ -8,6 +8,7 @@ import { useAIChat } from '../contexts/AIChatContext'
 import { useTimer, formatElapsedTime } from '../contexts/TimerContext'
 import { AIChat } from './AIChat'
 import { BackgroundTaskBar } from './BackgroundTaskBar'
+import { AgentStatusWidget } from './AgentStatusWidget'
 import { EmailCompose } from './EmailCompose'
 import { EmailComposeProvider } from '../contexts/EmailComposeContext'
 import { integrationsApi } from '../services/api'
@@ -508,6 +509,9 @@ export function Layout() {
       
       {/* Background Agent Task Progress Bar - shows when Amplifier tasks are running */}
       <BackgroundTaskBar />
+      
+      {/* Agent Status Widget - floating mini widget for Glass Cockpit view */}
+      <AgentStatusWidget />
       
       {/* Global Email Compose (Gmail-style) */}
       <EmailCompose />

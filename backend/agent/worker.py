@@ -10,6 +10,7 @@ The worker is designed to:
 - Handle errors gracefully and continue processing
 - Log all activity to agent_logs.txt
 - Never use input() or ask for user input
+- Stream real-time updates to the Glass Cockpit UI via SSE
 
 Usage:
     python worker.py
@@ -41,6 +42,14 @@ try:
 except ImportError as e:
     print(f"Warning: SuperLawyerAgent not available: {e}")
     SUPER_LAWYER_AVAILABLE = False
+
+# Import streaming support
+try:
+    from streaming import EventEmitter, StreamingCallbackHandler, EventType
+    STREAMING_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Streaming not available: {e}")
+    STREAMING_AVAILABLE = False
 
 # Load environment variables
 load_dotenv_if_available()
@@ -244,6 +253,8 @@ class BackgroundWorker:
     
     Runs in an infinite loop, polling for new tasks and processing them
     using the MetacognitiveAgent.
+    
+    Supports real-time streaming to the Glass Cockpit UI via SSE.
     """
     
     def __init__(
@@ -251,7 +262,8 @@ class BackgroundWorker:
         config: Optional[AgentConfig] = None,
         queue_file: str = "./pending_tasks.json",
         log_file: str = "./logs/agent_logs.txt",
-        poll_interval: int = 5
+        poll_interval: int = 5,
+        backend_url: str = "http://localhost:3001"
     ):
         self.config = config or AgentConfig.from_environment()
         self.queue = TaskQueue(queue_file)
@@ -259,6 +271,11 @@ class BackgroundWorker:
         self.poll_interval = poll_interval
         self.running = True
         self.current_task: Optional[Task] = None
+        self.backend_url = backend_url
+        
+        # Current streaming emitter (created per task)
+        self.emitter: Optional['EventEmitter'] = None
+        self.callback_handler: Optional['StreamingCallbackHandler'] = None
         
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._handle_shutdown)
@@ -275,6 +292,22 @@ class BackgroundWorker:
             self.current_task.error = "Worker shutdown during execution"
             self.queue.update_task(self.current_task)
     
+    def _create_streaming_emitter(self, task_id: str) -> Optional['EventEmitter']:
+        """Create a streaming emitter for the task if available"""
+        if not STREAMING_AVAILABLE:
+            return None
+        
+        try:
+            emitter = EventEmitter(
+                task_id=task_id,
+                backend_url=self.backend_url
+            )
+            emitter.start()
+            return emitter
+        except Exception as e:
+            self.logger.warning(f"Failed to create streaming emitter: {e}")
+            return None
+    
     def _process_task(self, task: Task) -> Dict[str, Any]:
         """
         Process a single task using the SuperLawyerAgent (or MetacognitiveAgent fallback).
@@ -285,6 +318,8 @@ class BackgroundWorker:
         - Learning from user preferences
         - Same tools as the normal AI chat
         
+        Streams real-time updates to the Glass Cockpit UI via SSE.
+        
         Args:
             task: The task to process
             
@@ -292,6 +327,13 @@ class BackgroundWorker:
             Result dictionary
         """
         self.current_task = task
+        
+        # Create streaming emitter for this task
+        self.emitter = self._create_streaming_emitter(task.id)
+        if self.emitter:
+            self.callback_handler = StreamingCallbackHandler(self.emitter)
+            self.emitter.progress.started_at = datetime.now().isoformat()
+            self.logger.info(f"[Task {task.id}] Streaming enabled")
         
         # Update task status to running
         task.status = TaskStatus.RUNNING
@@ -301,19 +343,93 @@ class BackgroundWorker:
         self.logger.log_task_start(task)
         
         try:
-            # Create the agent with a logging callback
+            # Emit task start event
+            if self.emitter:
+                self.emitter.emit(
+                    EventType.TASK_START,
+                    message=f"Starting: {task.goal[:100]}...",
+                    data={"goal": task.goal}
+                )
+            
+            # Create the agent with a streaming-aware logging callback
             def log_callback(message: str):
                 self.logger.info(f"[Task {task.id}] {message}")
+                
+                # Stream the message to UI
+                if self.emitter:
+                    # Detect message type and emit appropriate event
+                    if message.startswith("[THINKING]"):
+                        self.emitter.thinking(message[10:].strip())
+                    elif message.startswith("[TOOL]"):
+                        parts = message[6:].strip().split(":", 1)
+                        tool_name = parts[0].strip() if parts else "unknown"
+                        description = parts[1].strip() if len(parts) > 1 else ""
+                        self.emitter.tool_start(tool_name, description)
+                    elif message.startswith("[STEP]"):
+                        parts = message[6:].strip().split(":", 1)
+                        step_num = int(parts[0].strip()) if parts and parts[0].strip().isdigit() else 1
+                        description = parts[1].strip() if len(parts) > 1 else message[6:].strip()
+                        self.emitter.step_start(step_num, description)
+                    elif message.startswith("[COMPLETE]"):
+                        self.emitter.step_complete(
+                            self.emitter.progress.completed_steps + 1,
+                            message[10:].strip()
+                        )
+                    elif message.startswith("[PLAN]"):
+                        # Parse plan steps
+                        plan_text = message[6:].strip()
+                        steps = [s.strip() for s in plan_text.split(";") if s.strip()]
+                        self.emitter.plan_update(steps)
+                    elif message.startswith("[IRAC"):
+                        # Extract IRAC phase: [IRAC:ISSUE] content
+                        import re
+                        match = re.match(r'\[IRAC:(\w+)\](.*)$', message)
+                        if match:
+                            phase = match.group(1).lower()
+                            content = match.group(2).strip()
+                            self.emitter.irac_phase(phase, content)
+                    elif message.startswith("[CRITIQUE]"):
+                        self.emitter.emit(
+                            EventType.IRAC_CRITIQUE,
+                            message=message[10:].strip(),
+                            color="orange"
+                        )
+                    elif message.startswith("[ARTIFACT]"):
+                        parts = message[10:].strip().split(":", 1)
+                        name = parts[0].strip() if parts else "document"
+                        preview = parts[1].strip() if len(parts) > 1 else ""
+                        if preview:
+                            self.emitter.artifact_update(name, preview)
+                        else:
+                            self.emitter.artifact_start(name)
+                    elif message.startswith("[PROGRESS]"):
+                        parts = message[10:].strip().split("%", 1)
+                        if parts and parts[0].strip().isdigit():
+                            percent = int(parts[0].strip())
+                            status = parts[1].strip() if len(parts) > 1 else ""
+                            self.emitter.update_progress(percent, status)
+                    elif message.startswith("[ERROR]"):
+                        self.emitter.error(message[7:].strip())
+                    else:
+                        # Generic log message
+                        self.emitter.log(message)
             
             # Use SuperLawyerAgent if available (preferred - has IRAC + learning)
             if SUPER_LAWYER_AVAILABLE:
                 self.logger.info(f"[Task {task.id}] Using SuperLawyerAgent (IRAC + Learning)")
+                if self.emitter:
+                    self.emitter.emit(EventType.STATUS_UPDATE, message="Loading SuperLawyerAgent (IRAC + Learning)")
                 agent = SuperLawyerAgent(self.config, log_callback)
             else:
                 self.logger.info(f"[Task {task.id}] Using MetacognitiveAgent (fallback)")
+                if self.emitter:
+                    self.emitter.emit(EventType.STATUS_UPDATE, message="Loading MetacognitiveAgent")
                 agent = MetacognitiveAgent(self.config, log_callback)
             
             # Run the task
+            if self.emitter:
+                self.emitter.update_progress(5, "initializing", "Agent initialized, starting work...")
+            
             result = agent.run(task.goal)
             
             # Update task with result
@@ -327,10 +443,21 @@ class BackgroundWorker:
                 output_files = result.get("output_files", [])
                 if output_files:
                     task.output_path = output_files[0]  # Primary output file
+                
+                # Emit success event
+                if self.emitter:
+                    self.emitter.task_complete(
+                        result.get("summary", "Task completed successfully"),
+                        output_files
+                    )
             else:
                 task.status = TaskStatus.FAILED
                 task.error = result.get("error", "Task did not complete successfully")
                 task.completed_at = datetime.now().isoformat()
+                
+                # Emit failure event
+                if self.emitter:
+                    self.emitter.task_failed(task.error)
             
             self.queue.update_task(task)
             self.logger.log_task_complete(task, result)
@@ -345,6 +472,10 @@ class BackgroundWorker:
             self.logger.log_task_error(task, error_msg)
             self.logger.error(f"Stack trace:\n{stack_trace}")
             
+            # Emit error event
+            if self.emitter:
+                self.emitter.task_failed(error_msg)
+            
             task.status = TaskStatus.FAILED
             task.error = error_msg
             task.completed_at = datetime.now().isoformat()
@@ -353,6 +484,12 @@ class BackgroundWorker:
             return {"success": False, "error": error_msg}
         
         finally:
+            # Stop streaming emitter
+            if self.emitter:
+                self.emitter.stop()
+                self.emitter = None
+                self.callback_handler = None
+            
             self.current_task = None
     
     def run_once(self) -> Optional[Dict[str, Any]]:

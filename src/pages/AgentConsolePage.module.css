@@ -1,0 +1,564 @@
+/* Agent Console Page - Professional Legal Tech UI */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+  color: #e2e8f0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  background: rgba(15, 23, 42, 0.8);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  backdrop-filter: blur(8px);
+}
+
+.backBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 6px;
+  color: #94a3b8;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.backBtn:hover {
+  background: rgba(148, 163, 184, 0.1);
+  color: #e2e8f0;
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
+.headerTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.headerTitle h1 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  margin: 0;
+}
+
+.taskId {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  background: rgba(100, 116, 139, 0.2);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.headerStatus {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+}
+
+.connectionDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.connectionDot.connected {
+  background: #22c55e;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+  animation: pulse 2s infinite;
+}
+
+.connectionDot.disconnected {
+  background: #f59e0b;
+  animation: blink 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Progress Section */
+.progressSection {
+  padding: 1rem 1.5rem;
+  background: rgba(30, 41, 59, 0.5);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.progressHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.progressInfo {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.progressStatus {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #f1f5f9;
+}
+
+.spinIcon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.completeIcon {
+  color: #22c55e;
+}
+
+.failedIcon {
+  color: #ef4444;
+}
+
+.progressStep {
+  font-size: 0.875rem;
+  color: #94a3b8;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progressMeta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #22c55e;
+}
+
+.elapsed {
+  color: #64748b;
+  font-weight: 400;
+}
+
+.progressBar {
+  height: 4px;
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%);
+  border-radius: 2px;
+  transition: width 0.3s ease-out;
+}
+
+.progressFill.progressComplete {
+  background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%);
+}
+
+.progressFill.progressFailed {
+  background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
+}
+
+/* IRAC Progress Indicator */
+.iracProgress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.iracPhase {
+  font-size: 0.75rem;
+  color: #64748b;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  background: transparent;
+  transition: all 0.2s;
+}
+
+.iracPhase.active {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.15);
+  font-weight: 500;
+}
+
+.iracProgress svg {
+  color: #475569;
+}
+
+/* Main Content */
+.content {
+  display: flex;
+  flex: 1;
+  gap: 1px;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+/* Terminal Section */
+.terminalSection {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #0f172a;
+  min-width: 0;
+}
+
+.terminalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: rgba(30, 41, 59, 0.8);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.terminalTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+}
+
+.eventCount {
+  font-size: 0.75rem;
+  color: #64748b;
+  padding: 0.125rem 0.375rem;
+  background: rgba(100, 116, 139, 0.2);
+  border-radius: 3px;
+}
+
+.terminalControls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filterSelect {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 4px;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.filterSelect:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.controlBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 4px;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.controlBtn:hover {
+  background: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+}
+
+.controlBtn.active {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.3);
+  color: #22c55e;
+}
+
+/* Terminal Content */
+.terminal {
+  flex: 1;
+  padding: 0.5rem 0;
+  overflow-y: auto;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.terminal::-webkit-scrollbar {
+  width: 8px;
+}
+
+.terminal::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.terminal::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 4px;
+}
+
+.terminal::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.3);
+}
+
+.emptyTerminal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  height: 100%;
+  color: #475569;
+}
+
+.eventRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.375rem 1rem;
+  transition: background 0.15s;
+}
+
+.eventRow:hover {
+  background: rgba(148, 163, 184, 0.05);
+}
+
+.eventTime {
+  flex-shrink: 0;
+  color: #475569;
+  font-size: 0.75rem;
+}
+
+.eventIcon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.eventMessage {
+  flex: 1;
+  word-break: break-word;
+}
+
+/* Event Colors */
+.eventGray {
+  color: #94a3b8;
+}
+
+.eventGray .eventIcon {
+  color: #64748b;
+}
+
+.eventBlue {
+  color: #60a5fa;
+}
+
+.eventBlue .eventIcon {
+  color: #3b82f6;
+}
+
+.eventGreen {
+  color: #4ade80;
+}
+
+.eventGreen .eventIcon {
+  color: #22c55e;
+}
+
+.eventRed {
+  color: #f87171;
+}
+
+.eventRed .eventIcon {
+  color: #ef4444;
+}
+
+.eventOrange {
+  color: #fb923c;
+}
+
+.eventOrange .eventIcon {
+  color: #f97316;
+}
+
+.eventPurple {
+  color: #c084fc;
+}
+
+.eventPurple .eventIcon {
+  color: #a855f7;
+}
+
+.eventIndigo {
+  color: #818cf8;
+}
+
+.eventIndigo .eventIcon {
+  color: #6366f1;
+}
+
+.eventDefault {
+  color: #cbd5e1;
+}
+
+.eventDefault .eventIcon {
+  color: #94a3b8;
+}
+
+/* Artifact Section */
+.artifactSection {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: #1e293b;
+}
+
+.artifactHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  background: rgba(30, 41, 59, 0.8);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.artifactContent {
+  flex: 1;
+  padding: 1rem;
+  overflow: auto;
+}
+
+.artifactName {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #e2e8f0;
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.artifactPreview {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: #94a3b8;
+  background: rgba(15, 23, 42, 0.5);
+  padding: 0.75rem;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.artifactEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  height: 150px;
+  color: #475569;
+  font-size: 0.875rem;
+}
+
+/* Steps Overview */
+.stepsOverview {
+  padding: 1rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.stepsHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-bottom: 0.75rem;
+}
+
+.stepsBar {
+  display: flex;
+  gap: 4px;
+}
+
+.stepDot {
+  flex: 1;
+  height: 4px;
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 2px;
+}
+
+.stepDot.completed {
+  background: #22c55e;
+}
+
+.stepDot.current {
+  background: #3b82f6;
+  animation: pulse 1.5s infinite;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .content {
+    flex-direction: column;
+  }
+  
+  .artifactSection {
+    width: 100%;
+    height: 200px;
+  }
+  
+  .progressStep {
+    max-width: 200px;
+  }
+}
