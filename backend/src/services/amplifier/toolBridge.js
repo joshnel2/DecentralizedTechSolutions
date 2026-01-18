@@ -17,7 +17,21 @@ import crypto from 'crypto';
 import PDFDocument from 'pdfkit';
 import { uploadFile, downloadFile, isAzureConfigured } from '../../utils/azureStorage.js';
 import { extractTextFromFile } from '../../routes/documents.js';
-import { TOOLS as AGENT_TOOLS, executeTool as executeAgentTool } from '../../routes/aiAgent.js';
+
+// Import tools from aiAgent.js - these are the EXACT same tools used by the normal AI chat
+// This ensures the background agent has identical capabilities
+let AGENT_TOOLS = [];
+let executeAgentTool = null;
+
+try {
+  const aiAgentModule = await import('../../routes/aiAgent.js');
+  AGENT_TOOLS = aiAgentModule.TOOLS || [];
+  executeAgentTool = aiAgentModule.executeTool;
+  console.log(`[ToolBridge] Loaded ${AGENT_TOOLS.length} tools from aiAgent.js`);
+} catch (error) {
+  console.error('[ToolBridge] Failed to load tools from aiAgent.js:', error.message);
+  console.error('[ToolBridge] Background agent will have limited functionality');
+}
 
 /**
  * Complete list of tools available to Amplifier
@@ -470,8 +484,16 @@ function buildToolMapFromAgent(tools = []) {
   return toolMap;
 }
 
+// Export the tools in OpenAI format (directly from aiAgent.js)
+// AMPLIFIER_OPENAI_TOOLS = same tools the normal AI chat uses
 export const AMPLIFIER_OPENAI_TOOLS = AGENT_TOOLS;
+
+// AMPLIFIER_TOOLS = merged tool definitions for backwards compatibility
 export const AMPLIFIER_TOOLS = { ...BASE_AMPLIFIER_TOOLS, ...buildToolMapFromAgent(AGENT_TOOLS) };
+
+// Log tool availability for debugging
+console.log(`[ToolBridge] AMPLIFIER_OPENAI_TOOLS: ${AMPLIFIER_OPENAI_TOOLS.length} tools available`);
+console.log(`[ToolBridge] AMPLIFIER_TOOLS: ${Object.keys(AMPLIFIER_TOOLS).length} tool definitions`);
 
 async function loadUserContext(userId, firmId) {
   if (!userId || !firmId) return null;
@@ -506,19 +528,21 @@ async function loadUserContext(userId, firmId) {
  * Execute a tool call for Amplifier
  * This function routes tool calls to the appropriate handler
  * Legal-specific tools are handled here; others delegate to aiAgent.js
+ * Uses the SAME tool execution as the normal AI chat
  */
 export async function executeTool(toolName, params, context) {
   const { userId, firmId, user: providedUser } = context || {};
   
-  console.log(`[Amplifier Tool] Executing: ${toolName}`, params);
+  console.log(`[Amplifier Tool] Executing: ${toolName}`, JSON.stringify(params).substring(0, 200));
   
   const user = providedUser || await loadUserContext(userId, firmId);
   if (!user) {
+    console.error(`[Amplifier Tool] User not found: userId=${userId}, firmId=${firmId}`);
     return { error: 'User not found or inactive' };
   }
   
   try {
-    // Handle legal-specific tools that are unique to Amplifier
+    // Handle legal-specific tools that are unique to Amplifier background agent
     switch (toolName) {
       case 'check_conflicts':
         return await checkConflicts(params, userId, firmId);
@@ -539,12 +563,16 @@ export async function executeTool(toolName, params, context) {
         return await logBillableWork(params, userId, firmId);
       
       default:
-        // Delegate to the standard AI agent tool executor
+        // Delegate to the standard AI agent tool executor (same as normal AI chat)
+        if (!executeAgentTool) {
+          console.error(`[Amplifier Tool] executeAgentTool not available - aiAgent.js import may have failed`);
+          return { error: `Tool '${toolName}' not available - agent tools not loaded` };
+        }
         return await executeAgentTool(toolName, params, user, null);
     }
   } catch (error) {
     console.error(`[Amplifier Tool] Error executing ${toolName}:`, error);
-    return { error: error.message };
+    return { error: error.message || 'Tool execution failed' };
   }
 }
 

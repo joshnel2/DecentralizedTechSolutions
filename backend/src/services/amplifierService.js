@@ -190,11 +190,17 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
 
 /**
  * Convert our tool definitions to OpenAI function format
+ * Uses the EXACT same tools as aiAgent.js for consistency
  */
 function getOpenAITools() {
+  // ALWAYS prefer the imported AGENT_TOOLS from aiAgent.js
+  // This ensures background agent uses EXACTLY the same tools as normal AI chat
   if (Array.isArray(AMPLIFIER_OPENAI_TOOLS) && AMPLIFIER_OPENAI_TOOLS.length > 0) {
+    console.log(`[Amplifier] Using ${AMPLIFIER_OPENAI_TOOLS.length} tools from aiAgent.js`);
     return AMPLIFIER_OPENAI_TOOLS;
   }
+  
+  console.warn('[Amplifier] AMPLIFIER_OPENAI_TOOLS not available, falling back to AMPLIFIER_TOOLS conversion');
   
   return Object.entries(AMPLIFIER_TOOLS).map(([name, tool]) => ({
     type: 'function',
@@ -204,14 +210,13 @@ function getOpenAITools() {
       parameters: {
         type: 'object',
         properties: Object.fromEntries(
-          Object.entries(tool.parameters).map(([key, desc]) => {
-            const typePart = desc.split(' - ')[0];
-            const descPart = desc.split(' - ')[1] || '';
+          Object.entries(tool.parameters || {}).map(([key, desc]) => {
+            const descStr = String(desc || '');
+            const typePart = descStr.split(' - ')[0] || 'string';
+            const descPart = descStr.split(' - ')[1] || '';
             
             // Handle array types - OpenAI requires an "items" schema for arrays
             if (typePart === 'array') {
-              // Provide a generic items schema for arrays
-              // The description often hints at the structure (e.g., "[{description, amount}]")
               return [key, {
                 type: 'array',
                 description: descPart,
@@ -226,7 +231,7 @@ function getOpenAITools() {
             return [key, { type: typePart, description: descPart }];
           })
         ),
-        required: tool.required
+        required: tool.required || []
       }
     }
   }));
@@ -1275,15 +1280,26 @@ class AmplifierService {
 
   /**
    * Check if service is available
+   * Uses the SAME environment variables as the normal AI chat (aiAgent.js)
    */
   async checkAvailability() {
     // Check if Azure OpenAI is configured (read at runtime)
+    // These are the EXACT same env vars used by aiAgent.js
     const config = getAzureConfig();
-    return !!(config.endpoint && config.apiKey && config.deployment);
+    const available = !!(config.endpoint && config.apiKey && config.deployment);
+    
+    // Don't count placeholder values as valid
+    if (config.apiKey === 'PASTE_YOUR_KEY_HERE' || config.apiKey === 'your-azure-openai-api-key') {
+      console.warn('[AmplifierService] API key contains placeholder value');
+      return false;
+    }
+    
+    return available;
   }
 
   /**
    * Configure the service
+   * Uses the SAME Azure OpenAI configuration as the normal AI chat
    */
   async configure() {
     if (this.configured) return true;
@@ -1292,18 +1308,27 @@ class AmplifierService {
     if (!available) {
       const config = getAzureConfig();
       console.warn('[AmplifierService] Azure OpenAI credentials not configured');
-      console.warn('[AmplifierService] AZURE_OPENAI_ENDPOINT:', config.endpoint ? 'set' : 'MISSING');
-      console.warn('[AmplifierService] AZURE_OPENAI_API_KEY:', config.apiKey ? 'set' : 'MISSING');
-      console.warn('[AmplifierService] AZURE_OPENAI_DEPLOYMENT:', config.deployment ? 'set' : 'MISSING');
+      console.warn('[AmplifierService] AZURE_OPENAI_ENDPOINT:', config.endpoint ? `set (${config.endpoint})` : 'MISSING');
+      console.warn('[AmplifierService] AZURE_OPENAI_API_KEY:', config.apiKey ? `set (length: ${config.apiKey.length})` : 'MISSING');
+      console.warn('[AmplifierService] AZURE_OPENAI_DEPLOYMENT:', config.deployment ? `set (${config.deployment})` : 'MISSING');
       return false;
     }
 
     const config = getAzureConfig();
+    
+    // Verify tools are loaded correctly
+    const tools = getOpenAITools();
+    if (!tools || tools.length === 0) {
+      console.error('[AmplifierService] No tools available - check import from aiAgent.js');
+      return false;
+    }
+    
     this.configured = true;
-    console.log('[AmplifierService] Configured with Azure OpenAI');
+    console.log('[AmplifierService] Configured with Azure OpenAI (same as aiAgent.js)');
     console.log('[AmplifierService] Using API version:', API_VERSION);
     console.log('[AmplifierService] Endpoint:', config.endpoint);
     console.log('[AmplifierService] Deployment:', config.deployment);
+    console.log('[AmplifierService] Tools available:', tools.length);
     return true;
   }
 

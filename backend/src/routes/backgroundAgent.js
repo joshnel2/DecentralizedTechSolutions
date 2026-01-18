@@ -22,6 +22,7 @@ const router = Router();
 /**
  * Check if background agent service is available
  * This endpoint is called by the frontend to determine if background mode should be shown
+ * Uses the SAME Azure OpenAI configuration as the normal AI chat
  */
 router.get('/status', authenticate, async (req, res) => {
   try {
@@ -33,16 +34,26 @@ router.get('/status', authenticate, async (req, res) => {
       configured = await amplifierService.configure();
     }
     
-    console.log(`[BackgroundAgent] Status check: available=${available}, configured=${configured}`);
+    console.log(`[BackgroundAgent] Status check: available=${available}, configured=${configured}, user=${req.user.id}`);
+    
+    // Get tool count for debugging
+    let toolCount = 0;
+    try {
+      const { AMPLIFIER_OPENAI_TOOLS } = await import('../services/amplifier/toolBridge.js');
+      toolCount = AMPLIFIER_OPENAI_TOOLS?.length || 0;
+    } catch (e) {
+      console.error('[BackgroundAgent] Failed to get tool count:', e.message);
+    }
     
     res.json({
       available,
       configured,
       provider: 'amplifier',
       aiProvider: 'azure-openai',
+      toolCount,
       // More descriptive message for debugging
       message: available && configured
-        ? 'Background agent is ready - autonomous task execution enabled'
+        ? `Background agent is ready - ${toolCount} tools available for autonomous task execution`
         : !available
         ? 'Background agent unavailable - Azure OpenAI credentials not configured (check AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT)'
         : 'Background agent not yet configured'
@@ -51,7 +62,9 @@ router.get('/status', authenticate, async (req, res) => {
     console.error('[BackgroundAgent] Error checking status:', error);
     res.status(500).json({ 
       error: 'Failed to check background agent status',
-      details: error.message
+      details: error.message,
+      available: false,
+      configured: false
     });
   }
 });
@@ -312,38 +325,52 @@ router.get('/learning-stats', authenticate, async (req, res) => {
 
 /**
  * Get available tools (for documentation/UI)
+ * Returns the same tools available to the normal AI chat
  */
 router.get('/tools', authenticate, async (req, res) => {
   try {
-    // Import tool definitions
-    const { AMPLIFIER_TOOLS } = await import('../services/amplifier/toolBridge.js');
+    // Import tool definitions - same tools as normal AI chat
+    const { AMPLIFIER_TOOLS, AMPLIFIER_OPENAI_TOOLS } = await import('../services/amplifier/toolBridge.js');
     
-    const tools = Object.entries(AMPLIFIER_TOOLS).map(([name, tool]) => ({
-      name,
-      description: tool.description,
-      parameters: tool.parameters,
-      required: tool.required
-    }));
+    // Prefer the OpenAI-formatted tools (direct from aiAgent.js)
+    let tools = [];
+    if (Array.isArray(AMPLIFIER_OPENAI_TOOLS) && AMPLIFIER_OPENAI_TOOLS.length > 0) {
+      tools = AMPLIFIER_OPENAI_TOOLS.map(tool => ({
+        name: tool.function?.name || tool.name,
+        description: tool.function?.description || tool.description,
+        parameters: tool.function?.parameters?.properties || {},
+        required: tool.function?.parameters?.required || []
+      }));
+    } else {
+      tools = Object.entries(AMPLIFIER_TOOLS || {}).map(([name, tool]) => ({
+        name,
+        description: tool.description,
+        parameters: tool.parameters,
+        required: tool.required
+      }));
+    }
     
     res.json({
       tools,
       count: tools.length,
+      source: AMPLIFIER_OPENAI_TOOLS?.length > 0 ? 'aiAgent.js (same as normal AI chat)' : 'AMPLIFIER_TOOLS fallback',
       categories: [
-        { name: 'Time Entries', tools: ['log_time', 'get_my_time_entries'] },
-        { name: 'Matters', tools: ['list_my_matters', 'search_matters', 'get_matter', 'create_matter', 'update_matter', 'close_matter'] },
-        { name: 'Clients', tools: ['list_clients', 'get_client', 'create_client', 'update_client'] },
+        { name: 'Time Entries', tools: ['log_time', 'get_my_time_entries', 'update_time_entry', 'delete_time_entry'] },
+        { name: 'Matters', tools: ['list_my_matters', 'search_matters', 'get_matter', 'create_matter', 'update_matter', 'close_matter', 'archive_matter', 'reopen_matter'] },
+        { name: 'Clients', tools: ['list_clients', 'get_client', 'create_client', 'update_client', 'archive_client'] },
         { name: 'Invoices', tools: ['list_invoices', 'create_invoice', 'send_invoice', 'record_payment'] },
         { name: 'Documents', tools: ['list_documents', 'read_document_content', 'create_document', 'search_document_content'] },
         { name: 'Calendar', tools: ['get_calendar_events', 'create_calendar_event'] },
         { name: 'Tasks', tools: ['list_tasks', 'create_task', 'complete_task'] },
         { name: 'Reports', tools: ['generate_report', 'get_firm_analytics'] },
         { name: 'Team', tools: ['list_team_members'] },
+        { name: 'Legal', tools: ['check_conflicts', 'set_critical_deadline', 'get_upcoming_deadlines', 'draft_legal_document', 'calculate_deadline', 'log_billable_work'] },
         { name: 'Planning', tools: ['think_and_plan', 'evaluate_progress', 'task_complete', 'log_work'] }
       ]
     });
   } catch (error) {
     console.error('Error getting tools:', error);
-    res.status(500).json({ error: 'Failed to get tools' });
+    res.status(500).json({ error: 'Failed to get tools', details: error.message });
   }
 });
 
