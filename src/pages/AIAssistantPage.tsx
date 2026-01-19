@@ -246,9 +246,20 @@ export function AIAssistantPage() {
               )
             })}
           </div>
+          
+          {/* Background Agent Link */}
+          <button
+            className={clsx(styles.modeBtn, styles.backgroundAgentBtn)}
+            onClick={() => navigate('/app/background-agent')}
+            style={{ '--mode-color': '#F59E0B' } as React.CSSProperties}
+          >
+            <div className={styles.modeBtnIcon}><Bot size={24} /></div>
+            <div className={styles.modeBtnText}>
+              <span className={styles.modeBtnName}>Background Agent</span>
+              <span className={styles.modeBtnDesc}>Autonomous long-running tasks</span>
+            </div>
+          </button>
         </div>
-
-        {/* Background Agent History - removed */}
 
         <div className={styles.poweredBy}>
           <Sparkles size={14} />

@@ -253,6 +253,14 @@ export function Layout() {
             {(sidebarOpen || isMobile) && <span>AI Assistant</span>}
           </NavLink>
 
+          <NavLink
+            to="/app/background-agent"
+            className={({ isActive }) => clsx(styles.navItem, styles.aiNav, isActive && styles.active)}
+          >
+            <Play size={20} />
+            {(sidebarOpen || isMobile) && <span>Background Agent</span>}
+          </NavLink>
+
           <div className={styles.navDivider} />
 
           {/* Settings with dropdown */}
