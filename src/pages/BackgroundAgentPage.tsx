@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useLocation } from 'react-router-dom'
-import { AlertCircle, CheckCircle, Loader2, RefreshCw, Rocket, StopCircle, Wrench } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { AlertCircle, CheckCircle, Loader2, RefreshCw, Rocket, StopCircle, Wrench, Terminal, ExternalLink } from 'lucide-react'
 import { aiApi } from '../services/api'
 import styles from './BackgroundAgentPage.module.css'
+
+interface StreamEvent {
+  type: string
+  message: string
+  timestamp: string
+  icon?: string
+  color?: string
+}
 
 interface BackgroundTaskProgress {
   progressPercent?: number
@@ -47,6 +55,7 @@ const backgroundApi = aiApi as any
 
 export function BackgroundAgentPage() {
   const location = useLocation()
+  const navigate = useNavigate()
   const [status, setStatus] = useState<AgentStatus | null>(null)
   const [activeTask, setActiveTask] = useState<BackgroundTask | null>(null)
   const [recentTasks, setRecentTasks] = useState<BackgroundTask[]>([])
@@ -58,6 +67,12 @@ export function BackgroundAgentPage() {
   const [polling, setPolling] = useState(true)
   const [isCancelling, setIsCancelling] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
+  
+  // Real-time streaming state
+  const [liveEvents, setLiveEvents] = useState<StreamEvent[]>([])
+  const [isStreaming, setIsStreaming] = useState(false)
+  const eventSourceRef = useRef<EventSource | null>(null)
+  const liveEventsRef = useRef<HTMLDivElement>(null)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -117,6 +132,85 @@ export function BackgroundAgentPage() {
     }, 3000)
     return () => clearInterval(interval)
   }, [polling, fetchActiveTask, fetchRecentTasks])
+
+  // Connect to SSE stream when there's an active task
+  useEffect(() => {
+    if (!activeTask?.id) {
+      // No active task, disconnect
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
+        eventSourceRef.current = null
+        setIsStreaming(false)
+      }
+      return
+    }
+    
+    // Connect to SSE stream
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+    const token = localStorage.getItem('token')
+    const url = `${apiUrl}/v1/agent-stream/${activeTask.id}?token=${token}`
+    
+    console.log('[BackgroundAgent] Connecting to SSE:', url)
+    
+    const eventSource = new EventSource(url)
+    eventSourceRef.current = eventSource
+    
+    eventSource.onopen = () => {
+      console.log('[BackgroundAgent] SSE connected')
+      setIsStreaming(true)
+    }
+    
+    eventSource.onerror = () => {
+      console.log('[BackgroundAgent] SSE error')
+      setIsStreaming(false)
+    }
+    
+    eventSource.addEventListener('event', (e) => {
+      try {
+        const event = JSON.parse(e.data) as StreamEvent
+        setLiveEvents(prev => [...prev.slice(-50), event]) // Keep last 50 events
+      } catch (err) {
+        console.error('Failed to parse event:', err)
+      }
+    })
+    
+    eventSource.addEventListener('progress', (e) => {
+      try {
+        const progress = JSON.parse(e.data)
+        // Update active task progress in real-time
+        setActiveTask(prev => prev ? {
+          ...prev,
+          progress: {
+            progressPercent: progress.progress_percent,
+            currentStep: progress.current_step,
+            iterations: progress.actions_count,
+            totalSteps: progress.total_steps,
+            completedSteps: progress.completed_steps
+          }
+        } : null)
+      } catch (err) {
+        console.error('Failed to parse progress:', err)
+      }
+    })
+    
+    return () => {
+      eventSource.close()
+      eventSourceRef.current = null
+      setIsStreaming(false)
+    }
+  }, [activeTask?.id])
+
+  // Auto-scroll live events
+  useEffect(() => {
+    if (liveEventsRef.current) {
+      liveEventsRef.current.scrollTop = liveEventsRef.current.scrollHeight
+    }
+  }, [liveEvents])
+
+  // Clear live events when task changes
+  useEffect(() => {
+    setLiveEvents([])
+  }, [activeTask?.id])
 
   useEffect(() => {
     const stored = sessionStorage.getItem('backgroundTaskSummary')

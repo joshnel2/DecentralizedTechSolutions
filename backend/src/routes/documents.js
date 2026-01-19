@@ -1161,7 +1161,18 @@ router.get('/:id/download', authenticate, requirePermission('documents:view'), a
     }
 
     // Try Azure File Share fallback
-    if (doc.azure_path || doc.external_path || doc.folder_path) {
+    // Check if path looks like an Azure path (contains firm-, matters/, ai-generated/, notes/)
+    const pathLooksLikeAzure = doc.path && (
+      doc.path.includes('firm-') || 
+      doc.path.includes('matters/') || 
+      doc.path.includes('ai-generated/') ||
+      doc.path.includes('notes/')
+    );
+    
+    // Also check metadata for azure_path
+    const metadataAzurePath = doc.metadata?.azure_path;
+    
+    if (doc.azure_path || doc.external_path || doc.folder_path || pathLooksLikeAzure || metadataAzurePath) {
       try {
         const { downloadFile, isAzureConfigured } = await import('../utils/azureStorage.js');
         
@@ -1171,8 +1182,9 @@ router.get('/:id/download', authenticate, requirePermission('documents:view'), a
           return res.status(404).json({ error: 'File not found on server and Azure not configured' });
         }
 
-        // Determine the Azure path - try azure_path, external_path, then construct from folder_path
-        let azurePath = doc.azure_path || doc.external_path || 
+        // Determine the Azure path - try various sources
+        let azurePath = doc.azure_path || metadataAzurePath || doc.external_path || 
+          (pathLooksLikeAzure ? doc.path : null) ||
           (doc.folder_path ? path.posix.join(doc.folder_path, downloadFilename) : downloadFilename);
         
         // Strip firm prefix if already present (downloadFile will add it)

@@ -4327,19 +4327,23 @@ async function createTask(args, user) {
     return { error: 'Task title is required' };
   }
   
-  // Default to today if no due date specified (start_time is NOT NULL in calendar_events)
+  // Default to today if no due date specified (start_time and end_time are NOT NULL in calendar_events)
   const taskDate = due_date ? new Date(due_date) : new Date();
+  // For tasks, end_time = start_time (same day)
+  const taskEndDate = new Date(taskDate);
+  taskEndDate.setHours(23, 59, 59, 999); // End of day
   
   // Create task in database (uses calendar_events table with type='task' for simplicity)
   const result = await query(
-    `INSERT INTO calendar_events (firm_id, title, description, start_time, type, matter_id, client_id, priority, status, created_by, assigned_to)
-     VALUES ($1, $2, $3, $4, 'task', $5, $6, $7, 'pending', $8, $9)
+    `INSERT INTO calendar_events (firm_id, title, description, start_time, end_time, type, matter_id, client_id, priority, status, created_by, assigned_to)
+     VALUES ($1, $2, $3, $4, $5, 'task', $6, $7, $8, 'pending', $9, $10)
      RETURNING id, title`,
     [
       user.firmId,
       title,
       notes || null,
       taskDate,
+      taskEndDate,
       matter_id || null,
       client_id || null,
       priority,
