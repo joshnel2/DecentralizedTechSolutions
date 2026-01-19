@@ -485,11 +485,23 @@ function buildToolMapFromAgent(tools = []) {
 }
 
 // Export the tools in OpenAI format (directly from aiAgent.js)
-// AMPLIFIER_OPENAI_TOOLS = same tools the normal AI chat uses
-export const AMPLIFIER_OPENAI_TOOLS = AGENT_TOOLS;
+// Tools that the background agent should NEVER use
+const BACKGROUND_AGENT_EXCLUDED_TOOLS = [
+  'log_time',           // Time entries are for humans, not AI
+  'delete_time_entry',  // Don't let AI delete time
+  'update_time_entry',  // Don't let AI modify time entries
+];
+
+// AMPLIFIER_OPENAI_TOOLS = same tools the normal AI chat uses, minus excluded ones
+export const AMPLIFIER_OPENAI_TOOLS = AGENT_TOOLS.filter(
+  tool => !BACKGROUND_AGENT_EXCLUDED_TOOLS.includes(tool.function?.name)
+);
 
 // AMPLIFIER_TOOLS = merged tool definitions for backwards compatibility
-export const AMPLIFIER_TOOLS = { ...BASE_AMPLIFIER_TOOLS, ...buildToolMapFromAgent(AGENT_TOOLS) };
+const filteredAgentTools = AGENT_TOOLS.filter(
+  tool => !BACKGROUND_AGENT_EXCLUDED_TOOLS.includes(tool.function?.name)
+);
+export const AMPLIFIER_TOOLS = { ...BASE_AMPLIFIER_TOOLS, ...buildToolMapFromAgent(filteredAgentTools) };
 
 // Log tool availability for debugging
 console.log(`[ToolBridge] AMPLIFIER_OPENAI_TOOLS: ${AMPLIFIER_OPENAI_TOOLS.length} tools available`);

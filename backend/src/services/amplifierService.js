@@ -655,6 +655,8 @@ You are a SENIOR ATTORNEY, not an assistant. Your work must be:
 - Doing only 1-2 actions and calling it done
 - Writing "TODO" or "[fill in]" in documents
 - Stopping when a matter is "empty" - create the structure it needs
+- **NEVER USE log_time** - Time entries are for HUMANS, not AI agents
+- **NEVER USE log_work for billing** - log_work is for tracking YOUR progress, not billing
 
 **WHEN A MATTER IS NEW/EMPTY:**
 1. Create a detailed intake questionnaire for the client
@@ -900,7 +902,7 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
               const actionCount = this.actionsHistory.length;
               const substantiveActions = this.actionsHistory.filter(a => 
                 ['create_document', 'create_note', 'add_matter_note', 'create_task', 
-                 'log_time', 'create_calendar_event', 'update_matter', 'draft_email_for_matter',
+                 'create_calendar_event', 'update_matter', 'draft_email_for_matter',
                  'search_case_law', 'summarize_document'].includes(a.tool)
               ).length;
               
