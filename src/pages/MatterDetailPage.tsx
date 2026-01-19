@@ -472,9 +472,10 @@ export function MatterDetailPage() {
   }
   
   // Download document
-  const downloadDocument = async (doc: any) => {
+  const downloadDocument = async (doc: any, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
-    const token = localStorage.getItem('token')
+    const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
     try {
       const response = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -484,7 +485,7 @@ export function MatterDetailPage() {
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = doc.name
+        a.download = doc.originalName || doc.name
         document.body.appendChild(a)
         a.click()
         window.URL.revokeObjectURL(url)
@@ -495,6 +496,31 @@ export function MatterDetailPage() {
     } catch (error) {
       console.error('Download error:', error)
       alert('Failed to download document')
+    }
+  }
+
+  // Open file on computer (download and open in new tab)
+  const openFileOnComputer = async (doc: any) => {
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+    const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
+    
+    try {
+      const response = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        
+        // Open in new tab (browser will either display or download based on file type)
+        window.open(url, '_blank')
+      } else {
+        alert('Failed to open document')
+      }
+    } catch (error) {
+      console.error('Failed to open document:', error)
+      alert('Failed to open document')
     }
   }
 
