@@ -83,6 +83,11 @@ export function MatterDetailPage() {
   const [selectedDocument, setSelectedDocument] = useState<any>(null)
   const [showDocVersionPanel, setShowDocVersionPanel] = useState(false)
   const [showShareDocModal, setShowShareDocModal] = useState<{ isOpen: boolean; documentId: string; documentName: string }>({ isOpen: false, documentId: '', documentName: '' })
+  
+  // Document preview state
+  const [previewDoc, setPreviewDoc] = useState<any>(null)
+  const [previewContent, setPreviewContent] = useState('')
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const { emailDocument } = useEmailCompose()
   const [showEditMatterModal, setShowEditMatterModal] = useState(false)
@@ -615,10 +620,28 @@ export function MatterDetailPage() {
     }
   }
 
-  // Open document preview - just download for now
+  // Open document preview
   const openDocPreview = async (doc: any) => {
-    // For now, just download the document as preview
-    downloadDocument(doc)
+    setPreviewDoc(doc)
+    setIsLoadingPreview(true)
+    setPreviewContent('')
+    
+    try {
+      const response = await documentsApi.getContent(doc.id)
+      const content = response.content || response.text || ''
+      setPreviewContent(content)
+    } catch (error) {
+      console.error('Failed to load document content:', error)
+      setPreviewContent('[Unable to load document content. Try downloading the file instead.]')
+    } finally {
+      setIsLoadingPreview(false)
+    }
+  }
+  
+  // Close document preview
+  const closeDocPreview = () => {
+    setPreviewDoc(null)
+    setPreviewContent('')
   }
 
   // AI analyze document
@@ -2196,6 +2219,45 @@ Only analyze documents actually associated with this matter.`
         documentId={showShareDocModal.documentId}
         documentName={showShareDocModal.documentName}
       />
+      
+      {/* Document Preview Modal */}
+      {previewDoc && (
+        <div className={styles.modalOverlay} onClick={closeDocPreview}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '900px', maxHeight: '80vh' }}>
+            <div className={styles.modalHeader}>
+              <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <FileText size={20} />
+                {previewDoc.name}
+              </h2>
+              <button onClick={closeDocPreview} className={styles.closeBtn}>×</button>
+            </div>
+            <div style={{ padding: '1rem', maxHeight: '60vh', overflow: 'auto', background: '#f8fafc', borderRadius: '8px', margin: '0 1rem 1rem' }}>
+              {isLoadingPreview ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748b' }}>
+                  <Loader2 size={16} className="animate-spin" />
+                  Loading document preview...
+                </div>
+              ) : (
+                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0, lineHeight: 1.6 }}>
+                  {previewContent || 'No content available for preview'}
+                </pre>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', padding: '0 1rem 1rem' }}>
+              <button 
+                onClick={() => downloadDocument(previewDoc)}
+                className={styles.primaryBtn}
+              >
+                <Download size={16} />
+                Download
+              </button>
+              <button onClick={closeDocPreview} className={styles.secondaryBtn}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Edit Matter Modal */}
       {showEditMatterModal && matter && (
