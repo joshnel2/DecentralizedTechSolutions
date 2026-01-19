@@ -5448,12 +5448,12 @@ async function saveUploadedDocument(args, user, req) {
   const filename = `${timestamp}-${safeName}`;
   
   try {
-    // Insert document record (content is stored in content_text, no physical file needed for chat uploads)
+    // Insert document record - use only base schema columns
     const result = await query(
       `INSERT INTO documents (
         firm_id, matter_id, client_id, name, original_name, type, size, path,
-        content_text, content_extracted_at, tags, status, uploaded_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10, 'final', $11)
+        tags, status, uploaded_by, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'final', $10, $11)
       RETURNING id, name`,
       [
         user.firmId,
@@ -5464,9 +5464,9 @@ async function saveUploadedDocument(args, user, req) {
         doc.type,
         doc.size,
         `chat-upload/${filename}`, // Virtual path for chat uploads
-        doc.content,
         tags || [],
-        user.id
+        user.id,
+        JSON.stringify({ ai_generated: true, content_text: doc.content })
       ]
     );
     
@@ -5780,12 +5780,12 @@ async function createNote(args, user) {
       console.error('[AI NOTE] Azure upload failed:', azureError.message);
     }
     
-    // Insert as a document
+    // Insert as a document - use only base schema columns
     const result = await query(
       `INSERT INTO documents (
         firm_id, matter_id, client_id, name, original_name, type, size, path,
-        content_text, content_extracted_at, tags, status, uploaded_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10, 'final', $11)
+        tags, status, uploaded_by, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'final', $10, $11)
       RETURNING id, name`,
       [
         user.firmId,
@@ -5796,9 +5796,9 @@ async function createNote(args, user) {
         'text/markdown',
         formattedContent.length,
         uploadedPath,
-        formattedContent,
         [note_type, 'note'],
-        user.id
+        user.id,
+        JSON.stringify({ ai_generated: true, content_text: formattedContent, azure_path: uploadedPath })
       ]
     );
     
@@ -5893,12 +5893,12 @@ async function updateDocument(args, user) {
     const safeFileName = clonedName.replace(/[^a-z0-9.\-_ ]/gi, '_');
     const newPath = `ai-documents/${Date.now()}-${safeFileName}`;
     
-    // Insert the cloned document with the new content
+    // Insert the cloned document with the new content - use only base schema columns
     const result = await query(
       `INSERT INTO documents (
         firm_id, matter_id, client_id, name, original_name, type, 
-        size, path, status, tags, content_text, content_extracted_at, uploaded_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12)
+        size, path, status, tags, uploaded_by, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING id, name`,
       [
         user.firmId,
@@ -5911,8 +5911,8 @@ async function updateDocument(args, user) {
         newPath,
         'draft',
         originalDoc.tags || [],
-        new_content,
-        user.id
+        user.id,
+        JSON.stringify({ ai_generated: true, content_text: new_content })
       ]
     );
     
