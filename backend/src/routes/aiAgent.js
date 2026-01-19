@@ -839,13 +839,13 @@ const TOOLS = [
     type: "function",
     function: {
       name: "create_document",
-      description: "Create a new professional PDF document. IMPORTANT: You MUST include matter_id to save the document to a matter - without it, the document won't appear in the matter's Documents section. Always find the matter first with search_matters, then include the matter_id here.",
+      description: "Create a formal Word document (.docx) that appears in the DOCUMENTS section. Use this for: contracts, letters, memos, legal briefs, agreements, reports, or any formal document. ALWAYS include matter_id to attach to a matter. For quick notes that go in the NOTES tab, use add_matter_note instead.",
       parameters: {
         type: "object",
         properties: {
-          name: { type: "string", description: "Document name without extension (e.g. 'Client Engagement Letter', 'Settlement Agreement')" },
-          content: { type: "string", description: "The full text content of the document. Use markdown-style formatting: # for headers, ## for subheaders, - for bullets, **bold** for emphasis. Write COMPLETE professional content." },
-          matter_id: { type: "string", description: "Matter UUID - ALWAYS INCLUDE THIS when creating a document for a matter. Find it first with search_matters if needed." },
+          name: { type: "string", description: "Document name without extension (e.g. 'Client Engagement Letter', 'Settlement Agreement', 'Case Summary Memo')" },
+          content: { type: "string", description: "The full text content. Use markdown formatting: # for headers, ## for subheaders, - for bullets, **bold** for emphasis. Write COMPLETE professional legal content." },
+          matter_id: { type: "string", description: "Matter UUID - ALWAYS INCLUDE THIS. Find it first with search_matters if needed." },
           client_id: { type: "string", description: "Client UUID (only if not attaching to a matter)" },
           tags: { type: "array", items: { type: "string" }, description: "Optional: tags for the document" }
         },
@@ -875,24 +875,6 @@ const TOOLS = [
           link_to_matter: { type: "boolean", description: "Whether to link this email to the matter for record keeping (default: true)" }
         },
         required: ["matter_id", "subject", "body"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "create_note",
-      description: "Create a standalone markdown DOCUMENT file (memo, research doc) that appears in the Documents section. For quick notes in a matter's Notes tab, use add_matter_note instead. This creates a downloadable .md file.",
-      parameters: {
-        type: "object",
-        properties: {
-          title: { type: "string", description: "Document title (will be saved as a .md file)" },
-          content: { type: "string", description: "Full document content in markdown format" },
-          matter_id: { type: "string", description: "Matter to attach the document to" },
-          client_id: { type: "string", description: "Client to attach the document to" },
-          note_type: { type: "string", enum: ["general", "meeting", "research", "case_note", "memo"], description: "Type of document" }
-        },
-        required: ["title", "content"]
       }
     }
   },
@@ -1141,12 +1123,12 @@ const TOOLS = [
     type: "function",
     function: {
       name: "add_matter_note",
-      description: "Add a note to a matter's Notes section. Use this for case notes, meeting notes, research notes, status updates, and any quick notes about the matter. Notes appear in the matter's Notes tab.",
+      description: "Add a quick note to a matter's NOTES TAB. Use this for: case updates, meeting summaries, research findings, status updates, observations, and any informal notes. Notes appear in the Notes section of the matter (NOT in Documents). For formal documents like letters, memos, or contracts, use create_document instead.",
       parameters: {
         type: "object",
         properties: {
-          matter_id: { type: "string", description: "UUID of the matter" },
-          content: { type: "string", description: "Note content - can be plain text or markdown formatted" },
+          matter_id: { type: "string", description: "Matter UUID or name - use search_matters to find it if needed" },
+          content: { type: "string", description: "Note content - write substantive, detailed notes. Can use markdown: # headers, - bullets, **bold**" },
           note_type: { 
             type: "string", 
             enum: ["general", "case_note", "meeting_note", "research", "status_update", "client_communication", "court_filing", "discovery"],
@@ -5787,13 +5769,13 @@ async function createNote(args, user) {
   }
   
   try {
-    // Create a document with a .md extension for notes
+    // Create a DOCX document for notes (same as create_document but with note metadata)
     const timestamp = Date.now();
     const safeName = title.replace(/[^a-zA-Z0-9 .-]/g, '_');
-    const filename = `${timestamp}-${safeName}.md`;
+    const filename = `${timestamp}-${safeName}_note.docx`;
     
-    // Format the note content with metadata
-    const formattedContent = `# ${title}\n\n**Type:** ${note_type}\n**Created:** ${new Date().toLocaleString()}\n**Author:** ${user.firstName} ${user.lastName}\n\n---\n\n${content}`;
+    // Format the full content with metadata header
+    const fullContent = `# ${title}\n\n**Type:** ${note_type}\n**Created:** ${new Date().toLocaleString()}\n**Author:** ${user.firstName} ${user.lastName}\n\n---\n\n${content}`;
     
     // Build folder path for Azure based on matter
     let folderPath = 'notes';
@@ -5806,19 +5788,127 @@ async function createNote(args, user) {
     }
     const azurePath = `${folderPath}/${filename}`;
     
+    // Create the uploads directory if it doesn't exist
+    const uploadsDir = path.join(process.cwd(), 'uploads', 'notes');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    
+    const filePath = path.join(uploadsDir, filename);
+    const relativePath = `uploads/notes/${filename}`;
+    
+    // Generate DOCX using docx library
+    const docChildren = [];
+    
+    // Add document title
+    docChildren.push(
+      new Paragraph({
+        children: [new TextRun({ text: title, bold: true, size: 36 })],
+        heading: HeadingLevel.TITLE,
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 200 }
+      })
+    );
+    
+    // Add metadata
+    docChildren.push(
+      new Paragraph({
+        children: [new TextRun({ 
+          text: `${note_type.toUpperCase()} | Created: ${new Date().toLocaleString()} | By: ${user.firstName} ${user.lastName}`,
+          size: 20,
+          color: '666666'
+        })],
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 400 }
+      })
+    );
+    
+    // Add separator
+    docChildren.push(
+      new Paragraph({
+        border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'CCCCCC' } },
+        spacing: { after: 400 }
+      })
+    );
+    
+    // Process content
+    const lines = content.split('\n');
+    for (const line of lines) {
+      if (line.startsWith('### ')) {
+        docChildren.push(new Paragraph({
+          children: [new TextRun({ text: line.replace('### ', ''), bold: true, size: 24 })],
+          heading: HeadingLevel.HEADING_3,
+          spacing: { before: 200, after: 100 }
+        }));
+      } else if (line.startsWith('## ')) {
+        docChildren.push(new Paragraph({
+          children: [new TextRun({ text: line.replace('## ', ''), bold: true, size: 28 })],
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 200, after: 100 }
+        }));
+      } else if (line.startsWith('# ')) {
+        docChildren.push(new Paragraph({
+          children: [new TextRun({ text: line.replace('# ', ''), bold: true, size: 32 })],
+          heading: HeadingLevel.HEADING_1,
+          spacing: { before: 200, after: 100 }
+        }));
+      } else if (line.startsWith('**') && line.endsWith('**')) {
+        docChildren.push(new Paragraph({
+          children: [new TextRun({ text: line.replace(/\*\*/g, ''), bold: true })],
+          spacing: { after: 100 }
+        }));
+      } else if (line.startsWith('- ') || line.startsWith('• ')) {
+        docChildren.push(new Paragraph({
+          children: [new TextRun({ text: line.substring(2) })],
+          bullet: { level: 0 },
+          spacing: { after: 50 }
+        }));
+      } else if (line.match(/^\d+\.\s/)) {
+        docChildren.push(new Paragraph({
+          children: [new TextRun({ text: line })],
+          indent: { left: 720 },
+          spacing: { after: 50 }
+        }));
+      } else if (line.trim() === '') {
+        docChildren.push(new Paragraph({ spacing: { after: 200 } }));
+      } else {
+        docChildren.push(new Paragraph({
+          children: [new TextRun({ text: line })],
+          spacing: { after: 100 }
+        }));
+      }
+    }
+    
+    // Create the document
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: docChildren
+      }]
+    });
+    
+    // Generate buffer and write to file
+    const buffer = await Packer.toBuffer(doc);
+    fs.writeFileSync(filePath, buffer);
+    
+    // Get file size
+    const stats = fs.statSync(filePath);
+    const fileSize = stats.size;
+    
     // Upload to Azure Drive if configured
-    let uploadedPath = `notes/${filename}`;
+    let uploadedPath = relativePath;
     try {
       const azureEnabled = await isAzureConfigured();
       if (azureEnabled) {
-        const buffer = Buffer.from(formattedContent, 'utf-8');
-        const azureResult = await uploadFileBuffer(buffer, azurePath, user.firmId);
+        const azureResult = await uploadFile(filePath, azurePath, user.firmId);
         uploadedPath = azureResult.path;
         console.log(`[AI NOTE] Uploaded to Azure: ${azureResult.path}`);
       }
     } catch (azureError) {
       console.error('[AI NOTE] Azure upload failed:', azureError.message);
     }
+    
+    const docName = `${title} (Note).docx`;
     
     // Insert as a document - use only base schema columns
     const result = await query(
@@ -5831,14 +5921,14 @@ async function createNote(args, user) {
         user.firmId,
         matter_id || null,
         client_id || null,
-        `${title}.md`,
-        `${title}.md`,
-        'text/markdown',
-        formattedContent.length,
+        docName,
+        docName,
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        fileSize,
         uploadedPath,
-        [note_type, 'note'],
+        [note_type, 'note', 'ai-generated'],
         user.id,
-        JSON.stringify({ ai_generated: true, content_text: formattedContent, azure_path: uploadedPath })
+        JSON.stringify({ ai_generated: true, content_text: fullContent, azure_path: uploadedPath })
       ]
     );
     
@@ -5860,7 +5950,7 @@ async function createNote(args, user) {
     
     return {
       success: true,
-      message: `Created ${note_type} document "${title}"${locationInfo}`,
+      message: `Created ${note_type} document "${docName}"${locationInfo}`,
       data: {
         id: savedNote.id,
         name: savedNote.name,
