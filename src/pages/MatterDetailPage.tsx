@@ -2246,40 +2246,68 @@ Only analyze documents actually associated with this matter.`
         documentName={showShareDocModal.documentName}
       />
       
-      {/* Document Preview Modal */}
+      {/* Document Preview Modal - IDENTICAL to DocumentsPage */}
       {previewDoc && (
-        <div className={styles.modalOverlay} onClick={closeDocPreview}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '900px', maxHeight: '80vh' }}>
-            <div className={styles.modalHeader}>
-              <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div className={styles.editorOverlay} onClick={closeDocPreview}>
+          <div className={styles.editorModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.editorHeader}>
+              <div className={styles.editorTitle}>
                 <FileText size={20} />
-                {previewDoc.name}
-              </h2>
-              <button onClick={closeDocPreview} className={styles.closeBtn}>×</button>
+                <h2>{previewDoc.name}</h2>
+              </div>
+              <div className={styles.editorActions}>
+                <button 
+                  className={styles.openFileBtn}
+                  onClick={() => openFileOnComputer(previewDoc)}
+                  title="Open file on your computer"
+                >
+                  <Globe size={16} />
+                  Open File
+                </button>
+                <button 
+                  className={styles.downloadBtn}
+                  onClick={() => downloadDocument(previewDoc)}
+                  title="Download file"
+                >
+                  <Download size={16} />
+                  Download
+                </button>
+                <button className={styles.closeEditorBtn} onClick={closeDocPreview}>
+                  <X size={18} />
+                </button>
+              </div>
             </div>
-            <div style={{ padding: '1rem', maxHeight: '60vh', overflow: 'auto', background: '#ffffff', borderRadius: '8px', margin: '0 1rem 1rem', border: '1px solid #e2e8f0' }}>
+            
+            <div className={styles.editorBody}>
               {isLoadingPreview ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748b' }}>
-                  <Loader2 size={16} className="animate-spin" />
-                  Loading document preview...
+                <div className={styles.editorLoading}>
+                  <Loader2 size={32} className={styles.spinner} />
+                  <span>Loading document preview...</span>
                 </div>
               ) : (
-                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0, lineHeight: 1.6, color: '#1e293b', fontSize: '14px' }}>
-                  {previewContent || 'No content available for preview'}
-                </pre>
+                <div className={styles.editorPreview}>
+                  <pre>{previewContent || 'No content available for preview'}</pre>
+                </div>
               )}
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', padding: '0 1rem 1rem' }}>
-              <button 
-                onClick={() => downloadDocument(previewDoc)}
-                className={styles.primaryBtn}
-              >
-                <Download size={16} />
-                Download
-              </button>
-              <button onClick={closeDocPreview} className={styles.secondaryBtn}>
-                Close
-              </button>
+
+            <div className={styles.editorFooter}>
+              <span className={styles.editorMeta}>
+                {previewContent.length.toLocaleString()} characters
+              </span>
+              <div className={styles.editorFooterActions}>
+                <button
+                  className={styles.aiAnalyzeBtn}
+                  onClick={() => {
+                    analyzeDocWithAI(previewDoc)
+                    closeDocPreview()
+                  }}
+                  title="Analyze with AI"
+                >
+                  <Sparkles size={16} />
+                  Analyze with AI
+                </button>
+              </div>
             </div>
           </div>
         </div>
