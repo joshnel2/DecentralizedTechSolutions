@@ -4322,6 +4322,9 @@ async function createTask(args, user) {
     return { error: 'Task title is required' };
   }
   
+  // Default to today if no due date specified (start_time is NOT NULL in calendar_events)
+  const taskDate = due_date ? new Date(due_date) : new Date();
+  
   // Create task in database (uses calendar_events table with type='task' for simplicity)
   const result = await query(
     `INSERT INTO calendar_events (firm_id, title, description, start_time, type, matter_id, client_id, priority, status, created_by, assigned_to)
@@ -4331,7 +4334,7 @@ async function createTask(args, user) {
       user.firmId,
       title,
       notes || null,
-      due_date ? new Date(due_date) : null,
+      taskDate,
       matter_id || null,
       client_id || null,
       priority,
@@ -12218,16 +12221,17 @@ async function buildHotContext(userId, firmId) {
         LIMIT 5
       `, [firmId, userId]),
       
-      // 8. Tasks due today
+      // 8. Tasks due today (tasks are stored in calendar_events with type='task')
       query(`
-        SELECT t.title, t.priority, m.name as matter_name
-        FROM tasks t
-        LEFT JOIN matters m ON t.matter_id = m.id
-        WHERE t.firm_id = $1
-          AND t.assigned_to = $2
-          AND t.status != 'completed'
-          AND t.due_date = CURRENT_DATE
-        ORDER BY CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 ELSE 3 END
+        SELECT ce.title, ce.priority, m.name as matter_name
+        FROM calendar_events ce
+        LEFT JOIN matters m ON ce.matter_id = m.id
+        WHERE ce.firm_id = $1
+          AND ce.assigned_to = $2
+          AND ce.type = 'task'
+          AND ce.status != 'completed'
+          AND DATE(ce.start_time) = CURRENT_DATE
+        ORDER BY CASE ce.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 ELSE 3 END
         LIMIT 5
       `, [firmId, userId]),
       
