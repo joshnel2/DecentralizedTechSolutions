@@ -627,10 +627,17 @@ You are a SENIOR ATTORNEY, not an assistant. Your work must be:
 5. Set up billing and time tracking structure
 6. Draft the engagement letter if not done
 
-**MINIMUM WORK REQUIREMENT:**
-- For simple tasks: At least 3-5 meaningful actions
-- For complex tasks: 10-20+ actions with real content
-- Every document must have substantive, usable content
+**MINIMUM WORK REQUIREMENT (ENFORCED):**
+- Minimum 60 seconds of work time
+- At least 5 total actions
+- At least 2 substantive actions (documents, notes, tasks, research)
+- task_complete will be REJECTED if minimums not met
+
+**TAKE YOUR TIME:**
+- Spend time thinking through each step
+- Write thorough, detailed content in documents
+- Don't rush - quality over speed
+- A good task should take 2-5 minutes of real work
 
 ## CURRENT TASK
 
@@ -811,14 +818,62 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             
             // Check for explicit task completion
             if (toolName === 'task_complete') {
-              console.log(`[Amplifier] Task ${this.id} marked as complete`);
+              // QUALITY GATE: Enforce minimum work requirements
+              const elapsedSeconds = (Date.now() - this.startTime.getTime()) / 1000;
+              const actionCount = this.actionsHistory.length;
+              const substantiveActions = this.actionsHistory.filter(a => 
+                ['create_document', 'create_note', 'add_matter_note', 'create_task', 
+                 'log_time', 'create_calendar_event', 'update_matter', 'draft_email_for_matter',
+                 'search_case_law', 'summarize_document'].includes(a.tool)
+              ).length;
+              
+              // Minimum requirements: 60 seconds AND at least 5 actions with 2+ substantive
+              const MIN_SECONDS = 60;
+              const MIN_ACTIONS = 5;
+              const MIN_SUBSTANTIVE = 2;
+              
+              if (elapsedSeconds < MIN_SECONDS || actionCount < MIN_ACTIONS || substantiveActions < MIN_SUBSTANTIVE) {
+                console.log(`[Amplifier] Task ${this.id} attempted early completion: ${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive`);
+                
+                // Reject early completion - push message to continue
+                toolCallResults.push({
+                  role: 'tool',
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify({
+                    rejected: true,
+                    reason: `Task completion rejected. Minimum requirements not met:
+- Time: ${elapsedSeconds.toFixed(0)}s / ${MIN_SECONDS}s minimum
+- Actions: ${actionCount} / ${MIN_ACTIONS} minimum  
+- Substantive work: ${substantiveActions} / ${MIN_SUBSTANTIVE} minimum
+
+You must do MORE WORK before completing. Continue with the task:
+1. Create actual documents with real content (not placeholders)
+2. Add detailed notes to the matter
+3. Set up tasks and calendar events
+4. Do thorough research if applicable
+5. Generate professional work product
+
+Keep working on: "${this.goal}"`
+                  })
+                });
+                
+                // Don't mark complete - continue the loop
+                continue;
+              }
+              
+              console.log(`[Amplifier] Task ${this.id} marked as complete (${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive)`);
               this.status = TaskStatus.COMPLETED;
               this.progress.progressPercent = 100;
               this.progress.currentStep = 'Completed successfully';
               this.result = {
                 summary: toolArgs.summary || 'Task completed',
                 actions: toolArgs.actions_taken || this.actionsHistory.map(a => a.tool),
-                recommendations: toolArgs.recommendations || []
+                recommendations: toolArgs.recommendations || [],
+                stats: {
+                  duration_seconds: elapsedSeconds,
+                  total_actions: actionCount,
+                  substantive_actions: substantiveActions
+                }
               };
               this.endTime = new Date();
               
