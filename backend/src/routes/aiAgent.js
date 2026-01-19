@@ -5627,6 +5627,9 @@ async function createDocument(args, user) {
     // Documents in matters inherit 'team' privacy, standalone are 'private'
     const privacyLevel = matter_id ? 'team' : 'private';
     
+    // Calculate content hash for versioning
+    const contentHash = crypto.createHash('sha256').update(content).digest('hex');
+    
     // Insert document record - use only columns that exist in base schema
     const result = await query(
       `INSERT INTO documents (
@@ -5689,18 +5692,22 @@ async function createDocument(args, user) {
       console.log('[AI DOCUMENT] Initial version creation skipped:', versionError.message);
     }
     
-    // Log audit action
-    await query(
-      `INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
-       VALUES ($1, $2, 'document.ai_created', 'document', $3, $4)`,
-      [user.firmId, user.id, savedDoc.id, JSON.stringify({ 
-        name: docName, 
-        size: fileSize, 
-        azureUploaded: !!azureResult,
-        ownerId: user.id,
-        privacyLevel
-      })]
-    );
+    // Log audit action (non-fatal if it fails)
+    try {
+      await query(
+        `INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
+         VALUES ($1, $2, 'document.ai_created', 'document', $3, $4)`,
+        [user.firmId, user.id, savedDoc.id, JSON.stringify({ 
+          name: docName, 
+          size: fileSize, 
+          azureUploaded: !!azureResult,
+          ownerId: user.id,
+          privacyLevel
+        })]
+      );
+    } catch (auditError) {
+      console.log('[AI DOCUMENT] Audit log skipped:', auditError.message);
+    }
     
     // Get matter/client names for confirmation
     let locationInfo = '';
