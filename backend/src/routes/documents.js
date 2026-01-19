@@ -874,13 +874,15 @@ router.get('/:id/content', authenticate, requirePermission('documents:view'), as
     const doc = result.rows[0];
     
     // First check if content is already stored in database (e.g., AI-generated documents)
-    if (doc.content_text && doc.content_text.trim().length > 0) {
+    // Check both content_text column and metadata.content_text (for newer AI docs)
+    const storedContent = doc.content_text || doc.metadata?.content_text;
+    if (storedContent && storedContent.trim().length > 0) {
       return res.json({
         id: doc.id,
         name: doc.original_name || doc.name,
         type: doc.type,
         size: doc.size,
-        content: doc.content_text,
+        content: storedContent,
       });
     }
 
