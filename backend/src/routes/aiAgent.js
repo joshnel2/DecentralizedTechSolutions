@@ -5623,16 +5623,12 @@ async function createDocument(args, user) {
     // Documents in matters inherit 'team' privacy, standalone are 'private'
     const privacyLevel = matter_id ? 'team' : 'private';
     
-    // Calculate content hash for versioning
-    const contentHash = crypto.createHash('sha256').update(content).digest('hex');
-    
-    // Insert document record with owner_id set to the user who used the AI
+    // Insert document record - use only columns that exist in base schema
     const result = await query(
       `INSERT INTO documents (
-        firm_id, matter_id, client_id, name, original_name, type, file_type, size, file_size, path,
-        content_text, content_extracted_at, content_hash, tags, status, uploaded_by,
-        owner_id, privacy_level, folder_path, external_path
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12, $13, 'final', $14, $15, $16, $17, $18)
+        firm_id, matter_id, client_id, name, original_name, type, size, path,
+        tags, status, uploaded_by, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'final', $10, $11)
       RETURNING id, name`,
       [
         user.firmId,
@@ -5641,18 +5637,15 @@ async function createDocument(args, user) {
         docName,
         docName,
         'application/pdf',
-        'pdf',
         fileSize,
-        fileSize,
-        relativePath,
-        content,
-        contentHash,
+        azureResult ? azureResult.path : relativePath,
         tags || ['ai-generated'],
         user.id,
-        user.id, // owner_id - the user who asked the AI to create it
-        privacyLevel,
-        folderPath,
-        azureResult ? azureResult.path : null
+        JSON.stringify({ 
+          ai_generated: true, 
+          content_text: content,
+          azure_path: azureResult?.path || null
+        })
       ]
     );
     
@@ -11163,9 +11156,9 @@ async function draftEmailForMatter(args, user) {
     
     await query(
       `INSERT INTO documents (
-        firm_id, matter_id, name, original_name, type, file_type, size, path,
-        content_text, content_extracted_at, tags, status, uploaded_by
-      ) VALUES ($1, $2, $3, $4, 'text/plain', 'txt', $5, $6, $7, NOW(), $8, 'final', $9)`,
+        firm_id, matter_id, name, original_name, type, size, path,
+        tags, status, uploaded_by, metadata
+      ) VALUES ($1, $2, $3, $4, 'text/plain', $5, $6, $7, 'final', $8, $9)`,
       [
         user.firmId,
         matter_id,
@@ -11173,9 +11166,9 @@ async function draftEmailForMatter(args, user) {
         `${docName}.txt`,
         docContent.length,
         `email-drafts/${timestamp}-email-draft.txt`,
-        docContent,
         ['email-draft', 'ai-generated'],
-        user.id
+        user.id,
+        JSON.stringify({ ai_generated: true, content_text: docContent })
       ]
     );
     response.saved_to_documents = true;

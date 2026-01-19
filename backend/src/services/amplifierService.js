@@ -16,6 +16,7 @@ import { EventEmitter } from 'events';
 import { query } from '../db/connection.js';
 import { PLATFORM_CONTEXT, getUserContext, getMatterContext, getLearningContext } from './amplifier/platformContext.js';
 import { AMPLIFIER_TOOLS, AMPLIFIER_OPENAI_TOOLS, executeTool } from './amplifier/toolBridge.js';
+import { pushAgentEvent, updateAgentProgress } from '../routes/agentStream.js';
 
 // Store active tasks per user
 const activeTasks = new Map();
@@ -274,6 +275,42 @@ class BackgroundTask extends EventEmitter {
     this.learningContext = null;
     this.systemPrompt = null;
     this.userRecord = null;
+  }
+
+  /**
+   * Push real-time event to Glass Cockpit UI via SSE
+   */
+  streamEvent(eventType, message, data = {}) {
+    try {
+      pushAgentEvent(this.id, eventType, {
+        message,
+        timestamp: new Date().toISOString(),
+        ...data
+      });
+    } catch (e) {
+      // Streaming is best-effort, don't fail if it errors
+    }
+  }
+
+  /**
+   * Update progress in Glass Cockpit UI
+   */
+  streamProgress() {
+    try {
+      const elapsedSeconds = (Date.now() - this.startTime.getTime()) / 1000;
+      updateAgentProgress(this.id, {
+        task_id: this.id,
+        status: this.status,
+        current_step: this.progress.currentStep,
+        progress_percent: this.progress.progressPercent,
+        total_steps: this.progress.totalSteps,
+        completed_steps: this.progress.completedSteps,
+        elapsed_seconds: elapsedSeconds,
+        actions_count: this.actionsHistory.length
+      });
+    } catch (e) {
+      // Streaming is best-effort
+    }
   }
 
   /**
@@ -670,6 +707,14 @@ START WORKING NOW. Execute tools to complete this goal. Do not respond with text
     try {
       console.log(`[Amplifier] Starting autonomous task ${this.id}: ${this.goal}`);
       
+      // Stream task start event to Glass Cockpit UI
+      this.streamEvent('task_start', `Starting: ${this.goal.substring(0, 100)}...`, {
+        goal: this.goal,
+        icon: 'rocket',
+        color: 'blue'
+      });
+      this.streamProgress();
+      
       if (!resumeFromCheckpoint) {
         // Initialize context (user info, firm data, learnings)
         await this.initializeContext();
@@ -744,6 +789,13 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
       
       try {
         console.log(`[Amplifier] Iteration ${this.progress.iterations}: calling Azure OpenAI`);
+        
+        // Stream thinking event to Glass Cockpit UI
+        this.streamEvent('thought_start', 'Thinking...', {
+          iteration: this.progress.iterations,
+          icon: 'brain',
+          color: 'gray'
+        });
 
         this.messages = this.normalizeMessages(this.messages);
         this.compactMessagesIfNeeded();
@@ -783,6 +835,15 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             this.progress.currentStep = this.getToolStepLabel(toolName, toolArgs);
             this.emit('progress', this.getStatus());
             
+            // Stream tool start event to Glass Cockpit UI
+            this.streamEvent('tool_start', `Executing: ${toolName}`, { 
+              tool: toolName, 
+              args: Object.keys(toolArgs),
+              icon: 'tool',
+              color: 'blue'
+            });
+            this.streamProgress();
+            
             // Execute the tool
             let result;
             try {
@@ -794,9 +855,25 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             } catch (toolError) {
               console.error(`[Amplifier] Tool ${toolName} execution failed:`, toolError);
               result = { error: toolError?.message || 'Tool execution failed' };
+              
+              // Stream error event
+              this.streamEvent('tool_error', `Error in ${toolName}: ${toolError?.message}`, {
+                tool: toolName,
+                icon: 'x-circle',
+                color: 'red'
+              });
             }
             
-            console.log(`[Amplifier] Tool ${toolName} result:`, result.success !== undefined ? (result.success ? 'success' : 'failed') : 'completed');
+            const toolSuccess = result.success !== undefined ? result.success : !result.error;
+            console.log(`[Amplifier] Tool ${toolName} result:`, toolSuccess ? 'success' : 'failed');
+            
+            // Stream tool completion event
+            this.streamEvent('tool_end', `${toolName}: ${result.message || (toolSuccess ? 'completed' : 'failed')}`, {
+              tool: toolName,
+              success: toolSuccess,
+              icon: toolSuccess ? 'check-circle' : 'x-circle',
+              color: toolSuccess ? 'green' : 'red'
+            });
             
             // Track action in history
             this.actionsHistory.push({
@@ -880,6 +957,16 @@ Keep working on: "${this.goal}"`
               // Save to history and extract learnings
               await this.saveTaskHistory();
               await this.persistCompletion(TaskStatus.COMPLETED);
+              
+              // Stream completion event to Glass Cockpit UI
+              this.streamEvent('task_complete', toolArgs.summary || 'Task completed successfully', {
+                actions_count: actionCount,
+                duration_seconds: elapsedSeconds,
+                icon: 'check-circle',
+                color: 'green'
+              });
+              this.progress.progressPercent = 100;
+              this.streamProgress();
               
               this.emit('complete', this.getStatus());
               return;
