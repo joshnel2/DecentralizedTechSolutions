@@ -15,7 +15,7 @@ import {
   getDateInTimezone
 } from '../utils/dateUtils.js';
 import { extractTextFromFile } from './documents.js';
-import { uploadFile, downloadFile, deleteFile, isAzureConfigured } from '../utils/azureStorage.js';
+import { uploadFile, uploadFileBuffer, downloadFile, deleteFile, isAzureConfigured } from '../utils/azureStorage.js';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
@@ -881,15 +881,15 @@ const TOOLS = [
     type: "function",
     function: {
       name: "create_note",
-      description: "Create a note/memo attached to a matter or client. Use for meeting notes, case notes, research notes, etc.",
+      description: "Create a standalone markdown DOCUMENT file (memo, research doc) that appears in the Documents section. For quick notes in a matter's Notes tab, use add_matter_note instead. This creates a downloadable .md file.",
       parameters: {
         type: "object",
         properties: {
-          title: { type: "string", description: "Note title" },
-          content: { type: "string", description: "Note content (can be markdown)" },
-          matter_id: { type: "string", description: "Matter to attach the note to" },
-          client_id: { type: "string", description: "Client to attach the note to" },
-          note_type: { type: "string", enum: ["general", "meeting", "research", "case_note", "memo"], description: "Type of note" }
+          title: { type: "string", description: "Document title (will be saved as a .md file)" },
+          content: { type: "string", description: "Full document content in markdown format" },
+          matter_id: { type: "string", description: "Matter to attach the document to" },
+          client_id: { type: "string", description: "Client to attach the document to" },
+          note_type: { type: "string", enum: ["general", "meeting", "research", "case_note", "memo"], description: "Type of document" }
         },
         required: ["title", "content"]
       }
@@ -1140,12 +1140,17 @@ const TOOLS = [
     type: "function",
     function: {
       name: "add_matter_note",
-      description: "Add a note to a matter.",
+      description: "Add a note to a matter's Notes section. Use this for case notes, meeting notes, research notes, status updates, and any quick notes about the matter. Notes appear in the matter's Notes tab.",
       parameters: {
         type: "object",
         properties: {
           matter_id: { type: "string", description: "UUID of the matter" },
-          content: { type: "string", description: "Note content" }
+          content: { type: "string", description: "Note content - can be plain text or markdown formatted" },
+          note_type: { 
+            type: "string", 
+            enum: ["general", "case_note", "meeting_note", "research", "status_update", "client_communication", "court_filing", "discovery"],
+            description: "Type of note for categorization (default: general)"
+          }
         },
         required: ["matter_id", "content"]
       }
@@ -5753,6 +5758,31 @@ async function createNote(args, user) {
     // Format the note content with metadata
     const formattedContent = `# ${title}\n\n**Type:** ${note_type}\n**Created:** ${new Date().toLocaleString()}\n**Author:** ${user.firstName} ${user.lastName}\n\n---\n\n${content}`;
     
+    // Build folder path for Azure based on matter
+    let folderPath = 'notes';
+    if (matter_id) {
+      const matterResult = await query('SELECT name FROM matters WHERE id = $1', [matter_id]);
+      if (matterResult.rows.length > 0) {
+        const matterName = matterResult.rows[0].name.replace(/[^a-zA-Z0-9 ]/g, '_');
+        folderPath = `matters/${matterName}/notes`;
+      }
+    }
+    const azurePath = `${folderPath}/${filename}`;
+    
+    // Upload to Azure Drive if configured
+    let uploadedPath = `notes/${filename}`;
+    try {
+      const azureEnabled = await isAzureConfigured();
+      if (azureEnabled) {
+        const buffer = Buffer.from(formattedContent, 'utf-8');
+        const azureResult = await uploadFileBuffer(buffer, azurePath, user.firmId);
+        uploadedPath = azureResult.path;
+        console.log(`[AI NOTE] Uploaded to Azure: ${azureResult.path}`);
+      }
+    } catch (azureError) {
+      console.error('[AI NOTE] Azure upload failed:', azureError.message);
+    }
+    
     // Insert as a document
     const result = await query(
       `INSERT INTO documents (
@@ -5768,7 +5798,7 @@ async function createNote(args, user) {
         `${title}.md`,
         'text/markdown',
         formattedContent.length,
-        `notes/${filename}`,
+        uploadedPath,
         formattedContent,
         [note_type, 'note'],
         user.id
@@ -5793,13 +5823,14 @@ async function createNote(args, user) {
     
     return {
       success: true,
-      message: `Created ${note_type} note "${title}"${locationInfo}`,
+      message: `Created ${note_type} document "${title}"${locationInfo}`,
       data: {
         id: savedNote.id,
         name: savedNote.name,
         note_type,
         matter_id,
-        client_id
+        client_id,
+        downloadable: true
       }
     };
   } catch (error) {
@@ -6657,7 +6688,7 @@ async function getMatterSummary(args, user) {
 }
 
 async function addMatterNote(args, user) {
-  const { matter_id, content } = args;
+  const { matter_id, content, note_type = 'general' } = args;
   
   if (!matter_id || !content) {
     return { error: 'matter_id and content are required' };
@@ -6676,21 +6707,30 @@ async function addMatterNote(args, user) {
   
   const actualMatterId = resolved.matter.id;
   
-  const matterCheck = await query('SELECT id, name, ai_summary FROM matters WHERE id = $1 AND firm_id = $2', [actualMatterId, user.firmId]);
+  const matterCheck = await query('SELECT id, name FROM matters WHERE id = $1 AND firm_id = $2', [actualMatterId, user.firmId]);
   if (matterCheck.rows.length === 0) {
     return { error: 'Matter not found' };
   }
   
-  // Append to ai_summary field as a note (since there's no dedicated notes table)
-  const existingNotes = matterCheck.rows[0].ai_summary || '';
-  const timestamp = formatDateTime(new Date());
-  const newNote = `\n\n[${timestamp} - ${user.firstName} ${user.lastName}]\n${content}`;
+  // Insert into the proper matter_notes table
+  const noteResult = await query(
+    `INSERT INTO matter_notes (matter_id, firm_id, content, note_type, created_by, created_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     RETURNING id, created_at`,
+    [actualMatterId, user.firmId, content, note_type, user.id]
+  );
   
-  await query('UPDATE matters SET ai_summary = $1 WHERE id = $2', [existingNotes + newNote, actualMatterId]);
+  const note = noteResult.rows[0];
   
   return {
     success: true,
-    message: `Added note to matter "${matterCheck.rows[0].name}"`
+    message: `Added note to matter "${matterCheck.rows[0].name}"`,
+    data: {
+      note_id: note.id,
+      matter_id: actualMatterId,
+      matter_name: matterCheck.rows[0].name,
+      created_at: note.created_at
+    }
   };
 }
 
