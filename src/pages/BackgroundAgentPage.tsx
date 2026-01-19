@@ -379,6 +379,34 @@ export function BackgroundAgentPage() {
                   <span>{stepLabel}</span>
                 </div>
               </div>
+              
+              {/* Live Activity Feed - Shows what the agent is doing in real-time */}
+              {taskStatus === 'running' && (
+                <div className={styles.liveActivitySection}>
+                  <div className={styles.liveActivityHeader}>
+                    <Terminal size={14} />
+                    <span>Live Activity</span>
+                    {isStreaming && <span className={styles.streamingIndicator}>● Live</span>}
+                  </div>
+                  <div className={styles.liveActivityFeed} ref={liveEventsRef}>
+                    {liveEvents.length === 0 && (
+                      <div className={styles.liveEventItem}>
+                        <span className={styles.liveEventTime}>--:--:--</span>
+                        <span className={styles.liveEventMessage}>Waiting for agent activity...</span>
+                      </div>
+                    )}
+                    {liveEvents.map((event, idx) => (
+                      <div key={idx} className={styles.liveEventItem}>
+                        <span className={styles.liveEventTime}>
+                          {new Date(event.timestamp).toLocaleTimeString()}
+                        </span>
+                        <span className={styles.liveEventMessage}>{event.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
               {activeTask.result?.summary && (
                 <div className={styles.taskSummary}>{activeTask.result.summary}</div>
               )}
