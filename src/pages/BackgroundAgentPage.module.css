@@ -417,3 +417,84 @@
 .liveActivityFeed::-webkit-scrollbar-thumb:hover {
   background: rgba(139, 92, 246, 0.6);
 }
+
+/* Follow-up Section Styles */
+.followUpSection {
+  margin-top: 12px;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(88, 28, 135, 0.15);
+}
+
+.followUpHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(88, 28, 135, 0.3);
+  font-size: 12px;
+  font-weight: 600;
+  color: #c4b5fd;
+}
+
+.followUpForm {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.followUpInput {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
+  color: #f1f5f9;
+  font-size: 13px;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.followUpInput:focus {
+  outline: none;
+  border-color: rgba(168, 85, 247, 0.6);
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.followUpInput::placeholder {
+  color: #64748b;
+}
+
+.followUpInput:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.followUpBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.followUpBtn:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.followUpBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.followUpError {
+  padding: 6px 12px 10px;
+  font-size: 12px;
+  color: #f87171;
+}

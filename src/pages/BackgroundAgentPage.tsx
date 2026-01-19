@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { AlertCircle, CheckCircle, Loader2, RefreshCw, Rocket, StopCircle, Wrench, Terminal, ExternalLink } from 'lucide-react'
+import { AlertCircle, CheckCircle, Loader2, RefreshCw, Rocket, StopCircle, Wrench, Terminal, ExternalLink, Send, MessageCircle } from 'lucide-react'
 import { aiApi } from '../services/api'
 import styles from './BackgroundAgentPage.module.css'
 
@@ -73,6 +73,11 @@ export function BackgroundAgentPage() {
   const [isStreaming, setIsStreaming] = useState(false)
   const eventSourceRef = useRef<EventSource | null>(null)
   const liveEventsRef = useRef<HTMLDivElement>(null)
+  
+  // Follow-up state
+  const [followUpInput, setFollowUpInput] = useState('')
+  const [isSendingFollowUp, setIsSendingFollowUp] = useState(false)
+  const [followUpError, setFollowUpError] = useState<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -290,6 +295,30 @@ export function BackgroundAgentPage() {
     }
   }
 
+  const handleSendFollowUp = async () => {
+    const message = followUpInput.trim()
+    if (!message || !activeTask || isSendingFollowUp) return
+    
+    setIsSendingFollowUp(true)
+    setFollowUpError(null)
+    
+    try {
+      await backgroundApi.sendBackgroundTaskFollowUp(activeTask.id, message)
+      setFollowUpInput('')
+      // Add to live events immediately for feedback
+      setLiveEvents(prev => [...prev, {
+        type: 'followup_sent',
+        message: `📨 Follow-up sent: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`,
+        timestamp: new Date().toISOString(),
+        color: 'purple'
+      }])
+    } catch (error: any) {
+      setFollowUpError(error?.message || 'Failed to send follow-up')
+    } finally {
+      setIsSendingFollowUp(false)
+    }
+  }
+
   const taskStatus = useMemo(() => {
     if (!activeTask) return null
     const statusValue = activeTask.status
@@ -436,6 +465,37 @@ export function BackgroundAgentPage() {
               {activeTask.error && (
                 <div className={styles.taskError}>{activeTask.error}</div>
               )}
+              {/* Follow-up Section - Send additional instructions to running agent */}
+              {taskStatus === 'running' && (
+                <div className={styles.followUpSection}>
+                  <div className={styles.followUpHeader}>
+                    <MessageCircle size={14} />
+                    <span>Send Follow-up Instructions</span>
+                  </div>
+                  <div className={styles.followUpForm}>
+                    <input
+                      type="text"
+                      className={styles.followUpInput}
+                      placeholder="Add more context or redirect the agent..."
+                      value={followUpInput}
+                      onChange={e => setFollowUpInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSendFollowUp()}
+                      disabled={isSendingFollowUp}
+                    />
+                    <button
+                      className={styles.followUpBtn}
+                      onClick={handleSendFollowUp}
+                      disabled={!followUpInput.trim() || isSendingFollowUp}
+                    >
+                      {isSendingFollowUp ? <Loader2 size={14} className={styles.spin} /> : <Send size={14} />}
+                    </button>
+                  </div>
+                  {followUpError && (
+                    <div className={styles.followUpError}>{followUpError}</div>
+                  )}
+                </div>
+              )}
+              
               {taskStatus === 'running' && (
                 <button className={styles.cancelBtn} onClick={handleCancel} disabled={isCancelling}>
                   {isCancelling ? <Loader2 size={14} className={styles.spin} /> : <StopCircle size={14} />}

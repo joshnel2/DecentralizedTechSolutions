@@ -203,6 +203,57 @@ router.get('/tasks/:id', authenticate, async (req, res) => {
 });
 
 /**
+ * Send follow-up instructions to a running task
+ * Allows users to add additional context or redirect the agent mid-task
+ */
+router.post('/tasks/:id/followup', authenticate, async (req, res) => {
+  try {
+    const { message } = req.body;
+    
+    if (!message || typeof message !== 'string' || message.trim().length === 0) {
+      return res.status(400).json({ 
+        error: 'Follow-up message is required and must be a non-empty string' 
+      });
+    }
+    
+    // Check if task exists and is running
+    const task = await amplifierService.getTask(req.params.id);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    if (task.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Not authorized to send follow-up to this task' });
+    }
+    
+    if (task.status !== 'running' && task.status !== 'thinking' && task.status !== 'executing') {
+      return res.status(400).json({ 
+        error: 'Can only send follow-up to running tasks',
+        currentStatus: task.status
+      });
+    }
+    
+    // Send the follow-up to the running agent
+    const result = await amplifierService.sendFollowUp(req.params.id, message.trim(), req.user.id);
+    
+    if (!result.success) {
+      return res.status(400).json({ error: result.error || 'Failed to send follow-up' });
+    }
+    
+    console.log(`[BackgroundAgent] Follow-up sent to task ${req.params.id}: ${message.substring(0, 50)}...`);
+    
+    res.json({
+      success: true,
+      message: 'Follow-up instructions sent to agent',
+      task: result.task
+    });
+  } catch (error) {
+    console.error('[BackgroundAgent] Error sending follow-up:', error);
+    res.status(500).json({ error: 'Failed to send follow-up', details: error.message });
+  }
+});
+
+/**
  * Cancel a task
  */
 router.post('/tasks/:id/cancel', authenticate, async (req, res) => {

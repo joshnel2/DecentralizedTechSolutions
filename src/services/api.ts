@@ -895,6 +895,14 @@ export const aiApi = {
     });
   },
 
+  // Send follow-up instructions to a running background task
+  async sendBackgroundTaskFollowUp(taskId: string, message: string) {
+    return fetchWithAuth(`/v1/background-agent/tasks/${taskId}/followup`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    });
+  },
+
   // Get background task history
   async getBackgroundTaskHistory(limit?: number) {
     const query = limit ? `?limit=${limit}` : '';

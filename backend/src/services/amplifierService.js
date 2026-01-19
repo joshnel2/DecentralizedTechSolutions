@@ -475,6 +475,139 @@ class BackgroundTask extends EventEmitter {
     }
   }
 
+  /**
+   * Get detailed, human-readable description of what tool is doing
+   * Used for precise live activity feed updates
+   */
+  getDetailedToolDescription(toolName, toolArgs = {}) {
+    switch (toolName) {
+      case 'create_document':
+        const docName = toolArgs.name || toolArgs.title || 'document';
+        const docType = toolArgs.document_type || 'legal document';
+        return `📄 Creating ${docType}: "${docName}"`;
+      
+      case 'read_document_content':
+        return `📖 Reading document content (ID: ${toolArgs.document_id || 'unknown'})`;
+      
+      case 'search_document_content':
+        return `🔍 Searching documents for: "${toolArgs.search_term || toolArgs.query || 'keywords'}"`;
+      
+      case 'add_matter_note':
+        const notePreview = (toolArgs.content || toolArgs.note || '').substring(0, 50);
+        return `📝 Adding note to matter: "${notePreview}${notePreview.length >= 50 ? '...' : ''}"`;
+      
+      case 'create_task':
+        return `✅ Creating task: "${toolArgs.title || toolArgs.name || 'new task'}"`;
+      
+      case 'create_calendar_event':
+        return `📅 Scheduling: "${toolArgs.title || 'event'}" on ${toolArgs.date || toolArgs.start_date || 'TBD'}`;
+      
+      case 'create_invoice':
+        return `💰 Preparing invoice${toolArgs.amount ? ` for $${toolArgs.amount}` : ''}`;
+      
+      case 'send_invoice':
+        return `📤 Sending invoice to client`;
+      
+      case 'log_time':
+        const hours = toolArgs.hours || toolArgs.duration || '?';
+        return `⏱️ Logging ${hours} hours: "${toolArgs.description || 'billable work'}"`;
+      
+      case 'create_matter':
+        return `📁 Opening new matter: "${toolArgs.name || toolArgs.title || 'new matter'}"`;
+      
+      case 'update_matter':
+        return `📝 Updating matter status/details`;
+      
+      case 'close_matter':
+        return `✔️ Closing matter`;
+      
+      case 'list_clients':
+        return `👥 Fetching client list`;
+      
+      case 'list_matters':
+      case 'list_my_matters':
+        return `📋 Fetching matters list`;
+      
+      case 'list_documents':
+        return `📂 Fetching document list`;
+      
+      case 'get_matter':
+      case 'get_matter_details':
+        return `📋 Loading matter details (ID: ${toolArgs.matter_id || 'unknown'})`;
+      
+      case 'draft_email_for_matter':
+        return `✉️ Drafting email: "${toolArgs.subject || 'communication'}"`;
+      
+      case 'task_complete':
+        return `🎯 Completing task with summary`;
+      
+      case 'request_user_input':
+        return `❓ Requesting user input: "${toolArgs.question || 'feedback needed'}"`;
+      
+      default:
+        // Convert snake_case to readable format
+        const readable = toolName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        return `⚙️ ${readable}`;
+    }
+  }
+
+  /**
+   * Get detailed completion message for tool result
+   */
+  getDetailedCompletionMessage(toolName, toolArgs, result, success) {
+    if (!success) {
+      return `❌ Failed: ${result.error || result.message || toolName}`;
+    }
+    
+    switch (toolName) {
+      case 'create_document':
+        const docName = result.document?.name || result.name || toolArgs.name || 'document';
+        return `✅ Document created: "${docName}"`;
+      
+      case 'add_matter_note':
+        return `✅ Note added to matter successfully`;
+      
+      case 'create_task':
+        const taskTitle = result.task?.title || toolArgs.title || 'task';
+        return `✅ Task created: "${taskTitle}"`;
+      
+      case 'create_calendar_event':
+        return `✅ Event scheduled: "${toolArgs.title || 'event'}"`;
+      
+      case 'log_time':
+        return `✅ Time logged: ${toolArgs.hours || '?'} hours`;
+      
+      case 'create_matter':
+        return `✅ Matter opened: "${result.matter?.name || toolArgs.name || 'new matter'}"`;
+      
+      case 'list_clients':
+        const clientCount = result.clients?.length || 0;
+        return `✅ Found ${clientCount} client${clientCount !== 1 ? 's' : ''}`;
+      
+      case 'list_matters':
+      case 'list_my_matters':
+        const matterCount = result.matters?.length || 0;
+        return `✅ Found ${matterCount} matter${matterCount !== 1 ? 's' : ''}`;
+      
+      case 'list_documents':
+        const docCount = result.documents?.length || 0;
+        return `✅ Found ${docCount} document${docCount !== 1 ? 's' : ''}`;
+      
+      case 'search_document_content':
+        const resultCount = result.results?.length || 0;
+        return `✅ Found ${resultCount} result${resultCount !== 1 ? 's' : ''} for "${toolArgs.search_term || 'query'}"`;
+      
+      case 'read_document_content':
+        return `✅ Document content loaded`;
+      
+      case 'draft_email_for_matter':
+        return `✅ Email draft prepared`;
+      
+      default:
+        return `✅ ${toolName.replace(/_/g, ' ')} completed`;
+    }
+  }
+
   buildCheckpointPayload() {
     this.compactMessagesIfNeeded();
 
@@ -744,15 +877,19 @@ START WORKING NOW. Execute tools to complete this goal. Do not respond with text
       console.log(`[Amplifier] Starting autonomous task ${this.id}: ${this.goal}`);
       
       // Stream task start event to Glass Cockpit UI
-      this.streamEvent('task_start', `Starting: ${this.goal.substring(0, 100)}...`, {
+      this.streamEvent('task_start', `🚀 Task started: "${this.goal.substring(0, 80)}${this.goal.length > 80 ? '...' : ''}"`, {
         goal: this.goal,
         icon: 'rocket',
-        color: 'blue'
+        color: 'green'
       });
       this.streamProgress();
       
       if (!resumeFromCheckpoint) {
         // Initialize context (user info, firm data, learnings)
+        this.streamEvent('context_init', '🔧 Loading user context, firm data, and historical learnings...', {
+          icon: 'settings',
+          color: 'gray'
+        });
         await this.initializeContext();
         
         // Build initial messages with a STRONG action prompt
@@ -772,6 +909,11 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
       await this.saveCheckpoint('start');
       
       console.log(`[Amplifier] Task ${this.id} context initialized, starting agent loop`);
+      
+      this.streamEvent('context_ready', '✅ Context loaded. Beginning autonomous execution...', {
+        icon: 'check-circle',
+        color: 'green'
+      });
       
       // Run the agentic loop (autonomous execution)
       await this.runAgentLoop();
@@ -826,11 +968,18 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
       try {
         console.log(`[Amplifier] Iteration ${this.progress.iterations}: calling Azure OpenAI`);
         
-        // Stream thinking event to Glass Cockpit UI
-        this.streamEvent('thought_start', 'Thinking...', {
+        // Stream thinking event to Glass Cockpit UI with context
+        const thinkingContext = this.actionsHistory.length === 0 
+          ? 'Analyzing task and creating plan...'
+          : this.plan 
+            ? `Step ${this.progress.completedSteps + 1}: Planning next action...`
+            : 'Evaluating progress and deciding next steps...';
+        
+        this.streamEvent('thought_start', `🧠 ${thinkingContext}`, {
           iteration: this.progress.iterations,
+          actions_so_far: this.actionsHistory.length,
           icon: 'brain',
-          color: 'gray'
+          color: 'blue'
         });
 
         this.messages = this.normalizeMessages(this.messages);
@@ -851,7 +1000,15 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
         if (message.tool_calls && message.tool_calls.length > 0) {
           textOnlyCount = 0; // Reset text-only counter
           
-          console.log(`[Amplifier] Iteration ${this.progress.iterations}: ${message.tool_calls.length} tool(s) to execute`);
+          const toolNames = message.tool_calls.map(tc => tc.function?.name || 'unknown');
+          console.log(`[Amplifier] Iteration ${this.progress.iterations}: ${message.tool_calls.length} tool(s) to execute: ${toolNames.join(', ')}`);
+          
+          // Stream what we're about to do
+          this.streamEvent('planning', `📋 Planned ${message.tool_calls.length} action${message.tool_calls.length > 1 ? 's' : ''}: ${toolNames.join(', ')}`, {
+            tools_planned: toolNames,
+            icon: 'clipboard-list',
+            color: 'purple'
+          });
           
           // Execute all tool calls
           for (const toolCall of message.tool_calls) {
@@ -871,10 +1028,11 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             this.progress.currentStep = this.getToolStepLabel(toolName, toolArgs);
             this.emit('progress', this.getStatus());
             
-            // Stream tool start event to Glass Cockpit UI
-            this.streamEvent('tool_start', `Executing: ${toolName}`, { 
+            // Stream tool start event to Glass Cockpit UI with PRECISE details
+            const toolDescription = this.getDetailedToolDescription(toolName, toolArgs);
+            this.streamEvent('tool_start', toolDescription, { 
               tool: toolName, 
-              args: Object.keys(toolArgs),
+              args: toolArgs,
               icon: 'tool',
               color: 'blue'
             });
@@ -903,12 +1061,14 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             const toolSuccess = result.success !== undefined ? result.success : !result.error;
             console.log(`[Amplifier] Tool ${toolName} result:`, toolSuccess ? 'success' : 'failed');
             
-            // Stream tool completion event
-            this.streamEvent('tool_end', `${toolName}: ${result.message || (toolSuccess ? 'completed' : 'failed')}`, {
+            // Stream tool completion event with detailed result
+            const completionMessage = this.getDetailedCompletionMessage(toolName, toolArgs, result, toolSuccess);
+            this.streamEvent('tool_end', completionMessage, {
               tool: toolName,
               success: toolSuccess,
               icon: toolSuccess ? 'check-circle' : 'x-circle',
-              color: toolSuccess ? 'green' : 'red'
+              color: toolSuccess ? 'green' : 'red',
+              result_preview: result.message || (toolSuccess ? 'Success' : 'Failed')
             });
             
             // Track action in history
@@ -1064,6 +1224,14 @@ Keep working on: "${this.goal}"`
           // No tool calls - AI just responded with text
           textOnlyCount++;
           console.log(`[Amplifier] Iteration ${this.progress.iterations}: text-only response (count: ${textOnlyCount})`);
+          
+          // Stream that we got a thinking/text response
+          const responsePreview = message.content ? message.content.substring(0, 80) : '';
+          this.streamEvent('thought_response', `💭 Thinking: "${responsePreview}${responsePreview.length >= 80 ? '...' : ''}"`, {
+            iteration: this.progress.iterations,
+            icon: 'message-square',
+            color: 'gray'
+          });
           
           // Check if finish_reason indicates completion
           if (choice.finish_reason === 'stop') {
@@ -1462,6 +1630,39 @@ Keep working on: "${this.goal}"`
   }
 
   /**
+   * Add follow-up instructions to the task
+   * These will be processed in the next iteration of the agent loop
+   */
+  addFollowUp(message) {
+    if (!message || typeof message !== 'string') {
+      throw new Error('Follow-up message must be a non-empty string');
+    }
+    
+    // Add a user message with the follow-up instructions
+    // This will be picked up in the next iteration of the agent loop
+    this.messages.push({
+      role: 'user',
+      content: `[FOLLOW-UP INSTRUCTION FROM USER]: ${message}
+
+Please acknowledge this follow-up and adjust your approach accordingly. Continue with the task while incorporating this new guidance.`
+    });
+    
+    // Store for tracking
+    if (!this.followUps) {
+      this.followUps = [];
+    }
+    this.followUps.push({
+      message,
+      timestamp: new Date().toISOString()
+    });
+    
+    console.log(`[Amplifier] Follow-up added to task ${this.id}: ${message.substring(0, 50)}...`);
+    
+    // Emit event for real-time updates
+    this.emit('followup', { message, timestamp: new Date().toISOString() });
+  }
+
+  /**
    * Get current status
    */
   getStatus() {
@@ -1813,6 +2014,43 @@ class AmplifierService {
     }
     
     return task.cancel();
+  }
+
+  /**
+   * Send follow-up instructions to a running task
+   */
+  async sendFollowUp(taskId, message, userId) {
+    const task = this.tasks.get(taskId);
+    
+    if (!task) {
+      return { success: false, error: 'Task not found or not running' };
+    }
+    
+    if (task.userId !== userId) {
+      return { success: false, error: 'Not authorized to send follow-up to this task' };
+    }
+    
+    if (task.status !== 'running' && task.status !== 'thinking' && task.status !== 'executing') {
+      return { success: false, error: 'Task is not currently running' };
+    }
+    
+    try {
+      // Add the follow-up as a user message that will be processed in the next iteration
+      task.addFollowUp(message);
+      
+      // Stream event to show the follow-up was received
+      task.streamEvent('followup_received', `Follow-up received: "${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"`, {
+        icon: 'message-circle',
+        color: 'purple'
+      });
+      
+      console.log(`[AmplifierService] Follow-up added to task ${taskId}: ${message.substring(0, 50)}...`);
+      
+      return { success: true, task: task.getStatus() };
+    } catch (error) {
+      console.error(`[AmplifierService] Failed to send follow-up to task ${taskId}:`, error);
+      return { success: false, error: error.message || 'Failed to send follow-up' };
+    }
   }
 
   /**
