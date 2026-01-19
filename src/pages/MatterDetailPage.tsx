@@ -2257,14 +2257,14 @@ Only analyze documents actually associated with this matter.`
               </h2>
               <button onClick={closeDocPreview} className={styles.closeBtn}>×</button>
             </div>
-            <div style={{ padding: '1rem', maxHeight: '60vh', overflow: 'auto', background: '#f8fafc', borderRadius: '8px', margin: '0 1rem 1rem' }}>
+            <div style={{ padding: '1rem', maxHeight: '60vh', overflow: 'auto', background: '#ffffff', borderRadius: '8px', margin: '0 1rem 1rem', border: '1px solid #e2e8f0' }}>
               {isLoadingPreview ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748b' }}>
                   <Loader2 size={16} className="animate-spin" />
                   Loading document preview...
                 </div>
               ) : (
-                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0, lineHeight: 1.6 }}>
+                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0, lineHeight: 1.6, color: '#1e293b', fontSize: '14px' }}>
                   {previewContent || 'No content available for preview'}
                 </pre>
               )}

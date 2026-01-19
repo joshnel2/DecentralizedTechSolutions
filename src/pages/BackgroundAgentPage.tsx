@@ -147,7 +147,7 @@ export function BackgroundAgentPage() {
     
     // Connect to SSE stream
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
-    const token = localStorage.getItem('token')
+    const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
     const url = `${apiUrl}/v1/agent-stream/${activeTask.id}?token=${token}`
     
     console.log('[BackgroundAgent] Connecting to SSE:', url)
@@ -160,10 +160,28 @@ export function BackgroundAgentPage() {
       setIsStreaming(true)
     }
     
-    eventSource.onerror = () => {
-      console.log('[BackgroundAgent] SSE error')
+    eventSource.onerror = (e) => {
+      console.log('[BackgroundAgent] SSE error', e)
       setIsStreaming(false)
     }
+    
+    // Handle initial connection message
+    eventSource.addEventListener('connected', (e) => {
+      console.log('[BackgroundAgent] SSE connected event:', e.data)
+      setIsStreaming(true)
+    })
+    
+    // Handle history (events that happened before we connected)
+    eventSource.addEventListener('history', (e) => {
+      try {
+        const data = JSON.parse(e.data)
+        if (data.events && Array.isArray(data.events)) {
+          setLiveEvents(prev => [...data.events, ...prev].slice(-50))
+        }
+      } catch (err) {
+        console.error('Failed to parse history:', err)
+      }
+    })
     
     eventSource.addEventListener('event', (e) => {
       try {
@@ -191,6 +209,11 @@ export function BackgroundAgentPage() {
       } catch (err) {
         console.error('Failed to parse progress:', err)
       }
+    })
+    
+    // Handle heartbeat to keep connection alive
+    eventSource.addEventListener('heartbeat', () => {
+      // Connection is alive
     })
     
     return () => {

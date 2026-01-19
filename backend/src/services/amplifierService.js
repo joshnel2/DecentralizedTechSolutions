@@ -686,17 +686,24 @@ When analyzing any legal issue, use IRAC:
 - **NEVER USE log_time** - Time entries are for HUMANS, not AI agents
 
 ### WHEN A MATTER IS NEW/EMPTY:
-1. Add a case intake note with initial observations
-2. Draft an initial case assessment document
-3. Create a task list with appropriate workflow items
-4. Identify and calendar critical deadlines
+1. Add a case intake note with initial observations using \`add_matter_note\`
+2. Draft an initial case assessment document using \`create_document\`
+3. Create a task list with appropriate workflow items using \`create_task\`
+4. Identify and calendar critical deadlines using \`create_calendar_event\`
 5. Draft the engagement letter if not done
 6. Create follow-up tasks for the attorney
+
+### MANDATORY ACTIONS FOR EVERY TASK:
+You MUST complete ALL of these before calling task_complete:
+1. **ADD AT LEAST ONE NOTE** - Use \`add_matter_note\` to document your analysis, findings, or observations
+2. **CREATE AT LEAST ONE TASK** - Use \`create_task\` to create follow-up action items
+3. **CREATE A DOCUMENT** - Use \`create_document\` for any formal work product
 
 ### MINIMUM WORK REQUIREMENT (ENFORCED):
 - Minimum 60 seconds of active work
 - At least 5 total actions
 - At least 2 substantive actions (documents, notes, tasks)
+- **MUST include at least 1 note AND 1 task**
 - task_complete will be REJECTED if minimums not met
 
 ### TAKE YOUR TIME:
@@ -933,13 +940,26 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
                  'search_case_law', 'summarize_document'].includes(a.tool)
               ).length;
               
-              // Minimum requirements: 60 seconds AND at least 5 actions with 2+ substantive
+              // Check for specific required actions
+              const hasNote = this.actionsHistory.some(a => a.tool === 'add_matter_note');
+              const hasTask = this.actionsHistory.some(a => a.tool === 'create_task');
+              const hasDocument = this.actionsHistory.some(a => a.tool === 'create_document');
+              
+              // Minimum requirements
               const MIN_SECONDS = 60;
               const MIN_ACTIONS = 5;
               const MIN_SUBSTANTIVE = 2;
               
-              if (elapsedSeconds < MIN_SECONDS || actionCount < MIN_ACTIONS || substantiveActions < MIN_SUBSTANTIVE) {
-                console.log(`[Amplifier] Task ${this.id} attempted early completion: ${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive`);
+              // Build missing requirements message
+              const missing = [];
+              if (elapsedSeconds < MIN_SECONDS) missing.push(`Time: ${elapsedSeconds.toFixed(0)}s / ${MIN_SECONDS}s minimum`);
+              if (actionCount < MIN_ACTIONS) missing.push(`Actions: ${actionCount} / ${MIN_ACTIONS} minimum`);
+              if (substantiveActions < MIN_SUBSTANTIVE) missing.push(`Substantive work: ${substantiveActions} / ${MIN_SUBSTANTIVE} minimum`);
+              if (!hasNote) missing.push('MISSING: You must add at least 1 note using add_matter_note');
+              if (!hasTask) missing.push('MISSING: You must create at least 1 task using create_task');
+              
+              if (missing.length > 0) {
+                console.log(`[Amplifier] Task ${this.id} attempted early completion: ${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive, hasNote=${hasNote}, hasTask=${hasTask}`);
                 
                 // Reject early completion - push message to continue
                 toolCallResults.push({
@@ -947,17 +967,14 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
                   tool_call_id: toolCall.id,
                   content: JSON.stringify({
                     rejected: true,
-                    reason: `Task completion rejected. Minimum requirements not met:
-- Time: ${elapsedSeconds.toFixed(0)}s / ${MIN_SECONDS}s minimum
-- Actions: ${actionCount} / ${MIN_ACTIONS} minimum  
-- Substantive work: ${substantiveActions} / ${MIN_SUBSTANTIVE} minimum
+                    reason: `Task completion rejected. Requirements not met:
+${missing.map(m => '- ' + m).join('\n')}
 
-You must do MORE WORK before completing. Continue with the task:
-1. Create actual documents with real content (not placeholders)
-2. Add detailed notes to the matter
-3. Set up tasks and calendar events
-4. Do thorough research if applicable
-5. Generate professional work product
+You MUST do the following before completing:
+1. Use add_matter_note to add notes about your findings to the matter's Notes tab
+2. Use create_task to create follow-up tasks for the attorney
+3. Use create_document if you need to create formal work product
+4. Spend adequate time on thorough analysis
 
 Keep working on: "${this.goal}"`
                   })
