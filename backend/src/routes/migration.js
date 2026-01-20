@@ -4863,8 +4863,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 return doc.matter?.id && importedClioMatterIds.has(doc.matter.id);
               };
               
-              // Paginate through all documents
-              let pageUrl = `${CLIO_API_BASE}/documents.json?fields=id,name,filename,matter,content_type,latest_document_version{id,size,filename}&limit=200&order=id(asc)`;
+              // Paginate through all documents (50 per page to stay well within rate limits)
+              let pageUrl = `${CLIO_API_BASE}/documents.json?fields=id,name,filename,matter,content_type,latest_document_version{id,size,filename}&limit=50&order=id(asc)`;
               let pageNum = 0;
               
               while (pageUrl) {
