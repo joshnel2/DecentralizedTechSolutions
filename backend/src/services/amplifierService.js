@@ -1040,6 +1040,22 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
       const elapsedMs = Date.now() - this.startTime.getTime();
       if (elapsedMs > this.maxRuntimeMs) {
         console.warn(`[Amplifier] Task ${this.id} reached max runtime (${this.maxRuntimeMs}ms)`);
+        
+        // SMOOTH COMPLETION SEQUENCE
+        this.progress.progressPercent = 95;
+        this.progress.currentStep = 'Wrapping up (time limit)...';
+        this.streamEvent('finishing', `🎯 Reached time limit (${Math.round(elapsedMs / 60000)}min), finalizing...`, { icon: 'clock', color: 'yellow' });
+        this.streamProgress();
+        await sleep(600);
+        
+        this.progress.progressPercent = 98;
+        this.progress.currentStep = 'Saving results...';
+        this.streamProgress();
+        
+        await this.saveTaskHistory();
+        await this.persistCompletion(TaskStatus.COMPLETED);
+        await sleep(400);
+        
         this.status = TaskStatus.COMPLETED;
         this.progress.progressPercent = 100;
         this.progress.currentStep = 'Completed (time limit reached)';
@@ -1048,8 +1064,15 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
           actions: this.actionsHistory.map(a => a.tool)
         };
         this.endTime = new Date();
-        await this.saveTaskHistory();
-        await this.persistCompletion(TaskStatus.COMPLETED);
+        
+        this.streamEvent('task_complete', `✅ Task completed (time limit: ${Math.round(elapsedMs / 60000)}min)`, { 
+          actions_count: this.actionsHistory.length,
+          icon: 'check-circle', 
+          color: 'green' 
+        });
+        this.streamProgress();
+        await sleep(300);
+        
         this.emit('complete', this.getStatus());
         return;
       }
@@ -1245,6 +1268,33 @@ Keep working on: "${this.goal}"`
               }
               
               console.log(`[Amplifier] Task ${this.id} marked as complete (${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive)`);
+              
+              // SMOOTH COMPLETION SEQUENCE
+              // Step 1: Show wrapping up (95%)
+              this.progress.progressPercent = 95;
+              this.progress.currentStep = 'Wrapping up...';
+              this.streamEvent('finishing', '🎯 Finalizing work product...', {
+                icon: 'loader',
+                color: 'purple'
+              });
+              this.streamProgress();
+              await sleep(800);
+              
+              // Step 2: Show saving (97%)
+              this.progress.progressPercent = 97;
+              this.progress.currentStep = 'Saving results...';
+              this.streamEvent('saving', '💾 Saving task results...', {
+                icon: 'save',
+                color: 'blue'
+              });
+              this.streamProgress();
+              
+              // Save to history and extract learnings
+              await this.saveTaskHistory();
+              await this.persistCompletion(TaskStatus.COMPLETED);
+              await sleep(500);
+              
+              // Step 3: Show complete (100%)
               this.status = TaskStatus.COMPLETED;
               this.progress.progressPercent = 100;
               this.progress.currentStep = 'Completed successfully';
@@ -1260,19 +1310,18 @@ Keep working on: "${this.goal}"`
               };
               this.endTime = new Date();
               
-              // Save to history and extract learnings
-              await this.saveTaskHistory();
-              await this.persistCompletion(TaskStatus.COMPLETED);
-              
               // Stream completion event to Glass Cockpit UI
-              this.streamEvent('task_complete', toolArgs.summary || 'Task completed successfully', {
+              this.streamEvent('task_complete', `✅ ${toolArgs.summary || 'Task completed successfully'}`, {
                 actions_count: actionCount,
                 duration_seconds: elapsedSeconds,
+                summary: toolArgs.summary,
                 icon: 'check-circle',
                 color: 'green'
               });
-              this.progress.progressPercent = 100;
               this.streamProgress();
+              
+              // Small delay so UI can show the completion state
+              await sleep(300);
               
               this.emit('complete', this.getStatus());
               return;
@@ -1338,6 +1387,22 @@ Keep working on: "${this.goal}"`
             // If we've done some work and the AI seems done, complete the task
             if (this.actionsHistory.length > 0) {
               console.log(`[Amplifier] Task ${this.id} completed after ${this.actionsHistory.length} actions`);
+              
+              // SMOOTH COMPLETION SEQUENCE
+              this.progress.progressPercent = 95;
+              this.progress.currentStep = 'Wrapping up...';
+              this.streamEvent('finishing', '🎯 Finalizing...', { icon: 'loader', color: 'purple' });
+              this.streamProgress();
+              await sleep(600);
+              
+              this.progress.progressPercent = 98;
+              this.progress.currentStep = 'Saving results...';
+              this.streamProgress();
+              
+              await this.saveTaskHistory();
+              await this.persistCompletion(TaskStatus.COMPLETED);
+              await sleep(400);
+              
               this.status = TaskStatus.COMPLETED;
               this.progress.progressPercent = 100;
               this.progress.currentStep = 'Completed';
@@ -1347,8 +1412,14 @@ Keep working on: "${this.goal}"`
               };
               this.endTime = new Date();
               
-              await this.saveTaskHistory();
-              await this.persistCompletion(TaskStatus.COMPLETED);
+              this.streamEvent('task_complete', `✅ Task completed`, { 
+                actions_count: this.actionsHistory.length,
+                icon: 'check-circle', 
+                color: 'green' 
+              });
+              this.streamProgress();
+              await sleep(300);
+              
               this.emit('complete', this.getStatus());
               return;
             }
@@ -1459,6 +1530,22 @@ Keep working on: "${this.goal}"`
     // Max iterations reached
     if (!this.cancelled) {
       console.log(`[Amplifier] Task ${this.id} reached max iterations (${MAX_ITERATIONS})`);
+      
+      // SMOOTH COMPLETION SEQUENCE
+      this.progress.progressPercent = 95;
+      this.progress.currentStep = 'Wrapping up (iteration limit)...';
+      this.streamEvent('finishing', '🎯 Reached iteration limit, finalizing...', { icon: 'loader', color: 'yellow' });
+      this.streamProgress();
+      await sleep(600);
+      
+      this.progress.progressPercent = 98;
+      this.progress.currentStep = 'Saving results...';
+      this.streamProgress();
+      
+      await this.saveTaskHistory();
+      await this.persistCompletion(TaskStatus.COMPLETED);
+      await sleep(400);
+      
       this.status = TaskStatus.COMPLETED;
       this.progress.progressPercent = 100;
       this.progress.currentStep = 'Completed (max iterations)';
@@ -1468,8 +1555,14 @@ Keep working on: "${this.goal}"`
       };
       this.endTime = new Date();
       
-      await this.saveTaskHistory();
-      await this.persistCompletion(TaskStatus.COMPLETED);
+      this.streamEvent('task_complete', `✅ Task completed (${this.progress.iterations} iterations)`, { 
+        actions_count: this.actionsHistory.length,
+        icon: 'check-circle', 
+        color: 'green' 
+      });
+      this.streamProgress();
+      await sleep(300);
+      
       this.emit('complete', this.getStatus());
     }
   }

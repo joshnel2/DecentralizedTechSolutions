@@ -233,6 +233,7 @@ export function BackgroundAgentPage() {
         // Update active task progress in real-time
         setActiveTask(prev => prev ? {
           ...prev,
+          status: progress.status || prev.status,
           progress: {
             progressPercent: progress.progress_percent,
             currentStep: progress.current_step,
@@ -243,6 +244,34 @@ export function BackgroundAgentPage() {
         } : null)
       } catch (err) {
         console.error('Failed to parse progress:', err)
+      }
+    })
+    
+    // Handle task completion event for smooth transition
+    eventSource.addEventListener('task_complete', (e) => {
+      try {
+        const data = JSON.parse(e.data)
+        console.log('[BackgroundAgent] Task completed:', data)
+        // Update to completed state
+        setActiveTask(prev => prev ? {
+          ...prev,
+          status: 'completed',
+          progress: {
+            ...prev.progress,
+            progressPercent: 100,
+            currentStep: data.message || 'Completed successfully'
+          },
+          result: { summary: data.summary || data.message }
+        } : null)
+        // Store as last completed task
+        setLastCompletedTask(prev => activeTask ? {
+          ...activeTask,
+          status: 'completed',
+          progress: { ...activeTask.progress, progressPercent: 100 },
+          result: { summary: data.summary || data.message }
+        } : prev)
+      } catch (err) {
+        console.error('Failed to parse task_complete:', err)
       }
     })
     
