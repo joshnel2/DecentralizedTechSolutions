@@ -281,6 +281,123 @@ router.get('/:id', authenticate, requirePermission('matters:view'), async (req, 
   }
 });
 
+// =====================================================
+// MATTER NOTES ENDPOINTS
+// =====================================================
+
+// Get all notes for a matter
+router.get('/:id/notes', authenticate, requirePermission('matters:view'), async (req, res) => {
+  try {
+    const access = await canAccessMatter(req.user.id, req.user.role, req.params.id, req.user.firmId);
+    if (!access.hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this matter' });
+    }
+
+    const result = await query(`
+      SELECT mn.id, mn.content, mn.note_type, mn.created_at, mn.created_by,
+             u.first_name || ' ' || u.last_name as created_by_name
+      FROM matter_notes mn
+      LEFT JOIN users u ON mn.created_by = u.id
+      WHERE mn.matter_id = $1 AND mn.firm_id = $2
+      ORDER BY mn.created_at DESC
+    `, [req.params.id, req.user.firmId]);
+
+    res.json({
+      notes: result.rows.map(n => ({
+        id: n.id,
+        content: n.content,
+        noteType: n.note_type,
+        createdAt: n.created_at,
+        createdBy: n.created_by,
+        createdByName: n.created_by_name || 'Unknown'
+      })),
+      count: result.rows.length
+    });
+  } catch (error) {
+    console.error('Get matter notes error:', error);
+    res.status(500).json({ error: 'Failed to get matter notes' });
+  }
+});
+
+// Add a note to a matter
+router.post('/:id/notes', authenticate, requirePermission('matters:view'), async (req, res) => {
+  try {
+    const access = await canAccessMatter(req.user.id, req.user.role, req.params.id, req.user.firmId);
+    if (!access.hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this matter' });
+    }
+
+    const { content, noteType = 'general' } = req.body;
+    
+    if (!content || content.trim() === '') {
+      return res.status(400).json({ error: 'Note content is required' });
+    }
+
+    const result = await query(`
+      INSERT INTO matter_notes (matter_id, firm_id, content, note_type, created_by, created_at)
+      VALUES ($1, $2, $3, $4, $5, NOW())
+      RETURNING id, content, note_type, created_at, created_by
+    `, [req.params.id, req.user.firmId, content.trim(), noteType, req.user.id]);
+
+    const note = result.rows[0];
+    
+    // Get creator name
+    const userResult = await query('SELECT first_name, last_name FROM users WHERE id = $1', [req.user.id]);
+    const userName = userResult.rows[0] 
+      ? `${userResult.rows[0].first_name || ''} ${userResult.rows[0].last_name || ''}`.trim()
+      : 'Unknown';
+
+    res.status(201).json({
+      success: true,
+      note: {
+        id: note.id,
+        content: note.content,
+        noteType: note.note_type,
+        createdAt: note.created_at,
+        createdBy: note.created_by,
+        createdByName: userName
+      }
+    });
+  } catch (error) {
+    console.error('Add matter note error:', error);
+    res.status(500).json({ error: 'Failed to add note' });
+  }
+});
+
+// Delete a note
+router.delete('/:id/notes/:noteId', authenticate, requirePermission('matters:edit'), async (req, res) => {
+  try {
+    const access = await canAccessMatter(req.user.id, req.user.role, req.params.id, req.user.firmId);
+    if (!access.hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this matter' });
+    }
+
+    // Only allow deletion of own notes (unless admin)
+    const noteCheck = await query(
+      'SELECT created_by FROM matter_notes WHERE id = $1 AND matter_id = $2 AND firm_id = $3',
+      [req.params.noteId, req.params.id, req.user.firmId]
+    );
+    
+    if (noteCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Note not found' });
+    }
+
+    const isOwner = noteCheck.rows[0].created_by === req.user.id;
+    const isAdmin = ['owner', 'admin'].includes(req.user.role);
+    
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'You can only delete your own notes' });
+    }
+
+    await query('DELETE FROM matter_notes WHERE id = $1', [req.params.noteId]);
+
+    res.json({ success: true, message: 'Note deleted' });
+  } catch (error) {
+    console.error('Delete matter note error:', error);
+    res.status(500).json({ error: 'Failed to delete note' });
+  }
+});
+
 // Create matter
 router.post('/', authenticate, requirePermission('matters:create'), async (req, res) => {
   try {

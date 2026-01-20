@@ -323,6 +323,22 @@ export const mattersApi = {
     return fetchWithAuth(`/matters/${matterId}/contacts/${contactId}`, { method: 'DELETE' });
   },
 
+  // Notes (from matter_notes table - these are different from the notes field on the matter itself)
+  async getNotes(matterId: string) {
+    return fetchWithAuth(`/matters/${matterId}/notes`);
+  },
+
+  async addNote(matterId: string, data: { content: string; noteType?: string }) {
+    return fetchWithAuth(`/matters/${matterId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteNote(matterId: string, noteId: string) {
+    return fetchWithAuth(`/matters/${matterId}/notes/${noteId}`, { method: 'DELETE' });
+  },
+
   // Permissions
   async getPermissions(matterId: string) {
     return fetchWithAuth(`/matters/${matterId}/permissions`);

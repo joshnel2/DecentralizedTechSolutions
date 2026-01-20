@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
@@ -12,7 +12,7 @@ import {
   ListTodo, Users, Circle, Upload, Download, X, 
   Trash2, Archive, XCircle, Eye, Play, Pause, StopCircle,
   MessageSquare, Settings, Share2, Globe, Lock, Shield,
-  Search, Filter, Edit3
+  Search, Filter, Edit3, User
 } from 'lucide-react'
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { parseAsLocalDate, localDateToISO } from '../utils/dateUtils'
@@ -1362,12 +1362,12 @@ Only analyze documents actually associated with this matter.`
         {/* Notes Tab */}
         {activeTab === 'notes' && (
           <NotesSection 
-            notes={matter.notes || ''}
-            onSave={async (notes: string) => {
+            matterId={id!}
+            legacyNotes={matter.notes || ''}
+            onSaveLegacyNotes={async (notes: string) => {
               await updateMatter(id!, { notes })
               await fetchMatters()
             }}
-            entityType="matter"
           />
         )}
 
@@ -3693,34 +3693,99 @@ function EditMatterForm({ matter, attorneys, typeOptions, onClose, onSave, onMan
   )
 }
 
-// Notes Section Component - allows editing and saving notes
+// Matter Notes Interface
+interface MatterNote {
+  id: string
+  content: string
+  noteType: string
+  createdAt: string
+  createdBy: string
+  createdByName: string
+}
+
+// Notes Section Component - fetches and displays notes from matter_notes table
 function NotesSection({ 
-  notes, 
-  onSave, 
-  entityType 
+  matterId,
+  legacyNotes,
+  onSaveLegacyNotes
 }: { 
-  notes: string
-  onSave: (notes: string) => Promise<void>
-  entityType: 'matter' | 'client'
+  matterId: string
+  legacyNotes: string
+  onSaveLegacyNotes: (notes: string) => Promise<void>
 }) {
-  const [isEditing, setIsEditing] = useState(false)
-  const [editedNotes, setEditedNotes] = useState(notes)
+  const [notes, setNotes] = useState<MatterNote[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isAdding, setIsAdding] = useState(false)
+  const [newNoteContent, setNewNoteContent] = useState('')
+  const [newNoteType, setNewNoteType] = useState('general')
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  
+  // Legacy notes editing (for backward compatibility)
+  const [isEditingLegacy, setIsEditingLegacy] = useState(false)
+  const [editedLegacyNotes, setEditedLegacyNotes] = useState(legacyNotes)
 
-  // Update local state when notes prop changes
-  useEffect(() => {
-    if (!isEditing) {
-      setEditedNotes(notes)
-    }
-  }, [notes, isEditing])
-
-  const handleSave = async () => {
-    setIsSaving(true)
-    setSaveSuccess(false)
+  // Fetch notes from matter_notes table
+  const fetchNotes = useCallback(async () => {
     try {
-      await onSave(editedNotes)
-      setIsEditing(false)
+      setIsLoading(true)
+      const response = await mattersApi.getNotes(matterId)
+      setNotes(response.notes || [])
+    } catch (error) {
+      console.error('Failed to fetch notes:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [matterId])
+
+  useEffect(() => {
+    fetchNotes()
+  }, [fetchNotes])
+
+  useEffect(() => {
+    setEditedLegacyNotes(legacyNotes)
+  }, [legacyNotes])
+
+  const handleAddNote = async () => {
+    if (!newNoteContent.trim()) return
+    
+    setIsSaving(true)
+    try {
+      await mattersApi.addNote(matterId, { 
+        content: newNoteContent.trim(), 
+        noteType: newNoteType 
+      })
+      setNewNoteContent('')
+      setNewNoteType('general')
+      setIsAdding(false)
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 3000)
+      await fetchNotes()
+    } catch (error) {
+      console.error('Failed to add note:', error)
+      alert('Failed to add note. Please try again.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleDeleteNote = async (noteId: string) => {
+    if (!confirm('Are you sure you want to delete this note?')) return
+    
+    try {
+      await mattersApi.deleteNote(matterId, noteId)
+      await fetchNotes()
+    } catch (error) {
+      console.error('Failed to delete note:', error)
+      alert('Failed to delete note. Please try again.')
+    }
+  }
+
+  const handleSaveLegacyNotes = async () => {
+    setIsSaving(true)
+    try {
+      await onSaveLegacyNotes(editedLegacyNotes)
+      setIsEditingLegacy(false)
       setSaveSuccess(true)
       setTimeout(() => setSaveSuccess(false), 3000)
     } catch (error) {
@@ -3731,9 +3796,15 @@ function NotesSection({
     }
   }
 
-  const handleCancel = () => {
-    setEditedNotes(notes)
-    setIsEditing(false)
+  const noteTypeColors: Record<string, string> = {
+    general: '#64748b',
+    case_note: '#3b82f6',
+    meeting_note: '#8b5cf6',
+    research: '#f59e0b',
+    status_update: '#22c55e',
+    client_communication: '#ec4899',
+    court_filing: '#ef4444',
+    discovery: '#14b8a6'
   }
 
   return (
@@ -3741,73 +3812,253 @@ function NotesSection({
       <div className={styles.tabHeader}>
         <h2>Notes</h2>
         <div className={styles.tabActions}>
-          {!isEditing ? (
-            <button 
-              className={styles.primaryBtn}
-              onClick={() => setIsEditing(true)}
-            >
-              <Edit2 size={18} />
-              Edit Notes
-            </button>
-          ) : (
-            <>
-              <button 
-                className={styles.cancelBtn}
-                onClick={handleCancel}
-                disabled={isSaving}
-              >
-                Cancel
-              </button>
-              <button 
-                className={styles.primaryBtn}
-                onClick={handleSave}
-                disabled={isSaving}
-              >
-                {isSaving ? 'Saving...' : 'Save Notes'}
-              </button>
-            </>
-          )}
+          <button 
+            className={styles.primaryBtn}
+            onClick={() => setIsAdding(true)}
+          >
+            <Plus size={18} />
+            Add Note
+          </button>
         </div>
       </div>
 
       {saveSuccess && (
         <div className={styles.successMessage}>
           <CheckCircle2 size={18} />
-          Notes saved successfully!
+          Note saved successfully!
         </div>
       )}
 
-      <div className={styles.notesCard}>
-        {isEditing ? (
-          <textarea
-            className={styles.notesTextarea}
-            value={editedNotes}
-            onChange={(e) => setEditedNotes(e.target.value)}
-            placeholder={`Add internal notes about this ${entityType}...`}
-            autoFocus
-          />
-        ) : (
-          <div className={styles.notesDisplay}>
-            {notes ? (
-              <p style={{ 
-                whiteSpace: 'pre-wrap', 
+      {/* Add Note Form */}
+      {isAdding && (
+        <div className={styles.addNoteForm} style={{
+          background: 'var(--apex-dark)',
+          borderRadius: '12px',
+          padding: '20px',
+          marginBottom: '20px',
+          border: '1px solid rgba(139, 92, 246, 0.3)'
+        }}>
+          <div style={{ marginBottom: '12px' }}>
+            <label style={{ display: 'block', marginBottom: '6px', color: 'var(--apex-white)', fontSize: '0.9rem' }}>Note Type</label>
+            <select 
+              value={newNoteType} 
+              onChange={(e) => setNewNoteType(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                background: 'var(--apex-charcoal)',
+                border: '1px solid rgba(255,255,255,0.1)',
                 color: 'var(--apex-white)',
-                lineHeight: '1.8',
-                margin: 0,
+                fontSize: '0.9rem'
+              }}
+            >
+              <option value="general">General Note</option>
+              <option value="case_note">Case Note</option>
+              <option value="meeting_note">Meeting Note</option>
+              <option value="research">Research</option>
+              <option value="status_update">Status Update</option>
+              <option value="client_communication">Client Communication</option>
+              <option value="court_filing">Court Filing</option>
+              <option value="discovery">Discovery</option>
+            </select>
+          </div>
+          <div style={{ marginBottom: '12px' }}>
+            <label style={{ display: 'block', marginBottom: '6px', color: 'var(--apex-white)', fontSize: '0.9rem' }}>Note Content</label>
+            <textarea
+              value={newNoteContent}
+              onChange={(e) => setNewNoteContent(e.target.value)}
+              placeholder="Enter your note here..."
+              rows={5}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '8px',
+                background: 'var(--apex-charcoal)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                color: 'var(--apex-white)',
+                fontSize: '0.9rem',
+                resize: 'vertical'
+              }}
+              autoFocus
+            />
+          </div>
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+            <button 
+              className={styles.cancelBtn}
+              onClick={() => { setIsAdding(false); setNewNoteContent(''); }}
+              disabled={isSaving}
+            >
+              Cancel
+            </button>
+            <button 
+              className={styles.primaryBtn}
+              onClick={handleAddNote}
+              disabled={isSaving || !newNoteContent.trim()}
+            >
+              {isSaving ? 'Saving...' : 'Add Note'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Notes List */}
+      {isLoading ? (
+        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--apex-text-muted)' }}>
+          Loading notes...
+        </div>
+      ) : notes.length > 0 ? (
+        <div className={styles.notesList} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {notes.map((note) => (
+            <div 
+              key={note.id} 
+              className={styles.noteCard}
+              style={{
+                background: 'var(--apex-dark)',
+                borderRadius: '12px',
+                padding: '16px 20px',
+                border: '1px solid rgba(255,255,255,0.08)'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    background: `${noteTypeColors[note.noteType] || noteTypeColors.general}20`,
+                    color: noteTypeColors[note.noteType] || noteTypeColors.general,
+                    textTransform: 'uppercase'
+                  }}>
+                    {note.noteType.replace(/_/g, ' ')}
+                  </span>
+                  <span style={{ color: 'var(--apex-text-muted)', fontSize: '0.85rem' }}>
+                    {new Date(note.createdAt).toLocaleString()}
+                  </span>
+                </div>
+                <button
+                  onClick={() => handleDeleteNote(note.id)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--apex-text-muted)',
+                    cursor: 'pointer',
+                    padding: '4px'
+                  }}
+                  title="Delete note"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+              <div style={{ 
+                color: 'var(--apex-white)', 
+                whiteSpace: 'pre-wrap',
+                lineHeight: '1.6',
                 fontSize: '0.95rem'
               }}>
-                {notes}
-              </p>
+                {note.content}
+              </div>
+              <div style={{ 
+                marginTop: '10px', 
+                color: 'var(--apex-text-muted)', 
+                fontSize: '0.8rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}>
+                <User size={14} />
+                {note.createdByName}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className={styles.emptyNotes} style={{
+          textAlign: 'center',
+          padding: '60px 20px',
+          background: 'var(--apex-dark)',
+          borderRadius: '12px',
+          border: '1px dashed rgba(255,255,255,0.1)'
+        }}>
+          <FileText size={48} style={{ color: 'var(--apex-text-muted)', marginBottom: '16px' }} />
+          <p style={{ color: 'var(--apex-white)', fontSize: '1.1rem', marginBottom: '8px' }}>No notes yet</p>
+          <span style={{ color: 'var(--apex-text-muted)', fontSize: '0.9rem' }}>
+            Click "Add Note" to create a note for this matter.
+            <br />Notes created by the AI agent will also appear here.
+          </span>
+        </div>
+      )}
+
+      {/* Legacy Notes Section (backward compatibility) */}
+      {legacyNotes && (
+        <div style={{ marginTop: '30px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h3 style={{ color: 'var(--apex-text-muted)', fontSize: '0.9rem', fontWeight: 500 }}>Legacy Matter Notes</h3>
+            {!isEditingLegacy ? (
+              <button 
+                onClick={() => setIsEditingLegacy(true)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--apex-purple)',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                <Edit2 size={14} /> Edit
+              </button>
             ) : (
-              <div className={styles.emptyNotes}>
-                <FileText size={48} />
-                <p>No notes yet</p>
-                <span>Click "Edit Notes" to add internal notes about this {entityType}.</span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  onClick={() => { setIsEditingLegacy(false); setEditedLegacyNotes(legacyNotes); }}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--apex-text-muted)', cursor: 'pointer', fontSize: '0.85rem' }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleSaveLegacyNotes}
+                  disabled={isSaving}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--apex-purple)', cursor: 'pointer', fontSize: '0.85rem' }}
+                >
+                  {isSaving ? 'Saving...' : 'Save'}
+                </button>
               </div>
             )}
           </div>
-        )}
-      </div>
+          {isEditingLegacy ? (
+            <textarea
+              value={editedLegacyNotes}
+              onChange={(e) => setEditedLegacyNotes(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '8px',
+                background: 'var(--apex-charcoal)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                color: 'var(--apex-white)',
+                fontSize: '0.9rem',
+                minHeight: '100px',
+                resize: 'vertical'
+              }}
+            />
+          ) : (
+            <p style={{ 
+              color: 'var(--apex-text-muted)', 
+              fontSize: '0.9rem',
+              whiteSpace: 'pre-wrap',
+              background: 'var(--apex-charcoal)',
+              padding: '12px',
+              borderRadius: '8px'
+            }}>
+              {legacyNotes}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
