@@ -338,13 +338,15 @@ const getDocumentDownloadUrl = getDocumentDownloadInfo;
 
 /**
  * Build folder path for document in Azure File Share
- * Maps Clio structure to our structure
- * CRITICAL: Preserves original filename with extension
+ * PRESERVES EXACT CLIO PATH STRUCTURE - No transformation!
+ * 
+ * Clio path: "Matters/Smith - Personal Injury/Pleadings/Complaint.docx"
+ * Azure path: "Matters/Smith - Personal Injury/Pleadings/Complaint.docx"
  * 
  * @param {object} doc - Document manifest record
  * @param {string} originalFilename - Original filename with extension from Clio
- * @param {string} matterId - Our local matter ID
- * @param {string} clientId - Our local client ID
+ * @param {string} matterId - Our local matter ID (unused - keeping for API compatibility)
+ * @param {string} clientId - Our local client ID (unused - keeping for API compatibility)
  * @param {string} clioPath - Original path from Clio
  * @returns {string} Full path in Azure including filename
  */
@@ -352,31 +354,14 @@ function buildAzurePath(doc, originalFilename, matterId, clientId, clioPath) {
   // Use original filename from Clio to preserve extension
   const filename = originalFilename || doc.name;
   
-  // If linked to matter, put in matter folder
-  if (matterId) {
-    // Preserve subfolder structure from Clio
-    let subfolder = '';
-    if (clioPath) {
-      const pathParts = clioPath.split('/');
-      // Remove the filename from the path to get just folders
-      if (pathParts.length > 1) {
-        subfolder = '/' + pathParts.slice(0, -1).join('/');
-      }
-    }
-    return `matters/matter-${matterId}${subfolder}/${filename}`;
-  }
-  
-  // If linked to client but not matter, put in client folder
-  if (clientId) {
-    return `clients/client-${clientId}/documents/${filename}`;
-  }
-  
-  // Otherwise, put in imported folder with Clio path structure
+  // PRESERVE EXACT CLIO PATH - No transformation!
+  // If we have the Clio path, use it directly
   if (clioPath) {
-    return `documents/Imported/Clio/${clioPath}`;
+    return clioPath;
   }
   
-  return `documents/Imported/Clio/${filename}`;
+  // Fallback: if no Clio path, put in root with just filename
+  return filename;
 }
 
 /**
