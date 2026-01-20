@@ -4823,187 +4823,140 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               }
               
               // ============================================
-              // 3. FETCH FOLDERS (optional - for path reconstruction)
+              // 3. DIRECT STREAMING: Clio → Azure (no local storage)
               // ============================================
-              addLog('📁 Fetching folder structure from Clio...');
-              let folders = [];
-              try {
-                // Add timeout for folder fetch (30 seconds max)
-                const folderPromise = clioGetPaginated(accessToken, '/folders.json', {
-                  fields: 'id,name,parent,matter',
-                  order: 'id(asc)'
-                }, (count) => {
-                  if (count % 200 === 0) {
-                    console.log(`[CLIO IMPORT] Fetched ${count} folders...`);
-                    addLog(`📁 Fetched ${count} folders...`);
-                  }
+              // Simple flow:
+              // 1. Fetch page of documents from Clio
+              // 2. For each doc: download → upload to Azure
+              // 3. Next page
+              // 4. Respects Clio's 50 req/min rate limit
+              // ============================================
+              
+              addLog('📤 Starting direct Clio → Azure streaming...');
+              console.log('[CLIO IMPORT] Direct streaming: Clio → Azure');
+              
+              const errorDetails = [];
+              let rateLimitRemaining = 50;
+              let rateLimitReset = null;
+              
+              // Rate limit helper - waits if we're close to limit
+              const checkRateLimit = async (response) => {
+                const remaining = response.headers.get('x-ratelimit-remaining');
+                const reset = response.headers.get('x-ratelimit-reset');
+                
+                if (remaining) rateLimitRemaining = parseInt(remaining);
+                if (reset) rateLimitReset = parseInt(reset) * 1000; // Convert to ms
+                
+                // If under 5 remaining, wait until reset
+                if (rateLimitRemaining < 5 && rateLimitReset) {
+                  const waitTime = Math.max(0, rateLimitReset - Date.now()) + 1000;
+                  console.log(`[RATE LIMIT] ${rateLimitRemaining} left, waiting ${Math.ceil(waitTime/1000)}s...`);
+                  addLog(`⏳ Rate limit pause: ${Math.ceil(waitTime/1000)}s...`);
+                  await new Promise(r => setTimeout(r, waitTime));
+                  rateLimitRemaining = 50;
+                }
+              };
+              
+              // Filter for user's matters if needed
+              const shouldInclude = (doc) => {
+                if (!filterByUser || importedClioMatterIds.size === 0) return true;
+                return doc.matter?.id && importedClioMatterIds.has(doc.matter.id);
+              };
+              
+              // Paginate through all documents
+              let pageUrl = `${CLIO_API_BASE}/documents.json?fields=id,name,filename,matter,content_type,latest_document_version{id,size,filename}&limit=200&order=id(asc)`;
+              let pageNum = 0;
+              
+              while (pageUrl) {
+                pageNum++;
+                
+                // Fetch page
+                const pageRes = await fetch(pageUrl, {
+                  headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
                 
-                const timeoutPromise = new Promise((_, reject) => 
-                  setTimeout(() => reject(new Error('Folder fetch timeout (30s)')), 30000)
-                );
-                
-                folders = await Promise.race([folderPromise, timeoutPromise]);
-                console.log(`[CLIO IMPORT] Folder structure fetched: ${folders.length} folders`);
-                addLog(`📁 Found ${folders.length} folders`);
-              } catch (folderErr) {
-                console.log(`[CLIO IMPORT] Could not fetch folders: ${folderErr.message}`);
-                addLog(`⚠️ Skipping folders: ${folderErr.message}`);
-                addLog(`ℹ️ Documents will be uploaded without folder structure`);
-              }
-              
-              // Build folder path lookup
-              const folderPathMap = new Map();
-              const folderById = new Map();
-              for (const f of folders) {
-                folderById.set(f.id, f);
-              }
-              
-              const buildFolderPath = (folderId, visited = new Set()) => {
-                if (!folderId || visited.has(folderId)) return '';
-                visited.add(folderId);
-                const folder = folderById.get(folderId);
-                if (!folder) return '';
-                const parentPath = folder.parent?.id ? buildFolderPath(folder.parent.id, visited) : '';
-                return parentPath ? `${parentPath}/${folder.name}` : folder.name;
-              };
-              
-              // Pre-build folder paths
-              for (const f of folders) {
-                folderPathMap.set(f.id, buildFolderPath(f.id));
-              }
-              
-              // ============================================
-              // 4. STREAMING DOCUMENT MIGRATION
-              // ============================================
-              // Fetch documents PAGE BY PAGE and upload to Azure immediately
-              // This uses constant memory regardless of total document count
-              // ============================================
-              addLog('📤 Starting streaming document migration (fetch → upload → repeat)...');
-              console.log('[CLIO IMPORT] Starting streaming document migration...');
-              
-              const PAGE_SIZE = 200; // Clio's max page size
-              let nextPageUrl = null;
-              let pageNum = 0;
-              let totalFetched = 0;
-              const errorDetails = [];
-              
-              // Build initial URL
-              const docFields = 'id,name,filename,parent,matter,created_at,updated_at,content_type,latest_document_version{id,size,filename,download_url}';
-              let currentUrl = `${CLIO_API_BASE}/documents.json?fields=${encodeURIComponent(docFields)}&limit=${PAGE_SIZE}&order=id(asc)`;
-              
-              // Helper to check if document should be included (for user filter)
-              const shouldIncludeDoc = (doc) => {
-                if (!filterByUser || importedClioMatterIds.size === 0) return true;
-                const docMatterId = doc.matter?.id;
-                return docMatterId && importedClioMatterIds.has(docMatterId);
-              };
-              
-              // Process documents page by page
-              while (currentUrl) {
-                pageNum++;
-                console.log(`[CLIO IMPORT] Fetching document page ${pageNum}...`);
-                
-                try {
-                  // Fetch one page of documents
-                  const response = await fetch(currentUrl, {
-                    headers: {
-                      'Authorization': `Bearer ${accessToken}`,
-                      'Content-Type': 'application/json'
-                    }
-                  });
-                  
-                  if (!response.ok) {
-                    throw new Error(`Clio API error: ${response.status}`);
-                  }
-                  
-                  const pageData = await response.json();
-                  const pageDocs = pageData.data || [];
-                  totalFetched += pageDocs.length;
-                  
-                  // Get next page URL
-                  nextPageUrl = pageData.meta?.paging?.next || null;
-                  
-                  addLog(`📄 Page ${pageNum}: ${pageDocs.length} docs (${totalFetched} total fetched)`);
-                  
-                  // Filter documents if user filter is active
-                  const docsToProcess = pageDocs.filter(shouldIncludeDoc);
-                  
-                  if (docsToProcess.length === 0) {
-                    console.log(`[CLIO IMPORT] Page ${pageNum}: No matching documents after filter`);
-                    currentUrl = nextPageUrl;
-                    continue;
-                  }
-                  
-                  // Process each document in this page - STREAM IMMEDIATELY TO AZURE
-                  for (const doc of docsToProcess) {
-                    try {
-                      // Build the path
-                      const folderPath = doc.parent?.id ? folderPathMap.get(doc.parent.id) || '' : '';
-                      const originalFilename = doc.latest_document_version?.filename || doc.filename || doc.name;
-                      const fullPath = folderPath ? `${folderPath}/${originalFilename}` : originalFilename;
-                      const matterIdForDoc = doc.matter?.id ? docMatterIdMap.get(doc.matter.id) : null;
-                      
-                      // Create manifest entry for this document
-                      const manifest = {
-                        clio_id: doc.id,
-                        name: originalFilename,
-                        clio_path: fullPath,
-                        clio_matter_id: doc.matter?.id || null,
-                        matter_id: matterIdForDoc,
-                        content_type: doc.content_type,
-                        size: doc.latest_document_version?.size || null
-                      };
-                      
-                      // Stream directly to Azure
-                      console.log(`[CLIO IMPORT] Streaming: ${originalFilename}`);
-                      const streamResult = await streamDocumentToAzure(accessToken, manifest, firmId, {
-                        matterIdMap: docMatterIdMap,
-                        customFirmFolder: customFirmFolder || null
-                      });
-                      
-                      if (streamResult.success) {
-                        documentsStreamedCount++;
-                        documentMetadataCount++;
-                      } else {
-                        documentsFailedCount++;
-                        errorDetails.push({ name: originalFilename, error: streamResult.error || 'Unknown error' });
-                      }
-                      
-                    } catch (docErr) {
-                      documentsFailedCount++;
-                      const docName = doc.latest_document_version?.filename || doc.name || 'Unknown';
-                      errorDetails.push({ name: docName, error: docErr.message });
-                      console.log(`[CLIO IMPORT] ERROR: ${docName} - ${docErr.message}`);
-                    }
-                  }
-                  
-                  // Progress update after each page
-                  updateProgress('documents', 'running', documentsStreamedCount);
-                  addLog(`📤 Progress: ${documentsStreamedCount} uploaded, ${documentsFailedCount} failed`);
-                  
-                  // Move to next page
-                  currentUrl = nextPageUrl;
-                  
-                } catch (pageErr) {
-                  console.error(`[CLIO IMPORT] Page ${pageNum} error: ${pageErr.message}`);
-                  addLog(`⚠️ Error on page ${pageNum}: ${pageErr.message}`);
-                  // Try to continue with next page if possible
-                  currentUrl = nextPageUrl;
+                if (!pageRes.ok) {
+                  addLog(`⚠️ Error fetching page ${pageNum}: ${pageRes.status}`);
+                  break;
                 }
+                
+                await checkRateLimit(pageRes);
+                
+                const pageData = await pageRes.json();
+                const docs = (pageData.data || []).filter(shouldInclude);
+                pageUrl = pageData.meta?.paging?.next || null;
+                
+                if (docs.length === 0) continue;
+                
+                addLog(`📄 Page ${pageNum}: Processing ${docs.length} documents...`);
+                
+                // Process each document: download from Clio → upload to Azure
+                for (const doc of docs) {
+                  const filename = doc.latest_document_version?.filename || doc.filename || doc.name || `doc_${doc.id}`;
+                  
+                  try {
+                    // 1. Get download URL from Clio
+                    const versionRes = await fetch(
+                      `${CLIO_API_BASE}/documents/${doc.id}.json?fields=latest_document_version{download_url,size,content_type}`,
+                      { headers: { 'Authorization': `Bearer ${accessToken}` } }
+                    );
+                    
+                    if (!versionRes.ok) throw new Error(`Failed to get download URL: ${versionRes.status}`);
+                    await checkRateLimit(versionRes);
+                    
+                    const versionData = await versionRes.json();
+                    const downloadUrl = versionData.data?.latest_document_version?.download_url;
+                    
+                    if (!downloadUrl) throw new Error('No download URL');
+                    
+                    // 2. Download file content from Clio
+                    const fileRes = await fetch(downloadUrl, {
+                      headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+                    
+                    if (!fileRes.ok) throw new Error(`Download failed: ${fileRes.status}`);
+                    
+                    const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
+                    
+                    if (fileBuffer.length === 0) throw new Error('Empty file');
+                    
+                    // 3. Upload directly to Azure
+                    const { getShareClient, ensureDirectory } = await import('../utils/azureStorage.js');
+                    const shareClient = await getShareClient();
+                    const firmFolder = customFirmFolder || `firm-${firmId}`;
+                    const azurePath = `${firmFolder}/${filename}`;
+                    
+                    // Ensure directory exists
+                    await ensureDirectory(firmFolder);
+                    
+                    // Upload
+                    const dirClient = shareClient.getDirectoryClient(firmFolder);
+                    const fileClient = dirClient.getFileClient(filename);
+                    await fileClient.create(fileBuffer.length);
+                    await fileClient.uploadRange(fileBuffer, 0, fileBuffer.length);
+                    
+                    documentsStreamedCount++;
+                    console.log(`[CLIO] ✓ ${filename} (${fileBuffer.length} bytes)`);
+                    
+                  } catch (err) {
+                    documentsFailedCount++;
+                    errorDetails.push({ name: filename, error: err.message });
+                    console.log(`[CLIO] ✗ ${filename}: ${err.message}`);
+                  }
+                }
+                
+                // Progress after each page
+                updateProgress('documents', 'running', documentsStreamedCount);
+                addLog(`📤 ${documentsStreamedCount} uploaded, ${documentsFailedCount} failed`);
               }
               
-              // Log error summary if there were failures
-              if (errorDetails.length > 0 && errorDetails.length <= 10) {
-                addLog(`⚠️ Failed documents:`);
-                errorDetails.forEach(e => addLog(`   - ${e.name}: ${e.error}`));
-              } else if (errorDetails.length > 10) {
-                addLog(`⚠️ First 5 errors:`);
-                errorDetails.slice(0, 5).forEach(e => addLog(`   - ${e.name}: ${e.error}`));
-                addLog(`   ... and ${errorDetails.length - 5} more`);
+              // Summary
+              if (errorDetails.length > 0) {
+                addLog(`⚠️ ${errorDetails.length} failed documents`);
+                errorDetails.slice(0, 5).forEach(e => console.log(`   ${e.name}: ${e.error}`));
               }
               
-              addLog(`✅ Streaming complete: ${documentsStreamedCount} uploaded, ${documentsFailedCount} failed`);
+              addLog(`✅ Complete: ${documentsStreamedCount} uploaded to Azure`);
               
               // Final status
               updateProgress('documents', 'completed', documentsStreamedCount);
