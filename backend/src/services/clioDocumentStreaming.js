@@ -548,71 +548,47 @@ export async function streamDocumentToAzure(accessToken, manifest, firmId, optio
 }
 
 /**
- * Simple semaphore for limiting concurrent operations
- */
-class Semaphore {
-  constructor(max) {
-    this.max = max;
-    this.current = 0;
-    this.queue = [];
-  }
-  
-  async acquire() {
-    if (this.current < this.max) {
-      this.current++;
-      return;
-    }
-    await new Promise(resolve => this.queue.push(resolve));
-    this.current++;
-  }
-  
-  release() {
-    this.current--;
-    if (this.queue.length > 0) {
-      const next = this.queue.shift();
-      next();
-    }
-  }
-}
-
-/**
- * Batch stream documents from Clio to Azure
+ * Stream documents from Clio to Azure ONE AT A TIME
  * 
- * RATE LIMITING STRATEGY:
- * - Clio allows ~50 API requests per minute (not concurrent!)
- * - Each document requires 2 API calls: metadata + download
- * - So we can safely do ~25 documents per minute
- * - We use concurrency of 5-10 with delays between batches
+ * CLIO RATE LIMIT: 50 API requests per minute
  * 
- * MEMORY STRATEGY:
- * - Max 10 concurrent downloads to limit memory usage
- * - Large files (>50MB) are processed one at a time
- * - Average 5MB file * 10 concurrent = 50MB RAM max
+ * Each document requires 2 API calls:
+ *   1. GET /documents/{id} → get download URL
+ *   2. GET download_url → download file content
+ * 
+ * So we can do MAX 25 documents per minute = 1 document every 2.4 seconds
+ * We use 2.5 second delay to be safe.
+ * 
+ * FLOW FOR EACH DOCUMENT:
+ *   1. Get download URL from Clio API
+ *   2. Download file content to memory
+ *   3. Upload to Azure (preserving exact Clio path)
+ *   4. Create database record with matter link
+ *   5. Wait 2.5 seconds (rate limit)
+ *   6. Next document
  * 
  * @param {string} accessToken - Clio OAuth access token
  * @param {string} firmId - Target firm ID
- * @param {object} options - Options including batchSize, onProgress callback
+ * @param {object} options - Options including onProgress callback
  * @returns {Promise<{success: number, failed: number, errors: array}>}
  */
 export async function batchStreamDocuments(accessToken, firmId, options = {}) {
   const { 
-    batchSize = 10,  // FIXED: Reduced from 50 to 10 for rate limit safety
     onProgress = () => {},
     limit = null,  // Optional limit for testing
     matterIdMap = new Map(),
     clientIdMap = new Map(),
     userIdMap = new Map(),
-    customFirmFolder = null,  // Allow override of the firm folder path
-    maxRetries = 3,  // Retry failed uploads
-    sortBySize = true,  // Process smaller files first for faster progress
-    delayBetweenBatches = 3000,  // 3 second delay between batches for rate limiting
-    maxConcurrent = 5,  // Max concurrent uploads (memory safety)
-    largeFileThreshold = 50 * 1024 * 1024  // 50MB - process large files one at a time
+    customFirmFolder = null,
+    maxRetries = 3,
+    // RATE LIMITING: 50 requests/min = 25 docs/min = 2.4 sec/doc
+    // We use 2.5 seconds to be safe
+    delayBetweenDocs = 2500
   } = options;
   
   const firmFolder = customFirmFolder || `firm-${firmId}`;
-  console.log(`[CLIO DOC] Starting batch document stream for firm ${firmId} -> ${firmFolder}`);
-  console.log(`[CLIO DOC] Rate-limited: batchSize=${batchSize}, maxConcurrent=${maxConcurrent}, delay=${delayBetweenBatches}ms`);
+  console.log(`[CLIO STREAM] Starting document stream for firm ${firmId} -> ${firmFolder}`);
+  console.log(`[CLIO STREAM] Rate limit: 1 document every ${delayBetweenDocs}ms (${Math.round(60000/delayBetweenDocs)} docs/min)`);
   
   // Check Azure configuration
   const azureConfigured = await isAzureConfigured();
@@ -624,7 +600,7 @@ export async function batchStreamDocuments(accessToken, firmId, options = {}) {
   let queryStr = `
     SELECT * FROM clio_document_manifest 
     WHERE firm_id = $1 AND match_status = 'pending'
-    ORDER BY clio_id
+    ORDER BY size ASC NULLS FIRST, clio_id
   `;
   const queryParams = [firmId];
   
@@ -636,12 +612,24 @@ export async function batchStreamDocuments(accessToken, firmId, options = {}) {
   const manifestResult = await query(queryStr, queryParams);
   const documents = manifestResult.rows;
   
-  console.log(`[CLIO DOC] Found ${documents.length} pending documents to stream`);
-  onProgress({ total: documents.length, processed: 0, success: 0, failed: 0, status: 'starting' });
+  console.log(`[CLIO STREAM] Found ${documents.length} pending documents to stream`);
   
   if (documents.length === 0) {
     return { success: 0, failed: 0, errors: [], message: 'No pending documents to import' };
   }
+  
+  // Calculate estimated time
+  const estimatedMinutes = Math.ceil((documents.length * delayBetweenDocs) / 60000);
+  console.log(`[CLIO STREAM] Estimated time: ${estimatedMinutes} minutes`);
+  
+  onProgress({ 
+    total: documents.length, 
+    processed: 0, 
+    success: 0, 
+    failed: 0, 
+    status: 'starting',
+    estimatedMinutes 
+  });
   
   const results = {
     success: 0,
@@ -651,28 +639,6 @@ export async function batchStreamDocuments(accessToken, firmId, options = {}) {
     bytesTransferred: 0
   };
   
-  // Separate large files from small files
-  const smallDocs = [];
-  const largeDocs = [];
-  for (const doc of documents) {
-    if ((doc.size || 0) > largeFileThreshold) {
-      largeDocs.push(doc);
-    } else {
-      smallDocs.push(doc);
-    }
-  }
-  
-  console.log(`[CLIO DOC] ${smallDocs.length} small files (<50MB), ${largeDocs.length} large files (>50MB)`);
-  
-  // Sort small docs by size (smallest first for faster progress feedback)
-  if (sortBySize) {
-    smallDocs.sort((a, b) => (a.size || 0) - (b.size || 0));
-    console.log(`[CLIO DOC] Sorted small documents by size (smallest first)`);
-  }
-  
-  // Create semaphore for concurrent upload limiting
-  const semaphore = new Semaphore(maxConcurrent);
-  
   // Helper to check if error is retryable
   const isRetryableError = (error) => {
     if (!error) return false;
@@ -680,158 +646,105 @@ export async function batchStreamDocuments(accessToken, firmId, options = {}) {
     return retryable.some(r => error.toLowerCase().includes(r.toLowerCase()));
   };
   
-  // Helper function to stream with retry and rate limiting
-  const streamWithRetry = async (doc, retriesLeft) => {
-    await semaphore.acquire();
-    try {
-      const result = await streamDocumentToAzure(accessToken, doc, firmId, {
-        matterIdMap,
-        clientIdMap,
-        userIdMap,
-        customFirmFolder
-      });
-      
-      if (result.success) {
-        return { success: true, size: result.size || 0 };
-      } else if (retriesLeft > 0 && isRetryableError(result.error)) {
-        results.retried++;
-        // Exponential backoff: 2s, 4s, 8s
-        const backoffMs = Math.pow(2, maxRetries - retriesLeft + 1) * 1000;
-        console.log(`[CLIO DOC] Retrying ${doc.name} in ${backoffMs}ms (${retriesLeft} retries left)`);
-        await delay(backoffMs);
-        semaphore.release();
-        return streamWithRetry(doc, retriesLeft - 1);
-      } else {
-        return { success: false, error: result.error };
-      }
-    } catch (err) {
-      if (retriesLeft > 0 && isRetryableError(err.message)) {
-        results.retried++;
-        const backoffMs = Math.pow(2, maxRetries - retriesLeft + 1) * 1000;
-        console.log(`[CLIO DOC] Retrying ${doc.name} after error in ${backoffMs}ms`);
-        await delay(backoffMs);
-        semaphore.release();
-        return streamWithRetry(doc, retriesLeft - 1);
-      }
-      return { success: false, error: err.message };
-    } finally {
-      semaphore.release();
-    }
-  };
-  
-  // Process small documents in batches with concurrency control
   const startTime = Date.now();
-  let totalProcessed = 0;
   
-  console.log(`[CLIO DOC] Processing ${smallDocs.length} small documents in batches of ${batchSize}...`);
-  
-  for (let i = 0; i < smallDocs.length; i += batchSize) {
-    const batch = smallDocs.slice(i, i + batchSize);
-    const batchStartTime = Date.now();
+  // Process ONE DOCUMENT AT A TIME
+  for (let i = 0; i < documents.length; i++) {
+    const doc = documents[i];
+    const docStartTime = Date.now();
     
-    // Process batch with controlled concurrency (semaphore limits actual concurrent uploads)
-    const batchResults = await Promise.all(
-      batch.map(doc => streamWithRetry(doc, maxRetries))
-    );
+    console.log(`[CLIO STREAM] [${i + 1}/${documents.length}] Processing: ${doc.name}`);
     
-    // Count results
-    for (let j = 0; j < batchResults.length; j++) {
-      if (batchResults[j].success) {
-        results.success++;
-        results.bytesTransferred += batchResults[j].size || 0;
-      } else {
-        results.failed++;
-        results.errors.push({ 
-          id: batch[j].clio_id, 
-          name: batch[j].name, 
-          error: batchResults[j].error 
+    // Retry loop for this document
+    let retriesLeft = maxRetries;
+    let success = false;
+    let lastError = null;
+    
+    while (retriesLeft >= 0 && !success) {
+      try {
+        // ====================================================
+        // THIS IS THE CORE: Download from Clio → Upload to Azure
+        // ====================================================
+        const result = await streamDocumentToAzure(accessToken, doc, firmId, {
+          matterIdMap,
+          clientIdMap,
+          userIdMap,
+          customFirmFolder
         });
+        
+        if (result.success) {
+          success = true;
+          results.success++;
+          results.bytesTransferred += result.size || 0;
+          console.log(`[CLIO STREAM] [${i + 1}/${documents.length}] ✓ Uploaded: ${doc.name} (${result.size} bytes) -> ${result.path}`);
+        } else {
+          lastError = result.error;
+          if (retriesLeft > 0 && isRetryableError(result.error)) {
+            results.retried++;
+            const backoffMs = Math.pow(2, maxRetries - retriesLeft + 1) * 1000;
+            console.log(`[CLIO STREAM] [${i + 1}/${documents.length}] Retry in ${backoffMs}ms: ${result.error}`);
+            await delay(backoffMs);
+            retriesLeft--;
+          } else {
+            break;
+          }
+        }
+      } catch (err) {
+        lastError = err.message;
+        if (retriesLeft > 0 && isRetryableError(err.message)) {
+          results.retried++;
+          const backoffMs = Math.pow(2, maxRetries - retriesLeft + 1) * 1000;
+          console.log(`[CLIO STREAM] [${i + 1}/${documents.length}] Retry in ${backoffMs}ms: ${err.message}`);
+          await delay(backoffMs);
+          retriesLeft--;
+        } else {
+          break;
+        }
       }
     }
     
-    totalProcessed += batch.length;
+    if (!success) {
+      results.failed++;
+      results.errors.push({ 
+        clio_id: doc.clio_id, 
+        name: doc.name, 
+        error: lastError 
+      });
+      console.log(`[CLIO STREAM] [${i + 1}/${documents.length}] ✗ Failed: ${doc.name} - ${lastError}`);
+    }
     
-    // Progress update with ETA
+    // Progress update
     const elapsed = Date.now() - startTime;
-    const rate = totalProcessed / (elapsed / 1000); // docs per second
-    const remaining = documents.length - totalProcessed;
+    const processed = i + 1;
+    const rate = processed / (elapsed / 1000);
+    const remaining = documents.length - processed;
     const etaSeconds = rate > 0 ? remaining / rate : 0;
-    const batchTime = Date.now() - batchStartTime;
+    const docTime = Date.now() - docStartTime;
     
     onProgress({
       total: documents.length,
-      processed: totalProcessed,
+      processed,
       success: results.success,
       failed: results.failed,
       retried: results.retried,
       bytesTransferred: results.bytesTransferred,
       status: 'processing',
-      currentBatch: Math.floor(i / batchSize) + 1,
-      totalBatches: Math.ceil(smallDocs.length / batchSize) + largeDocs.length,
-      docsPerSecond: rate.toFixed(2),
+      currentDoc: doc.name,
+      docsPerMinute: (rate * 60).toFixed(1),
       etaMinutes: Math.ceil(etaSeconds / 60),
-      batchTimeMs: batchTime,
-      phase: 'small_files'
+      docTimeMs: docTime,
+      elapsedMinutes: Math.round(elapsed / 60000)
     });
     
-    // Rate limiting delay between batches
-    // This prevents hitting Clio's 50 requests/minute limit
-    if (i + batchSize < smallDocs.length) {
-      console.log(`[CLIO DOC] Batch ${Math.floor(i / batchSize) + 1} complete (${batchTime}ms). Waiting ${delayBetweenBatches}ms for rate limiting...`);
-      await delay(delayBetweenBatches);
-    }
-  }
-  
-  // Process large documents one at a time (memory safety)
-  if (largeDocs.length > 0) {
-    console.log(`[CLIO DOC] Processing ${largeDocs.length} large documents (>50MB) one at a time...`);
-    
-    for (let i = 0; i < largeDocs.length; i++) {
-      const doc = largeDocs[i];
-      const sizeMB = ((doc.size || 0) / 1024 / 1024).toFixed(1);
-      console.log(`[CLIO DOC] Large file ${i + 1}/${largeDocs.length}: ${doc.name} (${sizeMB}MB)`);
-      
-      const result = await streamWithRetry(doc, maxRetries);
-      
-      if (result.success) {
-        results.success++;
-        results.bytesTransferred += result.size || 0;
-      } else {
-        results.failed++;
-        results.errors.push({ 
-          id: doc.clio_id, 
-          name: doc.name, 
-          error: result.error,
-          large: true
-        });
-      }
-      
-      totalProcessed++;
-      
-      // Progress update
-      const elapsed = Date.now() - startTime;
-      const rate = totalProcessed / (elapsed / 1000);
-      const remaining = documents.length - totalProcessed;
-      const etaSeconds = rate > 0 ? remaining / rate : 0;
-      
-      onProgress({
-        total: documents.length,
-        processed: totalProcessed,
-        success: results.success,
-        failed: results.failed,
-        retried: results.retried,
-        bytesTransferred: results.bytesTransferred,
-        status: 'processing',
-        currentLargeFile: i + 1,
-        totalLargeFiles: largeDocs.length,
-        docsPerSecond: rate.toFixed(2),
-        etaMinutes: Math.ceil(etaSeconds / 60),
-        phase: 'large_files'
-      });
-      
-      // Delay between large files for rate limiting
-      if (i < largeDocs.length - 1) {
-        await delay(delayBetweenBatches);
+    // ====================================================
+    // RATE LIMITING: Wait before next document
+    // ====================================================
+    if (i < documents.length - 1) {
+      // Calculate how long to wait (account for processing time)
+      const waitTime = Math.max(0, delayBetweenDocs - docTime);
+      if (waitTime > 0) {
+        console.log(`[CLIO STREAM] Waiting ${waitTime}ms before next document (rate limit)...`);
+        await delay(waitTime);
       }
     }
   }
@@ -839,11 +752,14 @@ export async function batchStreamDocuments(accessToken, firmId, options = {}) {
   const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
   const totalMB = (results.bytesTransferred / 1024 / 1024).toFixed(1);
   
-  console.log(`[CLIO DOC] Migration complete in ${totalTime}s: ${results.success} success, ${results.failed} failed, ${totalMB}MB transferred`);
+  console.log(`[CLIO STREAM] ====================================================`);
+  console.log(`[CLIO STREAM] COMPLETE: ${results.success} success, ${results.failed} failed`);
+  console.log(`[CLIO STREAM] Time: ${totalTime}s, Data: ${totalMB}MB`);
+  console.log(`[CLIO STREAM] ====================================================`);
   
   onProgress({
     total: documents.length,
-    processed: totalProcessed,
+    processed: documents.length,
     success: results.success,
     failed: results.failed,
     retried: results.retried,
