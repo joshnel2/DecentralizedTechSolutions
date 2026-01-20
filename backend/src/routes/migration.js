@@ -6185,9 +6185,9 @@ router.post('/documents/import', requireSecureAdmin, async (req, res) => {
         let targetPath;
         
         if (matterId) {
-          // Matched to matter - put in matter folder
+          // Matched to matter - put in matter folder (matches Apex structure: firm-X/matter-Y/)
           const subPath = folderInfo.subfolderPath || '';
-          targetPath = `matters/matter-${matterId}${subPath}/${doc.fileName || doc.path.split('/').pop()}`;
+          targetPath = `matter-${matterId}${subPath}/${doc.fileName || doc.path.split('/').pop()}`;
         } else if (unmatchedAction === 'general') {
           // Put in General Documents folder
           targetPath = `documents/Imported/${doc.path.split('/').pop()}`;

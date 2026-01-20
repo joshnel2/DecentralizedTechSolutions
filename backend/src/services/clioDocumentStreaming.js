@@ -338,8 +338,12 @@ const getDocumentDownloadUrl = getDocumentDownloadInfo;
 
 /**
  * Build folder path for document in Azure File Share
- * Maps Clio structure to our structure
- * CRITICAL: Preserves original filename with extension
+ * Maps Clio structure to Apex structure
+ * 
+ * APEX FOLDER STRUCTURE:
+ * - firm-{firmId}/matter-{matterId}/[subfolders]/filename  (matter documents)
+ * - firm-{firmId}/clients/client-{clientId}/filename       (client documents)
+ * - firm-{firmId}/documents/Imported/Clio/[path]/filename  (unlinked documents)
  * 
  * @param {object} doc - Document manifest record
  * @param {string} originalFilename - Original filename with extension from Clio
@@ -352,18 +356,29 @@ function buildAzurePath(doc, originalFilename, matterId, clientId, clioPath) {
   // Use original filename from Clio to preserve extension
   const filename = originalFilename || doc.name;
   
-  // If linked to matter, put in matter folder
+  // If linked to matter, put in matter folder (matches Apex structure: firm-X/matter-Y/)
   if (matterId) {
-    // Preserve subfolder structure from Clio
+    // Preserve subfolder structure from Clio (like Pleadings/, Discovery/, etc.)
     let subfolder = '';
     if (clioPath) {
       const pathParts = clioPath.split('/');
       // Remove the filename from the path to get just folders
+      // Also remove common Clio root folders like "Matters", "[ClientName] - [MatterName]"
       if (pathParts.length > 1) {
-        subfolder = '/' + pathParts.slice(0, -1).join('/');
+        // Skip the first folder if it looks like a Clio matter folder pattern
+        let startIdx = 0;
+        const firstFolder = pathParts[0].toLowerCase();
+        if (firstFolder === 'matters' || firstFolder.includes(' - ')) {
+          startIdx = 1;
+        }
+        const subfolderParts = pathParts.slice(startIdx, -1); // Exclude filename
+        if (subfolderParts.length > 0) {
+          subfolder = '/' + subfolderParts.join('/');
+        }
       }
     }
-    return `matters/matter-${matterId}${subfolder}/${filename}`;
+    // FIXED: Use matter-{id} directly under firm folder (not matters/matter-{id})
+    return `matter-${matterId}${subfolder}/${filename}`;
   }
   
   // If linked to client but not matter, put in client folder
@@ -371,7 +386,7 @@ function buildAzurePath(doc, originalFilename, matterId, clientId, clioPath) {
     return `clients/client-${clientId}/documents/${filename}`;
   }
   
-  // Otherwise, put in imported folder with Clio path structure
+  // Otherwise, put in imported folder with Clio path structure preserved
   if (clioPath) {
     return `documents/Imported/Clio/${clioPath}`;
   }

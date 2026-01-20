@@ -4,9 +4,197 @@ import { authenticate } from '../middleware/auth.js';
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
-import { listFiles, downloadFile, isAzureConfigured, getShareClient } from '../utils/azureStorage.js';
+import { listFiles, downloadFile, isAzureConfigured, getShareClient, ensureDirectory, getAzureConfig } from '../utils/azureStorage.js';
 
 const router = Router();
+
+// ============================================
+// TEST AZURE CONNECTION - Verify uploads work
+// ============================================
+router.get('/test-azure', authenticate, async (req, res) => {
+  try {
+    const firmId = req.user.firmId;
+    const results = {
+      configured: false,
+      canConnect: false,
+      canCreateFolder: false,
+      canUploadFile: false,
+      canListFiles: false,
+      canDeleteFile: false,
+      config: null,
+      errors: []
+    };
+    
+    // Step 1: Check if Azure is configured
+    const azureEnabled = await isAzureConfigured();
+    results.configured = azureEnabled;
+    
+    if (!azureEnabled) {
+      return res.json({
+        success: false,
+        message: 'Azure Storage not configured. Configure it in Admin Portal (/rx760819).',
+        results
+      });
+    }
+    
+    // Get config info (without exposing key)
+    const config = await getAzureConfig();
+    results.config = {
+      accountName: config.accountName,
+      shareName: config.shareName,
+      hasKey: !!config.accountKey
+    };
+    
+    // Step 2: Try to connect and get share client
+    try {
+      const shareClient = await getShareClient();
+      results.canConnect = true;
+      
+      // Step 3: Try to create firm folder
+      const testFolder = `firm-${firmId}`;
+      try {
+        await ensureDirectory(testFolder);
+        results.canCreateFolder = true;
+      } catch (err) {
+        results.errors.push(`Create folder failed: ${err.message}`);
+      }
+      
+      // Step 4: Try to upload a test file
+      const testFileName = `_test_${Date.now()}.txt`;
+      const testFilePath = `${testFolder}/${testFileName}`;
+      const testContent = `Apex Drive test file\nCreated: ${new Date().toISOString()}\nFirm: ${firmId}`;
+      
+      try {
+        const dirClient = shareClient.getDirectoryClient(testFolder);
+        const fileClient = dirClient.getFileClient(testFileName);
+        const contentBuffer = Buffer.from(testContent, 'utf-8');
+        
+        await fileClient.create(contentBuffer.length);
+        await fileClient.uploadRange(contentBuffer, 0, contentBuffer.length);
+        results.canUploadFile = true;
+        results.testFilePath = testFilePath;
+        results.testFileSize = contentBuffer.length;
+        
+        // Step 5: Try to list files
+        try {
+          const files = [];
+          for await (const item of dirClient.listFilesAndDirectories()) {
+            files.push(item.name);
+          }
+          results.canListFiles = true;
+          results.filesInFolder = files.length;
+        } catch (err) {
+          results.errors.push(`List files failed: ${err.message}`);
+        }
+        
+        // Step 6: Clean up - delete test file
+        try {
+          await fileClient.delete();
+          results.canDeleteFile = true;
+        } catch (err) {
+          results.errors.push(`Delete test file failed: ${err.message}`);
+        }
+        
+      } catch (err) {
+        results.errors.push(`Upload file failed: ${err.message}`);
+      }
+      
+    } catch (err) {
+      results.errors.push(`Connect failed: ${err.message}`);
+    }
+    
+    const allPassed = results.configured && results.canConnect && 
+                      results.canCreateFolder && results.canUploadFile && 
+                      results.canListFiles;
+    
+    res.json({
+      success: allPassed,
+      message: allPassed 
+        ? 'Azure Storage is working correctly! Files can be uploaded.' 
+        : 'Azure Storage has issues. Check errors.',
+      results
+    });
+    
+  } catch (error) {
+    console.error('Test Azure error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Test failed: ' + error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// ============================================
+// LIST AZURE FILES - See what's actually in Azure
+// ============================================
+router.get('/list-azure', authenticate, async (req, res) => {
+  try {
+    const firmId = req.user.firmId;
+    const { folder = '' } = req.query;
+    
+    const azureEnabled = await isAzureConfigured();
+    if (!azureEnabled) {
+      return res.status(400).json({ 
+        error: 'Azure Storage not configured' 
+      });
+    }
+    
+    const shareClient = await getShareClient();
+    const firmFolder = `firm-${firmId}`;
+    const targetPath = folder ? `${firmFolder}/${folder}` : firmFolder;
+    
+    const files = [];
+    const folders = [];
+    
+    try {
+      const dirClient = shareClient.getDirectoryClient(targetPath);
+      
+      for await (const item of dirClient.listFilesAndDirectories()) {
+        if (item.kind === 'directory') {
+          folders.push({
+            name: item.name,
+            path: `${targetPath}/${item.name}`,
+            type: 'folder'
+          });
+        } else {
+          files.push({
+            name: item.name,
+            path: `${targetPath}/${item.name}`,
+            size: item.properties?.contentLength || 0,
+            lastModified: item.properties?.lastModified,
+            type: 'file'
+          });
+        }
+      }
+      
+      res.json({
+        success: true,
+        path: targetPath,
+        folders,
+        files,
+        totalFolders: folders.length,
+        totalFiles: files.length
+      });
+      
+    } catch (err) {
+      if (err.statusCode === 404) {
+        return res.json({
+          success: true,
+          path: targetPath,
+          folders: [],
+          files: [],
+          message: 'Folder does not exist yet. It will be created when files are uploaded.'
+        });
+      }
+      throw err;
+    }
+    
+  } catch (error) {
+    console.error('List Azure error:', error);
+    res.status(500).json({ error: 'Failed to list files: ' + error.message });
+  }
+});
 
 // ============================================
 // DRIVE SYNC - Auto-sync documents from drives
