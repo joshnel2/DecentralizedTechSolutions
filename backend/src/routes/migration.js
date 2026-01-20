@@ -4154,10 +4154,13 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         // ============================================
         // STEP 7: IMPORT NOTES (direct to DB)
         // ============================================
-        // Clio notes are attached to matters or contacts - we save them to custom_fields or notes field
-        console.log('[CLIO IMPORT] Step 7/10: Importing notes...');
+        // Only import notes if matters or contacts are included
         let notesCount = 0;
-        try {
+        if (!includeMatters && !includeContacts) {
+          console.log('[CLIO IMPORT] Step 7/10: SKIPPING notes (no matters or contacts selected)');
+        } else {
+          console.log('[CLIO IMPORT] Step 7/10: Importing notes...');
+          try {
           // Fetch notes from Clio - notes are attached to matters or contacts
           const notes = await clioGetPaginated(accessToken, '/notes.json', {
             fields: 'id,subject,detail,date,matter{id},contact{id},created_at'
@@ -4235,18 +4238,24 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           }
           
           console.log(`[CLIO IMPORT] Notes processed: ${notesCount} (matters: ${matterNotes.size}, contacts: ${contactNotes.size})`);
-        } catch (err) {
-          console.log(`[CLIO IMPORT] Notes error (non-fatal): ${err.message}`);
-          // Notes are optional - don't fail the import
-        }
+          } catch (err) {
+            console.log(`[CLIO IMPORT] Notes error (non-fatal): ${err.message}`);
+            // Notes are optional - don't fail the import
+          }
+        } // end if (includeMatters || includeContacts)
         
         // ============================================
         // STEP 7B: IMPORT TASKS (to dedicated tasks table if exists)
         // ============================================
-        console.log('[CLIO IMPORT] Step 7B: Importing tasks...');
-        updateProgress('tasks', 'running', 0);
+        // Only import tasks if matters are included (tasks are linked to matters)
         let tasksCount = 0;
-        try {
+        if (!includeMatters) {
+          console.log('[CLIO IMPORT] Step 7B: SKIPPING tasks (no matters selected)');
+          updateProgress('tasks', 'skipped', 0);
+        } else {
+          console.log('[CLIO IMPORT] Step 7B: Importing tasks...');
+          updateProgress('tasks', 'running', 0);
+          try {
           // First check if tasks table exists
           const tasksTableCheck = await query(`
             SELECT EXISTS (
@@ -4368,19 +4377,25 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             console.log(`[CLIO IMPORT] Tasks imported: ${tasksCount}`);
             addLog(`✅ Imported ${tasksCount} tasks`);
           }
-        } catch (err) {
-          console.log(`[CLIO IMPORT] Tasks error (non-fatal): ${err.message}`);
-          updateProgress('tasks', 'error', tasksCount, err.message);
-          addLog(`⚠️ Tasks import error: ${err.message}`);
-        }
+          } catch (err) {
+            console.log(`[CLIO IMPORT] Tasks error (non-fatal): ${err.message}`);
+            updateProgress('tasks', 'error', tasksCount, err.message);
+            addLog(`⚠️ Tasks import error: ${err.message}`);
+          }
+        } // end if (includeMatters) for tasks
         
         // ============================================
         // STEP 7C: IMPORT ACTIVITY CODES (UTBMS/LEDES)
         // ============================================
-        console.log('[CLIO IMPORT] Step 7C: Importing activity codes...');
-        updateProgress('activityCodes', 'running', 0);
+        // Only import activity codes if activities are included
         let activityCodesCount = 0;
-        try {
+        if (!includeActivities) {
+          console.log('[CLIO IMPORT] Step 7C: SKIPPING activity codes (activities not selected)');
+          updateProgress('activityCodes', 'skipped', 0);
+        } else {
+          console.log('[CLIO IMPORT] Step 7C: Importing activity codes...');
+          updateProgress('activityCodes', 'running', 0);
+          try {
           // First check if activity_codes table exists
           const activityCodesTableCheck = await query(`
             SELECT EXISTS (
@@ -4436,18 +4451,23 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             console.log(`[CLIO IMPORT] Activity codes imported: ${activityCodesCount}`);
             addLog(`✅ Imported ${activityCodesCount} activity codes`);
           }
-        } catch (err) {
-          console.log(`[CLIO IMPORT] Activity codes error (non-fatal): ${err.message}`);
-          updateProgress('activityCodes', 'error', activityCodesCount, err.message);
-          addLog(`⚠️ Activity codes import error: ${err.message}`);
-        }
+          } catch (err) {
+            console.log(`[CLIO IMPORT] Activity codes error (non-fatal): ${err.message}`);
+            updateProgress('activityCodes', 'error', activityCodesCount, err.message);
+            addLog(`⚠️ Activity codes import error: ${err.message}`);
+          }
+        } // end if (includeActivities) for activity codes
         
         // ============================================
         // STEP 8: IMPORT PAYMENTS (direct to DB)
         // ============================================
-        console.log('[CLIO IMPORT] Step 8/10: Importing payments...');
+        // Only import payments if bills are included
         let paymentsCount = 0;
-        try {
+        if (!includeBills) {
+          console.log('[CLIO IMPORT] Step 8/10: SKIPPING payments (bills not selected)');
+        } else {
+          console.log('[CLIO IMPORT] Step 8/10: Importing payments...');
+          try {
           // Fetch payments from Clio - these are actual payment records
           // Note: Clio payments API has limited fields - using only valid ones
           const payments = await clioGetPaginated(accessToken, '/payments.json', {
@@ -4525,19 +4545,24 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           );
           console.log(`[CLIO IMPORT] Payments saved: ${paymentsCount}, total amount: $${parseFloat(paymentSummary.rows[0]?.total || 0).toFixed(2)}`);
           
-        } catch (err) {
-          console.log(`[CLIO IMPORT] Payments error (non-fatal): ${err.message}`);
-        }
+          } catch (err) {
+            console.log(`[CLIO IMPORT] Payments error (non-fatal): ${err.message}`);
+          }
+        } // end if (includeBills) for payments
         
         // ============================================
         // STEP 9: IMPORT TRUST ACCOUNTS (direct to DB)
         // ============================================
-        console.log('[CLIO IMPORT] Step 9/10: Importing trust accounts...');
+        // Only import trust accounts if bills are included (trust accounting is part of billing)
         let trustAccountsCount = 0;
         let trustTransactionsCount = 0;
         const trustAccountMap = new Map(); // clio ID -> apex ID
         
-        try {
+        if (!includeBills) {
+          console.log('[CLIO IMPORT] Step 9/10: SKIPPING trust accounts (bills not selected)');
+        } else {
+          console.log('[CLIO IMPORT] Step 9/10: Importing trust accounts...');
+          try {
           // Fetch bank accounts from Clio (includes trust/IOLTA accounts)
           const bankAccounts = await clioGetPaginated(accessToken, '/bank_accounts.json', {
             fields: 'id,name,account_type,currency,balance,holder,domicile,bank_transactions_enabled,created_at'
@@ -4630,17 +4655,22 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             }
           }
           
-        } catch (err) {
-          console.log(`[CLIO IMPORT] Trust accounts error (non-fatal): ${err.message}`);
-        }
+          } catch (err) {
+            console.log(`[CLIO IMPORT] Trust accounts error (non-fatal): ${err.message}`);
+          }
+        } // end if (includeBills) for trust accounts
         
         // ============================================
         // STEP 10: ENHANCE INVOICES WITH LINE ITEMS
         // ============================================
-        console.log('[CLIO IMPORT] Step 10/10: Fetching invoice line items...');
+        // Only import line items if bills are included
         let lineItemsCount = 0;
         
-        try {
+        if (!includeBills) {
+          console.log('[CLIO IMPORT] Step 10/10: SKIPPING line items (bills not selected)');
+        } else {
+          console.log('[CLIO IMPORT] Step 10/10: Fetching invoice line items...');
+          try {
           // Fetch line items from Clio - these show what's on each bill
           const lineItems = await clioGetPaginated(accessToken, '/line_items.json', {
             fields: 'id,type,description,quantity,rate,total,date,bill{id,number},matter{id},activity{id,type},created_at'
@@ -4687,11 +4717,12 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             }
           }
           
-          console.log(`[CLIO IMPORT] Line items added to invoices: ${lineItemsCount}`);
-          
-        } catch (err) {
-          console.log(`[CLIO IMPORT] Line items error (non-fatal): ${err.message}`);
-        }
+            console.log(`[CLIO IMPORT] Line items added to invoices: ${lineItemsCount}`);
+            
+          } catch (err) {
+            console.log(`[CLIO IMPORT] Line items error (non-fatal): ${err.message}`);
+          }
+        } // end if (includeBills) for line items
         
         // ============================================
         // STEP 11: DOCUMENTS - Fetch metadata and stream to Azure
