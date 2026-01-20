@@ -4921,10 +4921,19 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     if (fileBuffer.length === 0) throw new Error('Empty file');
                     
                     // 3. Upload directly to Azure
-                    const { getShareClient, ensureDirectory } = await import('../utils/azureStorage.js');
+                    const { getShareClient, ensureDirectory, getAzureConfig } = await import('../utils/azureStorage.js');
+                    const azConfig = await getAzureConfig();
                     const shareClient = await getShareClient();
                     const firmFolder = customFirmFolder || `firm-${firmId}`;
                     const azurePath = `${firmFolder}/${filename}`;
+                    
+                    // Log exactly where file is going (first file only to avoid spam)
+                    if (documentsStreamedCount === 0) {
+                      console.log(`[AZURE] Storage Account: ${azConfig?.accountName}`);
+                      console.log(`[AZURE] File Share: ${azConfig?.shareName}`);
+                      console.log(`[AZURE] Folder: ${firmFolder}`);
+                      addLog(`📁 Uploading to: ${azConfig?.accountName}/${azConfig?.shareName}/${firmFolder}/`);
+                    }
                     
                     // Ensure directory exists
                     await ensureDirectory(firmFolder);
@@ -4936,7 +4945,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     await fileClient.uploadRange(fileBuffer, 0, fileBuffer.length);
                     
                     documentsStreamedCount++;
-                    console.log(`[CLIO] ✓ ${filename} (${fileBuffer.length} bytes)`);
+                    console.log(`[CLIO] ✓ ${azurePath} (${fileBuffer.length} bytes)`);
                     
                   } catch (err) {
                     documentsFailedCount++;
