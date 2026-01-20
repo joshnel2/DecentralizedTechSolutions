@@ -4967,12 +4967,18 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               }
               
               addLog(`✅ Stored ${documentMetadataCount} documents in manifest`);
+              console.log(`[CLIO IMPORT] Stored ${documentMetadataCount} documents in manifest for firm ${firmId}`);
               
               // ============================================
               // 6. STREAM DOCUMENTS TO AZURE
               // ============================================
               addLog('📤 Streaming documents from Clio to Azure (no local disk)...');
               console.log('[CLIO IMPORT] Starting document streaming to Azure...');
+              
+              // DEBUG: Check manifest count before querying pending
+              const manifestCheck = await query(`SELECT COUNT(*) as total, COUNT(CASE WHEN match_status = 'pending' THEN 1 END) as pending FROM clio_document_manifest WHERE firm_id = $1`, [firmId]);
+              console.log(`[CLIO IMPORT] DEBUG: Manifest check - total: ${manifestCheck.rows[0]?.total}, pending: ${manifestCheck.rows[0]?.pending}`);
+              addLog(`📊 Manifest: ${manifestCheck.rows[0]?.total} total, ${manifestCheck.rows[0]?.pending} pending`);
               
               // Get pending documents from manifest
               const pendingDocs = await query(`
@@ -4982,10 +4988,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               `, [firmId]);
               
               const totalDocs = pendingDocs.rows.length;
-              console.log(`[CLIO IMPORT] ${totalDocs} documents to stream`);
+              console.log(`[CLIO IMPORT] ${totalDocs} pending documents to stream (firmId: ${firmId})`);
               
               if (totalDocs === 0) {
-                addLog('ℹ️ No pending documents to stream');
+                addLog('ℹ️ No pending documents to stream - check if documents were already imported');
               } else {
                 addLog(`📤 Starting to stream ${totalDocs} documents to Azure...`);
                 
@@ -5000,6 +5006,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   // Process batch concurrently - each document streams directly to Azure
                   await Promise.all(batch.map(async (manifest) => {
                     try {
+                      console.log(`[CLIO IMPORT] Streaming: ${manifest.name} (clio_id: ${manifest.clio_id})`);
                       const streamResult = await streamDocumentToAzure(accessToken, manifest, firmId, {
                         matterIdMap: docMatterIdMap,
                         customFirmFolder: customFirmFolder || null
@@ -5007,12 +5014,15 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                       
                       if (streamResult.success) {
                         documentsStreamedCount++;
+                        console.log(`[CLIO IMPORT] SUCCESS: ${manifest.name} -> ${streamResult.path}`);
                       } else {
                         documentsFailedCount++;
+                        console.log(`[CLIO IMPORT] FAILED: ${manifest.name} - ${streamResult.error}`);
                         errorDetails.push({ name: manifest.name, error: streamResult.error || 'Unknown error' });
                       }
                     } catch (err) {
                       documentsFailedCount++;
+                      console.log(`[CLIO IMPORT] ERROR: ${manifest.name} - ${err.message}`);
                       errorDetails.push({ name: manifest.name, error: err.message });
                     }
                   }));
