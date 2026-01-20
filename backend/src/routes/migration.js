@@ -2852,8 +2852,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           }
         }
         
-        // Pre-load matterIdMap from database if we're skipping matters but need to link activities/bills
-        if (!includeMatters && (includeActivities || includeBills)) {
+        // Pre-load matterIdMap from database if we're skipping matters but need to link activities/bills/documents
+        if (!includeMatters && (includeActivities || includeBills || includeDocuments)) {
           console.log('[CLIO IMPORT] Pre-loading existing matters from database for activity/bill linking...');
           try {
             // Get all matters for this firm
@@ -3353,9 +3353,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 3/10: SKIPPING matters');
           updateProgress('matters', 'skipped', 0);
           
-          // If skipping matters but need activities/bills, extract Clio IDs from existing matter numbers
-          if (includeActivities || includeBills || includeCalendar) {
-            console.log('[CLIO IMPORT] Extracting Clio matter IDs from existing matters for activity/bill fetching...');
+          // If skipping matters but need activities/bills/documents, extract Clio IDs from existing matter numbers
+          if (includeActivities || includeBills || includeCalendar || includeDocuments) {
+            console.log('[CLIO IMPORT] Extracting Clio matter IDs from existing matters...');
             try {
               const existingMatters = await query(
                 'SELECT number FROM matters WHERE firm_id = $1',
@@ -3369,7 +3369,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 }
               }
               console.log(`[CLIO IMPORT] Found ${importedClioMatterIds.size} Clio matter IDs from existing matters`);
-              addLog(`📋 Found ${importedClioMatterIds.size} existing matters for fetching activities/bills`);
+              addLog(`📋 Found ${importedClioMatterIds.size} Clio matter IDs from existing matters`);
             } catch (err) {
               console.log(`[CLIO IMPORT] Could not extract matter IDs: ${err.message}`);
             }
@@ -4858,6 +4858,21 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 }
                 
                 addLog(`✅ Found ${documentsToProcess.length} documents for user's matters`);
+              } else if (filterByUser && importedClioMatterIds.size === 0) {
+                // USER FILTER ACTIVE but no matter IDs found - fetch all documents
+                addLog('⚠️ User filter active but no Clio matter IDs found in existing matters');
+                addLog('📄 Fetching all documents from Clio instead...');
+                console.log('[CLIO IMPORT] User filter active but no matter IDs - fetching all documents');
+                
+                documentsToProcess = await clioGetPaginated(accessToken, '/documents.json', {
+                  fields: 'id,name,filename,parent,matter,created_at,updated_at,content_type,latest_document_version{id,size,filename}',
+                  order: 'id(asc)'
+                }, (count) => {
+                  if (count % 500 === 0) addLog(`📄 Fetched ${count} documents...`);
+                  updateProgress('documents', 'running', count);
+                });
+                
+                addLog(`✅ Found ${documentsToProcess.length} documents in Clio`);
               } else {
                 // NO FILTER: Fetch all documents
                 addLog('📄 Fetching all documents from Clio...');
