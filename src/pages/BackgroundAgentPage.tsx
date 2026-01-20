@@ -102,35 +102,41 @@ export function BackgroundAgentPage() {
 
   // Track last completed task to show until user starts a new one
   const [lastCompletedTask, setLastCompletedTask] = useState<BackgroundTask | null>(null)
+  
+  // Use ref to track previous task ID to avoid infinite loop
+  const prevTaskIdRef = useRef<string | null>(null)
 
   const fetchActiveTask = useCallback(async () => {
     try {
       const response = await backgroundApi.getActiveBackgroundTask()
       if (response.active && response.task) {
         setActiveTask(response.task)
+        prevTaskIdRef.current = response.task.id
         // Clear last completed when a new task starts
         if (response.task.status === 'running') {
           setLastCompletedTask(null)
         }
       } else {
-        // No active task - check if current task just completed
-        if (activeTask && (activeTask.status === 'running' || activeTask.status === 'pending')) {
+        // No active task - check if previous task just completed
+        const prevId = prevTaskIdRef.current
+        if (prevId) {
           // Task just finished - fetch its final state and save as completed
           try {
-            const taskDetails = await backgroundApi.getBackgroundTask(activeTask.id)
+            const taskDetails = await backgroundApi.getBackgroundTask(prevId)
             if (taskDetails?.task) {
               setLastCompletedTask(taskDetails.task)
             }
           } catch {
-            setLastCompletedTask(activeTask)
+            // Ignore errors fetching completed task
           }
+          prevTaskIdRef.current = null
         }
         setActiveTask(null)
       }
     } catch (error) {
       setActiveTask(null)
     }
-  }, [activeTask])
+  }, []) // No dependencies - uses ref instead to avoid infinite loop
 
   const fetchRecentTasks = useCallback(async () => {
     try {
@@ -147,9 +153,11 @@ export function BackgroundAgentPage() {
     setLoading(false)
   }, [fetchStatus, fetchTools, fetchActiveTask, fetchRecentTasks])
 
+  // Only run once on mount - not when refreshAll changes
   useEffect(() => {
     refreshAll()
-  }, [refreshAll])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (!polling) return

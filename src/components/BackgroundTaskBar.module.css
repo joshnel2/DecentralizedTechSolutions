@@ -6,12 +6,13 @@
   background: linear-gradient(135deg, #1E1B4B 0%, #312E81 100%);
   border: 1px solid rgba(147, 51, 234, 0.4);
   border-radius: 12px;
-  padding: 10px 14px;
+  padding: 12px 16px;
   box-shadow: 0 8px 32px rgba(147, 51, 234, 0.3);
   z-index: 9999;
   animation: slideUp 0.3s ease;
-  min-width: 400px;
-  max-width: 600px;
+  width: 520px;
+  max-width: calc(100vw - 40px);
+  box-sizing: border-box;
 }
 
 .taskBar.complete {
@@ -63,19 +64,22 @@
 .content {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+  width: 100%;
 }
 
 .clickableArea {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   flex: 1;
+  min-width: 0;
   cursor: pointer;
   padding: 4px;
   margin: -4px;
   border-radius: 12px;
   transition: background 0.2s;
+  overflow: hidden;
 }
 
 .clickableArea:hover {
@@ -83,13 +87,13 @@
 }
 
 .icon {
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(147, 51, 234, 0.3);
-  border-radius: 12px;
+  border-radius: 10px;
   color: #A855F7;
   flex-shrink: 0;
 }
@@ -120,19 +124,21 @@
 .info {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 2px;
 }
 
 .title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: #A855F7;
+  white-space: nowrap;
 }
 
 .taskBar.complete .title {
@@ -172,13 +178,13 @@
 .progress {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
 .progressBar {
-  width: 100px;
-  height: 6px;
+  width: 70px;
+  height: 5px;
   background: rgba(255, 255, 255, 0.1);
   border-radius: 3px;
   overflow: hidden;
@@ -218,9 +224,8 @@
 .actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex-shrink: 0;
-  margin-left: 8px;
 }
 
 .viewSummaryBtn {
