@@ -149,13 +149,69 @@ async function ensureAzureDirectory(shareClient, directoryPath) {
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * Make Clio API request with retry logic
+ * Global rate limit tracker
+ * Tracks Clio's x-ratelimit-remaining and x-ratelimit-reset headers
+ */
+const rateLimitState = {
+  remaining: 50,  // Start optimistic
+  resetTime: null,
+  lastChecked: null
+};
+
+/**
+ * Check if we need to wait for rate limit reset
+ * Waits if remaining < threshold
+ */
+async function checkRateLimit(threshold = 5) {
+  if (rateLimitState.remaining < threshold && rateLimitState.resetTime) {
+    const now = Date.now();
+    const resetMs = rateLimitState.resetTime * 1000; // Convert to milliseconds
+    const waitTime = resetMs - now;
+    
+    if (waitTime > 0) {
+      console.log(`[RATE LIMIT] Only ${rateLimitState.remaining} requests left. Waiting ${Math.ceil(waitTime/1000)}s until reset...`);
+      await delay(waitTime + 1000); // Add 1 second buffer
+      // Reset the state after waiting
+      rateLimitState.remaining = 50;
+      rateLimitState.resetTime = null;
+    }
+  }
+}
+
+/**
+ * Update rate limit state from response headers
+ */
+function updateRateLimitFromHeaders(response) {
+  const remaining = response.headers.get('x-ratelimit-remaining');
+  const reset = response.headers.get('x-ratelimit-reset');
+  
+  if (remaining !== null) {
+    rateLimitState.remaining = parseInt(remaining, 10);
+  }
+  if (reset !== null) {
+    rateLimitState.resetTime = parseInt(reset, 10);
+  }
+  rateLimitState.lastChecked = Date.now();
+  
+  // Log rate limit status periodically
+  if (rateLimitState.remaining <= 10) {
+    const resetIn = rateLimitState.resetTime ? Math.max(0, rateLimitState.resetTime - Math.floor(Date.now()/1000)) : '?';
+    console.log(`[RATE LIMIT] ${rateLimitState.remaining} requests remaining, resets in ${resetIn}s`);
+  }
+}
+
+/**
+ * Make Clio API request with smart rate limiting
+ * Uses x-ratelimit-remaining and x-ratelimit-reset headers
  */
 async function clioApiRequest(accessToken, endpoint, retryCount = 0) {
   const MAX_RETRIES = 3;
   const url = endpoint.startsWith('http') ? endpoint : `${CLIO_API_BASE}${endpoint}`;
   
-  console.log(`[CLIO DOC] GET ${url.substring(0, 80)}...`);
+  // Check rate limit BEFORE making request
+  await checkRateLimit(5);
+  
+  console.log(`[CLIO API] GET ${url.substring(0, 80)}...`);
   
   try {
     const response = await fetch(url, {
@@ -165,6 +221,9 @@ async function clioApiRequest(accessToken, endpoint, retryCount = 0) {
       }
     });
     
+    // Always update rate limit state from headers
+    updateRateLimitFromHeaders(response);
+    
     if (!response.ok) {
       const errorText = await response.text();
       
@@ -173,15 +232,24 @@ async function clioApiRequest(accessToken, endpoint, retryCount = 0) {
         if (retryCount >= MAX_RETRIES) {
           throw new Error('Clio rate limit exceeded after maximum retries.');
         }
+        
+        // Get wait time from header or error message
         let waitTime = 60;
-        try {
-          const errorObj = JSON.parse(errorText);
-          const match = errorObj?.error?.message?.match(/Retry in (\d+) seconds/);
-          if (match) {
-            waitTime = parseInt(match[1], 10) + 5;
-          }
-        } catch (e) {}
-        console.log(`[CLIO DOC] Rate limited. Waiting ${waitTime}s...`);
+        const retryAfter = response.headers.get('retry-after');
+        if (retryAfter) {
+          waitTime = parseInt(retryAfter, 10) + 2;
+        } else {
+          try {
+            const errorObj = JSON.parse(errorText);
+            const match = errorObj?.error?.message?.match(/Retry in (\d+) seconds/);
+            if (match) {
+              waitTime = parseInt(match[1], 10) + 2;
+            }
+          } catch (e) {}
+        }
+        
+        console.log(`[RATE LIMIT] 429 received. Waiting ${waitTime}s before retry...`);
+        rateLimitState.remaining = 0; // Mark as exhausted
         await delay(waitTime * 1000);
         return clioApiRequest(accessToken, endpoint, retryCount + 1);
       }
@@ -191,7 +259,7 @@ async function clioApiRequest(accessToken, endpoint, retryCount = 0) {
     
     return response.json();
   } catch (error) {
-    console.error(`[CLIO DOC] Request failed:`, error.message);
+    console.error(`[CLIO API] Request failed:`, error.message);
     throw error;
   }
 }
@@ -209,6 +277,9 @@ async function clioApiRequest(accessToken, endpoint, retryCount = 0) {
 async function streamFromClioToAzure(downloadUrl, accessToken, shareClient, targetPath) {
   console.log(`[CLIO DOC] Streaming to Azure: ${targetPath}`);
   
+  // Check rate limit before download
+  await checkRateLimit(5);
+  
   // Fetch from Clio with timeout
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout
@@ -223,7 +294,21 @@ async function streamFromClioToAzure(downloadUrl, accessToken, shareClient, targ
     
     clearTimeout(timeout);
     
+    // Update rate limit state from download response too
+    updateRateLimitFromHeaders(response);
+    
     if (!response.ok) {
+      // Handle rate limit on download
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('retry-after');
+        const waitTime = retryAfter ? parseInt(retryAfter, 10) + 2 : 60;
+        console.log(`[RATE LIMIT] 429 on download. Waiting ${waitTime}s...`);
+        rateLimitState.remaining = 0;
+        await delay(waitTime * 1000);
+        // Retry the download
+        return streamFromClioToAzure(downloadUrl, accessToken, shareClient, targetPath);
+      }
+      
       const errorText = await response.text().catch(() => '');
       throw new Error(`Clio download failed: ${response.status} - ${errorText.substring(0, 200)}`);
     }
@@ -237,7 +322,7 @@ async function streamFromClioToAzure(downloadUrl, accessToken, shareClient, targ
       throw new Error('Downloaded file is empty (0 bytes)');
     }
     
-    console.log(`[CLIO DOC] Downloaded ${fileSize} bytes from Clio, uploading to Azure...`);
+    console.log(`[CLIO DOC] Downloaded ${fileSize} bytes, uploading to Azure...`);
     
     // Ensure parent directory exists
     const dirPath = targetPath.split('/').slice(0, -1).join('/');
@@ -255,7 +340,7 @@ async function streamFromClioToAzure(downloadUrl, accessToken, shareClient, targ
     await fileClient.create(fileSize);
     await fileClient.uploadRange(buffer, 0, fileSize);
     
-    console.log(`[CLIO DOC] SUCCESS: ${fileSize} bytes -> ${targetPath}`);
+    console.log(`[CLIO DOC] ✓ ${fileSize} bytes -> ${targetPath}`);
     
     return {
       size: fileSize,
@@ -264,7 +349,7 @@ async function streamFromClioToAzure(downloadUrl, accessToken, shareClient, targ
     };
   } catch (error) {
     clearTimeout(timeout);
-    console.error(`[CLIO DOC] FAILED upload to ${targetPath}:`, error.message);
+    console.error(`[CLIO DOC] ✗ FAILED: ${targetPath} - ${error.message}`);
     throw error;
   }
 }
@@ -550,22 +635,23 @@ export async function streamDocumentToAzure(accessToken, manifest, firmId, optio
 /**
  * Stream documents from Clio to Azure ONE AT A TIME
  * 
- * CLIO RATE LIMIT: 50 API requests per minute
+ * SMART RATE LIMITING using Clio's response headers:
+ *   - x-ratelimit-remaining: How many requests left in current window
+ *   - x-ratelimit-reset: Unix timestamp when limit resets
  * 
- * Each document requires 2 API calls:
- *   1. GET /documents/{id} → get download URL
- *   2. GET download_url → download file content
- * 
- * So we can do MAX 25 documents per minute = 1 document every 2.4 seconds
- * We use 2.5 second delay to be safe.
+ * STRATEGY:
+ *   - Go as fast as possible
+ *   - When remaining < 5, wait until reset time
+ *   - This maximizes throughput while respecting limits
  * 
  * FLOW FOR EACH DOCUMENT:
- *   1. Get download URL from Clio API
- *   2. Download file content to memory
- *   3. Upload to Azure (preserving exact Clio path)
- *   4. Create database record with matter link
- *   5. Wait 2.5 seconds (rate limit)
- *   6. Next document
+ *   1. Check rate limit (wait if remaining < 5)
+ *   2. Get download URL from Clio API
+ *   3. Check rate limit again
+ *   4. Download file content to memory
+ *   5. Upload to Azure (preserving exact Clio path)
+ *   6. Create database record with matter link
+ *   7. Next document (no fixed delay!)
  * 
  * @param {string} accessToken - Clio OAuth access token
  * @param {string} firmId - Target firm ID
@@ -581,14 +667,15 @@ export async function batchStreamDocuments(accessToken, firmId, options = {}) {
     userIdMap = new Map(),
     customFirmFolder = null,
     maxRetries = 3,
-    // RATE LIMITING: 50 requests/min = 25 docs/min = 2.4 sec/doc
-    // We use 2.5 seconds to be safe
-    delayBetweenDocs = 2500
+    rateLimitThreshold = 5  // Wait when remaining requests falls below this
   } = options;
   
   const firmFolder = customFirmFolder || `firm-${firmId}`;
-  console.log(`[CLIO STREAM] Starting document stream for firm ${firmId} -> ${firmFolder}`);
-  console.log(`[CLIO STREAM] Rate limit: 1 document every ${delayBetweenDocs}ms (${Math.round(60000/delayBetweenDocs)} docs/min)`);
+  console.log(`[CLIO STREAM] ====================================================`);
+  console.log(`[CLIO STREAM] Starting document stream for firm ${firmId}`);
+  console.log(`[CLIO STREAM] Target: ${firmFolder}`);
+  console.log(`[CLIO STREAM] Smart rate limiting: wait when remaining < ${rateLimitThreshold}`);
+  console.log(`[CLIO STREAM] ====================================================`);
   
   // Check Azure configuration
   const azureConfigured = await isAzureConfigured();
@@ -618,9 +705,9 @@ export async function batchStreamDocuments(accessToken, firmId, options = {}) {
     return { success: 0, failed: 0, errors: [], message: 'No pending documents to import' };
   }
   
-  // Calculate estimated time
-  const estimatedMinutes = Math.ceil((documents.length * delayBetweenDocs) / 60000);
-  console.log(`[CLIO STREAM] Estimated time: ${estimatedMinutes} minutes`);
+  // Estimate: ~25 docs/min when hitting rate limits, faster when not
+  const estimatedMinutes = Math.ceil(documents.length / 25);
+  console.log(`[CLIO STREAM] Estimated time: ${estimatedMinutes}-${Math.ceil(estimatedMinutes/2)} minutes (depends on rate limits)`);
   
   onProgress({ 
     total: documents.length, 
@@ -733,20 +820,12 @@ export async function batchStreamDocuments(accessToken, firmId, options = {}) {
       docsPerMinute: (rate * 60).toFixed(1),
       etaMinutes: Math.ceil(etaSeconds / 60),
       docTimeMs: docTime,
-      elapsedMinutes: Math.round(elapsed / 60000)
+      elapsedMinutes: Math.round(elapsed / 60000),
+      rateLimitRemaining: rateLimitState.remaining
     });
     
-    // ====================================================
-    // RATE LIMITING: Wait before next document
-    // ====================================================
-    if (i < documents.length - 1) {
-      // Calculate how long to wait (account for processing time)
-      const waitTime = Math.max(0, delayBetweenDocs - docTime);
-      if (waitTime > 0) {
-        console.log(`[CLIO STREAM] Waiting ${waitTime}ms before next document (rate limit)...`);
-        await delay(waitTime);
-      }
-    }
+    // NO FIXED DELAY - rate limiting is checked automatically before each API call
+    // via checkRateLimit() in clioApiRequest() and streamFromClioToAzure()
   }
   
   const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
