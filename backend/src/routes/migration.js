@@ -4823,20 +4823,33 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               }
               
               // ============================================
-              // 3. FETCH FOLDERS FIRST (needed for path reconstruction)
+              // 3. FETCH FOLDERS (optional - for path reconstruction)
               // ============================================
               addLog('📁 Fetching folder structure from Clio...');
               let folders = [];
               try {
-                folders = await clioGetPaginated(accessToken, '/folders.json', {
+                // Add timeout for folder fetch (30 seconds max)
+                const folderPromise = clioGetPaginated(accessToken, '/folders.json', {
                   fields: 'id,name,parent,matter',
                   order: 'id(asc)'
-                }, null);
+                }, (count) => {
+                  if (count % 200 === 0) {
+                    console.log(`[CLIO IMPORT] Fetched ${count} folders...`);
+                    addLog(`📁 Fetched ${count} folders...`);
+                  }
+                });
+                
+                const timeoutPromise = new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error('Folder fetch timeout (30s)')), 30000)
+                );
+                
+                folders = await Promise.race([folderPromise, timeoutPromise]);
                 console.log(`[CLIO IMPORT] Folder structure fetched: ${folders.length} folders`);
                 addLog(`📁 Found ${folders.length} folders`);
               } catch (folderErr) {
                 console.log(`[CLIO IMPORT] Could not fetch folders: ${folderErr.message}`);
-                addLog(`⚠️ Could not fetch folders: ${folderErr.message}`);
+                addLog(`⚠️ Skipping folders: ${folderErr.message}`);
+                addLog(`ℹ️ Documents will be uploaded without folder structure`);
               }
               
               // Build folder path lookup
