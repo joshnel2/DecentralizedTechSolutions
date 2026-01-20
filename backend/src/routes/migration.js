@@ -2614,20 +2614,32 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
       connectionId, 
       firmName, 
       existingFirmId,
-      includeUsers = true,
-      includeContacts = true,
-      includeMatters = true, 
-      includeActivities = true, 
-      includeBills = true, 
-      includeCalendar = true,
-      includeDocuments = true,
       customFirmFolder = null,
       filterByUser = false,
       filterUserEmail = null
     } = req.body;
     
+    // EXPLICIT boolean checks - only run if explicitly set to true
+    // This prevents accidental imports when frontend doesn't send the field
+    const includeUsers = req.body.includeUsers === true;
+    const includeContacts = req.body.includeContacts === true;
+    const includeMatters = req.body.includeMatters === true;
+    const includeActivities = req.body.includeActivities === true;
+    const includeBills = req.body.includeBills === true;
+    const includeCalendar = req.body.includeCalendar === true;
+    const includeDocuments = req.body.includeDocuments === true;
+    
     console.log('[CLIO IMPORT] Starting import for connection:', connectionId, 'firmName:', firmName);
-    console.log('[CLIO IMPORT] Include options:', { includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar, includeDocuments });
+    console.log('[CLIO IMPORT] Raw request body include flags:', {
+      includeUsers: req.body.includeUsers,
+      includeContacts: req.body.includeContacts,
+      includeMatters: req.body.includeMatters,
+      includeActivities: req.body.includeActivities,
+      includeBills: req.body.includeBills,
+      includeCalendar: req.body.includeCalendar,
+      includeDocuments: req.body.includeDocuments
+    });
+    console.log('[CLIO IMPORT] Parsed include options (strict boolean):', { includeUsers, includeContacts, includeMatters, includeActivities, includeBills, includeCalendar, includeDocuments });
     console.log('[CLIO IMPORT] Custom Azure folder:', customFirmFolder || '(auto-generate from firmId)');
     console.log('[CLIO IMPORT] User filter:', { filterByUser, filterUserEmail });
     
