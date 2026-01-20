@@ -97,18 +97,37 @@ export function BackgroundAgentPage() {
     }
   }, [])
 
+  // Track last completed task to show until user starts a new one
+  const [lastCompletedTask, setLastCompletedTask] = useState<BackgroundTask | null>(null)
+
   const fetchActiveTask = useCallback(async () => {
     try {
       const response = await backgroundApi.getActiveBackgroundTask()
       if (response.active && response.task) {
         setActiveTask(response.task)
+        // Clear last completed when a new task starts
+        if (response.task.status === 'running') {
+          setLastCompletedTask(null)
+        }
       } else {
+        // No active task - check if current task just completed
+        if (activeTask && (activeTask.status === 'running' || activeTask.status === 'pending')) {
+          // Task just finished - fetch its final state and save as completed
+          try {
+            const taskDetails = await backgroundApi.getBackgroundTask(activeTask.id)
+            if (taskDetails?.task) {
+              setLastCompletedTask(taskDetails.task)
+            }
+          } catch {
+            setLastCompletedTask(activeTask)
+          }
+        }
         setActiveTask(null)
       }
     } catch (error) {
       setActiveTask(null)
     }
-  }, [])
+  }, [activeTask])
 
   const fetchRecentTasks = useCallback(async () => {
     try {
@@ -405,35 +424,57 @@ export function BackgroundAgentPage() {
       <div className={styles.grid}>
         <div className={styles.card}>
           <div className={styles.cardHeader}>
-            <h2>Active Task</h2>
+            <h2>{activeTask ? 'Active Task' : lastCompletedTask ? 'Last Completed Task' : 'Active Task'}</h2>
+            {lastCompletedTask && !activeTask && (
+              <button 
+                className={styles.textBtn} 
+                onClick={() => setLastCompletedTask(null)}
+              >
+                Clear
+              </button>
+            )}
           </div>
-          {!activeTask && (
-            <div className={styles.emptyState}>No active background task.</div>
+          {!activeTask && !lastCompletedTask && (
+            <div className={styles.emptyState}>No active background task. Start one above!</div>
           )}
-          {activeTask && (
+          {(activeTask || lastCompletedTask) && (() => {
+            const displayTask = activeTask || lastCompletedTask!
+            const displayStatus = activeTask ? taskStatus : (
+              displayTask.status === 'completed' ? 'complete' :
+              displayTask.status === 'error' || displayTask.status === 'failed' ? 'error' :
+              displayTask.status === 'cancelled' ? 'cancelled' : 'complete'
+            )
+            const displayPercent = activeTask ? progressPercent : clampPercent(displayTask.progress?.progressPercent, 100)
+            const displayStepLabel = displayTask.progress?.totalSteps
+              ? `Step ${Math.min(displayTask.progress?.completedSteps ?? displayTask.progress?.iterations ?? 1, displayTask.progress?.totalSteps)} of ${displayTask.progress?.totalSteps}`
+              : displayTask.progress?.iterations
+                ? `Step ${displayTask.progress.iterations}`
+                : 'Completed'
+            
+            return (
             <div className={styles.task}>
               <div className={styles.taskHeader}>
-                {taskStatus === 'complete' && <CheckCircle size={18} className={styles.complete} />}
-                {taskStatus === 'error' && <AlertCircle size={18} className={styles.error} />}
-                {taskStatus === 'cancelled' && <StopCircle size={18} className={styles.cancelled} />}
-                {taskStatus === 'running' && <Rocket size={18} className={styles.running} />}
+                {displayStatus === 'complete' && <CheckCircle size={18} className={styles.complete} />}
+                {displayStatus === 'error' && <AlertCircle size={18} className={styles.error} />}
+                {displayStatus === 'cancelled' && <StopCircle size={18} className={styles.cancelled} />}
+                {displayStatus === 'running' && <Rocket size={18} className={styles.running} />}
                 <div>
-                  <div className={styles.taskGoal}>{activeTask.goal}</div>
-                  <div className={styles.taskStep}>{activeTask.progress?.currentStep || 'Working...'}</div>
+                  <div className={styles.taskGoal}>{displayTask.goal}</div>
+                  <div className={styles.taskStep}>{displayTask.progress?.currentStep || (displayStatus === 'complete' ? 'Completed successfully' : 'Working...')}</div>
                 </div>
               </div>
               <div className={styles.progressRow}>
                 <div className={styles.progressBar}>
-                  <div className={styles.progressFill} style={{ width: `${progressPercent}%` }} />
+                  <div className={styles.progressFill} style={{ width: `${displayPercent}%` }} />
                 </div>
                 <div className={styles.progressMeta}>
-                  <span>{progressPercent}%</span>
-                  <span>{stepLabel}</span>
+                  <span>{displayPercent}%</span>
+                  <span>{displayStepLabel}</span>
                 </div>
               </div>
               
               {/* Live Activity Feed - Shows what the agent is doing in real-time */}
-              {taskStatus === 'running' && (
+              {displayStatus === 'running' && (
                 <div className={styles.liveActivitySection}>
                   <div className={styles.liveActivityHeader}>
                     <Terminal size={14} />
@@ -459,14 +500,18 @@ export function BackgroundAgentPage() {
                 </div>
               )}
               
-              {activeTask.result?.summary && (
-                <div className={styles.taskSummary}>{activeTask.result.summary}</div>
+              {/* Show result summary for completed tasks */}
+              {displayTask.result?.summary && (
+                <div className={styles.taskSummary}>
+                  <strong>Summary:</strong> {displayTask.result.summary}
+                </div>
               )}
-              {activeTask.error && (
-                <div className={styles.taskError}>{activeTask.error}</div>
+              {displayTask.error && (
+                <div className={styles.taskError}>{displayTask.error}</div>
               )}
+              
               {/* Follow-up Section - Send additional instructions to running agent */}
-              {taskStatus === 'running' && (
+              {displayStatus === 'running' && (
                 <div className={styles.followUpSection}>
                   <div className={styles.followUpHeader}>
                     <MessageCircle size={14} />
@@ -496,14 +541,15 @@ export function BackgroundAgentPage() {
                 </div>
               )}
               
-              {taskStatus === 'running' && (
+              {displayStatus === 'running' && (
                 <button className={styles.cancelBtn} onClick={handleCancel} disabled={isCancelling}>
                   {isCancelling ? <Loader2 size={14} className={styles.spin} /> : <StopCircle size={14} />}
                   Cancel Task
                 </button>
               )}
             </div>
-          )}
+            )
+          })()}
         </div>
 
         <div className={styles.card}>

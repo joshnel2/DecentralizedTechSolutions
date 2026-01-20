@@ -330,29 +330,31 @@ export function BackgroundTaskBar() {
     navigate('/app/background-agent')
   }
 
-  // Only render when there's an active task or recently completed task
-  if (!activeTask) return null
+  // Only render when there's an active/running task (not completed/error/cancelled)
+  // Completed tasks should only show on the BackgroundAgentPage, not in the floating bar
+  const isRunning = activeTask && 
+    activeTask.status !== 'completed' && 
+    activeTask.status !== 'error' && 
+    activeTask.status !== 'failed' &&
+    activeTask.status !== 'cancelled' &&
+    !isComplete &&
+    !isCancelled
+
+  if (!isRunning) return null
 
   const isErrorState = hasError || activeTask.status === 'error' || activeTask.status === 'failed'
   const isCancelledState = isCancelled || activeTask.status === 'cancelled' || activeTask.status === 'cancelling'
-  const isDoneState = isComplete && !isErrorState && !isCancelledState
   const stepLabel = activeTask.totalSteps
     ? `Step ${Math.min(activeTask.completedSteps ?? activeTask.iterations ?? 1, activeTask.totalSteps)} of ${activeTask.totalSteps}`
     : `Step ${activeTask.iterations || 1}`
 
   return (
-    <div className={`${styles.taskBar} ${isDoneState ? styles.complete : ''} ${isErrorState ? styles.error : ''} ${isCancelledState ? styles.cancelled : ''}`}>
+    <div className={styles.taskBar}>
       <div className={styles.content}>
-        {/* Clickable area - goes to AI Assistant page */}
+        {/* Clickable area - goes to Background Agent page */}
         <div className={styles.clickableArea} onClick={handleViewProgress} title="Click to view progress">
           <div className={styles.icon}>
-            {isDoneState ? (
-              <CheckCircle size={20} />
-            ) : isErrorState ? (
-              <AlertCircle size={20} />
-            ) : isCancelledState ? (
-              <StopCircle size={20} />
-            ) : activeTask?.isAmplifier ? (
+            {activeTask?.isAmplifier ? (
               <Rocket size={20} className={styles.spinning} />
             ) : (
               <Bot size={20} className={styles.spinning} />
@@ -362,16 +364,11 @@ export function BackgroundTaskBar() {
           <div className={styles.info}>
             <div className={styles.header}>
               <div className={styles.title}>
-                {isErrorState ? 'Task Error' : 
-                 isCancelledState ? 'Task Cancelled' :
-                 isDoneState ? 'Background Task Complete' : 
-                 activeTask?.isAmplifier ? 'Amplifier Agent Working' : 'Background Agent Working'}
+                {activeTask?.isAmplifier ? 'Background Agent Working' : 'AI Agent Working'}
               </div>
-              {!isDoneState && !isErrorState && !isCancelledState && (
-                <div className={styles.iterations}>
-                  {stepLabel}
-                </div>
-              )}
+              <div className={styles.iterations}>
+                {stepLabel}
+              </div>
             </div>
             <div className={styles.goal}>{activeTask.goal}</div>
             <div className={styles.step}>{activeTask.currentStep}</div>
@@ -381,49 +378,34 @@ export function BackgroundTaskBar() {
             <div className={styles.progressBar}>
               <div 
                 className={styles.progressFill} 
-                style={{ width: `${isDoneState ? 100 : activeTask.progressPercent}%` }}
+                style={{ width: `${activeTask.progressPercent}%` }}
               />
             </div>
             <div className={styles.progressText}>
-              {isDoneState ? 'Done!' : isErrorState ? 'Failed' : isCancelledState ? 'Stopped' : `${activeTask.progressPercent}%`}
+              {`${activeTask.progressPercent}%`}
             </div>
           </div>
         </div>
 
         <div className={styles.actions}>
-          {isComplete && (
-            <button 
-              onClick={handleViewSummary} 
-              className={styles.viewSummaryBtn}
-              title="View task summary in AI Assistant"
-            >
-              <MessageSquare size={14} />
-              View Summary
-            </button>
-          )}
-          {!isComplete && !isErrorState && !isCancelledState && (
-            <>
-              <button 
-                onClick={handleViewProgress} 
-                className={styles.viewProgressBtn}
-                title="View progress in AI Assistant"
-              >
-                <MessageSquare size={14} />
-                View Progress
-              </button>
-              <button 
-                onClick={handleCancel} 
-                className={styles.cancelBtn}
-                disabled={isCancelling}
-                title="Cancel task"
-              >
-                <StopCircle size={16} />
-                Cancel
-              </button>
-            </>
-          )}
+          <button 
+            onClick={handleViewProgress} 
+            className={styles.viewProgressBtn}
+            title="View progress"
+          >
+            <MessageSquare size={14} />
+            View
+          </button>
+          <button 
+            onClick={handleCancel} 
+            className={styles.cancelBtn}
+            disabled={isCancelling}
+            title="Cancel task"
+          >
+            <StopCircle size={14} />
+          </button>
           <button onClick={handleDismiss} className={styles.dismissBtn} title="Hide">
-            <X size={16} />
+            <X size={14} />
           </button>
         </div>
       </div>
