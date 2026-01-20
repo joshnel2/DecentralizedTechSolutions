@@ -4311,36 +4311,60 @@ async function createTask(args, user) {
   }
   
   // Default to today if no due date specified (start_time and end_time are NOT NULL in calendar_events)
-  const taskDate = due_date ? new Date(due_date) : new Date();
-  // For tasks, end_time = start_time (same day)
+  let taskDate;
+  try {
+    taskDate = due_date ? new Date(due_date) : new Date();
+    // Ensure date is valid
+    if (isNaN(taskDate.getTime())) {
+      taskDate = new Date();
+    }
+  } catch (e) {
+    taskDate = new Date();
+  }
+  
+  // For tasks, end_time = end of day (REQUIRED - NOT NULL constraint)
   const taskEndDate = new Date(taskDate);
   taskEndDate.setHours(23, 59, 59, 999); // End of day
   
-  // Create task in database (uses calendar_events table with type='task' for simplicity)
-  const result = await query(
-    `INSERT INTO calendar_events (firm_id, title, description, start_time, end_time, type, matter_id, client_id, priority, status, created_by, assigned_to)
-     VALUES ($1, $2, $3, $4, $5, 'task', $6, $7, $8, 'pending', $9, $10)
-     RETURNING id, title`,
-    [
-      user.firmId,
-      title,
-      notes || null,
-      taskDate,
-      taskEndDate,
-      matter_id || null,
-      client_id || null,
-      priority,
-      user.id,
-      assigned_to || user.id
-    ]
-  );
+  // Extra safety: ensure both dates are valid Date objects with ISO strings
+  const startTimeISO = taskDate.toISOString();
+  const endTimeISO = taskEndDate.toISOString();
   
-  const task = result.rows[0];
-  return {
-    success: true,
-    message: `Created task "${title}"${due_date ? ` due ${due_date}` : ''}`,
-    data: { id: task.id, title: task.title, due_date, priority }
-  };
+  console.log(`[createTask] Creating task "${title}" with start=${startTimeISO}, end=${endTimeISO}`);
+  
+  try {
+    // Create task in database (uses calendar_events table with type='task' for simplicity)
+    const result = await query(
+      `INSERT INTO calendar_events (firm_id, title, description, start_time, end_time, type, matter_id, client_id, priority, status, created_by, assigned_to)
+       VALUES ($1, $2, $3, $4, $5, 'task', $6, $7, $8, 'pending', $9, $10)
+       RETURNING id, title`,
+      [
+        user.firmId,
+        title,
+        notes || null,
+        startTimeISO,
+        endTimeISO,
+        matter_id || null,
+        client_id || null,
+        priority || 'medium',
+        user.id,
+        assigned_to || user.id
+      ]
+    );
+    
+    const task = result.rows[0];
+    return {
+      success: true,
+      message: `Created task "${title}"${due_date ? ` due ${due_date}` : ''}`,
+      data: { id: task.id, title: task.title, due_date, priority }
+    };
+  } catch (dbError) {
+    console.error('[createTask] Database error:', dbError.message);
+    return { 
+      error: `Failed to create task: ${dbError.message}`,
+      details: dbError.detail || dbError.hint
+    };
+  }
 }
 
 async function listTasks(args, user) {
