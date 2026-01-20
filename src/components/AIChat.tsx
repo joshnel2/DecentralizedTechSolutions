@@ -241,16 +241,15 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
 
     try {
       // BACKGROUND MODE: Start a background task with Amplifier
-      // But ONLY for actual task requests, not simple greetings/questions
+      // User explicitly toggled this on, so be permissive about what counts as a task
       if (backgroundMode && backgroundAvailable) {
-        // Check if this looks like an actual task vs simple conversation
         const lowerText = text.toLowerCase().trim()
-        const isSimpleGreeting = /^(hi|hello|hey|good morning|good afternoon|good evening|thanks|thank you|ok|okay|yes|no|sure|bye|goodbye)[\s!.,?]*$/i.test(lowerText)
-        const isSimpleQuestion = /^(what|how|who|when|where|why|can you|could you|do you|are you|is there|will you).*\?$/i.test(lowerText) && lowerText.length < 50
-        const isTaskRequest = /^(create|make|add|update|delete|remove|send|draft|generate|log|schedule|set up|close|open|find|search|list|get|show|analyze|review|prepare|bill|invoice)/i.test(lowerText)
         
-        // Only start background task for actual task commands, not greetings or simple questions
-        if (isTaskRequest || (lowerText.length > 30 && !isSimpleGreeting && !isSimpleQuestion)) {
+        // Only skip VERY simple greetings - everything else should use background agent
+        const isVerySimpleGreeting = /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|bye)[\s!.,?]*$/i.test(lowerText)
+        
+        // Skip if it's just a greeting under 15 chars
+        if (!isVerySimpleGreeting || lowerText.length > 15) {
           const result = await aiApi.startBackgroundTask(
             text || `Analyze and summarize this document: ${currentFile?.name}`
           )
@@ -277,7 +276,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
           setIsLoading(false)
           return
         }
-        // If not a task request, fall through to normal chat even in background mode
+        // Only very simple greetings fall through to normal chat
       }
 
       // NORMAL MODE: Use AI Agent with function calling
