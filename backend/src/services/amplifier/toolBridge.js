@@ -1062,39 +1062,62 @@ async function extractDocumentText(doc, firmId) {
 async function readDocumentContent(params, userId, firmId) {
   const { document_id, max_length = 10000 } = params;
   
-  const result = await query(`
-    SELECT name, original_name, content_text, path, external_path, azure_path, type 
-    FROM documents 
-    WHERE id = $1 AND firm_id = $2
-  `, [document_id, firmId]);
-  
-  if (!result.rows.length) return { error: 'Document not found' };
-  
-  const doc = result.rows[0];
-  let content = doc.content_text || '';
-  const safeMax = Number.isFinite(Number(max_length)) ? Number(max_length) : 10000;
-  
-  if (!content) {
-    const extracted = await extractDocumentText(doc, firmId);
-    if (extracted) {
-      content = extracted;
+  try {
+    const result = await query(`
+      SELECT name, original_name, content_text, path, external_path, azure_path, type 
+      FROM documents 
+      WHERE id = $1 AND firm_id = $2
+    `, [document_id, firmId]);
+    
+    if (!result.rows.length) return { error: 'Document not found' };
+    
+    const doc = result.rows[0];
+    let content = doc.content_text || '';
+    const safeMax = Number.isFinite(Number(max_length)) ? Math.min(Number(max_length), 50000) : 10000;
+    
+    if (!content) {
       try {
-        await query(
-          `UPDATE documents SET content_text = $1, content_extracted_at = NOW() WHERE id = $2`,
-          [content, document_id]
+        // Add timeout protection for document extraction (30 seconds)
+        const extractionTimeout = 30000;
+        const extractionPromise = extractDocumentText(doc, firmId);
+        const timeoutPromise = new Promise((resolve) => 
+          setTimeout(() => resolve(null), extractionTimeout)
         );
-      } catch (error) {
-        console.error('[Amplifier Tool] Failed to store extracted content:', error.message);
+        
+        const extracted = await Promise.race([extractionPromise, timeoutPromise]);
+        
+        if (extracted) {
+          content = extracted;
+          try {
+            await query(
+              `UPDATE documents SET content_text = $1, content_extracted_at = NOW() WHERE id = $2`,
+              [content.substring(0, 100000), document_id] // Limit stored content to 100K chars
+            );
+          } catch (error) {
+            console.error('[Amplifier Tool] Failed to store extracted content:', error.message);
+          }
+        }
+      } catch (extractError) {
+        console.error('[Amplifier Tool] Document extraction failed:', extractError.message);
+        // Continue without extracted content rather than crashing
       }
     }
+    
+    return {
+      success: true,
+      name: doc.original_name || doc.name,
+      content: content.substring(0, safeMax),
+      truncated: content.length > safeMax,
+      length: content.length,
+      note: content ? undefined : 'No extracted text available for this document - file may be unsupported format'
+    };
+  } catch (error) {
+    console.error('[Amplifier Tool] readDocumentContent error:', error.message);
+    return { 
+      error: 'Failed to read document content',
+      details: error.message 
+    };
   }
-  
-  return {
-    name: doc.original_name || doc.name,
-    content: content.substring(0, safeMax),
-    truncated: content.length > safeMax,
-    note: content ? undefined : 'No extracted text available for this document'
-  };
 }
 
 async function createDocument(params, userId, firmId) {

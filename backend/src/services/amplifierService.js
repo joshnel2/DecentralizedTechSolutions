@@ -1038,20 +1038,27 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             });
             this.streamProgress();
             
-            // Execute the tool
+            // Execute the tool with timeout protection (60 seconds max per tool)
+            const TOOL_TIMEOUT_MS = 60000;
             let result;
             try {
-              result = await executeTool(toolName, toolArgs, {
+              const toolPromise = executeTool(toolName, toolArgs, {
                 userId: this.userId,
                 firmId: this.firmId,
                 user: this.userRecord
               });
+              
+              const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error(`Tool ${toolName} timed out after ${TOOL_TIMEOUT_MS/1000}s`)), TOOL_TIMEOUT_MS)
+              );
+              
+              result = await Promise.race([toolPromise, timeoutPromise]);
             } catch (toolError) {
               console.error(`[Amplifier] Tool ${toolName} execution failed:`, toolError);
               result = { error: toolError?.message || 'Tool execution failed' };
               
               // Stream error event
-              this.streamEvent('tool_error', `Error in ${toolName}: ${toolError?.message}`, {
+              this.streamEvent('tool_error', `❌ Error in ${toolName}: ${toolError?.message}`, {
                 tool: toolName,
                 icon: 'x-circle',
                 color: 'red'
@@ -1292,6 +1299,13 @@ Keep working on: "${this.goal}"`
           const retryAfterMs = rateLimitMatch ? Number.parseInt(rateLimitMatch[1], 10) * 1000 : 30000;
           const safeDelay = Number.isFinite(retryAfterMs) ? Math.max(5000, retryAfterMs) : 30000;
           this.progress.currentStep = `Rate limited - retrying in ${Math.round(safeDelay / 1000)}s`;
+          
+          this.streamEvent('rate_limit', `⏳ Rate limited - waiting ${Math.round(safeDelay / 1000)}s before retry...`, {
+            wait_seconds: Math.round(safeDelay / 1000),
+            icon: 'clock',
+            color: 'yellow'
+          });
+          
           await sleep(safeDelay);
           continue;
         }
@@ -1308,6 +1322,12 @@ Keep working on: "${this.goal}"`
         }
         
         // For other errors, add to messages and let AI recover
+        this.streamEvent('recovery', `⚠️ Recovering from error: ${error.message.substring(0, 80)}...`, {
+          error: error.message,
+          icon: 'alert-triangle',
+          color: 'yellow'
+        });
+        
         this.messages.push({
           role: 'user',
           content: `An error occurred: ${error.message}. Please continue with an alternative approach or call task_complete if the goal has been achieved.`
