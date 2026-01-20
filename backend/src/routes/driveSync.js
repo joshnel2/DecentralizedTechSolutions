@@ -435,16 +435,18 @@ router.post('/scan-azure', authenticate, async (req, res) => {
 });
 
 // ============================================
-// SCAN & MATCH - Match Azure files to Clio manifest
-// This is the key endpoint for the HYBRID migration approach:
-// 1. First, fetch Clio manifest via API (metadata only)
-// 2. User copies files from Clio Drive to Azure (drag-drop or robocopy)
-// 3. Run this endpoint to match files and create DB records with matter links
+// SCAN & MATCH - Automatically match Azure files to Clio manifest
+// ============================================
+// SINCE PATHS ARE NOW IDENTICAL:
+// - Clio path: "Matters/Smith - Personal Injury/Pleadings/Complaint.docx"
+// - Azure path: "firm-123/Matters/Smith - Personal Injury/Pleadings/Complaint.docx"
+// 
+// We can do EXACT path matching for 100% accuracy!
 // ============================================
 router.post('/scan-and-match', authenticate, async (req, res) => {
   try {
     const firmId = req.user.firmId;
-    const { dryRun = false } = req.body;
+    const { dryRun = false, autoCreateUnmatched = true } = req.body;
     
     console.log(`[SCAN-MATCH] Starting scan-and-match for firm ${firmId} (dryRun: ${dryRun})`);
     
@@ -456,23 +458,6 @@ router.post('/scan-and-match', authenticate, async (req, res) => {
         message: 'Configure Azure Storage in Admin Portal first'
       });
     }
-    
-    // Check if we have a Clio manifest to match against
-    const manifestCheck = await query(
-      `SELECT COUNT(*) as count FROM clio_document_manifest WHERE firm_id = $1`,
-      [firmId]
-    );
-    
-    const manifestCount = parseInt(manifestCheck.rows[0].count);
-    if (manifestCount === 0) {
-      return res.status(400).json({
-        error: 'No Clio manifest found',
-        message: 'First fetch the Clio document manifest via the migration API before running scan-and-match',
-        hint: 'POST /api/migration/clio/documents/manifest'
-      });
-    }
-    
-    console.log(`[SCAN-MATCH] Found ${manifestCount} documents in Clio manifest`);
     
     // Get the share client and scan Azure
     const shareClient = await getShareClient();
@@ -486,274 +471,225 @@ router.post('/scan-and-match', authenticate, async (req, res) => {
       return res.json({
         success: true,
         message: 'No files found in Azure. Copy files from Clio Drive first.',
-        azureFiles: 0,
-        manifestCount
+        azureFiles: 0
       });
     }
     
-    // Load all pending manifest entries
+    // Load ALL manifest entries (not just pending)
     const manifestResult = await query(
       `SELECT id, clio_id, name, clio_path, matter_id, client_id, owner_id,
-              content_type, size, clio_created_at, match_status
+              content_type, size, clio_created_at, clio_updated_at, match_status
        FROM clio_document_manifest 
-       WHERE firm_id = $1 AND match_status IN ('pending', 'missing')
-       ORDER BY name`,
+       WHERE firm_id = $1`,
       [firmId]
     );
     
-    const pendingManifest = manifestResult.rows;
-    console.log(`[SCAN-MATCH] ${pendingManifest.length} pending manifest entries to match`);
+    const allManifest = manifestResult.rows;
+    const hasManifest = allManifest.length > 0;
+    console.log(`[SCAN-MATCH] ${allManifest.length} entries in Clio manifest`);
     
-    // Build lookup maps for efficient matching
-    // Map by exact filename (case-insensitive)
-    const manifestByName = new Map();
-    // Map by filename without extension
-    const manifestByBaseName = new Map();
-    // Map by path components
+    // Build lookup map by EXACT PATH (case-insensitive)
+    // The key is the clio_path (which matches what's in Azure minus the firm prefix)
     const manifestByPath = new Map();
+    for (const doc of allManifest) {
+      if (doc.clio_path) {
+        // Store by lowercase path for case-insensitive matching
+        manifestByPath.set(doc.clio_path.toLowerCase(), doc);
+      }
+    }
     
-    for (const doc of pendingManifest) {
+    // Also build by filename for fallback matching
+    const manifestByName = new Map();
+    for (const doc of allManifest) {
       const nameLower = doc.name.toLowerCase();
-      const baseName = nameLower.replace(/\.[^/.]+$/, ''); // Remove extension
-      
-      // Store by exact name
       if (!manifestByName.has(nameLower)) {
         manifestByName.set(nameLower, []);
       }
       manifestByName.get(nameLower).push(doc);
-      
-      // Store by base name (for fuzzy matching)
-      if (!manifestByBaseName.has(baseName)) {
-        manifestByBaseName.set(baseName, []);
-      }
-      manifestByBaseName.get(baseName).push(doc);
-      
-      // Store by path if available
-      if (doc.clio_path) {
-        const pathLower = doc.clio_path.toLowerCase();
-        manifestByPath.set(pathLower, doc);
-      }
     }
     
-    const results = {
-      scanned: azureFiles.length,
-      matched: 0,
-      imported: 0,
-      unmatched: 0,
-      alreadyImported: 0,
-      errors: [],
-      matches: [] // Details of matches for review
-    };
-    
-    // Pre-load matters for linking
+    // Pre-load matters and clients for fallback matching
     const mattersResult = await query(
       `SELECT id, name, number FROM matters WHERE firm_id = $1`,
       [firmId]
     );
     const matters = mattersResult.rows;
     
-    // Pre-load clients
     const clientsResult = await query(
       `SELECT id, name FROM clients WHERE firm_id = $1`,
       [firmId]
     );
     const clients = clientsResult.rows;
     
-    // Match each Azure file to manifest
+    const results = {
+      scanned: azureFiles.length,
+      matched: 0,
+      imported: 0,
+      unmatchedCreated: 0,
+      alreadyImported: 0,
+      errors: [],
+      matches: []
+    };
+    
+    // Process each Azure file
     for (const azureFile of azureFiles) {
       try {
+        // Get the relative path (remove firm folder prefix)
+        // Azure path: "firm-123/Matters/Smith/file.docx"
+        // Relative path: "Matters/Smith/file.docx" (matches clio_path exactly)
+        const relativePath = azureFile.path.replace(`${firmFolder}/`, '');
+        const relativePathLower = relativePath.toLowerCase();
         const fileNameLower = azureFile.name.toLowerCase();
-        const baseName = fileNameLower.replace(/\.[^/.]+$/, '');
         
         let matchedDoc = null;
         let matchMethod = null;
         let matchConfidence = 0;
         
-        // Strategy 1: Exact filename match (highest confidence)
-        const exactMatches = manifestByName.get(fileNameLower);
-        if (exactMatches && exactMatches.length > 0) {
-          // If multiple matches, try to narrow by path
-          if (exactMatches.length === 1) {
-            matchedDoc = exactMatches[0];
+        // ============================================
+        // STRATEGY 1: EXACT PATH MATCH (100% confidence)
+        // ============================================
+        if (manifestByPath.has(relativePathLower)) {
+          matchedDoc = manifestByPath.get(relativePathLower);
+          matchMethod = 'exact_path';
+          matchConfidence = 100;
+          console.log(`[SCAN-MATCH] EXACT MATCH: ${relativePath}`);
+        }
+        
+        // ============================================
+        // STRATEGY 2: Exact filename match (95% confidence)
+        // ============================================
+        if (!matchedDoc && manifestByName.has(fileNameLower)) {
+          const nameMatches = manifestByName.get(fileNameLower);
+          if (nameMatches.length === 1) {
+            matchedDoc = nameMatches[0];
             matchMethod = 'exact_filename';
             matchConfidence = 95;
           } else {
-            // Multiple files with same name - try to match by folder structure
-            const azureFolder = azureFile.folder.toLowerCase();
-            for (const doc of exactMatches) {
+            // Multiple files with same name - try to match by folder
+            const azureFolder = path.dirname(relativePath).toLowerCase();
+            for (const doc of nameMatches) {
               if (doc.clio_path) {
                 const clioFolder = path.dirname(doc.clio_path).toLowerCase();
-                // Check if folder names have common elements
-                if (azureFolder.includes(clioFolder) || clioFolder.includes(azureFolder)) {
+                if (azureFolder === clioFolder || azureFolder.endsWith(clioFolder) || clioFolder.endsWith(azureFolder)) {
                   matchedDoc = doc;
-                  matchMethod = 'exact_filename_with_path';
-                  matchConfidence = 98;
+                  matchMethod = 'filename_with_folder';
+                  matchConfidence = 90;
                   break;
                 }
               }
             }
-            // If still not matched, take first one with lower confidence
-            if (!matchedDoc) {
-              matchedDoc = exactMatches[0];
-              matchMethod = 'exact_filename_ambiguous';
-              matchConfidence = 75;
-            }
           }
         }
         
-        // Strategy 2: Base name match (without extension)
-        if (!matchedDoc) {
-          const baseMatches = manifestByBaseName.get(baseName);
-          if (baseMatches && baseMatches.length === 1) {
-            matchedDoc = baseMatches[0];
-            matchMethod = 'basename_match';
-            matchConfidence = 85;
-          }
+        // ============================================
+        // STRATEGY 3: Folder-based matter matching (for files not in manifest)
+        // ============================================
+        let matterId = matchedDoc?.matter_id || null;
+        let clientId = matchedDoc?.client_id || null;
+        
+        if (!matterId) {
+          const folderMatch = matchFolderToPermissions(azureFile.folder, matters, clients);
+          matterId = folderMatch.matterId;
+          clientId = folderMatch.clientId;
         }
         
-        // Strategy 3: Fuzzy matching on folder structure
-        if (!matchedDoc) {
-          // Try to match based on matter folder patterns
-          const { matterId, clientId } = matchFolderToPermissions(azureFile.folder, matters, clients);
-          if (matterId) {
-            // Found a matter, look for manifest entries linked to this matter
-            const matterDocs = pendingManifest.filter(d => 
-              d.matter_id === matterId && 
-              d.name.toLowerCase() === fileNameLower
-            );
-            if (matterDocs.length > 0) {
-              matchedDoc = matterDocs[0];
-              matchMethod = 'matter_folder_match';
-              matchConfidence = 90;
-            }
+        // ============================================
+        // CHECK IF DOCUMENT ALREADY EXISTS
+        // ============================================
+        const existingDoc = await query(
+          `SELECT id, matter_id FROM documents WHERE firm_id = $1 AND external_path = $2`,
+          [firmId, azureFile.path]
+        );
+        
+        if (existingDoc.rows.length > 0) {
+          // Document already imported
+          results.alreadyImported++;
+          
+          // Update manifest if we have a match
+          if (matchedDoc && !dryRun) {
+            await query(`
+              UPDATE clio_document_manifest
+              SET match_status = 'imported',
+                  matched_azure_path = $1,
+                  matched_document_id = $2,
+                  match_confidence = $3,
+                  match_method = $4,
+                  updated_at = NOW()
+              WHERE id = $5
+            `, [azureFile.path, existingDoc.rows[0].id, matchConfidence, matchMethod, matchedDoc.id]);
           }
+          
+          // Update matter_id if we found one and doc doesn't have it
+          if (matterId && !existingDoc.rows[0].matter_id && !dryRun) {
+            await query(`UPDATE documents SET matter_id = $1, updated_at = NOW() WHERE id = $2`,
+              [matterId, existingDoc.rows[0].id]);
+          }
+          continue;
         }
         
+        // ============================================
+        // CREATE NEW DOCUMENT RECORD
+        // ============================================
         if (matchedDoc) {
           results.matched++;
           results.matches.push({
-            azureFile: azureFile.path,
-            manifestId: matchedDoc.id,
-            manifestName: matchedDoc.name,
+            azurePath: azureFile.path,
+            clioPath: matchedDoc.clio_path,
             method: matchMethod,
-            confidence: matchConfidence
+            confidence: matchConfidence,
+            matterId: matchedDoc.matter_id
           });
+        }
+        
+        // Create document if not dry run
+        if (!dryRun && (matchedDoc || autoCreateUnmatched)) {
+          const ext = path.extname(azureFile.name).toLowerCase();
+          const mimeType = getFileType(ext);
           
-          if (!dryRun) {
-            // Update manifest with match
+          const docResult = await query(`
+            INSERT INTO documents (
+              firm_id, matter_id, name, original_name, path, folder_path,
+              type, size, external_path, external_etag, external_modified_at,
+              uploaded_by, owner_id, privacy_level, status, storage_location,
+              clio_id, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            RETURNING id
+          `, [
+            firmId,
+            matterId,
+            azureFile.name,
+            matchedDoc?.name || azureFile.name,
+            azureFile.path,
+            azureFile.folder,
+            matchedDoc?.content_type || mimeType,
+            azureFile.size || matchedDoc?.size || 0,
+            azureFile.path,
+            azureFile.etag,
+            azureFile.lastModified,
+            matchedDoc?.owner_id || req.user.id,
+            matchedDoc?.owner_id || req.user.id,
+            matterId ? 'team' : 'firm',
+            'final',
+            'azure',
+            matchedDoc?.clio_id || null,
+            matchedDoc?.clio_created_at || new Date()
+          ]);
+          
+          // Update manifest with document ID if we had a match
+          if (matchedDoc) {
             await query(`
               UPDATE clio_document_manifest
-              SET match_status = 'matched',
+              SET match_status = 'imported',
                   matched_azure_path = $1,
-                  match_confidence = $2,
-                  match_method = $3,
+                  matched_document_id = $2,
+                  match_confidence = $3,
+                  match_method = $4,
                   updated_at = NOW()
-              WHERE id = $4
-            `, [azureFile.path, matchConfidence, matchMethod, matchedDoc.id]);
-            
-            // Check if document already exists
-            const existingDoc = await query(
-              `SELECT id FROM documents WHERE firm_id = $1 AND external_path = $2`,
-              [firmId, azureFile.path]
-            );
-            
-            if (existingDoc.rows.length > 0) {
-              results.alreadyImported++;
-              // Update manifest to point to existing doc
-              await query(`
-                UPDATE clio_document_manifest
-                SET match_status = 'imported',
-                    matched_document_id = $1,
-                    updated_at = NOW()
-                WHERE id = $2
-              `, [existingDoc.rows[0].id, matchedDoc.id]);
-            } else {
-              // Create document record
-              const ext = path.extname(azureFile.name).toLowerCase();
-              const mimeType = getFileType(ext);
-              
-              const docResult = await query(`
-                INSERT INTO documents (
-                  firm_id, matter_id, name, original_name, path, folder_path,
-                  type, size, external_path, external_etag, external_modified_at,
-                  uploaded_by, owner_id, privacy_level, status, storage_location,
-                  clio_id, created_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-                RETURNING id
-              `, [
-                firmId,
-                matchedDoc.matter_id,
-                azureFile.name,
-                matchedDoc.name, // Original name from Clio
-                azureFile.path,
-                azureFile.folder,
-                matchedDoc.content_type || mimeType,
-                azureFile.size || matchedDoc.size,
-                azureFile.path,
-                azureFile.etag,
-                azureFile.lastModified,
-                matchedDoc.owner_id || req.user.id,
-                matchedDoc.owner_id || req.user.id,
-                matchedDoc.matter_id ? 'team' : 'firm',
-                'final',
-                'azure',
-                matchedDoc.clio_id,
-                matchedDoc.clio_created_at || new Date()
-              ]);
-              
-              // Update manifest with document ID
-              await query(`
-                UPDATE clio_document_manifest
-                SET match_status = 'imported',
-                    matched_document_id = $1,
-                    updated_at = NOW()
-                WHERE id = $2
-              `, [docResult.rows[0].id, matchedDoc.id]);
-              
-              results.imported++;
-            }
-          }
-        } else {
-          results.unmatched++;
-          
-          // If not in dry run, create document record anyway (will have no Clio link)
-          if (!dryRun) {
-            const { matterId, clientId } = matchFolderToPermissions(azureFile.folder, matters, clients);
-            const ext = path.extname(azureFile.name).toLowerCase();
-            const mimeType = getFileType(ext);
-            
-            const existingDoc = await query(
-              `SELECT id FROM documents WHERE firm_id = $1 AND external_path = $2`,
-              [firmId, azureFile.path]
-            );
-            
-            if (existingDoc.rows.length === 0) {
-              await query(`
-                INSERT INTO documents (
-                  firm_id, matter_id, name, original_name, path, folder_path,
-                  type, size, external_path, external_etag, external_modified_at,
-                  uploaded_by, owner_id, privacy_level, status, storage_location
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-              `, [
-                firmId,
-                matterId,
-                azureFile.name,
-                azureFile.name,
-                azureFile.path,
-                azureFile.folder,
-                mimeType,
-                azureFile.size,
-                azureFile.path,
-                azureFile.etag,
-                azureFile.lastModified,
-                req.user.id,
-                req.user.id,
-                matterId ? 'team' : 'firm',
-                'final',
-                'azure'
-              ]);
-              results.imported++;
-            }
+              WHERE id = $5
+            `, [azureFile.path, docResult.rows[0].id, matchConfidence, matchMethod, matchedDoc.id]);
+            results.imported++;
+          } else {
+            results.unmatchedCreated++;
           }
         }
         
@@ -763,16 +699,17 @@ router.post('/scan-and-match', authenticate, async (req, res) => {
       }
     }
     
-    console.log(`[SCAN-MATCH] Complete: ${results.matched} matched, ${results.imported} imported, ${results.unmatched} unmatched`);
+    console.log(`[SCAN-MATCH] Complete: ${results.matched} matched, ${results.imported} imported, ${results.unmatchedCreated} unmatched created`);
     
     res.json({
       success: true,
       dryRun,
-      manifestCount,
+      hasManifest,
+      manifestCount: allManifest.length,
       ...results,
       message: dryRun 
-        ? `Dry run complete: Would match ${results.matched} files, import ${results.matched} documents`
-        : `Matched ${results.matched} files to Clio manifest, imported ${results.imported} documents`
+        ? `Dry run complete: Would match ${results.matched} files`
+        : `Matched ${results.matched} files, imported ${results.imported} with Clio metadata, created ${results.unmatchedCreated} without`
     });
     
   } catch (error) {

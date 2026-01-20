@@ -338,60 +338,39 @@ const getDocumentDownloadUrl = getDocumentDownloadInfo;
 
 /**
  * Build folder path for document in Azure File Share
- * Maps Clio structure to Apex structure
+ * PRESERVES EXACT CLIO FOLDER STRUCTURE
  * 
- * APEX FOLDER STRUCTURE:
- * - firm-{firmId}/matter-{matterId}/[subfolders]/filename  (matter documents)
- * - firm-{firmId}/clients/client-{clientId}/filename       (client documents)
- * - firm-{firmId}/documents/Imported/Clio/[path]/filename  (unlinked documents)
+ * The path in Azure will be identical to the path in Clio Drive:
+ * - firm-{firmId}/Matters/Smith - Personal Injury/Pleadings/Complaint.docx
+ * - firm-{firmId}/Clients/Acme Corp/Engagement Letter.pdf
+ * - firm-{firmId}/Templates/NDA.docx
+ * 
+ * The matter/client linking happens via database records, NOT folder structure.
+ * This makes it easy to:
+ * 1. Use robocopy (paths match exactly)
+ * 2. Users see familiar Clio structure
+ * 3. Manifest matching works perfectly (paths match)
  * 
  * @param {object} doc - Document manifest record
  * @param {string} originalFilename - Original filename with extension from Clio
- * @param {string} matterId - Our local matter ID
- * @param {string} clientId - Our local client ID
- * @param {string} clioPath - Original path from Clio
+ * @param {string} matterId - Our local matter ID (used for DB record, not path)
+ * @param {string} clientId - Our local client ID (used for DB record, not path)
+ * @param {string} clioPath - Original path from Clio - THIS IS WHAT WE USE
  * @returns {string} Full path in Azure including filename
  */
 function buildAzurePath(doc, originalFilename, matterId, clientId, clioPath) {
   // Use original filename from Clio to preserve extension
   const filename = originalFilename || doc.name;
   
-  // If linked to matter, put in matter folder (matches Apex structure: firm-X/matter-Y/)
-  if (matterId) {
-    // Preserve subfolder structure from Clio (like Pleadings/, Discovery/, etc.)
-    let subfolder = '';
-    if (clioPath) {
-      const pathParts = clioPath.split('/');
-      // Remove the filename from the path to get just folders
-      // Also remove common Clio root folders like "Matters", "[ClientName] - [MatterName]"
-      if (pathParts.length > 1) {
-        // Skip the first folder if it looks like a Clio matter folder pattern
-        let startIdx = 0;
-        const firstFolder = pathParts[0].toLowerCase();
-        if (firstFolder === 'matters' || firstFolder.includes(' - ')) {
-          startIdx = 1;
-        }
-        const subfolderParts = pathParts.slice(startIdx, -1); // Exclude filename
-        if (subfolderParts.length > 0) {
-          subfolder = '/' + subfolderParts.join('/');
-        }
-      }
-    }
-    // FIXED: Use matter-{id} directly under firm folder (not matters/matter-{id})
-    return `matter-${matterId}${subfolder}/${filename}`;
-  }
-  
-  // If linked to client but not matter, put in client folder
-  if (clientId) {
-    return `clients/client-${clientId}/documents/${filename}`;
-  }
-  
-  // Otherwise, put in imported folder with Clio path structure preserved
+  // PRESERVE EXACT CLIO PATH STRUCTURE
+  // If we have the original Clio path, use it exactly as-is
   if (clioPath) {
-    return `documents/Imported/Clio/${clioPath}`;
+    // clioPath already includes the filename, return as-is
+    return clioPath;
   }
   
-  return `documents/Imported/Clio/${filename}`;
+  // If no Clio path, put in root with just filename
+  return filename;
 }
 
 /**
