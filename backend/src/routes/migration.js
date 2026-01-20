@@ -4830,34 +4830,58 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               
               if (filterByUser && importedClioMatterIds.size > 0) {
                 // USER FILTER ACTIVE: Only get documents for user's matters
-                addLog(`📄 Fetching documents for ${importedClioMatterIds.size} matters (user filter active)...`);
-                console.log(`[CLIO IMPORT] User filter: fetching docs for ${importedClioMatterIds.size} matters`);
                 
-                // Fetch documents by matter ID
-                const matterIdArray = Array.from(importedClioMatterIds);
-                for (let i = 0; i < matterIdArray.length; i += 10) {
-                  const batchIds = matterIdArray.slice(i, i + 10);
+                // If there are many matters (>50), fetch ALL docs at once and filter locally
+                // This is MUCH faster than making 1000+ separate API calls
+                if (importedClioMatterIds.size > 50) {
+                  addLog(`📄 Fetching all documents (will filter to ${importedClioMatterIds.size} matters locally)...`);
+                  console.log(`[CLIO IMPORT] Many matters (${importedClioMatterIds.size}) - fetching all docs and filtering locally`);
                   
-                  for (const matterId of batchIds) {
-                    try {
-                      const matterDocs = await clioGetPaginated(accessToken, '/documents.json', {
-                        fields: 'id,name,filename,parent,matter,created_at,updated_at,content_type,latest_document_version{id,size,filename}',
-                        matter_id: matterId,
-                        order: 'id(asc)'
-                      }, null);
-                      
-                      documentsToProcess.push(...matterDocs);
-                    } catch (err) {
-                      console.log(`[CLIO IMPORT] Could not fetch docs for matter ${matterId}: ${err.message}`);
+                  const allDocs = await clioGetPaginated(accessToken, '/documents.json', {
+                    fields: 'id,name,filename,parent,matter,created_at,updated_at,content_type,latest_document_version{id,size,filename}',
+                    order: 'id(asc)'
+                  }, (count) => {
+                    if (count % 500 === 0) addLog(`📄 Fetched ${count} documents...`);
+                    updateProgress('documents', 'running', count);
+                  });
+                  
+                  // Filter to only documents from user's matters
+                  documentsToProcess = allDocs.filter(doc => {
+                    const docMatterId = doc.matter?.id;
+                    return docMatterId && importedClioMatterIds.has(docMatterId);
+                  });
+                  
+                  addLog(`✅ Found ${allDocs.length} total docs, ${documentsToProcess.length} for user's ${importedClioMatterIds.size} matters`);
+                } else {
+                  // Few matters - fetch per-matter (more targeted)
+                  addLog(`📄 Fetching documents for ${importedClioMatterIds.size} matters...`);
+                  console.log(`[CLIO IMPORT] User filter: fetching docs for ${importedClioMatterIds.size} matters`);
+                  
+                  const matterIdArray = Array.from(importedClioMatterIds);
+                  for (let i = 0; i < matterIdArray.length; i += 10) {
+                    const batchIds = matterIdArray.slice(i, i + 10);
+                    
+                    for (const matterId of batchIds) {
+                      try {
+                        const matterDocs = await clioGetPaginated(accessToken, '/documents.json', {
+                          fields: 'id,name,filename,parent,matter,created_at,updated_at,content_type,latest_document_version{id,size,filename}',
+                          matter_id: matterId,
+                          order: 'id(asc)'
+                        }, null);
+                        
+                        documentsToProcess.push(...matterDocs);
+                      } catch (err) {
+                        console.log(`[CLIO IMPORT] Could not fetch docs for matter ${matterId}: ${err.message}`);
+                      }
+                    }
+                    
+                    if (documentsToProcess.length > 0 && i % 50 === 0) {
+                      addLog(`📄 Found ${documentsToProcess.length} documents so far...`);
                     }
                   }
                   
-                  if (documentsToProcess.length > 0 && i % 50 === 0) {
-                    addLog(`📄 Found ${documentsToProcess.length} documents so far...`);
-                  }
+                  addLog(`✅ Found ${documentsToProcess.length} documents for user's matters`);
                 }
-                
-                addLog(`✅ Found ${documentsToProcess.length} documents for user's matters`);
               } else if (filterByUser && importedClioMatterIds.size === 0) {
                 // USER FILTER ACTIVE but no matter IDs found - fetch all documents
                 addLog('⚠️ User filter active but no Clio matter IDs found in existing matters');
