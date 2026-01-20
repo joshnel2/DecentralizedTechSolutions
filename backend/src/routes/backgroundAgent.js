@@ -51,6 +51,14 @@ router.get('/status', authenticate, async (req, res) => {
       provider: 'amplifier',
       aiProvider: 'azure-openai',
       toolCount,
+      // Runtime configuration
+      runtimeOptions: {
+        defaultMaxIterations: 200,
+        defaultMaxRuntimeMinutes: 180,
+        extendedMaxIterations: 400,
+        extendedMaxRuntimeMinutes: 480,
+        supportsExtendedMode: true
+      },
       // More descriptive message for debugging
       message: available && configured
         ? `Background agent is ready - ${toolCount} tools available for autonomous task execution`
@@ -72,12 +80,23 @@ router.get('/status', authenticate, async (req, res) => {
 /**
  * Start a new background task
  * This begins AUTONOMOUS execution of the task without human intervention
+ * 
+ * Options:
+ * - extended: boolean - Enable extended mode (8 hours, 400 iterations) for complex projects
+ * - maxIterations: number - Override max iterations
+ * - maxRuntimeMinutes: number - Override max runtime in minutes
  */
 router.post('/tasks', authenticate, async (req, res) => {
   try {
-    const { goal, options = {} } = req.body;
+    const { goal, options = {}, extended = false, mode } = req.body;
     
-    console.log(`[BackgroundAgent] Task start request from user ${req.user.id}: ${goal?.substring(0, 100)}`);
+    // Merge extended mode into options
+    const taskOptions = {
+      ...options,
+      extended: extended || mode === 'extended' || mode === 'long'
+    };
+    
+    console.log(`[BackgroundAgent] Task start request from user ${req.user.id}: ${goal?.substring(0, 100)} (extended: ${taskOptions.extended})`);
     
     if (!goal || typeof goal !== 'string' || goal.trim().length === 0) {
       return res.status(400).json({ 
@@ -119,12 +138,12 @@ router.post('/tasks', authenticate, async (req, res) => {
     }
     
     // Start the autonomous task
-    console.log(`[BackgroundAgent] Starting autonomous task for user ${req.user.id}`);
+    console.log(`[BackgroundAgent] Starting autonomous task for user ${req.user.id} (extended: ${taskOptions.extended})`);
     const task = await amplifierService.startTask(
       req.user.id,
       req.user.firmId,
       goal.trim(),
-      options
+      taskOptions
     );
     
     console.log(`[BackgroundAgent] Task ${task.id} started successfully`);

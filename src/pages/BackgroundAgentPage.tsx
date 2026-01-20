@@ -78,6 +78,9 @@ export function BackgroundAgentPage() {
   const [followUpInput, setFollowUpInput] = useState('')
   const [isSendingFollowUp, setIsSendingFollowUp] = useState(false)
   const [followUpError, setFollowUpError] = useState<string | null>(null)
+  
+  // Extended mode for long-running tasks
+  const [extendedMode, setExtendedMode] = useState(false)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -281,18 +284,20 @@ export function BackgroundAgentPage() {
     setIsStarting(true)
     setStartError(null)
     try {
-      const response = await backgroundApi.startBackgroundTask(goal)
+      const response = await backgroundApi.startBackgroundTask(goal, { extended: extendedMode })
       const task = response?.task
       if (task?.id) {
         window.dispatchEvent(new CustomEvent('backgroundTaskStarted', {
           detail: {
             taskId: task.id,
             goal: task.goal || goal,
-            isAmplifier: true
+            isAmplifier: true,
+            extended: extendedMode
           }
         }))
       }
       setGoalInput('')
+      setExtendedMode(false) // Reset after starting
       await fetchActiveTask()
       await fetchRecentTasks()
     } catch (error: any) {
@@ -389,6 +394,17 @@ export function BackgroundAgentPage() {
             onChange={event => setGoalInput(event.target.value)}
             rows={3}
           />
+          <div className={styles.taskOptions}>
+            <label className={styles.extendedMode}>
+              <input
+                type="checkbox"
+                checked={extendedMode}
+                onChange={(e) => setExtendedMode(e.target.checked)}
+              />
+              <span>Extended mode</span>
+              <span className={styles.extendedHint}>(up to 8 hours for complex projects)</span>
+            </label>
+          </div>
           <div className={styles.taskActions}>
             <button
               className={styles.startBtn}
@@ -396,7 +412,7 @@ export function BackgroundAgentPage() {
               disabled={!goalInput.trim() || isStarting || !status?.available}
             >
               {isStarting ? <Loader2 size={16} className={styles.spin} /> : <Rocket size={16} />}
-              Start Task
+              {extendedMode ? 'Start Extended Task' : 'Start Task'}
             </button>
             {!status?.available && (
               <span className={styles.taskHint}>Background agent is not available.</span>

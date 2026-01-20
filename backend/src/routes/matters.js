@@ -3,6 +3,7 @@ import { query, withTransaction } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import { buildVisibilityFilter, canAccessMatter, FULL_ACCESS_ROLES } from '../middleware/matterPermissions.js';
 import { getCurrentYear } from '../utils/dateUtils.js';
+import { learnFromMatter, learnFromNote } from '../services/manualLearning.js';
 
 const router = Router();
 
@@ -347,6 +348,12 @@ router.post('/:id/notes', authenticate, requirePermission('matters:view'), async
       ? `${userResult.rows[0].first_name || ''} ${userResult.rows[0].last_name || ''}`.trim()
       : 'Unknown';
 
+    // Learn from this manual note creation (async, non-blocking)
+    learnFromNote({
+      content: note.content,
+      note_type: note.note_type
+    }, req.params.id, req.user.id, req.user.firmId).catch(() => {});
+    
     res.status(201).json({
       success: true,
       note: {
@@ -533,6 +540,16 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
       [req.user.firmId, req.user.id, result.id, JSON.stringify({ name, number: result.number })]
     );
 
+    // Learn from this manual matter creation (async, non-blocking)
+    learnFromMatter({
+      name: result.name,
+      matter_type: result.type,
+      practice_area: result.practice_area,
+      billing_rate: result.billing_rate,
+      billing_type: result.billing_type,
+      number: result.number
+    }, req.user.id, req.user.firmId).catch(() => {});
+    
     res.status(201).json({
       id: result.id,
       number: result.number,

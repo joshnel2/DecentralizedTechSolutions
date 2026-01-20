@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
+import { learnFromCalendarEvent, learnFromTask } from '../services/manualLearning.js';
 
 const router = Router();
 
@@ -134,6 +135,26 @@ router.post('/', authenticate, requirePermission('calendar:create'), async (req,
     );
 
     const e = result.rows[0];
+    
+    // Learn from this manual calendar event (async, non-blocking)
+    if (e.type === 'task') {
+      learnFromTask({
+        title: e.title,
+        due_date: e.start_time,
+        priority: e.priority,
+        created_at: e.created_at
+      }, req.user.id, req.user.firmId).catch(() => {});
+    } else {
+      learnFromCalendarEvent({
+        title: e.title,
+        type: e.type,
+        location: e.location,
+        start_time: e.start_time,
+        end_time: e.end_time,
+        attendees: e.attendees
+      }, req.user.id, req.user.firmId).catch(() => {});
+    }
+    
     res.status(201).json({
       id: e.id,
       title: e.title,

@@ -10,6 +10,7 @@ import { authenticate, requirePermission } from '../middleware/auth.js';
 import { buildDocumentAccessFilter, canAccessDocument, requireDocumentAccess, FULL_ACCESS_ROLES } from '../middleware/documentAccess.js';
 import mammoth from 'mammoth';
 import { uploadFile, isAzureConfigured, downloadFile } from '../utils/azureStorage.js';
+import { learnFromDocument } from '../services/manualLearning.js';
 
 // Use createRequire for CommonJS modules
 import { createRequire } from 'module';
@@ -840,6 +841,16 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
       })]
     );
 
+    // Learn from this document upload (async, non-blocking)
+    learnFromDocument({
+      name: d.name,
+      original_name: d.original_name,
+      document_type: d.status,
+      category: d.type,
+      folder_path: d.folder_path,
+      folder_id: d.folder_path
+    }, req.user.id, req.user.firmId).catch(() => {});
+    
     res.status(201).json({
       id: d.id,
       name: d.name,

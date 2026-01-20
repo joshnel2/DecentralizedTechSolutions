@@ -881,10 +881,15 @@ export const aiApi = {
   },
 
   // Start a background task
-  async startBackgroundTask(goal: string, options?: Record<string, any>) {
+  // Options: extended (boolean) - enable extended mode for long-running complex tasks
+  async startBackgroundTask(goal: string, options?: { extended?: boolean; [key: string]: any }) {
     return fetchWithAuth('/v1/background-agent/tasks', {
       method: 'POST',
-      body: JSON.stringify({ goal, options }),
+      body: JSON.stringify({ 
+        goal, 
+        extended: options?.extended || false,
+        options 
+      }),
     });
   },
 
