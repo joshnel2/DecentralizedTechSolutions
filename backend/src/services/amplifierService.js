@@ -1391,15 +1391,41 @@ Keep working on: "${this.goal}"`
         if (error.message?.includes('RateLimitReached') || error.message?.includes('rate limit') || rateLimitMatch) {
           const retryAfterMs = rateLimitMatch ? Number.parseInt(rateLimitMatch[1], 10) * 1000 : 30000;
           const safeDelay = Number.isFinite(retryAfterMs) ? Math.max(5000, retryAfterMs) : 30000;
-          this.progress.currentStep = `Rate limited - retrying in ${Math.round(safeDelay / 1000)}s`;
+          const waitSeconds = Math.round(safeDelay / 1000);
+          this.progress.currentStep = `Rate limited - retrying in ${waitSeconds}s`;
           
-          this.streamEvent('rate_limit', `⏳ Rate limited - waiting ${Math.round(safeDelay / 1000)}s before retry...`, {
-            wait_seconds: Math.round(safeDelay / 1000),
+          this.streamEvent('rate_limit', `⏳ Rate limited - waiting ${waitSeconds}s before retry...`, {
+            wait_seconds: waitSeconds,
             icon: 'clock',
             color: 'yellow'
           });
           
-          await sleep(safeDelay);
+          // Send heartbeats during long waits so frontend knows we're still alive
+          const heartbeatInterval = 5000; // Every 5 seconds
+          let waited = 0;
+          while (waited < safeDelay && !this.cancelled) {
+            const waitChunk = Math.min(heartbeatInterval, safeDelay - waited);
+            await sleep(waitChunk);
+            waited += waitChunk;
+            
+            if (waited < safeDelay && !this.cancelled) {
+              const remaining = Math.round((safeDelay - waited) / 1000);
+              this.progress.currentStep = `Rate limited - retrying in ${remaining}s`;
+              this.streamEvent('heartbeat', `⏳ Waiting... ${remaining}s remaining`, {
+                remaining_seconds: remaining,
+                icon: 'clock',
+                color: 'yellow'
+              });
+              this.streamProgress();
+            }
+          }
+          
+          if (!this.cancelled) {
+            this.streamEvent('recovery', `✅ Rate limit cleared, resuming work...`, {
+              icon: 'check-circle',
+              color: 'green'
+            });
+          }
           continue;
         }
         
@@ -1858,6 +1884,12 @@ class AmplifierService {
     console.log('[AmplifierService] Endpoint:', config.endpoint);
     console.log('[AmplifierService] Deployment:', config.deployment);
     console.log('[AmplifierService] Tools available:', tools.length);
+    
+    // Automatically resume any pending tasks after server restart
+    this.resumePendingTasks().catch(err => {
+      console.error('[AmplifierService] Error resuming pending tasks:', err.message);
+    });
+    
     return true;
   }
 
