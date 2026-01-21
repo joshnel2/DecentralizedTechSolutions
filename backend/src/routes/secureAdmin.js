@@ -1699,30 +1699,48 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
               
               // Insert or update document record
               try {
-                await query(`
-                  INSERT INTO documents (
-                    firm_id, matter_id, owner_id, name, original_name, 
-                    path, folder_path, type, size, 
-                    privacy_level, status, storage_location, external_path
-                  ) VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'final', 'azure', $5)
-                  ON CONFLICT (firm_id, path) DO UPDATE SET
-                    matter_id = COALESCE(EXCLUDED.matter_id, documents.matter_id),
-                    owner_id = COALESCE(EXCLUDED.owner_id, documents.owner_id),
-                    size = EXCLUDED.size,
-                    updated_at = NOW()
-                `, [
-                  firmId,
-                  matterId,
-                  ownerId,
-                  item.name,
-                  fullPath,
-                  relativePath,
-                  mimeType,
-                  fileSize,
-                  matterId ? 'team' : 'firm'
-                ]);
-                results.newFilesAdded++;
+                // Check if document already exists
+                const existing = await query(
+                  'SELECT id FROM documents WHERE firm_id = $1 AND path = $2',
+                  [firmId, fullPath]
+                );
+                
+                if (existing.rows.length > 0) {
+                  // Update existing
+                  await query(`
+                    UPDATE documents SET
+                      matter_id = COALESCE($2, matter_id),
+                      owner_id = COALESCE($3, owner_id),
+                      size = $4,
+                      updated_at = NOW()
+                    WHERE id = $1
+                  `, [existing.rows[0].id, matterId, ownerId, fileSize]);
+                  results.newFilesAdded++;
+                } else {
+                  // Insert new document
+                  await query(`
+                    INSERT INTO documents (
+                      firm_id, matter_id, owner_id, name, original_name, 
+                      path, folder_path, type, size, 
+                      privacy_level, status, storage_location, external_path,
+                      uploaded_at
+                    ) VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'final', 'azure', $5, NOW())
+                  `, [
+                    firmId,
+                    matterId,
+                    ownerId,
+                    item.name,
+                    fullPath,
+                    relativePath,
+                    mimeType,
+                    fileSize,
+                    matterId ? 'team' : 'firm'
+                  ]);
+                  results.newFilesAdded++;
+                  console.log(`[DOC SCAN] Added: ${item.name} -> ${fullPath}`);
+                }
               } catch (dbErr) {
+                console.error(`[DOC SCAN] DB Error for ${item.name}:`, dbErr.message);
                 results.errors.push(`${item.name}: ${dbErr.message}`);
               }
               

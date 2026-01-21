@@ -306,6 +306,48 @@ router.post('/extract-text', authenticate, extractUpload.single('file'), async (
  *   3. Documents in matters they have permission to
  *   4. Documents explicitly shared with them
  */
+// List files directly from Azure (bypasses database)
+router.get('/azure-files', authenticate, async (req, res) => {
+  try {
+    const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
+    
+    if (!(await isAzureConfigured())) {
+      return res.json({ error: 'Azure not configured', files: [] });
+    }
+    
+    const shareClient = await getShareClient();
+    const firmFolder = `firm-${req.user.firmId}`;
+    const files = [];
+    
+    const scanDir = async (dirClient, path = '') => {
+      try {
+        for await (const item of dirClient.listFilesAndDirectories()) {
+          const itemPath = path ? `${path}/${item.name}` : item.name;
+          if (item.kind === 'directory') {
+            await scanDir(dirClient.getDirectoryClient(item.name), itemPath);
+          } else {
+            files.push({ name: item.name, path: itemPath, kind: 'file' });
+          }
+          if (files.length >= 100) return; // Limit for safety
+        }
+      } catch (e) {
+        console.log(`Error scanning ${path}:`, e.message);
+      }
+    };
+    
+    await scanDir(shareClient.getDirectoryClient(firmFolder));
+    
+    res.json({ 
+      firmFolder,
+      totalFiles: files.length,
+      files 
+    });
+  } catch (error) {
+    console.error('Azure files error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/', authenticate, requirePermission('documents:view'), async (req, res) => {
   try {
     const { matterId, clientId, search, status, limit = 100, offset = 0 } = req.query;
