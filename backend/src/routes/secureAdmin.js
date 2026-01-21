@@ -1476,6 +1476,71 @@ router.post('/platform-settings/test/:provider', requireSecureAdmin, async (req,
 });
 
 // ============================================
+// ROBOCOPY INFO: Get Azure connection details for migration
+// ============================================
+router.get('/firms/:firmId/robocopy-info', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    
+    // Get Azure config
+    const { getAzureConfig, isAzureConfigured } = await import('../utils/azureStorage.js');
+    
+    if (!(await isAzureConfigured())) {
+      return res.status(400).json({ error: 'Azure Storage not configured' });
+    }
+    
+    const config = await getAzureConfig();
+    const firmFolder = `firm-${firmId}`;
+    
+    // Build the UNC path for Windows
+    const uncPath = `\\\\${config.accountName}.file.core.windows.net\\${config.shareName}\\${firmFolder}`;
+    
+    // Build mount commands
+    const windowsMapCommand = `net use Z: ${uncPath} /user:${config.accountName} [STORAGE_KEY]`;
+    const robocopyCommand = `robocopy "C:\\ClioData" "Z:\\" /MIR /COPYALL /MT:16 /R:2 /W:1 /DCOPY:DAT /LOG:migration.log`;
+    
+    const macMountCommand = `mount_smbfs //${config.accountName}:[STORAGE_KEY]@${config.accountName}.file.core.windows.net/${config.shareName}/${firmFolder} /Volumes/ApexDrive`;
+    
+    res.json({
+      success: true,
+      firmId,
+      firmFolder,
+      azure: {
+        accountName: config.accountName,
+        shareName: config.shareName,
+        uncPath,
+        endpoint: `https://${config.accountName}.file.core.windows.net`
+      },
+      commands: {
+        windowsMapDrive: windowsMapCommand,
+        robocopy: robocopyCommand,
+        robocopyFlags: {
+          '/MIR': 'Mirror directory tree (copies new files, deletes removed ones)',
+          '/COPYALL': 'Copy ALL file info (data, attributes, timestamps, security, owner, auditing)',
+          '/MT:16': 'Multi-threaded copying with 16 threads',
+          '/R:2': 'Retry 2 times on failed copies',
+          '/W:1': 'Wait 1 second between retries',
+          '/DCOPY:DAT': 'Copy directory timestamps and attributes',
+          '/LOG:migration.log': 'Log output to file'
+        },
+        macMount: macMountCommand
+      },
+      instructions: [
+        '1. Get Storage Account Key from Azure Portal or platform admin',
+        '2. Map the drive: Replace [STORAGE_KEY] with your actual key',
+        '3. Run RoboCopy from your Clio Drive folder to the mapped drive',
+        '4. After copy completes, click "Scan Documents" in admin portal',
+        '5. Scan will match files to matters and set permissions'
+      ],
+      note: 'Replace [STORAGE_KEY] with your Azure Storage Account Key from Azure Portal → Storage Account → Access Keys'
+    });
+  } catch (error) {
+    console.error('RoboCopy info error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
 // DEBUG: Check documents in database for a firm
 // ============================================
 router.get('/firms/:firmId/documents-debug', requireSecureAdmin, async (req, res) => {
@@ -1566,34 +1631,71 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
     }
     
     // Function to find matching matter from folder path
+    // Clio structure is typically: ClientName/MatterName/subfolder/file.pdf
     const findMatterForPath = (folderPath) => {
       if (!folderPath) return null;
       
       const pathParts = folderPath.split('/').filter(p => p);
       
-      // Try each folder level
-      for (const part of pathParts) {
+      // Try each folder level (Clio typically has Client/Matter structure)
+      for (let i = 0; i < pathParts.length; i++) {
+        const part = pathParts[i];
         const partLower = part.toLowerCase();
         
-        // Try matter number match
+        // Clean common suffixes/prefixes that Clio might add
+        const cleanPart = partLower
+          .replace(/^\d+[\s\-_]*/g, '') // Remove leading numbers
+          .replace(/[\s\-_]*\d+$/g, '') // Remove trailing numbers
+          .replace(/\s+/g, ' ')
+          .trim();
+        
+        // Try exact matter number match
         if (matterByNumber.has(partLower)) {
           return matterByNumber.get(partLower);
         }
+        if (matterByNumber.has(cleanPart)) {
+          return matterByNumber.get(cleanPart);
+        }
         
-        // Try matter name match
+        // Try exact matter name match
         if (matterByName.has(partLower)) {
           return matterByName.get(partLower);
         }
-        
-        // Try client name match (take first matter for that client)
-        if (matterByClient.has(partLower)) {
-          return matterByClient.get(partLower)[0];
+        if (matterByName.has(cleanPart)) {
+          return matterByName.get(cleanPart);
         }
         
-        // Try partial match on matter name
+        // Try client name match
+        if (matterByClient.has(partLower)) {
+          // If next folder exists, try to find specific matter for this client
+          if (i + 1 < pathParts.length) {
+            const nextPart = pathParts[i + 1].toLowerCase();
+            const clientMatters = matterByClient.get(partLower);
+            for (const cm of clientMatters) {
+              if (cm.name && cm.name.toLowerCase().includes(nextPart)) {
+                return cm;
+              }
+            }
+          }
+          // Otherwise return first matter for client
+          return matterByClient.get(partLower)[0];
+        }
+        if (matterByClient.has(cleanPart)) {
+          return matterByClient.get(cleanPart)[0];
+        }
+        
+        // Try partial match on matter name (fuzzy match)
         for (const [name, matter] of matterByName) {
-          if (partLower.includes(name) || name.includes(partLower)) {
+          // Check if folder contains matter name or vice versa
+          if (cleanPart.length > 3 && (cleanPart.includes(name) || name.includes(cleanPart))) {
             return matter;
+          }
+        }
+        
+        // Try partial match on client name
+        for (const [clientName, clientMatters] of matterByClient) {
+          if (cleanPart.length > 3 && (cleanPart.includes(clientName) || clientName.includes(cleanPart))) {
+            return clientMatters[0];
           }
         }
       }
