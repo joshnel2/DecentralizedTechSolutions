@@ -311,6 +311,9 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
     const { matterId, clientId, search, status, limit = 100, offset = 0 } = req.query;
     const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
     
+    // Debug logging
+    console.log(`[DOCS API] User: ${req.user.email}, Role: ${req.user.role}, FirmId: ${req.user.firmId}, isAdmin: ${isAdmin}`);
+    
     // Build permission-based filter
     const accessFilter = await buildDocumentAccessFilter(
       req.user.id, 
@@ -366,6 +369,9 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
     params.push(parseInt(limit), parseInt(offset));
 
     const result = await query(sql, params);
+    
+    // Debug logging
+    console.log(`[DOCS API] Found ${result.rows.length} documents for firm ${req.user.firmId}`);
 
     res.json({
       documents: result.rows.map(d => ({

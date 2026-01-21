@@ -1482,8 +1482,10 @@ router.post('/platform-settings/test/:provider', requireSecureAdmin, async (req,
 router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res) => {
   try {
     const { firmId } = req.params;
+    const { customFolder } = req.body || {}; // Optional: scan a specific folder instead
     
     console.log(`[DOC SCAN] Starting FULL document scan for firm ${firmId}...`);
+    if (customFolder) console.log(`[DOC SCAN] Using custom folder: ${customFolder}`);
     
     const results = {
       azureScanned: 0,
@@ -1579,9 +1581,48 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
       }
       
       const shareClient = await getShareClient();
-      const firmFolder = `firm-${firmId}`;
       
-      console.log(`[DOC SCAN] Scanning Azure folder: ${firmFolder}`);
+      // Determine which folder to scan
+      // Priority: customFolder > firm-{firmId} > check if files are in root
+      let firmFolder = customFolder || `firm-${firmId}`;
+      let scanRoot = false;
+      
+      // Check if the firm folder exists
+      try {
+        const testDir = shareClient.getDirectoryClient(firmFolder);
+        let hasFiles = false;
+        for await (const item of testDir.listFilesAndDirectories()) {
+          hasFiles = true;
+          break;
+        }
+        if (!hasFiles && !customFolder) {
+          console.log(`[DOC SCAN] Firm folder empty, checking root...`);
+          scanRoot = true;
+        }
+      } catch (e) {
+        if (!customFolder) {
+          console.log(`[DOC SCAN] Firm folder doesn't exist, checking root...`);
+          scanRoot = true;
+        }
+      }
+      
+      // If firm folder is empty/missing, scan root and move files
+      if (scanRoot) {
+        // Check root for files
+        const rootDir = shareClient.getDirectoryClient('');
+        let rootFileCount = 0;
+        for await (const item of rootDir.listFilesAndDirectories()) {
+          if (item.kind === 'file') rootFileCount++;
+          if (rootFileCount >= 5) break;
+        }
+        if (rootFileCount > 0) {
+          console.log(`[DOC SCAN] Found ${rootFileCount}+ files in root. Scanning root instead.`);
+          firmFolder = ''; // Scan root
+        }
+      }
+      
+      console.log(`[DOC SCAN] Scanning Azure folder: ${firmFolder || '(root)'}`);
+      const scanFolderForDb = firmFolder || `firm-${firmId}`; // Use firm folder for DB paths even if scanning root
       
       const mimeTypes = {
         'pdf': 'application/pdf', 'doc': 'application/msword',
@@ -1614,7 +1655,8 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
                 fileSize = props.contentLength || 0;
               } catch (e) { /* ignore */ }
               
-              const fullPath = `${firmFolder}/${itemPath}`;
+              // Use the DB folder path (firm-{id}) even if scanning from root
+              const fullPath = firmFolder ? `${firmFolder}/${itemPath}` : `firm-${firmId}/${itemPath}`;
               const ext = item.name.split('.').pop()?.toLowerCase() || '';
               const mimeType = mimeTypes[ext] || 'application/octet-stream';
               
