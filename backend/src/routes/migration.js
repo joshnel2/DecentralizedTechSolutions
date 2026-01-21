@@ -5223,15 +5223,31 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     // 6. Create document record in database
                     const matterId = doc.matter?.id ? (matterIdMap.get(`clio:${doc.matter.id}`) || null) : null;
                     
+                    // Get the responsible attorney from the matter to set as document owner
+                    // This makes documents appear in "My Documents" for the attorney
+                    let ownerId = null;
+                    if (matterId) {
+                      try {
+                        const matterOwner = await query(
+                          'SELECT responsible_attorney FROM matters WHERE id = $1',
+                          [matterId]
+                        );
+                        if (matterOwner.rows[0]?.responsible_attorney) {
+                          ownerId = matterOwner.rows[0].responsible_attorney;
+                        }
+                      } catch (e) { /* ignore */ }
+                    }
+                    
                     try {
                       await query(`
                         INSERT INTO documents (
                           firm_id, matter_id, name, original_name, path, folder_path,
                           type, size, privacy_level, status, storage_location, external_path,
-                          clio_id, created_at
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                          clio_id, created_at, owner_id
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                         ON CONFLICT (firm_id, path) DO UPDATE SET
                           matter_id = COALESCE(EXCLUDED.matter_id, documents.matter_id),
+                          owner_id = COALESCE(EXCLUDED.owner_id, documents.owner_id),
                           size = EXCLUDED.size,
                           updated_at = NOW()
                       `, [
@@ -5248,7 +5264,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                         'azure',
                         azurePath,
                         doc.id,
-                        doc.created_at || new Date()
+                        doc.created_at || new Date(),
+                        ownerId
                       ]);
                     } catch (dbErr) {
                       console.log(`[CLIO] DB record error (non-fatal): ${dbErr.message}`);
@@ -7515,6 +7532,45 @@ router.get('/documents/permissions-info/:firmId', requireSecureAdmin, async (req
   } catch (error) {
     console.error('Get permissions info error:', error);
     res.status(500).json({ error: 'Failed to get permissions info: ' + error.message });
+  }
+});
+
+// Fix document ownership - set owner_id to matter's responsible attorney
+// Run this after migration to make documents visible in "My Documents" for attorneys
+router.post('/documents/fix-ownership', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.body;
+    
+    if (!firmId) {
+      return res.status(400).json({ error: 'firmId required' });
+    }
+    
+    console.log(`[DOC FIX] Fixing document ownership for firm ${firmId}...`);
+    
+    // Update documents that have matter_id but no owner_id
+    // Set owner_id to the matter's responsible attorney
+    const result = await query(`
+      UPDATE documents d
+      SET owner_id = m.responsible_attorney,
+          updated_at = NOW()
+      FROM matters m
+      WHERE d.matter_id = m.id
+        AND d.firm_id = $1
+        AND d.owner_id IS NULL
+        AND m.responsible_attorney IS NOT NULL
+      RETURNING d.id, d.name, m.responsible_attorney as new_owner
+    `, [firmId]);
+    
+    console.log(`[DOC FIX] Updated ${result.rows.length} documents with owner`);
+    
+    res.json({
+      success: true,
+      documentsFixed: result.rows.length,
+      message: `Set owner for ${result.rows.length} documents based on matter's responsible attorney`
+    });
+  } catch (error) {
+    console.error('Fix ownership error:', error);
+    res.status(500).json({ error: 'Failed to fix ownership: ' + error.message });
   }
 });
 
