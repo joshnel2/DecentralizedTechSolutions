@@ -5198,10 +5198,27 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     await ensureDirectory(fullPath);
                     
                     // 5. Upload to Azure with proper path
+                    // Azure File Share uploadRange has 4MB limit per call
+                    // For larger files, upload in chunks
                     const dirClient = shareClient.getDirectoryClient(fullPath);
                     const fileClient = dirClient.getFileClient(filename);
                     await fileClient.create(fileBuffer.length);
-                    await fileClient.uploadRange(fileBuffer, 0, fileBuffer.length);
+                    
+                    const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB chunks (Azure limit)
+                    if (fileBuffer.length <= CHUNK_SIZE) {
+                      // Small file - upload in one call
+                      await fileClient.uploadRange(fileBuffer, 0, fileBuffer.length);
+                    } else {
+                      // Large file - upload in chunks
+                      let offset = 0;
+                      while (offset < fileBuffer.length) {
+                        const chunkSize = Math.min(CHUNK_SIZE, fileBuffer.length - offset);
+                        const chunk = fileBuffer.slice(offset, offset + chunkSize);
+                        await fileClient.uploadRange(chunk, offset, chunkSize);
+                        offset += chunkSize;
+                      }
+                      console.log(`[CLIO] Large file uploaded in ${Math.ceil(fileBuffer.length / CHUNK_SIZE)} chunks: ${filename}`);
+                    }
                     
                     // 6. Create document record in database
                     const matterId = doc.matter?.id ? (matterIdMap.get(`clio:${doc.matter.id}`) || null) : null;

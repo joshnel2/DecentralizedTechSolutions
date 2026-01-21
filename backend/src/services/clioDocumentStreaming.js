@@ -259,9 +259,25 @@ async function streamFromClioToAzure(downloadUrl, accessToken, shareClient, targ
     const dirClient = dirPath ? shareClient.getDirectoryClient(dirPath) : shareClient.rootDirectoryClient;
     const fileClient = dirClient.getFileClient(fileName);
     
-    // Upload buffer directly to Azure File Share
+    // Upload buffer to Azure File Share
+    // Azure has 4MB limit per uploadRange call, so chunk large files
     await fileClient.create(fileSize);
-    await fileClient.uploadRange(buffer, 0, fileSize);
+    
+    const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB chunks (Azure limit)
+    if (fileSize <= CHUNK_SIZE) {
+      // Small file - upload in one call
+      await fileClient.uploadRange(buffer, 0, fileSize);
+    } else {
+      // Large file - upload in chunks
+      let offset = 0;
+      while (offset < fileSize) {
+        const chunkSize = Math.min(CHUNK_SIZE, fileSize - offset);
+        const chunk = buffer.slice(offset, offset + chunkSize);
+        await fileClient.uploadRange(chunk, offset, chunkSize);
+        offset += chunkSize;
+      }
+      console.log(`[CLIO DOC] Large file uploaded in ${Math.ceil(fileSize / CHUNK_SIZE)} chunks`);
+    }
     
     console.log(`[CLIO DOC] SUCCESS: ${fileSize} bytes -> ${targetPath}`);
     
