@@ -5043,9 +5043,12 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 // Process each document with proper folder structure
                 for (const doc of docs) {
                   // Skip documents without downloadable content (exports, reports, etc.)
-                  if (!doc.latest_document_version) {
+                  // Check for actual version ID AND size - empty versions have no content
+                  const hasDownloadableContent = doc.latest_document_version?.id && 
+                                                  (doc.latest_document_version?.size > 0 || doc.latest_document_version?.filename);
+                  if (!hasDownloadableContent) {
                     documentsSkippedCount++;
-                    console.log(`[CLIO] Skipping ${doc.name}: no downloadable version (export/report)`);
+                    console.log(`[CLIO] Skipping ${doc.name}: no downloadable content (export/report)`);
                     continue;
                   }
                   
