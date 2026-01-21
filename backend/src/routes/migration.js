@@ -6955,32 +6955,55 @@ router.get('/documents/manifest/:firmId', requireSecureAdmin, async (req, res) =
   try {
     const { firmId } = req.params;
     
-    // Get manifest stats
-    const stats = await query(`
+    // Get ACTUAL document counts from documents table (not manifest)
+    const actualStats = await query(`
       SELECT 
         COUNT(*) as total,
-        COUNT(CASE WHEN match_status = 'pending' THEN 1 END) as pending,
-        COUNT(CASE WHEN match_status = 'matched' THEN 1 END) as matched,
-        COUNT(CASE WHEN match_status = 'imported' THEN 1 END) as imported,
-        COUNT(CASE WHEN match_status = 'missing' THEN 1 END) as missing,
-        COUNT(CASE WHEN matter_id IS NOT NULL THEN 1 END) as linked_to_matter
-      FROM clio_document_manifest
+        COUNT(CASE WHEN matter_id IS NOT NULL THEN 1 END) as linked_to_matter,
+        COUNT(CASE WHEN owner_id IS NOT NULL THEN 1 END) as with_owner,
+        COUNT(CASE WHEN storage_location = 'azure' THEN 1 END) as in_azure
+      FROM documents
       WHERE firm_id = $1
     `, [firmId]);
     
-    // Get sample of pending documents
-    const pending = await query(`
-      SELECT clio_id, name, clio_path, content_type, size, matter_id
-      FROM clio_document_manifest
-      WHERE firm_id = $1 AND match_status = 'pending'
-      ORDER BY name
-      LIMIT 50
+    // Also get manifest stats if available
+    let manifestStats = { total: 0, pending: 0, matched: 0, imported: 0 };
+    try {
+      const mStats = await query(`
+        SELECT 
+          COUNT(*) as total,
+          COUNT(CASE WHEN match_status = 'pending' THEN 1 END) as pending,
+          COUNT(CASE WHEN match_status = 'matched' THEN 1 END) as matched,
+          COUNT(CASE WHEN match_status = 'imported' THEN 1 END) as imported
+        FROM clio_document_manifest
+        WHERE firm_id = $1
+      `, [firmId]);
+      manifestStats = mStats.rows[0] || manifestStats;
+    } catch (e) { /* manifest table may not exist */ }
+    
+    // Get recent documents
+    const recent = await query(`
+      SELECT id, name, folder_path, matter_id, owner_id, created_at
+      FROM documents
+      WHERE firm_id = $1
+      ORDER BY created_at DESC
+      LIMIT 20
     `, [firmId]);
     
     res.json({
       success: true,
-      stats: stats.rows[0],
-      pendingSample: pending.rows
+      stats: {
+        total: parseInt(actualStats.rows[0]?.total || 0),
+        linkedToMatter: parseInt(actualStats.rows[0]?.linked_to_matter || 0),
+        withOwner: parseInt(actualStats.rows[0]?.with_owner || 0),
+        inAzure: parseInt(actualStats.rows[0]?.in_azure || 0),
+        // Legacy manifest stats
+        manifestTotal: parseInt(manifestStats.total || 0),
+        manifestPending: parseInt(manifestStats.pending || 0),
+        manifestMatched: parseInt(manifestStats.matched || 0),
+        manifestImported: parseInt(manifestStats.imported || 0)
+      },
+      recentDocuments: recent.rows
     });
   } catch (error) {
     console.error('Get manifest error:', error);
