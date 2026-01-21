@@ -859,22 +859,32 @@ export default function SecureAdminDashboard() {
   const handleScanDocuments = async (firmId: string) => {
     setScanningFirmId(firmId)
     setScanResult(null)
+    console.log('[SCAN] Starting document scan for firm:', firmId)
     try {
       const res = await fetch(`${API_URL}/secure-admin/firms/${firmId}/scan-documents`, {
         method: 'POST',
         headers: getAuthHeaders()
       })
+      console.log('[SCAN] Response status:', res.status)
       const data = await res.json()
-      if (res.ok) {
+      console.log('[SCAN] Response data:', data)
+      if (res.ok && data.success) {
         setScanResult({ firmId, message: data.message, success: true })
         showNotification('success', data.message)
+        // Refresh firm data to show updated counts
+        if (selectedFirmDetail && selectedFirmDetail.id === firmId) {
+          handleViewFirmDetail(selectedFirmDetail)
+        }
       } else {
-        setScanResult({ firmId, message: data.error || 'Scan failed', success: false })
-        showNotification('error', data.error || 'Scan failed')
+        const errorMsg = data.error || data.message || 'Scan failed'
+        setScanResult({ firmId, message: errorMsg, success: false })
+        showNotification('error', errorMsg)
       }
-    } catch (error) {
-      setScanResult({ firmId, message: 'Scan failed', success: false })
-      showNotification('error', 'Failed to scan documents')
+    } catch (error: any) {
+      console.error('[SCAN] Error:', error)
+      const errorMsg = error.message || 'Failed to scan documents'
+      setScanResult({ firmId, message: errorMsg, success: false })
+      showNotification('error', errorMsg)
     } finally {
       setScanningFirmId(null)
     }
@@ -5191,24 +5201,53 @@ bob@example.com, Bob, Wilson, partner"
                   </button>
                 </div>
 
-                {/* Status Cards */}
+                {/* Scan Result Display */}
+                {scanResult && scanResult.firmId === selectedFirmDetail.id && (
+                  <div style={{
+                    marginBottom: '24px',
+                    padding: '20px 24px',
+                    borderRadius: '12px',
+                    background: scanResult.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                    border: `2px solid ${scanResult.success ? '#10B981' : '#EF4444'}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}>
+                    {scanResult.success ? <CheckCircle size={24} color="#10B981" /> : <AlertCircle size={24} color="#EF4444" />}
+                    <span style={{ flex: 1, fontSize: '15px', color: scanResult.success ? '#065F46' : '#991B1B' }}>
+                      {scanResult.message}
+                    </span>
+                    <button 
+                      onClick={() => setScanResult(null)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
+                    >
+                      <X size={18} color="#64748B" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Status Cards - Shows ACTUAL document counts */}
                 {firmManifestStats?.stats && (
                   <div style={{ marginBottom: '32px' }}>
                     <h3 style={{ margin: '0 0 20px 0', color: '#1E293B', fontSize: '18px', fontWeight: 600 }}>
-                      Migration Status
+                      Document Status (Actual)
                     </h3>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
                       <div style={{ background: 'white', border: '1px solid #E2E8F0', padding: '28px', borderRadius: '16px' }}>
                         <div style={{ fontSize: '40px', fontWeight: 700, color: '#3B82F6', marginBottom: '8px' }}>{firmManifestStats.stats.total || 0}</div>
-                        <div style={{ fontSize: '15px', color: '#64748B', fontWeight: 500 }}>Total Documents</div>
+                        <div style={{ fontSize: '15px', color: '#64748B', fontWeight: 500 }}>Total in Database</div>
                       </div>
                       <div style={{ background: 'white', border: '1px solid #E2E8F0', padding: '28px', borderRadius: '16px' }}>
-                        <div style={{ fontSize: '40px', fontWeight: 700, color: '#10B981', marginBottom: '8px' }}>{firmManifestStats.stats.imported || 0}</div>
-                        <div style={{ fontSize: '15px', color: '#64748B', fontWeight: 500 }}>Imported</div>
+                        <div style={{ fontSize: '40px', fontWeight: 700, color: '#10B981', marginBottom: '8px' }}>{firmManifestStats.stats.linkedToMatter || 0}</div>
+                        <div style={{ fontSize: '15px', color: '#64748B', fontWeight: 500 }}>Linked to Matters</div>
                       </div>
                       <div style={{ background: 'white', border: '1px solid #E2E8F0', padding: '28px', borderRadius: '16px' }}>
-                        <div style={{ fontSize: '40px', fontWeight: 700, color: '#F59E0B', marginBottom: '8px' }}>{firmManifestStats.stats.pending || 0}</div>
-                        <div style={{ fontSize: '15px', color: '#64748B', fontWeight: 500 }}>Pending</div>
+                        <div style={{ fontSize: '40px', fontWeight: 700, color: '#8B5CF6', marginBottom: '8px' }}>{firmManifestStats.stats.withOwner || 0}</div>
+                        <div style={{ fontSize: '15px', color: '#64748B', fontWeight: 500 }}>With Attorney</div>
+                      </div>
+                      <div style={{ background: 'white', border: '1px solid #E2E8F0', padding: '28px', borderRadius: '16px' }}>
+                        <div style={{ fontSize: '40px', fontWeight: 700, color: '#F59E0B', marginBottom: '8px' }}>{firmManifestStats.stats.manifestPending || 0}</div>
+                        <div style={{ fontSize: '15px', color: '#64748B', fontWeight: 500 }}>Clio List (Pending)</div>
                       </div>
                     </div>
                   </div>
