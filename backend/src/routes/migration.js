@@ -5089,16 +5089,32 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     const azurePath = `${fullPath}/${filename}`;
                     
                     // 2. Get download URL from Clio (with rate limit retry)
+                    // Use the document version endpoint to get the actual download URL
+                    // The download_url is only available through the document_versions endpoint
                     let versionRes;
+                    let downloadUrl = null;
+                    
+                    // First, check if we have a latest_document_version ID from the listing
+                    const versionId = doc.latest_document_version?.id;
+                    
+                    if (!versionId) {
+                      // No version ID means no downloadable content
+                      documentsSkippedCount++;
+                      console.log(`[CLIO] Skipping ${filename}: no document version available`);
+                      continue;
+                    }
+                    
+                    // Fetch the document version to get the download URL
+                    // The download_url field is only available on the document_versions endpoint
                     for (let retry = 0; retry < 3; retry++) {
                       versionRes = await fetch(
-                        `${CLIO_API_BASE}/documents/${doc.id}.json?fields=latest_document_version{download_url,size,content_type}`,
+                        `${CLIO_API_BASE}/document_versions/${versionId}.json?fields=id,download_url,size,content_type`,
                         { headers: { 'Authorization': `Bearer ${accessToken}` } }
                       );
                       
                       if (versionRes.status === 429) {
                         const waitSec = Math.min(30 * (retry + 1), 90);
-                        console.log(`[CLIO] Rate limited on doc ${doc.id}, retry ${retry + 1}/3 in ${waitSec}s`);
+                        console.log(`[CLIO] Rate limited on doc version ${versionId}, retry ${retry + 1}/3 in ${waitSec}s`);
                         await new Promise(r => setTimeout(r, waitSec * 1000));
                         continue;
                       }
@@ -5109,18 +5125,25 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     // (exports, reports, deleted docs, system files, etc.)
                     if (versionRes.status === 400 || versionRes.status === 404) {
                       documentsSkippedCount++;
-                      console.log(`[CLIO] Skipping ${filename}: not downloadable (${versionRes.status} - export/report/system file)`);
+                      const errBody = await versionRes.text().catch(() => '');
+                      console.log(`[CLIO] Skipping ${filename}: not downloadable (${versionRes.status}) - ${errBody.substring(0, 100)}`);
                       continue;
                     }
                     
                     if (!versionRes.ok) throw new Error(`Failed to get download URL: ${versionRes.status}`);
                     
                     const versionData = await versionRes.json();
-                    const downloadUrl = versionData.data?.latest_document_version?.download_url;
-                    const fileSize = versionData.data?.latest_document_version?.size || 0;
-                    const contentType = versionData.data?.latest_document_version?.content_type || doc.content_type || 'application/octet-stream';
+                    // Extract from document_versions endpoint response
+                    downloadUrl = versionData.data?.download_url;
+                    const fileSize = versionData.data?.size || doc.latest_document_version?.size || 0;
+                    const contentType = versionData.data?.content_type || doc.content_type || 'application/octet-stream';
                     
-                    if (!downloadUrl) throw new Error('No download URL');
+                    if (!downloadUrl) {
+                      // No download URL available - skip this document
+                      documentsSkippedCount++;
+                      console.log(`[CLIO] Skipping ${filename}: no download_url in version response`);
+                      continue;
+                    }
                     
                     // 3. Download file content from Clio
                     const fileRes = await fetch(downloadUrl, {
