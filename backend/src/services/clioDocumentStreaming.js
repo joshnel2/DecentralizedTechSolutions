@@ -279,14 +279,17 @@ async function streamFromClioToAzure(downloadUrl, accessToken, shareClient, targ
 
 /**
  * Legacy function for backward compatibility - uses memory buffer
+ * Uses the official Clio download endpoint with redirect following
  */
 async function streamFromClioToBuffer(downloadUrl, accessToken) {
   console.log(`[CLIO DOC] Streaming from Clio to memory...`);
   
   const response = await fetch(downloadUrl, {
     headers: {
-      'Authorization': `Bearer ${accessToken}`
-    }
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    redirect: 'follow'  // Follow the 303 redirect
   });
   
   if (!response.ok) {

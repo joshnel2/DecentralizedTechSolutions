@@ -4925,7 +4925,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 folderPageNum++;
                 try {
                   const folderRes = await fetch(folderPageUrl, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                    headers: { 
+                      'Authorization': `Bearer ${accessToken}`,
+                      'Content-Type': 'application/json'
+                    }
                   });
                   
                   if (!folderRes.ok) {
@@ -5035,7 +5038,10 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 let pageRes;
                 try {
                   pageRes = await fetch(pageUrl, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                    headers: { 
+                      'Authorization': `Bearer ${accessToken}`,
+                      'Content-Type': 'application/json'
+                    }
                   });
                 } catch (fetchErr) {
                   addLog(`⚠️ Network error on page ${pageNum}: ${fetchErr.message}`);
