@@ -356,8 +356,8 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
     
     console.log(`[DOCS API] User: ${req.user.email}, Role: ${req.user.role}, FirmId: ${firmId}, isAdmin: ${isAdmin}`);
     
-    // For admins, scan Azure directly and merge with database metadata
-    if (isAdmin && source !== 'db-only') {
+    // Scan Azure directly and apply permissions
+    if (source !== 'db-only') {
       try {
         const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
         
@@ -365,6 +365,28 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
           const shareClient = await getShareClient();
           const firmFolder = `firm-${firmId}`;
           const azureFiles = [];
+          
+          // For non-admins, get their accessible matters
+          let accessibleMatterIds = new Set();
+          let accessibleMatterNames = new Set();
+          if (!isAdmin) {
+            const mattersResult = await query(`
+              SELECT DISTINCT m.id, m.name, m.number FROM matters m
+              WHERE m.firm_id = $1 AND m.status != 'archived'
+                AND (
+                  m.visibility = 'firm_wide'
+                  OR m.responsible_attorney = $2
+                  OR m.originating_attorney = $2
+                  OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+                  OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
+                )
+            `, [firmId, req.user.id]);
+            mattersResult.rows.forEach(m => {
+              accessibleMatterIds.add(m.id);
+              if (m.name) accessibleMatterNames.add(m.name.toLowerCase());
+              if (m.number) accessibleMatterNames.add(m.number.toLowerCase());
+            });
+          }
           
           // Scan Azure for all files
           const scanDir = async (dirClient, relativePath = '') => {
@@ -408,7 +430,7 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
                     isFromAzure: true
                   });
                 }
-                if (azureFiles.length >= parseInt(limit)) return;
+                if (azureFiles.length >= 500) return; // Safety limit
               }
             } catch (e) {
               console.log(`[DOCS] Error scanning ${relativePath}:`, e.message);
@@ -417,7 +439,7 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
           
           await scanDir(shareClient.getDirectoryClient(firmFolder));
           
-          // Get any database metadata for these files
+          // Get database metadata for these files
           const dbDocs = await query(`
             SELECT * FROM documents WHERE firm_id = $1
           `, [firmId]);
@@ -425,17 +447,19 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
           const dbDocsByPath = new Map();
           dbDocs.rows.forEach(d => dbDocsByPath.set(d.path, d));
           
-          // Merge Azure files with database metadata
-          const documents = azureFiles.map(af => {
+          // Merge Azure files with database metadata and apply permissions
+          let documents = azureFiles.map(af => {
             const dbDoc = dbDocsByPath.get(af.path);
             if (dbDoc) {
               return {
                 ...af,
                 id: dbDoc.id,
                 matterId: dbDoc.matter_id,
+                matterIdUuid: dbDoc.matter_id,
                 ownerId: dbDoc.owner_id,
                 uploadedBy: dbDoc.uploaded_by,
                 uploadedAt: dbDoc.uploaded_at || af.uploadedAt,
+                privacyLevel: dbDoc.privacy_level,
                 isFromAzure: true,
                 hasDbRecord: true
               };
@@ -443,7 +467,33 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
             return af;
           });
           
-          console.log(`[DOCS API] Found ${documents.length} files in Azure for firm ${firmId}`);
+          // For non-admins, filter by permissions
+          if (!isAdmin) {
+            documents = documents.filter(doc => {
+              // If has DB record, check permissions
+              if (doc.hasDbRecord) {
+                // User uploaded it
+                if (doc.uploadedBy === req.user.id) return true;
+                // User owns it
+                if (doc.ownerId === req.user.id) return true;
+                // Firm-wide document
+                if (doc.privacyLevel === 'firm') return true;
+                // In accessible matter
+                if (doc.matterId && accessibleMatterIds.has(doc.matterId)) return true;
+              }
+              
+              // Check if folder path matches an accessible matter name
+              const folderParts = (doc.folderPath || '').toLowerCase().split('/');
+              for (const part of folderParts) {
+                if (accessibleMatterNames.has(part)) return true;
+              }
+              
+              // No DB record and not in accessible folder - hide from non-admins
+              return false;
+            });
+          }
+          
+          console.log(`[DOCS API] Found ${documents.length} files in Azure for firm ${firmId} (isAdmin: ${isAdmin})`);
           
           return res.json({
             documents: documents.slice(parseInt(offset), parseInt(offset) + parseInt(limit)),
