@@ -1476,6 +1476,35 @@ router.post('/platform-settings/test/:provider', requireSecureAdmin, async (req,
 });
 
 // ============================================
+// DEBUG: Check documents in database for a firm
+// ============================================
+router.get('/firms/:firmId/documents-debug', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    
+    // Direct count - no filters
+    const countResult = await query('SELECT COUNT(*) as count FROM documents WHERE firm_id = $1', [firmId]);
+    
+    // Get sample documents
+    const sampleResult = await query(`
+      SELECT id, name, path, folder_path, matter_id, owner_id, storage_location, status, uploaded_at, created_at
+      FROM documents 
+      WHERE firm_id = $1 
+      ORDER BY uploaded_at DESC NULLS LAST
+      LIMIT 20
+    `, [firmId]);
+    
+    res.json({
+      totalDocuments: parseInt(countResult.rows[0].count),
+      sampleDocuments: sampleResult.rows
+    });
+  } catch (error) {
+    console.error('Documents debug error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
 // SCAN DOCUMENTS - Full scan with matter matching
 // ============================================
 // Scans Azure, creates DB records, matches to matters by folder name, sets permissions
