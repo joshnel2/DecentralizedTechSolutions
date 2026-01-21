@@ -350,17 +350,118 @@ router.get('/azure-files', authenticate, async (req, res) => {
 
 router.get('/', authenticate, requirePermission('documents:view'), async (req, res) => {
   try {
-    const { matterId, clientId, search, status, limit = 100, offset = 0 } = req.query;
+    const { matterId, clientId, search, status, limit = 100, offset = 0, source = 'auto' } = req.query;
     const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
+    const firmId = req.user.firmId;
     
-    // Debug logging
-    console.log(`[DOCS API] User: ${req.user.email}, Role: ${req.user.role}, FirmId: ${req.user.firmId}, isAdmin: ${isAdmin}`);
+    console.log(`[DOCS API] User: ${req.user.email}, Role: ${req.user.role}, FirmId: ${firmId}, isAdmin: ${isAdmin}`);
     
-    // Build permission-based filter
+    // For admins, scan Azure directly and merge with database metadata
+    if (isAdmin && source !== 'db-only') {
+      try {
+        const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
+        
+        if (await isAzureConfigured()) {
+          const shareClient = await getShareClient();
+          const firmFolder = `firm-${firmId}`;
+          const azureFiles = [];
+          
+          // Scan Azure for all files
+          const scanDir = async (dirClient, relativePath = '') => {
+            try {
+              for await (const item of dirClient.listFilesAndDirectories()) {
+                const itemPath = relativePath ? `${relativePath}/${item.name}` : item.name;
+                if (item.kind === 'directory') {
+                  await scanDir(dirClient.getDirectoryClient(item.name), itemPath);
+                } else {
+                  // Apply search filter if provided
+                  if (search && !item.name.toLowerCase().includes(search.toLowerCase())) {
+                    continue;
+                  }
+                  
+                  let fileSize = 0;
+                  try {
+                    const fileClient = dirClient.getFileClient(item.name);
+                    const props = await fileClient.getProperties();
+                    fileSize = props.contentLength || 0;
+                  } catch (e) { /* ignore */ }
+                  
+                  const ext = item.name.split('.').pop()?.toLowerCase() || '';
+                  const mimeTypes = {
+                    'pdf': 'application/pdf', 'doc': 'application/msword',
+                    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'txt': 'text/plain', 'csv': 'text/csv', 'jpg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif'
+                  };
+                  
+                  azureFiles.push({
+                    id: `azure-${Buffer.from(`${firmFolder}/${itemPath}`).toString('base64').substring(0, 32)}`,
+                    name: item.name,
+                    originalName: item.name,
+                    type: mimeTypes[ext] || 'application/octet-stream',
+                    size: fileSize,
+                    path: `${firmFolder}/${itemPath}`,
+                    folderPath: relativePath,
+                    storageLocation: 'azure',
+                    externalPath: `${firmFolder}/${itemPath}`,
+                    uploadedAt: new Date().toISOString(),
+                    isFromAzure: true
+                  });
+                }
+                if (azureFiles.length >= parseInt(limit)) return;
+              }
+            } catch (e) {
+              console.log(`[DOCS] Error scanning ${relativePath}:`, e.message);
+            }
+          };
+          
+          await scanDir(shareClient.getDirectoryClient(firmFolder));
+          
+          // Get any database metadata for these files
+          const dbDocs = await query(`
+            SELECT * FROM documents WHERE firm_id = $1
+          `, [firmId]);
+          
+          const dbDocsByPath = new Map();
+          dbDocs.rows.forEach(d => dbDocsByPath.set(d.path, d));
+          
+          // Merge Azure files with database metadata
+          const documents = azureFiles.map(af => {
+            const dbDoc = dbDocsByPath.get(af.path);
+            if (dbDoc) {
+              return {
+                ...af,
+                id: dbDoc.id,
+                matterId: dbDoc.matter_id,
+                ownerId: dbDoc.owner_id,
+                uploadedBy: dbDoc.uploaded_by,
+                uploadedAt: dbDoc.uploaded_at || af.uploadedAt,
+                isFromAzure: true,
+                hasDbRecord: true
+              };
+            }
+            return af;
+          });
+          
+          console.log(`[DOCS API] Found ${documents.length} files in Azure for firm ${firmId}`);
+          
+          return res.json({
+            documents: documents.slice(parseInt(offset), parseInt(offset) + parseInt(limit)),
+            total: documents.length,
+            isAdmin,
+            source: 'azure'
+          });
+        }
+      } catch (azureErr) {
+        console.log(`[DOCS API] Azure scan failed, falling back to database:`, azureErr.message);
+      }
+    }
+    
+    // Fallback: query database (for non-admins or if Azure fails)
     const accessFilter = await buildDocumentAccessFilter(
       req.user.id, 
       req.user.role, 
-      req.user.firmId, 
+      firmId, 
       'd',
       1
     );
@@ -412,8 +513,7 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
 
     const result = await query(sql, params);
     
-    // Debug logging
-    console.log(`[DOCS API] Found ${result.rows.length} documents for firm ${req.user.firmId}`);
+    console.log(`[DOCS API] Found ${result.rows.length} documents from database for firm ${firmId}`);
 
     res.json({
       documents: result.rows.map(d => ({
@@ -440,8 +540,10 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
         updatedAt: d.updated_at,
         isOwned: d.is_owned,
         privacyLevel: d.privacy_level,
+        storageLocation: d.storage_location,
       })),
       isAdmin,
+      source: 'database',
     });
   } catch (error) {
     console.error('Get documents error:', error);
