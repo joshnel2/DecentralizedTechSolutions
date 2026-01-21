@@ -4778,9 +4778,15 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   addLog(`🔍 Testing download access for: ${testDocWithVersion.name}`);
                   
                   // Try to fetch with download_url field
+                  // IMPORTANT: Include Content-Type header - Clio API requires this
                   const testDownload = await fetch(
                     `${CLIO_API_BASE}/documents/${testDocWithVersion.id}.json?fields=id,name,latest_document_version{id,download_url}`,
-                    { headers: { 'Authorization': `Bearer ${accessToken}` } }
+                    { 
+                      headers: { 
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                      } 
+                    }
                   );
                   
                   const testBody = await testDownload.text();
@@ -5144,9 +5150,15 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     const versionId = doc.latest_document_version?.id;
                     
                     // Approach A: Try document endpoint with download_url field
+                    // IMPORTANT: Include Content-Type header - Clio API requires this
                     let versionRes = await fetch(
                       `${CLIO_API_BASE}/documents/${doc.id}.json?fields=id,name,filename,latest_document_version{id,size,download_url,content_type,filename}`,
-                      { headers: { 'Authorization': `Bearer ${accessToken}` } }
+                      { 
+                        headers: { 
+                          'Authorization': `Bearer ${accessToken}`,
+                          'Content-Type': 'application/json'
+                        } 
+                      }
                     );
                     
                     if (versionRes.status === 429) {
@@ -5155,7 +5167,12 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                       await new Promise(r => setTimeout(r, waitSec * 1000));
                       versionRes = await fetch(
                         `${CLIO_API_BASE}/documents/${doc.id}.json?fields=id,name,filename,latest_document_version{id,size,download_url,content_type,filename}`,
-                        { headers: { 'Authorization': `Bearer ${accessToken}` } }
+                        { 
+                          headers: { 
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                          } 
+                        }
                       );
                     }
                     
@@ -5174,7 +5191,12 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                       console.log(`[CLIO] Trying document_versions endpoint for ${doc.id} (version ${versionId})`);
                       const versionEndpointRes = await fetch(
                         `${CLIO_API_BASE}/document_versions/${versionId}.json?fields=id,download_url,size,content_type`,
-                        { headers: { 'Authorization': `Bearer ${accessToken}` } }
+                        { 
+                          headers: { 
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                          } 
+                        }
                       );
                       
                       if (versionEndpointRes.ok) {
@@ -5206,15 +5228,22 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     }
                     
                     // 3. Download file content from Clio
+                    console.log(`[CLIO] Downloading from: ${downloadUrl.substring(0, 80)}...`);
                     const fileRes = await fetch(downloadUrl, {
                       headers: { 'Authorization': `Bearer ${accessToken}` }
                     });
                     
-                    if (!fileRes.ok) throw new Error(`Download failed: ${fileRes.status}`);
+                    if (!fileRes.ok) {
+                      const errText = await fileRes.text().catch(() => '');
+                      console.log(`[CLIO] Download failed for ${filename}: ${fileRes.status} - ${errText.substring(0, 200)}`);
+                      throw new Error(`Download failed: ${fileRes.status}`);
+                    }
                     
                     const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
+                    // Update fileSize from actual download
+                    fileSize = fileBuffer.length;
                     
-                    if (fileBuffer.length === 0) throw new Error('Empty file');
+                    if (fileBuffer.length === 0) throw new Error('Empty file (0 bytes)');
                     
                     // 4. Ensure directory structure exists in Azure
                     await ensureDirectory(fullPath);
