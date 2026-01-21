@@ -4754,15 +4754,60 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           
           try {
             // ============================================
-            // 0. PRE-FLIGHT CHECK: Verify Clio token can access documents
+            // 0. PRE-FLIGHT CHECK: Verify Clio token can access documents AND download URLs
             // ============================================
             addLog('🔍 Checking Clio document access...');
             try {
-              const testDoc = await clioRequest(accessToken, '/documents.json', { limit: 1 });
-              if (testDoc.data) {
-                console.log(`[CLIO IMPORT] Clio document access OK - found ${testDoc.data.length} test doc(s)`);
-                addLog('✅ Clio document access verified');
+              // Step 1: Test listing documents
+              const testDocList = await clioRequest(accessToken, '/documents.json', { 
+                fields: 'id,name,latest_document_version{id,size}',
+                limit: 5 
+              });
+              
+              if (!testDocList.data || testDocList.data.length === 0) {
+                console.log('[CLIO IMPORT] No documents found in Clio');
+                addLog('ℹ️ No documents found in Clio account');
+              } else {
+                console.log(`[CLIO IMPORT] Found ${testDocList.data.length} test docs`);
+                
+                // Step 2: Try to get download URL for first document with a version
+                const testDocWithVersion = testDocList.data.find(d => d.latest_document_version?.id);
+                
+                if (testDocWithVersion) {
+                  console.log(`[CLIO IMPORT] Testing download URL for doc ${testDocWithVersion.id} (${testDocWithVersion.name})`);
+                  addLog(`🔍 Testing download access for: ${testDocWithVersion.name}`);
+                  
+                  // Try to fetch with download_url field
+                  const testDownload = await fetch(
+                    `${CLIO_API_BASE}/documents/${testDocWithVersion.id}.json?fields=id,name,latest_document_version{id,download_url}`,
+                    { headers: { 'Authorization': `Bearer ${accessToken}` } }
+                  );
+                  
+                  const testBody = await testDownload.text();
+                  console.log(`[CLIO IMPORT] Download URL test response: ${testDownload.status}`);
+                  console.log(`[CLIO IMPORT] Response body: ${testBody.substring(0, 500)}`);
+                  
+                  if (testDownload.ok) {
+                    const testData = JSON.parse(testBody);
+                    const downloadUrl = testData.data?.latest_document_version?.download_url;
+                    if (downloadUrl) {
+                      console.log(`[CLIO IMPORT] ✓ Download URL available: ${downloadUrl.substring(0, 50)}...`);
+                      addLog('✅ Clio document download access verified');
+                    } else {
+                      console.log('[CLIO IMPORT] ⚠️ No download_url in response');
+                      console.log('[CLIO IMPORT] Response data:', JSON.stringify(testData.data, null, 2));
+                      addLog('⚠️ Document found but no download URL - checking API permissions...');
+                    }
+                  } else {
+                    console.log(`[CLIO IMPORT] ⚠️ Download test failed with ${testDownload.status}: ${testBody}`);
+                    addLog(`⚠️ Download test returned ${testDownload.status} - documents may not be downloadable`);
+                  }
+                } else {
+                  console.log('[CLIO IMPORT] No documents with versions found for download test');
+                  addLog('ℹ️ No documents with versions available for testing');
+                }
               }
+              addLog('✅ Clio document access verified');
             } catch (clioErr) {
               console.error('[CLIO IMPORT] Clio document access failed:', clioErr.message);
               addLog(`⚠️ Cannot access Clio documents: ${clioErr.message}`);
