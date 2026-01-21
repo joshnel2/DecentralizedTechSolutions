@@ -4777,36 +4777,32 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   console.log(`[CLIO IMPORT] Testing download URL for doc ${testDocWithVersion.id} (${testDocWithVersion.name})`);
                   addLog(`🔍 Testing download access for: ${testDocWithVersion.name}`);
                   
-                  // Try to fetch with download_url field
-                  // IMPORTANT: Include Content-Type header - Clio API requires this
+                  // Test the official download endpoint: GET /documents/{id}/download.json
+                  // Per Clio API docs, this returns 303 redirect to download URL
                   const testDownload = await fetch(
-                    `${CLIO_API_BASE}/documents/${testDocWithVersion.id}.json?fields=id,name,latest_document_version{id,download_url}`,
+                    `${CLIO_API_BASE}/documents/${testDocWithVersion.id}/download.json`,
                     { 
                       headers: { 
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
-                      } 
+                      },
+                      redirect: 'manual'  // Don't follow redirect, just check if it works
                     }
                   );
                   
-                  const testBody = await testDownload.text();
-                  console.log(`[CLIO IMPORT] Download URL test response: ${testDownload.status}`);
-                  console.log(`[CLIO IMPORT] Response body: ${testBody.substring(0, 500)}`);
+                  console.log(`[CLIO IMPORT] Download endpoint test: ${testDownload.status}`);
                   
-                  if (testDownload.ok) {
-                    const testData = JSON.parse(testBody);
-                    const downloadUrl = testData.data?.latest_document_version?.download_url;
-                    if (downloadUrl) {
-                      console.log(`[CLIO IMPORT] ✓ Download URL available: ${downloadUrl.substring(0, 50)}...`);
-                      addLog('✅ Clio document download access verified');
-                    } else {
-                      console.log('[CLIO IMPORT] ⚠️ No download_url in response');
-                      console.log('[CLIO IMPORT] Response data:', JSON.stringify(testData.data, null, 2));
-                      addLog('⚠️ Document found but no download URL - checking API permissions...');
-                    }
+                  if (testDownload.status === 303) {
+                    const redirectUrl = testDownload.headers.get('location');
+                    console.log(`[CLIO IMPORT] ✓ Got redirect to: ${redirectUrl?.substring(0, 80)}...`);
+                    addLog('✅ Clio document download access verified');
+                  } else if (testDownload.ok) {
+                    console.log(`[CLIO IMPORT] ✓ Download endpoint returned ${testDownload.status}`);
+                    addLog('✅ Clio document download access verified');
                   } else {
-                    console.log(`[CLIO IMPORT] ⚠️ Download test failed with ${testDownload.status}: ${testBody}`);
-                    addLog(`⚠️ Download test returned ${testDownload.status} - documents may not be downloadable`);
+                    const errBody = await testDownload.text().catch(() => '');
+                    console.log(`[CLIO IMPORT] ⚠️ Download test failed: ${testDownload.status} - ${errBody.substring(0, 200)}`);
+                    addLog(`⚠️ Download test returned ${testDownload.status} - check API permissions`);
                   }
                 } else {
                   console.log('[CLIO IMPORT] No documents with versions found for download test');
@@ -5139,111 +5135,58 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     const fullPath = `${firmFolder}/${relativePath}`;
                     const azurePath = `${fullPath}/${filename}`;
                     
-                    // 2. Get download URL from Clio
-                    // Try multiple approaches:
-                    // A) Request document with download_url field
-                    // B) If that fails, try the document_versions endpoint
-                    // C) If that fails, try direct download endpoint
-                    let downloadUrl = null;
+                    // 2. Download document from Clio using official API endpoint
+                    // Per Clio API docs: GET /documents/{id}/download.json returns 303 redirect
+                    // to the actual download URL
                     let fileSize = doc.latest_document_version?.size || 0;
                     let contentType = doc.content_type || 'application/octet-stream';
-                    const versionId = doc.latest_document_version?.id;
                     
-                    // Approach A: Try document endpoint with download_url field
-                    // IMPORTANT: Include Content-Type header - Clio API requires this
-                    let versionRes = await fetch(
-                      `${CLIO_API_BASE}/documents/${doc.id}.json?fields=id,name,filename,latest_document_version{id,size,download_url,content_type,filename}`,
-                      { 
+                    // Use the official Clio document download endpoint
+                    // This returns a 303 redirect to the actual S3 download URL
+                    const downloadEndpoint = `${CLIO_API_BASE}/documents/${doc.id}/download.json`;
+                    
+                    let downloadRes;
+                    for (let retry = 0; retry < 3; retry++) {
+                      downloadRes = await fetch(downloadEndpoint, {
                         headers: { 
                           'Authorization': `Bearer ${accessToken}`,
                           'Content-Type': 'application/json'
-                        } 
-                      }
-                    );
-                    
-                    if (versionRes.status === 429) {
-                      const waitSec = 60;
-                      console.log(`[CLIO] Rate limited on doc ${doc.id}, waiting ${waitSec}s`);
-                      await new Promise(r => setTimeout(r, waitSec * 1000));
-                      versionRes = await fetch(
-                        `${CLIO_API_BASE}/documents/${doc.id}.json?fields=id,name,filename,latest_document_version{id,size,download_url,content_type,filename}`,
-                        { 
-                          headers: { 
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                          } 
-                        }
-                      );
-                    }
-                    
-                    if (versionRes.ok) {
-                      const versionData = await versionRes.json();
-                      downloadUrl = versionData.data?.latest_document_version?.download_url;
-                      fileSize = versionData.data?.latest_document_version?.size || fileSize;
-                      contentType = versionData.data?.latest_document_version?.content_type || contentType;
-                    } else {
-                      const errBody = await versionRes.text().catch(() => '');
-                      console.log(`[CLIO] Document endpoint failed for ${doc.id}: ${versionRes.status} - ${errBody.substring(0, 100)}`);
-                    }
-                    
-                    // Approach B: If no download URL, try document_versions endpoint
-                    if (!downloadUrl && versionId) {
-                      console.log(`[CLIO] Trying document_versions endpoint for ${doc.id} (version ${versionId})`);
-                      const versionEndpointRes = await fetch(
-                        `${CLIO_API_BASE}/document_versions/${versionId}.json?fields=id,download_url,size,content_type`,
-                        { 
-                          headers: { 
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                          } 
-                        }
-                      );
+                        },
+                        redirect: 'follow'  // Follow the 303 redirect automatically
+                      });
                       
-                      if (versionEndpointRes.ok) {
-                        const versionEndpointData = await versionEndpointRes.json();
-                        downloadUrl = versionEndpointData.data?.download_url;
-                        fileSize = versionEndpointData.data?.size || fileSize;
-                        contentType = versionEndpointData.data?.content_type || contentType;
-                        if (downloadUrl) {
-                          console.log(`[CLIO] ✓ Got download URL from document_versions endpoint`);
-                        }
-                      } else {
-                        const errBody = await versionEndpointRes.text().catch(() => '');
-                        console.log(`[CLIO] document_versions endpoint failed: ${versionEndpointRes.status} - ${errBody.substring(0, 100)}`);
+                      if (downloadRes.status === 429) {
+                        const waitSec = Math.min(60 * (retry + 1), 120);
+                        console.log(`[CLIO] Rate limited on doc ${doc.id}, waiting ${waitSec}s`);
+                        await new Promise(r => setTimeout(r, waitSec * 1000));
+                        continue;
                       }
+                      break;
                     }
                     
-                    // Approach C: If still no download URL, try direct download
-                    if (!downloadUrl) {
-                      // Use the document ID with /download suffix as the download URL
-                      // This is a common pattern in REST APIs
-                      downloadUrl = `${CLIO_API_BASE}/documents/${doc.id}/download`;
-                      console.log(`[CLIO] Using direct download endpoint: ${downloadUrl}`);
-                    }
-                    
-                    if (!downloadUrl) {
-                      console.log(`[CLIO] No download method available for doc ${doc.id} (${filename})`);
+                    // Handle errors
+                    if (!downloadRes.ok) {
+                      const errText = await downloadRes.text().catch(() => '');
+                      console.log(`[CLIO] Download failed for ${doc.id} (${filename}): ${downloadRes.status} - ${errText.substring(0, 100)}`);
                       documentsSkippedCount++;
                       continue;
                     }
                     
-                    // 3. Download file content from Clio
-                    console.log(`[CLIO] Downloading from: ${downloadUrl.substring(0, 80)}...`);
-                    const fileRes = await fetch(downloadUrl, {
-                      headers: { 'Authorization': `Bearer ${accessToken}` }
-                    });
-                    
-                    if (!fileRes.ok) {
-                      const errText = await fileRes.text().catch(() => '');
-                      console.log(`[CLIO] Download failed for ${filename}: ${fileRes.status} - ${errText.substring(0, 200)}`);
-                      throw new Error(`Download failed: ${fileRes.status}`);
-                    }
-                    
-                    const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
-                    // Update fileSize from actual download
+                    // 3. Get file content from download response (redirect was followed)
+                    const fileBuffer = Buffer.from(await downloadRes.arrayBuffer());
                     fileSize = fileBuffer.length;
                     
-                    if (fileBuffer.length === 0) throw new Error('Empty file (0 bytes)');
+                    // Get content type from response headers if available
+                    const respContentType = downloadRes.headers.get('content-type');
+                    if (respContentType) {
+                      contentType = respContentType.split(';')[0].trim();
+                    }
+                    
+                    if (fileBuffer.length === 0) {
+                      console.log(`[CLIO] Empty file for ${doc.id} (${filename})`);
+                      documentsSkippedCount++;
+                      continue;
+                    }
                     
                     // 4. Ensure directory structure exists in Azure
                     await ensureDirectory(fullPath);

@@ -215,15 +215,18 @@ async function streamFromClioToAzure(downloadUrl, accessToken, shareClient, targ
   console.log(`[CLIO DOC] Streaming to Azure: ${targetPath}`);
   
   // Fetch from Clio with timeout
+  // The download URL is the /documents/{id}/download.json endpoint which returns 303 redirect
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout
   
   try {
     const response = await fetch(downloadUrl, {
       headers: {
-        'Authorization': `Bearer ${accessToken}`
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
       },
-      signal: controller.signal
+      signal: controller.signal,
+      redirect: 'follow'  // Follow the 303 redirect to the actual file
     });
     
     clearTimeout(timeout);
@@ -301,25 +304,22 @@ async function streamFromClioToBuffer(downloadUrl, accessToken) {
 
 /**
  * Get document download URL and metadata from Clio
- * Extracts original filename with extension for proper storage
+ * Uses the official Clio API download endpoint: GET /documents/{id}/download.json
+ * This returns a 303 redirect to the actual S3 download URL
  */
 async function getDocumentDownloadInfo(accessToken, documentId) {
-  // Get document with latest version info including filename
+  // First get document metadata for filename
   const docData = await clioApiRequest(
     accessToken, 
-    `/documents/${documentId}.json?fields=id,name,filename,latest_document_version{id,size,download_url,content_type,filename}`
+    `/documents/${documentId}.json?fields=id,name,filename,latest_document_version{id,size,content_type,filename}`
   );
   
   const doc = docData.data;
   const latestVersion = doc?.latest_document_version;
   
-  if (!latestVersion?.download_url) {
-    throw new Error(`No download URL available for document ${documentId}`);
-  }
-  
   // Extract original filename with extension
   // Priority: version filename > document filename > document name
-  let originalFilename = latestVersion.filename || doc.filename || doc.name;
+  let originalFilename = latestVersion?.filename || doc.filename || doc.name;
   
   // Ensure we have a filename
   if (!originalFilename) {
@@ -329,10 +329,14 @@ async function getDocumentDownloadInfo(accessToken, documentId) {
   // Clean filename of invalid characters
   originalFilename = originalFilename.replace(/[<>:"/\\|?*]/g, '_');
   
+  // Use the official download endpoint - it returns a 303 redirect
+  // We return the endpoint URL; the caller will follow the redirect
+  const downloadUrl = `${CLIO_API_BASE}/documents/${documentId}/download.json`;
+  
   return {
-    downloadUrl: latestVersion.download_url,
-    size: latestVersion.size,
-    contentType: latestVersion.content_type,
+    downloadUrl,
+    size: latestVersion?.size,
+    contentType: latestVersion?.content_type,
     originalFilename,
     documentName: doc.name
   };
