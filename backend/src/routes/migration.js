@@ -4864,15 +4864,17 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               };
               
               // ============================================
-              // STEP 11a: FETCH ALL FOLDERS FROM CLIO
+              // STEP 11a: FETCH FOLDERS FROM CLIO (OPTIONAL - LIMITED)
               // ============================================
               // Build folder hierarchy to preserve Clio's path structure
-              addLog('📂 Fetching Clio folder structure...');
+              // Limited to avoid rate limit issues - will fall back to matter-based organization
+              addLog('📂 Fetching Clio folder structure (max 5 pages)...');
               const folderById = new Map();
               let folderPageUrl = `${CLIO_API_BASE}/folders.json?fields=id,name,parent,matter&limit=200&order=id(asc)`;
               let folderPageNum = 0;
+              const MAX_FOLDER_PAGES = 5; // Limit to avoid rate limit issues
               
-              while (folderPageUrl) {
+              while (folderPageUrl && folderPageNum < MAX_FOLDER_PAGES) {
                 folderPageNum++;
                 try {
                   const folderRes = await fetch(folderPageUrl, {
@@ -4880,11 +4882,15 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   });
                   
                   if (!folderRes.ok) {
+                    if (folderRes.status === 429) {
+                      addLog(`📂 Rate limited on folders - skipping rest, will organize by matter`);
+                      console.log(`[CLIO] Rate limited on folders, continuing with ${folderById.size} folders`);
+                      break;
+                    }
                     console.log(`[CLIO] Could not fetch folders page ${folderPageNum}: ${folderRes.status}`);
                     break;
                   }
                   
-                  await checkRateLimit(folderRes);
                   const folderData = await folderRes.json();
                   const folders = folderData.data || [];
                   
@@ -4897,17 +4903,26 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     });
                   }
                   
+                  addLog(`📂 Folders page ${folderPageNum}: ${folders.length} folders (total: ${folderById.size})`);
                   console.log(`[CLIO] Folders page ${folderPageNum}: got ${folders.length} (total: ${folderById.size})`);
                   folderPageUrl = folderData.meta?.paging?.next || null;
                   
-                  if (folderPageUrl) await new Promise(r => setTimeout(r, 100));
+                  // Small delay between folder pages
+                  if (folderPageUrl && folderPageNum < MAX_FOLDER_PAGES) {
+                    await new Promise(r => setTimeout(r, 500));
+                  }
                 } catch (e) {
                   console.log(`[CLIO] Error fetching folders: ${e.message}`);
+                  addLog(`📂 Folder fetch error - continuing with matter-based organization`);
                   break;
                 }
               }
               
-              addLog(`📂 Loaded ${folderById.size} folders from Clio`);
+              if (folderPageNum >= MAX_FOLDER_PAGES && folderPageUrl) {
+                addLog(`📂 Loaded ${folderById.size} folders (limited to ${MAX_FOLDER_PAGES} pages to avoid rate limits)`);
+              } else {
+                addLog(`📂 Loaded ${folderById.size} folders from Clio`);
+              }
               
               // Build folder path lookup function
               const buildFolderPath = (folderId, visited = new Set()) => {
@@ -4963,28 +4978,51 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               // Ensure base firm folder exists
               await ensureDirectory(firmFolder);
               
+              addLog(`📄 Starting document fetch and upload...`);
+              
               while (pageUrl) {
                 pageNum++;
                 
-                // Fetch page of documents
-                const pageRes = await fetch(pageUrl, {
-                  headers: { 'Authorization': `Bearer ${accessToken}` }
-                });
+                // Fetch page of documents with rate limit handling
+                let pageRes;
+                try {
+                  pageRes = await fetch(pageUrl, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                  });
+                } catch (fetchErr) {
+                  addLog(`⚠️ Network error on page ${pageNum}: ${fetchErr.message}`);
+                  break;
+                }
+                
+                // Handle rate limiting for document list fetch
+                if (pageRes.status === 429) {
+                  const retryAfter = pageRes.headers.get('retry-after') || '60';
+                  const waitSec = Math.min(parseInt(retryAfter) + 5, 120); // Max 2 min wait
+                  addLog(`⏳ Rate limited - waiting ${waitSec}s before continuing...`);
+                  console.log(`[CLIO] Rate limited on doc page ${pageNum}, waiting ${waitSec}s`);
+                  await new Promise(r => setTimeout(r, waitSec * 1000));
+                  continue; // Retry same page
+                }
                 
                 if (!pageRes.ok) {
                   addLog(`⚠️ Error fetching page ${pageNum}: ${pageRes.status}`);
                   break;
                 }
                 
-                await checkRateLimit(pageRes);
-                
                 const pageData = await pageRes.json();
-                const docs = (pageData.data || []).filter(shouldInclude);
+                const allDocs = pageData.data || [];
+                const docs = allDocs.filter(shouldInclude);
                 pageUrl = pageData.meta?.paging?.next || null;
                 
-                if (docs.length === 0) continue;
+                // Log progress even for skipped pages
+                if (docs.length === 0) {
+                  if (allDocs.length > 0) {
+                    console.log(`[CLIO] Page ${pageNum}: ${allDocs.length} docs found, 0 match filter`);
+                  }
+                  continue;
+                }
                 
-                addLog(`📄 Page ${pageNum}: Processing ${docs.length} documents...`);
+                addLog(`📄 Page ${pageNum}: Uploading ${docs.length} documents...`);
                 
                 // Process each document with proper folder structure
                 for (const doc of docs) {
@@ -5024,14 +5062,24 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     const fullPath = `${firmFolder}/${relativePath}`;
                     const azurePath = `${fullPath}/${filename}`;
                     
-                    // 2. Get download URL from Clio
-                    const versionRes = await fetch(
-                      `${CLIO_API_BASE}/documents/${doc.id}.json?fields=latest_document_version{download_url,size,content_type}`,
-                      { headers: { 'Authorization': `Bearer ${accessToken}` } }
-                    );
+                    // 2. Get download URL from Clio (with rate limit retry)
+                    let versionRes;
+                    for (let retry = 0; retry < 3; retry++) {
+                      versionRes = await fetch(
+                        `${CLIO_API_BASE}/documents/${doc.id}.json?fields=latest_document_version{download_url,size,content_type}`,
+                        { headers: { 'Authorization': `Bearer ${accessToken}` } }
+                      );
+                      
+                      if (versionRes.status === 429) {
+                        const waitSec = Math.min(30 * (retry + 1), 90);
+                        console.log(`[CLIO] Rate limited on doc ${doc.id}, retry ${retry + 1}/3 in ${waitSec}s`);
+                        await new Promise(r => setTimeout(r, waitSec * 1000));
+                        continue;
+                      }
+                      break;
+                    }
                     
                     if (!versionRes.ok) throw new Error(`Failed to get download URL: ${versionRes.status}`);
-                    await checkRateLimit(versionRes);
                     
                     const versionData = await versionRes.json();
                     const downloadUrl = versionData.data?.latest_document_version?.download_url;
@@ -5095,9 +5143,13 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     }
                     
                     documentsStreamedCount++;
-                    if (documentsStreamedCount % 10 === 0 || documentsStreamedCount === 1) {
-                      console.log(`[CLIO] ✓ ${azurePath} (${fileBuffer.length} bytes)`);
-                    }
+                    console.log(`[CLIO] ✓ ${documentsStreamedCount}: ${filename} → ${relativePath}/`);
+                    
+                    // Update progress every file for visibility
+                    updateProgress('documents', 'running', documentsStreamedCount);
+                    
+                    // Small delay between files to avoid hammering APIs
+                    await new Promise(r => setTimeout(r, 200));
                     
                   } catch (err) {
                     documentsFailedCount++;
@@ -5106,9 +5158,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   }
                 }
                 
-                // Progress after each page
-                updateProgress('documents', 'running', documentsStreamedCount);
-                addLog(`📤 ${documentsStreamedCount} uploaded, ${documentsFailedCount} failed`);
+                // Progress summary after each page
+                addLog(`📤 Page ${pageNum}: ${documentsStreamedCount} uploaded, ${documentsFailedCount} failed`);
               }
               
               // Summary
