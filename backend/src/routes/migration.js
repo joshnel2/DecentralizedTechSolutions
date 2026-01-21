@@ -5011,14 +5011,29 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 
                 const pageData = await pageRes.json();
                 const allDocs = pageData.data || [];
-                const docs = allDocs.filter(shouldInclude);
+                
+                // Log filter stats for debugging
+                const docsWithMatter = allDocs.filter(d => d.matter?.id);
+                const docsMatchingFilter = allDocs.filter(shouldInclude);
+                
+                console.log(`[CLIO] Page ${pageNum}: ${allDocs.length} total docs, ${docsWithMatter.length} with matter, ${docsMatchingFilter.length} match filter`);
+                
+                // If user filter is on but NO docs match, include ALL docs from this page
+                // This handles the case where documents aren't directly linked to matters in Clio
+                let docs = docsMatchingFilter;
+                if (filterByUser && docs.length === 0 && allDocs.length > 0) {
+                  // Include all docs - they'll be organized by their Clio folder structure
+                  docs = allDocs;
+                  if (pageNum === 1) {
+                    addLog(`📄 Note: Including all documents (not all are linked to matters in Clio)`);
+                  }
+                }
+                
                 pageUrl = pageData.meta?.paging?.next || null;
                 
                 // Log progress even for skipped pages
                 if (docs.length === 0) {
-                  if (allDocs.length > 0) {
-                    console.log(`[CLIO] Page ${pageNum}: ${allDocs.length} docs found, 0 match filter`);
-                  }
+                  addLog(`📄 Page ${pageNum}: No documents found`);
                   continue;
                 }
                 
