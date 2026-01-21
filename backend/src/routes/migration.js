@@ -4832,8 +4832,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               // 4. Respects Clio's 50 req/min rate limit
               // ============================================
               
-              addLog('📤 Starting direct Clio → Azure streaming...');
-              console.log('[CLIO IMPORT] Direct streaming: Clio → Azure');
+              addLog('📤 Starting direct Clio → Azure streaming WITH folder structure...');
+              console.log('[CLIO IMPORT] Direct streaming: Clio → Azure (preserving Clio folder structure)');
               
               const errorDetails = [];
               let rateLimitRemaining = 50;
@@ -4863,14 +4863,110 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 return doc.matter?.id && importedClioMatterIds.has(doc.matter.id);
               };
               
-              // Paginate through all documents (50 per page to stay well within rate limits)
-              let pageUrl = `${CLIO_API_BASE}/documents.json?fields=id,name,filename,matter,content_type,latest_document_version{id,size,filename}&limit=50&order=id(asc)`;
+              // ============================================
+              // STEP 11a: FETCH ALL FOLDERS FROM CLIO
+              // ============================================
+              // Build folder hierarchy to preserve Clio's path structure
+              addLog('📂 Fetching Clio folder structure...');
+              const folderById = new Map();
+              let folderPageUrl = `${CLIO_API_BASE}/folders.json?fields=id,name,parent,matter&limit=200&order=id(asc)`;
+              let folderPageNum = 0;
+              
+              while (folderPageUrl) {
+                folderPageNum++;
+                try {
+                  const folderRes = await fetch(folderPageUrl, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                  });
+                  
+                  if (!folderRes.ok) {
+                    console.log(`[CLIO] Could not fetch folders page ${folderPageNum}: ${folderRes.status}`);
+                    break;
+                  }
+                  
+                  await checkRateLimit(folderRes);
+                  const folderData = await folderRes.json();
+                  const folders = folderData.data || [];
+                  
+                  for (const f of folders) {
+                    folderById.set(f.id, {
+                      id: f.id,
+                      name: f.name,
+                      parentId: f.parent?.id || null,
+                      matterId: f.matter?.id || null
+                    });
+                  }
+                  
+                  console.log(`[CLIO] Folders page ${folderPageNum}: got ${folders.length} (total: ${folderById.size})`);
+                  folderPageUrl = folderData.meta?.paging?.next || null;
+                  
+                  if (folderPageUrl) await new Promise(r => setTimeout(r, 100));
+                } catch (e) {
+                  console.log(`[CLIO] Error fetching folders: ${e.message}`);
+                  break;
+                }
+              }
+              
+              addLog(`📂 Loaded ${folderById.size} folders from Clio`);
+              
+              // Build folder path lookup function
+              const buildFolderPath = (folderId, visited = new Set()) => {
+                if (!folderId || visited.has(folderId)) return '';
+                visited.add(folderId);
+                
+                const folder = folderById.get(folderId);
+                if (!folder) return '';
+                
+                const parentPath = folder.parentId ? buildFolderPath(folder.parentId, visited) : '';
+                return parentPath ? `${parentPath}/${folder.name}` : folder.name;
+              };
+              
+              // ============================================
+              // STEP 11b: FETCH MATTERS FOR PATH BUILDING
+              // ============================================
+              // Build matter lookup to organize docs by matter
+              const matterNameById = new Map();
+              for (const [key, value] of matterIdMap.entries()) {
+                if (key.startsWith('clio:')) {
+                  const clioId = parseInt(key.replace('clio:', ''));
+                  // Try to find matter name
+                  try {
+                    const m = await query('SELECT number, name FROM matters WHERE id = $1', [value]);
+                    if (m.rows.length > 0) {
+                      const matterInfo = m.rows[0];
+                      // Clean matter name for folder use
+                      const safeName = (matterInfo.number || '') + (matterInfo.name ? ` - ${matterInfo.name}` : '');
+                      matterNameById.set(clioId, safeName.replace(/[<>:"/\\|?*]/g, '_').substring(0, 100));
+                    }
+                  } catch (e) {}
+                }
+              }
+              
+              // ============================================
+              // STEP 11c: STREAM DOCUMENTS WITH FOLDER STRUCTURE
+              // ============================================
+              // Now includes parent field to get folder association
+              let pageUrl = `${CLIO_API_BASE}/documents.json?fields=id,name,filename,parent,matter,content_type,created_at,latest_document_version{id,size,filename,content_type}&limit=50&order=id(asc)`;
               let pageNum = 0;
+              
+              // Import Azure utilities once (reuse azConfig already loaded above)
+              const { getShareClient, ensureDirectory } = await import('../utils/azureStorage.js');
+              const shareClient = await getShareClient();
+              const firmFolder = customFirmFolder || `firm-${firmId}`;
+              
+              // Log Azure storage location
+              console.log(`[AZURE] Storage Account: ${azConfig?.accountName}`);
+              console.log(`[AZURE] File Share: ${azConfig?.shareName}`);
+              console.log(`[AZURE] Base Folder: ${firmFolder}`);
+              addLog(`📁 Uploading to: ${azConfig?.accountName}/${azConfig?.shareName}/${firmFolder}/`);
+              
+              // Ensure base firm folder exists
+              await ensureDirectory(firmFolder);
               
               while (pageUrl) {
                 pageNum++;
                 
-                // Fetch page
+                // Fetch page of documents
                 const pageRes = await fetch(pageUrl, {
                   headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
@@ -4890,12 +4986,45 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 
                 addLog(`📄 Page ${pageNum}: Processing ${docs.length} documents...`);
                 
-                // Process each document: download from Clio → upload to Azure
+                // Process each document with proper folder structure
                 for (const doc of docs) {
-                  const filename = doc.latest_document_version?.filename || doc.filename || doc.name || `doc_${doc.id}`;
+                  const originalFilename = doc.latest_document_version?.filename || doc.filename || doc.name || `doc_${doc.id}`;
+                  // Clean filename for Azure
+                  const filename = originalFilename.replace(/[<>:"/\\|?*]/g, '_');
                   
                   try {
-                    // 1. Get download URL from Clio
+                    // 1. Build the full path preserving Clio structure
+                    let relativePath = '';
+                    
+                    // Option A: Use Clio folder path if document has a parent folder
+                    if (doc.parent?.id) {
+                      const clioFolderPath = buildFolderPath(doc.parent.id);
+                      if (clioFolderPath) {
+                        // Clean path for Azure
+                        relativePath = clioFolderPath.replace(/[<>:"|?*]/g, '_');
+                      }
+                    }
+                    
+                    // Option B: If no folder but has matter, organize by matter
+                    if (!relativePath && doc.matter?.id) {
+                      const matterName = matterNameById.get(doc.matter.id);
+                      if (matterName) {
+                        relativePath = `Matters/${matterName}`;
+                      } else {
+                        relativePath = `Matters/Matter-${doc.matter.id}`;
+                      }
+                    }
+                    
+                    // Option C: Fallback to root Documents folder
+                    if (!relativePath) {
+                      relativePath = 'Documents';
+                    }
+                    
+                    // Full Azure path: firm-{firmId}/{relativePath}/{filename}
+                    const fullPath = `${firmFolder}/${relativePath}`;
+                    const azurePath = `${fullPath}/${filename}`;
+                    
+                    // 2. Get download URL from Clio
                     const versionRes = await fetch(
                       `${CLIO_API_BASE}/documents/${doc.id}.json?fields=latest_document_version{download_url,size,content_type}`,
                       { headers: { 'Authorization': `Bearer ${accessToken}` } }
@@ -4906,10 +5035,12 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     
                     const versionData = await versionRes.json();
                     const downloadUrl = versionData.data?.latest_document_version?.download_url;
+                    const fileSize = versionData.data?.latest_document_version?.size || 0;
+                    const contentType = versionData.data?.latest_document_version?.content_type || doc.content_type || 'application/octet-stream';
                     
                     if (!downloadUrl) throw new Error('No download URL');
                     
-                    // 2. Download file content from Clio
+                    // 3. Download file content from Clio
                     const fileRes = await fetch(downloadUrl, {
                       headers: { 'Authorization': `Bearer ${accessToken}` }
                     });
@@ -4920,32 +5051,53 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     
                     if (fileBuffer.length === 0) throw new Error('Empty file');
                     
-                    // 3. Upload directly to Azure
-                    const { getShareClient, ensureDirectory, getAzureConfig } = await import('../utils/azureStorage.js');
-                    const azConfig = await getAzureConfig();
-                    const shareClient = await getShareClient();
-                    const firmFolder = customFirmFolder || `firm-${firmId}`;
-                    const azurePath = `${firmFolder}/${filename}`;
+                    // 4. Ensure directory structure exists in Azure
+                    await ensureDirectory(fullPath);
                     
-                    // Log exactly where file is going (first file only to avoid spam)
-                    if (documentsStreamedCount === 0) {
-                      console.log(`[AZURE] Storage Account: ${azConfig?.accountName}`);
-                      console.log(`[AZURE] File Share: ${azConfig?.shareName}`);
-                      console.log(`[AZURE] Folder: ${firmFolder}`);
-                      addLog(`📁 Uploading to: ${azConfig?.accountName}/${azConfig?.shareName}/${firmFolder}/`);
-                    }
-                    
-                    // Ensure directory exists
-                    await ensureDirectory(firmFolder);
-                    
-                    // Upload
-                    const dirClient = shareClient.getDirectoryClient(firmFolder);
+                    // 5. Upload to Azure with proper path
+                    const dirClient = shareClient.getDirectoryClient(fullPath);
                     const fileClient = dirClient.getFileClient(filename);
                     await fileClient.create(fileBuffer.length);
                     await fileClient.uploadRange(fileBuffer, 0, fileBuffer.length);
                     
+                    // 6. Create document record in database
+                    const matterId = doc.matter?.id ? (matterIdMap.get(`clio:${doc.matter.id}`) || null) : null;
+                    
+                    try {
+                      await query(`
+                        INSERT INTO documents (
+                          firm_id, matter_id, name, original_name, path, folder_path,
+                          type, size, privacy_level, status, storage_location, external_path,
+                          clio_id, created_at
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                        ON CONFLICT (firm_id, path) DO UPDATE SET
+                          matter_id = COALESCE(EXCLUDED.matter_id, documents.matter_id),
+                          size = EXCLUDED.size,
+                          updated_at = NOW()
+                      `, [
+                        firmId,
+                        matterId,
+                        filename,
+                        originalFilename,
+                        azurePath,
+                        relativePath,
+                        contentType,
+                        fileBuffer.length,
+                        matterId ? 'team' : 'firm',
+                        'final',
+                        'azure',
+                        azurePath,
+                        doc.id,
+                        doc.created_at || new Date()
+                      ]);
+                    } catch (dbErr) {
+                      console.log(`[CLIO] DB record error (non-fatal): ${dbErr.message}`);
+                    }
+                    
                     documentsStreamedCount++;
-                    console.log(`[CLIO] ✓ ${azurePath} (${fileBuffer.length} bytes)`);
+                    if (documentsStreamedCount % 10 === 0 || documentsStreamedCount === 1) {
+                      console.log(`[CLIO] ✓ ${azurePath} (${fileBuffer.length} bytes)`);
+                    }
                     
                   } catch (err) {
                     documentsFailedCount++;
@@ -4966,13 +5118,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               }
               
               addLog(`✅ Complete: ${documentsStreamedCount} uploaded to Azure`);
+              addLog(`📂 Folder structure preserved from Clio`);
               
               // Final status
               updateProgress('documents', 'completed', documentsStreamedCount);
               console.log(`[CLIO IMPORT] Documents complete: ${documentsStreamedCount} streamed, ${documentsFailedCount} failed`);
-              console.log(`[CLIO IMPORT] *** Documents stored in Azure folder: firm-${firmId} ***`);
+              console.log(`[CLIO IMPORT] *** Documents stored in Azure folder: ${firmFolder} with Clio folder structure ***`);
               addLog(`✅ Documents: ${documentsStreamedCount} streamed to Azure, ${documentsFailedCount} failed`);
-              addLog(`📂 Location: Azure File Share → firm-${firmId}/`);
+              addLog(`📂 Location: Azure File Share → ${firmFolder}/ (with Clio folder hierarchy)`);
               
               if (documentsFailedCount > 0) {
                 addLog(`⚠️ ${documentsFailedCount} failed - retry from Firm Documents tab`);
