@@ -5168,19 +5168,40 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     
                   } catch (err) {
                     documentsFailedCount++;
-                    errorDetails.push({ name: filename, error: err.message });
-                    console.log(`[CLIO] ✗ ${filename}: ${err.message}`);
+                    const errorMsg = err.message || String(err);
+                    errorDetails.push({ name: filename, error: errorMsg });
+                    console.log(`[CLIO] ✗ ${filename}: ${errorMsg}`);
+                    
+                    // Show first 3 errors to user for debugging
+                    if (errorDetails.length <= 3) {
+                      addLog(`❌ ${filename}: ${errorMsg.substring(0, 100)}`);
+                    }
                   }
                 }
                 
                 // Progress summary after each page
                 addLog(`📤 Page ${pageNum}: ${documentsStreamedCount} uploaded, ${documentsFailedCount} failed`);
+                
+                // Show sample errors if many failures
+                if (documentsFailedCount > 3 && errorDetails.length > 3) {
+                  const uniqueErrors = [...new Set(errorDetails.map(e => e.error.substring(0, 50)))];
+                  addLog(`⚠️ Common errors: ${uniqueErrors.slice(0, 2).join(', ')}`);
+                }
               }
               
               // Summary
               if (errorDetails.length > 0) {
-                addLog(`⚠️ ${errorDetails.length} failed documents`);
-                errorDetails.slice(0, 5).forEach(e => console.log(`   ${e.name}: ${e.error}`));
+                addLog(`⚠️ ${errorDetails.length} total failed documents`);
+                // Show unique error types
+                const errorTypes = {};
+                errorDetails.forEach(e => {
+                  const key = e.error.substring(0, 60);
+                  errorTypes[key] = (errorTypes[key] || 0) + 1;
+                });
+                Object.entries(errorTypes).slice(0, 3).forEach(([err, count]) => {
+                  addLog(`   ❌ ${count}x: ${err}`);
+                  console.log(`   ${count}x: ${err}`);
+                });
               }
               
               addLog(`✅ Complete: ${documentsStreamedCount} uploaded to Azure`);
