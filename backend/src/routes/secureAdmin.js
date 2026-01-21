@@ -1475,4 +1475,143 @@ router.post('/platform-settings/test/:provider', requireSecureAdmin, async (req,
   }
 });
 
+// ============================================
+// SCAN DOCUMENTS - Fix ownership and permissions
+// ============================================
+// This is the button in the Admin Portal that scans documents
+// and sets proper ownership based on matter assignments
+router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    
+    console.log(`[DOC SCAN] Starting document scan for firm ${firmId}...`);
+    
+    // 1. Fix document ownership - set owner_id to matter's responsible attorney
+    const ownershipResult = await query(`
+      UPDATE documents d
+      SET owner_id = m.responsible_attorney,
+          updated_at = NOW()
+      FROM matters m
+      WHERE d.matter_id = m.id
+        AND d.firm_id = $1
+        AND d.owner_id IS NULL
+        AND m.responsible_attorney IS NOT NULL
+      RETURNING d.id
+    `, [firmId]);
+    
+    const ownershipFixed = ownershipResult.rows.length;
+    console.log(`[DOC SCAN] Set owner for ${ownershipFixed} documents`);
+    
+    // 2. Fix privacy levels - documents with matters get 'team', others get 'firm'
+    const privacyResult = await query(`
+      UPDATE documents
+      SET privacy_level = CASE 
+        WHEN matter_id IS NOT NULL THEN 'team'
+        ELSE 'firm'
+      END,
+      updated_at = NOW()
+      WHERE firm_id = $1
+        AND (privacy_level IS NULL OR privacy_level NOT IN ('team', 'firm', 'private'))
+      RETURNING id
+    `, [firmId]);
+    
+    const privacyFixed = privacyResult.rows.length;
+    console.log(`[DOC SCAN] Fixed privacy for ${privacyFixed} documents`);
+    
+    // 3. Scan Azure for any new files not in database
+    let azureScanned = 0;
+    let azureAdded = 0;
+    try {
+      const { getShareClient, isAzureConfigured } = await import('../utils/azureStorage.js');
+      
+      if (await isAzureConfigured()) {
+        const shareClient = await getShareClient();
+        
+        // Get firm folder name
+        const firmResult = await query('SELECT short_name FROM firms WHERE id = $1', [firmId]);
+        const firmFolder = `firm-${firmId}`;
+        
+        // Scan Azure directory
+        const scanDir = async (dirClient, basePath = '') => {
+          let count = 0;
+          try {
+            for await (const item of dirClient.listFilesAndDirectories()) {
+              const itemPath = basePath ? `${basePath}/${item.name}` : item.name;
+              
+              if (item.kind === 'directory') {
+                const subDir = dirClient.getDirectoryClient(item.name);
+                count += await scanDir(subDir, itemPath);
+              } else {
+                azureScanned++;
+                // Check if file exists in database
+                const exists = await query(
+                  'SELECT id FROM documents WHERE firm_id = $1 AND path = $2',
+                  [firmId, `${firmFolder}/${itemPath}`]
+                );
+                
+                if (exists.rows.length === 0) {
+                  // Add to database
+                  const ext = item.name.split('.').pop()?.toLowerCase() || '';
+                  const mimeTypes = {
+                    'pdf': 'application/pdf', 'doc': 'application/msword',
+                    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'txt': 'text/plain', 'csv': 'text/csv', 'jpg': 'image/jpeg', 'png': 'image/png'
+                  };
+                  
+                  await query(`
+                    INSERT INTO documents (firm_id, name, original_name, path, folder_path, type, privacy_level, status, storage_location)
+                    VALUES ($1, $2, $2, $3, $4, $5, 'firm', 'final', 'azure')
+                    ON CONFLICT (firm_id, path) DO NOTHING
+                  `, [firmId, item.name, `${firmFolder}/${itemPath}`, basePath, mimeTypes[ext] || 'application/octet-stream']);
+                  azureAdded++;
+                }
+              }
+            }
+          } catch (e) {
+            console.log(`[DOC SCAN] Error scanning ${basePath}: ${e.message}`);
+          }
+          return count;
+        };
+        
+        const firmDirClient = shareClient.getDirectoryClient(firmFolder);
+        await scanDir(firmDirClient, '');
+      }
+    } catch (azureErr) {
+      console.log(`[DOC SCAN] Azure scan skipped: ${azureErr.message}`);
+    }
+    
+    // 4. Get final stats
+    const stats = await query(`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(owner_id) as with_owner,
+        COUNT(matter_id) as with_matter
+      FROM documents WHERE firm_id = $1
+    `, [firmId]);
+    
+    const message = `Scan complete: ${ownershipFixed} docs assigned to attorneys, ${privacyFixed} privacy levels fixed, ${azureAdded} new files found in Azure (${azureScanned} scanned). Total: ${stats.rows[0]?.total || 0} documents.`;
+    
+    console.log(`[DOC SCAN] ${message}`);
+    
+    res.json({
+      success: true,
+      message,
+      details: {
+        ownershipFixed,
+        privacyFixed,
+        azureScanned,
+        azureAdded,
+        totalDocuments: parseInt(stats.rows[0]?.total || 0),
+        withOwner: parseInt(stats.rows[0]?.with_owner || 0),
+        withMatter: parseInt(stats.rows[0]?.with_matter || 0)
+      }
+    });
+    
+  } catch (error) {
+    console.error('Document scan error:', error);
+    res.status(500).json({ error: 'Scan failed: ' + error.message });
+  }
+});
+
 export default router;
