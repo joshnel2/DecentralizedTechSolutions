@@ -5105,6 +5105,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                       break;
                     }
                     
+                    // Handle 400/404 errors as "skip" - these are documents that can't be downloaded
+                    // (exports, reports, deleted docs, system files, etc.)
+                    if (versionRes.status === 400 || versionRes.status === 404) {
+                      documentsSkippedCount++;
+                      console.log(`[CLIO] Skipping ${filename}: not downloadable (${versionRes.status} - export/report/system file)`);
+                      continue;
+                    }
+                    
                     if (!versionRes.ok) throw new Error(`Failed to get download URL: ${versionRes.status}`);
                     
                     const versionData = await versionRes.json();
@@ -5191,7 +5199,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 }
                 
                 // Progress summary after each page
-                const skipMsg = documentsSkippedCount > 0 ? `, ${documentsSkippedCount} skipped (no content)` : '';
+                const skipMsg = documentsSkippedCount > 0 ? `, ${documentsSkippedCount} skipped (exports/reports)` : '';
                 addLog(`📤 Page ${pageNum}: ${documentsStreamedCount} uploaded, ${documentsFailedCount} failed${skipMsg}`);
                 
                 // Show sample errors if many failures
@@ -5218,15 +5226,16 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               
               addLog(`✅ Complete: ${documentsStreamedCount} uploaded to Azure`);
               if (documentsSkippedCount > 0) {
-                addLog(`ℹ️ ${documentsSkippedCount} docs skipped (exports/reports without file content)`);
+                addLog(`ℹ️ ${documentsSkippedCount} docs skipped (Clio exports/reports/system files - not downloadable via API)`);
               }
               addLog(`📂 Folder structure preserved from Clio`);
               
               // Final status
               updateProgress('documents', 'completed', documentsStreamedCount);
-              console.log(`[CLIO IMPORT] Documents complete: ${documentsStreamedCount} streamed, ${documentsFailedCount} failed`);
+              const skipLogMsg = documentsSkippedCount > 0 ? `, ${documentsSkippedCount} skipped (not downloadable)` : '';
+              console.log(`[CLIO IMPORT] Documents complete: ${documentsStreamedCount} streamed, ${documentsFailedCount} failed${skipLogMsg}`);
               console.log(`[CLIO IMPORT] *** Documents stored in Azure folder: ${firmFolder} with Clio folder structure ***`);
-              addLog(`✅ Documents: ${documentsStreamedCount} streamed to Azure, ${documentsFailedCount} failed`);
+              addLog(`✅ Documents: ${documentsStreamedCount} streamed to Azure, ${documentsFailedCount} failed${skipLogMsg}`);
               addLog(`📂 Location: Azure File Share → ${firmFolder}/ (with Clio folder hierarchy)`);
               
               if (documentsFailedCount > 0) {

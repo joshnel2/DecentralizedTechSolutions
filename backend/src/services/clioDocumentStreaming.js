@@ -186,6 +186,11 @@ async function clioApiRequest(accessToken, endpoint, retryCount = 0) {
         return clioApiRequest(accessToken, endpoint, retryCount + 1);
       }
       
+      // Handle 400/404 as "document not downloadable" (exports, reports, system files)
+      if (response.status === 400 || response.status === 404) {
+        throw new Error(`Document not downloadable (${response.status}) - may be an export, report, or system file`);
+      }
+      
       throw new Error(`Clio API error: ${response.status} - ${errorText}`);
     }
     
