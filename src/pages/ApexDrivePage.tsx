@@ -41,7 +41,7 @@ export function ApexDrivePage() {
     setLoading(true)
     try {
       // Get document count
-      const docsResult = await documentsApi.getAll({ limit: 1 })
+      const docsResult = await documentsApi.getAll({})
       setStats({
         documentCount: docsResult.total || docsResult.documents?.length || 0,
         userCount: 0,
