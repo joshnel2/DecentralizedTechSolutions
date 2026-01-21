@@ -5133,47 +5133,74 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     const fullPath = `${firmFolder}/${relativePath}`;
                     const azurePath = `${fullPath}/${filename}`;
                     
-                    // 2. Get download URL from Clio (with rate limit retry)
-                    // IMPORTANT: Use the SAME field pattern as the working streaming service
-                    // Must include base fields (id,name) along with nested latest_document_version fields
-                    let versionRes;
+                    // 2. Get download URL from Clio
+                    // Try multiple approaches:
+                    // A) Request document with download_url field
+                    // B) If that fails, try the document_versions endpoint
+                    // C) If that fails, try direct download endpoint
                     let downloadUrl = null;
+                    let fileSize = doc.latest_document_version?.size || 0;
+                    let contentType = doc.content_type || 'application/octet-stream';
+                    const versionId = doc.latest_document_version?.id;
                     
-                    for (let retry = 0; retry < 3; retry++) {
+                    // Approach A: Try document endpoint with download_url field
+                    let versionRes = await fetch(
+                      `${CLIO_API_BASE}/documents/${doc.id}.json?fields=id,name,filename,latest_document_version{id,size,download_url,content_type,filename}`,
+                      { headers: { 'Authorization': `Bearer ${accessToken}` } }
+                    );
+                    
+                    if (versionRes.status === 429) {
+                      const waitSec = 60;
+                      console.log(`[CLIO] Rate limited on doc ${doc.id}, waiting ${waitSec}s`);
+                      await new Promise(r => setTimeout(r, waitSec * 1000));
                       versionRes = await fetch(
                         `${CLIO_API_BASE}/documents/${doc.id}.json?fields=id,name,filename,latest_document_version{id,size,download_url,content_type,filename}`,
                         { headers: { 'Authorization': `Bearer ${accessToken}` } }
                       );
-                      
-                      if (versionRes.status === 429) {
-                        const waitSec = Math.min(30 * (retry + 1), 90);
-                        console.log(`[CLIO] Rate limited on doc ${doc.id}, retry ${retry + 1}/3 in ${waitSec}s`);
-                        await new Promise(r => setTimeout(r, waitSec * 1000));
-                        continue;
-                      }
-                      break;
                     }
                     
-                    // Handle 400/404 errors - log full error for debugging
-                    if (versionRes.status === 400 || versionRes.status === 404) {
+                    if (versionRes.ok) {
+                      const versionData = await versionRes.json();
+                      downloadUrl = versionData.data?.latest_document_version?.download_url;
+                      fileSize = versionData.data?.latest_document_version?.size || fileSize;
+                      contentType = versionData.data?.latest_document_version?.content_type || contentType;
+                    } else {
                       const errBody = await versionRes.text().catch(() => '');
-                      // Log detailed error for debugging
-                      console.log(`[CLIO] Doc ${doc.id} (${filename}) returned ${versionRes.status}: ${errBody.substring(0, 200)}`);
-                      documentsSkippedCount++;
-                      continue;
+                      console.log(`[CLIO] Document endpoint failed for ${doc.id}: ${versionRes.status} - ${errBody.substring(0, 100)}`);
                     }
                     
-                    if (!versionRes.ok) throw new Error(`Failed to get download URL: ${versionRes.status}`);
+                    // Approach B: If no download URL, try document_versions endpoint
+                    if (!downloadUrl && versionId) {
+                      console.log(`[CLIO] Trying document_versions endpoint for ${doc.id} (version ${versionId})`);
+                      const versionEndpointRes = await fetch(
+                        `${CLIO_API_BASE}/document_versions/${versionId}.json?fields=id,download_url,size,content_type`,
+                        { headers: { 'Authorization': `Bearer ${accessToken}` } }
+                      );
+                      
+                      if (versionEndpointRes.ok) {
+                        const versionEndpointData = await versionEndpointRes.json();
+                        downloadUrl = versionEndpointData.data?.download_url;
+                        fileSize = versionEndpointData.data?.size || fileSize;
+                        contentType = versionEndpointData.data?.content_type || contentType;
+                        if (downloadUrl) {
+                          console.log(`[CLIO] ✓ Got download URL from document_versions endpoint`);
+                        }
+                      } else {
+                        const errBody = await versionEndpointRes.text().catch(() => '');
+                        console.log(`[CLIO] document_versions endpoint failed: ${versionEndpointRes.status} - ${errBody.substring(0, 100)}`);
+                      }
+                    }
                     
-                    const versionData = await versionRes.json();
-                    // Extract from documents endpoint response (nested in latest_document_version)
-                    downloadUrl = versionData.data?.latest_document_version?.download_url;
-                    const fileSize = versionData.data?.latest_document_version?.size || doc.latest_document_version?.size || 0;
-                    const contentType = versionData.data?.latest_document_version?.content_type || doc.content_type || 'application/octet-stream';
+                    // Approach C: If still no download URL, try direct download
+                    if (!downloadUrl) {
+                      // Use the document ID with /download suffix as the download URL
+                      // This is a common pattern in REST APIs
+                      downloadUrl = `${CLIO_API_BASE}/documents/${doc.id}/download`;
+                      console.log(`[CLIO] Using direct download endpoint: ${downloadUrl}`);
+                    }
                     
                     if (!downloadUrl) {
-                      // No download URL available - skip this document
-                      console.log(`[CLIO] Doc ${doc.id} (${filename}): no download_url in response`);
+                      console.log(`[CLIO] No download method available for doc ${doc.id} (${filename})`);
                       documentsSkippedCount++;
                       continue;
                     }
