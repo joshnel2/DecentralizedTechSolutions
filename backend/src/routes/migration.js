@@ -4979,6 +4979,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               await ensureDirectory(firmFolder);
               
               addLog(`📄 Starting document fetch and upload...`);
+              let documentsSkippedCount = 0; // Docs without downloadable content
               
               while (pageUrl) {
                 pageNum++;
@@ -5041,6 +5042,13 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 
                 // Process each document with proper folder structure
                 for (const doc of docs) {
+                  // Skip documents without downloadable content (exports, reports, etc.)
+                  if (!doc.latest_document_version) {
+                    documentsSkippedCount++;
+                    console.log(`[CLIO] Skipping ${doc.name}: no downloadable version (export/report)`);
+                    continue;
+                  }
+                  
                   const originalFilename = doc.latest_document_version?.filename || doc.filename || doc.name || `doc_${doc.id}`;
                   // Clean filename for Azure
                   const filename = originalFilename.replace(/[<>:"/\\|?*]/g, '_');
@@ -5180,7 +5188,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 }
                 
                 // Progress summary after each page
-                addLog(`📤 Page ${pageNum}: ${documentsStreamedCount} uploaded, ${documentsFailedCount} failed`);
+                const skipMsg = documentsSkippedCount > 0 ? `, ${documentsSkippedCount} skipped (no content)` : '';
+                addLog(`📤 Page ${pageNum}: ${documentsStreamedCount} uploaded, ${documentsFailedCount} failed${skipMsg}`);
                 
                 // Show sample errors if many failures
                 if (documentsFailedCount > 3 && errorDetails.length > 3) {
@@ -5205,6 +5214,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               }
               
               addLog(`✅ Complete: ${documentsStreamedCount} uploaded to Azure`);
+              if (documentsSkippedCount > 0) {
+                addLog(`ℹ️ ${documentsSkippedCount} docs skipped (exports/reports without file content)`);
+              }
               addLog(`📂 Folder structure preserved from Clio`);
               
               // Final status
