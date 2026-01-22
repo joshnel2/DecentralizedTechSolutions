@@ -1383,525 +1383,258 @@ router.get('/firms/:firmId/documents-debug', requireSecureAdmin, async (req, res
 });
 
 // ============================================
-// SCAN DOCUMENTS - Full scan with matter matching
+// SCAN DOCUMENTS - Simple, scalable document scanner
 // ============================================
-// Scans Azure, creates DB records, matches to matters by folder name, sets permissions
+// How other companies do it:
+// 1. Scan files from storage
+// 2. Match to matters by folder name
+// 3. Create database records
+// 4. Done
 router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res) => {
   try {
     const { firmId } = req.params;
-    const { customFolder } = req.body || {}; // Optional: scan a specific folder instead
     
-    console.log(`[DOC SCAN] Starting FULL document scan for firm ${firmId}...`);
-    if (customFolder) console.log(`[DOC SCAN] Using custom folder: ${customFolder}`);
+    console.log(`[SCAN] Starting document scan for firm ${firmId}`);
     
-    const results = {
-      azureScanned: 0,
-      newFilesAdded: 0,
-      matchedToMatters: 0,
-      ownershipSet: 0,
-      errors: []
-    };
+    // Results tracker
+    const results = { scanned: 0, added: 0, updated: 0, matched: 0, errors: [] };
     
-    // 1. Load all matters for this firm (for matching)
-    const mattersResult = await query(`
-      SELECT m.id, m.number, m.name, m.responsible_attorney, c.display_name as client_name
-      FROM matters m
-      LEFT JOIN clients c ON m.client_id = c.id
-      WHERE m.firm_id = $1
-    `, [firmId]);
-    
-    const matters = mattersResult.rows;
-    console.log(`[DOC SCAN] Loaded ${matters.length} matters for matching`);
-    
-    // Build lookup maps for matching folder names to matters
-    const matterByNumber = new Map();
-    const matterByName = new Map();
-    const matterByClient = new Map();
-    
-    for (const m of matters) {
-      // Match by matter number (e.g., "12345" or "M-12345")
-      if (m.number) {
-        matterByNumber.set(m.number.toLowerCase(), m);
-        // Also try just the numeric part
-        const numMatch = m.number.match(/(\d+)/);
-        if (numMatch) matterByNumber.set(numMatch[1], m);
-      }
-      // Match by matter name
-      if (m.name) {
-        matterByName.set(m.name.toLowerCase(), m);
-        // Also try without common suffixes
-        const cleanName = m.name.replace(/\s*-\s*\d+$/, '').toLowerCase();
-        matterByName.set(cleanName, m);
-      }
-      // Match by client name
-      if (m.client_name) {
-        const clientLower = m.client_name.toLowerCase();
-        if (!matterByClient.has(clientLower)) {
-          matterByClient.set(clientLower, []);
-        }
-        matterByClient.get(clientLower).push(m);
-      }
+    // 1. Check Azure is configured
+    const { getShareClient, isAzureConfigured } = await import('../utils/azureStorage.js');
+    if (!(await isAzureConfigured())) {
+      return res.status(400).json({ error: 'Azure Storage not configured. Go to Platform Settings.' });
     }
     
-    // Function to find matching matter from folder path
-    // Clio structure is typically: ClientName/MatterName/subfolder/file.pdf
-    const findMatterForPath = (folderPath) => {
+    // 2. Load matters once (for matching)
+    const mattersResult = await query(`
+      SELECT id, LOWER(name) as name, LOWER(number) as number, responsible_attorney
+      FROM matters WHERE firm_id = $1
+    `, [firmId]);
+    
+    // Build simple lookup maps - O(1) matching
+    const matterByName = new Map();
+    const matterByNumber = new Map();
+    for (const m of mattersResult.rows) {
+      if (m.name) matterByName.set(m.name, m);
+      if (m.number) matterByNumber.set(m.number, m);
+    }
+    console.log(`[SCAN] Loaded ${mattersResult.rows.length} matters`);
+    
+    // 3. Simple matter matching - just look at folder names
+    const matchMatter = (folderPath) => {
       if (!folderPath) return null;
-      
-      const pathParts = folderPath.split('/').filter(p => p);
-      
-      // Try each folder level (Clio typically has Client/Matter structure)
-      for (let i = 0; i < pathParts.length; i++) {
-        const part = pathParts[i];
-        const partLower = part.toLowerCase();
-        
-        // Clean common suffixes/prefixes that Clio might add
-        const cleanPart = partLower
-          .replace(/^\d+[\s\-_]*/g, '') // Remove leading numbers
-          .replace(/[\s\-_]*\d+$/g, '') // Remove trailing numbers
-          .replace(/\s+/g, ' ')
-          .trim();
-        
-        // Try exact matter number match
-        if (matterByNumber.has(partLower)) {
-          return matterByNumber.get(partLower);
-        }
-        if (matterByNumber.has(cleanPart)) {
-          return matterByNumber.get(cleanPart);
-        }
-        
-        // Try exact matter name match
-        if (matterByName.has(partLower)) {
-          return matterByName.get(partLower);
-        }
-        if (matterByName.has(cleanPart)) {
-          return matterByName.get(cleanPart);
-        }
-        
-        // Try client name match
-        if (matterByClient.has(partLower)) {
-          // If next folder exists, try to find specific matter for this client
-          if (i + 1 < pathParts.length) {
-            const nextPart = pathParts[i + 1].toLowerCase();
-            const clientMatters = matterByClient.get(partLower);
-            for (const cm of clientMatters) {
-              if (cm.name && cm.name.toLowerCase().includes(nextPart)) {
-                return cm;
-              }
-            }
-          }
-          // Otherwise return first matter for client
-          return matterByClient.get(partLower)[0];
-        }
-        if (matterByClient.has(cleanPart)) {
-          return matterByClient.get(cleanPart)[0];
-        }
-        
-        // Try partial match on matter name (fuzzy match)
-        for (const [name, matter] of matterByName) {
-          // Check if folder contains matter name or vice versa
-          if (cleanPart.length > 3 && (cleanPart.includes(name) || name.includes(cleanPart))) {
-            return matter;
-          }
-        }
-        
-        // Try partial match on client name
-        for (const [clientName, clientMatters] of matterByClient) {
-          if (cleanPart.length > 3 && (cleanPart.includes(clientName) || clientName.includes(cleanPart))) {
-            return clientMatters[0];
-          }
+      const parts = folderPath.toLowerCase().split('/').filter(p => p);
+      for (const part of parts) {
+        // Direct match on matter number or name
+        if (matterByNumber.has(part)) return matterByNumber.get(part);
+        if (matterByName.has(part)) return matterByName.get(part);
+        // Handle "ClientName - MatterName" format
+        if (part.includes(' - ')) {
+          const suffix = part.split(' - ').pop().trim();
+          if (matterByName.has(suffix)) return matterByName.get(suffix);
         }
       }
-      
       return null;
     };
     
-    // 2. Scan Azure and create/update database records
-    try {
-      const { getShareClient, isAzureConfigured } = await import('../utils/azureStorage.js');
-      
-      if (!(await isAzureConfigured())) {
-        return res.status(400).json({ error: 'Azure Storage not configured' });
-      }
-      
-      const shareClient = await getShareClient();
-      
-      // Determine which folder to scan
-      // Priority: customFolder > firm-{firmId} > check if files are in root
-      let firmFolder = customFolder || `firm-${firmId}`;
-      let scanRoot = false;
-      
-      // Check if the firm folder exists
+    // 4. Get existing documents to avoid duplicate checks in loop
+    const existingDocs = await query(
+      `SELECT path FROM documents WHERE firm_id = $1`,
+      [firmId]
+    );
+    const existingPaths = new Set(existingDocs.rows.map(d => d.path));
+    console.log(`[SCAN] ${existingPaths.size} documents already in database`);
+    
+    // 5. Scan Azure - simple recursive scan
+    const shareClient = await getShareClient();
+    const firmFolder = `firm-${firmId}`;
+    const filesToInsert = [];
+    
+    const scanDir = async (dirClient, relativePath = '') => {
       try {
-        const testDir = shareClient.getDirectoryClient(firmFolder);
-        let hasFiles = false;
-        for await (const item of testDir.listFilesAndDirectories()) {
-          hasFiles = true;
-          break;
-        }
-        if (!hasFiles && !customFolder) {
-          console.log(`[DOC SCAN] Firm folder empty, checking root...`);
-          scanRoot = true;
-        }
-      } catch (e) {
-        if (!customFolder) {
-          console.log(`[DOC SCAN] Firm folder doesn't exist, checking root...`);
-          scanRoot = true;
-        }
-      }
-      
-      // If firm folder is empty/missing, scan root and move files
-      if (scanRoot) {
-        // Check root for files
-        const rootDir = shareClient.getDirectoryClient('');
-        let rootFileCount = 0;
-        for await (const item of rootDir.listFilesAndDirectories()) {
-          if (item.kind === 'file') rootFileCount++;
-          if (rootFileCount >= 5) break;
-        }
-        if (rootFileCount > 0) {
-          console.log(`[DOC SCAN] Found ${rootFileCount}+ files in root. Scanning root instead.`);
-          firmFolder = ''; // Scan root
-        }
-      }
-      
-      console.log(`[DOC SCAN] Scanning Azure folder: ${firmFolder || '(root)'}`);
-      const scanFolderForDb = firmFolder || `firm-${firmId}`; // Use firm folder for DB paths even if scanning root
-      
-      const mimeTypes = {
-        'pdf': 'application/pdf', 'doc': 'application/msword',
-        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'ppt': 'application/vnd.ms-powerpoint', 'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        'txt': 'text/plain', 'csv': 'text/csv', 'rtf': 'application/rtf',
-        'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif',
-        'zip': 'application/zip', 'msg': 'application/vnd.ms-outlook',
-        'eml': 'message/rfc822', 'html': 'text/html', 'htm': 'text/html'
-      };
-      
-      // Recursive scan function
-      const scanDir = async (dirClient, relativePath = '') => {
-        try {
-          for await (const item of dirClient.listFilesAndDirectories()) {
-            const itemPath = relativePath ? `${relativePath}/${item.name}` : item.name;
+        for await (const item of dirClient.listFilesAndDirectories()) {
+          const itemPath = relativePath ? `${relativePath}/${item.name}` : item.name;
+          
+          if (item.kind === 'directory') {
+            await scanDir(dirClient.getDirectoryClient(item.name), itemPath);
+          } else {
+            results.scanned++;
+            const fullPath = `${firmFolder}/${itemPath}`;
             
-            if (item.kind === 'directory') {
-              const subDir = dirClient.getDirectoryClient(item.name);
-              await scanDir(subDir, itemPath);
-            } else {
-              results.azureScanned++;
-              
-              // Get file properties for size
-              let fileSize = 0;
-              try {
-                const fileClient = dirClient.getFileClient(item.name);
-                const props = await fileClient.getProperties();
-                fileSize = props.contentLength || 0;
-              } catch (e) { /* ignore */ }
-              
-              // Use the DB folder path (firm-{id}) even if scanning from root
-              const fullPath = firmFolder ? `${firmFolder}/${itemPath}` : `firm-${firmId}/${itemPath}`;
-              const ext = item.name.split('.').pop()?.toLowerCase() || '';
-              const mimeType = mimeTypes[ext] || 'application/octet-stream';
-              
-              // Find matching matter
-              const matchedMatter = findMatterForPath(relativePath);
-              const matterId = matchedMatter?.id || null;
-              const ownerId = matchedMatter?.responsible_attorney || null;
-              
-              if (matterId) results.matchedToMatters++;
-              if (ownerId) results.ownershipSet++;
-              
-              // Insert or update document record
-              try {
-                // Check if document already exists
-                const existing = await query(
-                  'SELECT id FROM documents WHERE firm_id = $1 AND path = $2',
-                  [firmId, fullPath]
-                );
-                
-                if (existing.rows.length > 0) {
-                  // Update existing
-                  await query(`
-                    UPDATE documents SET
-                      matter_id = COALESCE($2, matter_id),
-                      owner_id = COALESCE($3, owner_id),
-                      size = $4,
-                      updated_at = NOW()
-                    WHERE id = $1
-                  `, [existing.rows[0].id, matterId, ownerId, fileSize]);
-                  results.newFilesAdded++;
-                } else {
-                  // Insert new document
-                  await query(`
-                    INSERT INTO documents (
-                      firm_id, matter_id, owner_id, name, original_name, 
-                      path, folder_path, type, size, 
-                      privacy_level, status, storage_location, external_path,
-                      uploaded_at
-                    ) VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'final', 'azure', $5, NOW())
-                  `, [
-                    firmId,
-                    matterId,
-                    ownerId,
-                    item.name,
-                    fullPath,
-                    relativePath,
-                    mimeType,
-                    fileSize,
-                    matterId ? 'team' : 'firm'
-                  ]);
-                  results.newFilesAdded++;
-                  console.log(`[DOC SCAN] Added: ${item.name} -> ${fullPath}`);
-                }
-              } catch (dbErr) {
-                console.error(`[DOC SCAN] DB Error for ${item.name}:`, dbErr.message);
-                results.errors.push(`${item.name}: ${dbErr.message}`);
-              }
-              
-              // Progress log every 100 files
-              if (results.azureScanned % 100 === 0) {
-                console.log(`[DOC SCAN] Progress: ${results.azureScanned} files scanned, ${results.matchedToMatters} matched`);
-              }
+            // Skip if already exists
+            if (existingPaths.has(fullPath)) {
+              results.updated++;
+              continue;
+            }
+            
+            // Get file size
+            let size = 0;
+            try {
+              const props = await dirClient.getFileClient(item.name).getProperties();
+              size = props.contentLength || 0;
+            } catch (e) { /* ignore */ }
+            
+            // Match to matter
+            const matter = matchMatter(relativePath);
+            if (matter) results.matched++;
+            
+            // Queue for insert
+            filesToInsert.push({
+              name: item.name,
+              path: fullPath,
+              folder: relativePath,
+              size,
+              matterId: matter?.id || null,
+              ownerId: matter?.responsible_attorney || null
+            });
+            
+            // Progress log
+            if (results.scanned % 100 === 0) {
+              console.log(`[SCAN] Progress: ${results.scanned} scanned, ${filesToInsert.length} to add`);
             }
           }
-        } catch (err) {
-          console.log(`[DOC SCAN] Error scanning ${relativePath}: ${err.message}`);
-          results.errors.push(`Folder ${relativePath}: ${err.message}`);
         }
-      };
-      
-      const firmDirClient = shareClient.getDirectoryClient(firmFolder);
-      await scanDir(firmDirClient, '');
-      
-    } catch (azureErr) {
-      console.error('[DOC SCAN] Azure error:', azureErr);
-      return res.status(500).json({ error: 'Azure scan failed: ' + azureErr.message });
+      } catch (err) {
+        results.errors.push(`${relativePath}: ${err.message}`);
+      }
+    };
+    
+    // Start scan
+    try {
+      await scanDir(shareClient.getDirectoryClient(firmFolder), '');
+    } catch (e) {
+      console.log(`[SCAN] Firm folder may not exist: ${e.message}`);
     }
     
-    // 3. Also fix any existing documents that are missing ownership
-    const fixResult = await query(`
-      UPDATE documents d
-      SET owner_id = m.responsible_attorney,
-          privacy_level = 'team',
-          updated_at = NOW()
+    console.log(`[SCAN] Scan complete. ${filesToInsert.length} new files to add.`);
+    
+    // 6. Batch insert new documents (much faster than one-by-one)
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < filesToInsert.length; i += BATCH_SIZE) {
+      const batch = filesToInsert.slice(i, i + BATCH_SIZE);
+      
+      for (const file of batch) {
+        try {
+          const ext = file.name.split('.').pop()?.toLowerCase() || '';
+          const mimeType = {
+            pdf: 'application/pdf', doc: 'application/msword',
+            docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            txt: 'text/plain', jpg: 'image/jpeg', png: 'image/png', msg: 'application/vnd.ms-outlook'
+          }[ext] || 'application/octet-stream';
+          
+          await query(`
+            INSERT INTO documents (firm_id, matter_id, owner_id, name, original_name, path, folder_path, type, size, privacy_level, status, storage_location, uploaded_at)
+            VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'final', 'azure', NOW())
+          `, [firmId, file.matterId, file.ownerId, file.name, file.path, file.folder, mimeType, file.size, file.matterId ? 'team' : 'firm']);
+          results.added++;
+        } catch (e) {
+          results.errors.push(`${file.name}: ${e.message}`);
+        }
+      }
+      
+      if (i + BATCH_SIZE < filesToInsert.length) {
+        console.log(`[SCAN] Inserted ${i + batch.length}/${filesToInsert.length} documents`);
+      }
+    }
+    
+    // 7. Fix ownership for any docs with matter but no owner
+    await query(`
+      UPDATE documents d SET owner_id = m.responsible_attorney
       FROM matters m
-      WHERE d.matter_id = m.id
-        AND d.firm_id = $1
-        AND d.owner_id IS NULL
-        AND m.responsible_attorney IS NOT NULL
-      RETURNING d.id
+      WHERE d.matter_id = m.id AND d.firm_id = $1 AND d.owner_id IS NULL AND m.responsible_attorney IS NOT NULL
     `, [firmId]);
     
-    results.ownershipSet += fixResult.rows.length;
+    // 8. Get final counts
+    const stats = await query(`SELECT COUNT(*) as total, COUNT(matter_id) as matched FROM documents WHERE firm_id = $1`, [firmId]);
     
-    // 4. Get final stats
-    const stats = await query(`
-      SELECT 
-        COUNT(*) as total,
-        COUNT(owner_id) as with_owner,
-        COUNT(matter_id) as with_matter
-      FROM documents WHERE firm_id = $1
-    `, [firmId]);
-    
-    const message = `Scan complete! Scanned ${results.azureScanned} files, ${results.newFilesAdded} added/updated, ${results.matchedToMatters} matched to matters, ${results.ownershipSet} assigned to attorneys. Total: ${stats.rows[0]?.total || 0} documents in database.`;
-    
-    console.log(`[DOC SCAN] ${message}`);
+    const message = `Scan complete: ${results.scanned} files scanned, ${results.added} added, ${results.matched} matched to matters.`;
+    console.log(`[SCAN] ${message}`);
     
     res.json({
       success: true,
       message,
-      details: {
-        ...results,
-        totalInDatabase: parseInt(stats.rows[0]?.total || 0),
-        withOwner: parseInt(stats.rows[0]?.with_owner || 0),
-        withMatter: parseInt(stats.rows[0]?.with_matter || 0),
-        unmatchedCount: results.azureScanned - results.matchedToMatters
-      }
+      scanned: results.scanned,
+      added: results.added,
+      matched: results.matched,
+      total: parseInt(stats.rows[0]?.total || 0),
+      errors: results.errors.slice(0, 10) // Only return first 10 errors
     });
     
   } catch (error) {
-    console.error('Document scan error:', error);
-    res.status(500).json({ error: 'Scan failed: ' + error.message });
+    console.error('[SCAN] Error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
 // ============================================
-// RESCAN UNMATCHED DOCUMENTS - Re-attempt matching for documents without matters
+// RESCAN UNMATCHED - Re-match documents after adding new matters
 // ============================================
-// Use this after adding new matters/users to the system to link orphaned documents
 router.post('/firms/:firmId/rescan-unmatched', requireSecureAdmin, async (req, res) => {
   try {
     const { firmId } = req.params;
+    console.log(`[RESCAN] Re-matching unmatched documents for firm ${firmId}`);
     
-    console.log(`[RESCAN] Starting rescan of unmatched documents for firm ${firmId}...`);
-    logAudit('RESCAN_UNMATCHED', `Started rescan of unmatched documents for firm ${firmId}`, req.ip);
-    
-    const results = {
-      documentsChecked: 0,
-      newlyMatched: 0,
-      ownershipAssigned: 0,
-      stillUnmatched: 0,
-      errors: []
-    };
-    
-    // 1. Load all matters for this firm (including newly added ones)
+    // Load current matters
     const mattersResult = await query(`
-      SELECT m.id, m.number, m.name, m.responsible_attorney, c.display_name as client_name
-      FROM matters m
-      LEFT JOIN clients c ON m.client_id = c.id
-      WHERE m.firm_id = $1
+      SELECT id, LOWER(name) as name, LOWER(number) as number, responsible_attorney
+      FROM matters WHERE firm_id = $1
     `, [firmId]);
     
-    const matters = mattersResult.rows;
-    console.log(`[RESCAN] Loaded ${matters.length} matters for matching`);
-    
-    // Build lookup maps
-    const matterByNumber = new Map();
     const matterByName = new Map();
-    const matterByClient = new Map();
-    
-    for (const m of matters) {
-      if (m.number) {
-        matterByNumber.set(m.number.toLowerCase(), m);
-        const numMatch = m.number.match(/(\d+)/);
-        if (numMatch) matterByNumber.set(numMatch[1], m);
-      }
-      if (m.name) {
-        matterByName.set(m.name.toLowerCase(), m);
-        const cleanName = m.name.replace(/\s*-\s*\d+$/, '').toLowerCase();
-        matterByName.set(cleanName, m);
-      }
-      if (m.client_name) {
-        const clientLower = m.client_name.toLowerCase();
-        if (!matterByClient.has(clientLower)) {
-          matterByClient.set(clientLower, []);
-        }
-        matterByClient.get(clientLower).push(m);
-      }
+    const matterByNumber = new Map();
+    for (const m of mattersResult.rows) {
+      if (m.name) matterByName.set(m.name, m);
+      if (m.number) matterByNumber.set(m.number, m);
     }
     
-    // Matching function
-    const findMatterForPath = (folderPath) => {
+    // Simple matcher
+    const matchMatter = (folderPath) => {
       if (!folderPath) return null;
-      
-      const pathParts = folderPath.split('/').filter(p => p);
-      
-      for (let i = 0; i < pathParts.length; i++) {
-        const part = pathParts[i];
-        const partLower = part.toLowerCase();
-        const cleanPart = partLower
-          .replace(/^\d+[\s\-_]*/g, '')
-          .replace(/[\s\-_]*\d+$/g, '')
-          .replace(/\s+/g, ' ')
-          .trim();
-        
-        // Check all match types
-        if (matterByNumber.has(partLower)) return matterByNumber.get(partLower);
-        if (matterByNumber.has(cleanPart)) return matterByNumber.get(cleanPart);
-        if (matterByName.has(partLower)) return matterByName.get(partLower);
-        if (matterByName.has(cleanPart)) return matterByName.get(cleanPart);
-        
-        // Client + subfolder matter matching
-        if (matterByClient.has(partLower)) {
-          if (i + 1 < pathParts.length) {
-            const nextPart = pathParts[i + 1].toLowerCase();
-            const clientMatters = matterByClient.get(partLower);
-            for (const cm of clientMatters) {
-              if (cm.name && cm.name.toLowerCase().includes(nextPart)) {
-                return cm;
-              }
-            }
-          }
-          return matterByClient.get(partLower)[0];
-        }
-        
-        // Fuzzy matching
-        for (const [name, matter] of matterByName) {
-          if (cleanPart.length > 3 && (cleanPart.includes(name) || name.includes(cleanPart))) {
-            return matter;
-          }
-        }
-        for (const [clientName, clientMatters] of matterByClient) {
-          if (cleanPart.length > 3 && (cleanPart.includes(clientName) || clientName.includes(cleanPart))) {
-            return clientMatters[0];
-          }
+      const parts = folderPath.toLowerCase().split('/').filter(p => p);
+      for (const part of parts) {
+        if (matterByNumber.has(part)) return matterByNumber.get(part);
+        if (matterByName.has(part)) return matterByName.get(part);
+        if (part.includes(' - ')) {
+          const suffix = part.split(' - ').pop().trim();
+          if (matterByName.has(suffix)) return matterByName.get(suffix);
         }
       }
-      
       return null;
     };
     
-    // 2. Get all unmatched documents (matter_id IS NULL)
-    const unmatchedDocs = await query(`
-      SELECT id, name, folder_path, path, owner_id
-      FROM documents
-      WHERE firm_id = $1 AND matter_id IS NULL
-      ORDER BY uploaded_at DESC
+    // Get unmatched documents
+    const unmatched = await query(`
+      SELECT id, folder_path FROM documents WHERE firm_id = $1 AND matter_id IS NULL
     `, [firmId]);
     
-    results.documentsChecked = unmatchedDocs.rows.length;
-    console.log(`[RESCAN] Found ${results.documentsChecked} unmatched documents to check`);
-    
-    // 3. Try to match each document
-    for (const doc of unmatchedDocs.rows) {
-      try {
-        const matchedMatter = findMatterForPath(doc.folder_path || doc.path);
-        
-        if (matchedMatter) {
-          // Update with matched matter and ownership
-          await query(`
-            UPDATE documents SET
-              matter_id = $2,
-              owner_id = COALESCE(owner_id, $3),
-              privacy_level = 'team',
-              updated_at = NOW()
-            WHERE id = $1
-          `, [doc.id, matchedMatter.id, matchedMatter.responsible_attorney]);
-          
-          results.newlyMatched++;
-          if (!doc.owner_id && matchedMatter.responsible_attorney) {
-            results.ownershipAssigned++;
-          }
-          
-          console.log(`[RESCAN] Matched: "${doc.name}" -> matter "${matchedMatter.name}"`);
-        } else {
-          results.stillUnmatched++;
-        }
-      } catch (err) {
-        results.errors.push({ document: doc.name, error: err.message });
+    let matched = 0;
+    for (const doc of unmatched.rows) {
+      const matter = matchMatter(doc.folder_path);
+      if (matter) {
+        await query(`
+          UPDATE documents SET matter_id = $2, owner_id = COALESCE(owner_id, $3), privacy_level = 'team'
+          WHERE id = $1
+        `, [doc.id, matter.id, matter.responsible_attorney]);
+        matched++;
       }
     }
     
-    // 4. Also try to assign ownership to documents with matter but no owner
-    const orphanOwnerResult = await query(`
-      UPDATE documents d
-      SET owner_id = m.responsible_attorney,
-          updated_at = NOW()
+    // Also fix ownership
+    await query(`
+      UPDATE documents d SET owner_id = m.responsible_attorney
       FROM matters m
-      WHERE d.matter_id = m.id
-        AND d.firm_id = $1
-        AND d.owner_id IS NULL
-        AND m.responsible_attorney IS NOT NULL
-      RETURNING d.id
+      WHERE d.matter_id = m.id AND d.firm_id = $1 AND d.owner_id IS NULL AND m.responsible_attorney IS NOT NULL
     `, [firmId]);
     
-    results.ownershipAssigned += orphanOwnerResult.rows.length;
-    
-    const message = `Rescan complete! Checked ${results.documentsChecked} unmatched documents, matched ${results.newlyMatched} to matters, assigned ownership to ${results.ownershipAssigned}. Still unmatched: ${results.stillUnmatched}`;
-    
+    const message = `Rescan complete: checked ${unmatched.rows.length} unmatched documents, matched ${matched} to matters.`;
     console.log(`[RESCAN] ${message}`);
-    logAudit('RESCAN_COMPLETE', message, req.ip);
     
-    res.json({
-      success: true,
-      message,
-      details: results
-    });
+    res.json({ success: true, message, checked: unmatched.rows.length, matched });
     
   } catch (error) {
-    console.error('Rescan error:', error);
-    res.status(500).json({ error: 'Rescan failed: ' + error.message });
+    console.error('[RESCAN] Error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
