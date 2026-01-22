@@ -53,9 +53,34 @@
   justify-content: center;
 }
 
-.viewToggle button.active {
+.viewToggle button.active,
+.viewToggleBtn.activeView {
   background: var(--apex-gold);
   color: var(--apex-midnight);
+}
+
+.viewToggleBtn {
+  padding: var(--space-sm);
+  background: none;
+  border: none;
+  color: var(--apex-text);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.viewToggleBtn:hover:not(.activeView) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.folderBrowser {
+  flex: 1;
+  min-height: 500px;
+  max-height: calc(100vh - 200px);
+  margin-bottom: var(--space-xl);
 }
 
 .primaryBtn {

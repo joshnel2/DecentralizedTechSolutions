@@ -9,8 +9,10 @@ import {
   Sparkles, Download, Trash2, X, Loader2,
   FileSearch, Scale, AlertTriangle, List, MessageSquare,
   Eye, ExternalLink, Wand2, History, GitCompare, Lock, Edit3,
-  HardDrive, Settings, Share2, Shield, Mail, Users, CheckSquare, Square
+  HardDrive, Settings, Share2, Shield, Mail, Users, CheckSquare, Square,
+  LayoutGrid, LayoutList, Folder
 } from 'lucide-react'
+import { FolderBrowser } from '../components/FolderBrowser'
 import { documentsApi, driveApi, wordOnlineApi } from '../services/api'
 import { useEmailCompose } from '../contexts/EmailComposeContext'
 import { format, parseISO } from 'date-fns'
@@ -40,6 +42,18 @@ export function DocumentsPage() {
   const [isUploading, setIsUploading] = useState(false)
   const [isExtracting, setIsExtracting] = useState(false)
   const [isOpeningWord, setIsOpeningWord] = useState(false)
+  
+  // View mode: 'list' (classic table) or 'folders' (Clio-style folder browser)
+  const [viewMode, setViewMode] = useState<'list' | 'folders'>(() => {
+    // Default to folders view for better Clio-style experience
+    const saved = localStorage.getItem('documentsViewMode')
+    return (saved === 'list' || saved === 'folders') ? saved : 'folders'
+  })
+  
+  // Save view mode preference
+  useEffect(() => {
+    localStorage.setItem('documentsViewMode', viewMode)
+  }, [viewMode])
   
   // Fetch data from API on mount
   useEffect(() => {
@@ -542,6 +556,24 @@ export function DocumentsPage() {
               </button>
             </>
           )}
+          {/* View Mode Toggle */}
+          <div className={styles.viewToggle}>
+            <button
+              className={`${styles.viewToggleBtn} ${viewMode === 'folders' ? styles.activeView : ''}`}
+              onClick={() => setViewMode('folders')}
+              title="Folder view (Clio-style)"
+            >
+              <Folder size={16} />
+            </button>
+            <button
+              className={`${styles.viewToggleBtn} ${viewMode === 'list' ? styles.activeView : ''}`}
+              onClick={() => setViewMode('list')}
+              title="List view"
+            >
+              <LayoutList size={16} />
+            </button>
+          </div>
+
           {/* Admin-only buttons */}
           {isAdmin && selectedDocIds.size === 0 && (
             <>
@@ -642,6 +674,22 @@ export function DocumentsPage() {
         </div>
       )}
 
+      {/* Folder Browser View (Clio-style) */}
+      {viewMode === 'folders' && (
+        <FolderBrowser
+          showHeader={false}
+          className={styles.folderBrowser}
+          onDocumentSelect={(doc) => {
+            const fullDoc = documents.find(d => d.id === doc.id)
+            if (fullDoc) setVersionPanelDoc(fullDoc)
+          }}
+          selectedDocumentId={versionPanelDoc?.id}
+        />
+      )}
+
+      {/* List View (Classic table) */}
+      {viewMode === 'list' && (
+        <>
       <div className={styles.filters}>
         <div className={styles.searchBox}>
           <Search size={18} />
@@ -765,6 +813,8 @@ export function DocumentsPage() {
             {!isAdmin && ' '}Connect Microsoft 365 in <a href="/app/integrations" style={{ color: 'inherit', textDecoration: 'underline' }}>Integrations</a> for seamless editing.
           </span>
         </div>
+      )}
+        </>
       )}
 
       {/* Delete Confirmation Modal */}
