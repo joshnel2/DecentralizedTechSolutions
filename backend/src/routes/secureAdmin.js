@@ -1383,95 +1383,186 @@ router.get('/firms/:firmId/documents-debug', requireSecureAdmin, async (req, res
 });
 
 // ============================================
-// SCAN DOCUMENTS - Simple, scalable document scanner
+// SCAN DOCUMENTS - Clio Migration Document Scanner
 // ============================================
+// Designed for Clio → Azure migration via RoboCopy
+// Folder names match matter names because both came from Clio
+//
 // How it works:
-// 1. Scan files from Azure storage
-// 2. Match to matters by folder name
-// 3. Create database records with correct permissions
-// 4. Done
+// 1. Scan Azure folders (copied from Clio Drive via RoboCopy)
+// 2. Match folder names directly to matter names (same source = same names)
+// 3. Handle Windows character normalization (: / \ * ? " < > |)
+// 4. Create document records with correct matter_id and permissions
+// 5. Report orphans (folders that don't match any matter)
 router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res) => {
   try {
     const { firmId } = req.params;
-    const { customFolder } = req.body || {}; // Optional: scan a specific folder
+    const { customFolder, dryRun } = req.body || {};
     
-    console.log(`[SCAN] Starting document scan for firm ${firmId}`);
+    console.log(`[SCAN] Starting Clio migration document scan for firm ${firmId}`);
+    console.log(`[SCAN] Mode: ${dryRun ? 'DRY RUN (no changes)' : 'LIVE'}`);
     if (customFolder) console.log(`[SCAN] Custom folder: ${customFolder}`);
     
     // Results tracker
-    const results = { scanned: 0, added: 0, updated: 0, matched: 0, errors: [] };
+    const results = { 
+      scanned: 0, 
+      added: 0, 
+      updated: 0, 
+      matched: 0, 
+      orphanFiles: [],      // Files in folders that don't match any matter
+      matchedFolders: [],   // Folders that matched to matters
+      unmatchedFolders: [], // Folders that didn't match any matter
+      errors: [] 
+    };
     
-    // 1. Check Azure is configured
+    // ============================================
+    // 1. CHECK AZURE CONFIGURATION
+    // ============================================
     const { getShareClient, isAzureConfigured } = await import('../utils/azureStorage.js');
     if (!(await isAzureConfigured())) {
       return res.status(400).json({ error: 'Azure Storage not configured. Go to Platform Settings.' });
     }
     
-    // 2. Load matters once (for matching)
+    // ============================================
+    // 2. LOAD MATTERS WITH ALL MATCHING FIELDS
+    // ============================================
+    // Load matters with their original names from Clio migration
     const mattersResult = await query(`
-      SELECT id, LOWER(name) as name, LOWER(number) as number, responsible_attorney
-      FROM matters WHERE firm_id = $1
+      SELECT m.id, m.name, m.number, m.responsible_attorney,
+             c.display_name as client_name
+      FROM matters m
+      LEFT JOIN clients c ON m.client_id = c.id
+      WHERE m.firm_id = $1
     `, [firmId]);
     
-    // Build simple lookup maps - O(1) matching
-    const matterByName = new Map();
-    const matterByNumber = new Map();
-    for (const m of mattersResult.rows) {
-      if (m.name) matterByName.set(m.name, m);
-      if (m.number) matterByNumber.set(m.number, m);
-    }
-    console.log(`[SCAN] Loaded ${mattersResult.rows.length} matters`);
+    console.log(`[SCAN] Loaded ${mattersResult.rows.length} matters for matching`);
     
-    // 3. Simple matter matching - just look at folder names
-    const matchMatter = (folderPath) => {
-      if (!folderPath) return null;
-      const parts = folderPath.toLowerCase().split('/').filter(p => p);
-      for (const part of parts) {
-        // Direct match on matter number or name
-        if (matterByNumber.has(part)) return matterByNumber.get(part);
-        if (matterByName.has(part)) return matterByName.get(part);
-        // Handle "ClientName - MatterName" format (Clio style)
-        if (part.includes(' - ')) {
-          const suffix = part.split(' - ').pop().trim();
-          if (matterByName.has(suffix)) return matterByName.get(suffix);
-        }
-      }
-      return null;
+    // ============================================
+    // 3. BUILD MATCHING LOOKUP MAPS
+    // ============================================
+    // Normalize function: handles Windows character stripping
+    // Windows strips: : / \ * ? " < > |
+    const normalize = (str) => {
+      if (!str) return '';
+      return str
+        .toLowerCase()
+        .replace(/[:\\/\*\?"<>\|]/g, '') // Remove Windows-invalid chars
+        .replace(/\s+/g, ' ')            // Normalize whitespace
+        .trim();
     };
     
-    // 4. Get existing documents to avoid duplicate checks in loop
+    // Build multiple lookup maps for flexible matching
+    const matterByExactName = new Map();      // Exact name match
+    const matterByNormalizedName = new Map(); // Normalized name match
+    const matterByNumber = new Map();         // Matter number match
+    const matterByClientMatter = new Map();   // "Client - Matter" format
+    
+    for (const m of mattersResult.rows) {
+      // Exact name (lowercase)
+      if (m.name) {
+        matterByExactName.set(m.name.toLowerCase(), m);
+        matterByNormalizedName.set(normalize(m.name), m);
+      }
+      
+      // Matter number
+      if (m.number) {
+        matterByNumber.set(m.number.toLowerCase(), m);
+        matterByNormalizedName.set(normalize(m.number), m);
+      }
+      
+      // Clio format: "ClientName - MatterName"
+      if (m.client_name && m.name) {
+        const clioFormat = `${m.client_name} - ${m.name}`.toLowerCase();
+        matterByClientMatter.set(clioFormat, m);
+        matterByNormalizedName.set(normalize(clioFormat), m);
+      }
+    }
+    
+    console.log(`[SCAN] Built lookup maps: ${matterByExactName.size} exact, ${matterByNormalizedName.size} normalized`);
+    
+    // ============================================
+    // 4. MATTER MATCHING FUNCTION
+    // ============================================
+    // Tries multiple matching strategies, returns { matter, matchType }
+    const matchFolderToMatter = (folderName) => {
+      if (!folderName) return { matter: null, matchType: null };
+      
+      const folderLower = folderName.toLowerCase();
+      const folderNorm = normalize(folderName);
+      
+      // Strategy 1: Exact match on full folder name
+      if (matterByExactName.has(folderLower)) {
+        return { matter: matterByExactName.get(folderLower), matchType: 'exact_name' };
+      }
+      
+      // Strategy 2: Match "Client - Matter" format (Clio style)
+      if (matterByClientMatter.has(folderLower)) {
+        return { matter: matterByClientMatter.get(folderLower), matchType: 'client_matter' };
+      }
+      
+      // Strategy 3: Match matter number
+      if (matterByNumber.has(folderLower)) {
+        return { matter: matterByNumber.get(folderLower), matchType: 'matter_number' };
+      }
+      
+      // Strategy 4: Normalized match (handles Windows character stripping)
+      if (matterByNormalizedName.has(folderNorm)) {
+        return { matter: matterByNormalizedName.get(folderNorm), matchType: 'normalized' };
+      }
+      
+      // Strategy 5: Extract matter name after " - " separator
+      if (folderName.includes(' - ')) {
+        const afterDash = folderName.split(' - ').slice(1).join(' - ').trim();
+        const afterDashLower = afterDash.toLowerCase();
+        const afterDashNorm = normalize(afterDash);
+        
+        if (matterByExactName.has(afterDashLower)) {
+          return { matter: matterByExactName.get(afterDashLower), matchType: 'after_dash' };
+        }
+        if (matterByNormalizedName.has(afterDashNorm)) {
+          return { matter: matterByNormalizedName.get(afterDashNorm), matchType: 'after_dash_normalized' };
+        }
+      }
+      
+      // Strategy 6: Partial match - folder contains matter name or vice versa
+      for (const [name, matter] of matterByExactName) {
+        if (folderLower.includes(name) || name.includes(folderLower)) {
+          return { matter, matchType: 'partial' };
+        }
+      }
+      
+      return { matter: null, matchType: null };
+    };
+    
+    // ============================================
+    // 5. GET EXISTING DOCUMENTS
+    // ============================================
     const existingDocs = await query(
-      `SELECT path FROM documents WHERE firm_id = $1`,
+      `SELECT id, path, matter_id FROM documents WHERE firm_id = $1`,
       [firmId]
     );
-    const existingPaths = new Set(existingDocs.rows.map(d => d.path));
-    console.log(`[SCAN] ${existingPaths.size} documents already in database`);
+    const existingByPath = new Map(existingDocs.rows.map(d => [d.path, d]));
+    console.log(`[SCAN] ${existingByPath.size} documents already in database`);
     
-    // 5. Determine scan location
+    // ============================================
+    // 6. DETERMINE SCAN LOCATION
+    // ============================================
     const shareClient = await getShareClient();
     const firmFolder = `firm-${firmId}`;
     let scanFolder = customFolder || firmFolder;
     
-    // Check if firm folder exists, if not check root
+    // Check if firm folder exists, if not scan root
     if (!customFolder) {
       try {
         const firmDir = shareClient.getDirectoryClient(firmFolder);
-        let hasFiles = false;
+        let hasContent = false;
         for await (const item of firmDir.listFilesAndDirectories()) {
-          hasFiles = true;
+          hasContent = true;
           break;
         }
-        if (!hasFiles) {
-          // Check root for files
-          console.log(`[SCAN] Firm folder empty, checking root...`);
-          const rootDir = shareClient.getDirectoryClient('');
-          for await (const item of rootDir.listFilesAndDirectories()) {
-            if (item.kind === 'file' || item.kind === 'directory') {
-              console.log(`[SCAN] Found files in root, scanning root instead`);
-              scanFolder = '';
-              break;
-            }
-          }
+        if (!hasContent) {
+          console.log(`[SCAN] Firm folder empty/missing, scanning root...`);
+          scanFolder = '';
         }
       } catch (e) {
         console.log(`[SCAN] Firm folder doesn't exist, scanning root: ${e.message}`);
@@ -1480,130 +1571,240 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
     }
     
     console.log(`[SCAN] Scanning folder: ${scanFolder || '(root)'}`);
-    const filesToInsert = [];
     
-    // 6. Scan Azure - simple recursive scan
-    const scanDir = async (dirClient, relativePath = '') => {
+    // ============================================
+    // 7. SCAN AZURE - TRACK TOP-LEVEL FOLDERS
+    // ============================================
+    const filesToProcess = [];
+    const folderMatches = new Map(); // folderName -> { matter, matchType, fileCount }
+    
+    const scanDir = async (dirClient, relativePath = '', topLevelFolder = null) => {
       try {
         for await (const item of dirClient.listFilesAndDirectories()) {
           const itemPath = relativePath ? `${relativePath}/${item.name}` : item.name;
           
           if (item.kind === 'directory') {
-            await scanDir(dirClient.getDirectoryClient(item.name), itemPath);
-          } else {
-            results.scanned++;
-            // Always store with firm folder prefix for consistency
-            const fullPath = scanFolder ? `${scanFolder}/${itemPath}` : `${firmFolder}/${itemPath}`;
+            // Track top-level folders for matching
+            const isTopLevel = !relativePath;
+            const currentTopFolder = isTopLevel ? item.name : topLevelFolder;
             
-            // Skip if already exists
-            if (existingPaths.has(fullPath)) {
-              results.updated++;
-              continue;
+            // If this is a top-level folder, try to match it to a matter
+            if (isTopLevel && !folderMatches.has(item.name)) {
+              const { matter, matchType } = matchFolderToMatter(item.name);
+              folderMatches.set(item.name, { 
+                matter, 
+                matchType, 
+                fileCount: 0,
+                matterName: matter?.name || null,
+                matterId: matter?.id || null
+              });
             }
             
-            // Get file size
+            await scanDir(dirClient.getDirectoryClient(item.name), itemPath, currentTopFolder);
+          } else {
+            results.scanned++;
+            
+            // Build full path
+            const fullPath = scanFolder 
+              ? `${scanFolder}/${itemPath}` 
+              : `${firmFolder}/${itemPath}`;
+            
+            // Get file properties
             let size = 0;
             try {
               const props = await dirClient.getFileClient(item.name).getProperties();
               size = props.contentLength || 0;
             } catch (e) { /* ignore */ }
             
-            // Match to matter
-            const matter = matchMatter(relativePath);
-            if (matter) results.matched++;
+            // Get matter from top-level folder match
+            const folderMatch = topLevelFolder ? folderMatches.get(topLevelFolder) : null;
+            const matter = folderMatch?.matter || null;
             
-            // Queue for insert
-            filesToInsert.push({
+            if (folderMatch) {
+              folderMatch.fileCount++;
+            }
+            
+            // Queue file for processing
+            filesToProcess.push({
               name: item.name,
               path: fullPath,
               folder: relativePath,
+              topLevelFolder,
               size,
-              matterId: matter?.id || null,
-              ownerId: matter?.responsible_attorney || null
+              matter,
+              matchType: folderMatch?.matchType || null,
+              existingDoc: existingByPath.get(fullPath) || null
             });
             
-            // Progress log every 100 files
-            if (results.scanned % 100 === 0) {
-              console.log(`[SCAN] Progress: ${results.scanned} scanned, ${filesToInsert.length} to add`);
+            // Progress log
+            if (results.scanned % 500 === 0) {
+              console.log(`[SCAN] Progress: ${results.scanned} files scanned...`);
             }
           }
         }
       } catch (err) {
-        results.errors.push(`${relativePath}: ${err.message}`);
+        results.errors.push(`Error scanning ${relativePath}: ${err.message}`);
       }
     };
     
     // Start scan
-    try {
-      await scanDir(shareClient.getDirectoryClient(scanFolder), '');
-    } catch (e) {
-      console.log(`[SCAN] Scan folder error: ${e.message}`);
-      results.errors.push(`Scan error: ${e.message}`);
+    await scanDir(shareClient.getDirectoryClient(scanFolder), '');
+    
+    console.log(`[SCAN] Scan complete: ${results.scanned} files found in ${folderMatches.size} top-level folders`);
+    
+    // ============================================
+    // 8. ANALYZE FOLDER MATCHES
+    // ============================================
+    for (const [folderName, match] of folderMatches) {
+      if (match.matter) {
+        results.matchedFolders.push({
+          folder: folderName,
+          matterId: match.matterId,
+          matterName: match.matterName,
+          matchType: match.matchType,
+          fileCount: match.fileCount
+        });
+      } else {
+        results.unmatchedFolders.push({
+          folder: folderName,
+          fileCount: match.fileCount
+        });
+      }
     }
     
-    console.log(`[SCAN] Scan complete. ${filesToInsert.length} new files to add.`);
+    console.log(`[SCAN] Folder matching: ${results.matchedFolders.length} matched, ${results.unmatchedFolders.length} unmatched`);
     
-    // 6. Batch insert new documents (much faster than one-by-one)
-    const BATCH_SIZE = 50;
-    for (let i = 0; i < filesToInsert.length; i += BATCH_SIZE) {
-      const batch = filesToInsert.slice(i, i + BATCH_SIZE);
+    // ============================================
+    // 9. PROCESS FILES (CREATE/UPDATE DOCUMENTS)
+    // ============================================
+    if (!dryRun) {
+      const BATCH_SIZE = 100;
       
-      for (const file of batch) {
-        try {
-          const ext = file.name.split('.').pop()?.toLowerCase() || '';
-          const mimeType = {
-            // Documents
-            pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-            txt: 'text/plain', rtf: 'application/rtf', csv: 'text/csv',
-            // Images
-            jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', tiff: 'image/tiff', bmp: 'image/bmp',
-            // Email
-            msg: 'application/vnd.ms-outlook', eml: 'message/rfc822',
-            // Archives
-            zip: 'application/zip', rar: 'application/x-rar-compressed', '7z': 'application/x-7z-compressed',
-            // Other
-            html: 'text/html', htm: 'text/html', xml: 'text/xml', json: 'application/json'
-          }[ext] || 'application/octet-stream';
-          
-          await query(`
-            INSERT INTO documents (firm_id, matter_id, owner_id, name, original_name, path, folder_path, type, size, privacy_level, status, storage_location, external_path, uploaded_at)
-            VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'final', 'azure', $5, NOW())
-            ON CONFLICT (firm_id, path) DO NOTHING
-          `, [firmId, file.matterId, file.ownerId, file.name, file.path, file.folder, mimeType, file.size, file.matterId ? 'team' : 'firm']);
-          results.added++;
-        } catch (e) {
-          results.errors.push(`${file.name}: ${e.message}`);
+      // MIME type lookup
+      const getMimeType = (filename) => {
+        const ext = filename.split('.').pop()?.toLowerCase() || '';
+        return {
+          pdf: 'application/pdf', doc: 'application/msword', 
+          docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          xls: 'application/vnd.ms-excel', 
+          xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          ppt: 'application/vnd.ms-powerpoint', 
+          pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          txt: 'text/plain', rtf: 'application/rtf', csv: 'text/csv',
+          jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+          msg: 'application/vnd.ms-outlook', eml: 'message/rfc822',
+          zip: 'application/zip', html: 'text/html', xml: 'text/xml', json: 'application/json'
+        }[ext] || 'application/octet-stream';
+      };
+      
+      for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
+        const batch = filesToProcess.slice(i, i + BATCH_SIZE);
+        
+        for (const file of batch) {
+          try {
+            const matterId = file.matter?.id || null;
+            const ownerId = file.matter?.responsible_attorney || null;
+            const mimeType = getMimeType(file.name);
+            const privacyLevel = matterId ? 'team' : 'firm';
+            
+            if (file.existingDoc) {
+              // Update existing document if matter was found and doc has no matter
+              if (matterId && !file.existingDoc.matter_id) {
+                await query(`
+                  UPDATE documents 
+                  SET matter_id = $1, owner_id = COALESCE(owner_id, $2), 
+                      privacy_level = $3, updated_at = NOW()
+                  WHERE id = $4
+                `, [matterId, ownerId, privacyLevel, file.existingDoc.id]);
+                results.updated++;
+                results.matched++;
+              } else {
+                results.updated++;
+                if (file.existingDoc.matter_id) results.matched++;
+              }
+            } else {
+              // Insert new document
+              await query(`
+                INSERT INTO documents (
+                  firm_id, matter_id, owner_id, name, original_name, 
+                  path, folder_path, type, size, privacy_level, 
+                  status, storage_location, external_path, uploaded_at
+                ) VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'final', 'azure', $5, NOW())
+                ON CONFLICT (firm_id, path) DO UPDATE SET
+                  matter_id = COALESCE(EXCLUDED.matter_id, documents.matter_id),
+                  owner_id = COALESCE(EXCLUDED.owner_id, documents.owner_id),
+                  updated_at = NOW()
+              `, [firmId, matterId, ownerId, file.name, file.path, file.folder, mimeType, file.size, privacyLevel]);
+              
+              results.added++;
+              if (matterId) results.matched++;
+            }
+            
+            // Track orphan files (no matter match)
+            if (!matterId && file.topLevelFolder) {
+              results.orphanFiles.push({
+                path: file.path,
+                folder: file.topLevelFolder,
+                name: file.name
+              });
+            }
+          } catch (e) {
+            results.errors.push(`${file.name}: ${e.message}`);
+          }
+        }
+        
+        if ((i + BATCH_SIZE) % 500 === 0 || i + BATCH_SIZE >= filesToProcess.length) {
+          console.log(`[SCAN] Processed ${Math.min(i + BATCH_SIZE, filesToProcess.length)}/${filesToProcess.length} files`);
         }
       }
       
-      if (i + BATCH_SIZE < filesToInsert.length) {
-        console.log(`[SCAN] Inserted ${i + batch.length}/${filesToInsert.length} documents`);
-      }
+      // Fix ownership for any docs with matter but no owner
+      await query(`
+        UPDATE documents d SET owner_id = m.responsible_attorney
+        FROM matters m
+        WHERE d.matter_id = m.id AND d.firm_id = $1 
+          AND d.owner_id IS NULL AND m.responsible_attorney IS NOT NULL
+      `, [firmId]);
     }
     
-    // 7. Fix ownership for any docs with matter but no owner
-    await query(`
-      UPDATE documents d SET owner_id = m.responsible_attorney
-      FROM matters m
-      WHERE d.matter_id = m.id AND d.firm_id = $1 AND d.owner_id IS NULL AND m.responsible_attorney IS NOT NULL
+    // ============================================
+    // 10. GET FINAL STATS
+    // ============================================
+    const finalStats = await query(`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(matter_id) as with_matter,
+        COUNT(*) - COUNT(matter_id) as without_matter
+      FROM documents WHERE firm_id = $1
     `, [firmId]);
     
-    // 8. Get final counts
-    const stats = await query(`SELECT COUNT(*) as total, COUNT(matter_id) as matched FROM documents WHERE firm_id = $1`, [firmId]);
+    const stats = finalStats.rows[0];
     
-    const message = `Scan complete: ${results.scanned} files scanned, ${results.added} added, ${results.matched} matched to matters.`;
+    // Build response
+    const message = dryRun
+      ? `DRY RUN: Would process ${results.scanned} files. ${results.matchedFolders.length} folders match matters, ${results.unmatchedFolders.length} don't match.`
+      : `Scan complete: ${results.scanned} files scanned, ${results.added} added, ${results.updated} updated, ${results.matched} matched to matters.`;
+    
     console.log(`[SCAN] ${message}`);
     
     res.json({
       success: true,
       message,
+      dryRun: !!dryRun,
       scanned: results.scanned,
       added: results.added,
+      updated: results.updated,
       matched: results.matched,
-      total: parseInt(stats.rows[0]?.total || 0),
-      errors: results.errors.slice(0, 10) // Only return first 10 errors
+      totalInDatabase: parseInt(stats.total || 0),
+      withMatter: parseInt(stats.with_matter || 0),
+      withoutMatter: parseInt(stats.without_matter || 0),
+      folderMatching: {
+        matched: results.matchedFolders,
+        unmatched: results.unmatchedFolders
+      },
+      orphanFiles: results.orphanFiles.slice(0, 100), // First 100 orphans
+      orphanCount: results.orphanFiles.length,
+      errors: results.errors.slice(0, 20)
     });
     
   } catch (error) {
@@ -1615,70 +1816,198 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
 // ============================================
 // RESCAN UNMATCHED - Re-match documents after adding new matters
 // ============================================
+// Uses the same improved matching logic as the main scan
 router.post('/firms/:firmId/rescan-unmatched', requireSecureAdmin, async (req, res) => {
   try {
     const { firmId } = req.params;
     console.log(`[RESCAN] Re-matching unmatched documents for firm ${firmId}`);
     
-    // Load current matters
+    // Load matters with client info for better matching
     const mattersResult = await query(`
-      SELECT id, LOWER(name) as name, LOWER(number) as number, responsible_attorney
-      FROM matters WHERE firm_id = $1
+      SELECT m.id, m.name, m.number, m.responsible_attorney,
+             c.display_name as client_name
+      FROM matters m
+      LEFT JOIN clients c ON m.client_id = c.id
+      WHERE m.firm_id = $1
     `, [firmId]);
     
-    const matterByName = new Map();
+    // Normalize function for Windows character handling
+    const normalize = (str) => {
+      if (!str) return '';
+      return str.toLowerCase().replace(/[:\\/\*\?"<>\|]/g, '').replace(/\s+/g, ' ').trim();
+    };
+    
+    // Build lookup maps
+    const matterByExactName = new Map();
+    const matterByNormalizedName = new Map();
     const matterByNumber = new Map();
+    const matterByClientMatter = new Map();
+    
     for (const m of mattersResult.rows) {
-      if (m.name) matterByName.set(m.name, m);
-      if (m.number) matterByNumber.set(m.number, m);
+      if (m.name) {
+        matterByExactName.set(m.name.toLowerCase(), m);
+        matterByNormalizedName.set(normalize(m.name), m);
+      }
+      if (m.number) {
+        matterByNumber.set(m.number.toLowerCase(), m);
+        matterByNormalizedName.set(normalize(m.number), m);
+      }
+      if (m.client_name && m.name) {
+        const clioFormat = `${m.client_name} - ${m.name}`.toLowerCase();
+        matterByClientMatter.set(clioFormat, m);
+        matterByNormalizedName.set(normalize(clioFormat), m);
+      }
     }
     
-    // Simple matcher
-    const matchMatter = (folderPath) => {
+    // Matching function - tries folder path parts
+    const matchFolderPath = (folderPath) => {
       if (!folderPath) return null;
-      const parts = folderPath.toLowerCase().split('/').filter(p => p);
+      
+      // Get all path parts and try to match each
+      const parts = folderPath.split('/').filter(p => p);
+      
       for (const part of parts) {
-        if (matterByNumber.has(part)) return matterByNumber.get(part);
-        if (matterByName.has(part)) return matterByName.get(part);
+        const partLower = part.toLowerCase();
+        const partNorm = normalize(part);
+        
+        // Try all matching strategies
+        if (matterByExactName.has(partLower)) return matterByExactName.get(partLower);
+        if (matterByClientMatter.has(partLower)) return matterByClientMatter.get(partLower);
+        if (matterByNumber.has(partLower)) return matterByNumber.get(partLower);
+        if (matterByNormalizedName.has(partNorm)) return matterByNormalizedName.get(partNorm);
+        
+        // Try after " - " separator
         if (part.includes(' - ')) {
-          const suffix = part.split(' - ').pop().trim();
-          if (matterByName.has(suffix)) return matterByName.get(suffix);
+          const afterDash = part.split(' - ').slice(1).join(' - ').trim();
+          const afterDashLower = afterDash.toLowerCase();
+          const afterDashNorm = normalize(afterDash);
+          
+          if (matterByExactName.has(afterDashLower)) return matterByExactName.get(afterDashLower);
+          if (matterByNormalizedName.has(afterDashNorm)) return matterByNormalizedName.get(afterDashNorm);
         }
       }
+      
       return null;
     };
     
     // Get unmatched documents
     const unmatched = await query(`
-      SELECT id, folder_path FROM documents WHERE firm_id = $1 AND matter_id IS NULL
+      SELECT id, folder_path, path FROM documents 
+      WHERE firm_id = $1 AND matter_id IS NULL
     `, [firmId]);
     
+    console.log(`[RESCAN] Found ${unmatched.rows.length} unmatched documents`);
+    
     let matched = 0;
+    const matchDetails = [];
+    
     for (const doc of unmatched.rows) {
-      const matter = matchMatter(doc.folder_path);
+      // Try folder_path first, then extract from path
+      let folderToMatch = doc.folder_path;
+      if (!folderToMatch && doc.path) {
+        // Extract folder from path (remove filename)
+        const parts = doc.path.split('/');
+        parts.pop(); // Remove filename
+        folderToMatch = parts.join('/');
+      }
+      
+      const matter = matchFolderPath(folderToMatch);
       if (matter) {
         await query(`
-          UPDATE documents SET matter_id = $2, owner_id = COALESCE(owner_id, $3), privacy_level = 'team'
+          UPDATE documents 
+          SET matter_id = $2, owner_id = COALESCE(owner_id, $3), privacy_level = 'team', updated_at = NOW()
           WHERE id = $1
         `, [doc.id, matter.id, matter.responsible_attorney]);
         matched++;
+        
+        if (matchDetails.length < 10) {
+          matchDetails.push({ folder: folderToMatch, matterName: matter.name });
+        }
       }
     }
     
-    // Also fix ownership
+    // Fix ownership for any docs with matter but no owner
     await query(`
       UPDATE documents d SET owner_id = m.responsible_attorney
       FROM matters m
-      WHERE d.matter_id = m.id AND d.firm_id = $1 AND d.owner_id IS NULL AND m.responsible_attorney IS NOT NULL
+      WHERE d.matter_id = m.id AND d.firm_id = $1 
+        AND d.owner_id IS NULL AND m.responsible_attorney IS NOT NULL
+    `, [firmId]);
+    
+    // Get updated stats
+    const stats = await query(`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(matter_id) as with_matter,
+        COUNT(*) - COUNT(matter_id) as without_matter
+      FROM documents WHERE firm_id = $1
     `, [firmId]);
     
     const message = `Rescan complete: checked ${unmatched.rows.length} unmatched documents, matched ${matched} to matters.`;
     console.log(`[RESCAN] ${message}`);
     
-    res.json({ success: true, message, checked: unmatched.rows.length, matched });
+    res.json({ 
+      success: true, 
+      message, 
+      checked: unmatched.rows.length, 
+      matched,
+      stillUnmatched: unmatched.rows.length - matched,
+      totalDocuments: parseInt(stats.rows[0].total),
+      withMatter: parseInt(stats.rows[0].with_matter),
+      withoutMatter: parseInt(stats.rows[0].without_matter),
+      sampleMatches: matchDetails
+    });
     
   } catch (error) {
     console.error('[RESCAN] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// GET ORPHAN REPORT - Download list of unmatched files
+// ============================================
+router.get('/firms/:firmId/orphan-report', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    
+    // Get all documents without matter assignment, grouped by folder
+    const result = await query(`
+      SELECT 
+        folder_path,
+        COUNT(*) as file_count,
+        array_agg(name ORDER BY name) as files
+      FROM documents 
+      WHERE firm_id = $1 AND matter_id IS NULL
+      GROUP BY folder_path
+      ORDER BY folder_path
+    `, [firmId]);
+    
+    // Get total counts
+    const stats = await query(`
+      SELECT 
+        COUNT(*) FILTER (WHERE matter_id IS NULL) as orphan_count,
+        COUNT(*) as total_count
+      FROM documents WHERE firm_id = $1
+    `, [firmId]);
+    
+    res.json({
+      firmId,
+      summary: {
+        orphanCount: parseInt(stats.rows[0].orphan_count),
+        totalDocuments: parseInt(stats.rows[0].total_count),
+        orphanFolders: result.rows.length
+      },
+      folders: result.rows.map(r => ({
+        folder: r.folder_path || '(root)',
+        fileCount: parseInt(r.file_count),
+        files: r.files.slice(0, 20), // First 20 files per folder
+        hasMore: r.files.length > 20
+      }))
+    });
+    
+  } catch (error) {
+    console.error('[ORPHAN REPORT] Error:', error);
     res.status(500).json({ error: error.message });
   }
 });

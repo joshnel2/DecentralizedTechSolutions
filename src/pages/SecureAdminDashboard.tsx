@@ -369,7 +369,17 @@ export default function SecureAdminDashboard() {
   
   // Scan Documents state
   const [scanningFirmId, setScanningFirmId] = useState<string | null>(null)
-  const [scanResult, setScanResult] = useState<{ firmId: string; message: string; success: boolean } | null>(null)
+  const [scanResult, setScanResult] = useState<{ 
+    firmId: string
+    message: string
+    success: boolean
+    scanned?: number
+    added?: number
+    matched?: number
+    matchedFolders?: Array<{ folder: string; matterName: string; fileCount: number }>
+    unmatchedFolders?: Array<{ folder: string; fileCount: number }>
+    orphanCount?: number
+  } | null>(null)
   
   // Firm Detail state
   const [selectedFirmDetail, setSelectedFirmDetail] = useState<Firm | null>(null)
@@ -869,7 +879,17 @@ export default function SecureAdminDashboard() {
       const data = await res.json()
       console.log('[SCAN] Response data:', data)
       if (res.ok && data.success) {
-        setScanResult({ firmId, message: data.message, success: true })
+        setScanResult({ 
+          firmId, 
+          message: data.message, 
+          success: true,
+          scanned: data.scanned,
+          added: data.added,
+          matched: data.matched,
+          matchedFolders: data.folderMatching?.matched || [],
+          unmatchedFolders: data.folderMatching?.unmatched || [],
+          orphanCount: data.orphanCount || 0
+        })
         showNotification('success', data.message)
         // Refresh firm data to show updated counts
         if (selectedFirmDetail && selectedFirmDetail.id === firmId) {
@@ -5270,21 +5290,87 @@ bob@example.com, Bob, Wilson, partner"
                     padding: '20px 24px',
                     borderRadius: '12px',
                     background: scanResult.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                    border: `2px solid ${scanResult.success ? '#10B981' : '#EF4444'}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px'
+                    border: `2px solid ${scanResult.success ? '#10B981' : '#EF4444'}`
                   }}>
-                    {scanResult.success ? <CheckCircle size={24} color="#10B981" /> : <AlertCircle size={24} color="#EF4444" />}
-                    <span style={{ flex: 1, fontSize: '15px', color: scanResult.success ? '#065F46' : '#991B1B' }}>
-                      {scanResult.message}
-                    </span>
-                    <button 
-                      onClick={() => setScanResult(null)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
-                    >
-                      <X size={18} color="#64748B" />
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: scanResult.success && scanResult.scanned ? '16px' : 0 }}>
+                      {scanResult.success ? <CheckCircle size={24} color="#10B981" /> : <AlertCircle size={24} color="#EF4444" />}
+                      <span style={{ flex: 1, fontSize: '15px', fontWeight: 600, color: scanResult.success ? '#065F46' : '#991B1B' }}>
+                        {scanResult.message}
+                      </span>
+                      <button 
+                        onClick={() => setScanResult(null)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
+                      >
+                        <X size={18} color="#64748B" />
+                      </button>
+                    </div>
+                    
+                    {/* Detailed Stats */}
+                    {scanResult.success && scanResult.scanned !== undefined && (
+                      <div style={{ marginTop: '12px' }}>
+                        <div style={{ display: 'flex', gap: '24px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                          <div style={{ fontSize: '14px', color: '#374151' }}>
+                            <strong>{scanResult.scanned?.toLocaleString()}</strong> files scanned
+                          </div>
+                          <div style={{ fontSize: '14px', color: '#374151' }}>
+                            <strong>{scanResult.added?.toLocaleString()}</strong> new files added
+                          </div>
+                          <div style={{ fontSize: '14px', color: '#059669' }}>
+                            <strong>{scanResult.matched?.toLocaleString()}</strong> matched to matters
+                          </div>
+                          {(scanResult.orphanCount || 0) > 0 && (
+                            <div style={{ fontSize: '14px', color: '#D97706' }}>
+                              <strong>{scanResult.orphanCount?.toLocaleString()}</strong> orphan files
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Folder Matching Summary */}
+                        {((scanResult.matchedFolders?.length || 0) > 0 || (scanResult.unmatchedFolders?.length || 0) > 0) && (
+                          <div style={{ 
+                            background: 'white', 
+                            borderRadius: '8px', 
+                            padding: '12px 16px',
+                            marginTop: '12px'
+                          }}>
+                            <div style={{ fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>
+                              Folder → Matter Matching
+                            </div>
+                            <div style={{ display: 'flex', gap: '16px', fontSize: '13px' }}>
+                              <span style={{ color: '#059669' }}>
+                                <CheckCircle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
+                                {scanResult.matchedFolders?.length || 0} folders matched
+                              </span>
+                              {(scanResult.unmatchedFolders?.length || 0) > 0 && (
+                                <span style={{ color: '#D97706' }}>
+                                  <AlertCircle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
+                                  {scanResult.unmatchedFolders?.length || 0} folders unmatched
+                                </span>
+                              )}
+                            </div>
+                            
+                            {/* Show unmatched folders */}
+                            {(scanResult.unmatchedFolders?.length || 0) > 0 && (
+                              <div style={{ marginTop: '12px', padding: '10px', background: '#FEF3C7', borderRadius: '6px' }}>
+                                <div style={{ fontSize: '12px', fontWeight: 600, color: '#92400E', marginBottom: '6px' }}>
+                                  Unmatched Folders (no matching matter found):
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#78350F' }}>
+                                  {scanResult.unmatchedFolders?.slice(0, 5).map((f, i) => (
+                                    <div key={i}>• {f.folder} ({f.fileCount} files)</div>
+                                  ))}
+                                  {(scanResult.unmatchedFolders?.length || 0) > 5 && (
+                                    <div style={{ fontStyle: 'italic', marginTop: '4px' }}>
+                                      ...and {(scanResult.unmatchedFolders?.length || 0) - 5} more folders
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
