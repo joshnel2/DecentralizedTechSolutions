@@ -1526,6 +1526,7 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
           await query(`
             INSERT INTO documents (firm_id, matter_id, owner_id, name, original_name, path, folder_path, type, size, privacy_level, status, storage_location, uploaded_at)
             VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'final', 'azure', NOW())
+            ON CONFLICT (firm_id, path) DO NOTHING
           `, [firmId, file.matterId, file.ownerId, file.name, file.path, file.folder, mimeType, file.size, file.matterId ? 'team' : 'firm']);
           results.added++;
         } catch (e) {
