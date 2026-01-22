@@ -1385,16 +1385,18 @@ router.get('/firms/:firmId/documents-debug', requireSecureAdmin, async (req, res
 // ============================================
 // SCAN DOCUMENTS - Simple, scalable document scanner
 // ============================================
-// How other companies do it:
-// 1. Scan files from storage
+// How it works:
+// 1. Scan files from Azure storage
 // 2. Match to matters by folder name
-// 3. Create database records
+// 3. Create database records with correct permissions
 // 4. Done
 router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res) => {
   try {
     const { firmId } = req.params;
+    const { customFolder } = req.body || {}; // Optional: scan a specific folder
     
     console.log(`[SCAN] Starting document scan for firm ${firmId}`);
+    if (customFolder) console.log(`[SCAN] Custom folder: ${customFolder}`);
     
     // Results tracker
     const results = { scanned: 0, added: 0, updated: 0, matched: 0, errors: [] };
@@ -1428,7 +1430,7 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
         // Direct match on matter number or name
         if (matterByNumber.has(part)) return matterByNumber.get(part);
         if (matterByName.has(part)) return matterByName.get(part);
-        // Handle "ClientName - MatterName" format
+        // Handle "ClientName - MatterName" format (Clio style)
         if (part.includes(' - ')) {
           const suffix = part.split(' - ').pop().trim();
           if (matterByName.has(suffix)) return matterByName.get(suffix);
@@ -1445,11 +1447,42 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
     const existingPaths = new Set(existingDocs.rows.map(d => d.path));
     console.log(`[SCAN] ${existingPaths.size} documents already in database`);
     
-    // 5. Scan Azure - simple recursive scan
+    // 5. Determine scan location
     const shareClient = await getShareClient();
     const firmFolder = `firm-${firmId}`;
+    let scanFolder = customFolder || firmFolder;
+    
+    // Check if firm folder exists, if not check root
+    if (!customFolder) {
+      try {
+        const firmDir = shareClient.getDirectoryClient(firmFolder);
+        let hasFiles = false;
+        for await (const item of firmDir.listFilesAndDirectories()) {
+          hasFiles = true;
+          break;
+        }
+        if (!hasFiles) {
+          // Check root for files
+          console.log(`[SCAN] Firm folder empty, checking root...`);
+          const rootDir = shareClient.getDirectoryClient('');
+          for await (const item of rootDir.listFilesAndDirectories()) {
+            if (item.kind === 'file' || item.kind === 'directory') {
+              console.log(`[SCAN] Found files in root, scanning root instead`);
+              scanFolder = '';
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        console.log(`[SCAN] Firm folder doesn't exist, scanning root: ${e.message}`);
+        scanFolder = '';
+      }
+    }
+    
+    console.log(`[SCAN] Scanning folder: ${scanFolder || '(root)'}`);
     const filesToInsert = [];
     
+    // 6. Scan Azure - simple recursive scan
     const scanDir = async (dirClient, relativePath = '') => {
       try {
         for await (const item of dirClient.listFilesAndDirectories()) {
@@ -1459,7 +1492,8 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
             await scanDir(dirClient.getDirectoryClient(item.name), itemPath);
           } else {
             results.scanned++;
-            const fullPath = `${firmFolder}/${itemPath}`;
+            // Always store with firm folder prefix for consistency
+            const fullPath = scanFolder ? `${scanFolder}/${itemPath}` : `${firmFolder}/${itemPath}`;
             
             // Skip if already exists
             if (existingPaths.has(fullPath)) {
@@ -1488,7 +1522,7 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
               ownerId: matter?.responsible_attorney || null
             });
             
-            // Progress log
+            // Progress log every 100 files
             if (results.scanned % 100 === 0) {
               console.log(`[SCAN] Progress: ${results.scanned} scanned, ${filesToInsert.length} to add`);
             }
@@ -1501,9 +1535,10 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
     
     // Start scan
     try {
-      await scanDir(shareClient.getDirectoryClient(firmFolder), '');
+      await scanDir(shareClient.getDirectoryClient(scanFolder), '');
     } catch (e) {
-      console.log(`[SCAN] Firm folder may not exist: ${e.message}`);
+      console.log(`[SCAN] Scan folder error: ${e.message}`);
+      results.errors.push(`Scan error: ${e.message}`);
     }
     
     console.log(`[SCAN] Scan complete. ${filesToInsert.length} new files to add.`);
@@ -1517,15 +1552,24 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
         try {
           const ext = file.name.split('.').pop()?.toLowerCase() || '';
           const mimeType = {
-            pdf: 'application/pdf', doc: 'application/msword',
-            docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            // Documents
+            pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            txt: 'text/plain', jpg: 'image/jpeg', png: 'image/png', msg: 'application/vnd.ms-outlook'
+            ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            txt: 'text/plain', rtf: 'application/rtf', csv: 'text/csv',
+            // Images
+            jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', tiff: 'image/tiff', bmp: 'image/bmp',
+            // Email
+            msg: 'application/vnd.ms-outlook', eml: 'message/rfc822',
+            // Archives
+            zip: 'application/zip', rar: 'application/x-rar-compressed', '7z': 'application/x-7z-compressed',
+            // Other
+            html: 'text/html', htm: 'text/html', xml: 'text/xml', json: 'application/json'
           }[ext] || 'application/octet-stream';
           
           await query(`
-            INSERT INTO documents (firm_id, matter_id, owner_id, name, original_name, path, folder_path, type, size, privacy_level, status, storage_location, uploaded_at)
-            VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'final', 'azure', NOW())
+            INSERT INTO documents (firm_id, matter_id, owner_id, name, original_name, path, folder_path, type, size, privacy_level, status, storage_location, external_path, uploaded_at)
+            VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'final', 'azure', $5, NOW())
             ON CONFLICT (firm_id, path) DO NOTHING
           `, [firmId, file.matterId, file.ownerId, file.name, file.path, file.folder, mimeType, file.size, file.matterId ? 'team' : 'firm']);
           results.added++;
