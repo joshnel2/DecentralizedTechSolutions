@@ -890,6 +890,41 @@ export default function SecureAdminDashboard() {
     }
   }
 
+  // Rescan unmatched documents (for when matters/users are added later)
+  const handleRescanUnmatched = async (firmId: string) => {
+    setScanningFirmId(firmId)
+    setScanResult(null)
+    console.log('[RESCAN] Starting rescan of unmatched documents for firm:', firmId)
+    try {
+      const res = await fetch(`${API_URL}/secure-admin/firms/${firmId}/rescan-unmatched`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      })
+      console.log('[RESCAN] Response status:', res.status)
+      const data = await res.json()
+      console.log('[RESCAN] Response data:', data)
+      if (res.ok && data.success) {
+        setScanResult({ firmId, message: data.message, success: true })
+        showNotification('success', data.message)
+        // Refresh firm data
+        if (selectedFirmDetail && selectedFirmDetail.id === firmId) {
+          handleViewFirmDetail(selectedFirmDetail)
+        }
+      } else {
+        const errorMsg = data.error || data.message || 'Rescan failed'
+        setScanResult({ firmId, message: errorMsg, success: false })
+        showNotification('error', errorMsg)
+      }
+    } catch (error: any) {
+      console.error('[RESCAN] Error:', error)
+      const errorMsg = error.message || 'Failed to rescan documents'
+      setScanResult({ firmId, message: errorMsg, success: false })
+      showNotification('error', errorMsg)
+    } finally {
+      setScanningFirmId(null)
+    }
+  }
+
   // Open firm detail view with document manifest info
   const handleViewFirmDetail = async (firm: Firm) => {
     setSelectedFirmDetail(firm)
@@ -5157,48 +5192,75 @@ bob@example.com, Bob, Wilson, partner"
                   alignItems: 'center',
                   justifyContent: 'space-between'
                 }}>
-                  <div style={{ maxWidth: '500px' }}>
+                  <div style={{ maxWidth: '450px' }}>
                     <h2 style={{ margin: '0 0 12px 0', fontSize: '28px', fontWeight: 700 }}>
                       Scan Documents
                     </h2>
                     <p style={{ margin: 0, opacity: 0.9, fontSize: '16px', lineHeight: 1.6 }}>
-                      After copying files from Clio Drive to Azure, click this button to scan and import them into the system. Documents will be automatically matched to matters.
+                      After copying files from Clio Drive to Azure, scan to import them. Use Rescan to re-match documents after adding new matters/users.
                     </p>
                   </div>
-                  <button
-                    onClick={() => handleScanDocuments(selectedFirmDetail.id)}
-                    disabled={scanningFirmId === selectedFirmDetail.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px',
-                      padding: '20px 40px',
-                      background: 'white',
-                      color: '#059669',
-                      border: 'none',
-                      borderRadius: '14px',
-                      cursor: scanningFirmId === selectedFirmDetail.id ? 'not-allowed' : 'pointer',
-                      fontWeight: 700,
-                      fontSize: '18px',
-                      boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-                      transition: 'transform 0.2s, box-shadow 0.2s',
-                      opacity: scanningFirmId === selectedFirmDetail.id ? 0.8 : 1
-                    }}
-                    onMouseOver={e => { if (scanningFirmId !== selectedFirmDetail.id) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 12px 32px rgba(0,0,0,0.2)' }}}
-                    onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.15)' }}
-                  >
-                    {scanningFirmId === selectedFirmDetail.id ? (
-                      <>
-                        <RefreshCw size={24} className="animate-spin" />
-                        Scanning...
-                      </>
-                    ) : (
-                      <>
-                        <FolderSync size={24} />
-                        Scan Documents
-                      </>
-                    )}
-                  </button>
+                  <div style={{ display: 'flex', gap: '16px' }}>
+                    <button
+                      onClick={() => handleScanDocuments(selectedFirmDetail.id)}
+                      disabled={scanningFirmId === selectedFirmDetail.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        padding: '18px 32px',
+                        background: 'white',
+                        color: '#059669',
+                        border: 'none',
+                        borderRadius: '14px',
+                        cursor: scanningFirmId === selectedFirmDetail.id ? 'not-allowed' : 'pointer',
+                        fontWeight: 700,
+                        fontSize: '16px',
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                        transition: 'transform 0.2s, box-shadow 0.2s',
+                        opacity: scanningFirmId === selectedFirmDetail.id ? 0.8 : 1
+                      }}
+                      onMouseOver={e => { if (scanningFirmId !== selectedFirmDetail.id) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 12px 32px rgba(0,0,0,0.2)' }}}
+                      onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.15)' }}
+                    >
+                      {scanningFirmId === selectedFirmDetail.id ? (
+                        <>
+                          <RefreshCw size={22} className="animate-spin" />
+                          Scanning...
+                        </>
+                      ) : (
+                        <>
+                          <FolderSync size={22} />
+                          Full Scan
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleRescanUnmatched(selectedFirmDetail.id)}
+                      disabled={scanningFirmId === selectedFirmDetail.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        padding: '18px 32px',
+                        background: 'rgba(255,255,255,0.2)',
+                        color: 'white',
+                        border: '2px solid white',
+                        borderRadius: '14px',
+                        cursor: scanningFirmId === selectedFirmDetail.id ? 'not-allowed' : 'pointer',
+                        fontWeight: 700,
+                        fontSize: '16px',
+                        transition: 'transform 0.2s, background 0.2s',
+                        opacity: scanningFirmId === selectedFirmDetail.id ? 0.8 : 1
+                      }}
+                      onMouseOver={e => { if (scanningFirmId !== selectedFirmDetail.id) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.background = 'rgba(255,255,255,0.3)' }}}
+                      onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.background = 'rgba(255,255,255,0.2)' }}
+                      title="Re-match unmatched documents to matters (run after adding new matters)"
+                    >
+                      <RefreshCw size={22} />
+                      Rescan Unmatched
+                    </button>
+                  </div>
                 </div>
 
                 {/* Scan Result Display */}
