@@ -2145,14 +2145,17 @@ router.get('/download-azure', authenticate, async (req, res) => {
   }
 });
 
+// In-memory cache for fast loading
+const driveCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 /**
- * APEX DRIVE - Browse ALL files from Azure File Share
- * Scans the ENTIRE Azure share and returns all files for download
- * Works like Clio Drive - just shows everything in Azure
+ * APEX DRIVE - Browse firm's Azure files with caching
+ * Scans firm folder and caches results for fast subsequent loads
  */
 router.get('/browse-all', authenticate, async (req, res) => {
   try {
-    const { search, limit = 5000 } = req.query;
+    const { search, refresh } = req.query;
     const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
     const firmId = req.user.firmId;
     
@@ -2173,12 +2176,27 @@ router.get('/browse-all', authenticate, async (req, res) => {
       });
     }
     
+    const firmFolder = `firm-${firmId}`;
+    const cacheKey = `drive-${firmId}`;
+    
+    // Check cache first (unless refresh requested)
+    if (!refresh && !search && driveCache.has(cacheKey)) {
+      const cached = driveCache.get(cacheKey);
+      if (Date.now() - cached.timestamp < CACHE_TTL) {
+        console.log(`[APEX DRIVE] Serving ${cached.data.files.length} files from cache`);
+        return res.json({
+          ...cached.data,
+          source: 'cache',
+          cachedAt: new Date(cached.timestamp).toISOString()
+        });
+      }
+    }
+    
     const config = await getAzureConfig();
     const files = [];
     const folderSet = new Set();
-    let scannedPaths = [];
     
-    console.log(`[APEX DRIVE] Starting scan of Azure share "${config.shareName}"...`);
+    console.log(`[APEX DRIVE] Scanning firm folder: ${firmFolder}`);
     
     try {
       const shareClient = await getShareClient();
@@ -2196,78 +2214,51 @@ router.get('/browse-all', authenticate, async (req, res) => {
         'tiff': 'image/tiff', 'tif': 'image/tiff', 'bmp': 'image/bmp'
       };
       
-      // Recursive function to scan directories
-      async function scanDirectory(dirPath) {
-        if (files.length >= parseInt(limit)) return;
-        
+      // Fast recursive scan - skip fetching individual file properties for speed
+      async function scanDirectory(dirPath, relativePath = '') {
         try {
           const dirClient = shareClient.getDirectoryClient(dirPath);
-          scannedPaths.push(dirPath || '(root)');
           
           for await (const item of dirClient.listFilesAndDirectories()) {
-            if (files.length >= parseInt(limit)) return;
-            
-            const itemPath = dirPath ? `${dirPath}/${item.name}` : item.name;
+            const itemFullPath = dirPath ? `${dirPath}/${item.name}` : item.name;
+            const itemRelativePath = relativePath ? `${relativePath}/${item.name}` : item.name;
             
             if (item.kind === 'directory') {
-              folderSet.add(itemPath);
-              await scanDirectory(itemPath);
+              folderSet.add(itemRelativePath);
+              await scanDirectory(itemFullPath, itemRelativePath);
             } else {
-              // It's a file
               const fileName = item.name;
               const ext = fileName.split('.').pop()?.toLowerCase() || '';
               
-              // Apply search filter
-              if (search) {
-                const searchLower = search.toLowerCase();
-                if (!fileName.toLowerCase().includes(searchLower) && 
-                    !itemPath.toLowerCase().includes(searchLower)) {
-                  continue;
-                }
-              }
-              
-              // Get file properties
-              let fileSize = 0;
-              let lastModified = null;
-              try {
-                const fileClient = dirClient.getFileClient(item.name);
-                const props = await fileClient.getProperties();
-                fileSize = props.contentLength || 0;
-                lastModified = props.lastModified;
-              } catch (e) { /* ignore */ }
-              
-              // Extract folder path
-              const lastSlash = itemPath.lastIndexOf('/');
-              const folderPath = lastSlash > 0 ? itemPath.substring(0, lastSlash) : '';
+              // Extract folder from relative path
+              const lastSlash = itemRelativePath.lastIndexOf('/');
+              const folderPath = lastSlash > 0 ? itemRelativePath.substring(0, lastSlash) : '';
               
               files.push({
-                id: `azure-${Buffer.from(itemPath).toString('base64url').substring(0, 40)}`,
+                id: `azure-${Buffer.from(itemFullPath).toString('base64url').substring(0, 40)}`,
                 name: fileName,
                 originalName: fileName,
                 contentType: mimeTypes[ext] || 'application/octet-stream',
-                size: fileSize,
+                size: item.properties?.contentLength || 0,
                 folderPath: folderPath,
-                path: itemPath,
-                azurePath: itemPath,
-                lastModified: lastModified,
+                path: itemFullPath,
+                azurePath: itemFullPath,
                 storageLocation: 'azure',
                 isFromAzure: true
               });
             }
           }
         } catch (err) {
-          // Log but don't fail - some directories might not be accessible
           if (!err.message.includes('ResourceNotFound')) {
-            console.log(`[APEX DRIVE] Note: Could not scan "${dirPath}": ${err.message}`);
+            console.log(`[APEX DRIVE] Could not scan "${dirPath}": ${err.message}`);
           }
         }
       }
       
-      // SCAN THE ENTIRE SHARE starting from root
-      console.log(`[APEX DRIVE] Scanning entire share from root...`);
-      await scanDirectory('');
+      // Scan the firm's folder
+      await scanDirectory(firmFolder, '');
       
-      // Build complete folder tree (add parent folders)
+      // Build folder tree with parents
       for (const folder of Array.from(folderSet)) {
         const parts = folder.split('/');
         for (let i = 1; i < parts.length; i++) {
@@ -2276,30 +2267,48 @@ router.get('/browse-all', authenticate, async (req, res) => {
       }
       
       const folders = Array.from(folderSet).sort();
-      const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
       
-      console.log(`[APEX DRIVE] Complete! Found ${files.length} files in ${folders.length} folders`);
-      console.log(`[APEX DRIVE] Scanned paths: ${scannedPaths.slice(0, 10).join(', ')}${scannedPaths.length > 10 ? '...' : ''}`);
+      console.log(`[APEX DRIVE] Found ${files.length} files in ${folders.length} folders`);
       
-      return res.json({
+      // Apply search filter if provided
+      let filteredFiles = files;
+      if (search) {
+        const searchLower = search.toLowerCase();
+        filteredFiles = files.filter(f => 
+          f.name.toLowerCase().includes(searchLower) ||
+          f.folderPath.toLowerCase().includes(searchLower)
+        );
+      }
+      
+      const responseData = {
         configured: true,
         isAdmin: true,
-        files,
+        firmFolder,
+        files: filteredFiles,
         folders,
         stats: {
           totalFiles: files.length,
-          totalSize: totalSize,
+          totalSize: files.reduce((sum, f) => sum + (f.size || 0), 0),
           totalFolders: folders.length
         },
-        source: 'azure-full-scan',
+        source: 'azure-scan',
         shareName: config.shareName,
-        message: files.length === 0 ? 'No files found in Azure storage. Upload files to see them here.' : undefined
+        message: files.length === 0 ? `No files found in ${firmFolder}. Upload files to see them here.` : undefined
+      };
+      
+      // Cache the results (full list, not filtered)
+      driveCache.set(cacheKey, {
+        timestamp: Date.now(),
+        data: { ...responseData, files, source: 'azure-scan' }
       });
+      
+      return res.json(responseData);
       
     } catch (scanError) {
       console.error('[APEX DRIVE] Scan error:', scanError);
       return res.json({ 
         configured: true,
+        firmFolder,
         error: 'Failed to scan Azure: ' + scanError.message,
         files: [],
         folders: [],
@@ -2311,6 +2320,15 @@ router.get('/browse-all', authenticate, async (req, res) => {
     console.error('Browse all error:', error);
     res.status(500).json({ error: 'Failed to browse files: ' + error.message });
   }
+});
+
+// Clear cache endpoint (for manual refresh)
+router.post('/clear-cache', authenticate, async (req, res) => {
+  if (!FULL_ACCESS_ROLES.includes(req.user.role)) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  driveCache.delete(`drive-${req.user.firmId}`);
+  res.json({ message: 'Cache cleared' });
 });
 
 export default router;

@@ -581,6 +581,11 @@
   color: #CBD5E1;
 }
 
+.cacheIndicator {
+  color: #10B981;
+  font-weight: 500;
+}
+
 /* Loading and Error States */
 .loading, .error {
   display: flex;

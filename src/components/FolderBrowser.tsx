@@ -123,7 +123,7 @@ export function FolderBrowser({
   }, [])
 
   // Fetch folder contents
-  const fetchData = useCallback(async (path?: string, mode?: 'folder' | 'all') => {
+  const fetchData = useCallback(async (path?: string, mode?: 'folder' | 'all', forceRefresh?: boolean) => {
     setLoading(true)
     setError(null)
     
@@ -132,17 +132,17 @@ export function FolderBrowser({
       let result
       
       if (effectiveMode === 'all') {
-        // Get all files recursively from Azure
-        console.log('[FolderBrowser] Fetching all files from Azure...')
-        result = await driveApi.browseAllFiles(searchQuery || undefined, 2000)
-        console.log('[FolderBrowser] Result:', result)
+        // Get all files from Azure (uses cache unless refresh requested)
+        console.log('[FolderBrowser] Fetching files from Azure...', forceRefresh ? '(refresh)' : '(cached)')
+        result = await driveApi.browseAllFiles(searchQuery || undefined, forceRefresh)
+        console.log('[FolderBrowser] Result:', result?.stats)
       } else {
         // Browse specific folder
         result = await driveApi.browseDrive(path || '')
       }
       
       // Handle error response
-      if (result.error) {
+      if (result.error && !result.files) {
         setError(result.error)
         setBrowseData(null)
         return
@@ -169,6 +169,11 @@ export function FolderBrowser({
       setLoading(false)
     }
   }, [buildFolderTree, browseMode, searchQuery])
+  
+  // Force refresh from Azure
+  const refreshFromAzure = useCallback(() => {
+    fetchData(currentPath, browseMode, true)
+  }, [fetchData, currentPath, browseMode])
 
   // Fetch on mount and when mode/path changes
   useEffect(() => {
@@ -406,7 +411,7 @@ export function FolderBrowser({
                 Folders
               </button>
             </div>
-            <button onClick={() => fetchData(currentPath, browseMode)} className={styles.refreshBtn} title="Refresh">
+            <button onClick={refreshFromAzure} className={styles.refreshBtn} title="Refresh from Azure">
               <RefreshCw size={16} />
             </button>
           </div>
@@ -506,9 +511,9 @@ export function FolderBrowser({
             {/* Refresh button when header is hidden */}
             {!showHeader && (
               <button 
-                onClick={() => fetchData(currentPath, browseMode)} 
+                onClick={refreshFromAzure} 
                 className={styles.inlineRefreshBtn} 
-                title="Refresh"
+                title="Refresh from Azure"
               >
                 <RefreshCw size={14} />
               </button>
@@ -636,9 +641,15 @@ export function FolderBrowser({
             <div className={styles.footer}>
               <span>{currentDocuments.length} documents in this view</span>
               <span className={styles.divider}>•</span>
-              <span>{browseData.stats.totalFiles} total in firm</span>
+              <span>{browseData.stats.totalFiles} total files</span>
               <span className={styles.divider}>•</span>
-              <span>{formatSize(browseData.stats.totalSize)} total size</span>
+              <span>{formatSize(browseData.stats.totalSize)}</span>
+              {browseData.source === 'cache' && (
+                <>
+                  <span className={styles.divider}>•</span>
+                  <span className={styles.cacheIndicator}>Cached</span>
+                </>
+              )}
             </div>
           )}
         </div>
