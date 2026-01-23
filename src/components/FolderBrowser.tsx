@@ -440,6 +440,28 @@ export function FolderBrowser({
         <div className={styles.main}>
           {/* Breadcrumb */}
           <div className={styles.breadcrumb}>
+            {/* Mode toggle when header is hidden */}
+            {!showHeader && (
+              <div className={styles.inlineModeToggle}>
+                <button 
+                  className={`${styles.inlineModeBtn} ${browseMode === 'all' ? styles.active : ''}`}
+                  onClick={() => { setBrowseMode('all'); setCurrentPath(''); }}
+                  title="Show all documents"
+                >
+                  <List size={14} />
+                  All Files
+                </button>
+                <button 
+                  className={`${styles.inlineModeBtn} ${browseMode === 'folder' ? styles.active : ''}`}
+                  onClick={() => setBrowseMode('folder')}
+                  title="Browse by folder"
+                >
+                  <FolderTree size={14} />
+                  Folders
+                </button>
+                <span className={styles.breadcrumbDivider} />
+              </div>
+            )}
             <button onClick={() => navigateToFolder('')} className={styles.breadcrumbItem}>
               <Home size={14} />
               <span>Home</span>
@@ -455,6 +477,16 @@ export function FolderBrowser({
                 </span>
               )
             })}
+            {/* Refresh button when header is hidden */}
+            {!showHeader && (
+              <button 
+                onClick={() => fetchData(currentPath, browseMode)} 
+                className={styles.inlineRefreshBtn} 
+                title="Refresh"
+              >
+                <RefreshCw size={14} />
+              </button>
+            )}
           </div>
 
           {/* Loading indicator for refresh */}
