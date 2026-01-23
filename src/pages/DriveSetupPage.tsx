@@ -4,7 +4,7 @@ import {
   ArrowLeft, HardDrive, Check, AlertCircle, Loader2, 
   Download, Monitor, Apple, RefreshCw, Copy, CheckCircle2,
   Shield, Key, FolderOpen, Wifi, WifiOff, Settings, ExternalLink,
-  Terminal, FileText, HelpCircle, ChevronDown, ChevronUp
+  Terminal, FileText, HelpCircle, ChevronDown, ChevronUp, Sparkles
 } from 'lucide-react'
 import { driveApi } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
@@ -24,6 +24,13 @@ interface ConnectionInfo {
   }
 }
 
+interface DrivePreference {
+  driveLetter: string
+  setupCompleted: boolean
+  setupCompletedAt?: string
+  os?: 'windows' | 'mac'
+}
+
 export function DriveSetupPage() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
@@ -39,11 +46,14 @@ export function DriveSetupPage() {
   const [showWindowsHelp, setShowWindowsHelp] = useState(false)
   const [showMacHelp, setShowMacHelp] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'checking' | 'accessible' | 'not-accessible' | 'not-configured'>('checking')
+  const [drivePreference, setDrivePreference] = useState<DrivePreference | null>(null)
+  const [showSetupAnyway, setShowSetupAnyway] = useState(false)
 
   const driveLetters = ['Z', 'Y', 'X', 'W', 'V', 'U', 'T', 'S', 'R', 'Q', 'P', 'O', 'N', 'M', 'L', 'K', 'J', 'I', 'H', 'G', 'F', 'E', 'D']
 
   useEffect(() => {
     loadConnectionInfo()
+    loadDrivePreference()
   }, [])
 
   const loadConnectionInfo = async () => {
@@ -61,6 +71,39 @@ export function DriveSetupPage() {
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadDrivePreference = async () => {
+    try {
+      const pref = await driveApi.getDrivePreference()
+      if (pref) {
+        setDrivePreference(pref)
+        if (pref.driveLetter) {
+          setSelectedDriveLetter(pref.driveLetter)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load drive preference:', error)
+    }
+  }
+
+  const markSetupComplete = async (os: 'windows' | 'mac') => {
+    try {
+      await driveApi.updateDrivePreference({
+        driveLetter: selectedDriveLetter,
+        setupCompleted: true,
+        setupCompletedAt: new Date().toISOString(),
+        os
+      })
+      setDrivePreference({
+        driveLetter: selectedDriveLetter,
+        setupCompleted: true,
+        setupCompletedAt: new Date().toISOString(),
+        os
+      })
+    } catch (error) {
+      console.error('Failed to save drive preference:', error)
     }
   }
 
@@ -90,6 +133,7 @@ export function DriveSetupPage() {
       document.body.removeChild(a)
       
       setNotification({ type: 'success', message: 'Windows setup script downloaded! Right-click and Run with PowerShell.' })
+      await markSetupComplete('windows')
     } catch (error: any) {
       setNotification({ type: 'error', message: 'Failed to download setup script' })
     } finally {
@@ -123,6 +167,7 @@ export function DriveSetupPage() {
       document.body.removeChild(a)
       
       setNotification({ type: 'success', message: 'Mac setup script downloaded! Open Terminal and run it.' })
+      await markSetupComplete('mac')
     } catch (error: any) {
       setNotification({ type: 'error', message: 'Failed to download setup script' })
     } finally {
@@ -157,6 +202,85 @@ export function DriveSetupPage() {
         <div className={styles.loading}>
           <Loader2 size={32} className={styles.spinning} />
           <span>Checking drive configuration...</span>
+        </div>
+      </div>
+    )
+  }
+
+  // Already connected state - beautiful confirmation screen
+  if (drivePreference?.setupCompleted && connectionInfo?.configured && !showSetupAnyway) {
+    return (
+      <div className={styles.container}>
+        <div className={styles.connectedWrapper}>
+          <div className={styles.connectedCard}>
+            <div className={styles.connectedIcon}>
+              <div className={styles.connectedIconRing}>
+                <CheckCircle2 size={64} />
+              </div>
+              <Sparkles className={styles.sparkle1} size={20} />
+              <Sparkles className={styles.sparkle2} size={16} />
+              <Sparkles className={styles.sparkle3} size={14} />
+            </div>
+            
+            <h1>You're All Set!</h1>
+            <p className={styles.connectedSubtitle}>
+              Your firm's documents are mapped to your {drivePreference.os === 'mac' ? 'Mac' : 'Windows'} computer
+            </p>
+
+            <div className={styles.connectedDriveInfo}>
+              <div className={styles.driveIcon}>
+                <HardDrive size={32} />
+              </div>
+              <div className={styles.driveDetails}>
+                <span className={styles.driveLetter}>{drivePreference.driveLetter}: Drive</span>
+                <span className={styles.firmName}>{connectionInfo.firmName}</span>
+              </div>
+            </div>
+
+            <div className={styles.connectedPath}>
+              <code>{connectionInfo.paths?.[drivePreference.os === 'mac' ? 'mac' : 'windows']}</code>
+              <button onClick={() => copyPath(connectionInfo.paths?.[drivePreference.os === 'mac' ? 'mac' : 'windows'] || '')}>
+                <Copy size={14} />
+              </button>
+            </div>
+
+            <div className={styles.connectedActions}>
+              <button 
+                className={styles.primaryBtn}
+                onClick={() => navigate('/app/documents')}
+              >
+                <FolderOpen size={18} />
+                Go to Documents
+              </button>
+              <button 
+                className={styles.secondaryBtn}
+                onClick={() => {
+                  // Try to open the drive
+                  const firmdocsUrl = `firmdocs://${drivePreference.driveLetter}:/`
+                  const iframe = document.createElement('iframe')
+                  iframe.style.display = 'none'
+                  iframe.src = firmdocsUrl
+                  document.body.appendChild(iframe)
+                  setTimeout(() => document.body.removeChild(iframe), 1000)
+                }}
+              >
+                <ExternalLink size={18} />
+                Open in {drivePreference.os === 'mac' ? 'Finder' : 'Explorer'}
+              </button>
+            </div>
+
+            <div className={styles.connectedFooter}>
+              <p>
+                Setup completed {drivePreference.setupCompletedAt ? new Date(drivePreference.setupCompletedAt).toLocaleDateString() : 'previously'}
+              </p>
+              <button 
+                className={styles.textBtn}
+                onClick={() => setShowSetupAnyway(true)}
+              >
+                Need to reconnect or change drive letter?
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     )

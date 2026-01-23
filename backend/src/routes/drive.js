@@ -2740,27 +2740,51 @@ router.get('/user-drive-preference', authenticate, async (req, res) => {
     );
     
     const settings = result.rows[0]?.settings || {};
-    const driveLetter = settings.driveLetter || 'Z';
     
     res.json({
-      driveLetter,
+      driveLetter: settings.driveLetter || 'Z',
+      setupCompleted: settings.driveSetupCompleted || false,
+      setupCompletedAt: settings.driveSetupCompletedAt || null,
+      os: settings.driveOs || null,
       firmFolder: `firm-${req.user.firmId}`
     });
   } catch (error) {
     console.error('Get drive preference error:', error);
-    res.json({ driveLetter: 'Z', firmFolder: `firm-${req.user.firmId}` });
+    res.json({ 
+      driveLetter: 'Z', 
+      setupCompleted: false,
+      firmFolder: `firm-${req.user.firmId}` 
+    });
   }
 });
 
 /**
- * Update user's drive letter preference
+ * Update user's drive letter preference and setup status
  */
 router.put('/user-drive-preference', authenticate, async (req, res) => {
   try {
-    const { driveLetter } = req.body;
+    const { driveLetter, setupCompleted, setupCompletedAt, os } = req.body;
     
-    if (!driveLetter || !/^[A-Z]$/.test(driveLetter)) {
-      return res.status(400).json({ error: 'Invalid drive letter' });
+    // Build the settings update object
+    const settingsUpdate = {};
+    
+    if (driveLetter) {
+      if (!/^[A-Z]$/.test(driveLetter)) {
+        return res.status(400).json({ error: 'Invalid drive letter' });
+      }
+      settingsUpdate.driveLetter = driveLetter;
+    }
+    
+    if (setupCompleted !== undefined) {
+      settingsUpdate.driveSetupCompleted = setupCompleted;
+    }
+    
+    if (setupCompletedAt) {
+      settingsUpdate.driveSetupCompletedAt = setupCompletedAt;
+    }
+    
+    if (os) {
+      settingsUpdate.driveOs = os;
     }
     
     await query(
@@ -2768,10 +2792,15 @@ router.put('/user-drive-preference', authenticate, async (req, res) => {
        VALUES ($1, $2, $3)
        ON CONFLICT (user_id) DO UPDATE 
        SET settings = user_settings.settings || $3`,
-      [req.user.id, req.user.firmId, JSON.stringify({ driveLetter })]
+      [req.user.id, req.user.firmId, JSON.stringify(settingsUpdate)]
     );
     
-    res.json({ driveLetter });
+    res.json({ 
+      driveLetter: driveLetter || 'Z',
+      setupCompleted: setupCompleted || false,
+      setupCompletedAt,
+      os
+    });
   } catch (error) {
     console.error('Update drive preference error:', error);
     res.status(500).json({ error: 'Failed to update preference' });

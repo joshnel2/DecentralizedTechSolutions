@@ -1763,11 +1763,16 @@ export const driveApi = {
     return fetchWithAuth('/drive/user-drive-preference');
   },
 
-  // Update user's drive letter preference
-  async updateDrivePreference(driveLetter: string) {
+  // Update user's drive letter preference and setup status
+  async updateDrivePreference(preference: { 
+    driveLetter?: string; 
+    setupCompleted?: boolean; 
+    setupCompletedAt?: string;
+    os?: 'windows' | 'mac';
+  }) {
     return fetchWithAuth('/drive/user-drive-preference', {
       method: 'PUT',
-      body: JSON.stringify({ driveLetter }),
+      body: JSON.stringify(preference),
     });
   },
 
