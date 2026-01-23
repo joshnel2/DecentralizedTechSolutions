@@ -273,8 +273,17 @@
   animation: spin 1s linear infinite;
 }
 
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Storage Tab */
+.storageTab {
+  max-width: 1600px;
 }
 
 /* Overview Tab */

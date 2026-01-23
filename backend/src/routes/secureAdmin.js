@@ -134,7 +134,8 @@ router.get('/firms', requireSecureAdmin, async (req, res) => {
     
     const result = await query(`
       SELECT f.*, 
-             (SELECT COUNT(*) FROM users WHERE firm_id = f.id) as users_count
+             (SELECT COUNT(*) FROM users WHERE firm_id = f.id) as users_count,
+             (SELECT COUNT(*) FROM documents WHERE firm_id = f.id) as documents_count
       FROM firms f
       ORDER BY f.created_at DESC
     `);
@@ -145,8 +146,11 @@ router.get('/firms', requireSecureAdmin, async (req, res) => {
       domain: f.website || f.email?.split('@')[1] || null,
       status: f.is_active !== false ? 'active' : 'suspended',
       users_count: parseInt(f.users_count) || 0,
+      documents_count: parseInt(f.documents_count) || 0,
       subscription_tier: 'professional',
-      created_at: f.created_at
+      created_at: f.created_at,
+      azure_folder: f.azure_folder || `firm-${f.id}`,
+      drive_settings: f.drive_settings || {}
     })));
   } catch (error) {
     console.error('Get firms error:', error);
@@ -2274,6 +2278,407 @@ router.post('/firms/:firmId/manual-match', requireSecureAdmin, async (req, res) 
   } catch (error) {
     console.error('Manual match error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// DRIVE STORAGE MANAGEMENT - Firm Azure Folder Configuration
+// ============================================
+
+// Get storage overview for all firms
+router.get('/storage-overview', requireSecureAdmin, async (req, res) => {
+  try {
+    logAudit('VIEW_STORAGE_OVERVIEW', 'Accessed storage overview', req.ip);
+    
+    const result = await query(`
+      SELECT 
+        f.id,
+        f.name,
+        f.azure_folder,
+        f.drive_settings,
+        f.created_at,
+        (SELECT COUNT(*) FROM users WHERE firm_id = f.id) as users_count,
+        (SELECT COUNT(*) FROM documents WHERE firm_id = f.id) as documents_count,
+        (SELECT COALESCE(SUM(size), 0) FROM documents WHERE firm_id = f.id) as total_size_bytes,
+        (SELECT COUNT(*) FROM documents WHERE firm_id = f.id AND matter_id IS NOT NULL) as matched_documents,
+        (SELECT COUNT(*) FROM documents WHERE firm_id = f.id AND matter_id IS NULL) as unmatched_documents,
+        (SELECT MAX(uploaded_at) FROM documents WHERE firm_id = f.id) as last_document_upload
+      FROM firms f
+      ORDER BY f.name ASC
+    `);
+
+    const { isAzureConfigured, getAzureConfig } = await import('../utils/azureStorage.js');
+    const azureConfigured = await isAzureConfigured();
+    let azureInfo = null;
+    
+    if (azureConfigured) {
+      const config = await getAzureConfig();
+      azureInfo = {
+        accountName: config.accountName,
+        shareName: config.shareName,
+        baseUrl: `https://${config.accountName}.file.core.windows.net/${config.shareName}`
+      };
+    }
+
+    res.json({
+      azureConfigured,
+      azureInfo,
+      firms: result.rows.map(f => ({
+        id: f.id,
+        name: f.name,
+        azureFolder: f.azure_folder || `firm-${f.id}`,
+        customFolder: !!f.azure_folder,
+        driveSettings: f.drive_settings || {},
+        usersCount: parseInt(f.users_count) || 0,
+        documentsCount: parseInt(f.documents_count) || 0,
+        totalSizeMB: Math.round((parseInt(f.total_size_bytes) || 0) / (1024 * 1024)),
+        matchedDocuments: parseInt(f.matched_documents) || 0,
+        unmatchedDocuments: parseInt(f.unmatched_documents) || 0,
+        lastDocumentUpload: f.last_document_upload,
+        createdAt: f.created_at
+      }))
+    });
+  } catch (error) {
+    console.error('Storage overview error:', error);
+    res.status(500).json({ error: 'Failed to get storage overview' });
+  }
+});
+
+// Get storage settings for a specific firm
+router.get('/firms/:firmId/storage', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    logAudit('VIEW_FIRM_STORAGE', `Viewed storage settings for firm ${firmId}`, req.ip);
+    
+    const firmResult = await query(`
+      SELECT 
+        f.id, f.name, f.azure_folder, f.drive_settings,
+        (SELECT COUNT(*) FROM users WHERE firm_id = f.id) as users_count,
+        (SELECT COUNT(*) FROM documents WHERE firm_id = f.id) as documents_count,
+        (SELECT COALESCE(SUM(size), 0) FROM documents WHERE firm_id = f.id) as total_size_bytes,
+        (SELECT COUNT(*) FROM documents WHERE firm_id = f.id AND matter_id IS NOT NULL) as matched_documents,
+        (SELECT COUNT(*) FROM documents WHERE firm_id = f.id AND matter_id IS NULL) as unmatched_documents,
+        (SELECT COUNT(DISTINCT folder_path) FROM documents WHERE firm_id = f.id) as unique_folders
+      FROM firms f
+      WHERE f.id = $1
+    `, [firmId]);
+    
+    if (firmResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Firm not found' });
+    }
+    
+    const firm = firmResult.rows[0];
+    const { isAzureConfigured, getAzureConfig } = await import('../utils/azureStorage.js');
+    const azureConfigured = await isAzureConfigured();
+    const azureFolder = firm.azure_folder || `firm-${firmId}`;
+    
+    let connectionInfo = null;
+    if (azureConfigured) {
+      const config = await getAzureConfig();
+      connectionInfo = {
+        accountName: config.accountName,
+        shareName: config.shareName,
+        folder: azureFolder,
+        windowsPath: `\\\\${config.accountName}.file.core.windows.net\\${config.shareName}\\${azureFolder}`,
+        macPath: `smb://${config.accountName}.file.core.windows.net/${config.shareName}/${azureFolder}`,
+        webUrl: `https://${config.accountName}.file.core.windows.net/${config.shareName}/${azureFolder}`
+      };
+    }
+    
+    // Get document folder breakdown
+    const foldersResult = await query(`
+      SELECT 
+        COALESCE(folder_path, 'Root') as folder,
+        COUNT(*) as file_count,
+        COUNT(*) FILTER (WHERE matter_id IS NOT NULL) as matched_count,
+        COALESCE(SUM(size), 0) as folder_size
+      FROM documents 
+      WHERE firm_id = $1
+      GROUP BY folder_path
+      ORDER BY file_count DESC
+      LIMIT 20
+    `, [firmId]);
+    
+    res.json({
+      firmId: firm.id,
+      firmName: firm.name,
+      azureFolder,
+      customFolder: !!firm.azure_folder,
+      driveSettings: firm.drive_settings || {
+        autoScanEnabled: true,
+        scanIntervalMinutes: 60,
+        defaultDocumentPrivacy: 'team',
+        inheritMatterPermissions: true,
+        preserveFolderStructure: true
+      },
+      stats: {
+        usersCount: parseInt(firm.users_count) || 0,
+        documentsCount: parseInt(firm.documents_count) || 0,
+        totalSizeMB: Math.round((parseInt(firm.total_size_bytes) || 0) / (1024 * 1024)),
+        matchedDocuments: parseInt(firm.matched_documents) || 0,
+        unmatchedDocuments: parseInt(firm.unmatched_documents) || 0,
+        uniqueFolders: parseInt(firm.unique_folders) || 0
+      },
+      connectionInfo,
+      folderBreakdown: foldersResult.rows.map(f => ({
+        folder: f.folder,
+        fileCount: parseInt(f.file_count),
+        matchedCount: parseInt(f.matched_count),
+        sizeMB: Math.round((parseInt(f.folder_size) || 0) / (1024 * 1024))
+      }))
+    });
+  } catch (error) {
+    console.error('Firm storage error:', error);
+    res.status(500).json({ error: 'Failed to get firm storage settings' });
+  }
+});
+
+// Update storage settings for a firm
+router.put('/firms/:firmId/storage', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    const { azureFolder, driveSettings } = req.body;
+    
+    // Validate azure folder name if provided
+    if (azureFolder !== undefined) {
+      if (azureFolder && !/^[a-zA-Z0-9_-]+$/.test(azureFolder)) {
+        return res.status(400).json({ 
+          error: 'Invalid folder name. Use only letters, numbers, hyphens, and underscores.' 
+        });
+      }
+      
+      // Check for folder name conflicts
+      if (azureFolder) {
+        const conflictCheck = await query(
+          `SELECT id, name FROM firms WHERE azure_folder = $1 AND id != $2`,
+          [azureFolder, firmId]
+        );
+        if (conflictCheck.rows.length > 0) {
+          return res.status(400).json({ 
+            error: `Folder "${azureFolder}" is already used by firm "${conflictCheck.rows[0].name}"` 
+          });
+        }
+      }
+    }
+    
+    const updateFields = [];
+    const values = [];
+    let paramIndex = 1;
+    
+    if (azureFolder !== undefined) {
+      updateFields.push(`azure_folder = $${paramIndex++}`);
+      values.push(azureFolder || null); // null means use default firm-{id}
+    }
+    
+    if (driveSettings !== undefined) {
+      updateFields.push(`drive_settings = $${paramIndex++}`);
+      values.push(JSON.stringify(driveSettings));
+    }
+    
+    if (updateFields.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+    
+    updateFields.push('updated_at = NOW()');
+    values.push(firmId);
+    
+    const result = await query(`
+      UPDATE firms SET ${updateFields.join(', ')}
+      WHERE id = $${paramIndex}
+      RETURNING id, name, azure_folder, drive_settings
+    `, values);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Firm not found' });
+    }
+    
+    const firm = result.rows[0];
+    logAudit('UPDATE_FIRM_STORAGE', `Updated storage settings for firm "${firm.name}"`, req.ip);
+    
+    res.json({
+      success: true,
+      message: `Storage settings updated for ${firm.name}`,
+      firmId: firm.id,
+      firmName: firm.name,
+      azureFolder: firm.azure_folder || `firm-${firm.id}`,
+      customFolder: !!firm.azure_folder,
+      driveSettings: firm.drive_settings || {}
+    });
+  } catch (error) {
+    console.error('Update firm storage error:', error);
+    res.status(500).json({ error: 'Failed to update storage settings' });
+  }
+});
+
+// Bulk update document permissions for a firm
+router.post('/firms/:firmId/bulk-permissions', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    const { 
+      action, // 'match_all', 'set_privacy', 'assign_owner', 'clear_orphans'
+      privacyLevel,
+      ownerId,
+      folderPath
+    } = req.body;
+    
+    let result;
+    let message;
+    
+    switch (action) {
+      case 'match_all':
+        // Try to match all unmatched documents to matters by folder name
+        result = await query(`
+          WITH folder_matches AS (
+            SELECT DISTINCT ON (d.id)
+              d.id as doc_id,
+              m.id as matter_id,
+              m.responsible_attorney
+            FROM documents d
+            CROSS JOIN matters m
+            WHERE d.firm_id = $1 
+              AND m.firm_id = $1
+              AND d.matter_id IS NULL
+              AND (
+                d.folder_path ILIKE '%' || m.name || '%'
+                OR d.name ILIKE '%' || m.name || '%'
+                OR d.folder_path ILIKE '%' || m.matter_number || '%'
+              )
+          )
+          UPDATE documents SET
+            matter_id = fm.matter_id,
+            owner_id = COALESCE(owner_id, fm.responsible_attorney),
+            privacy_level = 'team',
+            updated_at = NOW()
+          FROM folder_matches fm
+          WHERE documents.id = fm.doc_id
+          RETURNING documents.id
+        `, [firmId]);
+        message = `Matched ${result.rows.length} documents to matters`;
+        break;
+        
+      case 'set_privacy':
+        if (!privacyLevel || !['private', 'team', 'public'].includes(privacyLevel)) {
+          return res.status(400).json({ error: 'Invalid privacy level' });
+        }
+        const whereClause = folderPath 
+          ? `AND (folder_path = $2 OR folder_path LIKE $2 || '/%')`
+          : '';
+        const params = folderPath ? [firmId, folderPath, privacyLevel] : [firmId, privacyLevel];
+        
+        result = await query(`
+          UPDATE documents SET
+            privacy_level = $${folderPath ? 3 : 2},
+            updated_at = NOW()
+          WHERE firm_id = $1 ${whereClause}
+          RETURNING id
+        `, params);
+        message = `Set privacy to "${privacyLevel}" for ${result.rows.length} documents`;
+        break;
+        
+      case 'assign_owner':
+        if (!ownerId) {
+          return res.status(400).json({ error: 'Owner ID required' });
+        }
+        // Verify user exists in firm
+        const userCheck = await query(
+          'SELECT id FROM users WHERE id = $1 AND firm_id = $2',
+          [ownerId, firmId]
+        );
+        if (userCheck.rows.length === 0) {
+          return res.status(400).json({ error: 'User not found in this firm' });
+        }
+        
+        const ownerWhereClause = folderPath 
+          ? `AND (folder_path = $2 OR folder_path LIKE $2 || '/%')`
+          : '';
+        const ownerParams = folderPath ? [firmId, folderPath, ownerId] : [firmId, ownerId];
+        
+        result = await query(`
+          UPDATE documents SET
+            owner_id = $${folderPath ? 3 : 2},
+            updated_at = NOW()
+          WHERE firm_id = $1 AND owner_id IS NULL ${ownerWhereClause}
+          RETURNING id
+        `, ownerParams);
+        message = `Assigned owner to ${result.rows.length} documents`;
+        break;
+        
+      case 'clear_orphans':
+        // Remove documents with no matter AND no recent access
+        result = await query(`
+          DELETE FROM documents 
+          WHERE firm_id = $1 
+            AND matter_id IS NULL
+            AND created_at < NOW() - INTERVAL '30 days'
+          RETURNING id
+        `, [firmId]);
+        message = `Removed ${result.rows.length} orphaned documents older than 30 days`;
+        break;
+        
+      default:
+        return res.status(400).json({ error: 'Invalid action' });
+    }
+    
+    logAudit('BULK_PERMISSIONS', `${action}: ${message} for firm ${firmId}`, req.ip);
+    
+    res.json({
+      success: true,
+      message,
+      affectedCount: result.rows.length
+    });
+  } catch (error) {
+    console.error('Bulk permissions error:', error);
+    res.status(500).json({ error: 'Failed to update permissions' });
+  }
+});
+
+// Create Azure folder for firm (ensure it exists)
+router.post('/firms/:firmId/create-folder', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    const { folderName } = req.body;
+    
+    const firmResult = await query('SELECT id, name, azure_folder FROM firms WHERE id = $1', [firmId]);
+    if (firmResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Firm not found' });
+    }
+    
+    const firm = firmResult.rows[0];
+    const targetFolder = folderName || firm.azure_folder || `firm-${firmId}`;
+    
+    const { isAzureConfigured, getAzureConfig, ensureFirmFolder } = await import('../utils/azureStorage.js');
+    
+    if (!(await isAzureConfigured())) {
+      return res.status(400).json({ error: 'Azure Storage not configured' });
+    }
+    
+    // Create the folder
+    const folderResult = await ensureFirmFolder(targetFolder.replace('firm-', ''));
+    
+    // Update firm record if custom folder provided
+    if (folderName && folderName !== `firm-${firmId}`) {
+      await query(
+        'UPDATE firms SET azure_folder = $1, updated_at = NOW() WHERE id = $2',
+        [folderName, firmId]
+      );
+    }
+    
+    const config = await getAzureConfig();
+    
+    logAudit('CREATE_FOLDER', `Created Azure folder "${targetFolder}" for firm "${firm.name}"`, req.ip);
+    
+    res.json({
+      success: true,
+      message: `Folder "${targetFolder}" created/verified in Azure`,
+      folder: targetFolder,
+      connectionInfo: {
+        windowsPath: `\\\\${config.accountName}.file.core.windows.net\\${config.shareName}\\${targetFolder}`,
+        macPath: `smb://${config.accountName}.file.core.windows.net/${config.shareName}/${targetFolder}`
+      }
+    });
+  } catch (error) {
+    console.error('Create folder error:', error);
+    res.status(500).json({ error: 'Failed to create folder' });
   }
 });
 

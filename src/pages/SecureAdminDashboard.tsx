@@ -21,8 +21,76 @@ interface Firm {
   phone?: string
   status: 'active' | 'suspended' | 'pending'
   users_count: number
+  documents_count?: number
   created_at: string
   subscription_tier: string
+  azure_folder?: string
+  drive_settings?: {
+    autoScanEnabled?: boolean
+    scanIntervalMinutes?: number
+    defaultDocumentPrivacy?: 'private' | 'team' | 'public'
+    inheritMatterPermissions?: boolean
+    preserveFolderStructure?: boolean
+  }
+}
+
+interface StorageOverview {
+  azureConfigured: boolean
+  azureInfo: {
+    accountName: string
+    shareName: string
+    baseUrl: string
+  } | null
+  firms: Array<{
+    id: string
+    name: string
+    azureFolder: string
+    customFolder: boolean
+    driveSettings: Record<string, any>
+    usersCount: number
+    documentsCount: number
+    totalSizeMB: number
+    matchedDocuments: number
+    unmatchedDocuments: number
+    lastDocumentUpload: string | null
+    createdAt: string
+  }>
+}
+
+interface FirmStorageSettings {
+  firmId: string
+  firmName: string
+  azureFolder: string
+  customFolder: boolean
+  driveSettings: {
+    autoScanEnabled: boolean
+    scanIntervalMinutes: number
+    defaultDocumentPrivacy: string
+    inheritMatterPermissions: boolean
+    preserveFolderStructure: boolean
+  }
+  stats: {
+    usersCount: number
+    documentsCount: number
+    totalSizeMB: number
+    matchedDocuments: number
+    unmatchedDocuments: number
+    uniqueFolders: number
+  }
+  connectionInfo: {
+    accountName: string
+    shareName: string
+    folder: string
+    windowsPath: string
+    macPath: string
+    webUrl: string
+  } | null
+  folderBreakdown: Array<{
+    folder: string
+    fileCount: number
+    matchedCount: number
+    sizeMB: number
+  }>
 }
 
 interface User {
@@ -141,7 +209,13 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 const getAuthToken = () => sessionStorage.getItem('_sap_auth') || ''
 
 export default function SecureAdminDashboard() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'quick-onboard' | 'firms' | 'users' | 'account-tools' | 'migration' | 'audit' | 'integrations'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'quick-onboard' | 'firms' | 'users' | 'account-tools' | 'migration' | 'audit' | 'integrations' | 'storage'>('overview')
+  
+  // Storage management state
+  const [storageOverview, setStorageOverview] = useState<StorageOverview | null>(null)
+  const [loadingStorage, setLoadingStorage] = useState(false)
+  const [editingFirmStorage, setEditingFirmStorage] = useState<FirmStorageSettings | null>(null)
+  const [storageFirmSearch, setStorageFirmSearch] = useState('')
   const [firms, setFirms] = useState<Firm[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
@@ -674,6 +748,109 @@ export default function SecureAdminDashboard() {
       setNotification({ type: 'error', message: 'Failed to save integration settings' })
     }
     setSavingIntegrations(false)
+  }
+
+  // Storage Management Functions
+  const loadStorageOverview = async () => {
+    setLoadingStorage(true)
+    try {
+      const response = await fetch(`${API_URL}/secure-admin/storage-overview`, {
+        headers: getAuthHeaders()
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setStorageOverview(data)
+      } else {
+        showNotification('error', 'Failed to load storage overview')
+      }
+    } catch (err) {
+      console.error('Failed to load storage overview:', err)
+      showNotification('error', 'Failed to load storage overview')
+    }
+    setLoadingStorage(false)
+  }
+
+  const loadFirmStorage = async (firmId: string) => {
+    try {
+      const response = await fetch(`${API_URL}/secure-admin/firms/${firmId}/storage`, {
+        headers: getAuthHeaders()
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setEditingFirmStorage(data)
+      } else {
+        showNotification('error', 'Failed to load firm storage settings')
+      }
+    } catch (err) {
+      console.error('Failed to load firm storage:', err)
+      showNotification('error', 'Failed to load firm storage settings')
+    }
+  }
+
+  const updateFirmStorage = async (firmId: string, azureFolder: string | null, driveSettings: any) => {
+    try {
+      const response = await fetch(`${API_URL}/secure-admin/firms/${firmId}/storage`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ azureFolder, driveSettings })
+      })
+      if (response.ok) {
+        const data = await response.json()
+        showNotification('success', data.message || 'Storage settings updated')
+        loadStorageOverview()
+        loadFirmStorage(firmId)
+      } else {
+        const error = await response.json()
+        showNotification('error', error.error || 'Failed to update storage settings')
+      }
+    } catch (err) {
+      console.error('Failed to update firm storage:', err)
+      showNotification('error', 'Failed to update storage settings')
+    }
+  }
+
+  const handleBulkPermissions = async (firmId: string, action: string, options: any = {}) => {
+    try {
+      const response = await fetch(`${API_URL}/secure-admin/firms/${firmId}/bulk-permissions`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ action, ...options })
+      })
+      if (response.ok) {
+        const data = await response.json()
+        showNotification('success', data.message)
+        loadFirmStorage(firmId)
+        loadStorageOverview()
+      } else {
+        const error = await response.json()
+        showNotification('error', error.error || 'Failed to update permissions')
+      }
+    } catch (err) {
+      console.error('Failed to update permissions:', err)
+      showNotification('error', 'Failed to update permissions')
+    }
+  }
+
+  const handleCreateFolder = async (firmId: string, folderName?: string) => {
+    try {
+      const response = await fetch(`${API_URL}/secure-admin/firms/${firmId}/create-folder`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ folderName })
+      })
+      if (response.ok) {
+        const data = await response.json()
+        showNotification('success', data.message)
+        loadFirmStorage(firmId)
+        loadStorageOverview()
+      } else {
+        const error = await response.json()
+        showNotification('error', error.error || 'Failed to create folder')
+      }
+    } catch (err) {
+      console.error('Failed to create folder:', err)
+      showNotification('error', 'Failed to create folder')
+    }
   }
 
   // Account Lookup
@@ -2062,6 +2239,13 @@ Password: ${newPass}`
             >
               <Key size={18} />
               <span>Integrations</span>
+            </button>
+            <button 
+              className={`${styles.navItem} ${activeTab === 'storage' ? styles.active : ''}`}
+              onClick={() => { setActiveTab('storage'); loadStorageOverview(); }}
+            >
+              <HardDrive size={18} />
+              <span>Drive Storage</span>
             </button>
           </nav>
         </aside>
@@ -4607,6 +4791,580 @@ Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
                           {savingIntegrations ? <RefreshCw size={18} className={styles.spinning} /> : <CheckCircle size={18} />}
                           {savingIntegrations ? 'Saving...' : 'Save All Settings'}
                         </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Drive Storage Tab */}
+              {activeTab === 'storage' && (
+                <div className={styles.storageTab}>
+                  <div className={styles.listHeader}>
+                    <h2 className={styles.pageTitle}>
+                      <HardDrive size={24} />
+                      Drive Storage Management
+                    </h2>
+                    <div className={styles.listActions}>
+                      <div className={styles.searchBox}>
+                        <Search size={18} />
+                        <input
+                          type="text"
+                          placeholder="Search firms..."
+                          value={storageFirmSearch}
+                          onChange={(e) => setStorageFirmSearch(e.target.value)}
+                        />
+                      </div>
+                      <button 
+                        className={styles.secondaryBtn}
+                        onClick={() => loadStorageOverview()}
+                        disabled={loadingStorage}
+                      >
+                        <RefreshCw size={18} className={loadingStorage ? styles.spinning : ''} />
+                        Refresh
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Azure Status Card */}
+                  {storageOverview && (
+                    <div style={{ 
+                      background: storageOverview.azureConfigured 
+                        ? 'linear-gradient(135deg, #059669 0%, #10B981 100%)' 
+                        : 'linear-gradient(135deg, #DC2626 0%, #EF4444 100%)',
+                      borderRadius: '16px',
+                      padding: '24px 32px',
+                      color: 'white',
+                      marginBottom: '24px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}>
+                      <div>
+                        <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          {storageOverview.azureConfigured ? (
+                            <><CheckCircle size={24} /> Azure Storage Connected</>
+                          ) : (
+                            <><AlertCircle size={24} /> Azure Storage Not Configured</>
+                          )}
+                        </h3>
+                        {storageOverview.azureInfo && (
+                          <div style={{ fontSize: '14px', opacity: 0.9 }}>
+                            <span style={{ marginRight: '24px' }}>Account: <strong>{storageOverview.azureInfo.accountName}</strong></span>
+                            <span>Share: <strong>{storageOverview.azureInfo.shareName}</strong></span>
+                          </div>
+                        )}
+                        {!storageOverview.azureConfigured && (
+                          <p style={{ margin: '8px 0 0 0', fontSize: '14px', opacity: 0.9 }}>
+                            Go to Integrations tab to configure Azure Storage credentials.
+                          </p>
+                        )}
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '36px', fontWeight: 700 }}>{storageOverview.firms.length}</div>
+                        <div style={{ fontSize: '14px', opacity: 0.9 }}>Firms</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Firms Storage Table */}
+                  {loadingStorage ? (
+                    <div style={{ textAlign: 'center', padding: '60px', color: '#64748B' }}>
+                      <RefreshCw size={40} className={styles.spinning} style={{ marginBottom: '16px' }} />
+                      <p>Loading storage overview...</p>
+                    </div>
+                  ) : storageOverview ? (
+                    <div className={styles.tableWrapper}>
+                      <table className={styles.table}>
+                        <thead>
+                          <tr>
+                            <th>Firm</th>
+                            <th>Azure Folder</th>
+                            <th>Documents</th>
+                            <th>Matched</th>
+                            <th>Unmatched</th>
+                            <th>Size</th>
+                            <th>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {storageOverview.firms
+                            .filter(f => !storageFirmSearch || f.name.toLowerCase().includes(storageFirmSearch.toLowerCase()))
+                            .map(firm => (
+                            <tr key={firm.id}>
+                              <td className={styles.firmName}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <Building2 size={16} style={{ color: '#3B82F6' }} />
+                                  <div>
+                                    <div style={{ fontWeight: 500 }}>{firm.name}</div>
+                                    <div style={{ fontSize: '12px', color: '#64748B' }}>{firm.usersCount} users</div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td>
+                                <div style={{ 
+                                  display: 'inline-flex', 
+                                  alignItems: 'center', 
+                                  gap: '8px',
+                                  background: '#F1F5F9',
+                                  padding: '4px 12px',
+                                  borderRadius: '6px',
+                                  fontFamily: 'monospace',
+                                  fontSize: '13px'
+                                }}>
+                                  <HardDrive size={14} style={{ color: '#64748B' }} />
+                                  {firm.azureFolder}
+                                  {firm.customFolder && (
+                                    <span style={{ 
+                                      background: '#3B82F6', 
+                                      color: 'white', 
+                                      padding: '2px 6px', 
+                                      borderRadius: '4px', 
+                                      fontSize: '10px',
+                                      fontWeight: 600
+                                    }}>Custom</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td>
+                                <span style={{ fontWeight: 600, color: '#1E293B' }}>{firm.documentsCount}</span>
+                              </td>
+                              <td>
+                                <span style={{ 
+                                  color: firm.matchedDocuments > 0 ? '#10B981' : '#64748B',
+                                  fontWeight: firm.matchedDocuments > 0 ? 600 : 400
+                                }}>
+                                  {firm.matchedDocuments}
+                                </span>
+                              </td>
+                              <td>
+                                <span style={{ 
+                                  color: firm.unmatchedDocuments > 0 ? '#F59E0B' : '#64748B',
+                                  fontWeight: firm.unmatchedDocuments > 0 ? 600 : 400
+                                }}>
+                                  {firm.unmatchedDocuments}
+                                  {firm.unmatchedDocuments > 0 && (
+                                    <AlertCircle size={12} style={{ marginLeft: '4px', verticalAlign: 'middle' }} />
+                                  )}
+                                </span>
+                              </td>
+                              <td>
+                                <span style={{ color: '#64748B' }}>{firm.totalSizeMB} MB</span>
+                              </td>
+                              <td className={styles.actions}>
+                                <button 
+                                  onClick={() => loadFirmStorage(firm.id)}
+                                  className={styles.viewBtn}
+                                  title="Configure storage settings"
+                                  style={{ background: '#3B82F6' }}
+                                >
+                                  <Settings size={14} />
+                                </button>
+                                <button 
+                                  onClick={() => handleScanDocuments(firm.id)}
+                                  disabled={scanningFirmId === firm.id}
+                                  className={styles.editBtn}
+                                  title="Scan documents"
+                                  style={{ background: scanningFirmId === firm.id ? '#6B7280' : '#10B981' }}
+                                >
+                                  {scanningFirmId === firm.id ? (
+                                    <Clock size={14} className={styles.spinning} />
+                                  ) : (
+                                    <FolderSync size={14} />
+                                  )}
+                                </button>
+                                {firm.unmatchedDocuments > 0 && (
+                                  <button 
+                                    onClick={() => handleBulkPermissions(firm.id, 'match_all')}
+                                    className={styles.editBtn}
+                                    title="Auto-match unmatched documents"
+                                    style={{ background: '#F59E0B' }}
+                                  >
+                                    <Wand2 size={14} />
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {storageOverview.firms.filter(f => !storageFirmSearch || f.name.toLowerCase().includes(storageFirmSearch.toLowerCase())).length === 0 && (
+                        <div className={styles.emptyState}>No firms found</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '60px', color: '#64748B' }}>
+                      <HardDrive size={48} style={{ marginBottom: '16px', opacity: 0.3 }} />
+                      <p>No storage data loaded. Click Refresh to load.</p>
+                    </div>
+                  )}
+
+                  {/* Firm Storage Settings Modal */}
+                  {editingFirmStorage && (
+                    <div className={styles.modalOverlay} onClick={() => setEditingFirmStorage(null)}>
+                      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '800px', maxHeight: '90vh', overflow: 'auto' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                          <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <HardDrive size={24} />
+                            Storage Settings: {editingFirmStorage.firmName}
+                          </h2>
+                          <button onClick={() => setEditingFirmStorage(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px' }}>
+                            <X size={24} />
+                          </button>
+                        </div>
+
+                        {/* Stats Overview */}
+                        <div style={{ 
+                          display: 'grid', 
+                          gridTemplateColumns: 'repeat(4, 1fr)', 
+                          gap: '16px',
+                          marginBottom: '24px'
+                        }}>
+                          {[
+                            { label: 'Documents', value: editingFirmStorage.stats.documentsCount, color: '#3B82F6' },
+                            { label: 'Matched', value: editingFirmStorage.stats.matchedDocuments, color: '#10B981' },
+                            { label: 'Unmatched', value: editingFirmStorage.stats.unmatchedDocuments, color: '#F59E0B' },
+                            { label: 'Total Size', value: `${editingFirmStorage.stats.totalSizeMB} MB`, color: '#8B5CF6' }
+                          ].map((stat, i) => (
+                            <div key={i} style={{ 
+                              background: '#F8FAFC',
+                              border: '1px solid #E2E8F0',
+                              borderRadius: '12px',
+                              padding: '16px',
+                              textAlign: 'center'
+                            }}>
+                              <div style={{ fontSize: '28px', fontWeight: 700, color: stat.color }}>{stat.value}</div>
+                              <div style={{ fontSize: '13px', color: '#64748B' }}>{stat.label}</div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Azure Folder Configuration */}
+                        <div style={{ 
+                          background: '#F8FAFC',
+                          border: '1px solid #E2E8F0',
+                          borderRadius: '12px',
+                          padding: '20px',
+                          marginBottom: '20px'
+                        }}>
+                          <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 600 }}>Azure Folder Path</h3>
+                          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', marginBottom: '12px' }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ display: 'block', fontSize: '13px', color: '#64748B', marginBottom: '4px' }}>Folder Name</label>
+                              <input
+                                type="text"
+                                value={editingFirmStorage.azureFolder}
+                                onChange={(e) => setEditingFirmStorage({
+                                  ...editingFirmStorage,
+                                  azureFolder: e.target.value,
+                                  customFolder: e.target.value !== `firm-${editingFirmStorage.firmId}`
+                                })}
+                                placeholder={`firm-${editingFirmStorage.firmId}`}
+                                style={{ 
+                                  width: '100%',
+                                  padding: '10px 14px',
+                                  border: '1px solid #E2E8F0',
+                                  borderRadius: '8px',
+                                  fontSize: '14px',
+                                  fontFamily: 'monospace'
+                                }}
+                              />
+                            </div>
+                            <button
+                              onClick={() => {
+                                updateFirmStorage(
+                                  editingFirmStorage.firmId, 
+                                  editingFirmStorage.azureFolder === `firm-${editingFirmStorage.firmId}` ? null : editingFirmStorage.azureFolder,
+                                  editingFirmStorage.driveSettings
+                                )
+                              }}
+                              style={{
+                                padding: '10px 20px',
+                                background: '#3B82F6',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                fontWeight: 500,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                              }}
+                            >
+                              <CheckCircle size={16} />
+                              Save
+                            </button>
+                            <button
+                              onClick={() => handleCreateFolder(editingFirmStorage.firmId, editingFirmStorage.azureFolder)}
+                              style={{
+                                padding: '10px 20px',
+                                background: '#10B981',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                fontWeight: 500,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                              }}
+                            >
+                              <Plus size={16} />
+                              Create Folder
+                            </button>
+                          </div>
+                          
+                          {/* Connection Paths */}
+                          {editingFirmStorage.connectionInfo && (
+                            <div style={{ 
+                              background: 'white',
+                              border: '1px solid #E2E8F0',
+                              borderRadius: '8px',
+                              padding: '12px',
+                              fontSize: '13px'
+                            }}>
+                              <div style={{ marginBottom: '8px' }}>
+                                <span style={{ color: '#64748B', marginRight: '8px' }}>Windows:</span>
+                                <code style={{ 
+                                  background: '#1E293B',
+                                  color: '#E2E8F0',
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  fontFamily: 'monospace'
+                                }}>{editingFirmStorage.connectionInfo.windowsPath}</code>
+                                <button
+                                  onClick={() => { navigator.clipboard.writeText(editingFirmStorage.connectionInfo!.windowsPath); showNotification('success', 'Copied!') }}
+                                  style={{ marginLeft: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#3B82F6' }}
+                                >
+                                  <Copy size={14} />
+                                </button>
+                              </div>
+                              <div>
+                                <span style={{ color: '#64748B', marginRight: '8px' }}>Mac:</span>
+                                <code style={{ 
+                                  background: '#1E293B',
+                                  color: '#E2E8F0',
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  fontFamily: 'monospace'
+                                }}>{editingFirmStorage.connectionInfo.macPath}</code>
+                                <button
+                                  onClick={() => { navigator.clipboard.writeText(editingFirmStorage.connectionInfo!.macPath); showNotification('success', 'Copied!') }}
+                                  style={{ marginLeft: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#3B82F6' }}
+                                >
+                                  <Copy size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Drive Settings */}
+                        <div style={{ 
+                          background: '#F8FAFC',
+                          border: '1px solid #E2E8F0',
+                          borderRadius: '12px',
+                          padding: '20px',
+                          marginBottom: '20px'
+                        }}>
+                          <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 600 }}>Document Settings</h3>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '13px', color: '#64748B', marginBottom: '4px' }}>Default Privacy Level</label>
+                              <select
+                                value={editingFirmStorage.driveSettings.defaultDocumentPrivacy}
+                                onChange={(e) => setEditingFirmStorage({
+                                  ...editingFirmStorage,
+                                  driveSettings: { ...editingFirmStorage.driveSettings, defaultDocumentPrivacy: e.target.value }
+                                })}
+                                style={{ 
+                                  width: '100%',
+                                  padding: '10px 14px',
+                                  border: '1px solid #E2E8F0',
+                                  borderRadius: '8px',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                <option value="private">Private (Owner only)</option>
+                                <option value="team">Team (Matter assignees)</option>
+                                <option value="public">Public (All firm users)</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '13px', color: '#64748B', marginBottom: '4px' }}>Scan Interval (minutes)</label>
+                              <input
+                                type="number"
+                                value={editingFirmStorage.driveSettings.scanIntervalMinutes}
+                                onChange={(e) => setEditingFirmStorage({
+                                  ...editingFirmStorage,
+                                  driveSettings: { ...editingFirmStorage.driveSettings, scanIntervalMinutes: parseInt(e.target.value) || 60 }
+                                })}
+                                min={10}
+                                max={1440}
+                                style={{ 
+                                  width: '100%',
+                                  padding: '10px 14px',
+                                  border: '1px solid #E2E8F0',
+                                  borderRadius: '8px',
+                                  fontSize: '14px'
+                                }}
+                              />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              <input
+                                type="checkbox"
+                                id="inheritPermissions"
+                                checked={editingFirmStorage.driveSettings.inheritMatterPermissions}
+                                onChange={(e) => setEditingFirmStorage({
+                                  ...editingFirmStorage,
+                                  driveSettings: { ...editingFirmStorage.driveSettings, inheritMatterPermissions: e.target.checked }
+                                })}
+                              />
+                              <label htmlFor="inheritPermissions" style={{ fontSize: '14px', color: '#1E293B' }}>
+                                Inherit permissions from parent matter
+                              </label>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              <input
+                                type="checkbox"
+                                id="preserveStructure"
+                                checked={editingFirmStorage.driveSettings.preserveFolderStructure}
+                                onChange={(e) => setEditingFirmStorage({
+                                  ...editingFirmStorage,
+                                  driveSettings: { ...editingFirmStorage.driveSettings, preserveFolderStructure: e.target.checked }
+                                })}
+                              />
+                              <label htmlFor="preserveStructure" style={{ fontSize: '14px', color: '#1E293B' }}>
+                                Preserve folder structure from source
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Bulk Actions */}
+                        <div style={{ 
+                          background: '#FEF3C7',
+                          border: '1px solid #F59E0B',
+                          borderRadius: '12px',
+                          padding: '20px',
+                          marginBottom: '20px'
+                        }}>
+                          <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 600, color: '#B45309' }}>
+                            Bulk Document Actions
+                          </h3>
+                          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                            <button
+                              onClick={() => handleBulkPermissions(editingFirmStorage.firmId, 'match_all')}
+                              style={{
+                                padding: '10px 20px',
+                                background: '#F59E0B',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                fontWeight: 500,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                              }}
+                            >
+                              <Wand2 size={16} />
+                              Auto-Match All ({editingFirmStorage.stats.unmatchedDocuments} unmatched)
+                            </button>
+                            <button
+                              onClick={() => handleBulkPermissions(editingFirmStorage.firmId, 'set_privacy', { privacyLevel: 'team' })}
+                              style={{
+                                padding: '10px 20px',
+                                background: '#8B5CF6',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                fontWeight: 500,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                              }}
+                            >
+                              <Users size={16} />
+                              Set All to Team Access
+                            </button>
+                            <button
+                              onClick={() => handleScanDocuments(editingFirmStorage.firmId)}
+                              disabled={scanningFirmId === editingFirmStorage.firmId}
+                              style={{
+                                padding: '10px 20px',
+                                background: '#10B981',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: scanningFirmId === editingFirmStorage.firmId ? 'not-allowed' : 'pointer',
+                                fontWeight: 500,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                opacity: scanningFirmId === editingFirmStorage.firmId ? 0.7 : 1
+                              }}
+                            >
+                              {scanningFirmId === editingFirmStorage.firmId ? (
+                                <><RefreshCw size={16} className={styles.spinning} /> Scanning...</>
+                              ) : (
+                                <><FolderSync size={16} /> Scan Azure Files</>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Folder Breakdown */}
+                        {editingFirmStorage.folderBreakdown.length > 0 && (
+                          <div style={{ 
+                            background: '#F8FAFC',
+                            border: '1px solid #E2E8F0',
+                            borderRadius: '12px',
+                            padding: '20px'
+                          }}>
+                            <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 600 }}>
+                              Folder Breakdown (Top 20)
+                            </h3>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                              <thead>
+                                <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                                  <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '13px', color: '#64748B' }}>Folder</th>
+                                  <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: '13px', color: '#64748B' }}>Files</th>
+                                  <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: '13px', color: '#64748B' }}>Matched</th>
+                                  <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: '13px', color: '#64748B' }}>Size</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {editingFirmStorage.folderBreakdown.map((folder, idx) => (
+                                  <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                                    <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: '13px' }}>{folder.folder}</td>
+                                    <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{folder.fileCount}</td>
+                                    <td style={{ padding: '8px 12px', textAlign: 'right', color: folder.matchedCount > 0 ? '#10B981' : '#64748B' }}>{folder.matchedCount}</td>
+                                    <td style={{ padding: '8px 12px', textAlign: 'right', color: '#64748B' }}>{folder.sizeMB} MB</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
+                          <button
+                            onClick={() => setEditingFirmStorage(null)}
+                            style={{
+                              padding: '12px 24px',
+                              background: '#64748B',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '8px',
+                              cursor: 'pointer',
+                              fontWeight: 500
+                            }}
+                          >
+                            Close
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
