@@ -865,47 +865,100 @@ export default function SecureAdminDashboard() {
     }
   }
 
-  // Scan documents for a firm
+  // Scan documents for a firm (background job with polling)
   const handleScanDocuments = async (firmId: string) => {
     setScanningFirmId(firmId)
     setScanResult(null)
     console.log('[SCAN] Starting document scan for firm:', firmId)
+    
     try {
+      // Start the background scan
       const res = await fetch(`${API_URL}/secure-admin/firms/${firmId}/scan-documents`, {
         method: 'POST',
         headers: getAuthHeaders()
       })
-      console.log('[SCAN] Response status:', res.status)
       const data = await res.json()
-      console.log('[SCAN] Response data:', data)
-      if (res.ok && data.success) {
-        setScanResult({ 
-          firmId, 
-          message: data.message, 
-          success: true,
-          scanned: data.scanned,
-          added: data.added,
-          matched: data.matched,
-          matchedFolders: data.folderMatching?.matched || [],
-          unmatchedFolders: data.folderMatching?.unmatched || [],
-          orphanCount: data.orphanCount || 0
-        })
-        showNotification('success', data.message)
-        // Refresh firm data to show updated counts
-        if (selectedFirmDetail && selectedFirmDetail.id === firmId) {
-          handleViewFirmDetail(selectedFirmDetail)
-        }
+      console.log('[SCAN] Initial response:', data)
+      
+      if (data.status === 'already_running') {
+        showNotification('info', 'A scan is already running for this firm')
+      } else if (data.status === 'started') {
+        showNotification('info', 'Scan started - this may take a while for large datasets...')
+        
+        // Poll for progress
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await fetch(`${API_URL}/secure-admin/firms/${firmId}/scan-status`, {
+              headers: getAuthHeaders()
+            })
+            const status = await statusRes.json()
+            console.log('[SCAN] Status:', status)
+            
+            // Update progress display
+            if (status.status === 'running') {
+              const progress = status.progress || {}
+              setScanResult({
+                firmId,
+                message: `Scanning... ${progress.scanned?.toLocaleString() || 0} files found, ${progress.percent || 0}% processed`,
+                success: true,
+                scanned: progress.scanned,
+                added: progress.added,
+                matched: progress.matched
+              })
+            } else if (status.status === 'completed' && status.results) {
+              clearInterval(pollInterval)
+              setScanningFirmId(null)
+              const results = status.results
+              setScanResult({ 
+                firmId, 
+                message: results.message, 
+                success: true,
+                scanned: results.scanned,
+                added: results.added,
+                matched: results.matched,
+                matchedFolders: results.folderMatching?.matched || [],
+                unmatchedFolders: results.folderMatching?.unmatched || [],
+                orphanCount: results.orphanCount || 0
+              })
+              showNotification('success', results.message)
+              // Refresh firm data
+              if (selectedFirmDetail && selectedFirmDetail.id === firmId) {
+                handleViewFirmDetail(selectedFirmDetail)
+              }
+            } else if (status.status === 'error' || status.status === 'cancelled') {
+              clearInterval(pollInterval)
+              setScanningFirmId(null)
+              setScanResult({ 
+                firmId, 
+                message: status.error || `Scan ${status.status}`, 
+                success: false 
+              })
+              showNotification('error', status.error || `Scan ${status.status}`)
+            }
+          } catch (pollError) {
+            console.error('[SCAN] Poll error:', pollError)
+          }
+        }, 2000) // Poll every 2 seconds
+        
+        // Safety timeout - stop polling after 30 minutes
+        setTimeout(() => {
+          clearInterval(pollInterval)
+          if (scanningFirmId === firmId) {
+            setScanningFirmId(null)
+            showNotification('warning', 'Scan is taking longer than expected. Check status later.')
+          }
+        }, 30 * 60 * 1000)
       } else {
-        const errorMsg = data.error || data.message || 'Scan failed'
+        const errorMsg = data.error || 'Failed to start scan'
         setScanResult({ firmId, message: errorMsg, success: false })
         showNotification('error', errorMsg)
+        setScanningFirmId(null)
       }
     } catch (error: any) {
       console.error('[SCAN] Error:', error)
       const errorMsg = error.message || 'Failed to scan documents'
       setScanResult({ firmId, message: errorMsg, success: false })
       showNotification('error', errorMsg)
-    } finally {
       setScanningFirmId(null)
     }
   }

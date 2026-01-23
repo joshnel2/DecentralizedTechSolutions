@@ -1383,10 +1383,47 @@ router.get('/firms/:firmId/documents-debug', requireSecureAdmin, async (req, res
 });
 
 // ============================================
+// SCAN JOB STORAGE - Track background scan progress
+// ============================================
+const scanJobs = new Map(); // firmId -> { status, progress, results, startedAt, ... }
+
+// Get scan job status
+router.get('/firms/:firmId/scan-status', requireSecureAdmin, async (req, res) => {
+  const { firmId } = req.params;
+  const job = scanJobs.get(firmId);
+  
+  if (!job) {
+    return res.json({ status: 'idle', message: 'No scan running or completed' });
+  }
+  
+  res.json(job);
+});
+
+// Cancel a running scan
+router.post('/firms/:firmId/scan-cancel', requireSecureAdmin, async (req, res) => {
+  const { firmId } = req.params;
+  const job = scanJobs.get(firmId);
+  
+  if (job && job.status === 'running') {
+    job.cancelled = true;
+    job.status = 'cancelled';
+    res.json({ success: true, message: 'Scan cancellation requested' });
+  } else {
+    res.json({ success: false, message: 'No running scan to cancel' });
+  }
+});
+
+// ============================================
 // SCAN DOCUMENTS - Clio Migration Document Scanner
 // ============================================
 // Designed for Clio → Azure migration via RoboCopy
 // Folder names match matter names because both came from Clio
+// 
+// SUPPORTS LARGE DATASETS (100GB+):
+// - Runs as background job with progress tracking
+// - Processes files in batches to avoid memory issues
+// - Can be cancelled mid-scan
+// - Progress persists even if browser is closed
 //
 // How it works:
 // 1. Scan Azure folders (copied from Clio Drive via RoboCopy)
@@ -1395,38 +1432,80 @@ router.get('/firms/:firmId/documents-debug', requireSecureAdmin, async (req, res
 // 4. Create document records with correct matter_id and permissions
 // 5. Report orphans (folders that don't match any matter)
 router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res) => {
+  const { firmId } = req.params;
+  const { customFolder, dryRun } = req.body || {};
+  
+  // Check if a scan is already running for this firm
+  const existingJob = scanJobs.get(firmId);
+  if (existingJob && existingJob.status === 'running') {
+    return res.json({
+      success: false,
+      message: 'A scan is already running for this firm',
+      status: 'already_running',
+      job: existingJob
+    });
+  }
+  
+  // Initialize scan job
+  const job = {
+    status: 'running',
+    startedAt: new Date().toISOString(),
+    phase: 'initializing',
+    progress: { scanned: 0, added: 0, matched: 0, total: 0, percent: 0 },
+    results: null,
+    error: null,
+    cancelled: false,
+    dryRun: !!dryRun
+  };
+  scanJobs.set(firmId, job);
+  
+  console.log(`[SCAN] Starting background document scan for firm ${firmId}`);
+  console.log(`[SCAN] Mode: ${dryRun ? 'DRY RUN (no changes)' : 'LIVE'}`);
+  
+  // Return immediately - scan runs in background
+  res.json({
+    success: true,
+    message: 'Scan started in background. Poll /scan-status for progress.',
+    status: 'started',
+    job
+  });
+  
+  // Run scan in background
+  runBackgroundScan(firmId, customFolder, dryRun, job).catch(err => {
+    console.error('[SCAN] Background scan error:', err);
+    job.status = 'error';
+    job.error = err.message;
+  });
+});
+
+// Background scan function - handles large datasets (100GB+)
+async function runBackgroundScan(firmId, customFolder, dryRun, job) {
   try {
-    const { firmId } = req.params;
-    const { customFolder, dryRun } = req.body || {};
-    
-    console.log(`[SCAN] Starting Clio migration document scan for firm ${firmId}`);
-    console.log(`[SCAN] Mode: ${dryRun ? 'DRY RUN (no changes)' : 'LIVE'}`);
-    if (customFolder) console.log(`[SCAN] Custom folder: ${customFolder}`);
-    
     // Results tracker
     const results = { 
       scanned: 0, 
       added: 0, 
       updated: 0, 
       matched: 0, 
-      orphanFiles: [],      // Files in folders that don't match any matter
-      matchedFolders: [],   // Folders that matched to matters
-      unmatchedFolders: [], // Folders that didn't match any matter
+      orphanFiles: [],
+      matchedFolders: [],
+      unmatchedFolders: [],
       errors: [] 
     };
     
     // ============================================
     // 1. CHECK AZURE CONFIGURATION
     // ============================================
+    job.phase = 'checking_azure';
     const { getShareClient, isAzureConfigured } = await import('../utils/azureStorage.js');
     if (!(await isAzureConfigured())) {
-      return res.status(400).json({ error: 'Azure Storage not configured. Go to Platform Settings.' });
+      throw new Error('Azure Storage not configured. Go to Platform Settings.');
     }
     
     // ============================================
     // 2. LOAD MATTERS WITH ALL MATCHING FIELDS
     // ============================================
-    // Load matters with their original names from Clio migration
+    job.phase = 'loading_matters';
     const mattersResult = await query(`
       SELECT m.id, m.name, m.number, m.responsible_attorney,
              c.display_name as client_name
@@ -1571,6 +1650,7 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
     }
     
     console.log(`[SCAN] Scanning folder: ${scanFolder || '(root)'}`);
+    job.phase = 'scanning_azure';
     
     // ============================================
     // 7. SCAN AZURE - TRACK TOP-LEVEL FOLDERS
@@ -1579,8 +1659,18 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
     const folderMatches = new Map(); // folderName -> { matter, matchType, fileCount }
     
     const scanDir = async (dirClient, relativePath = '', topLevelFolder = null) => {
+      // Check for cancellation
+      if (job.cancelled) {
+        throw new Error('Scan cancelled by user');
+      }
+      
       try {
         for await (const item of dirClient.listFilesAndDirectories()) {
+          // Check for cancellation periodically
+          if (job.cancelled) {
+            throw new Error('Scan cancelled by user');
+          }
+          
           const itemPath = relativePath ? `${relativePath}/${item.name}` : item.name;
           
           if (item.kind === 'directory') {
@@ -1598,6 +1688,8 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
                 matterName: matter?.name || null,
                 matterId: matter?.id || null
               });
+              // Update job with folder count
+              job.progress.folders = folderMatches.size;
             }
             
             await scanDir(dirClient.getDirectoryClient(item.name), itemPath, currentTopFolder);
@@ -1609,12 +1701,15 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
               ? `${scanFolder}/${itemPath}` 
               : `${firmFolder}/${itemPath}`;
             
-            // Get file properties
+            // Get file properties (skip for speed on large datasets)
             let size = 0;
-            try {
-              const props = await dirClient.getFileClient(item.name).getProperties();
-              size = props.contentLength || 0;
-            } catch (e) { /* ignore */ }
+            // Only get size for first 1000 files to speed up large scans
+            if (results.scanned <= 1000) {
+              try {
+                const props = await dirClient.getFileClient(item.name).getProperties();
+                size = props.contentLength || 0;
+              } catch (e) { /* ignore */ }
+            }
             
             // Get matter from top-level folder match
             const folderMatch = topLevelFolder ? folderMatches.get(topLevelFolder) : null;
@@ -1636,19 +1731,26 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
               existingDoc: existingByPath.get(fullPath) || null
             });
             
-            // Progress log
-            if (results.scanned % 500 === 0) {
-              console.log(`[SCAN] Progress: ${results.scanned} files scanned...`);
+            // Update job progress every 100 files
+            if (results.scanned % 100 === 0) {
+              job.progress.scanned = results.scanned;
+              job.progress.folders = folderMatches.size;
+              console.log(`[SCAN] Progress: ${results.scanned} files scanned, ${folderMatches.size} folders...`);
             }
           }
         }
       } catch (err) {
+        if (err.message === 'Scan cancelled by user') throw err;
         results.errors.push(`Error scanning ${relativePath}: ${err.message}`);
       }
     };
     
     // Start scan
     await scanDir(shareClient.getDirectoryClient(scanFolder), '');
+    
+    // Final scan progress update
+    job.progress.scanned = results.scanned;
+    job.progress.total = filesToProcess.length;
     
     console.log(`[SCAN] Scan complete: ${results.scanned} files found in ${folderMatches.size} top-level folders`);
     
@@ -1677,6 +1779,9 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
     // ============================================
     // 9. PROCESS FILES (CREATE/UPDATE DOCUMENTS)
     // ============================================
+    job.phase = 'processing_files';
+    job.progress.total = filesToProcess.length;
+    
     if (!dryRun) {
       const BATCH_SIZE = 100;
       
@@ -1698,6 +1803,11 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
       };
       
       for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
+        // Check for cancellation
+        if (job.cancelled) {
+          throw new Error('Scan cancelled by user');
+        }
+        
         const batch = filesToProcess.slice(i, i + BATCH_SIZE);
         
         for (const file of batch) {
@@ -1740,8 +1850,8 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
               if (matterId) results.matched++;
             }
             
-            // Track orphan files (no matter match)
-            if (!matterId && file.topLevelFolder) {
+            // Track orphan files (no matter match) - only first 1000
+            if (!matterId && file.topLevelFolder && results.orphanFiles.length < 1000) {
               results.orphanFiles.push({
                 path: file.path,
                 folder: file.topLevelFolder,
@@ -1753,12 +1863,20 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
           }
         }
         
-        if ((i + BATCH_SIZE) % 500 === 0 || i + BATCH_SIZE >= filesToProcess.length) {
-          console.log(`[SCAN] Processed ${Math.min(i + BATCH_SIZE, filesToProcess.length)}/${filesToProcess.length} files`);
+        // Update job progress
+        const processed = Math.min(i + BATCH_SIZE, filesToProcess.length);
+        job.progress.added = results.added;
+        job.progress.matched = results.matched;
+        job.progress.processed = processed;
+        job.progress.percent = Math.round((processed / filesToProcess.length) * 100);
+        
+        if (processed % 500 === 0 || processed >= filesToProcess.length) {
+          console.log(`[SCAN] Processed ${processed}/${filesToProcess.length} files (${job.progress.percent}%)`);
         }
       }
       
       // Fix ownership for any docs with matter but no owner
+      job.phase = 'fixing_ownership';
       await query(`
         UPDATE documents d SET owner_id = m.responsible_attorney
         FROM matters m
@@ -1770,6 +1888,7 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
     // ============================================
     // 10. GET FINAL STATS
     // ============================================
+    job.phase = 'finalizing';
     const finalStats = await query(`
       SELECT 
         COUNT(*) as total,
@@ -1787,7 +1906,12 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
     
     console.log(`[SCAN] ${message}`);
     
-    res.json({
+    // Update job with final results
+    job.status = 'completed';
+    job.completedAt = new Date().toISOString();
+    job.phase = 'done';
+    job.progress.percent = 100;
+    job.results = {
       success: true,
       message,
       dryRun: !!dryRun,
@@ -1805,13 +1929,17 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
       orphanFiles: results.orphanFiles.slice(0, 100), // First 100 orphans
       orphanCount: results.orphanFiles.length,
       errors: results.errors.slice(0, 20)
-    });
+    };
+    
+    console.log(`[SCAN] Background scan completed for firm ${firmId}`);
     
   } catch (error) {
-    console.error('[SCAN] Error:', error);
-    res.status(500).json({ error: error.message });
+    console.error('[SCAN] Background scan error:', error);
+    job.status = error.message === 'Scan cancelled by user' ? 'cancelled' : 'error';
+    job.error = error.message;
+    job.completedAt = new Date().toISOString();
   }
-});
+}
 
 // ============================================
 // RESCAN UNMATCHED - Re-match documents after adding new matters
