@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { 
   Folder, FolderOpen, FileText, ChevronRight, ChevronDown,
   RefreshCw, Home, File, FileSpreadsheet, FileImage, 
-  FilePlus, Loader2, AlertCircle, Lock
+  FilePlus, Loader2, AlertCircle, Lock, Download, List, FolderTree
 } from 'lucide-react'
 import { driveApi } from '../services/api'
 import styles from './FolderBrowser.module.css'
@@ -20,6 +20,8 @@ interface DocumentItem {
   contentType?: string
   size: number
   folderPath?: string
+  path?: string
+  azurePath?: string
   matterId?: string
   matterName?: string
   matterNumber?: string
@@ -28,6 +30,8 @@ interface DocumentItem {
   versionCount?: number
   isOwned?: boolean
   privacyLevel?: string
+  isFromAzure?: boolean
+  storageLocation?: string
 }
 
 interface BrowseResult {
@@ -70,6 +74,10 @@ export function FolderBrowser({
   const [currentPath, setCurrentPath] = useState('')
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [folderTree, setFolderTree] = useState<Map<string, FolderItem[]>>(new Map())
+  // Browse mode: 'folder' (navigate folders) or 'all' (show all files)
+  const [browseMode, setBrowseMode] = useState<'folder' | 'all'>('all') // Default to all for better discovery
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Build folder tree from flat folder list
   const buildFolderTree = useCallback((folders: string[]) => {
@@ -110,12 +118,22 @@ export function FolderBrowser({
   }, [])
 
   // Fetch folder contents
-  const fetchData = useCallback(async (path?: string) => {
+  const fetchData = useCallback(async (path?: string, mode?: 'folder' | 'all') => {
     setLoading(true)
     setError(null)
     
     try {
-      const result = await driveApi.browseDrive(path || '')
+      const effectiveMode = mode || browseMode
+      let result
+      
+      if (effectiveMode === 'all') {
+        // Get all files recursively
+        result = await driveApi.browseAllFiles(searchQuery || undefined, 1000)
+      } else {
+        // Browse specific folder
+        result = await driveApi.browseDrive(path || '')
+      }
+      
       setBrowseData(result)
       
       // Build folder tree
@@ -129,11 +147,73 @@ export function FolderBrowser({
     } finally {
       setLoading(false)
     }
-  }, [buildFolderTree])
+  }, [buildFolderTree, browseMode, searchQuery])
 
+  // Fetch on mount and when mode/path changes
   useEffect(() => {
-    fetchData(currentPath)
-  }, [currentPath, fetchData])
+    if (browseMode === 'all') {
+      fetchData('', 'all')
+    } else {
+      fetchData(currentPath, 'folder')
+    }
+  }, [currentPath, browseMode])
+  
+  // Debounced search
+  useEffect(() => {
+    if (browseMode === 'all') {
+      const timer = setTimeout(() => {
+        fetchData('', 'all')
+      }, 300)
+      return () => clearTimeout(timer)
+    }
+  }, [searchQuery, browseMode])
+  
+  // Download file (handles both database and Azure files)
+  const downloadFile = async (doc: DocumentItem, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
+    
+    setDownloadingId(doc.id)
+    
+    try {
+      let blob: Blob
+      
+      // Check if this is an Azure-only file (no database record)
+      if (doc.isFromAzure || doc.storageLocation === 'azure' || doc.id.startsWith('azure-')) {
+        // Use the Azure path for download
+        const azurePath = doc.azurePath || doc.path || doc.folderPath 
+          ? `${doc.folderPath}/${doc.name}` 
+          : doc.name
+        blob = await driveApi.downloadAzureFile(azurePath)
+      } else {
+        // Use standard document download
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+        const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
+        const response = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        if (!response.ok) {
+          throw new Error('Download failed')
+        }
+        blob = await response.blob()
+      }
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = doc.originalName || doc.name
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      
+    } catch (err: any) {
+      console.error('Download failed:', err)
+      alert('Failed to download file: ' + (err.message || 'Unknown error'))
+    } finally {
+      setDownloadingId(null)
+    }
+  }
 
   // Toggle folder expansion
   const toggleFolder = (path: string) => {
@@ -230,10 +310,17 @@ export function FolderBrowser({
     })
   }
 
-  // Filter documents by current path
+  // Filter documents by current path (only in folder mode)
   const currentDocuments = browseData?.files?.filter(f => {
+    // In 'all' mode, show all files (optionally filtered by selected folder)
+    if (browseMode === 'all') {
+      if (!currentPath) return true // Show all when at root
+      // Show files in the selected folder and its subfolders
+      return f.folderPath === currentPath || f.folderPath?.startsWith(currentPath + '/')
+    }
+    // In folder mode, show only files at current level
     if (!currentPath) return !f.folderPath || f.folderPath === '/' || f.folderPath === ''
-    return f.folderPath === currentPath || f.folderPath?.startsWith(currentPath + '/')
+    return f.folderPath === currentPath
   }) || []
 
   // Get breadcrumb path parts
@@ -274,7 +361,26 @@ export function FolderBrowser({
             {browseData?.isAdmin && <span className={styles.adminBadge}>Admin View</span>}
           </h2>
           <div className={styles.headerActions}>
-            <button onClick={() => fetchData(currentPath)} className={styles.refreshBtn} title="Refresh">
+            {/* Browse mode toggle */}
+            <div className={styles.modeToggle}>
+              <button 
+                className={`${styles.modeBtn} ${browseMode === 'all' ? styles.active : ''}`}
+                onClick={() => { setBrowseMode('all'); setCurrentPath(''); }}
+                title="Show all documents"
+              >
+                <List size={16} />
+                All Files
+              </button>
+              <button 
+                className={`${styles.modeBtn} ${browseMode === 'folder' ? styles.active : ''}`}
+                onClick={() => setBrowseMode('folder')}
+                title="Browse by folder"
+              >
+                <FolderTree size={16} />
+                Folders
+              </button>
+            </div>
+            <button onClick={() => fetchData(currentPath, browseMode)} className={styles.refreshBtn} title="Refresh">
               <RefreshCw size={16} />
             </button>
           </div>
@@ -359,25 +465,47 @@ export function FolderBrowser({
             </div>
           )}
 
+          {/* Search bar for all-files mode */}
+          {browseMode === 'all' && (
+            <div className={styles.searchBar}>
+              <input 
+                type="text"
+                placeholder="Search documents..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={styles.searchInput}
+              />
+            </div>
+          )}
+
           {/* Documents Table */}
           <div className={styles.documentsTable}>
             <table>
               <thead>
                 <tr>
                   <th>Name</th>
-                  <th>Matter</th>
-                  <th>Size</th>
                   <th>Folder</th>
-                  <th>Access</th>
+                  <th>Size</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {currentDocuments.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className={styles.emptyRow}>
+                    <td colSpan={4} className={styles.emptyRow}>
                       <div className={styles.emptyState}>
                         <FolderOpen size={32} />
-                        <p>No documents in this folder</p>
+                        <p>
+                          {browseMode === 'all' 
+                            ? 'No documents found in Azure storage' 
+                            : 'No documents in this folder'
+                          }
+                        </p>
+                        {browseMode === 'folder' && (
+                          <p className={styles.emptyHint}>
+                            Navigate into subfolders or switch to "All Files" mode
+                          </p>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -392,39 +520,46 @@ export function FolderBrowser({
                         <div className={styles.nameCell}>
                           {getFileIcon(doc.contentType, doc.name)}
                           <span className={styles.docName}>{doc.originalName || doc.name}</span>
+                          {doc.isFromAzure && (
+                            <span className={styles.azureBadge} title="Stored in Azure">Azure</span>
+                          )}
                           {doc.isOwned && (
                             <span className={styles.ownedBadge} title="You own this document">Owner</span>
                           )}
                         </div>
                       </td>
-                      <td>
-                        {doc.matterName ? (
-                          <span className={styles.matterLink}>
-                            {doc.matterNumber ? `${doc.matterNumber} - ` : ''}{doc.matterName}
-                          </span>
-                        ) : (
-                          <span className={styles.noMatter}>Unassigned</span>
-                        )}
-                      </td>
-                      <td>{formatSize(doc.size)}</td>
                       <td className={styles.folderCell}>
                         {doc.folderPath ? (
                           <button 
                             className={styles.folderLink}
-                            onClick={(e) => { e.stopPropagation(); navigateToFolder(doc.folderPath!) }}
+                            onClick={(e) => { e.stopPropagation(); navigateToFolder(doc.folderPath!); setBrowseMode('folder'); }}
+                            title={doc.folderPath}
                           >
-                            {doc.folderPath.split('/').pop()}
+                            {doc.folderPath.length > 30 
+                              ? '...' + doc.folderPath.slice(-30) 
+                              : doc.folderPath
+                            }
                           </button>
-                        ) : '-'}
-                      </td>
-                      <td>
-                        {doc.privacyLevel === 'private' ? (
-                          <span className={styles.privateBadge}><Lock size={12} /> Private</span>
-                        ) : doc.privacyLevel === 'team' ? (
-                          <span className={styles.teamBadge}>Team</span>
                         ) : (
-                          <span className={styles.firmBadge}>Firm</span>
+                          <span className={styles.rootFolder}>Root</span>
                         )}
+                      </td>
+                      <td>{formatSize(doc.size)}</td>
+                      <td>
+                        <div className={styles.rowActions}>
+                          <button 
+                            className={styles.downloadBtn}
+                            onClick={(e) => downloadFile(doc, e)}
+                            disabled={downloadingId === doc.id}
+                            title="Download"
+                          >
+                            {downloadingId === doc.id ? (
+                              <Loader2 size={16} className={styles.spinner} />
+                            ) : (
+                              <Download size={16} />
+                            )}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))

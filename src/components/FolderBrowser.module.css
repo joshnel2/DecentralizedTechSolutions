@@ -39,7 +39,41 @@
 
 .headerActions {
   display: flex;
-  gap: 8px;
+  gap: 12px;
+  align-items: center;
+}
+
+/* Browse Mode Toggle */
+.modeToggle {
+  display: flex;
+  background: #E2E8F0;
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.modeBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: #64748B;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.modeBtn:hover {
+  color: #475569;
+}
+
+.modeBtn.active {
+  background: white;
+  color: #3B82F6;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .refreshBtn {
@@ -305,6 +339,20 @@
   font-weight: 500;
 }
 
+.azureBadge {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: #E0F2FE;
+  color: #0369A1;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.rootFolder {
+  color: #94A3B8;
+  font-size: 12px;
+}
+
 .matterLink {
   color: #3B82F6;
   font-weight: 500;
@@ -321,7 +369,7 @@
 }
 
 .folderCell {
-  max-width: 120px;
+  max-width: 200px;
 }
 
 .folderLink {
@@ -365,6 +413,66 @@
   color: #065F46;
 }
 
+/* Search Bar */
+.searchBar {
+  padding: 12px 20px;
+  background: #F8FAFC;
+  border-bottom: 1px solid #E2E8F0;
+}
+
+.searchInput {
+  width: 100%;
+  max-width: 400px;
+  padding: 10px 14px;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #1E293B;
+  background: white;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: #3B82F6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.searchInput::placeholder {
+  color: #94A3B8;
+}
+
+/* Row Actions */
+.rowActions {
+  display: flex;
+  gap: 8px;
+}
+
+.downloadBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #E2E8F0;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  color: #64748B;
+  transition: all 0.2s;
+}
+
+.downloadBtn:hover {
+  background: #3B82F6;
+  color: white;
+  border-color: #3B82F6;
+}
+
+.downloadBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .emptyRow td {
   padding: 60px 20px !important;
 }
@@ -380,6 +488,11 @@
 .emptyState p {
   margin: 0;
   font-size: 14px;
+}
+
+.emptyHint {
+  font-size: 12px !important;
+  color: #CBD5E1 !important;
 }
 
 /* Footer */

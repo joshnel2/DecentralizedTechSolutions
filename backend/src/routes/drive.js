@@ -2038,4 +2038,229 @@ fi
   }
 });
 
+// ============================================
+// DOWNLOAD FILE FROM AZURE BY PATH
+// ============================================
+
+/**
+ * Download a file directly from Azure File Share by path
+ * Used for files that don't have database records (browsed from Azure)
+ * 
+ * Query params:
+ * - path: The relative path within the firm's folder (e.g., "Matters/Client/document.pdf")
+ */
+router.get('/download-azure', authenticate, async (req, res) => {
+  try {
+    const { path: filePath } = req.query;
+    
+    if (!filePath) {
+      return res.status(400).json({ error: 'File path is required' });
+    }
+    
+    const { downloadFile, isAzureConfigured } = await import('../utils/azureStorage.js');
+    
+    const azureEnabled = await isAzureConfigured();
+    if (!azureEnabled) {
+      return res.status(400).json({ error: 'Azure Storage is not configured' });
+    }
+    
+    // Normalize the path - remove any firm prefix if already present
+    let cleanPath = filePath
+      .replace(/\\/g, '/')
+      .replace(/\/{2,}/g, '/')
+      .trim();
+    
+    // Remove firm-X prefix if present (downloadFile adds it)
+    const firmPrefix = `firm-${req.user.firmId}/`;
+    if (cleanPath.startsWith(firmPrefix)) {
+      cleanPath = cleanPath.substring(firmPrefix.length);
+    }
+    
+    // Also handle if just the path starts with firm-
+    if (cleanPath.startsWith('firm-')) {
+      const parts = cleanPath.split('/');
+      parts.shift(); // Remove firm-X
+      cleanPath = parts.join('/');
+    }
+    
+    console.log(`[AZURE DOWNLOAD] Downloading: ${cleanPath} for firm ${req.user.firmId}`);
+    
+    try {
+      const fileBuffer = await downloadFile(cleanPath, req.user.firmId);
+      
+      if (!fileBuffer || fileBuffer.length === 0) {
+        return res.status(404).json({ error: 'File not found in Azure storage' });
+      }
+      
+      // Get filename from path
+      const fileName = cleanPath.split('/').pop() || 'document';
+      
+      // Determine content type
+      const ext = fileName.split('.').pop()?.toLowerCase() || '';
+      const mimeTypes = {
+        'pdf': 'application/pdf',
+        'doc': 'application/msword',
+        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'xls': 'application/vnd.ms-excel',
+        'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'ppt': 'application/vnd.ms-powerpoint',
+        'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'txt': 'text/plain',
+        'csv': 'text/csv',
+        'rtf': 'application/rtf',
+        'png': 'image/png',
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'gif': 'image/gif',
+        'zip': 'application/zip',
+        'msg': 'application/vnd.ms-outlook',
+        'eml': 'message/rfc822',
+        'html': 'text/html'
+      };
+      
+      const contentType = mimeTypes[ext] || 'application/octet-stream';
+      
+      // Set headers and send file
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Length', fileBuffer.length);
+      
+      console.log(`[AZURE DOWNLOAD] Serving ${fileName} (${fileBuffer.length} bytes)`);
+      return res.send(fileBuffer);
+      
+    } catch (downloadError) {
+      console.error('[AZURE DOWNLOAD] Download failed:', downloadError.message);
+      return res.status(404).json({ error: 'File not found: ' + downloadError.message });
+    }
+    
+  } catch (error) {
+    console.error('Azure download error:', error);
+    res.status(500).json({ error: 'Failed to download file from Azure' });
+  }
+});
+
+/**
+ * Browse drive with recursive file listing
+ * Returns ALL files in the firm's folder, grouped by folder paths
+ * Used for document discovery when users want to see all files at once
+ */
+router.get('/browse-all', authenticate, async (req, res) => {
+  try {
+    const { search, limit = 500 } = req.query;
+    const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
+    const firmId = req.user.firmId;
+    
+    // Only admins can browse all files
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required to browse all files' });
+    }
+    
+    const { isAzureConfigured, listFilesRecursive, getShareClient } = await import('../utils/azureStorage.js');
+    
+    if (!(await isAzureConfigured())) {
+      return res.json({ 
+        configured: false, 
+        files: [],
+        folders: [],
+        message: 'Azure not configured' 
+      });
+    }
+    
+    const firmFolder = `firm-${firmId}`;
+    
+    console.log(`[BROWSE ALL] Scanning all files in ${firmFolder}`);
+    
+    try {
+      // Use recursive listing to get all files
+      const allFiles = await listFilesRecursive(firmFolder);
+      
+      // Extract unique folder paths
+      const folderSet = new Set();
+      const files = [];
+      
+      for (const file of allFiles) {
+        // file.name is the full path like "firm-X/Matters/Client/doc.pdf"
+        // Remove the firm folder prefix
+        let relativePath = file.name;
+        if (relativePath.startsWith(firmFolder + '/')) {
+          relativePath = relativePath.substring(firmFolder.length + 1);
+        }
+        
+        // Apply search filter if provided
+        const fileName = relativePath.split('/').pop() || '';
+        if (search && !fileName.toLowerCase().includes(search.toLowerCase())) {
+          continue;
+        }
+        
+        // Extract folder path
+        const lastSlash = relativePath.lastIndexOf('/');
+        const folderPath = lastSlash > 0 ? relativePath.substring(0, lastSlash) : '';
+        
+        if (folderPath) {
+          folderSet.add(folderPath);
+          // Also add parent folders
+          const parts = folderPath.split('/');
+          for (let i = 1; i < parts.length; i++) {
+            folderSet.add(parts.slice(0, i).join('/'));
+          }
+        }
+        
+        // Determine MIME type
+        const ext = fileName.split('.').pop()?.toLowerCase() || '';
+        const mimeTypes = {
+          'pdf': 'application/pdf', 'doc': 'application/msword',
+          'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'ppt': 'application/vnd.ms-powerpoint', 'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          'txt': 'text/plain', 'rtf': 'application/rtf', 'csv': 'text/csv',
+          'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif',
+          'msg': 'application/vnd.ms-outlook', 'eml': 'message/rfc822',
+          'zip': 'application/zip', 'html': 'text/html'
+        };
+        
+        files.push({
+          id: `azure-${Buffer.from(relativePath).toString('base64').substring(0, 36)}`,
+          name: fileName,
+          originalName: fileName,
+          contentType: mimeTypes[ext] || 'application/octet-stream',
+          size: file.size || 0,
+          folderPath: folderPath,
+          path: relativePath, // Full path for download
+          azurePath: relativePath, // Explicit Azure path
+          lastModified: file.lastModified,
+          storageLocation: 'azure',
+          isFromAzure: true
+        });
+        
+        if (files.length >= parseInt(limit)) break;
+      }
+      
+      const folders = Array.from(folderSet).sort();
+      
+      console.log(`[BROWSE ALL] Found ${files.length} files in ${folders.length} folders`);
+      
+      return res.json({
+        firmFolder,
+        isAdmin: true,
+        files,
+        folders,
+        stats: {
+          totalFiles: files.length,
+          totalSize: files.reduce((sum, f) => sum + (f.size || 0), 0),
+          totalFolders: folders.length
+        },
+        source: 'azure-recursive'
+      });
+      
+    } catch (scanError) {
+      console.error('[BROWSE ALL] Scan error:', scanError.message);
+      return res.status(500).json({ error: 'Failed to scan Azure storage: ' + scanError.message });
+    }
+    
+  } catch (error) {
+    console.error('Browse all error:', error);
+    res.status(500).json({ error: 'Failed to browse all files' });
+  }
+});
+
 export default router;

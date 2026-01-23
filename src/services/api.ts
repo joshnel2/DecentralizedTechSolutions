@@ -1724,6 +1724,31 @@ export const driveApi = {
     return fetchWithAuth(`/drive/browse${params}`);
   },
 
+  // Admin: Browse all files recursively
+  async browseAllFiles(search?: string, limit?: number) {
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (limit) params.set('limit', limit.toString());
+    return fetchWithAuth(`/drive/browse-all?${params}`);
+  },
+
+  // Download a file from Azure by path (for files without database records)
+  async downloadAzureFile(filePath: string): Promise<Blob> {
+    const headers: HeadersInit = {};
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+    const response = await fetch(`${API_URL}/drive/download-azure?path=${encodeURIComponent(filePath)}`, {
+      headers,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Download failed' }));
+      throw new ApiError(response.status, errorData.error || 'Failed to download file');
+    }
+    return response.blob();
+  },
+
   // Admin: Get connection info for mapping drive
   async getConnectionInfo() {
     return fetchWithAuth('/drive/connection-info');
