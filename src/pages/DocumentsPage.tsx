@@ -527,7 +527,12 @@ export function DocumentsPage() {
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <h1>Documents</h1>
-          <span className={styles.count}>{documents.length} files</span>
+          {viewMode === 'list' && (
+            <span className={styles.count}>{documents.length} files</span>
+          )}
+          {viewMode === 'folders' && (
+            <span className={styles.count}>Apex Drive</span>
+          )}
           {selectedDocIds.size > 0 && (
             <span className={styles.selectedCount}>
               {selectedDocIds.size} selected
