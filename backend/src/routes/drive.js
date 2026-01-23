@@ -1485,76 +1485,90 @@ router.get('/browse', authenticate, async (req, res) => {
     const firmFolder = getFirmFolderPath(req.user.firmId);
     const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
     
-    // For admins, scan Azure directly so they see files immediately
-    // This gives real-time view of Azure without needing to run scan first
+    // For admins, browse Azure directly - shows real-time view of files
     if (isAdmin && source !== 'db-only') {
       try {
         const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
         
         if (await isAzureConfigured()) {
           const shareClient = await getShareClient();
-          const scanPath = folderPath ? `${firmFolder}/${folderPath}` : firmFolder;
+          
+          // Build the Azure path to browse
+          // folderPath is relative to firm folder (e.g., "Smith - Personal Injury/Pleadings")
+          const azurePath = folderPath ? `${firmFolder}/${folderPath}` : firmFolder;
+          
+          console.log(`[DRIVE BROWSE] Browsing Azure path: ${azurePath}`);
           
           const files = [];
-          const folders = new Set();
+          const subfolders = [];
           
-          // Scan Azure directory
-          const scanDir = async (dirClient, relativePath = '') => {
-            try {
-              for await (const item of dirClient.listFilesAndDirectories()) {
-                const itemPath = relativePath ? `${relativePath}/${item.name}` : item.name;
+          try {
+            const dirClient = shareClient.getDirectoryClient(azurePath);
+            
+            for await (const item of dirClient.listFilesAndDirectories()) {
+              if (item.kind === 'directory') {
+                // Return full path for navigation
+                const fullFolderPath = folderPath ? `${folderPath}/${item.name}` : item.name;
+                subfolders.push(fullFolderPath);
+              } else {
+                // It's a file
+                const ext = item.name.split('.').pop()?.toLowerCase() || '';
+                const mimeTypes = {
+                  'pdf': 'application/pdf', 'doc': 'application/msword',
+                  'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                  'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                  'ppt': 'application/vnd.ms-powerpoint', 'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                  'txt': 'text/plain', 'rtf': 'application/rtf', 'csv': 'text/csv',
+                  'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif',
+                  'msg': 'application/vnd.ms-outlook', 'eml': 'message/rfc822',
+                  'zip': 'application/zip', 'html': 'text/html'
+                };
                 
-                if (item.kind === 'directory') {
-                  folders.add(itemPath);
-                  // Don't recurse - just show current level
-                } else {
-                  const ext = item.name.split('.').pop()?.toLowerCase() || '';
-                  const mimeTypes = {
-                    'pdf': 'application/pdf', 'doc': 'application/msword',
-                    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                    'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    'txt': 'text/plain', 'csv': 'text/csv', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
-                    'png': 'image/png', 'gif': 'image/gif', 'msg': 'application/vnd.ms-outlook'
-                  };
-                  
-                  files.push({
-                    id: `azure-${Buffer.from(`${scanPath}/${item.name}`).toString('base64').substring(0, 32)}`,
-                    name: item.name,
-                    originalName: item.name,
-                    contentType: mimeTypes[ext] || 'application/octet-stream',
-                    size: 0,
-                    folderPath: relativePath || folderPath,
-                    uploadedAt: new Date().toISOString(),
-                    isFromAzure: true
-                  });
-                }
+                // Get file size
+                let fileSize = 0;
+                try {
+                  const fileClient = dirClient.getFileClient(item.name);
+                  const props = await fileClient.getProperties();
+                  fileSize = props.contentLength || 0;
+                } catch (e) { /* ignore */ }
+                
+                files.push({
+                  id: `azure-${Buffer.from(`${azurePath}/${item.name}`).toString('base64').substring(0, 36)}`,
+                  name: item.name,
+                  originalName: item.name,
+                  contentType: mimeTypes[ext] || 'application/octet-stream',
+                  size: fileSize,
+                  folderPath: folderPath || '',
+                  path: `${azurePath}/${item.name}`,
+                  uploadedAt: new Date().toISOString(),
+                  storageLocation: 'azure',
+                  isFromAzure: true
+                });
               }
-            } catch (e) {
-              console.log(`[DRIVE BROWSE] Error scanning ${relativePath}:`, e.message);
             }
-          };
+          } catch (dirErr) {
+            console.log(`[DRIVE BROWSE] Directory not found or error: ${azurePath}`, dirErr.message);
+          }
           
-          await scanDir(shareClient.getDirectoryClient(scanPath));
-          
-          console.log(`[DRIVE BROWSE] Admin Azure scan: ${files.length} files, ${folders.size} folders in ${folderPath || 'root'}`);
+          console.log(`[DRIVE BROWSE] Found ${files.length} files, ${subfolders.length} subfolders at ${folderPath || 'root'}`);
           
           return res.json({
             firmFolder,
             currentPath: folderPath,
             isAdmin: true,
             files,
-            folders: Array.from(folders).sort(),
+            folders: subfolders.sort(),
             matters: [],
             stats: {
               totalFiles: files.length,
-              totalSize: 0,
+              totalSize: files.reduce((sum, f) => sum + (f.size || 0), 0),
               mattersWithFiles: 0
             },
             source: 'azure-live'
           });
         }
       } catch (azureErr) {
-        console.log(`[DRIVE BROWSE] Azure scan failed, falling back to DB:`, azureErr.message);
+        console.log(`[DRIVE BROWSE] Azure error, falling back to DB:`, azureErr.message);
       }
     }
     
