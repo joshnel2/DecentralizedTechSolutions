@@ -342,7 +342,7 @@ export function FolderBrowser({
         <div className={styles.error}>
           <AlertCircle size={32} />
           <p>{error}</p>
-          <button onClick={() => fetchData(currentPath)} className={styles.retryBtn}>
+          <button onClick={() => fetchData()} className={styles.retryBtn}>
             <RefreshCw size={16} /> Retry
           </button>
         </div>
@@ -461,18 +461,16 @@ export function FolderBrowser({
             </div>
           )}
 
-          {/* Search bar for all-files mode */}
-          {browseMode === 'all' && (
-            <div className={styles.searchBar}>
-              <input 
-                type="text"
-                placeholder="Search documents..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className={styles.searchInput}
-              />
-            </div>
-          )}
+          {/* Search bar */}
+          <div className={styles.searchBar}>
+            <input 
+              type="text"
+              placeholder="Search documents..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={styles.searchInput}
+            />
+          </div>
 
           {/* Documents Table */}
           <div className={styles.documentsTable}>
@@ -521,7 +519,7 @@ export function FolderBrowser({
                         {doc.folderPath ? (
                           <button 
                             className={styles.folderLink}
-                            onClick={(e) => { e.stopPropagation(); navigateToFolder(doc.folderPath!); setBrowseMode('folder'); }}
+                            onClick={(e) => { e.stopPropagation(); navigateToFolder(doc.folderPath!); }}
                             title={doc.folderPath}
                           >
                             {doc.folderPath.length > 30 
