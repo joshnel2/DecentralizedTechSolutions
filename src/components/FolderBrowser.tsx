@@ -198,15 +198,17 @@ export function FolderBrowser({
     try {
       let blob: Blob
       
-      // Check if this is an Azure-only file (no database record)
+      // Check if this is an Azure file
       if (doc.isFromAzure || doc.storageLocation === 'azure' || doc.id.startsWith('azure-')) {
-        // Use the Azure path for download
-        const azurePath = doc.azurePath || doc.path || doc.folderPath 
-          ? `${doc.folderPath}/${doc.name}` 
-          : doc.name
-        blob = await driveApi.downloadAzureFile(azurePath)
+        // Use the full Azure path for download
+        // Priority: azurePath > path > constructed path
+        const downloadPath = doc.azurePath || doc.path || 
+          (doc.folderPath ? `${doc.folderPath}/${doc.name}` : doc.name)
+        
+        console.log('[FolderBrowser] Downloading Azure file:', downloadPath)
+        blob = await driveApi.downloadAzureFile(downloadPath)
       } else {
-        // Use standard document download
+        // Use standard document download for database files
         const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
         const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
         const response = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
