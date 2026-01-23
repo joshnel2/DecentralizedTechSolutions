@@ -881,9 +881,9 @@ export default function SecureAdminDashboard() {
       console.log('[SCAN] Initial response:', data)
       
       if (data.status === 'already_running') {
-        showNotification('info', 'A scan is already running for this firm')
+        showNotification('success', 'A scan is already running for this firm')
       } else if (data.status === 'started') {
-        showNotification('info', 'Scan started - this may take a while for large datasets...')
+        showNotification('success', 'Scan started - this may take a while for large datasets...')
         
         // Poll for progress
         const pollInterval = setInterval(async () => {
@@ -945,7 +945,7 @@ export default function SecureAdminDashboard() {
           clearInterval(pollInterval)
           if (scanningFirmId === firmId) {
             setScanningFirmId(null)
-            showNotification('warning', 'Scan is taking longer than expected. Check status later.')
+            showNotification('error', 'Scan is taking longer than expected. Check status later.')
           }
         }, 30 * 60 * 1000)
       } else {
