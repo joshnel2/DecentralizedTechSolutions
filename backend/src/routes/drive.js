@@ -2145,8 +2145,11 @@ router.get('/download-azure', authenticate, async (req, res) => {
   }
 });
 
+// Track which firms are currently syncing
+const syncingFirms = new Set();
+
 /**
- * APEX DRIVE - Get files from database (instant load)
+ * APEX DRIVE - Get files (auto-syncs from Azure if needed)
  */
 router.get('/browse-all', authenticate, async (req, res) => {
   try {
@@ -2154,7 +2157,76 @@ router.get('/browse-all', authenticate, async (req, res) => {
     const firmId = req.user.firmId;
     const firmFolder = `firm-${firmId}`;
     
-    // Get files from database (instant)
+    // Check if we have files in database
+    const countResult = await query(
+      `SELECT COUNT(*) FROM documents WHERE firm_id = $1 AND storage_location = 'azure'`,
+      [firmId]
+    );
+    const hasFiles = parseInt(countResult.rows[0].count) > 0;
+    
+    // If no files and not already syncing, do a quick sync first
+    if (!hasFiles && !syncingFirms.has(firmId)) {
+      console.log(`[APEX DRIVE] No files for firm ${firmId}, syncing from Azure...`);
+      syncingFirms.add(firmId);
+      
+      try {
+        const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
+        
+        if (await isAzureConfigured()) {
+          const shareClient = await getShareClient();
+          const files = [];
+          const mimeTypes = {
+            'pdf': 'application/pdf', 'doc': 'application/msword',
+            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'txt': 'text/plain', 'jpg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif',
+            'rtf': 'application/rtf', 'csv': 'text/csv', 'msg': 'application/vnd.ms-outlook'
+          };
+          
+          async function scan(dirPath, relPath = '') {
+            try {
+              const dir = shareClient.getDirectoryClient(dirPath);
+              for await (const item of dir.listFilesAndDirectories()) {
+                const fullPath = dirPath ? `${dirPath}/${item.name}` : item.name;
+                const rel = relPath ? `${relPath}/${item.name}` : item.name;
+                if (item.kind === 'directory') {
+                  await scan(fullPath, rel);
+                } else {
+                  const ext = item.name.split('.').pop()?.toLowerCase() || '';
+                  const lastSlash = rel.lastIndexOf('/');
+                  files.push({
+                    name: item.name,
+                    type: mimeTypes[ext] || 'application/octet-stream',
+                    size: item.properties?.contentLength || 0,
+                    folderPath: lastSlash > 0 ? rel.substring(0, lastSlash) : '',
+                    path: fullPath
+                  });
+                }
+              }
+            } catch (e) { /* skip errors */ }
+          }
+          
+          await scan(firmFolder, '');
+          console.log(`[APEX DRIVE] Found ${files.length} files in Azure`);
+          
+          // Insert all files
+          for (const f of files) {
+            await query(
+              `INSERT INTO documents (firm_id, name, original_name, type, size, folder_path, external_path, storage_location, uploaded_by)
+               VALUES ($1, $2, $2, $3, $4, $5, $6, 'azure', $7)
+               ON CONFLICT DO NOTHING`,
+              [firmId, f.name, f.type, f.size, f.folderPath, f.path, req.user.id]
+            ).catch(() => {});
+          }
+        }
+      } catch (e) {
+        console.error('[APEX DRIVE] Auto-sync error:', e.message);
+      } finally {
+        syncingFirms.delete(firmId);
+      }
+    }
+    
+    // Get files from database
     let sql = `
       SELECT id, name, original_name, type, size, folder_path, 
              COALESCE(external_path, path) as azure_path, storage_location
@@ -2172,7 +2244,6 @@ router.get('/browse-all', authenticate, async (req, res) => {
     
     const result = await query(sql, params);
     
-    // Build response
     const folderSet = new Set();
     const files = result.rows.map(row => {
       if (row.folder_path) folderSet.add(row.folder_path);
