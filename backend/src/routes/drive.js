@@ -2145,11 +2145,9 @@ router.get('/download-azure', authenticate, async (req, res) => {
   }
 });
 
-// Track which firms are currently syncing
-const syncingFirms = new Set();
-
 /**
- * APEX DRIVE - Get files (auto-syncs from Azure if needed)
+ * APEX DRIVE - Get files from database (instant load)
+ * Background sync keeps database updated automatically
  */
 router.get('/browse-all', authenticate, async (req, res) => {
   try {
@@ -2157,76 +2155,7 @@ router.get('/browse-all', authenticate, async (req, res) => {
     const firmId = req.user.firmId;
     const firmFolder = `firm-${firmId}`;
     
-    // Check if we have files in database
-    const countResult = await query(
-      `SELECT COUNT(*) FROM documents WHERE firm_id = $1 AND storage_location = 'azure'`,
-      [firmId]
-    );
-    const hasFiles = parseInt(countResult.rows[0].count) > 0;
-    
-    // If no files and not already syncing, do a quick sync first
-    if (!hasFiles && !syncingFirms.has(firmId)) {
-      console.log(`[APEX DRIVE] No files for firm ${firmId}, syncing from Azure...`);
-      syncingFirms.add(firmId);
-      
-      try {
-        const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
-        
-        if (await isAzureConfigured()) {
-          const shareClient = await getShareClient();
-          const files = [];
-          const mimeTypes = {
-            'pdf': 'application/pdf', 'doc': 'application/msword',
-            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'txt': 'text/plain', 'jpg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif',
-            'rtf': 'application/rtf', 'csv': 'text/csv', 'msg': 'application/vnd.ms-outlook'
-          };
-          
-          async function scan(dirPath, relPath = '') {
-            try {
-              const dir = shareClient.getDirectoryClient(dirPath);
-              for await (const item of dir.listFilesAndDirectories()) {
-                const fullPath = dirPath ? `${dirPath}/${item.name}` : item.name;
-                const rel = relPath ? `${relPath}/${item.name}` : item.name;
-                if (item.kind === 'directory') {
-                  await scan(fullPath, rel);
-                } else {
-                  const ext = item.name.split('.').pop()?.toLowerCase() || '';
-                  const lastSlash = rel.lastIndexOf('/');
-                  files.push({
-                    name: item.name,
-                    type: mimeTypes[ext] || 'application/octet-stream',
-                    size: item.properties?.contentLength || 0,
-                    folderPath: lastSlash > 0 ? rel.substring(0, lastSlash) : '',
-                    path: fullPath
-                  });
-                }
-              }
-            } catch (e) { /* skip errors */ }
-          }
-          
-          await scan(firmFolder, '');
-          console.log(`[APEX DRIVE] Found ${files.length} files in Azure`);
-          
-          // Insert all files
-          for (const f of files) {
-            await query(
-              `INSERT INTO documents (firm_id, name, original_name, type, size, folder_path, external_path, storage_location, uploaded_by)
-               VALUES ($1, $2, $2, $3, $4, $5, $6, 'azure', $7)
-               ON CONFLICT DO NOTHING`,
-              [firmId, f.name, f.type, f.size, f.folderPath, f.path, req.user.id]
-            ).catch(() => {});
-          }
-        }
-      } catch (e) {
-        console.error('[APEX DRIVE] Auto-sync error:', e.message);
-      } finally {
-        syncingFirms.delete(firmId);
-      }
-    }
-    
-    // Get files from database
+    // Get files from database (instant)
     let sql = `
       SELECT id, name, original_name, type, size, folder_path, 
              COALESCE(external_path, path) as azure_path, storage_location
@@ -2240,13 +2169,21 @@ router.get('/browse-all', authenticate, async (req, res) => {
       params.push(`%${search}%`);
     }
     
-    sql += ` ORDER BY folder_path, name LIMIT 5000`;
+    sql += ` ORDER BY folder_path, name LIMIT 10000`;
     
     const result = await query(sql, params);
     
+    // Build folder tree
     const folderSet = new Set();
     const files = result.rows.map(row => {
-      if (row.folder_path) folderSet.add(row.folder_path);
+      if (row.folder_path) {
+        folderSet.add(row.folder_path);
+        // Add parent folders
+        const parts = row.folder_path.split('/');
+        for (let i = 1; i < parts.length; i++) {
+          folderSet.add(parts.slice(0, i).join('/'));
+        }
+      }
       return {
         id: row.id,
         name: row.name,
@@ -2257,7 +2194,7 @@ router.get('/browse-all', authenticate, async (req, res) => {
         path: row.azure_path,
         azurePath: row.azure_path,
         storageLocation: row.storage_location || 'azure',
-        isFromAzure: true
+        isFromAzure: row.storage_location === 'azure'
       };
     });
     
@@ -2267,7 +2204,11 @@ router.get('/browse-all', authenticate, async (req, res) => {
       firmFolder,
       files,
       folders: Array.from(folderSet).sort(),
-      stats: { totalFiles: files.length, totalFolders: folderSet.size },
+      stats: { 
+        totalFiles: files.length, 
+        totalFolders: folderSet.size,
+        totalSize: files.reduce((sum, f) => sum + (f.size || 0), 0)
+      },
       source: 'database'
     });
     
@@ -2278,73 +2219,26 @@ router.get('/browse-all', authenticate, async (req, res) => {
 });
 
 /**
- * Sync files from Azure - runs in background, returns immediately
+ * Manually trigger sync for current firm
  */
 router.post('/sync-azure', authenticate, async (req, res) => {
-  const firmId = req.user.firmId;
-  const firmFolder = `firm-${firmId}`;
-  const userId = req.user.id;
-  
-  // Return immediately, sync in background
-  res.json({ started: true, message: 'Sync started. Refresh the page in a few moments.' });
-  
-  // Background sync
-  (async () => {
-    try {
-      const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
-      if (!(await isAzureConfigured())) return;
-      
-      const shareClient = await getShareClient();
-      const files = [];
-      const mimeTypes = {
-        'pdf': 'application/pdf', 'doc': 'application/msword',
-        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'txt': 'text/plain', 'jpg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif'
-      };
-      
-      async function scan(dirPath, relPath = '') {
-        try {
-          const dir = shareClient.getDirectoryClient(dirPath);
-          for await (const item of dir.listFilesAndDirectories()) {
-            const fullPath = dirPath ? `${dirPath}/${item.name}` : item.name;
-            const rel = relPath ? `${relPath}/${item.name}` : item.name;
-            if (item.kind === 'directory') {
-              await scan(fullPath, rel);
-            } else {
-              const ext = item.name.split('.').pop()?.toLowerCase() || '';
-              const lastSlash = rel.lastIndexOf('/');
-              files.push({
-                name: item.name,
-                type: mimeTypes[ext] || 'application/octet-stream',
-                size: item.properties?.contentLength || 0,
-                folderPath: lastSlash > 0 ? rel.substring(0, lastSlash) : '',
-                path: fullPath
-              });
-            }
-          }
-        } catch (e) { /* skip errors */ }
-      }
-      
-      console.log(`[SYNC] Scanning ${firmFolder}...`);
-      await scan(firmFolder, '');
-      console.log(`[SYNC] Found ${files.length} files`);
-      
-      // Batch insert
-      for (const f of files) {
-        await query(
-          `INSERT INTO documents (firm_id, name, original_name, type, size, folder_path, external_path, storage_location, uploaded_by)
-           VALUES ($1, $2, $2, $3, $4, $5, $6, 'azure', $7)
-           ON CONFLICT (firm_id, external_path) DO UPDATE SET size = $4, folder_path = $5, updated_at = NOW()`,
-          [firmId, f.name, f.type, f.size, f.folderPath, f.path, userId]
-        ).catch(() => {});
-      }
-      
-      console.log(`[SYNC] Complete! Synced ${files.length} files`);
-    } catch (e) {
-      console.error('[SYNC] Error:', e.message);
-    }
-  })();
+  try {
+    const { syncFirm } = await import('../services/driveSync.js');
+    
+    // Run sync in background
+    res.json({ started: true, message: 'Sync started. Files will appear shortly.' });
+    
+    // Sync this firm
+    syncFirm(req.user.firmId).then(result => {
+      console.log(`[MANUAL SYNC] Firm ${req.user.firmId}:`, result);
+    }).catch(err => {
+      console.error(`[MANUAL SYNC] Error:`, err.message);
+    });
+    
+  } catch (error) {
+    console.error('Manual sync error:', error);
+    res.status(500).json({ error: 'Failed to start sync' });
+  }
 });
 
 export default router;

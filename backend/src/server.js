@@ -34,6 +34,9 @@ import driveSecureRoutes from './routes/driveSecure.js';
 import sharingGroupsRoutes from './routes/sharingGroups.js';
 import apiKeysRoutes from './routes/apiKeys.js';
 
+// Background services
+import { startDriveSync } from './services/driveSync.js';
+
 // AI Agent Tool Routes (v1 API)
 import billingRoutes from './routes/billing.js';
 import analyticsRoutes from './routes/analytics.js';
@@ -217,6 +220,16 @@ app.listen(PORT, () => {
       console.error('Amplifier initialization error:', err);
     }
   }, 15000); // Wait 15 seconds after startup
+  
+  // Start Apex Drive background sync (syncs Azure files to database)
+  setTimeout(() => {
+    try {
+      startDriveSync();
+      console.log('✓ Apex Drive background sync started');
+    } catch (err) {
+      console.error('Apex Drive sync error:', err);
+    }
+  }, 20000); // Wait 20 seconds after startup
 });
 
 export default app;
