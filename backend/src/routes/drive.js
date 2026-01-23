@@ -1481,10 +1481,84 @@ router.post('/folders', authenticate, async (req, res) => {
  */
 router.get('/browse', authenticate, async (req, res) => {
   try {
-    const { path: folderPath = '' } = req.query;
+    const { path: folderPath = '', source = 'auto' } = req.query;
     const firmFolder = getFirmFolderPath(req.user.firmId);
     const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
     
+    // For admins, scan Azure directly so they see files immediately
+    // This gives real-time view of Azure without needing to run scan first
+    if (isAdmin && source !== 'db-only') {
+      try {
+        const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
+        
+        if (await isAzureConfigured()) {
+          const shareClient = await getShareClient();
+          const scanPath = folderPath ? `${firmFolder}/${folderPath}` : firmFolder;
+          
+          const files = [];
+          const folders = new Set();
+          
+          // Scan Azure directory
+          const scanDir = async (dirClient, relativePath = '') => {
+            try {
+              for await (const item of dirClient.listFilesAndDirectories()) {
+                const itemPath = relativePath ? `${relativePath}/${item.name}` : item.name;
+                
+                if (item.kind === 'directory') {
+                  folders.add(itemPath);
+                  // Don't recurse - just show current level
+                } else {
+                  const ext = item.name.split('.').pop()?.toLowerCase() || '';
+                  const mimeTypes = {
+                    'pdf': 'application/pdf', 'doc': 'application/msword',
+                    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'txt': 'text/plain', 'csv': 'text/csv', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+                    'png': 'image/png', 'gif': 'image/gif', 'msg': 'application/vnd.ms-outlook'
+                  };
+                  
+                  files.push({
+                    id: `azure-${Buffer.from(`${scanPath}/${item.name}`).toString('base64').substring(0, 32)}`,
+                    name: item.name,
+                    originalName: item.name,
+                    contentType: mimeTypes[ext] || 'application/octet-stream',
+                    size: 0,
+                    folderPath: relativePath || folderPath,
+                    uploadedAt: new Date().toISOString(),
+                    isFromAzure: true
+                  });
+                }
+              }
+            } catch (e) {
+              console.log(`[DRIVE BROWSE] Error scanning ${relativePath}:`, e.message);
+            }
+          };
+          
+          await scanDir(shareClient.getDirectoryClient(scanPath));
+          
+          console.log(`[DRIVE BROWSE] Admin Azure scan: ${files.length} files, ${folders.size} folders in ${folderPath || 'root'}`);
+          
+          return res.json({
+            firmFolder,
+            currentPath: folderPath,
+            isAdmin: true,
+            files,
+            folders: Array.from(folders).sort(),
+            matters: [],
+            stats: {
+              totalFiles: files.length,
+              totalSize: 0,
+              mattersWithFiles: 0
+            },
+            source: 'azure-live'
+          });
+        }
+      } catch (azureErr) {
+        console.log(`[DRIVE BROWSE] Azure scan failed, falling back to DB:`, azureErr.message);
+      }
+    }
+    
+    // Fallback: Use database (for non-admins or if Azure fails)
     // Build permission-based filter
     const accessFilter = await buildDocumentAccessFilter(
       req.user.id, 
