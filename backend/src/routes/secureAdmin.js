@@ -1413,6 +1413,14 @@ router.post('/firms/:firmId/scan-cancel', requireSecureAdmin, async (req, res) =
   }
 });
 
+// Clear/reset scan job (for stuck scans)
+router.post('/firms/:firmId/scan-reset', requireSecureAdmin, async (req, res) => {
+  const { firmId } = req.params;
+  scanJobs.delete(firmId);
+  console.log(`[SCAN] Reset scan job for firm ${firmId}`);
+  res.json({ success: true, message: 'Scan job cleared. You can start a new scan.' });
+});
+
 // ============================================
 // SCAN DOCUMENTS - Clio Migration Document Scanner
 // ============================================
