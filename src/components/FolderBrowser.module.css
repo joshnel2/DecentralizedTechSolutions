@@ -597,6 +597,12 @@
   font-size: 14px;
 }
 
+.loadingHint {
+  font-size: 12px !important;
+  color: #94A3B8 !important;
+  margin-top: 8px !important;
+}
+
 .error {
   color: #EF4444;
 }

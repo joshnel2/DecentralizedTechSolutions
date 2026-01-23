@@ -2140,13 +2140,13 @@ router.get('/download-azure', authenticate, async (req, res) => {
 });
 
 /**
- * Browse drive with recursive file listing
- * Returns ALL files in the firm's folder, grouped by folder paths
- * Used for document discovery when users want to see all files at once
+ * Browse drive with recursive file listing - APEX DRIVE
+ * Returns ALL files from Azure File Share, like Clio Drive
+ * Scans the entire share to find all files regardless of folder structure
  */
 router.get('/browse-all', authenticate, async (req, res) => {
   try {
-    const { search, limit = 500 } = req.query;
+    const { search, limit = 2000 } = req.query;
     const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
     const firmId = req.user.firmId;
     
@@ -2155,89 +2155,139 @@ router.get('/browse-all', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Admin access required to browse all files' });
     }
     
-    const { isAzureConfigured, listFilesRecursive, getShareClient } = await import('../utils/azureStorage.js');
+    const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
     
     if (!(await isAzureConfigured())) {
       return res.json({ 
         configured: false, 
         files: [],
         folders: [],
-        message: 'Azure not configured' 
+        message: 'Azure Storage is not configured. Please configure Azure in Settings.' 
       });
     }
     
     const firmFolder = `firm-${firmId}`;
+    const files = [];
+    const folderSet = new Set();
     
-    console.log(`[BROWSE ALL] Scanning all files in ${firmFolder}`);
+    console.log(`[APEX DRIVE] Scanning Azure for firm ${firmId}...`);
     
     try {
-      // Use recursive listing to get all files
-      const allFiles = await listFilesRecursive(firmFolder);
+      const shareClient = await getShareClient();
       
-      // Extract unique folder paths
-      const folderSet = new Set();
-      const files = [];
-      
-      for (const file of allFiles) {
-        // file.name is the full path like "firm-X/Matters/Client/doc.pdf"
-        // Remove the firm folder prefix
-        let relativePath = file.name;
-        if (relativePath.startsWith(firmFolder + '/')) {
-          relativePath = relativePath.substring(firmFolder.length + 1);
-        }
-        
-        // Apply search filter if provided
-        const fileName = relativePath.split('/').pop() || '';
-        if (search && !fileName.toLowerCase().includes(search.toLowerCase())) {
-          continue;
-        }
-        
-        // Extract folder path
-        const lastSlash = relativePath.lastIndexOf('/');
-        const folderPath = lastSlash > 0 ? relativePath.substring(0, lastSlash) : '';
-        
-        if (folderPath) {
-          folderSet.add(folderPath);
-          // Also add parent folders
-          const parts = folderPath.split('/');
-          for (let i = 1; i < parts.length; i++) {
-            folderSet.add(parts.slice(0, i).join('/'));
+      // Recursive function to scan all directories
+      async function scanDirectory(dirPath, relativePath = '') {
+        try {
+          const dirClient = shareClient.getDirectoryClient(dirPath);
+          
+          for await (const item of dirClient.listFilesAndDirectories()) {
+            const itemFullPath = dirPath ? `${dirPath}/${item.name}` : item.name;
+            const itemRelativePath = relativePath ? `${relativePath}/${item.name}` : item.name;
+            
+            if (item.kind === 'directory') {
+              // Add folder to the set
+              folderSet.add(itemRelativePath);
+              // Recursively scan subdirectory
+              await scanDirectory(itemFullPath, itemRelativePath);
+            } else {
+              // It's a file
+              const fileName = item.name;
+              const ext = fileName.split('.').pop()?.toLowerCase() || '';
+              
+              // Apply search filter if provided
+              if (search && !fileName.toLowerCase().includes(search.toLowerCase()) && 
+                  !itemRelativePath.toLowerCase().includes(search.toLowerCase())) {
+                continue;
+              }
+              
+              // Get file size
+              let fileSize = 0;
+              try {
+                const fileClient = dirClient.getFileClient(item.name);
+                const props = await fileClient.getProperties();
+                fileSize = props.contentLength || 0;
+              } catch (e) { /* ignore size errors */ }
+              
+              // Extract folder path from relative path
+              const lastSlash = itemRelativePath.lastIndexOf('/');
+              const folderPath = lastSlash > 0 ? itemRelativePath.substring(0, lastSlash) : '';
+              
+              // Determine MIME type
+              const mimeTypes = {
+                'pdf': 'application/pdf', 'doc': 'application/msword',
+                'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'ppt': 'application/vnd.ms-powerpoint', 'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                'txt': 'text/plain', 'rtf': 'application/rtf', 'csv': 'text/csv',
+                'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif', 'webp': 'image/webp',
+                'msg': 'application/vnd.ms-outlook', 'eml': 'message/rfc822',
+                'zip': 'application/zip', 'html': 'text/html', 'htm': 'text/html',
+                'tiff': 'image/tiff', 'tif': 'image/tiff', 'bmp': 'image/bmp'
+              };
+              
+              files.push({
+                id: `azure-${Buffer.from(itemRelativePath).toString('base64url').substring(0, 40)}`,
+                name: fileName,
+                originalName: fileName,
+                contentType: mimeTypes[ext] || 'application/octet-stream',
+                size: fileSize,
+                folderPath: folderPath,
+                path: itemRelativePath,
+                azurePath: itemRelativePath,
+                storageLocation: 'azure',
+                isFromAzure: true
+              });
+              
+              if (files.length >= parseInt(limit)) {
+                return; // Stop scanning when limit reached
+              }
+            }
           }
+        } catch (err) {
+          console.log(`[APEX DRIVE] Could not scan ${dirPath}: ${err.message}`);
         }
+      }
+      
+      // First try scanning the firm folder
+      await scanDirectory(firmFolder, '');
+      
+      // If no files found in firm folder, try scanning the root to see what's there
+      if (files.length === 0) {
+        console.log(`[APEX DRIVE] No files in ${firmFolder}, scanning share root...`);
         
-        // Determine MIME type
-        const ext = fileName.split('.').pop()?.toLowerCase() || '';
-        const mimeTypes = {
-          'pdf': 'application/pdf', 'doc': 'application/msword',
-          'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'ppt': 'application/vnd.ms-powerpoint', 'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-          'txt': 'text/plain', 'rtf': 'application/rtf', 'csv': 'text/csv',
-          'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif',
-          'msg': 'application/vnd.ms-outlook', 'eml': 'message/rfc822',
-          'zip': 'application/zip', 'html': 'text/html'
-        };
+        // List what's at the root level
+        const rootDir = shareClient.getDirectoryClient('');
+        const rootItems = [];
         
-        files.push({
-          id: `azure-${Buffer.from(relativePath).toString('base64').substring(0, 36)}`,
-          name: fileName,
-          originalName: fileName,
-          contentType: mimeTypes[ext] || 'application/octet-stream',
-          size: file.size || 0,
-          folderPath: folderPath,
-          path: relativePath, // Full path for download
-          azurePath: relativePath, // Explicit Azure path
-          lastModified: file.lastModified,
-          storageLocation: 'azure',
-          isFromAzure: true
-        });
-        
-        if (files.length >= parseInt(limit)) break;
+        try {
+          for await (const item of rootDir.listFilesAndDirectories()) {
+            rootItems.push({ name: item.name, kind: item.kind });
+          }
+          console.log(`[APEX DRIVE] Root level items:`, rootItems.map(i => `${i.name} (${i.kind})`).join(', '));
+          
+          // If there are items at root that look like they might be the firm's files, scan them
+          for (const item of rootItems) {
+            if (item.kind === 'directory') {
+              // Scan each root directory
+              await scanDirectory(item.name, item.name);
+            }
+          }
+        } catch (rootErr) {
+          console.error(`[APEX DRIVE] Error scanning root:`, rootErr.message);
+        }
+      }
+      
+      // Build parent folders for the tree
+      for (const folder of Array.from(folderSet)) {
+        const parts = folder.split('/');
+        for (let i = 1; i < parts.length; i++) {
+          folderSet.add(parts.slice(0, i).join('/'));
+        }
       }
       
       const folders = Array.from(folderSet).sort();
       
-      console.log(`[BROWSE ALL] Found ${files.length} files in ${folders.length} folders`);
+      console.log(`[APEX DRIVE] Found ${files.length} files in ${folders.length} folders`);
       
       return res.json({
         firmFolder,
@@ -2249,12 +2299,18 @@ router.get('/browse-all', authenticate, async (req, res) => {
           totalSize: files.reduce((sum, f) => sum + (f.size || 0), 0),
           totalFolders: folders.length
         },
-        source: 'azure-recursive'
+        source: 'azure-recursive',
+        message: files.length === 0 ? 'No files found. Make sure files are uploaded to Azure.' : undefined
       });
       
     } catch (scanError) {
-      console.error('[BROWSE ALL] Scan error:', scanError.message);
-      return res.status(500).json({ error: 'Failed to scan Azure storage: ' + scanError.message });
+      console.error('[APEX DRIVE] Scan error:', scanError);
+      return res.status(500).json({ 
+        error: 'Failed to scan Azure storage', 
+        details: scanError.message,
+        files: [],
+        folders: []
+      });
     }
     
   } catch (error) {

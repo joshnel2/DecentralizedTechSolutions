@@ -36,21 +36,26 @@ interface DocumentItem {
 
 interface BrowseResult {
   firmFolder: string
-  currentPath: string
+  currentPath?: string
   isAdmin: boolean
   files: DocumentItem[]
   folders: string[]
-  matters: { id: string; name: string; caseNumber?: string; folderPath: string }[]
+  matters?: { id: string; name: string; caseNumber?: string; folderPath: string }[]
   stats: {
     totalFiles: number
     totalSize: number
-    mattersWithFiles: number
+    mattersWithFiles?: number
+    totalFolders?: number
   }
   azureConfig?: {
     configured: boolean
     shareName?: string
     connectionPath?: string
   }
+  configured?: boolean
+  message?: string
+  error?: string
+  source?: string
 }
 
 interface FolderBrowserProps {
@@ -127,11 +132,27 @@ export function FolderBrowser({
       let result
       
       if (effectiveMode === 'all') {
-        // Get all files recursively
-        result = await driveApi.browseAllFiles(searchQuery || undefined, 1000)
+        // Get all files recursively from Azure
+        console.log('[FolderBrowser] Fetching all files from Azure...')
+        result = await driveApi.browseAllFiles(searchQuery || undefined, 2000)
+        console.log('[FolderBrowser] Result:', result)
       } else {
         // Browse specific folder
         result = await driveApi.browseDrive(path || '')
+      }
+      
+      // Handle error response
+      if (result.error) {
+        setError(result.error)
+        setBrowseData(null)
+        return
+      }
+      
+      // Handle not configured
+      if (result.configured === false) {
+        setError(result.message || 'Azure Storage is not configured')
+        setBrowseData(null)
+        return
       }
       
       setBrowseData(result)
@@ -143,7 +164,7 @@ export function FolderBrowser({
       }
     } catch (err: any) {
       console.error('Failed to browse drive:', err)
-      setError(err.message || 'Failed to load documents')
+      setError(err.message || 'Failed to load documents from Azure')
     } finally {
       setLoading(false)
     }
@@ -331,7 +352,10 @@ export function FolderBrowser({
       <div className={`${styles.container} ${className || ''}`}>
         <div className={styles.loading}>
           <Loader2 size={32} className={styles.spinner} />
-          <p>Loading documents...</p>
+          <p>{browseMode === 'all' ? 'Loading all documents from Azure...' : 'Loading documents...'}</p>
+          {browseMode === 'all' && (
+            <p className={styles.loadingHint}>This may take a moment for large document libraries</p>
+          )}
         </div>
       </div>
     )
@@ -529,10 +553,15 @@ export function FolderBrowser({
                         <FolderOpen size={32} />
                         <p>
                           {browseMode === 'all' 
-                            ? 'No documents found in Azure storage' 
+                            ? (browseData?.message || 'No documents found in Azure storage') 
                             : 'No documents in this folder'
                           }
                         </p>
+                        {browseMode === 'all' && !browseData?.message && (
+                          <p className={styles.emptyHint}>
+                            Make sure Azure Storage is configured and files are uploaded
+                          </p>
+                        )}
                         {browseMode === 'folder' && (
                           <p className={styles.emptyHint}>
                             Navigate into subfolders or switch to "All Files" mode
