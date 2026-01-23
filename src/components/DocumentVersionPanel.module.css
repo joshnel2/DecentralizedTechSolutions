@@ -979,6 +979,138 @@
   to { transform: rotate(360deg); }
 }
 
+/* Open in Explorer */
+.explorerBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 8px;
+  color: #a78bfa;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.explorerBtn:hover {
+  background: rgba(139, 92, 246, 0.25);
+  border-color: rgba(139, 92, 246, 0.5);
+  transform: translateY(-1px);
+}
+
+.explorerPathDialog {
+  margin: 0 1.5rem;
+  padding: 1rem;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(139, 92, 246, 0.05) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 10px;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.explorerPathHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.15);
+}
+
+.explorerPathHeader svg:first-child {
+  color: #a78bfa;
+}
+
+.explorerPathHeader span {
+  flex: 1;
+  font-weight: 600;
+  color: var(--apex-white);
+  font-size: 0.875rem;
+}
+
+.closePathBtn {
+  background: none;
+  border: none;
+  color: var(--apex-text);
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.closePathBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--apex-white);
+}
+
+.explorerPathContent p {
+  font-size: 0.8125rem;
+  color: var(--apex-text);
+  margin: 0 0 0.75rem;
+  line-height: 1.5;
+}
+
+.pathBox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.pathBox code {
+  flex: 1;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+  color: var(--apex-gold);
+  word-break: break-all;
+}
+
+.copyPathBtn {
+  padding: 0.375rem 0.75rem;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 4px;
+  color: var(--apex-gold);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.copyPathBtn:hover {
+  background: rgba(245, 158, 11, 0.25);
+}
+
+.explorerHint {
+  font-size: 0.75rem !important;
+  color: var(--apex-muted) !important;
+}
+
+.setupLink {
+  color: #a78bfa;
+  text-decoration: none;
+  margin-left: 0.25rem;
+}
+
+.setupLink:hover {
+  text-decoration: underline;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .panel {
@@ -992,6 +1124,7 @@
 
   .quickActions {
     padding: 0.75rem 1rem;
+    flex-wrap: wrap;
   }
 
   .compareSection,
@@ -1012,5 +1145,9 @@
 
   .footer {
     padding: 0.75rem 1rem;
+  }
+  
+  .explorerPathDialog {
+    margin: 0 1rem;
   }
 }

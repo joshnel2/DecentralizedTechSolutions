@@ -1758,6 +1758,47 @@ export const driveApi = {
     return fetchWithAuth('/drive/connection-info');
   },
 
+  // Get user's drive letter preference
+  async getDrivePreference() {
+    return fetchWithAuth('/drive/user-drive-preference');
+  },
+
+  // Update user's drive letter preference
+  async updateDrivePreference(driveLetter: string) {
+    return fetchWithAuth('/drive/user-drive-preference', {
+      method: 'PUT',
+      body: JSON.stringify({ driveLetter }),
+    });
+  },
+
+  // Download Windows setup script
+  async downloadWindowsSetupScript(driveLetter: string = 'Z'): Promise<Blob> {
+    const headers: HeadersInit = {};
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+    const response = await fetch(`${API_URL}/drive/setup-script/windows?driveLetter=${driveLetter}`, {
+      headers,
+      credentials: 'include',
+    });
+    if (!response.ok) throw new ApiError(response.status, 'Failed to download script');
+    return response.blob();
+  },
+
+  // Download Mac setup script
+  async downloadMacSetupScript(): Promise<Blob> {
+    const headers: HeadersInit = {};
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+    const response = await fetch(`${API_URL}/drive/setup-script/mac`, {
+      headers,
+      credentials: 'include',
+    });
+    if (!response.ok) throw new ApiError(response.status, 'Failed to download script');
+    return response.blob();
+  },
+
   // Admin: Download desktop shortcut for Windows
   async downloadWindowsShortcut() {
     const headers: HeadersInit = {};

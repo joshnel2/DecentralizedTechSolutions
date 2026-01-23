@@ -68,6 +68,7 @@ import { ApexPaySettingsPage } from './pages/ApexPaySettingsPage'
 // Drive Integration Pages
 import { ApexDrivePage } from './pages/ApexDrivePage'
 import { DriveBrowsePage } from './pages/DriveBrowsePage'
+import { DriveSetupPage } from './pages/DriveSetupPage'
 import { DocumentVersionsPage } from './pages/DocumentVersionsPage'
 import { DocumentComparePage } from './pages/DocumentComparePage'
 import { FolderPermissionsPage } from './pages/FolderPermissionsPage'
@@ -278,6 +279,8 @@ function AppContent() {
         <Route path="settings/ai" element={<AIConfigPage />} />
         <Route path="settings/reporting" element={<ReportingSettingsPage />} />
         <Route path="settings/drives" element={<ApexDrivePage />} />
+        <Route path="settings/drive-setup" element={<DriveSetupPage />} />
+        <Route path="documents/connect" element={<DriveSetupPage />} />
         <Route path="drive/browse" element={<DriveBrowsePage />} />
         
         {/* Trust Accounting */}

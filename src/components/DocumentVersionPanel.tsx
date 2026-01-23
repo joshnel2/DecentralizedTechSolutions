@@ -4,9 +4,9 @@ import {
   X, History, Clock, User, FileText, GitCompare, ExternalLink, 
   Download, ChevronDown, ChevronRight, RefreshCw, AlertCircle,
   Edit3, CheckCircle, ArrowUpRight, Loader2, Share2, Mail, 
-  Sparkles, Trash2, Eye, Cloud
+  Sparkles, Trash2, Eye, Cloud, FolderOpen, HardDrive
 } from 'lucide-react'
-import { wordOnlineApi, documentsApi } from '../services/api'
+import { wordOnlineApi, documentsApi, driveApi } from '../services/api'
 import { format, formatDistanceToNow, parseISO } from 'date-fns'
 import { useWordOnlineSync } from '../hooks/useWordOnlineSync'
 import styles from './DocumentVersionPanel.module.css'
@@ -43,6 +43,8 @@ interface DocumentVersionPanelProps {
     uploadedAt: string
     matterName?: string
     uploadedByName?: string
+    folderPath?: string
+    externalPath?: string
   }
   onClose: () => void
   onOpenInWord: (preferDesktop?: boolean) => void
@@ -86,6 +88,79 @@ export function DocumentVersionPanel({
   
   // Downloading state
   const [downloadingVersion, setDownloadingVersion] = useState<number | null>(null)
+  
+  // Drive/Explorer state
+  const [driveLetter, setDriveLetter] = useState('Z')
+  const [showExplorerPath, setShowExplorerPath] = useState(false)
+  
+  // Load drive preference
+  useEffect(() => {
+    driveApi.getDrivePreference().then(pref => {
+      if (pref.driveLetter) setDriveLetter(pref.driveLetter)
+    }).catch(() => {
+      // Ignore errors, use default Z
+    })
+  }, [])
+  
+  // Open in Explorer using firmdocs:// protocol or file:// path
+  const openInExplorer = () => {
+    const folderPath = document.folderPath || document.externalPath || ''
+    const fileName = document.originalName || document.name
+    
+    // Build the path for the file
+    let explorerPath = ''
+    if (folderPath) {
+      // Remove leading slashes and normalize
+      const cleanPath = folderPath.replace(/^\/+/, '').replace(/\//g, '\\')
+      explorerPath = `${cleanPath}\\${fileName}`
+    } else {
+      explorerPath = fileName
+    }
+    
+    // Try firmdocs:// protocol first (registered by setup script)
+    const firmdocsUrl = `firmdocs://${explorerPath.replace(/\\/g, '/')}`
+    
+    // Create a hidden iframe to test the protocol
+    const iframe = window.document.createElement('iframe') as HTMLIFrameElement
+    iframe.style.display = 'none'
+    window.document.body.appendChild(iframe)
+    
+    // Set a timeout - if protocol doesn't work, show fallback
+    const timeoutId = setTimeout(() => {
+      window.document.body.removeChild(iframe)
+      // Protocol didn't work - show manual path
+      setShowExplorerPath(true)
+    }, 1500)
+    
+    try {
+      // Try the protocol
+      if (iframe.contentWindow) {
+        iframe.contentWindow.location.href = firmdocsUrl
+      }
+      
+      // If we get here, assume it might work
+      setTimeout(() => {
+        clearTimeout(timeoutId)
+        try { window.document.body.removeChild(iframe) } catch (e) {}
+      }, 2000)
+    } catch (e) {
+      clearTimeout(timeoutId)
+      try { window.document.body.removeChild(iframe) } catch (e) {}
+      setShowExplorerPath(true)
+    }
+  }
+  
+  // Get the explorer path for display
+  const getExplorerPath = () => {
+    const folderPath = document.folderPath || document.externalPath || ''
+    const fileName = document.originalName || document.name
+    
+    if (folderPath) {
+      const cleanPath = folderPath.replace(/^\/+/, '').replace(/\//g, '\\')
+      return `${driveLetter}:\\${cleanPath}\\${fileName}`
+    }
+    return `${driveLetter}:\\${fileName}`
+  }
   
   // Check if document is a Word document
   useEffect(() => {
@@ -360,7 +435,56 @@ export function DocumentVersionPanel({
           <Download size={16} />
           Download
         </button>
+        <button 
+          className={styles.explorerBtn}
+          onClick={openInExplorer}
+          title="Open in File Explorer (Windows) or Finder (Mac)"
+        >
+          <FolderOpen size={16} />
+          Open in Explorer
+        </button>
       </div>
+
+      {/* Explorer Path Dialog */}
+      {showExplorerPath && (
+        <div className={styles.explorerPathDialog}>
+          <div className={styles.explorerPathHeader}>
+            <HardDrive size={16} />
+            <span>Open in File Explorer</span>
+            <button 
+              className={styles.closePathBtn}
+              onClick={() => setShowExplorerPath(false)}
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <div className={styles.explorerPathContent}>
+            <p>To open this file in your computer's file explorer, copy the path below:</p>
+            <div className={styles.pathBox}>
+              <code>{getExplorerPath()}</code>
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(getExplorerPath())
+                  // Brief visual feedback could be added here
+                }}
+                className={styles.copyPathBtn}
+              >
+                Copy
+              </button>
+            </div>
+            <p className={styles.explorerHint}>
+              <strong>Tip:</strong> Set up your Apex Drive to access files directly. 
+              <a 
+                href="/app/settings/drive-setup" 
+                onClick={() => navigate('/app/settings/drive-setup')}
+                className={styles.setupLink}
+              >
+                Set up Drive →
+              </a>
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Word Sync Status - always shows for Word docs */}
       {isWordDoc && (

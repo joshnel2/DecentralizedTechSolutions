@@ -153,6 +153,13 @@ export function ApexDrivePage() {
               <HardDrive size={20} />
               <h3>Admin: Map Drive to Your Computer</h3>
               <button 
+                className={styles.setupBtn}
+                onClick={() => navigate('/app/settings/drive-setup')}
+              >
+                <HardDrive size={16} />
+                Setup Wizard
+              </button>
+              <button 
                 className={styles.toggleBtn}
                 onClick={() => setShowConnectionInfo(!showConnectionInfo)}
               >

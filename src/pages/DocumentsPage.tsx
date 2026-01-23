@@ -937,6 +937,8 @@ export function DocumentsPage() {
               uploadedAt: versionPanelDoc.uploadedAt,
               matterName: getMatterName(versionPanelDoc.matterId) || undefined,
               uploadedByName: versionPanelDoc.uploadedByName,
+              folderPath: (versionPanelDoc as any).folderPath,
+              externalPath: (versionPanelDoc as any).externalPath,
             }}
             onClose={() => setVersionPanelDoc(null)}
             onOpenInWord={(preferDesktop) => {

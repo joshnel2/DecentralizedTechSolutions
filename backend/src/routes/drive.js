@@ -2303,4 +2303,479 @@ router.get('/debug-azure', authenticate, async (req, res) => {
   }
 });
 
+// ============================================
+// DRIVE SETUP SCRIPTS
+// Generate downloadable setup scripts for Windows/Mac
+// ============================================
+
+/**
+ * Generate Windows PowerShell setup script
+ * This script:
+ * - Checks if port 445 is accessible
+ * - Removes any existing drive mapping
+ * - Stores Azure credentials securely with cmdkey
+ * - Maps the drive with the selected letter
+ * - Makes it persist after reboot
+ * - Registers the firmdocs:// protocol handler
+ * - Opens the drive in File Explorer
+ */
+router.get('/setup-script/windows', authenticate, async (req, res) => {
+  try {
+    // Only admins can download setup scripts
+    if (!['admin', 'owner', 'super_admin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { driveLetter = 'Z' } = req.query;
+    
+    // Get Azure config
+    const azureConfig = await getAzureConfig();
+    if (!azureConfig) {
+      return res.status(400).json({ error: 'Azure Storage not configured' });
+    }
+
+    const { accountName, accountKey, shareName } = azureConfig;
+    const firmId = req.user.firmId;
+    const firmFolder = `firm-${firmId}`;
+    
+    // Get firm name
+    const firmResult = await query('SELECT name FROM firms WHERE id = $1', [firmId]);
+    const firmName = firmResult.rows[0]?.name || 'Apex Drive';
+    const safeFirmName = firmName.replace(/[^a-zA-Z0-9 ]/g, '').trim();
+    
+    const drivePath = `\\\\${accountName}.file.core.windows.net\\${shareName}\\${firmFolder}`;
+    
+    // Generate unique setup token for logging
+    const setupToken = crypto.randomBytes(16).toString('hex');
+    
+    // Log the script generation
+    await query(
+      `INSERT INTO audit_logs (firm_id, user_id, action, resource_type, details)
+       VALUES ($1, $2, 'drive_script.generated', 'drive', $3)`,
+      [firmId, req.user.id, JSON.stringify({ 
+        platform: 'windows', 
+        driveLetter, 
+        setupToken,
+        generatedAt: new Date().toISOString()
+      })]
+    );
+
+    const powershellScript = `#Requires -RunAsAdministrator
+<#
+.SYNOPSIS
+    ${safeFirmName} - Apex Drive Setup Script
+.DESCRIPTION
+    This script connects your computer to your firm's document drive.
+    Generated for: ${req.user.email}
+    Generated at: ${new Date().toISOString()}
+#>
+
+# Configuration
+$StorageAccount = "${accountName}"
+$ShareName = "${shareName}"
+$FirmFolder = "${firmFolder}"
+$DriveLetter = "${driveLetter}"
+$StorageKey = "${accountKey}"
+$DrivePath = "${drivePath}"
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Yellow
+Write-Host "  ${safeFirmName} - Apex Drive Setup" -ForegroundColor Yellow
+Write-Host "========================================" -ForegroundColor Yellow
+Write-Host ""
+
+# Step 1: Check if port 445 is accessible
+Write-Host "[1/6] Checking network connectivity..." -ForegroundColor Cyan
+$connectTest = Test-NetConnection -ComputerName "$StorageAccount.file.core.windows.net" -Port 445 -WarningAction SilentlyContinue
+
+if (-not $connectTest.TcpTestSucceeded) {
+    Write-Host ""
+    Write-Host "ERROR: Port 445 is blocked by your firewall or ISP." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "This is common on home networks and some corporate networks."
+    Write-Host "You can still access documents through the web app at:"
+    Write-Host "  https://your-apex-url/app/documents" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "To resolve this, contact your IT administrator or ISP."
+    Write-Host ""
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+Write-Host "  Port 445 is accessible!" -ForegroundColor Green
+
+# Step 2: Remove existing mapping if present
+Write-Host "[2/6] Checking for existing drive mapping..." -ForegroundColor Cyan
+$existingDrive = Get-PSDrive -Name $DriveLetter -ErrorAction SilentlyContinue
+if ($existingDrive) {
+    Write-Host "  Removing existing $DriveLetter: drive..." -ForegroundColor Yellow
+    try {
+        net use ${DriveLetter}: /delete /y 2>$null | Out-Null
+        Remove-PSDrive -Name $DriveLetter -Force -ErrorAction SilentlyContinue
+    } catch {
+        Write-Host "  Warning: Could not remove existing drive" -ForegroundColor Yellow
+    }
+}
+Write-Host "  Drive letter $DriveLetter: is available" -ForegroundColor Green
+
+# Step 3: Store credentials securely
+Write-Host "[3/6] Storing Azure credentials..." -ForegroundColor Cyan
+try {
+    # Remove any existing credential
+    cmdkey /delete:$StorageAccount.file.core.windows.net 2>$null | Out-Null
+    
+    # Add new credential
+    $cmdkeyResult = cmdkey /add:"$StorageAccount.file.core.windows.net" /user:"AZURE\\$StorageAccount" /pass:"$StorageKey" 2>&1
+    Write-Host "  Credentials stored in Windows Credential Manager" -ForegroundColor Green
+} catch {
+    Write-Host "  Warning: Could not store credentials automatically" -ForegroundColor Yellow
+}
+
+# Step 4: Map the drive
+Write-Host "[4/6] Mapping drive $DriveLetter:..." -ForegroundColor Cyan
+try {
+    $result = net use ${DriveLetter}: "$DrivePath" /persistent:yes /user:AZURE\\$StorageAccount "$StorageKey" 2>&1
+    
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Drive $DriveLetter: successfully mapped!" -ForegroundColor Green
+    } else {
+        throw "Net use failed: $result"
+    }
+} catch {
+    Write-Host "  Error mapping drive: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Trying alternative method..." -ForegroundColor Yellow
+    try {
+        New-PSDrive -Name $DriveLetter -PSProvider FileSystem -Root "$DrivePath" -Persist -Credential (New-Object System.Management.Automation.PSCredential ("AZURE\\$StorageAccount", (ConvertTo-SecureString $StorageKey -AsPlainText -Force))) -ErrorAction Stop
+        Write-Host "  Drive $DriveLetter: successfully mapped (alternative method)!" -ForegroundColor Green
+    } catch {
+        Write-Host "  Failed to map drive. Please try manual mapping." -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+}
+
+# Step 5: Register firmdocs:// protocol handler
+Write-Host "[5/6] Registering firmdocs:// protocol handler..." -ForegroundColor Cyan
+try {
+    $protocolPath = "HKCU:\\Software\\Classes\\firmdocs"
+    
+    # Create protocol key
+    New-Item -Path $protocolPath -Force | Out-Null
+    Set-ItemProperty -Path $protocolPath -Name "(Default)" -Value "URL:Firm Documents Protocol"
+    Set-ItemProperty -Path $protocolPath -Name "URL Protocol" -Value ""
+    
+    # Create shell/open/command
+    New-Item -Path "$protocolPath\\shell\\open\\command" -Force | Out-Null
+    $commandValue = "explorer.exe \`"${DriveLetter}:\%1\`""
+    Set-ItemProperty -Path "$protocolPath\\shell\\open\\command" -Name "(Default)" -Value $commandValue
+    
+    Write-Host "  Protocol handler registered!" -ForegroundColor Green
+    Write-Host "  You can now click 'Open in Explorer' links in Apex Drive" -ForegroundColor Gray
+} catch {
+    Write-Host "  Warning: Could not register protocol handler" -ForegroundColor Yellow
+    Write-Host "  Open in Explorer links may not work automatically" -ForegroundColor Gray
+}
+
+# Step 6: Open the drive
+Write-Host "[6/6] Opening drive in File Explorer..." -ForegroundColor Cyan
+Start-Sleep -Seconds 1
+try {
+    Start-Process explorer.exe -ArgumentList "${DriveLetter}:\\"
+    Write-Host "  File Explorer opened!" -ForegroundColor Green
+} catch {
+    Write-Host "  Could not open Explorer automatically" -ForegroundColor Yellow
+}
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Green
+Write-Host "  Setup Complete!" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "Your firm's documents are now available at:" -ForegroundColor White
+Write-Host "  $DriveLetter:\\" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "This drive will automatically reconnect when you restart your computer."
+Write-Host ""
+Write-Host "Folder Structure:" -ForegroundColor White
+Write-Host "  $DriveLetter:\\Matters\\       - Client matters" -ForegroundColor Gray
+Write-Host "  $DriveLetter:\\Clients\\       - Client documents" -ForegroundColor Gray
+Write-Host "  $DriveLetter:\\Templates\\     - Document templates" -ForegroundColor Gray
+Write-Host ""
+Write-Host "Files saved here sync automatically with Apex Drive web app."
+Write-Host ""
+Read-Host "Press Enter to close this window"
+`;
+
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFirmName.replace(/ /g, '')}_Setup.ps1"`);
+    res.send(powershellScript);
+
+  } catch (error) {
+    console.error('Generate Windows script error:', error);
+    res.status(500).json({ error: 'Failed to generate setup script' });
+  }
+});
+
+/**
+ * Generate Mac shell setup script
+ * This script:
+ * - Creates mount point in /Volumes
+ * - Mounts the Azure SMB share
+ * - Adds to Login Items for persistence
+ * - Opens the drive in Finder
+ */
+router.get('/setup-script/mac', authenticate, async (req, res) => {
+  try {
+    // Only admins can download setup scripts
+    if (!['admin', 'owner', 'super_admin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Get Azure config
+    const azureConfig = await getAzureConfig();
+    if (!azureConfig) {
+      return res.status(400).json({ error: 'Azure Storage not configured' });
+    }
+
+    const { accountName, accountKey, shareName } = azureConfig;
+    const firmId = req.user.firmId;
+    const firmFolder = `firm-${firmId}`;
+    
+    // Get firm name
+    const firmResult = await query('SELECT name FROM firms WHERE id = $1', [firmId]);
+    const firmName = firmResult.rows[0]?.name || 'Apex Drive';
+    const safeFirmName = firmName.replace(/[^a-zA-Z0-9 ]/g, '').trim();
+    const mountName = safeFirmName.replace(/ /g, '');
+    
+    // URL-encode the storage key for SMB URL
+    const encodedKey = encodeURIComponent(accountKey);
+    
+    // Log the script generation
+    await query(
+      `INSERT INTO audit_logs (firm_id, user_id, action, resource_type, details)
+       VALUES ($1, $2, 'drive_script.generated', 'drive', $3)`,
+      [firmId, req.user.id, JSON.stringify({ 
+        platform: 'mac',
+        generatedAt: new Date().toISOString()
+      })]
+    );
+
+    const shellScript = `#!/bin/bash
+#
+# ${safeFirmName} - Apex Drive Setup Script for Mac
+# Generated for: ${req.user.email}
+# Generated at: ${new Date().toISOString()}
+#
+
+# Configuration
+STORAGE_ACCOUNT="${accountName}"
+SHARE_NAME="${shareName}"
+FIRM_FOLDER="${firmFolder}"
+STORAGE_KEY="${accountKey}"
+MOUNT_NAME="${mountName}"
+MOUNT_POINT="/Volumes/$MOUNT_NAME"
+
+echo ""
+echo "========================================"
+echo "  ${safeFirmName} - Apex Drive Setup"
+echo "========================================"
+echo ""
+
+# Step 1: Check if already mounted
+echo "[1/5] Checking current mount status..."
+if mount | grep -q "$MOUNT_POINT"; then
+    echo "  Drive is already mounted at $MOUNT_POINT"
+    echo "  Opening in Finder..."
+    open "$MOUNT_POINT"
+    echo ""
+    echo "Setup complete! Your drive is ready."
+    exit 0
+fi
+echo "  Drive not currently mounted"
+
+# Step 2: Create mount point
+echo "[2/5] Creating mount point..."
+if [ ! -d "$MOUNT_POINT" ]; then
+    sudo mkdir -p "$MOUNT_POINT"
+    if [ $? -ne 0 ]; then
+        echo "  Error: Could not create mount point. Run this script with sudo."
+        exit 1
+    fi
+fi
+echo "  Mount point ready: $MOUNT_POINT"
+
+# Step 3: Test connectivity
+echo "[3/5] Testing network connectivity..."
+if ! nc -z -w5 $STORAGE_ACCOUNT.file.core.windows.net 445 2>/dev/null; then
+    echo ""
+    echo "  WARNING: Port 445 may be blocked by your network."
+    echo "  The mount might fail. If so, try from a different network."
+    echo ""
+fi
+
+# Step 4: Mount the drive
+echo "[4/5] Mounting Azure File Share..."
+
+# URL-encode the storage key
+ENCODED_KEY=\$(python3 -c "import urllib.parse; print(urllib.parse.quote('$STORAGE_KEY', safe=''))" 2>/dev/null || echo "${encodedKey}")
+
+# Build the SMB URL
+SMB_URL="smb://$STORAGE_ACCOUNT:\${ENCODED_KEY}@$STORAGE_ACCOUNT.file.core.windows.net/$SHARE_NAME/$FIRM_FOLDER"
+
+# Mount with credentials
+mount_smbfs "$SMB_URL" "$MOUNT_POINT" 2>/dev/null
+
+if [ $? -eq 0 ]; then
+    echo "  Successfully mounted!"
+else
+    echo "  Mount failed with credentials in URL, trying interactive..."
+    
+    # Try mounting with interactive authentication
+    echo ""
+    echo "  Please enter credentials when prompted:"
+    echo "    Username: $STORAGE_ACCOUNT"
+    echo "    Password: (the storage account key)"
+    echo ""
+    
+    mount_smbfs "//$STORAGE_ACCOUNT@$STORAGE_ACCOUNT.file.core.windows.net/$SHARE_NAME/$FIRM_FOLDER" "$MOUNT_POINT"
+    
+    if [ $? -ne 0 ]; then
+        echo ""
+        echo "  ERROR: Could not mount the drive."
+        echo ""
+        echo "  This may be due to:"
+        echo "    - Port 445 blocked by firewall/ISP"
+        echo "    - macOS security restrictions"
+        echo ""
+        echo "  You can still access documents at:"
+        echo "    https://your-apex-url/app/documents"
+        echo ""
+        sudo rmdir "$MOUNT_POINT" 2>/dev/null
+        exit 1
+    fi
+fi
+
+# Step 5: Add to Login Items (optional, may require user interaction)
+echo "[5/5] Setting up auto-mount on login..."
+
+# Create a LaunchAgent plist for auto-mount
+PLIST_PATH="$HOME/Library/LaunchAgents/com.apexdrive.mount.plist"
+
+cat > "$PLIST_PATH" << 'PLIST_EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.apexdrive.mount</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>sleep 10 &amp;&amp; mount | grep -q "MOUNT_POINT" || mount_smbfs "SMB_URL" "MOUNT_POINT"</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>
+PLIST_EOF
+
+# Replace placeholders in the plist
+sed -i '' "s|MOUNT_POINT|$MOUNT_POINT|g" "$PLIST_PATH"
+sed -i '' "s|SMB_URL|$SMB_URL|g" "$PLIST_PATH"
+
+# Load the LaunchAgent
+launchctl load "$PLIST_PATH" 2>/dev/null
+
+echo "  Auto-mount configured"
+
+# Open Finder to the mounted drive
+echo ""
+echo "Opening drive in Finder..."
+open "$MOUNT_POINT"
+
+echo ""
+echo "========================================"
+echo "  Setup Complete!"
+echo "========================================"
+echo ""
+echo "Your firm's documents are now available at:"
+echo "  $MOUNT_POINT"
+echo ""
+echo "Or in Finder sidebar under 'Locations'"
+echo ""
+echo "Folder Structure:"
+echo "  $MOUNT_POINT/Matters/       - Client matters"
+echo "  $MOUNT_POINT/Clients/       - Client documents"
+echo "  $MOUNT_POINT/Templates/     - Document templates"
+echo ""
+echo "Files saved here sync automatically with Apex Drive web app."
+echo ""
+echo "The drive will automatically reconnect when you log in."
+echo ""
+`;
+
+    res.setHeader('Content-Type', 'application/x-sh');
+    res.setHeader('Content-Disposition', `attachment; filename="${mountName}_Setup.sh"`);
+    res.send(shellScript);
+
+  } catch (error) {
+    console.error('Generate Mac script error:', error);
+    res.status(500).json({ error: 'Failed to generate setup script' });
+  }
+});
+
+/**
+ * Get the user's configured drive letter preference
+ * Used by documents page to generate correct Open in Explorer links
+ */
+router.get('/user-drive-preference', authenticate, async (req, res) => {
+  try {
+    // Check user settings for drive letter preference
+    const result = await query(
+      `SELECT settings FROM user_settings WHERE user_id = $1`,
+      [req.user.id]
+    );
+    
+    const settings = result.rows[0]?.settings || {};
+    const driveLetter = settings.driveLetter || 'Z';
+    
+    res.json({
+      driveLetter,
+      firmFolder: `firm-${req.user.firmId}`
+    });
+  } catch (error) {
+    console.error('Get drive preference error:', error);
+    res.json({ driveLetter: 'Z', firmFolder: `firm-${req.user.firmId}` });
+  }
+});
+
+/**
+ * Update user's drive letter preference
+ */
+router.put('/user-drive-preference', authenticate, async (req, res) => {
+  try {
+    const { driveLetter } = req.body;
+    
+    if (!driveLetter || !/^[A-Z]$/.test(driveLetter)) {
+      return res.status(400).json({ error: 'Invalid drive letter' });
+    }
+    
+    await query(
+      `INSERT INTO user_settings (user_id, firm_id, settings)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) DO UPDATE 
+       SET settings = user_settings.settings || $3`,
+      [req.user.id, req.user.firmId, JSON.stringify({ driveLetter })]
+    );
+    
+    res.json({ driveLetter });
+  } catch (error) {
+    console.error('Update drive preference error:', error);
+    res.status(500).json({ error: 'Failed to update preference' });
+  }
+});
+
 export default router;
