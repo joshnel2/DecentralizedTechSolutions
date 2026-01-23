@@ -2219,7 +2219,7 @@ router.get('/browse-all', authenticate, async (req, res) => {
 });
 
 /**
- * Manually trigger sync for current firm (waits for completion)
+ * Manually trigger sync for current firm (runs in background)
  */
 router.post('/sync-azure', authenticate, async (req, res) => {
   try {
@@ -2227,24 +2227,26 @@ router.post('/sync-azure', authenticate, async (req, res) => {
     const firmId = req.user.firmId;
     const firmFolder = `firm-${firmId}`;
     
-    console.log(`[MANUAL SYNC] Starting sync for firm ${firmId}, folder: ${firmFolder}`);
+    console.log(`[MANUAL SYNC] Starting background sync for firm ${firmId}, folder: ${firmFolder}`);
     
-    // Run sync synchronously so we can return the result
-    const result = await syncFirm(firmId);
-    
-    console.log(`[MANUAL SYNC] Firm ${firmId} result:`, result);
-    
+    // Return immediately, run sync in background
     res.json({ 
-      success: true, 
+      started: true, 
       firmId,
       firmFolder,
-      result,
-      message: result.error ? `Sync error: ${result.error}` : `Synced ${result.filesFound || 0} files (${result.inserted || 0} new, ${result.updated || 0} updated)`
+      message: 'Sync started in background. Refresh the page in a few minutes to see new files.'
+    });
+    
+    // Run sync in background (don't await)
+    syncFirm(firmId).then(result => {
+      console.log(`[MANUAL SYNC] Firm ${firmId} completed:`, result);
+    }).catch(err => {
+      console.error(`[MANUAL SYNC] Firm ${firmId} error:`, err.message);
     });
     
   } catch (error) {
     console.error('Manual sync error:', error);
-    res.status(500).json({ error: error.message, stack: error.stack });
+    res.status(500).json({ error: error.message });
   }
 });
 

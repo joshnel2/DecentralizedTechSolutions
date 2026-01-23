@@ -142,20 +142,22 @@ export function FolderBrowser({
     }
   }, [buildFolderTree, searchQuery])
   
-  // Sync from Azure (background)
+  // Sync from Azure (runs in background)
   const syncFromAzure = useCallback(async () => {
     setSyncing(true)
     try {
-      await driveApi.syncFromAzure()
-      // Wait a moment then refresh
+      const result = await driveApi.syncFromAzure()
+      console.log('Sync started:', result)
+      alert(result.message || 'Sync started. Refresh the page in a few minutes.')
+      // Refresh after a delay
       setTimeout(() => {
         fetchData()
         setSyncing(false)
-      }, 3000)
+      }, 5000)
     } catch (err: any) {
       console.error('Sync failed:', err)
-      setSyncing(false)
       alert('Sync failed: ' + err.message)
+      setSyncing(false)
     }
   }, [fetchData])
 
