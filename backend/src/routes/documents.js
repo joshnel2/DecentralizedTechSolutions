@@ -350,13 +350,116 @@ router.get('/azure-files', authenticate, async (req, res) => {
 
 router.get('/', authenticate, requirePermission('documents:view'), async (req, res) => {
   try {
-    const { matterId, clientId, search, status, limit = 100, offset = 0, source = 'auto' } = req.query;
+    const { matterId, clientId, search, status, limit = 100, offset = 0, source = 'auto', folder } = req.query;
     const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
     const firmId = req.user.firmId;
     
     console.log(`[DOCS API] User: ${req.user.email}, Role: ${req.user.role}, FirmId: ${firmId}, isAdmin: ${isAdmin}`);
     
-    // Scan Azure directly and apply permissions
+    // For large datasets (after scan), use database as primary source
+    // This is much faster than scanning Azure live
+    const docCountResult = await query('SELECT COUNT(*) FROM documents WHERE firm_id = $1', [firmId]);
+    const totalDocsInDb = parseInt(docCountResult.rows[0].count) || 0;
+    
+    // If we have documents in DB, use DB-first approach (fast)
+    if (totalDocsInDb > 0) {
+      console.log(`[DOCS API] Using database (${totalDocsInDb} docs) for firm ${firmId}`);
+      
+      // Build query based on filters
+      let queryStr = `
+        SELECT d.*, m.name as matter_name, m.number as matter_number
+        FROM documents d
+        LEFT JOIN matters m ON d.matter_id = m.id
+        WHERE d.firm_id = $1
+      `;
+      const params = [firmId];
+      let paramIndex = 2;
+      
+      // Filter by folder path
+      if (folder) {
+        queryStr += ` AND d.folder_path = $${paramIndex}`;
+        params.push(folder);
+        paramIndex++;
+      }
+      
+      // Filter by matter
+      if (matterId) {
+        queryStr += ` AND d.matter_id = $${paramIndex}`;
+        params.push(matterId);
+        paramIndex++;
+      }
+      
+      // Filter by search
+      if (search) {
+        queryStr += ` AND (d.name ILIKE $${paramIndex} OR d.folder_path ILIKE $${paramIndex})`;
+        params.push(`%${search}%`);
+        paramIndex++;
+      }
+      
+      // For non-admins, apply permissions
+      if (!isAdmin) {
+        queryStr += ` AND (
+          d.uploaded_by = $${paramIndex}
+          OR d.owner_id = $${paramIndex}
+          OR d.privacy_level = 'firm'
+          OR (d.matter_id IS NOT NULL AND (
+            EXISTS (SELECT 1 FROM matters m2 WHERE m2.id = d.matter_id AND m2.responsible_attorney = $${paramIndex})
+            OR EXISTS (SELECT 1 FROM matters m2 WHERE m2.id = d.matter_id AND m2.originating_attorney = $${paramIndex})
+            OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = d.matter_id AND ma.user_id = $${paramIndex})
+            OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = d.matter_id AND mp.user_id = $${paramIndex})
+          ))
+        )`;
+        params.push(req.user.id);
+        paramIndex++;
+      }
+      
+      queryStr += ` ORDER BY d.folder_path, d.name LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+      params.push(parseInt(limit), parseInt(offset));
+      
+      const result = await query(queryStr, params);
+      
+      // Get total count (without limit/offset)
+      let countQuery = queryStr.replace(/ORDER BY.*$/, '').replace(/SELECT d\.\*, m\.name as matter_name, m\.number as matter_number/, 'SELECT COUNT(*)');
+      // Remove LIMIT and OFFSET params
+      const countParams = params.slice(0, -2);
+      const countResult = await query(countQuery, countParams);
+      const total = parseInt(countResult.rows[0].count) || result.rows.length;
+      
+      const documents = result.rows.map(d => ({
+        id: d.id,
+        name: d.name,
+        originalName: d.original_name || d.name,
+        type: d.type,
+        size: d.size,
+        path: d.path,
+        folderPath: d.folder_path,
+        matterId: d.matter_id,
+        matterName: d.matter_name,
+        matterNumber: d.matter_number,
+        ownerId: d.owner_id,
+        uploadedBy: d.uploaded_by,
+        uploadedAt: d.uploaded_at,
+        privacyLevel: d.privacy_level,
+        status: d.status,
+        storageLocation: d.storage_location || 'azure',
+        externalPath: d.external_path || d.path,
+        hasDbRecord: true
+      }));
+      
+      console.log(`[DOCS API] Returning ${documents.length} docs from database (total: ${total})`);
+      
+      return res.json({
+        documents,
+        total,
+        source: 'database',
+        pagination: { limit: parseInt(limit), offset: parseInt(offset) }
+      });
+    }
+    
+    // Fallback: Scan Azure directly (only if DB is empty)
+    // This is slower but works before first scan
+    console.log(`[DOCS API] No docs in DB, scanning Azure directly for firm ${firmId}`);
+    
     if (source !== 'db-only') {
       try {
         const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
@@ -388,10 +491,13 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
             });
           }
           
-          // Scan Azure for all files
+          // Scan Azure for files (with limit for live scanning)
+          const MAX_LIVE_SCAN = isAdmin ? 2000 : 500;
           const scanDir = async (dirClient, relativePath = '') => {
+            if (azureFiles.length >= MAX_LIVE_SCAN) return;
             try {
               for await (const item of dirClient.listFilesAndDirectories()) {
+                if (azureFiles.length >= MAX_LIVE_SCAN) return;
                 const itemPath = relativePath ? `${relativePath}/${item.name}` : item.name;
                 if (item.kind === 'directory') {
                   await scanDir(dirClient.getDirectoryClient(item.name), itemPath);
@@ -400,13 +506,6 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
                   if (search && !item.name.toLowerCase().includes(search.toLowerCase())) {
                     continue;
                   }
-                  
-                  let fileSize = 0;
-                  try {
-                    const fileClient = dirClient.getFileClient(item.name);
-                    const props = await fileClient.getProperties();
-                    fileSize = props.contentLength || 0;
-                  } catch (e) { /* ignore */ }
                   
                   const ext = item.name.split('.').pop()?.toLowerCase() || '';
                   const mimeTypes = {
@@ -421,7 +520,7 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
                     name: item.name,
                     originalName: item.name,
                     type: mimeTypes[ext] || 'application/octet-stream',
-                    size: fileSize,
+                    size: 0,
                     path: `${firmFolder}/${itemPath}`,
                     folderPath: relativePath,
                     storageLocation: 'azure',
@@ -430,7 +529,6 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
                     isFromAzure: true
                   });
                 }
-                if (azureFiles.length >= 500) return; // Safety limit
               }
             } catch (e) {
               console.log(`[DOCS] Error scanning ${relativePath}:`, e.message);
@@ -439,56 +537,16 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
           
           await scanDir(shareClient.getDirectoryClient(firmFolder));
           
-          // Get database metadata for these files
-          const dbDocs = await query(`
-            SELECT * FROM documents WHERE firm_id = $1
-          `, [firmId]);
-          
-          const dbDocsByPath = new Map();
-          dbDocs.rows.forEach(d => dbDocsByPath.set(d.path, d));
-          
-          // Merge Azure files with database metadata and apply permissions
-          let documents = azureFiles.map(af => {
-            const dbDoc = dbDocsByPath.get(af.path);
-            if (dbDoc) {
-              return {
-                ...af,
-                id: dbDoc.id,
-                matterId: dbDoc.matter_id,
-                matterIdUuid: dbDoc.matter_id,
-                ownerId: dbDoc.owner_id,
-                uploadedBy: dbDoc.uploaded_by,
-                uploadedAt: dbDoc.uploaded_at || af.uploadedAt,
-                privacyLevel: dbDoc.privacy_level,
-                isFromAzure: true,
-                hasDbRecord: true
-              };
-            }
-            return af;
-          });
+          let documents = azureFiles;
           
           // For non-admins, filter by permissions
           if (!isAdmin) {
             documents = documents.filter(doc => {
-              // If has DB record, check permissions
-              if (doc.hasDbRecord) {
-                // User uploaded it
-                if (doc.uploadedBy === req.user.id) return true;
-                // User owns it
-                if (doc.ownerId === req.user.id) return true;
-                // Firm-wide document
-                if (doc.privacyLevel === 'firm') return true;
-                // In accessible matter
-                if (doc.matterId && accessibleMatterIds.has(doc.matterId)) return true;
-              }
-              
               // Check if folder path matches an accessible matter name
               const folderParts = (doc.folderPath || '').toLowerCase().split('/');
               for (const part of folderParts) {
                 if (accessibleMatterNames.has(part)) return true;
               }
-              
-              // No DB record and not in accessible folder - hide from non-admins
               return false;
             });
           }
@@ -498,8 +556,9 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
           return res.json({
             documents: documents.slice(parseInt(offset), parseInt(offset) + parseInt(limit)),
             total: documents.length,
-            isAdmin,
-            source: 'azure'
+            source: 'azure-live',
+            needsScan: true,
+            message: 'Run Scan Documents to import files into database for faster access'
           });
         }
       } catch (azureErr) {
