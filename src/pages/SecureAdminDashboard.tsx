@@ -881,7 +881,14 @@ export default function SecureAdminDashboard() {
       console.log('[SCAN] Initial response:', data)
       
       if (data.status === 'already_running') {
-        showNotification('success', 'A scan is already running for this firm')
+        showNotification('success', 'A scan is already running. Click Reset if stuck.')
+        // Show reset option
+        setScanResult({
+          firmId,
+          message: 'A scan is already running. If stuck, click Reset Scan below.',
+          success: false
+        })
+        setScanningFirmId(null)
       } else if (data.status === 'started') {
         showNotification('success', 'Scan started - this may take a while for large datasets...')
         
@@ -964,6 +971,24 @@ export default function SecureAdminDashboard() {
   }
 
   // Rescan unmatched documents (for when matters/users are added later)
+  // Reset stuck scan
+  const handleResetScan = async (firmId: string) => {
+    try {
+      const res = await fetch(`${API_URL}/secure-admin/firms/${firmId}/scan-reset`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      })
+      const data = await res.json()
+      if (data.success) {
+        setScanResult(null)
+        setScanningFirmId(null)
+        showNotification('success', 'Scan reset. You can start a new scan.')
+      }
+    } catch (error: any) {
+      showNotification('error', 'Failed to reset scan')
+    }
+  }
+
   const handleRescanUnmatched = async (firmId: string) => {
     setScanningFirmId(firmId)
     setScanResult(null)
@@ -5332,6 +5357,26 @@ bob@example.com, Bob, Wilson, partner"
                     >
                       <RefreshCw size={22} />
                       Rescan Unmatched
+                    </button>
+                    <button
+                      onClick={() => handleResetScan(selectedFirmDetail.id)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '12px 20px',
+                        background: 'rgba(239, 68, 68, 0.2)',
+                        color: 'white',
+                        border: '2px solid #EF4444',
+                        borderRadius: '14px',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                        fontSize: '14px'
+                      }}
+                      title="Clear stuck scan job"
+                    >
+                      <X size={18} />
+                      Reset Scan
                     </button>
                   </div>
                 </div>
