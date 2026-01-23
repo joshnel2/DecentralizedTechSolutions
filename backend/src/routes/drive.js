@@ -2158,7 +2158,7 @@ router.get('/browse-all', authenticate, async (req, res) => {
     // Get files from database (instant)
     let sql = `
       SELECT id, name, original_name, type, size, folder_path, 
-             COALESCE(external_path, path) as azure_path, storage_location
+             COALESCE(external_path, path) as azure_path
       FROM documents 
       WHERE firm_id = $1
     `;
@@ -2193,8 +2193,8 @@ router.get('/browse-all', authenticate, async (req, res) => {
         folderPath: row.folder_path || '',
         path: row.azure_path,
         azurePath: row.azure_path,
-        storageLocation: row.storage_location || 'azure',
-        isFromAzure: row.storage_location === 'azure'
+        storageLocation: 'azure',
+        isFromAzure: true
       };
     });
     

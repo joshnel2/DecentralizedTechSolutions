@@ -78,11 +78,20 @@ async function syncFirmFiles(firmId, shareClient) {
     return { firmId, filesFound: 0, synced: 0 };
   }
   
-  // Get existing files for this firm
-  const existingResult = await query(
-    `SELECT id, external_path FROM documents WHERE firm_id = $1 AND storage_location = 'azure'`,
-    [firmId]
-  );
+  // Get existing files for this firm (handle case where storage_location column might not exist yet)
+  let existingResult;
+  try {
+    existingResult = await query(
+      `SELECT id, external_path FROM documents WHERE firm_id = $1 AND storage_location = 'azure'`,
+      [firmId]
+    );
+  } catch (err) {
+    // Fallback if storage_location column doesn't exist
+    existingResult = await query(
+      `SELECT id, external_path FROM documents WHERE firm_id = $1 AND external_path IS NOT NULL`,
+      [firmId]
+    );
+  }
   const existingPaths = new Map(existingResult.rows.map(r => [r.external_path, r.id]));
   
   let inserted = 0;
@@ -108,11 +117,21 @@ async function syncFirmFiles(firmId, shareClient) {
         );
         const uploadedBy = adminResult.rows[0]?.id || null;
         
-        await query(
-          `INSERT INTO documents (firm_id, name, original_name, type, size, folder_path, external_path, storage_location, uploaded_by)
-           VALUES ($1, $2, $2, $3, $4, $5, $6, 'azure', $7)`,
-          [firmId, file.name, file.type, file.size, file.folderPath, file.azurePath, uploadedBy]
-        );
+        // Try with storage_location, fallback without it
+        try {
+          await query(
+            `INSERT INTO documents (firm_id, name, original_name, type, size, folder_path, external_path, storage_location, uploaded_by, path)
+             VALUES ($1, $2, $2, $3, $4, $5, $6, 'azure', $7, $6)`,
+            [firmId, file.name, file.type, file.size, file.folderPath, file.azurePath, uploadedBy]
+          );
+        } catch (insertErr) {
+          // Fallback without storage_location
+          await query(
+            `INSERT INTO documents (firm_id, name, original_name, type, size, folder_path, external_path, uploaded_by, path)
+             VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $6)`,
+            [firmId, file.name, file.type, file.size, file.folderPath, file.azurePath, uploadedBy]
+          );
+        }
         inserted++;
       }
     } catch (err) {
