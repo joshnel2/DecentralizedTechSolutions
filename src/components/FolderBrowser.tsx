@@ -79,10 +79,9 @@ export function FolderBrowser({
   const [currentPath, setCurrentPath] = useState('')
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [folderTree, setFolderTree] = useState<Map<string, FolderItem[]>>(new Map())
-  // Browse mode: 'folder' (navigate folders) or 'all' (show all files)
-  const [browseMode, setBrowseMode] = useState<'folder' | 'all'>('all') // Default to all for better discovery
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [syncing, setSyncing] = useState(false)
 
   // Build folder tree from flat folder list
   const buildFolderTree = useCallback((folders: string[]) => {
@@ -122,77 +121,56 @@ export function FolderBrowser({
     return tree
   }, [])
 
-  // Fetch folder contents
-  const fetchData = useCallback(async (path?: string, mode?: 'folder' | 'all', forceRefresh?: boolean) => {
+  // Fetch files from database (instant)
+  const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
     
     try {
-      const effectiveMode = mode || browseMode
-      let result
-      
-      if (effectiveMode === 'all') {
-        // Get all files from Azure (uses cache unless refresh requested)
-        console.log('[FolderBrowser] Fetching files from Azure...', forceRefresh ? '(refresh)' : '(cached)')
-        result = await driveApi.browseAllFiles(searchQuery || undefined, forceRefresh)
-        console.log('[FolderBrowser] Result:', result?.stats)
-      } else {
-        // Browse specific folder
-        result = await driveApi.browseDrive(path || '')
-      }
-      
-      // Handle error response
-      if (result.error && !result.files) {
-        setError(result.error)
-        setBrowseData(null)
-        return
-      }
-      
-      // Handle not configured
-      if (result.configured === false) {
-        setError(result.message || 'Azure Storage is not configured')
-        setBrowseData(null)
-        return
-      }
-      
+      const result = await driveApi.browseAllFiles(searchQuery || undefined)
       setBrowseData(result)
       
-      // Build folder tree
       if (result.folders) {
         const tree = buildFolderTree(result.folders)
         setFolderTree(tree)
       }
     } catch (err: any) {
-      console.error('Failed to browse drive:', err)
-      setError(err.message || 'Failed to load documents from Azure')
+      console.error('Failed to load files:', err)
+      setError(err.message || 'Failed to load documents')
     } finally {
       setLoading(false)
     }
-  }, [buildFolderTree, browseMode, searchQuery])
+  }, [buildFolderTree, searchQuery])
   
-  // Force refresh from Azure
-  const refreshFromAzure = useCallback(() => {
-    fetchData(currentPath, browseMode, true)
-  }, [fetchData, currentPath, browseMode])
-
-  // Fetch on mount and when mode/path changes
-  useEffect(() => {
-    if (browseMode === 'all') {
-      fetchData('', 'all')
-    } else {
-      fetchData(currentPath, 'folder')
+  // Sync from Azure (background)
+  const syncFromAzure = useCallback(async () => {
+    setSyncing(true)
+    try {
+      await driveApi.syncFromAzure()
+      // Wait a moment then refresh
+      setTimeout(() => {
+        fetchData()
+        setSyncing(false)
+      }, 3000)
+    } catch (err: any) {
+      console.error('Sync failed:', err)
+      setSyncing(false)
+      alert('Sync failed: ' + err.message)
     }
-  }, [currentPath, browseMode])
+  }, [fetchData])
+
+  // Fetch on mount
+  useEffect(() => {
+    fetchData()
+  }, [])
   
   // Debounced search
   useEffect(() => {
-    if (browseMode === 'all') {
-      const timer = setTimeout(() => {
-        fetchData('', 'all')
-      }, 300)
-      return () => clearTimeout(timer)
-    }
-  }, [searchQuery, browseMode])
+    const timer = setTimeout(() => {
+      fetchData()
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
   
   // Download file (handles both database and Azure files)
   const downloadFile = async (doc: DocumentItem, e?: React.MouseEvent) => {
@@ -338,17 +316,10 @@ export function FolderBrowser({
     })
   }
 
-  // Filter documents by current path (only in folder mode)
+  // Filter documents by current path
   const currentDocuments = browseData?.files?.filter(f => {
-    // In 'all' mode, show all files (optionally filtered by selected folder)
-    if (browseMode === 'all') {
-      if (!currentPath) return true // Show all when at root
-      // Show files in the selected folder and its subfolders
-      return f.folderPath === currentPath || f.folderPath?.startsWith(currentPath + '/')
-    }
-    // In folder mode, show only files at current level
-    if (!currentPath) return !f.folderPath || f.folderPath === '/' || f.folderPath === ''
-    return f.folderPath === currentPath
+    if (!currentPath) return true
+    return f.folderPath === currentPath || f.folderPath?.startsWith(currentPath + '/')
   }) || []
 
   // Get breadcrumb path parts
@@ -359,10 +330,7 @@ export function FolderBrowser({
       <div className={`${styles.container} ${className || ''}`}>
         <div className={styles.loading}>
           <Loader2 size={32} className={styles.spinner} />
-          <p>{browseMode === 'all' ? 'Loading all documents from Azure...' : 'Loading documents...'}</p>
-          {browseMode === 'all' && (
-            <p className={styles.loadingHint}>This may take a moment for large document libraries</p>
-          )}
+          <p>Loading documents...</p>
         </div>
       </div>
     )
@@ -392,27 +360,17 @@ export function FolderBrowser({
             {browseData?.isAdmin && <span className={styles.adminBadge}>Admin View</span>}
           </h2>
           <div className={styles.headerActions}>
-            {/* Browse mode toggle */}
-            <div className={styles.modeToggle}>
-              <button 
-                className={`${styles.modeBtn} ${browseMode === 'all' ? styles.active : ''}`}
-                onClick={() => { setBrowseMode('all'); setCurrentPath(''); }}
-                title="Show all documents"
-              >
-                <List size={16} />
-                All Files
-              </button>
-              <button 
-                className={`${styles.modeBtn} ${browseMode === 'folder' ? styles.active : ''}`}
-                onClick={() => setBrowseMode('folder')}
-                title="Browse by folder"
-              >
-                <FolderTree size={16} />
-                Folders
-              </button>
-            </div>
-            <button onClick={refreshFromAzure} className={styles.refreshBtn} title="Refresh from Azure">
+            <button onClick={fetchData} className={styles.refreshBtn} title="Refresh">
               <RefreshCw size={16} />
+            </button>
+            <button 
+              onClick={syncFromAzure} 
+              className={styles.syncBtn} 
+              disabled={syncing}
+              title="Sync from Azure"
+            >
+              {syncing ? <Loader2 size={16} className={styles.spinner} /> : <Download size={16} />}
+              {syncing ? 'Syncing...' : 'Sync from Azure'}
             </button>
           </div>
         </div>
@@ -469,53 +427,28 @@ export function FolderBrowser({
 
         {/* Document List */}
         <div className={styles.main}>
-          {/* Breadcrumb */}
+          {/* Breadcrumb / Actions */}
           <div className={styles.breadcrumb}>
-            {/* Mode toggle when header is hidden */}
-            {!showHeader && (
-              <div className={styles.inlineModeToggle}>
-                <button 
-                  className={`${styles.inlineModeBtn} ${browseMode === 'all' ? styles.active : ''}`}
-                  onClick={() => { setBrowseMode('all'); setCurrentPath(''); }}
-                  title="Show all documents"
-                >
-                  <List size={14} />
-                  All Files
-                </button>
-                <button 
-                  className={`${styles.inlineModeBtn} ${browseMode === 'folder' ? styles.active : ''}`}
-                  onClick={() => setBrowseMode('folder')}
-                  title="Browse by folder"
-                >
-                  <FolderTree size={14} />
-                  Folders
-                </button>
-                <span className={styles.breadcrumbDivider} />
-              </div>
-            )}
-            <button onClick={() => navigateToFolder('')} className={styles.breadcrumbItem}>
+            <button onClick={() => setCurrentPath('')} className={styles.breadcrumbItem}>
               <Home size={14} />
-              <span>Home</span>
+              <span>All Documents</span>
             </button>
-            {pathParts.map((part, i) => {
-              const path = pathParts.slice(0, i + 1).join('/')
-              return (
-                <span key={path}>
-                  <ChevronRight size={14} className={styles.breadcrumbSep} />
-                  <button onClick={() => navigateToFolder(path)} className={styles.breadcrumbItem}>
-                    {part}
-                  </button>
-                </span>
-              )
-            })}
-            {/* Refresh button when header is hidden */}
+            {currentPath && (
+              <>
+                <ChevronRight size={14} className={styles.breadcrumbSep} />
+                <span className={styles.breadcrumbItem}>{currentPath}</span>
+              </>
+            )}
+            {/* Sync button when header is hidden */}
             {!showHeader && (
               <button 
-                onClick={refreshFromAzure} 
-                className={styles.inlineRefreshBtn} 
-                title="Refresh from Azure"
+                onClick={syncFromAzure} 
+                className={styles.inlineSyncBtn} 
+                disabled={syncing}
+                title="Sync from Azure"
               >
-                <RefreshCw size={14} />
+                {syncing ? <Loader2 size={14} className={styles.spinner} /> : <Download size={14} />}
+                {syncing ? 'Syncing...' : 'Sync from Azure'}
               </button>
             )}
           </div>
@@ -558,22 +491,10 @@ export function FolderBrowser({
                     <td colSpan={4} className={styles.emptyRow}>
                       <div className={styles.emptyState}>
                         <FolderOpen size={32} />
-                        <p>
-                          {browseMode === 'all' 
-                            ? (browseData?.message || 'No documents found in Azure storage') 
-                            : 'No documents in this folder'
-                          }
+                        <p>{browseData?.message || 'No documents found'}</p>
+                        <p className={styles.emptyHint}>
+                          Click "Sync from Azure" to load documents from Azure storage
                         </p>
-                        {browseMode === 'all' && !browseData?.message && (
-                          <p className={styles.emptyHint}>
-                            Make sure Azure Storage is configured and files are uploaded
-                          </p>
-                        )}
-                        {browseMode === 'folder' && (
-                          <p className={styles.emptyHint}>
-                            Navigate into subfolders or switch to "All Files" mode
-                          </p>
-                        )}
                       </div>
                     </td>
                   </tr>

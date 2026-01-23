@@ -1724,17 +1724,16 @@ export const driveApi = {
     return fetchWithAuth(`/drive/browse${params}`);
   },
 
-  // Admin: Browse all files recursively (with caching)
-  async browseAllFiles(search?: string, refresh?: boolean) {
+  // Admin: Browse all files (from database - instant)
+  async browseAllFiles(search?: string) {
     const params = new URLSearchParams();
     if (search) params.set('search', search);
-    if (refresh) params.set('refresh', 'true');
     return fetchWithAuth(`/drive/browse-all?${params}`);
   },
   
-  // Clear the drive cache
-  async clearDriveCache() {
-    return fetchWithAuth('/drive/clear-cache', { method: 'POST' });
+  // Sync files from Azure to database
+  async syncFromAzure() {
+    return fetchWithAuth('/drive/sync-azure', { method: 'POST' });
   },
 
   // Download a file from Azure by path (for files without database records)

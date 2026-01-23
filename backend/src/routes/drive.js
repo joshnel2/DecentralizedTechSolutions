@@ -2145,190 +2145,135 @@ router.get('/download-azure', authenticate, async (req, res) => {
   }
 });
 
-// In-memory cache for fast loading
-const driveCache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
 /**
- * APEX DRIVE - Browse firm's Azure files with caching
- * Scans firm folder and caches results for fast subsequent loads
+ * APEX DRIVE - Get files from database (instant load)
  */
 router.get('/browse-all', authenticate, async (req, res) => {
   try {
-    const { search, refresh } = req.query;
-    const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
+    const { search } = req.query;
     const firmId = req.user.firmId;
-    
-    // Only admins can browse all files
-    if (!isAdmin) {
-      return res.status(403).json({ error: 'Admin access required to browse all files' });
-    }
-    
-    const { isAzureConfigured, getShareClient, getAzureConfig } = await import('../utils/azureStorage.js');
-    
-    const azureConfigured = await isAzureConfigured();
-    if (!azureConfigured) {
-      return res.json({ 
-        configured: false, 
-        files: [],
-        folders: [],
-        message: 'Azure Storage is not configured. Go to Settings > Platform to configure Azure.' 
-      });
-    }
-    
     const firmFolder = `firm-${firmId}`;
-    const cacheKey = `drive-${firmId}`;
     
-    // Check cache first (unless refresh requested)
-    if (!refresh && !search && driveCache.has(cacheKey)) {
-      const cached = driveCache.get(cacheKey);
-      if (Date.now() - cached.timestamp < CACHE_TTL) {
-        console.log(`[APEX DRIVE] Serving ${cached.data.files.length} files from cache`);
-        return res.json({
-          ...cached.data,
-          source: 'cache',
-          cachedAt: new Date(cached.timestamp).toISOString()
-        });
-      }
+    // Get files from database (instant)
+    let sql = `
+      SELECT id, name, original_name, type, size, folder_path, 
+             COALESCE(external_path, path) as azure_path, storage_location
+      FROM documents 
+      WHERE firm_id = $1
+    `;
+    const params = [firmId];
+    
+    if (search) {
+      sql += ` AND (name ILIKE $2 OR folder_path ILIKE $2)`;
+      params.push(`%${search}%`);
     }
     
-    const config = await getAzureConfig();
-    const files = [];
+    sql += ` ORDER BY folder_path, name LIMIT 5000`;
+    
+    const result = await query(sql, params);
+    
+    // Build response
     const folderSet = new Set();
+    const files = result.rows.map(row => {
+      if (row.folder_path) folderSet.add(row.folder_path);
+      return {
+        id: row.id,
+        name: row.name,
+        originalName: row.original_name || row.name,
+        contentType: row.type,
+        size: row.size || 0,
+        folderPath: row.folder_path || '',
+        path: row.azure_path,
+        azurePath: row.azure_path,
+        storageLocation: row.storage_location || 'azure',
+        isFromAzure: true
+      };
+    });
     
-    console.log(`[APEX DRIVE] Scanning firm folder: ${firmFolder}`);
+    return res.json({
+      configured: true,
+      isAdmin: true,
+      firmFolder,
+      files,
+      folders: Array.from(folderSet).sort(),
+      stats: { totalFiles: files.length, totalFolders: folderSet.size },
+      source: 'database'
+    });
     
+  } catch (error) {
+    console.error('Browse error:', error);
+    res.status(500).json({ error: 'Failed to load files', files: [], folders: [] });
+  }
+});
+
+/**
+ * Sync files from Azure - runs in background, returns immediately
+ */
+router.post('/sync-azure', authenticate, async (req, res) => {
+  const firmId = req.user.firmId;
+  const firmFolder = `firm-${firmId}`;
+  const userId = req.user.id;
+  
+  // Return immediately, sync in background
+  res.json({ started: true, message: 'Sync started. Refresh the page in a few moments.' });
+  
+  // Background sync
+  (async () => {
     try {
-      const shareClient = await getShareClient();
+      const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
+      if (!(await isAzureConfigured())) return;
       
-      // MIME type mapping
+      const shareClient = await getShareClient();
+      const files = [];
       const mimeTypes = {
         'pdf': 'application/pdf', 'doc': 'application/msword',
         'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'ppt': 'application/vnd.ms-powerpoint', 'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        'txt': 'text/plain', 'rtf': 'application/rtf', 'csv': 'text/csv',
-        'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif', 'webp': 'image/webp',
-        'msg': 'application/vnd.ms-outlook', 'eml': 'message/rfc822',
-        'zip': 'application/zip', 'html': 'text/html', 'htm': 'text/html',
-        'tiff': 'image/tiff', 'tif': 'image/tiff', 'bmp': 'image/bmp'
+        'txt': 'text/plain', 'jpg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif'
       };
       
-      // Fast recursive scan - skip fetching individual file properties for speed
-      async function scanDirectory(dirPath, relativePath = '') {
+      async function scan(dirPath, relPath = '') {
         try {
-          const dirClient = shareClient.getDirectoryClient(dirPath);
-          
-          for await (const item of dirClient.listFilesAndDirectories()) {
-            const itemFullPath = dirPath ? `${dirPath}/${item.name}` : item.name;
-            const itemRelativePath = relativePath ? `${relativePath}/${item.name}` : item.name;
-            
+          const dir = shareClient.getDirectoryClient(dirPath);
+          for await (const item of dir.listFilesAndDirectories()) {
+            const fullPath = dirPath ? `${dirPath}/${item.name}` : item.name;
+            const rel = relPath ? `${relPath}/${item.name}` : item.name;
             if (item.kind === 'directory') {
-              folderSet.add(itemRelativePath);
-              await scanDirectory(itemFullPath, itemRelativePath);
+              await scan(fullPath, rel);
             } else {
-              const fileName = item.name;
-              const ext = fileName.split('.').pop()?.toLowerCase() || '';
-              
-              // Extract folder from relative path
-              const lastSlash = itemRelativePath.lastIndexOf('/');
-              const folderPath = lastSlash > 0 ? itemRelativePath.substring(0, lastSlash) : '';
-              
+              const ext = item.name.split('.').pop()?.toLowerCase() || '';
+              const lastSlash = rel.lastIndexOf('/');
               files.push({
-                id: `azure-${Buffer.from(itemFullPath).toString('base64url').substring(0, 40)}`,
-                name: fileName,
-                originalName: fileName,
-                contentType: mimeTypes[ext] || 'application/octet-stream',
+                name: item.name,
+                type: mimeTypes[ext] || 'application/octet-stream',
                 size: item.properties?.contentLength || 0,
-                folderPath: folderPath,
-                path: itemFullPath,
-                azurePath: itemFullPath,
-                storageLocation: 'azure',
-                isFromAzure: true
+                folderPath: lastSlash > 0 ? rel.substring(0, lastSlash) : '',
+                path: fullPath
               });
             }
           }
-        } catch (err) {
-          if (!err.message.includes('ResourceNotFound')) {
-            console.log(`[APEX DRIVE] Could not scan "${dirPath}": ${err.message}`);
-          }
-        }
+        } catch (e) { /* skip errors */ }
       }
       
-      // Scan the firm's folder
-      await scanDirectory(firmFolder, '');
+      console.log(`[SYNC] Scanning ${firmFolder}...`);
+      await scan(firmFolder, '');
+      console.log(`[SYNC] Found ${files.length} files`);
       
-      // Build folder tree with parents
-      for (const folder of Array.from(folderSet)) {
-        const parts = folder.split('/');
-        for (let i = 1; i < parts.length; i++) {
-          folderSet.add(parts.slice(0, i).join('/'));
-        }
+      // Batch insert
+      for (const f of files) {
+        await query(
+          `INSERT INTO documents (firm_id, name, original_name, type, size, folder_path, external_path, storage_location, uploaded_by)
+           VALUES ($1, $2, $2, $3, $4, $5, $6, 'azure', $7)
+           ON CONFLICT (firm_id, external_path) DO UPDATE SET size = $4, folder_path = $5, updated_at = NOW()`,
+          [firmId, f.name, f.type, f.size, f.folderPath, f.path, userId]
+        ).catch(() => {});
       }
       
-      const folders = Array.from(folderSet).sort();
-      
-      console.log(`[APEX DRIVE] Found ${files.length} files in ${folders.length} folders`);
-      
-      // Apply search filter if provided
-      let filteredFiles = files;
-      if (search) {
-        const searchLower = search.toLowerCase();
-        filteredFiles = files.filter(f => 
-          f.name.toLowerCase().includes(searchLower) ||
-          f.folderPath.toLowerCase().includes(searchLower)
-        );
-      }
-      
-      const responseData = {
-        configured: true,
-        isAdmin: true,
-        firmFolder,
-        files: filteredFiles,
-        folders,
-        stats: {
-          totalFiles: files.length,
-          totalSize: files.reduce((sum, f) => sum + (f.size || 0), 0),
-          totalFolders: folders.length
-        },
-        source: 'azure-scan',
-        shareName: config.shareName,
-        message: files.length === 0 ? `No files found in ${firmFolder}. Upload files to see them here.` : undefined
-      };
-      
-      // Cache the results (full list, not filtered)
-      driveCache.set(cacheKey, {
-        timestamp: Date.now(),
-        data: { ...responseData, files, source: 'azure-scan' }
-      });
-      
-      return res.json(responseData);
-      
-    } catch (scanError) {
-      console.error('[APEX DRIVE] Scan error:', scanError);
-      return res.json({ 
-        configured: true,
-        firmFolder,
-        error: 'Failed to scan Azure: ' + scanError.message,
-        files: [],
-        folders: [],
-        stats: { totalFiles: 0, totalSize: 0, totalFolders: 0 }
-      });
+      console.log(`[SYNC] Complete! Synced ${files.length} files`);
+    } catch (e) {
+      console.error('[SYNC] Error:', e.message);
     }
-    
-  } catch (error) {
-    console.error('Browse all error:', error);
-    res.status(500).json({ error: 'Failed to browse files: ' + error.message });
-  }
-});
-
-// Clear cache endpoint (for manual refresh)
-router.post('/clear-cache', authenticate, async (req, res) => {
-  if (!FULL_ACCESS_ROLES.includes(req.user.role)) {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-  driveCache.delete(`drive-${req.user.firmId}`);
-  res.json({ message: 'Cache cleared' });
+  })();
 });
 
 export default router;

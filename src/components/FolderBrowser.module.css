@@ -96,6 +96,56 @@
   border-color: #3B82F6;
 }
 
+.syncBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  background: #3B82F6;
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.syncBtn:hover {
+  background: #2563EB;
+}
+
+.syncBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.inlineSyncBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  margin-left: auto;
+  border: 1px solid #3B82F6;
+  border-radius: 6px;
+  background: white;
+  color: #3B82F6;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.inlineSyncBtn:hover {
+  background: #3B82F6;
+  color: white;
+}
+
+.inlineSyncBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
 .content {
   display: flex;
   flex: 1;
