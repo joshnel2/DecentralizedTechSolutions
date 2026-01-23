@@ -2219,25 +2219,85 @@ router.get('/browse-all', authenticate, async (req, res) => {
 });
 
 /**
- * Manually trigger sync for current firm
+ * Manually trigger sync for current firm (waits for completion)
  */
 router.post('/sync-azure', authenticate, async (req, res) => {
   try {
     const { syncFirm } = await import('../services/driveSync.js');
+    const firmId = req.user.firmId;
+    const firmFolder = `firm-${firmId}`;
     
-    // Run sync in background
-    res.json({ started: true, message: 'Sync started. Files will appear shortly.' });
+    console.log(`[MANUAL SYNC] Starting sync for firm ${firmId}, folder: ${firmFolder}`);
     
-    // Sync this firm
-    syncFirm(req.user.firmId).then(result => {
-      console.log(`[MANUAL SYNC] Firm ${req.user.firmId}:`, result);
-    }).catch(err => {
-      console.error(`[MANUAL SYNC] Error:`, err.message);
+    // Run sync synchronously so we can return the result
+    const result = await syncFirm(firmId);
+    
+    console.log(`[MANUAL SYNC] Firm ${firmId} result:`, result);
+    
+    res.json({ 
+      success: true, 
+      firmId,
+      firmFolder,
+      result,
+      message: result.error ? `Sync error: ${result.error}` : `Synced ${result.filesFound || 0} files (${result.inserted || 0} new, ${result.updated || 0} updated)`
     });
     
   } catch (error) {
     console.error('Manual sync error:', error);
-    res.status(500).json({ error: 'Failed to start sync' });
+    res.status(500).json({ error: error.message, stack: error.stack });
+  }
+});
+
+/**
+ * Debug endpoint to test Azure connection
+ */
+router.get('/debug-azure', authenticate, async (req, res) => {
+  try {
+    const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
+    
+    const configured = await isAzureConfigured();
+    if (!configured) {
+      return res.json({ configured: false, error: 'Azure not configured' });
+    }
+    
+    const shareClient = await getShareClient();
+    const firmId = req.user.firmId;
+    const firmFolder = `firm-${firmId}`;
+    
+    // Try to list root directory
+    const rootFiles = [];
+    try {
+      const rootDir = shareClient.getDirectoryClient('');
+      for await (const item of rootDir.listFilesAndDirectories()) {
+        rootFiles.push({ name: item.name, kind: item.kind });
+        if (rootFiles.length >= 20) break;
+      }
+    } catch (err) {
+      rootFiles.push({ error: err.message });
+    }
+    
+    // Try to list firm folder
+    const firmFiles = [];
+    try {
+      const firmDir = shareClient.getDirectoryClient(firmFolder);
+      for await (const item of firmDir.listFilesAndDirectories()) {
+        firmFiles.push({ name: item.name, kind: item.kind });
+        if (firmFiles.length >= 20) break;
+      }
+    } catch (err) {
+      firmFiles.push({ error: err.message });
+    }
+    
+    res.json({
+      configured: true,
+      firmId,
+      firmFolder,
+      rootFolders: rootFiles,
+      firmFolderContents: firmFiles
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
