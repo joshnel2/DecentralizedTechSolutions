@@ -1155,8 +1155,23 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
 });
 
 // Extract text content from document (for AI analysis)
+// Clio-style permission checking: Users can only read content of documents they have access to
 router.get('/:id/content', authenticate, requirePermission('documents:view'), async (req, res) => {
   try {
+    // First check if user has access to this document
+    const access = await canAccessDocument(
+      req.user.id,
+      req.user.role,
+      req.params.id,
+      req.user.firmId,
+      'view'
+    );
+
+    if (!access.hasAccess) {
+      // Return 404 to avoid leaking document existence
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
     const result = await query(
       'SELECT * FROM documents WHERE id = $1 AND firm_id = $2',
       [req.params.id, req.user.firmId]
@@ -1403,8 +1418,23 @@ router.post('/extract-all', authenticate, requirePermission('documents:edit'), a
 });
 
 // Download document - with Azure fallback if local file is missing
+// Clio-style permission checking: Users can only download documents they have access to
 router.get('/:id/download', authenticate, requirePermission('documents:view'), async (req, res) => {
   try {
+    // First check if user has access to this document
+    const access = await canAccessDocument(
+      req.user.id,
+      req.user.role,
+      req.params.id,
+      req.user.firmId,
+      'download'
+    );
+
+    if (!access.hasAccess) {
+      // Return 404 to avoid leaking document existence
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
     const result = await query(
       'SELECT * FROM documents WHERE id = $1 AND firm_id = $2',
       [req.params.id, req.user.firmId]

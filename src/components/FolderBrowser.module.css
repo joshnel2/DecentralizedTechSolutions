@@ -37,6 +37,16 @@
   margin-left: 8px;
 }
 
+.userBadge {
+  font-size: 11px;
+  padding: 4px 10px;
+  background: linear-gradient(135deg, #3B82F6 0%, #0EA5E9 100%);
+  color: white;
+  border-radius: 100px;
+  font-weight: 500;
+  margin-left: 8px;
+}
+
 .headerActions {
   display: flex;
   gap: 12px;

@@ -56,6 +56,7 @@ interface BrowseResult {
   message?: string
   error?: string
   source?: string
+  userScoped?: boolean  // True if results are filtered by user permissions
 }
 
 interface FolderBrowserProps {
@@ -358,22 +359,25 @@ export function FolderBrowser({
         <div className={styles.header}>
           <h2>
             <FolderOpen size={24} />
-            Documents
+            {browseData?.isAdmin ? 'Firm Documents' : 'My Documents'}
             {browseData?.isAdmin && <span className={styles.adminBadge}>Admin View</span>}
+            {browseData?.userScoped && <span className={styles.userBadge}>Your Access</span>}
           </h2>
           <div className={styles.headerActions}>
             <button onClick={fetchData} className={styles.refreshBtn} title="Refresh">
               <RefreshCw size={16} />
             </button>
-            <button 
-              onClick={syncFromAzure} 
-              className={styles.syncBtn} 
-              disabled={syncing}
-              title="Sync from Azure"
-            >
-              {syncing ? <Loader2 size={16} className={styles.spinner} /> : <Download size={16} />}
-              {syncing ? 'Syncing...' : 'Sync from Azure'}
-            </button>
+            {browseData?.isAdmin && (
+              <button 
+                onClick={syncFromAzure} 
+                className={styles.syncBtn} 
+                disabled={syncing}
+                title="Sync from Azure"
+              >
+                {syncing ? <Loader2 size={16} className={styles.spinner} /> : <Download size={16} />}
+                {syncing ? 'Syncing...' : 'Sync from Azure'}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -382,7 +386,7 @@ export function FolderBrowser({
         {/* Folder Tree Sidebar */}
         <div className={styles.sidebar}>
           <div className={styles.sidebarHeader}>
-            <span>Folders</span>
+            <span>{browseData?.isAdmin ? 'Folders' : 'Your Folders'}</span>
             {browseData?.stats && (
               <span className={styles.statsCount}>{browseData.stats.totalFiles} files</span>
             )}
@@ -394,7 +398,7 @@ export function FolderBrowser({
               onClick={() => navigateToFolder('')}
             >
               <Home size={16} className={styles.folderIcon} />
-              <span className={styles.folderName}>All Documents</span>
+              <span className={styles.folderName}>{browseData?.isAdmin ? 'All Documents' : 'My Documents'}</span>
             </div>
             
             {/* Matter folders */}
@@ -441,8 +445,8 @@ export function FolderBrowser({
                 <span className={styles.breadcrumbItem}>{currentPath}</span>
               </>
             )}
-            {/* Sync button when header is hidden */}
-            {!showHeader && (
+            {/* Sync button when header is hidden - only for admins */}
+            {!showHeader && browseData?.isAdmin && (
               <button 
                 onClick={syncFromAzure} 
                 className={styles.inlineSyncBtn} 
@@ -492,9 +496,15 @@ export function FolderBrowser({
                       <div className={styles.emptyState}>
                         <FolderOpen size={32} />
                         <p>{browseData?.message || 'No documents found'}</p>
-                        <p className={styles.emptyHint}>
-                          Click "Sync from Azure" to load documents from Azure storage
-                        </p>
+                        {browseData?.isAdmin ? (
+                          <p className={styles.emptyHint}>
+                            Click "Sync from Azure" to load documents from Azure storage
+                          </p>
+                        ) : (
+                          <p className={styles.emptyHint}>
+                            Documents you upload or that are shared with you will appear here
+                          </p>
+                        )}
                       </div>
                     </td>
                   </tr>

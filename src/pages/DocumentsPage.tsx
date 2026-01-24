@@ -526,12 +526,12 @@ export function DocumentsPage() {
     <div className={styles.documentsPage}>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <h1>Documents</h1>
+          <h1>{isAdmin ? 'Documents' : 'My Documents'}</h1>
           {viewMode === 'list' && (
             <span className={styles.count}>{documents.length} files</span>
           )}
           {viewMode === 'folders' && (
-            <span className={styles.count}>Apex Drive</span>
+            <span className={styles.count}>{isAdmin ? 'Apex Drive' : 'Your Documents'}</span>
           )}
           {selectedDocIds.size > 0 && (
             <span className={styles.selectedCount}>
@@ -805,7 +805,11 @@ export function DocumentsPage() {
         <div className={styles.emptyState}>
           <FolderOpen size={48} />
           <h3>No documents found</h3>
-          <p>Upload your first document to get started</p>
+          {isAdmin ? (
+            <p>Upload your first document to get started</p>
+          ) : (
+            <p>Documents you upload or that are shared with you will appear here. You can also see documents from matters you're assigned to.</p>
+          )}
         </div>
       )}
 
@@ -815,7 +819,8 @@ export function DocumentsPage() {
           <Edit3 size={14} />
           <span>
             <strong>Tip:</strong> Click any document to view version history and actions. For Word documents, click "Open in Word" to edit directly. 
-            {!isAdmin && ' '}Connect Microsoft 365 in <a href="/app/integrations" style={{ color: 'inherit', textDecoration: 'underline' }}>Integrations</a> for seamless editing.
+            {!isAdmin && ' Your documents and documents from matters you\'re assigned to are shown here. '}
+            Connect Microsoft 365 in <a href="/app/integrations" style={{ color: 'inherit', textDecoration: 'underline' }}>Integrations</a> for seamless editing.
           </span>
         </div>
       )}

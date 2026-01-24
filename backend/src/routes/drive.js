@@ -2147,33 +2147,113 @@ router.get('/download-azure', authenticate, async (req, res) => {
 
 /**
  * APEX DRIVE - Get files from database (instant load)
- * Background sync keeps database updated automatically
+ * 
+ * Clio-style permission filtering:
+ * - Admins (owner/admin): See ALL documents in the firm
+ * - Regular users: See only documents they can access:
+ *   1. Documents they uploaded
+ *   2. Documents they own
+ *   3. Documents in matters they have permission to
+ *   4. Documents explicitly shared with them
+ *   5. Firm-wide privacy level documents
  */
 router.get('/browse-all', authenticate, async (req, res) => {
   try {
     const { search } = req.query;
     const firmId = req.user.firmId;
     const firmFolder = `firm-${firmId}`;
+    const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
     
-    // Get files from database (instant)
-    let sql = `
-      SELECT id, name, original_name, type, size, folder_path, 
-             COALESCE(external_path, path) as azure_path
-      FROM documents 
-      WHERE firm_id = $1
-    `;
-    const params = [firmId];
+    console.log(`[BROWSE-ALL] User: ${req.user.email}, Role: ${req.user.role}, isAdmin: ${isAdmin}`);
     
-    if (search) {
-      sql += ` AND (name ILIKE $2 OR folder_path ILIKE $2)`;
-      params.push(`%${search}%`);
+    let sql;
+    let params;
+    
+    if (isAdmin) {
+      // Admins see all documents
+      sql = `
+        SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path, 
+               d.matter_id, m.name as matter_name, m.case_number as matter_number,
+               d.uploaded_by, d.owner_id, d.privacy_level,
+               COALESCE(d.external_path, d.path) as azure_path,
+               d.uploaded_at
+        FROM documents d
+        LEFT JOIN matters m ON d.matter_id = m.id
+        WHERE d.firm_id = $1
+      `;
+      params = [firmId];
+      
+      if (search) {
+        sql += ` AND (d.name ILIKE $2 OR d.folder_path ILIKE $2)`;
+        params.push(`%${search}%`);
+      }
+    } else {
+      // Non-admins: Apply Clio-style permission filtering
+      // Get user's accessible matter IDs first (efficient query)
+      const userMattersResult = await query(`
+        SELECT DISTINCT m.id FROM matters m
+        WHERE m.firm_id = $1 AND m.status != 'archived' AND (
+          m.visibility = 'firm_wide'
+          OR m.responsible_attorney = $2
+          OR m.originating_attorney = $2
+          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
+        )
+      `, [firmId, req.user.id]);
+      
+      const userMatterIds = userMattersResult.rows.map(r => r.id);
+      console.log(`[BROWSE-ALL] User ${req.user.email} has access to ${userMatterIds.length} matters`);
+      
+      sql = `
+        SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path, 
+               d.matter_id, m.name as matter_name, m.case_number as matter_number,
+               d.uploaded_by, d.owner_id, d.privacy_level,
+               COALESCE(d.external_path, d.path) as azure_path,
+               d.uploaded_at,
+               CASE 
+                 WHEN d.uploaded_by = $2 THEN true
+                 WHEN d.owner_id = $2 THEN true
+                 ELSE false
+               END as is_owned
+        FROM documents d
+        LEFT JOIN matters m ON d.matter_id = m.id
+        WHERE d.firm_id = $1
+          AND (
+            -- Document they uploaded
+            d.uploaded_by = $2
+            -- Document they own
+            OR d.owner_id = $2
+            -- Firm-wide privacy level
+            OR d.privacy_level = 'firm'
+            -- Document in accessible matter
+            ${userMatterIds.length > 0 ? `OR d.matter_id = ANY($3)` : ''}
+            -- Has explicit document permission
+            OR EXISTS (
+              SELECT 1 FROM document_permissions dp
+              WHERE dp.document_id = d.id AND dp.user_id = $2 AND dp.can_view = true
+                AND (dp.expires_at IS NULL OR dp.expires_at > NOW())
+            )
+          )
+      `;
+      params = [firmId, req.user.id];
+      
+      if (userMatterIds.length > 0) {
+        params.push(userMatterIds);
+      }
+      
+      // Add search filter
+      if (search) {
+        const searchParamIdx = params.length + 1;
+        sql += ` AND (d.name ILIKE $${searchParamIdx} OR d.folder_path ILIKE $${searchParamIdx})`;
+        params.push(`%${search}%`);
+      }
     }
     
-    sql += ` ORDER BY folder_path, name LIMIT 10000`;
+    sql += ` ORDER BY d.folder_path, d.name LIMIT 10000`;
     
     const result = await query(sql, params);
     
-    // Build folder tree
+    // Build folder tree (only from accessible documents)
     const folderSet = new Set();
     const files = result.rows.map(row => {
       if (row.folder_path) {
@@ -2193,23 +2273,62 @@ router.get('/browse-all', authenticate, async (req, res) => {
         folderPath: row.folder_path || '',
         path: row.azure_path,
         azurePath: row.azure_path,
+        matterId: row.matter_id,
+        matterName: row.matter_name,
+        matterNumber: row.matter_number,
+        uploadedAt: row.uploaded_at,
+        isOwned: row.is_owned || false,
+        privacyLevel: row.privacy_level,
         storageLocation: 'azure',
         isFromAzure: true
       };
     });
     
+    // Get accessible matters for folder navigation
+    let mattersResult;
+    if (isAdmin) {
+      mattersResult = await query(
+        `SELECT id, name, case_number FROM matters WHERE firm_id = $1 AND status != 'closed' ORDER BY name`,
+        [firmId]
+      );
+    } else {
+      mattersResult = await query(`
+        SELECT DISTINCT m.id, m.name, m.case_number FROM matters m
+        WHERE m.firm_id = $1 AND m.status != 'closed' AND (
+          m.visibility = 'firm_wide'
+          OR m.responsible_attorney = $2
+          OR m.originating_attorney = $2
+          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
+        )
+        ORDER BY m.name
+      `, [firmId, req.user.id]);
+    }
+    
+    console.log(`[BROWSE-ALL] Returning ${files.length} files for user ${req.user.email}`);
+    
     return res.json({
       configured: true,
-      isAdmin: true,
+      isAdmin,
       firmFolder,
       files,
       folders: Array.from(folderSet).sort(),
+      matters: mattersResult.rows.map(m => ({
+        id: m.id,
+        name: m.name,
+        caseNumber: m.case_number,
+        folderPath: `Matters/${m.name.replace(/[^a-zA-Z0-9 -]/g, '_')}`
+      })),
       stats: { 
         totalFiles: files.length, 
         totalFolders: folderSet.size,
         totalSize: files.reduce((sum, f) => sum + (f.size || 0), 0)
       },
-      source: 'database'
+      source: 'database',
+      userScoped: !isAdmin,
+      message: isAdmin 
+        ? 'Showing all firm documents' 
+        : `Showing your documents and documents from ${mattersResult.rows.length} matters you have access to`
     });
     
   } catch (error) {
