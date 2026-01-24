@@ -1081,13 +1081,28 @@ export default function SecureAdminDashboard() {
             // Update progress display
             if (status.status === 'running') {
               const progress = status.progress || {}
+              const phase = status.phase || ''
+              
+              let phaseMessage = 'Processing...'
+              if (phase === 'scanning_azure') {
+                phaseMessage = `Indexing Azure files... ${(progress.azureScanned || 0).toLocaleString()} found`
+              } else if (phase === 'matching') {
+                phaseMessage = `Matching: ${(progress.processed || 0).toLocaleString()}/${(progress.pending || '?').toLocaleString()} (${progress.percent || 0}%)`
+              } else if (phase === 'preparing') {
+                phaseMessage = 'Preparing database...'
+              } else if (phase === 'finalizing') {
+                phaseMessage = 'Finalizing...'
+              }
+              
               setScanResult({
                 firmId,
-                message: `Scanning... ${progress.scanned?.toLocaleString() || 0} files found, ${progress.percent || 0}% processed`,
+                message: phaseMessage,
                 success: true,
-                scanned: progress.scanned,
-                added: progress.added,
-                matched: progress.matched
+                azureScanned: progress.azureScanned,
+                processed: progress.processed,
+                matched: progress.matched,
+                created: progress.created,
+                alreadyMatched: progress.alreadyMatched
               })
             } else if (status.status === 'completed' && status.results) {
               clearInterval(pollInterval)
@@ -1097,12 +1112,15 @@ export default function SecureAdminDashboard() {
                 firmId, 
                 message: results.message, 
                 success: true,
-                scanned: results.scanned,
-                added: results.added,
+                manifestEntries: results.manifestEntries,
+                azureFiles: results.azureFiles,
+                processed: results.processed,
                 matched: results.matched,
-                matchedFolders: results.folderMatching?.matched || [],
-                unmatchedFolders: results.folderMatching?.unmatched || [],
-                orphanCount: results.orphanCount || 0
+                created: results.created,
+                skipped: results.skipped,
+                missing: results.missing,
+                withMatter: results.withMatter,
+                withoutMatter: results.withoutMatter
               })
               showNotification('success', results.message)
               // Refresh firm data
@@ -6161,28 +6179,35 @@ bob@example.com, Bob, Wilson, partner"
                       </button>
                     </div>
                     
-                    {/* Detailed Stats */}
-                    {scanResult.success && scanResult.scanned !== undefined && (
+                    {/* Detailed Stats - Manifest-based */}
+                    {scanResult.success && scanResult.processed !== undefined && (
                       <div style={{ marginTop: '12px' }}>
                         <div style={{ display: 'flex', gap: '24px', marginBottom: '12px', flexWrap: 'wrap' }}>
-                          <div style={{ fontSize: '14px', color: '#374151' }}>
-                            <strong>{scanResult.scanned?.toLocaleString()}</strong> files scanned
-                          </div>
-                          <div style={{ fontSize: '14px', color: '#374151' }}>
-                            <strong>{scanResult.added?.toLocaleString()}</strong> new files added
-                          </div>
+                          {scanResult.manifestEntries !== undefined && (
+                            <div style={{ fontSize: '14px', color: '#374151' }}>
+                              <strong>{scanResult.manifestEntries?.toLocaleString()}</strong> in manifest
+                            </div>
+                          )}
+                          {scanResult.azureFiles !== undefined && (
+                            <div style={{ fontSize: '14px', color: '#374151' }}>
+                              <strong>{scanResult.azureFiles?.toLocaleString()}</strong> in Azure
+                            </div>
+                          )}
                           <div style={{ fontSize: '14px', color: '#059669' }}>
-                            <strong>{scanResult.matched?.toLocaleString()}</strong> matched to matters
+                            <strong>{scanResult.matched?.toLocaleString()}</strong> matched
                           </div>
-                          {(scanResult.orphanCount || 0) > 0 && (
+                          <div style={{ fontSize: '14px', color: '#3B82F6' }}>
+                            <strong>{scanResult.created?.toLocaleString()}</strong> created
+                          </div>
+                          {(scanResult.missing || 0) > 0 && (
                             <div style={{ fontSize: '14px', color: '#D97706' }}>
-                              <strong>{scanResult.orphanCount?.toLocaleString()}</strong> orphan files
+                              <strong>{scanResult.missing?.toLocaleString()}</strong> not found in Azure
                             </div>
                           )}
                         </div>
                         
-                        {/* Folder Matching Summary */}
-                        {((scanResult.matchedFolders?.length || 0) > 0 || (scanResult.unmatchedFolders?.length || 0) > 0) && (
+                        {/* Matter Assignment Summary */}
+                        {(scanResult.withMatter !== undefined || scanResult.withoutMatter !== undefined) && (
                           <div style={{ 
                             background: 'white', 
                             borderRadius: '8px', 
@@ -6190,39 +6215,19 @@ bob@example.com, Bob, Wilson, partner"
                             marginTop: '12px'
                           }}>
                             <div style={{ fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>
-                              Folder → Matter Matching
+                              Document → Matter Assignments (from Clio manifest)
                             </div>
                             <div style={{ display: 'flex', gap: '16px', fontSize: '13px' }}>
                               <span style={{ color: '#059669' }}>
                                 <CheckCircle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
-                                {scanResult.matchedFolders?.length || 0} folders matched
+                                {scanResult.withMatter?.toLocaleString() || 0} with matter
                               </span>
-                              {(scanResult.unmatchedFolders?.length || 0) > 0 && (
-                                <span style={{ color: '#D97706' }}>
-                                  <AlertCircle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
-                                  {scanResult.unmatchedFolders?.length || 0} folders unmatched
+                              {(scanResult.withoutMatter || 0) > 0 && (
+                                <span style={{ color: '#6B7280' }}>
+                                  {scanResult.withoutMatter?.toLocaleString() || 0} without matter
                                 </span>
                               )}
                             </div>
-                            
-                            {/* Show unmatched folders */}
-                            {(scanResult.unmatchedFolders?.length || 0) > 0 && (
-                              <div style={{ marginTop: '12px', padding: '10px', background: '#FEF3C7', borderRadius: '6px' }}>
-                                <div style={{ fontSize: '12px', fontWeight: 600, color: '#92400E', marginBottom: '6px' }}>
-                                  Unmatched Folders (no matching matter found):
-                                </div>
-                                <div style={{ fontSize: '12px', color: '#78350F' }}>
-                                  {scanResult.unmatchedFolders?.slice(0, 5).map((f, i) => (
-                                    <div key={i}>• {f.folder} ({f.fileCount} files)</div>
-                                  ))}
-                                  {(scanResult.unmatchedFolders?.length || 0) > 5 && (
-                                    <div style={{ fontStyle: 'italic', marginTop: '4px' }}>
-                                      ...and {(scanResult.unmatchedFolders?.length || 0) - 5} more folders
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
                           </div>
                         )}
                       </div>

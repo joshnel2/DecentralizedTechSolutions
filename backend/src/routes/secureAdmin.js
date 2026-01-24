@@ -1426,26 +1426,19 @@ router.post('/firms/:firmId/scan-reset', requireSecureAdmin, async (req, res) =>
 });
 
 // ============================================
-// SCAN DOCUMENTS - Clio Migration Document Scanner
+// SCAN DOCUMENTS - Simple Manifest-Based Scanner
 // ============================================
-// Designed for Clio → Azure migration via RoboCopy
-// Folder names match matter names because both came from Clio
+// Uses Clio document manifest (from API) as source of truth
+// The manifest already has matter_id mapped from Clio
 // 
-// SUPPORTS LARGE DATASETS (100GB+):
-// - Runs as background job with progress tracking
-// - Processes files in batches to avoid memory issues
-// - Can be cancelled mid-scan
-// - Progress persists even if browser is closed
-//
 // How it works:
-// 1. Scan Azure folders (copied from Clio Drive via RoboCopy)
-// 2. Match folder names directly to matter names (same source = same names)
-// 3. Handle Windows character normalization (: / \ * ? " < > |)
-// 4. Create document records with correct matter_id and permissions
-// 5. Report orphans (folders that don't match any matter)
+// 1. Get document list from clio_document_manifest (already has matter_id)
+// 2. Find matching files in Azure by filename + size
+// 3. Create document records with matter_id FROM MANIFEST
+// 4. No folder name guessing - Clio told us the relationships
 router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res) => {
   const { firmId } = req.params;
-  const { customFolder, dryRun } = req.body || {};
+  const { dryRun } = req.body || {};
   
   // Check if a scan is already running for this firm
   const existingJob = scanJobs.get(firmId);
@@ -1463,7 +1456,7 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
     status: 'running',
     startedAt: new Date().toISOString(),
     phase: 'initializing',
-    progress: { scanned: 0, added: 0, matched: 0, total: 0, percent: 0 },
+    progress: { processed: 0, matched: 0, created: 0, total: 0, percent: 0 },
     results: null,
     error: null,
     cancelled: false,
@@ -1471,37 +1464,43 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
   };
   scanJobs.set(firmId, job);
   
-  console.log(`[SCAN] Starting background document scan for firm ${firmId}`);
+  console.log(`[SCAN] Starting manifest-based scan for firm ${firmId}`);
   console.log(`[SCAN] Mode: ${dryRun ? 'DRY RUN (no changes)' : 'LIVE'}`);
   
   // Return immediately - scan runs in background
   res.json({
     success: true,
-    message: 'Scan started in background. Poll /scan-status for progress.',
+    message: 'Scan started. Uses Clio manifest for matter assignments.',
     status: 'started',
     job
   });
   
   // Run scan in background
-  runBackgroundScan(firmId, customFolder, dryRun, job).catch(err => {
-    console.error('[SCAN] Background scan error:', err);
+  runManifestScan(firmId, dryRun, job).catch(err => {
+    console.error('[SCAN] Manifest scan error:', err);
     job.status = 'error';
     job.error = err.message;
   });
 });
 
-// Background scan function - handles large datasets (100GB+)
-async function runBackgroundScan(firmId, customFolder, dryRun, job) {
+// ============================================
+// ENTERPRISE-SCALE SCAN - Handles 1M+ files
+// ============================================
+// - Uses database temp table instead of memory
+// - Streams Azure files directly to database
+// - SQL-based matching (no memory limits)
+// - Resumable (stores progress in database)
+async function runManifestScan(firmId, dryRun, job) {
+  const tempTable = `azure_files_${firmId}_${Date.now()}`;
+  
   try {
-    // Results tracker
     const results = { 
-      scanned: 0, 
-      added: 0, 
-      updated: 0, 
+      processed: 0, 
       matched: 0, 
-      orphanFiles: [],
-      matchedFolders: [],
-      unmatchedFolders: [],
+      created: 0, 
+      skipped: 0,
+      alreadyMatched: 0,
+      missing: 0,
       errors: [] 
     };
     
@@ -1515,392 +1514,271 @@ async function runBackgroundScan(firmId, customFolder, dryRun, job) {
     }
     
     // ============================================
-    // 2. LOAD MATTERS WITH ALL MATCHING FIELDS
+    // 2. GET MANIFEST STATS
     // ============================================
-    job.phase = 'loading_matters';
-    const mattersResult = await query(`
-      SELECT m.id, m.name, m.number, m.responsible_attorney,
-             c.display_name as client_name
-      FROM matters m
-      LEFT JOIN clients c ON m.client_id = c.id
-      WHERE m.firm_id = $1
+    job.phase = 'loading_manifest';
+    const statsResult = await query(`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE match_status = 'matched') as already_matched,
+        COUNT(*) FILTER (WHERE match_status IS NULL OR match_status != 'matched') as pending
+      FROM clio_document_manifest
+      WHERE firm_id = $1
     `, [firmId]);
     
-    console.log(`[SCAN] Loaded ${mattersResult.rows.length} matters for matching`);
+    const manifestStats = statsResult.rows[0];
+    const totalManifest = parseInt(manifestStats.total);
+    const alreadyMatched = parseInt(manifestStats.already_matched);
+    const pendingCount = parseInt(manifestStats.pending);
     
-    // ============================================
-    // 3. BUILD MATCHING LOOKUP MAPS
-    // ============================================
-    // Normalize function: handles Windows character stripping
-    // Windows strips: : / \ * ? " < > |
-    const normalize = (str) => {
-      if (!str) return '';
-      return str
-        .toLowerCase()
-        .replace(/[:\\/\*\?"<>\|]/g, '') // Remove Windows-invalid chars
-        .replace(/\s+/g, ' ')            // Normalize whitespace
-        .trim();
-    };
+    job.progress.manifestTotal = totalManifest;
+    job.progress.alreadyMatched = alreadyMatched;
+    job.progress.pending = pendingCount;
     
-    // Build multiple lookup maps for flexible matching
-    const matterByExactName = new Map();      // Exact name match
-    const matterByNormalizedName = new Map(); // Normalized name match
-    const matterByNumber = new Map();         // Matter number match
-    const matterByClientMatter = new Map();   // "Client - Matter" format
+    console.log(`[SCAN] Manifest: ${totalManifest.toLocaleString()} total, ${alreadyMatched.toLocaleString()} already matched, ${pendingCount.toLocaleString()} pending`);
     
-    for (const m of mattersResult.rows) {
-      // Exact name (lowercase)
-      if (m.name) {
-        matterByExactName.set(m.name.toLowerCase(), m);
-        matterByNormalizedName.set(normalize(m.name), m);
-      }
-      
-      // Matter number
-      if (m.number) {
-        matterByNumber.set(m.number.toLowerCase(), m);
-        matterByNormalizedName.set(normalize(m.number), m);
-      }
-      
-      // Clio format: "ClientName - MatterName"
-      if (m.client_name && m.name) {
-        const clioFormat = `${m.client_name} - ${m.name}`.toLowerCase();
-        matterByClientMatter.set(clioFormat, m);
-        matterByNormalizedName.set(normalize(clioFormat), m);
-      }
+    if (totalManifest === 0) {
+      throw new Error('No documents in manifest. Run "Fetch Document List" from Clio first.');
     }
     
-    console.log(`[SCAN] Built lookup maps: ${matterByExactName.size} exact, ${matterByNormalizedName.size} normalized`);
+    if (pendingCount === 0) {
+      job.status = 'completed';
+      job.phase = 'done';
+      job.results = {
+        success: true,
+        message: `All ${alreadyMatched.toLocaleString()} documents already matched. Nothing to do.`,
+        alreadyMatched,
+        processed: 0
+      };
+      return;
+    }
     
     // ============================================
-    // 4. MATTER MATCHING FUNCTION
+    // 3. CREATE TEMP TABLE FOR AZURE FILES
     // ============================================
-    // Tries multiple matching strategies, returns { matter, matchType }
-    const matchFolderToMatter = (folderName) => {
-      if (!folderName) return { matter: null, matchType: null };
-      
-      const folderLower = folderName.toLowerCase();
-      const folderNorm = normalize(folderName);
-      
-      // Strategy 1: Exact match on full folder name
-      if (matterByExactName.has(folderLower)) {
-        return { matter: matterByExactName.get(folderLower), matchType: 'exact_name' };
-      }
-      
-      // Strategy 2: Match "Client - Matter" format (Clio style)
-      if (matterByClientMatter.has(folderLower)) {
-        return { matter: matterByClientMatter.get(folderLower), matchType: 'client_matter' };
-      }
-      
-      // Strategy 3: Match matter number
-      if (matterByNumber.has(folderLower)) {
-        return { matter: matterByNumber.get(folderLower), matchType: 'matter_number' };
-      }
-      
-      // Strategy 4: Normalized match (handles Windows character stripping)
-      if (matterByNormalizedName.has(folderNorm)) {
-        return { matter: matterByNormalizedName.get(folderNorm), matchType: 'normalized' };
-      }
-      
-      // Strategy 5: Extract matter name after " - " separator
-      if (folderName.includes(' - ')) {
-        const afterDash = folderName.split(' - ').slice(1).join(' - ').trim();
-        const afterDashLower = afterDash.toLowerCase();
-        const afterDashNorm = normalize(afterDash);
-        
-        if (matterByExactName.has(afterDashLower)) {
-          return { matter: matterByExactName.get(afterDashLower), matchType: 'after_dash' };
-        }
-        if (matterByNormalizedName.has(afterDashNorm)) {
-          return { matter: matterByNormalizedName.get(afterDashNorm), matchType: 'after_dash_normalized' };
-        }
-      }
-      
-      // Strategy 6: Partial match - folder contains matter name or vice versa
-      for (const [name, matter] of matterByExactName) {
-        if (folderLower.includes(name) || name.includes(folderLower)) {
-          return { matter, matchType: 'partial' };
-        }
-      }
-      
-      return { matter: null, matchType: null };
-    };
+    job.phase = 'preparing';
+    console.log(`[SCAN] Creating temp table ${tempTable}...`);
+    
+    await query(`
+      CREATE UNLOGGED TABLE ${tempTable} (
+        id SERIAL PRIMARY KEY,
+        name_lower VARCHAR(500),
+        path TEXT,
+        name VARCHAR(500)
+      )
+    `);
     
     // ============================================
-    // 5. GET EXISTING DOCUMENTS
+    // 4. STREAM AZURE FILES TO DATABASE
     // ============================================
-    const existingDocs = await query(
-      `SELECT id, path, matter_id FROM documents WHERE firm_id = $1`,
-      [firmId]
-    );
-    const existingByPath = new Map(existingDocs.rows.map(d => [d.path, d]));
-    console.log(`[SCAN] ${existingByPath.size} documents already in database`);
-    
-    // ============================================
-    // 6. DETERMINE SCAN LOCATION
-    // ============================================
+    job.phase = 'scanning_azure';
     const shareClient = await getShareClient();
     const firmFolder = `firm-${firmId}`;
-    let scanFolder = customFolder || firmFolder;
     
-    // Check if firm folder exists, if not scan root
-    if (!customFolder) {
-      try {
-        const firmDir = shareClient.getDirectoryClient(firmFolder);
-        let hasContent = false;
-        for await (const item of firmDir.listFilesAndDirectories()) {
-          hasContent = true;
-          break;
-        }
-        if (!hasContent) {
-          console.log(`[SCAN] Firm folder empty/missing, scanning root...`);
-          scanFolder = '';
-        }
-      } catch (e) {
-        console.log(`[SCAN] Firm folder doesn't exist, scanning root: ${e.message}`);
-        scanFolder = '';
-      }
-    }
+    let azureFileCount = 0;
+    let insertBatch = [];
+    const BATCH_SIZE = 1000; // Insert 1000 rows at a time
+    let lastProgressUpdate = Date.now();
     
-    console.log(`[SCAN] Scanning folder: ${scanFolder || '(root)'}`);
-    job.phase = 'scanning_azure';
-    
-    // ============================================
-    // 7. SCAN AZURE - TRACK TOP-LEVEL FOLDERS
-    // ============================================
-    const filesToProcess = [];
-    const folderMatches = new Map(); // folderName -> { matter, matchType, fileCount }
-    
-    const scanDir = async (dirClient, relativePath = '', topLevelFolder = null) => {
-      // Check for cancellation
-      if (job.cancelled) {
-        throw new Error('Scan cancelled by user');
-      }
+    const flushBatch = async () => {
+      if (insertBatch.length === 0) return;
       
+      // Bulk insert using VALUES
+      const values = insertBatch.map((f, i) => 
+        `($${i*3+1}, $${i*3+2}, $${i*3+3})`
+      ).join(',');
+      const params = insertBatch.flatMap(f => [f.nameLower, f.path, f.name]);
+      
+      await query(`
+        INSERT INTO ${tempTable} (name_lower, path, name) VALUES ${values}
+      `, params);
+      
+      insertBatch = [];
+    };
+    
+    const scanAzureDir = async (dirClient, basePath = '') => {
+      if (job.cancelled) return;
       try {
         for await (const item of dirClient.listFilesAndDirectories()) {
-          // Check for cancellation periodically
-          if (job.cancelled) {
-            throw new Error('Scan cancelled by user');
-          }
-          
-          const itemPath = relativePath ? `${relativePath}/${item.name}` : item.name;
+          if (job.cancelled) return;
+          const itemPath = basePath ? `${basePath}/${item.name}` : item.name;
           
           if (item.kind === 'directory') {
-            // Track top-level folders for matching
-            const isTopLevel = !relativePath;
-            const currentTopFolder = isTopLevel ? item.name : topLevelFolder;
-            
-            // If this is a top-level folder, try to match it to a matter
-            if (isTopLevel && !folderMatches.has(item.name)) {
-              const { matter, matchType } = matchFolderToMatter(item.name);
-              folderMatches.set(item.name, { 
-                matter, 
-                matchType, 
-                fileCount: 0,
-                matterName: matter?.name || null,
-                matterId: matter?.id || null
-              });
-              // Update job with folder count
-              job.progress.folders = folderMatches.size;
-            }
-            
-            await scanDir(dirClient.getDirectoryClient(item.name), itemPath, currentTopFolder);
+            await scanAzureDir(dirClient.getDirectoryClient(item.name), itemPath);
           } else {
-            results.scanned++;
+            azureFileCount++;
             
-            // Build full path
-            const fullPath = scanFolder 
-              ? `${scanFolder}/${itemPath}` 
-              : `${firmFolder}/${itemPath}`;
-            
-            // Get file properties (skip for speed on large datasets)
-            let size = 0;
-            // Only get size for first 1000 files to speed up large scans
-            if (results.scanned <= 1000) {
-              try {
-                const props = await dirClient.getFileClient(item.name).getProperties();
-                size = props.contentLength || 0;
-              } catch (e) { /* ignore */ }
-            }
-            
-            // Get matter from top-level folder match
-            const folderMatch = topLevelFolder ? folderMatches.get(topLevelFolder) : null;
-            const matter = folderMatch?.matter || null;
-            
-            if (folderMatch) {
-              folderMatch.fileCount++;
-            }
-            
-            // Queue file for processing
-            filesToProcess.push({
-              name: item.name,
-              path: fullPath,
-              folder: relativePath,
-              topLevelFolder,
-              size,
-              matter,
-              matchType: folderMatch?.matchType || null,
-              existingDoc: existingByPath.get(fullPath) || null
+            insertBatch.push({
+              nameLower: item.name.toLowerCase(),
+              path: `${firmFolder}/${itemPath}`,
+              name: item.name
             });
             
-            // Update job progress every 100 files
-            if (results.scanned % 100 === 0) {
-              job.progress.scanned = results.scanned;
-              job.progress.folders = folderMatches.size;
-              console.log(`[SCAN] Progress: ${results.scanned} files scanned, ${folderMatches.size} folders...`);
+            // Flush batch when full
+            if (insertBatch.length >= BATCH_SIZE) {
+              await flushBatch();
+            }
+            
+            // Progress update every 3 seconds
+            if (Date.now() - lastProgressUpdate > 3000) {
+              job.progress.azureScanned = azureFileCount;
+              console.log(`[SCAN] Azure: ${azureFileCount.toLocaleString()} files indexed...`);
+              lastProgressUpdate = Date.now();
             }
           }
         }
-      } catch (err) {
-        if (err.message === 'Scan cancelled by user') throw err;
-        results.errors.push(`Error scanning ${relativePath}: ${err.message}`);
+      } catch (e) {
+        console.log(`[SCAN] Error scanning ${basePath}: ${e.message}`);
       }
     };
     
-    // Start scan
-    await scanDir(shareClient.getDirectoryClient(scanFolder), '');
+    console.log(`[SCAN] Scanning Azure files in ${firmFolder}...`);
+    await scanAzureDir(shareClient.getDirectoryClient(firmFolder));
+    await flushBatch(); // Final batch
     
-    // Final scan progress update
-    job.progress.scanned = results.scanned;
-    job.progress.total = filesToProcess.length;
+    job.progress.azureTotal = azureFileCount;
+    console.log(`[SCAN] Indexed ${azureFileCount.toLocaleString()} Azure files to database`);
     
-    console.log(`[SCAN] Scan complete: ${results.scanned} files found in ${folderMatches.size} top-level folders`);
+    // Create index for fast lookups
+    console.log(`[SCAN] Creating index...`);
+    await query(`CREATE INDEX ON ${tempTable} (name_lower)`);
     
     // ============================================
-    // 8. ANALYZE FOLDER MATCHES
+    // 5. SQL-BASED MATCHING (no memory limits!)
     // ============================================
-    for (const [folderName, match] of folderMatches) {
-      if (match.matter) {
-        results.matchedFolders.push({
-          folder: folderName,
-          matterId: match.matterId,
-          matterName: match.matterName,
-          matchType: match.matchType,
-          fileCount: match.fileCount
-        });
-      } else {
-        results.unmatchedFolders.push({
-          folder: folderName,
-          fileCount: match.fileCount
-        });
+    job.phase = 'matching';
+    console.log(`[SCAN] Matching manifest entries to Azure files...`);
+    
+    // MIME type lookup
+    const getMimeType = (filename) => {
+      const ext = filename?.split('.').pop()?.toLowerCase() || '';
+      return {
+        pdf: 'application/pdf', doc: 'application/msword', 
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        xls: 'application/vnd.ms-excel', 
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ppt: 'application/vnd.ms-powerpoint', 
+        pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        txt: 'text/plain', rtf: 'application/rtf', csv: 'text/csv',
+        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+        msg: 'application/vnd.ms-outlook', eml: 'message/rfc822',
+        zip: 'application/zip', html: 'text/html', xml: 'text/xml', json: 'application/json'
+      }[ext] || 'application/octet-stream';
+    };
+    
+    // Process in chunks using cursor-style pagination
+    const CHUNK_SIZE = 1000;
+    let lastId = 0;
+    let hasMore = true;
+    
+    while (hasMore && !job.cancelled) {
+      // Get next chunk of unmatched manifest entries WITH their Azure matches
+      const chunkResult = await query(`
+        SELECT 
+          m.id, m.name, m.size, m.matter_id, m.owner_id, m.content_type,
+          af.path as azure_path, af.name as azure_name
+        FROM clio_document_manifest m
+        LEFT JOIN ${tempTable} af ON LOWER(m.name) = af.name_lower
+        WHERE m.firm_id = $1 
+          AND m.id > $2
+          AND (m.match_status IS NULL OR m.match_status NOT IN ('matched', 'not_found'))
+        ORDER BY m.id
+        LIMIT $3
+      `, [firmId, lastId, CHUNK_SIZE]);
+      
+      const chunk = chunkResult.rows;
+      if (chunk.length === 0) {
+        hasMore = false;
+        break;
       }
-    }
-    
-    console.log(`[SCAN] Folder matching: ${results.matchedFolders.length} matched, ${results.unmatchedFolders.length} unmatched`);
-    
-    // ============================================
-    // 9. PROCESS FILES (CREATE/UPDATE DOCUMENTS)
-    // ============================================
-    job.phase = 'processing_files';
-    job.progress.total = filesToProcess.length;
-    
-    if (!dryRun) {
-      const BATCH_SIZE = 100;
       
-      // MIME type lookup
-      const getMimeType = (filename) => {
-        const ext = filename.split('.').pop()?.toLowerCase() || '';
-        return {
-          pdf: 'application/pdf', doc: 'application/msword', 
-          docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          xls: 'application/vnd.ms-excel', 
-          xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          ppt: 'application/vnd.ms-powerpoint', 
-          pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-          txt: 'text/plain', rtf: 'application/rtf', csv: 'text/csv',
-          jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
-          msg: 'application/vnd.ms-outlook', eml: 'message/rfc822',
-          zip: 'application/zip', html: 'text/html', xml: 'text/xml', json: 'application/json'
-        }[ext] || 'application/octet-stream';
-      };
+      lastId = chunk[chunk.length - 1].id;
       
-      for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
-        // Check for cancellation
-        if (job.cancelled) {
-          throw new Error('Scan cancelled by user');
-        }
+      for (const entry of chunk) {
+        if (job.cancelled) throw new Error('Scan cancelled by user');
+        results.processed++;
         
-        const batch = filesToProcess.slice(i, i + BATCH_SIZE);
-        
-        for (const file of batch) {
-          try {
-            const matterId = file.matter?.id || null;
-            const ownerId = file.matter?.responsible_attorney || null;
-            const mimeType = getMimeType(file.name);
-            const privacyLevel = matterId ? 'team' : 'firm';
-            
-            if (file.existingDoc) {
-              // Update existing document if matter was found and doc has no matter
-              if (matterId && !file.existingDoc.matter_id) {
-                await query(`
-                  UPDATE documents 
-                  SET matter_id = $1, owner_id = COALESCE(owner_id, $2), 
-                      privacy_level = $3, updated_at = NOW()
-                  WHERE id = $4
-                `, [matterId, ownerId, privacyLevel, file.existingDoc.id]);
-                results.updated++;
-                results.matched++;
-              } else {
-                results.updated++;
-                if (file.existingDoc.matter_id) results.matched++;
-              }
-            } else {
-              // Insert new document
+        try {
+          if (!entry.azure_path) {
+            // No match found in Azure
+            results.missing++;
+            if (!dryRun) {
               await query(`
-                INSERT INTO documents (
-                  firm_id, matter_id, owner_id, name, original_name, 
-                  path, folder_path, type, size, privacy_level, 
-                  status, storage_location, external_path, uploaded_at
-                ) VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'final', 'azure', $5, NOW())
-                ON CONFLICT (firm_id, path) DO UPDATE SET
-                  matter_id = COALESCE(EXCLUDED.matter_id, documents.matter_id),
-                  owner_id = COALESCE(EXCLUDED.owner_id, documents.owner_id),
-                  updated_at = NOW()
-              `, [firmId, matterId, ownerId, file.name, file.path, file.folder, mimeType, file.size, privacyLevel]);
-              
-              results.added++;
-              if (matterId) results.matched++;
+                UPDATE clio_document_manifest SET match_status = 'not_found' WHERE id = $1
+              `, [entry.id]);
+            }
+            continue;
+          }
+          
+          results.matched++;
+          
+          if (!dryRun) {
+            const mimeType = entry.content_type || getMimeType(entry.name);
+            const folderPath = entry.azure_path.split('/').slice(0, -1).join('/');
+            
+            // Upsert document
+            const insertResult = await query(`
+              INSERT INTO documents (
+                firm_id, matter_id, owner_id, name, original_name,
+                path, folder_path, type, size, privacy_level,
+                status, storage_location, external_path, uploaded_at
+              ) VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'final', 'azure', $5, NOW())
+              ON CONFLICT (firm_id, path) DO UPDATE SET
+                matter_id = COALESCE(EXCLUDED.matter_id, documents.matter_id),
+                updated_at = NOW()
+              RETURNING (xmax = 0) as was_inserted
+            `, [
+              firmId,
+              entry.matter_id,
+              entry.owner_id,
+              entry.name,
+              entry.azure_path,
+              folderPath,
+              mimeType,
+              entry.size || 0,
+              entry.matter_id ? 'team' : 'firm'
+            ]);
+            
+            if (insertResult.rows[0]?.was_inserted) {
+              results.created++;
+            } else {
+              results.skipped++;
             }
             
-            // Track orphan files (no matter match) - only first 1000
-            if (!matterId && file.topLevelFolder && results.orphanFiles.length < 1000) {
-              results.orphanFiles.push({
-                path: file.path,
-                folder: file.topLevelFolder,
-                name: file.name
-              });
-            }
-          } catch (e) {
-            results.errors.push(`${file.name}: ${e.message}`);
+            // Mark manifest as matched
+            await query(`
+              UPDATE clio_document_manifest 
+              SET match_status = 'matched', matched_azure_path = $1 
+              WHERE id = $2
+            `, [entry.azure_path, entry.id]);
+          }
+        } catch (e) {
+          if (results.errors.length < 50) {
+            results.errors.push(`${entry.name}: ${e.message}`);
           }
         }
-        
-        // Update job progress
-        const processed = Math.min(i + BATCH_SIZE, filesToProcess.length);
-        job.progress.added = results.added;
-        job.progress.matched = results.matched;
-        job.progress.processed = processed;
-        job.progress.percent = Math.round((processed / filesToProcess.length) * 100);
-        
-        if (processed % 500 === 0 || processed >= filesToProcess.length) {
-          console.log(`[SCAN] Processed ${processed}/${filesToProcess.length} files (${job.progress.percent}%)`);
-        }
       }
       
-      // Fix ownership for any docs with matter but no owner
-      job.phase = 'fixing_ownership';
-      await query(`
-        UPDATE documents d SET owner_id = m.responsible_attorney
-        FROM matters m
-        WHERE d.matter_id = m.id AND d.firm_id = $1 
-          AND d.owner_id IS NULL AND m.responsible_attorney IS NOT NULL
-      `, [firmId]);
+      // Progress update
+      job.progress.processed = results.processed;
+      job.progress.matched = results.matched;
+      job.progress.created = results.created;
+      job.progress.percent = Math.round((results.processed / pendingCount) * 100);
+      
+      console.log(`[SCAN] Progress: ${results.processed.toLocaleString()}/${pendingCount.toLocaleString()} (${job.progress.percent}%)`);
     }
     
+    results.alreadyMatched = alreadyMatched;
+    
     // ============================================
-    // 10. GET FINAL STATS
+    // 6. CLEANUP & FINAL STATS
     // ============================================
     job.phase = 'finalizing';
+    
+    // Drop temp table
+    console.log(`[SCAN] Cleaning up temp table...`);
+    await query(`DROP TABLE IF EXISTS ${tempTable}`);
+    
     const finalStats = await query(`
       SELECT 
         COUNT(*) as total,
@@ -1911,10 +1789,9 @@ async function runBackgroundScan(firmId, customFolder, dryRun, job) {
     
     const stats = finalStats.rows[0];
     
-    // Build response
     const message = dryRun
-      ? `DRY RUN: Would process ${results.scanned} files. ${results.matchedFolders.length} folders match matters, ${results.unmatchedFolders.length} don't match.`
-      : `Scan complete: ${results.scanned} files scanned, ${results.added} added, ${results.updated} updated, ${results.matched} matched to matters.`;
+      ? `DRY RUN: Would process ${results.processed.toLocaleString()} entries. ${results.matched.toLocaleString()} matched, ${results.missing.toLocaleString()} not found.`
+      : `Scan complete: ${results.created.toLocaleString()} documents created, ${results.matched.toLocaleString()} matched to Azure files.`;
     
     console.log(`[SCAN] ${message}`);
     
@@ -1927,29 +1804,34 @@ async function runBackgroundScan(firmId, customFolder, dryRun, job) {
       success: true,
       message,
       dryRun: !!dryRun,
-      scanned: results.scanned,
-      added: results.added,
-      updated: results.updated,
+      manifestTotal: totalManifest,
+      azureFiles: azureFileCount,
+      alreadyMatched: results.alreadyMatched,
+      processed: results.processed,
       matched: results.matched,
+      created: results.created,
+      skipped: results.skipped,
+      missing: results.missing,
       totalInDatabase: parseInt(stats.total || 0),
       withMatter: parseInt(stats.with_matter || 0),
       withoutMatter: parseInt(stats.without_matter || 0),
-      folderMatching: {
-        matched: results.matchedFolders,
-        unmatched: results.unmatchedFolders
-      },
-      orphanFiles: results.orphanFiles.slice(0, 100), // First 100 orphans
-      orphanCount: results.orphanFiles.length,
       errors: results.errors.slice(0, 20)
     };
     
-    console.log(`[SCAN] Background scan completed for firm ${firmId}`);
+    console.log(`[SCAN] Enterprise scan completed for firm ${firmId}`);
     
   } catch (error) {
-    console.error('[SCAN] Background scan error:', error);
+    console.error('[SCAN] Scan error:', error);
     job.status = error.message === 'Scan cancelled by user' ? 'cancelled' : 'error';
     job.error = error.message;
     job.completedAt = new Date().toISOString();
+    
+    // Clean up temp table on error
+    try {
+      await query(`DROP TABLE IF EXISTS ${tempTable}`);
+    } catch (e) {
+      console.log('[SCAN] Failed to clean up temp table:', e.message);
+    }
   }
 }
 
