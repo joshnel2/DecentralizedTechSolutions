@@ -400,22 +400,22 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
         paramIndex++;
       }
       
-      // For non-admins, apply permissions
-      if (!isAdmin) {
-        queryStr += ` AND (
-          d.uploaded_by = $${paramIndex}
-          OR d.owner_id = $${paramIndex}
-          OR d.privacy_level = 'firm'
-          OR (d.matter_id IS NOT NULL AND (
-            EXISTS (SELECT 1 FROM matters m2 WHERE m2.id = d.matter_id AND m2.responsible_attorney = $${paramIndex})
-            OR EXISTS (SELECT 1 FROM matters m2 WHERE m2.id = d.matter_id AND m2.originating_attorney = $${paramIndex})
-            OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = d.matter_id AND ma.user_id = $${paramIndex})
-            OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = d.matter_id AND mp.user_id = $${paramIndex})
-          ))
-        )`;
-        params.push(req.user.id);
-        paramIndex++;
-      }
+      // ALWAYS apply user-based permissions (even for admins)
+      // Admins use the mapped drive for full firm document access
+      // Web app Documents page shows only user's relevant documents
+      queryStr += ` AND (
+        d.uploaded_by = $${paramIndex}
+        OR d.owner_id = $${paramIndex}
+        OR d.privacy_level = 'firm'
+        OR (d.matter_id IS NOT NULL AND (
+          EXISTS (SELECT 1 FROM matters m2 WHERE m2.id = d.matter_id AND m2.responsible_attorney = $${paramIndex})
+          OR EXISTS (SELECT 1 FROM matters m2 WHERE m2.id = d.matter_id AND m2.originating_attorney = $${paramIndex})
+          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = d.matter_id AND ma.user_id = $${paramIndex})
+          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = d.matter_id AND mp.user_id = $${paramIndex})
+        ))
+      )`;
+      params.push(req.user.id);
+      paramIndex++;
       
       queryStr += ` ORDER BY d.folder_path, d.name LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
       params.push(parseInt(limit), parseInt(offset));
@@ -473,30 +473,28 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
           const firmFolder = `firm-${firmId}`;
           const azureFiles = [];
           
-          // For non-admins, get their accessible matters
+          // Get user's accessible matters (for ALL users, including admins)
           let accessibleMatterIds = new Set();
           let accessibleMatterNames = new Set();
-          if (!isAdmin) {
-            const mattersResult = await query(`
-              SELECT DISTINCT m.id, m.name, m.number FROM matters m
-              WHERE m.firm_id = $1 AND m.status != 'archived'
-                AND (
-                  m.visibility = 'firm_wide'
-                  OR m.responsible_attorney = $2
-                  OR m.originating_attorney = $2
-                  OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
-                  OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
-                )
-            `, [firmId, req.user.id]);
-            mattersResult.rows.forEach(m => {
-              accessibleMatterIds.add(m.id);
-              if (m.name) accessibleMatterNames.add(m.name.toLowerCase());
-              if (m.number) accessibleMatterNames.add(m.number.toLowerCase());
-            });
-          }
+          const mattersResult = await query(`
+            SELECT DISTINCT m.id, m.name, m.number FROM matters m
+            WHERE m.firm_id = $1 AND m.status != 'archived'
+              AND (
+                m.visibility = 'firm_wide'
+                OR m.responsible_attorney = $2
+                OR m.originating_attorney = $2
+                OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+                OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
+              )
+          `, [firmId, req.user.id]);
+          mattersResult.rows.forEach(m => {
+            accessibleMatterIds.add(m.id);
+            if (m.name) accessibleMatterNames.add(m.name.toLowerCase());
+            if (m.number) accessibleMatterNames.add(m.number.toLowerCase());
+          });
           
-          // Scan Azure for files (with limit for live scanning)
-          const MAX_LIVE_SCAN = isAdmin ? 2000 : 500;
+          // Scan Azure for files (limited for live scanning)
+          const MAX_LIVE_SCAN = 500;
           const scanDir = async (dirClient, relativePath = '') => {
             if (azureFiles.length >= MAX_LIVE_SCAN) return;
             try {
@@ -541,21 +539,17 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
           
           await scanDir(shareClient.getDirectoryClient(firmFolder));
           
-          let documents = azureFiles;
+          // Filter by user's accessible matters (applies to ALL users)
+          const documents = azureFiles.filter(doc => {
+            // Check if folder path matches an accessible matter name
+            const folderParts = (doc.folderPath || '').toLowerCase().split('/');
+            for (const part of folderParts) {
+              if (accessibleMatterNames.has(part)) return true;
+            }
+            return false;
+          });
           
-          // For non-admins, filter by permissions
-          if (!isAdmin) {
-            documents = documents.filter(doc => {
-              // Check if folder path matches an accessible matter name
-              const folderParts = (doc.folderPath || '').toLowerCase().split('/');
-              for (const part of folderParts) {
-                if (accessibleMatterNames.has(part)) return true;
-              }
-              return false;
-            });
-          }
-          
-          console.log(`[DOCS API] Found ${documents.length} files in Azure for firm ${firmId} (isAdmin: ${isAdmin})`);
+          console.log(`[DOCS API] Found ${documents.length} files in Azure for user ${req.user.email}`);
           
           return res.json({
             documents: documents.slice(parseInt(offset), parseInt(offset) + parseInt(limit)),
