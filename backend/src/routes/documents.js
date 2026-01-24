@@ -358,8 +358,75 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
     // Admins get capped at 100 (use mapped drive for full access)
     const limit = req.query.limit ? parseInt(req.query.limit) : (isAdmin ? 100 : 5000);
     
-    console.log(`[DOCS API] User: ${req.user.email}, Role: ${req.user.role}, FirmId: ${firmId}, isAdmin: ${isAdmin}`);
+    console.log(`[DOCS API] User: ${req.user.email}, Role: ${req.user.role}, FirmId: ${firmId}, isAdmin: ${isAdmin}, matterId: ${matterId || 'none'}`);
     
+    // FAST PATH: When loading documents for a specific matter (from Matter Detail page)
+    // Skip permission check - user already has access to the matter if they're viewing it
+    if (matterId) {
+      console.log(`[DOCS API] Fast path: Loading docs for matter ${matterId}`);
+      
+      let queryStr = `
+        SELECT d.*, m.name as matter_name, m.number as matter_number,
+               u.first_name || ' ' || u.last_name as uploaded_by_name
+        FROM documents d
+        LEFT JOIN matters m ON d.matter_id = m.id
+        LEFT JOIN users u ON d.uploaded_by = u.id
+        WHERE d.firm_id = $1 AND d.matter_id = $2
+      `;
+      const params = [firmId, matterId];
+      let paramIndex = 3;
+      
+      if (search) {
+        queryStr += ` AND (d.name ILIKE $${paramIndex} OR d.folder_path ILIKE $${paramIndex})`;
+        params.push(`%${search}%`);
+        paramIndex++;
+      }
+      
+      queryStr += ` ORDER BY d.folder_path, d.name LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+      params.push(parseInt(limit), parseInt(offset));
+      
+      const result = await query(queryStr, params);
+      
+      // Get total count for pagination
+      const countResult = await query(
+        `SELECT COUNT(*) FROM documents WHERE firm_id = $1 AND matter_id = $2`,
+        [firmId, matterId]
+      );
+      const total = parseInt(countResult.rows[0].count) || result.rows.length;
+      
+      const documents = result.rows.map(d => ({
+        id: d.id,
+        name: d.name,
+        originalName: d.original_name || d.name,
+        type: d.type,
+        size: d.size,
+        path: d.path,
+        folderPath: d.folder_path,
+        matterId: d.matter_id,
+        matterName: d.matter_name,
+        matterNumber: d.matter_number,
+        ownerId: d.owner_id,
+        uploadedBy: d.uploaded_by,
+        uploadedByName: d.uploaded_by_name,
+        uploadedAt: d.uploaded_at,
+        privacyLevel: d.privacy_level,
+        status: d.status,
+        storageLocation: d.storage_location || 'azure',
+        externalPath: d.external_path || d.path,
+        hasDbRecord: true
+      }));
+      
+      console.log(`[DOCS API] Fast path: Returning ${documents.length} docs for matter ${matterId}`);
+      
+      return res.json({
+        documents,
+        total,
+        source: 'database-fast',
+        pagination: { limit: parseInt(limit), offset: parseInt(offset) }
+      });
+    }
+    
+    // STANDARD PATH: Documents section without matter filter
     // For large datasets (after scan), use database as primary source
     // This is much faster than scanning Azure live
     const docCountResult = await query('SELECT COUNT(*) FROM documents WHERE firm_id = $1', [firmId]);
@@ -408,13 +475,6 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
       if (folder) {
         queryStr += ` AND d.folder_path = $${paramIndex}`;
         params.push(folder);
-        paramIndex++;
-      }
-      
-      // Filter by matter
-      if (matterId) {
-        queryStr += ` AND d.matter_id = $${paramIndex}`;
-        params.push(matterId);
         paramIndex++;
       }
       
