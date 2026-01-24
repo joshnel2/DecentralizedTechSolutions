@@ -1668,13 +1668,13 @@ async function runManifestScan(firmId, dryRun, job) {
       }[ext] || 'application/octet-stream';
     };
     
-    // Process in chunks using cursor-style pagination
+    // Process in chunks - no OFFSET needed since processed rows get filtered out
     const CHUNK_SIZE = 1000;
-    let lastId = 0;
     let hasMore = true;
     
     while (hasMore && !job.cancelled) {
       // Get next chunk of unmatched manifest entries WITH their Azure matches
+      // Rows get filtered out after processing (match_status updated), so always LIMIT from start
       const chunkResult = await query(`
         SELECT 
           m.id, m.name, m.size, m.matter_id, m.owner_id, m.content_type,
@@ -1682,11 +1682,10 @@ async function runManifestScan(firmId, dryRun, job) {
         FROM clio_document_manifest m
         LEFT JOIN ${tempTable} af ON LOWER(m.name) = af.name_lower
         WHERE m.firm_id = $1 
-          AND m.id > $2
           AND (m.match_status IS NULL OR m.match_status NOT IN ('matched', 'not_found'))
         ORDER BY m.id
-        LIMIT $3
-      `, [firmId, lastId, CHUNK_SIZE]);
+        LIMIT $2
+      `, [firmId, CHUNK_SIZE]);
       
       const chunk = chunkResult.rows;
       if (chunk.length === 0) {
@@ -1694,7 +1693,7 @@ async function runManifestScan(firmId, dryRun, job) {
         break;
       }
       
-      lastId = chunk[chunk.length - 1].id;
+      // No offset increment needed - processed rows get filtered out by match_status
       
       for (const entry of chunk) {
         if (job.cancelled) throw new Error('Scan cancelled by user');
