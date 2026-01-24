@@ -447,9 +447,21 @@ export default function SecureAdminDashboard() {
     firmId: string
     message: string
     success: boolean
+    // New manifest-based scan properties
+    manifestEntries?: number
+    azureFiles?: number
+    azureScanned?: number
+    processed?: number
+    matched?: number
+    created?: number
+    skipped?: number
+    missing?: number
+    alreadyMatched?: number
+    withMatter?: number
+    withoutMatter?: number
+    // Legacy properties (for compatibility)
     scanned?: number
     added?: number
-    matched?: number
     matchedFolders?: Array<{ folder: string; matterName: string; fileCount: number }>
     unmatchedFolders?: Array<{ folder: string; fileCount: number }>
     orphanCount?: number
