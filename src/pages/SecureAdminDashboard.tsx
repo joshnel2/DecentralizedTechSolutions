@@ -1081,13 +1081,28 @@ export default function SecureAdminDashboard() {
             // Update progress display
             if (status.status === 'running') {
               const progress = status.progress || {}
+              const phase = status.phase || ''
+              
+              let phaseMessage = 'Processing...'
+              if (phase === 'scanning_azure') {
+                phaseMessage = `Indexing Azure files... ${(progress.azureScanned || 0).toLocaleString()} found`
+              } else if (phase === 'matching') {
+                phaseMessage = `Matching: ${(progress.processed || 0).toLocaleString()}/${(progress.pending || '?').toLocaleString()} (${progress.percent || 0}%)`
+              } else if (phase === 'preparing') {
+                phaseMessage = 'Preparing database...'
+              } else if (phase === 'finalizing') {
+                phaseMessage = 'Finalizing...'
+              }
+              
               setScanResult({
                 firmId,
-                message: `${status.phase === 'listing_azure' ? 'Scanning Azure...' : 'Matching files...'} ${progress.processed?.toLocaleString() || 0}/${progress.total?.toLocaleString() || '?'} (${progress.percent || 0}%)`,
+                message: phaseMessage,
                 success: true,
+                azureScanned: progress.azureScanned,
                 processed: progress.processed,
                 matched: progress.matched,
-                created: progress.created
+                created: progress.created,
+                alreadyMatched: progress.alreadyMatched
               })
             } else if (status.status === 'completed' && status.results) {
               clearInterval(pollInterval)
