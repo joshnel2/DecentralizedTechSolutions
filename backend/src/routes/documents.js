@@ -369,15 +369,40 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
     if (totalDocsInDb > 0) {
       console.log(`[DOCS API] Using database (${totalDocsInDb} docs) for firm ${firmId}`);
       
-      // Build query based on filters
+      // STEP 1: Get user's accessible matter IDs (fast, small result)
+      const userMattersResult = await query(`
+        SELECT DISTINCT m.id FROM matters m
+        WHERE m.firm_id = $1 AND (
+          m.responsible_attorney = $2
+          OR m.originating_attorney = $2
+          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
+        )
+      `, [firmId, req.user.id]);
+      
+      const userMatterIds = userMattersResult.rows.map(r => r.id);
+      console.log(`[DOCS API] User ${req.user.email} has access to ${userMatterIds.length} matters`);
+      
+      // STEP 2: Simple query with IN clause (much faster than EXISTS on every row)
       let queryStr = `
         SELECT d.*, m.name as matter_name, m.number as matter_number
         FROM documents d
         LEFT JOIN matters m ON d.matter_id = m.id
         WHERE d.firm_id = $1
+          AND (
+            d.uploaded_by = $2
+            OR d.owner_id = $2
+            OR d.privacy_level = 'firm'
+            ${userMatterIds.length > 0 ? `OR d.matter_id = ANY($3)` : ''}
+          )
       `;
-      const params = [firmId];
-      let paramIndex = 2;
+      const params = [firmId, req.user.id];
+      let paramIndex = 3;
+      
+      if (userMatterIds.length > 0) {
+        params.push(userMatterIds);
+        paramIndex++;
+      }
       
       // Filter by folder path
       if (folder) {
@@ -400,33 +425,22 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
         paramIndex++;
       }
       
-      // ALWAYS apply user-based permissions (even for admins)
-      // Admins use the mapped drive for full firm document access
-      // Web app Documents page shows only user's relevant documents
-      queryStr += ` AND (
-        d.uploaded_by = $${paramIndex}
-        OR d.owner_id = $${paramIndex}
-        OR d.privacy_level = 'firm'
-        OR (d.matter_id IS NOT NULL AND (
-          EXISTS (SELECT 1 FROM matters m2 WHERE m2.id = d.matter_id AND m2.responsible_attorney = $${paramIndex})
-          OR EXISTS (SELECT 1 FROM matters m2 WHERE m2.id = d.matter_id AND m2.originating_attorney = $${paramIndex})
-          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = d.matter_id AND ma.user_id = $${paramIndex})
-          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = d.matter_id AND mp.user_id = $${paramIndex})
-        ))
-      )`;
-      params.push(req.user.id);
-      paramIndex++;
-      
       queryStr += ` ORDER BY d.folder_path, d.name LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
       params.push(parseInt(limit), parseInt(offset));
       
       const result = await query(queryStr, params);
       
-      // Get total count (without limit/offset)
-      let countQuery = queryStr.replace(/ORDER BY.*$/, '').replace(/SELECT d\.\*, m\.name as matter_name, m\.number as matter_number/, 'SELECT COUNT(*)');
-      // Remove LIMIT and OFFSET params
-      const countParams = params.slice(0, -2);
-      const countResult = await query(countQuery, countParams);
+      // Get total count efficiently
+      const countResult = await query(`
+        SELECT COUNT(*) FROM documents d
+        WHERE d.firm_id = $1
+          AND (
+            d.uploaded_by = $2
+            OR d.owner_id = $2
+            OR d.privacy_level = 'firm'
+            ${userMatterIds.length > 0 ? `OR d.matter_id = ANY($3)` : ''}
+          )
+      `, userMatterIds.length > 0 ? [firmId, req.user.id, userMatterIds] : [firmId, req.user.id]);
       const total = parseInt(countResult.rows[0].count) || result.rows.length;
       
       const documents = result.rows.map(d => ({
