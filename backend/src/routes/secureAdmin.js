@@ -1718,6 +1718,11 @@ async function runManifestScan(firmId, dryRun, job) {
             const mimeType = entry.content_type || getMimeType(entry.name);
             const folderPath = entry.azure_path.split('/').slice(0, -1).join('/');
             
+            // Ensure UUIDs are valid or null (not "0" or empty string)
+            const isValidUuid = (val) => val && typeof val === 'string' && val.length > 10 && val !== '0';
+            const matterId = isValidUuid(entry.matter_id) ? entry.matter_id : null;
+            const ownerId = isValidUuid(entry.owner_id) ? entry.owner_id : null;
+            
             // Upsert document
             const insertResult = await query(`
               INSERT INTO documents (
@@ -1731,14 +1736,14 @@ async function runManifestScan(firmId, dryRun, job) {
               RETURNING (xmax = 0) as was_inserted
             `, [
               firmId,
-              entry.matter_id,
-              entry.owner_id,
+              matterId,
+              ownerId,
               entry.name,
               entry.azure_path,
               folderPath,
               mimeType,
               entry.size || 0,
-              entry.matter_id ? 'team' : 'firm'
+              matterId ? 'team' : 'firm'
             ]);
             
             if (insertResult.rows[0]?.was_inserted) {
