@@ -1724,11 +1724,36 @@ export const driveApi = {
     return fetchWithAuth(`/drive/browse${params}`);
   },
 
-  // Admin: Browse all files (from database - instant)
-  async browseAllFiles(search?: string) {
+  // Browse files with lazy loading support
+  async browseAllFiles(options?: {
+    search?: string;
+    folderPath?: string;  // Load specific folder (lazy loading)
+    matterId?: string;    // Load specific matter (fast matter loading)
+    limit?: number;       // Pagination limit
+    offset?: number;      // Pagination offset
+    foldersOnly?: boolean; // Only load folder structure
+  }) {
     const params = new URLSearchParams();
-    if (search) params.set('search', search);
+    if (options?.search) params.set('search', options.search);
+    if (options?.folderPath) params.set('folderPath', options.folderPath);
+    if (options?.matterId) params.set('matterId', options.matterId);
+    if (options?.limit) params.set('limit', options.limit.toString());
+    if (options?.offset) params.set('offset', options.offset.toString());
+    if (options?.foldersOnly) params.set('foldersOnly', 'true');
     return fetchWithAuth(`/drive/browse-all?${params}`);
+  },
+
+  // Fast load documents for a specific matter
+  async getMatterDocuments(matterId: string, options?: {
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    const params = new URLSearchParams();
+    if (options?.search) params.set('search', options.search);
+    if (options?.limit) params.set('limit', options.limit.toString());
+    if (options?.offset) params.set('offset', options.offset.toString());
+    return fetchWithAuth(`/drive/matter/${matterId}/documents?${params}`);
   },
   
   // Sync files from Azure to database

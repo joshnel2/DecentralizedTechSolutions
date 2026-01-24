@@ -122,26 +122,65 @@ export function FolderBrowser({
     return tree
   }, [])
 
-  // Fetch files from database (instant)
-  const fetchData = useCallback(async () => {
-    setLoading(true)
+  // State for lazy loading
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [totalCount, setTotalCount] = useState(0)
+  
+  // Fetch folder structure and initial documents (lazy loading)
+  const fetchData = useCallback(async (folderPath?: string, append = false) => {
+    if (append) {
+      setLoadingMore(true)
+    } else {
+      setLoading(true)
+    }
     setError(null)
     
     try {
-      const result = await driveApi.browseAllFiles(searchQuery || undefined)
-      setBrowseData(result)
+      // Calculate offset for pagination
+      const currentOffset = append && browseData ? browseData.files.length : 0
+      
+      const result = await driveApi.browseAllFiles({
+        search: searchQuery || undefined,
+        folderPath: folderPath || currentPath || undefined,
+        limit: 100,
+        offset: currentOffset
+      })
+      
+      if (append && browseData) {
+        // Append to existing files
+        setBrowseData({
+          ...result,
+          files: [...browseData.files, ...result.files]
+        })
+      } else {
+        setBrowseData(result)
+      }
       
       if (result.folders) {
         const tree = buildFolderTree(result.folders)
         setFolderTree(tree)
       }
+      
+      // Update pagination state
+      setHasMore(result.pagination?.hasMore || false)
+      setTotalCount(result.pagination?.total || result.files?.length || 0)
+      
     } catch (err: any) {
       console.error('Failed to load files:', err)
       setError(err.message || 'Failed to load documents')
     } finally {
       setLoading(false)
+      setLoadingMore(false)
     }
-  }, [buildFolderTree, searchQuery])
+  }, [buildFolderTree, searchQuery, currentPath, browseData])
+  
+  // Load more documents (pagination)
+  const loadMore = useCallback(() => {
+    if (!loadingMore && hasMore) {
+      fetchData(currentPath, true)
+    }
+  }, [fetchData, currentPath, loadingMore, hasMore])
   
   // Sync from Azure (runs in background)
   const syncFromAzure = useCallback(async () => {
@@ -235,7 +274,7 @@ export function FolderBrowser({
     setExpandedFolders(newExpanded)
   }
 
-  // Navigate to folder
+  // Navigate to folder with lazy loading
   const navigateToFolder = (path: string) => {
     setCurrentPath(path)
     onFolderSelect?.(path)
@@ -249,6 +288,9 @@ export function FolderBrowser({
       newExpanded.add(currentParent)
     }
     setExpandedFolders(newExpanded)
+    
+    // Lazy load documents for this folder
+    fetchData(path, false)
   }
 
   // Get file icon based on type
@@ -364,7 +406,7 @@ export function FolderBrowser({
             {browseData?.userScoped && <span className={styles.userBadge}>Your Access</span>}
           </h2>
           <div className={styles.headerActions}>
-            <button onClick={fetchData} className={styles.refreshBtn} title="Refresh">
+            <button onClick={() => fetchData()} className={styles.refreshBtn} title="Refresh">
               <RefreshCw size={16} />
             </button>
             {browseData?.isAdmin && (
@@ -567,18 +609,44 @@ export function FolderBrowser({
             </table>
           </div>
 
+          {/* Load More Button */}
+          {hasMore && !loading && (
+            <div className={styles.loadMoreContainer}>
+              <button 
+                onClick={loadMore} 
+                className={styles.loadMoreBtn}
+                disabled={loadingMore}
+              >
+                {loadingMore ? (
+                  <>
+                    <Loader2 size={16} className={styles.spinner} />
+                    Loading more...
+                  </>
+                ) : (
+                  `Load More (${currentDocuments.length} of ${totalCount})`
+                )}
+              </button>
+            </div>
+          )}
+
           {/* Stats footer */}
           {browseData?.stats && (
             <div className={styles.footer}>
               <span>{currentDocuments.length} documents in this view</span>
               <span className={styles.divider}>•</span>
-              <span>{browseData.stats.totalFiles} total files</span>
+              <span>{totalCount || browseData.stats.totalFiles} total files</span>
               <span className={styles.divider}>•</span>
               <span>{formatSize(browseData.stats.totalSize)}</span>
               {browseData.source === 'cache' && (
                 <>
                   <span className={styles.divider}>•</span>
                   <span className={styles.cacheIndicator}>Cached</span>
+                </>
+              )}
+              {hasMore && (
+                <>
+                  <span className={styles.divider}>•</span>
+                  <span className={styles.moreIndicator}>More available</span>
                 </>
               )}
             </div>

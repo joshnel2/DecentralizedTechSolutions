@@ -1861,6 +1861,138 @@ router.get('/my-documents', authenticate, async (req, res) => {
   }
 });
 
+/**
+ * FAST MATTER DOCUMENTS - Optimized endpoint for loading documents within a matter
+ * 
+ * This endpoint is designed for fast loading when users are viewing a specific matter.
+ * It uses optimized queries and returns only essential data.
+ * 
+ * Clio-style permissions are enforced - users can only see matter documents if they have access.
+ */
+router.get('/matter/:matterId/documents', authenticate, async (req, res) => {
+  try {
+    const { matterId } = req.params;
+    const { search, limit = 100, offset = 0 } = req.query;
+    const firmId = req.user.firmId;
+    const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
+    const maxLimit = Math.min(parseInt(limit) || 100, 500);
+    const pageOffset = parseInt(offset) || 0;
+    
+    // Verify matter exists and user has access
+    let matterResult;
+    if (isAdmin) {
+      matterResult = await query(
+        `SELECT id, name, case_number, client_id FROM matters WHERE id = $1 AND firm_id = $2`,
+        [matterId, firmId]
+      );
+    } else {
+      matterResult = await query(`
+        SELECT m.id, m.name, m.case_number, m.client_id FROM matters m
+        WHERE m.id = $1 AND m.firm_id = $2 AND (
+          m.visibility = 'firm_wide'
+          OR m.responsible_attorney = $3
+          OR m.originating_attorney = $3
+          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $3)
+          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $3)
+        )
+      `, [matterId, firmId, req.user.id]);
+    }
+    
+    if (matterResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Matter not found or access denied' });
+    }
+    
+    const matter = matterResult.rows[0];
+    
+    // Fast query for matter documents
+    let docSql = `
+      SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path,
+             d.uploaded_at, d.version_count, d.privacy_level,
+             COALESCE(d.external_path, d.path) as azure_path,
+             u.first_name || ' ' || u.last_name as uploaded_by_name
+      FROM documents d
+      LEFT JOIN users u ON d.uploaded_by = u.id
+      WHERE d.firm_id = $1 AND d.matter_id = $2
+    `;
+    const params = [firmId, matterId];
+    let paramIdx = 3;
+    
+    if (search) {
+      docSql += ` AND d.name ILIKE $${paramIdx}`;
+      params.push(`%${search}%`);
+      paramIdx++;
+    }
+    
+    // Get count for pagination
+    const countSql = docSql.replace('SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path,\n             d.uploaded_at, d.version_count, d.privacy_level,\n             COALESCE(d.external_path, d.path) as azure_path,\n             u.first_name || \' \' || u.last_name as uploaded_by_name', 'SELECT COUNT(*)');
+    
+    docSql += ` ORDER BY d.folder_path, d.name LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`;
+    params.push(maxLimit, pageOffset);
+    
+    // Execute in parallel
+    const [docsResult, countResult] = await Promise.all([
+      query(docSql, params),
+      query(countSql, params.slice(0, -2)) // Remove limit/offset for count
+    ]);
+    
+    const totalCount = parseInt(countResult.rows[0]?.count) || 0;
+    const hasMore = docsResult.rows.length === maxLimit && (pageOffset + docsResult.rows.length) < totalCount;
+    
+    // Build folder tree for this matter
+    const folderSet = new Set();
+    const documents = docsResult.rows.map(d => {
+      if (d.folder_path) {
+        folderSet.add(d.folder_path);
+        const parts = d.folder_path.split('/');
+        for (let i = 1; i < parts.length; i++) {
+          folderSet.add(parts.slice(0, i).join('/'));
+        }
+      }
+      return {
+        id: d.id,
+        name: d.name,
+        originalName: d.original_name || d.name,
+        contentType: d.type,
+        size: d.size || 0,
+        folderPath: d.folder_path || '',
+        azurePath: d.azure_path,
+        uploadedAt: d.uploaded_at,
+        uploadedByName: d.uploaded_by_name,
+        versionCount: d.version_count || 1,
+        privacyLevel: d.privacy_level
+      };
+    });
+    
+    console.log(`[MATTER DOCS] Loaded ${documents.length}/${totalCount} docs for matter ${matterId}`);
+    
+    res.json({
+      matter: {
+        id: matter.id,
+        name: matter.name,
+        caseNumber: matter.case_number,
+        clientId: matter.client_id
+      },
+      documents,
+      folders: Array.from(folderSet).sort(),
+      pagination: {
+        limit: maxLimit,
+        offset: pageOffset,
+        total: totalCount,
+        hasMore
+      },
+      stats: {
+        totalDocuments: totalCount,
+        loadedDocuments: documents.length,
+        totalSize: documents.reduce((sum, d) => sum + (d.size || 0), 0)
+      }
+    });
+    
+  } catch (error) {
+    console.error('Get matter documents error:', error);
+    res.status(500).json({ error: 'Failed to get matter documents' });
+  }
+});
+
 // Get Azure connection info for admin to map drive (secondary endpoint for backwards compat)
 // Note: Primary endpoint is earlier in file with more detailed response
 
@@ -2146,50 +2278,42 @@ router.get('/download-azure', authenticate, async (req, res) => {
 });
 
 /**
- * APEX DRIVE - Get files from database (instant load)
+ * APEX DRIVE - Get files from database with lazy loading
+ * 
+ * Query params:
+ * - search: Search filter for document names
+ * - folderPath: Load only documents in this folder (for lazy loading)
+ * - matterId: Load only documents for this matter (fast matter loading)
+ * - limit: Max number of documents to return (default 100)
+ * - offset: Offset for pagination
+ * - foldersOnly: Only return folder structure (for initial load)
  * 
  * Clio-style permission filtering:
  * - Admins (owner/admin): See ALL documents in the firm
- * - Regular users: See only documents they can access:
- *   1. Documents they uploaded
- *   2. Documents they own
- *   3. Documents in matters they have permission to
- *   4. Documents explicitly shared with them
- *   5. Firm-wide privacy level documents
+ * - Regular users: See only documents they can access
  */
 router.get('/browse-all', authenticate, async (req, res) => {
   try {
-    const { search } = req.query;
+    const { 
+      search, 
+      folderPath,     // Filter by specific folder (lazy loading)
+      matterId,       // Filter by specific matter (fast matter loading)
+      limit = 100,    // Default limit for pagination
+      offset = 0,     // Pagination offset
+      foldersOnly     // Only return folder structure
+    } = req.query;
+    
     const firmId = req.user.firmId;
     const firmFolder = `firm-${firmId}`;
     const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
+    const maxLimit = Math.min(parseInt(limit) || 100, 500); // Cap at 500 for performance
+    const pageOffset = parseInt(offset) || 0;
     
-    console.log(`[BROWSE-ALL] User: ${req.user.email}, Role: ${req.user.role}, isAdmin: ${isAdmin}`);
+    console.log(`[BROWSE-ALL] User: ${req.user.email}, isAdmin: ${isAdmin}, folder: ${folderPath || 'all'}, matter: ${matterId || 'none'}, limit: ${maxLimit}`);
     
-    let sql;
-    let params;
-    
-    if (isAdmin) {
-      // Admins see all documents
-      sql = `
-        SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path, 
-               d.matter_id, m.name as matter_name, m.case_number as matter_number,
-               d.uploaded_by, d.owner_id, d.privacy_level,
-               COALESCE(d.external_path, d.path) as azure_path,
-               d.uploaded_at
-        FROM documents d
-        LEFT JOIN matters m ON d.matter_id = m.id
-        WHERE d.firm_id = $1
-      `;
-      params = [firmId];
-      
-      if (search) {
-        sql += ` AND (d.name ILIKE $2 OR d.folder_path ILIKE $2)`;
-        params.push(`%${search}%`);
-      }
-    } else {
-      // Non-admins: Apply Clio-style permission filtering
-      // Get user's accessible matter IDs first (efficient query)
+    // For non-admins, get accessible matter IDs first (cached for efficiency)
+    let userMatterIds = [];
+    if (!isAdmin) {
       const userMattersResult = await query(`
         SELECT DISTINCT m.id FROM matters m
         WHERE m.firm_id = $1 AND m.status != 'archived' AND (
@@ -2200,9 +2324,119 @@ router.get('/browse-all', authenticate, async (req, res) => {
           OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
         )
       `, [firmId, req.user.id]);
+      userMatterIds = userMattersResult.rows.map(r => r.id);
       
-      const userMatterIds = userMattersResult.rows.map(r => r.id);
-      console.log(`[BROWSE-ALL] User ${req.user.email} has access to ${userMatterIds.length} matters`);
+      // If matterId specified, verify user has access
+      if (matterId && !userMatterIds.includes(matterId)) {
+        return res.status(403).json({ error: 'Access denied to this matter' });
+      }
+    }
+    
+    // If only requesting folder structure (fast initial load)
+    if (foldersOnly === 'true') {
+      let foldersSql = `
+        SELECT DISTINCT folder_path 
+        FROM documents 
+        WHERE firm_id = $1 AND folder_path IS NOT NULL AND folder_path != ''
+      `;
+      const foldersParams = [firmId];
+      
+      if (!isAdmin) {
+        // Add permission filter for folders
+        let folderParamIdx = 2;
+        foldersSql = `
+          SELECT DISTINCT d.folder_path 
+          FROM documents d
+          WHERE d.firm_id = $1 AND d.folder_path IS NOT NULL AND d.folder_path != ''
+            AND (
+              d.uploaded_by = $2 OR d.owner_id = $2 OR d.privacy_level = 'firm'
+              ${userMatterIds.length > 0 ? `OR d.matter_id = ANY($3)` : ''}
+            )
+        `;
+        foldersParams.push(req.user.id);
+        if (userMatterIds.length > 0) {
+          foldersParams.push(userMatterIds);
+        }
+      }
+      
+      foldersSql += ` ORDER BY folder_path LIMIT 1000`;
+      const foldersResult = await query(foldersSql, foldersParams);
+      
+      // Build folder tree
+      const folderSet = new Set();
+      foldersResult.rows.forEach(row => {
+        if (row.folder_path) {
+          folderSet.add(row.folder_path);
+          const parts = row.folder_path.split('/');
+          for (let i = 1; i < parts.length; i++) {
+            folderSet.add(parts.slice(0, i).join('/'));
+          }
+        }
+      });
+      
+      return res.json({
+        configured: true,
+        isAdmin,
+        firmFolder,
+        files: [],
+        folders: Array.from(folderSet).sort(),
+        stats: { totalFolders: folderSet.size },
+        source: 'database',
+        foldersOnly: true
+      });
+    }
+    
+    // Build main document query with pagination
+    let sql;
+    let params;
+    let countSql;
+    let countParams;
+    
+    if (isAdmin) {
+      sql = `
+        SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path, 
+               d.matter_id, m.name as matter_name, m.case_number as matter_number,
+               d.uploaded_by, d.owner_id, d.privacy_level,
+               COALESCE(d.external_path, d.path) as azure_path,
+               d.uploaded_at
+        FROM documents d
+        LEFT JOIN matters m ON d.matter_id = m.id
+        WHERE d.firm_id = $1
+      `;
+      countSql = `SELECT COUNT(*) FROM documents d WHERE d.firm_id = $1`;
+      params = [firmId];
+      countParams = [firmId];
+      let paramIdx = 2;
+      
+      // Matter-specific loading (fast path)
+      if (matterId) {
+        sql += ` AND d.matter_id = $${paramIdx}`;
+        countSql += ` AND d.matter_id = $${paramIdx}`;
+        params.push(matterId);
+        countParams.push(matterId);
+        paramIdx++;
+      }
+      
+      // Folder-specific loading (lazy load)
+      if (folderPath) {
+        sql += ` AND (d.folder_path = $${paramIdx} OR d.folder_path LIKE $${paramIdx + 1})`;
+        countSql += ` AND (d.folder_path = $${paramIdx} OR d.folder_path LIKE $${paramIdx + 1})`;
+        params.push(folderPath, folderPath + '/%');
+        countParams.push(folderPath, folderPath + '/%');
+        paramIdx += 2;
+      }
+      
+      // Search filter
+      if (search) {
+        sql += ` AND (d.name ILIKE $${paramIdx} OR d.folder_path ILIKE $${paramIdx})`;
+        countSql += ` AND (d.name ILIKE $${paramIdx} OR d.folder_path ILIKE $${paramIdx})`;
+        params.push(`%${search}%`);
+        countParams.push(`%${search}%`);
+        paramIdx++;
+      }
+    } else {
+      // Non-admin with permission filtering
+      const matterArrayIdx = userMatterIds.length > 0 ? 3 : -1;
       
       sql = `
         SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path, 
@@ -2219,15 +2453,8 @@ router.get('/browse-all', authenticate, async (req, res) => {
         LEFT JOIN matters m ON d.matter_id = m.id
         WHERE d.firm_id = $1
           AND (
-            -- Document they uploaded
-            d.uploaded_by = $2
-            -- Document they own
-            OR d.owner_id = $2
-            -- Firm-wide privacy level
-            OR d.privacy_level = 'firm'
-            -- Document in accessible matter
-            ${userMatterIds.length > 0 ? `OR d.matter_id = ANY($3)` : ''}
-            -- Has explicit document permission
+            d.uploaded_by = $2 OR d.owner_id = $2 OR d.privacy_level = 'firm'
+            ${matterArrayIdx > 0 ? `OR d.matter_id = ANY($${matterArrayIdx})` : ''}
             OR EXISTS (
               SELECT 1 FROM document_permissions dp
               WHERE dp.document_id = d.id AND dp.user_id = $2 AND dp.can_view = true
@@ -2235,25 +2462,72 @@ router.get('/browse-all', authenticate, async (req, res) => {
             )
           )
       `;
+      
+      countSql = `
+        SELECT COUNT(*) FROM documents d
+        WHERE d.firm_id = $1
+          AND (
+            d.uploaded_by = $2 OR d.owner_id = $2 OR d.privacy_level = 'firm'
+            ${matterArrayIdx > 0 ? `OR d.matter_id = ANY($${matterArrayIdx})` : ''}
+            OR EXISTS (
+              SELECT 1 FROM document_permissions dp
+              WHERE dp.document_id = d.id AND dp.user_id = $2 AND dp.can_view = true
+                AND (dp.expires_at IS NULL OR dp.expires_at > NOW())
+            )
+          )
+      `;
+      
       params = [firmId, req.user.id];
+      countParams = [firmId, req.user.id];
       
       if (userMatterIds.length > 0) {
         params.push(userMatterIds);
+        countParams.push(userMatterIds);
       }
       
-      // Add search filter
+      let paramIdx = params.length + 1;
+      
+      // Matter-specific loading (fast path)
+      if (matterId) {
+        sql += ` AND d.matter_id = $${paramIdx}`;
+        countSql += ` AND d.matter_id = $${paramIdx}`;
+        params.push(matterId);
+        countParams.push(matterId);
+        paramIdx++;
+      }
+      
+      // Folder-specific loading (lazy load)
+      if (folderPath) {
+        sql += ` AND (d.folder_path = $${paramIdx} OR d.folder_path LIKE $${paramIdx + 1})`;
+        countSql += ` AND (d.folder_path = $${paramIdx} OR d.folder_path LIKE $${paramIdx + 1})`;
+        params.push(folderPath, folderPath + '/%');
+        countParams.push(folderPath, folderPath + '/%');
+        paramIdx += 2;
+      }
+      
+      // Search filter
       if (search) {
-        const searchParamIdx = params.length + 1;
-        sql += ` AND (d.name ILIKE $${searchParamIdx} OR d.folder_path ILIKE $${searchParamIdx})`;
+        sql += ` AND (d.name ILIKE $${paramIdx} OR d.folder_path ILIKE $${paramIdx})`;
+        countSql += ` AND (d.name ILIKE $${paramIdx} OR d.folder_path ILIKE $${paramIdx})`;
         params.push(`%${search}%`);
+        countParams.push(`%${search}%`);
+        paramIdx++;
       }
     }
     
-    sql += ` ORDER BY d.folder_path, d.name LIMIT 10000`;
+    // Add ordering and pagination
+    sql += ` ORDER BY d.folder_path, d.name LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(maxLimit, pageOffset);
     
-    const result = await query(sql, params);
+    // Execute queries in parallel for speed
+    const [result, countResult] = await Promise.all([
+      query(sql, params),
+      query(countSql, countParams)
+    ]);
     
-    // Build folder tree (only from accessible documents)
+    const totalCount = parseInt(countResult.rows[0]?.count) || 0;
+    
+    // Build folder tree (only from current page results for efficiency)
     const folderSet = new Set();
     const files = result.rows.map(row => {
       if (row.folder_path) {
@@ -2284,28 +2558,32 @@ router.get('/browse-all', authenticate, async (req, res) => {
       };
     });
     
-    // Get accessible matters for folder navigation
-    let mattersResult;
-    if (isAdmin) {
-      mattersResult = await query(
-        `SELECT id, name, case_number FROM matters WHERE firm_id = $1 AND status != 'closed' ORDER BY name`,
-        [firmId]
-      );
-    } else {
-      mattersResult = await query(`
-        SELECT DISTINCT m.id, m.name, m.case_number FROM matters m
-        WHERE m.firm_id = $1 AND m.status != 'closed' AND (
-          m.visibility = 'firm_wide'
-          OR m.responsible_attorney = $2
-          OR m.originating_attorney = $2
-          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
-          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
-        )
-        ORDER BY m.name
-      `, [firmId, req.user.id]);
+    // Only fetch matters list if not doing folder/matter-specific loading (saves query time)
+    let mattersResult = { rows: [] };
+    if (!folderPath && !matterId) {
+      if (isAdmin) {
+        mattersResult = await query(
+          `SELECT id, name, case_number FROM matters WHERE firm_id = $1 AND status != 'closed' ORDER BY name LIMIT 100`,
+          [firmId]
+        );
+      } else {
+        mattersResult = await query(`
+          SELECT DISTINCT m.id, m.name, m.case_number FROM matters m
+          WHERE m.firm_id = $1 AND m.status != 'closed' AND (
+            m.visibility = 'firm_wide'
+            OR m.responsible_attorney = $2
+            OR m.originating_attorney = $2
+            OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+            OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
+          )
+          ORDER BY m.name LIMIT 100
+        `, [firmId, req.user.id]);
+      }
     }
     
-    console.log(`[BROWSE-ALL] Returning ${files.length} files for user ${req.user.email}`);
+    const hasMore = files.length === maxLimit && (pageOffset + files.length) < totalCount;
+    
+    console.log(`[BROWSE-ALL] Returning ${files.length}/${totalCount} files for ${req.user.email}, hasMore: ${hasMore}`);
     
     return res.json({
       configured: true,
@@ -2320,15 +2598,31 @@ router.get('/browse-all', authenticate, async (req, res) => {
         folderPath: `Matters/${m.name.replace(/[^a-zA-Z0-9 -]/g, '_')}`
       })),
       stats: { 
-        totalFiles: files.length, 
+        totalFiles: totalCount,
+        loadedFiles: files.length,
         totalFolders: folderSet.size,
         totalSize: files.reduce((sum, f) => sum + (f.size || 0), 0)
       },
+      pagination: {
+        limit: maxLimit,
+        offset: pageOffset,
+        hasMore,
+        total: totalCount
+      },
       source: 'database',
       userScoped: !isAdmin,
-      message: isAdmin 
-        ? 'Showing all firm documents' 
-        : `Showing your documents and documents from ${mattersResult.rows.length} matters you have access to`
+      filters: {
+        folderPath: folderPath || null,
+        matterId: matterId || null,
+        search: search || null
+      },
+      message: matterId 
+        ? `Showing documents for this matter`
+        : folderPath
+          ? `Showing documents in ${folderPath}`
+          : isAdmin 
+            ? 'Showing all firm documents' 
+            : `Showing your documents and documents from ${mattersResult.rows.length} matters`
     });
     
   } catch (error) {
