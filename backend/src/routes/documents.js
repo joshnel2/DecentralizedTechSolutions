@@ -350,9 +350,13 @@ router.get('/azure-files', authenticate, async (req, res) => {
 
 router.get('/', authenticate, requirePermission('documents:view'), async (req, res) => {
   try {
-    const { matterId, clientId, search, status, limit = 100, offset = 0, source = 'auto', folder } = req.query;
+    const { matterId, clientId, search, status, offset = 0, source = 'auto', folder } = req.query;
     const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
     const firmId = req.user.firmId;
+    
+    // Users get all their docs (filtered, so manageable count)
+    // Admins get capped (they should use mapped drive for full access)
+    const limit = req.query.limit ? parseInt(req.query.limit) : (isAdmin ? 500 : 5000);
     
     console.log(`[DOCS API] User: ${req.user.email}, Role: ${req.user.role}, FirmId: ${firmId}, isAdmin: ${isAdmin}`);
     
