@@ -1491,7 +1491,9 @@ router.post('/firms/:firmId/scan-documents', requireSecureAdmin, async (req, res
 // - SQL-based matching (no memory limits)
 // - Resumable (stores progress in database)
 async function runManifestScan(firmId, dryRun, job) {
-  const tempTable = `azure_files_${firmId}_${Date.now()}`;
+  // Replace dashes with underscores for valid PostgreSQL table name
+  const safeId = firmId.replace(/-/g, '_');
+  const tempTable = `azure_files_${safeId}_${Date.now()}`;
   
   try {
     const results = { 
