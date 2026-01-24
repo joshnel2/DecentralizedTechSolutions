@@ -460,10 +460,22 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
       });
     }
     
-    // Fallback: Scan Azure directly (only if DB is empty)
-    // This is slower but works before first scan
-    console.log(`[DOCS API] No docs in DB, scanning Azure directly for firm ${firmId}`);
+    // No Azure fallback - just return empty if no docs in DB
+    // Users must run the scan first to populate documents
+    console.log(`[DOCS API] No docs in DB for firm ${firmId} - scan required`);
     
+    // DISABLED: Azure live scanning - too slow for large firms
+    // Documents must be imported via Scan first
+    // Return empty result with message to run scan
+    return res.json({
+      documents: [],
+      total: 0,
+      source: 'database',
+      needsScan: true,
+      message: 'No documents in database. Run "Scan Documents" from admin portal first.'
+    });
+    
+    /* DISABLED - Azure live scan
     if (source !== 'db-only') {
       try {
         const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
@@ -563,6 +575,7 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
         console.log(`[DOCS API] Azure scan failed, falling back to database:`, azureErr.message);
       }
     }
+    END DISABLED Azure live scan */
     
     // Fallback: query database (for non-admins or if Azure fails)
     const accessFilter = await buildDocumentAccessFilter(
