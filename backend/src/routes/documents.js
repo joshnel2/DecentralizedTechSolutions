@@ -11,6 +11,7 @@ import { buildDocumentAccessFilter, canAccessDocument, requireDocumentAccess, FU
 import mammoth from 'mammoth';
 import { uploadFile, isAzureConfigured, downloadFile } from '../utils/azureStorage.js';
 import { learnFromDocument } from '../services/manualLearning.js';
+import * as documentCache from '../services/documentCache.js';
 
 // Use createRequire for CommonJS modules
 import { createRequire } from 'module';
@@ -354,33 +355,42 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
     const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
     const firmId = req.user.firmId;
     
-    // Users get all their docs (filtered, so manageable count)
+    // Pagination: Users get all their docs (filtered, so manageable count)
     // Admins get capped at 100 (use mapped drive for full access)
     const limit = req.query.limit ? parseInt(req.query.limit) : (isAdmin ? 100 : 5000);
+    const parsedOffset = parseInt(offset) || 0;
     
     console.log(`[DOCS API] User: ${req.user.email}, Role: ${req.user.role}, FirmId: ${firmId}, isAdmin: ${isAdmin}`);
     
-    // For large datasets (after scan), use database as primary source
-    // This is much faster than scanning Azure live
-    const docCountResult = await query('SELECT COUNT(*) FROM documents WHERE firm_id = $1', [firmId]);
-    const totalDocsInDb = parseInt(docCountResult.rows[0].count) || 0;
+    // OPTIMIZED: Use cached firm document count
+    const totalDocsInDb = await documentCache.getFirmDocumentCount(firmId, async () => {
+      const result = await query('SELECT COUNT(*) FROM documents WHERE firm_id = $1', [firmId]);
+      return parseInt(result.rows[0].count) || 0;
+    });
     
     // If we have documents in DB, use DB-first approach (fast)
     if (totalDocsInDb > 0) {
       console.log(`[DOCS API] Using database (${totalDocsInDb} docs) for firm ${firmId}`);
       
-      // STEP 1: Get user's accessible matter IDs (fast, small result)
-      const userMattersResult = await query(`
-        SELECT DISTINCT m.id FROM matters m
-        WHERE m.firm_id = $1 AND (
-          m.responsible_attorney = $2
-          OR m.originating_attorney = $2
-          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
-          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
-        )
-      `, [firmId, req.user.id]);
+      // OPTIMIZED: Cache user's accessible matter IDs
+      // This query is expensive but results change infrequently
+      const userMatterIds = await documentCache.getUserAccessibleMatterIds(
+        firmId, 
+        req.user.id,
+        async () => {
+          const userMattersResult = await query(`
+            SELECT DISTINCT m.id FROM matters m
+            WHERE m.firm_id = $1 AND (
+              m.responsible_attorney = $2
+              OR m.originating_attorney = $2
+              OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+              OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
+            )
+          `, [firmId, req.user.id]);
+          return userMattersResult.rows.map(r => r.id);
+        }
+      );
       
-      const userMatterIds = userMattersResult.rows.map(r => r.id);
       console.log(`[DOCS API] User ${req.user.email} has access to ${userMatterIds.length} matters`);
       
       // STEP 2: Simple query with IN clause (much faster than EXISTS on every row)
@@ -466,11 +476,19 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
       
       console.log(`[DOCS API] Returning ${documents.length} docs from database (total: ${total})`);
       
+      // Return with comprehensive pagination metadata
       return res.json({
         documents,
         total,
         source: 'database',
-        pagination: { limit: parseInt(limit), offset: parseInt(offset) }
+        pagination: { 
+          limit: parseInt(limit), 
+          offset: parsedOffset,
+          page: Math.floor(parsedOffset / parseInt(limit)) + 1,
+          totalPages: Math.ceil(total / parseInt(limit)),
+          hasMore: parsedOffset + documents.length < total
+        },
+        cacheStats: process.env.NODE_ENV === 'development' ? documentCache.getStats() : undefined
       });
     }
     
@@ -1135,6 +1153,9 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
       folder_id: d.folder_path
     }, req.user.id, req.user.firmId).catch(() => {});
     
+    // Invalidate document cache for this firm
+    documentCache.onDocumentChange(req.user.firmId, matterId);
+    
     res.status(201).json({
       id: d.id,
       name: d.name,
@@ -1670,6 +1691,10 @@ router.put('/:id', authenticate, requirePermission('documents:edit'), async (req
 
     const d = result.rows[0];
     console.log(`[DOCUMENTS] Updated document ${d.id}: ${d.name}`);
+    
+    // Invalidate document cache for this firm
+    documentCache.onDocumentChange(req.user.firmId, d.matter_id);
+    
     res.json({
       id: d.id,
       name: d.name,
@@ -1717,6 +1742,9 @@ router.delete('/:id', authenticate, requirePermission('documents:delete'), async
        VALUES ($1, $2, 'document.deleted', 'document', $3)`,
       [req.user.firmId, req.user.id, req.params.id]
     );
+
+    // Invalidate document cache for this firm
+    documentCache.onDocumentChange(req.user.firmId, doc.matter_id);
 
     res.json({ message: 'Document deleted' });
   } catch (error) {
