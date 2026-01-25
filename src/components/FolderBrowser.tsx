@@ -1,10 +1,13 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from 'react'
+import { AutoSizer } from 'react-virtualized-auto-sizer'
+import { FixedSizeList as VirtualList } from 'react-window'
 import { 
   Folder, FolderOpen, FileText, ChevronRight, ChevronDown,
   RefreshCw, Home, File, FileSpreadsheet, FileImage, 
-  FilePlus, Loader2, AlertCircle, Lock, Download, List, FolderTree
+  Loader2, AlertCircle, Download
 } from 'lucide-react'
 import { driveApi } from '../services/api'
+import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import styles from './FolderBrowser.module.css'
 
 interface FolderItem {
@@ -17,11 +20,13 @@ interface DocumentItem {
   id: string
   name: string
   originalName?: string
+  type?: string
   contentType?: string
   size: number
   folderPath?: string
   path?: string
   azurePath?: string
+  externalPath?: string
   matterId?: string
   matterName?: string
   matterNumber?: string
@@ -58,6 +63,12 @@ interface BrowseResult {
   source?: string
 }
 
+const LIST_PAGE_SIZE = 60
+const LIST_ROW_HEIGHT = 52
+const CACHE_TTL_MS = 45000
+const FOLDER_CACHE_TTL_MS = 300000
+const REQUEST_GAP_MS = 200
+
 interface FolderBrowserProps {
   onDocumentSelect?: (doc: DocumentItem) => void
   onFolderSelect?: (path: string) => void
@@ -75,13 +86,43 @@ export function FolderBrowser({
 }: FolderBrowserProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [browseData, setBrowseData] = useState<BrowseResult | null>(null)
   const [currentPath, setCurrentPath] = useState('')
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [folderTree, setFolderTree] = useState<Map<string, FolderItem[]>>(new Map())
+  const [foldersLoading, setFoldersLoading] = useState(true)
+  const [foldersError, setFoldersError] = useState<string | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [syncing, setSyncing] = useState(false)
+  const [documents, setDocuments] = useState<DocumentItem[]>([])
+  const [total, setTotal] = useState(0)
+  const [stats, setStats] = useState<BrowseResult['stats'] | null>(null)
+  const [isAdminView, setIsAdminView] = useState(false)
+  const [source, setSource] = useState<string | null>(null)
+  const [emptyMessage, setEmptyMessage] = useState<string | null>(null)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
+  const debouncedSearch = useDebouncedValue(searchQuery, 300)
+  const cacheKey = useMemo(() => `${currentPath}::${debouncedSearch}`, [currentPath, debouncedSearch])
+  const documentCacheRef = useRef(new Map<string, { items: DocumentItem[]; total: number; stats: BrowseResult['stats']; timestamp: number }>())
+  const foldersCacheRef = useRef<{ timestamp: number; folders: string[] } | null>(null)
+  const requestIdRef = useRef(0)
+  const lastRequestAtRef = useRef(0)
+  const hasMoreRef = useRef(hasMore)
+  const loadingRef = useRef(loading)
+  const loadingMoreRef = useRef(isLoadingMore)
+
+  useEffect(() => {
+    hasMoreRef.current = hasMore
+  }, [hasMore])
+
+  useEffect(() => {
+    loadingRef.current = loading
+  }, [loading])
+
+  useEffect(() => {
+    loadingMoreRef.current = isLoadingMore
+  }, [isLoadingMore])
 
   // Build folder tree from flat folder list
   const buildFolderTree = useCallback((folders: string[]) => {
@@ -121,26 +162,102 @@ export function FolderBrowser({
     return tree
   }, [])
 
-  // Fetch files from database (instant)
-  const fetchData = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    
+  const fetchFolders = useCallback(async (force = false) => {
+    const cached = foldersCacheRef.current
+    if (!force && cached && Date.now() - cached.timestamp < FOLDER_CACHE_TTL_MS) {
+      setFolderTree(buildFolderTree(cached.folders))
+      setFoldersLoading(false)
+      setFoldersError(null)
+      return
+    }
+
+    setFoldersLoading(true)
+    setFoldersError(null)
+
     try {
-      const result = await driveApi.browseAllFiles(searchQuery || undefined)
-      setBrowseData(result)
-      
-      if (result.folders) {
-        const tree = buildFolderTree(result.folders)
-        setFolderTree(tree)
-      }
+      const result = await driveApi.getFolders()
+      const folderPaths = (result.folders || [])
+        .map((folder: { path: string }) => folder.path)
+        .filter(Boolean)
+      foldersCacheRef.current = { timestamp: Date.now(), folders: folderPaths }
+      setFolderTree(buildFolderTree(folderPaths))
     } catch (err: any) {
+      console.error('Failed to load folders:', err)
+      setFoldersError(err.message || 'Failed to load folders')
+    } finally {
+      setFoldersLoading(false)
+    }
+  }, [buildFolderTree])
+
+  const fetchDocumentsPage = useCallback(async (offset: number, options: { reset?: boolean } = {}) => {
+    const isReset = options.reset ?? false
+    const now = Date.now()
+    if (!isReset && (loadingRef.current || loadingMoreRef.current || !hasMoreRef.current)) return
+    if (now - lastRequestAtRef.current < REQUEST_GAP_MS) return
+    lastRequestAtRef.current = now
+    const requestId = ++requestIdRef.current
+
+    if (isReset) {
+      setLoading(true)
+      setError(null)
+    } else {
+      setIsLoadingMore(true)
+    }
+
+    try {
+      const result = await driveApi.browseAllFiles({
+        search: debouncedSearch || undefined,
+        folder: currentPath || undefined,
+        limit: LIST_PAGE_SIZE,
+        offset,
+        includeChildren: true,
+        sort: 'name',
+        order: 'asc',
+      })
+
+      if (requestId !== requestIdRef.current) {
+        return
+      }
+
+      const incoming = (result.files || []).map((doc: DocumentItem) => ({
+        ...doc,
+        type: doc.type || doc.contentType,
+      }))
+      const totalFiles = result.total ?? result.stats?.totalFiles ?? incoming.length
+
+      setDocuments(prev => {
+        const nextDocuments = isReset ? incoming : [...prev, ...incoming]
+        setHasMore(nextDocuments.length < totalFiles)
+        documentCacheRef.current.set(cacheKey, {
+          items: nextDocuments,
+          total: totalFiles,
+          stats: result.stats || { totalFiles: totalFiles, totalSize: 0 },
+          timestamp: Date.now(),
+        })
+        return nextDocuments
+      })
+      setTotal(totalFiles)
+      setStats(result.stats || { totalFiles: totalFiles, totalSize: 0 })
+      setIsAdminView(!!result.isAdmin)
+      setSource(result.source || null)
+      setEmptyMessage(result.message || null)
+    } catch (err: any) {
+      if (requestId !== requestIdRef.current) {
+        return
+      }
       console.error('Failed to load files:', err)
       setError(err.message || 'Failed to load documents')
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) {
+        setLoading(false)
+        setIsLoadingMore(false)
+      }
     }
-  }, [buildFolderTree, searchQuery])
+  }, [
+    cacheKey,
+    currentPath,
+    debouncedSearch,
+  ])
   
   // Sync from Azure (runs in background)
   const syncFromAzure = useCallback(async () => {
@@ -151,7 +268,9 @@ export function FolderBrowser({
       alert(result.message || 'Sync started. Refresh the page in a few minutes.')
       // Refresh after a delay
       setTimeout(() => {
-        fetchData()
+        documentCacheRef.current.delete(cacheKey)
+        fetchFolders(true)
+        fetchDocumentsPage(0, { reset: true })
         setSyncing(false)
       }, 5000)
     } catch (err: any) {
@@ -159,20 +278,37 @@ export function FolderBrowser({
       alert('Sync failed: ' + err.message)
       setSyncing(false)
     }
-  }, [fetchData])
+  }, [cacheKey, fetchDocumentsPage, fetchFolders])
 
-  // Fetch on mount
+  const refreshData = useCallback(() => {
+    documentCacheRef.current.delete(cacheKey)
+    fetchFolders(true)
+    fetchDocumentsPage(0, { reset: true })
+  }, [cacheKey, fetchDocumentsPage, fetchFolders])
+
   useEffect(() => {
-    fetchData()
-  }, [])
-  
-  // Debounced search
+    fetchFolders()
+  }, [fetchFolders])
+
   useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchData()
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [searchQuery])
+    const cached = documentCacheRef.current.get(cacheKey)
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      setDocuments(cached.items)
+      setTotal(cached.total)
+      setStats(cached.stats)
+      setHasMore(cached.items.length < cached.total)
+      setSource('cache')
+      setLoading(false)
+      setError(null)
+      return
+    }
+
+    setDocuments([])
+    setTotal(0)
+    setStats(null)
+    setHasMore(true)
+    fetchDocumentsPage(0, { reset: true })
+  }, [cacheKey, fetchDocumentsPage])
   
   // Download file (handles both database and Azure files)
   const downloadFile = async (doc: DocumentItem, e?: React.MouseEvent) => {
@@ -282,6 +418,79 @@ export function FolderBrowser({
     return `${size.toFixed(1)} ${units[unitIndex]}`
   }
 
+  const handleItemsRendered = useCallback(({ visibleStopIndex }: { visibleStopIndex: number }) => {
+    if (!hasMore || isLoadingMore) return
+    if (visibleStopIndex >= documents.length - 10) {
+      fetchDocumentsPage(documents.length)
+    }
+  }, [documents.length, fetchDocumentsPage, hasMore, isLoadingMore])
+
+  const renderDocumentRow = ({ index, style }: { index: number; style: CSSProperties }) => {
+    if (index >= documents.length) {
+      return (
+        <div style={style} className={styles.loadingRow}>
+          <Loader2 size={16} className={styles.spinner} />
+          <span>{isLoadingMore ? 'Loading more documents...' : 'Scroll to load more'}</span>
+        </div>
+      )
+    }
+
+    const doc = documents[index]
+    const isSelected = selectedDocumentId === doc.id
+
+    return (
+      <div
+        style={style}
+        className={`${styles.docRow} ${isSelected ? styles.selectedDoc : ''}`}
+        onClick={() => onDocumentSelect?.(doc)}
+      >
+        <div className={styles.nameCell}>
+          {getFileIcon(doc.contentType || doc.type, doc.name)}
+          <span className={styles.docName}>{doc.originalName || doc.name}</span>
+          {doc.isFromAzure && (
+            <span className={styles.azureBadge} title="Stored in Azure">Azure</span>
+          )}
+          {doc.isOwned && (
+            <span className={styles.ownedBadge} title="You own this document">Owner</span>
+          )}
+        </div>
+        <div className={styles.folderCell}>
+          {doc.folderPath ? (
+            <button 
+              className={styles.folderLink}
+              onClick={(e) => { e.stopPropagation(); navigateToFolder(doc.folderPath!); }}
+              title={doc.folderPath}
+            >
+              {doc.folderPath.length > 30 
+                ? '...' + doc.folderPath.slice(-30) 
+                : doc.folderPath
+              }
+            </button>
+          ) : (
+            <span className={styles.rootFolder}>Root</span>
+          )}
+        </div>
+        <div>{formatSize(doc.size)}</div>
+        <div>
+          <div className={styles.rowActions}>
+            <button 
+              className={styles.downloadBtn}
+              onClick={(e) => downloadFile(doc, e)}
+              disabled={downloadingId === doc.id}
+              title="Download"
+            >
+              {downloadingId === doc.id ? (
+                <Loader2 size={16} className={styles.spinner} />
+              ) : (
+                <Download size={16} />
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Render folder tree recursively
   const renderFolderTree = (parentPath: string = '', level: number = 0) => {
     const children = folderTree.get(parentPath) || []
@@ -318,33 +527,14 @@ export function FolderBrowser({
     })
   }
 
-  // Filter documents by current path
-  const currentDocuments = browseData?.files?.filter(f => {
-    if (!currentPath) return true
-    return f.folderPath === currentPath || f.folderPath?.startsWith(currentPath + '/')
-  }) || []
 
-  // Get breadcrumb path parts
-  const pathParts = currentPath.split('/').filter(p => p)
-
-  if (loading && !browseData) {
-    return (
-      <div className={`${styles.container} ${className || ''}`}>
-        <div className={styles.loading}>
-          <Loader2 size={32} className={styles.spinner} />
-          <p>Loading documents...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
+  if (error && documents.length === 0) {
     return (
       <div className={`${styles.container} ${className || ''}`}>
         <div className={styles.error}>
           <AlertCircle size={32} />
           <p>{error}</p>
-          <button onClick={() => fetchData()} className={styles.retryBtn}>
+          <button onClick={refreshData} className={styles.retryBtn}>
             <RefreshCw size={16} /> Retry
           </button>
         </div>
@@ -359,10 +549,10 @@ export function FolderBrowser({
           <h2>
             <FolderOpen size={24} />
             Documents
-            {browseData?.isAdmin && <span className={styles.adminBadge}>Admin View</span>}
+            {isAdminView && <span className={styles.adminBadge}>Admin View</span>}
           </h2>
           <div className={styles.headerActions}>
-            <button onClick={fetchData} className={styles.refreshBtn} title="Refresh">
+            <button onClick={refreshData} className={styles.refreshBtn} title="Refresh">
               <RefreshCw size={16} />
             </button>
             <button 
@@ -383,8 +573,8 @@ export function FolderBrowser({
         <div className={styles.sidebar}>
           <div className={styles.sidebarHeader}>
             <span>Folders</span>
-            {browseData?.stats && (
-              <span className={styles.statsCount}>{browseData.stats.totalFiles} files</span>
+            {stats && (
+              <span className={styles.statsCount}>{stats.totalFiles} files</span>
             )}
           </div>
           <div className={styles.folderTree}>
@@ -396,27 +586,21 @@ export function FolderBrowser({
               <Home size={16} className={styles.folderIcon} />
               <span className={styles.folderName}>All Documents</span>
             </div>
-            
-            {/* Matter folders */}
-            {browseData?.matters && browseData.matters.length > 0 && (
-              <div className={styles.matterSection}>
-                <div className={styles.sectionLabel}>Matters</div>
-                {browseData.matters.map(matter => (
-                  <div
-                    key={matter.id}
-                    className={`${styles.folderRow} ${currentPath === matter.folderPath ? styles.selected : ''}`}
-                    onClick={() => navigateToFolder(matter.folderPath)}
-                    style={{ paddingLeft: '16px' }}
-                  >
-                    <Folder size={14} className={styles.folderIcon} />
-                    <span className={styles.folderName} title={matter.name}>
-                      {matter.caseNumber ? `${matter.caseNumber} - ` : ''}{matter.name}
-                    </span>
-                  </div>
-                ))}
+
+            {foldersLoading && (
+              <div className={styles.folderLoading}>
+                <Loader2 size={14} className={styles.spinner} />
+                <span>Loading folders...</span>
               </div>
             )}
 
+            {!foldersLoading && foldersError && (
+              <div className={styles.folderError}>
+                <AlertCircle size={14} />
+                <span>{foldersError}</span>
+              </div>
+            )}
+            
             {/* Custom folders from Clio */}
             {folderTree.size > 0 && (
               <div className={styles.customFolders}>
@@ -476,96 +660,64 @@ export function FolderBrowser({
 
           {/* Documents Table */}
           <div className={styles.documentsTable}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Folder</th>
-                  <th>Size</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {currentDocuments.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className={styles.emptyRow}>
-                      <div className={styles.emptyState}>
-                        <FolderOpen size={32} />
-                        <p>{browseData?.message || 'No documents found'}</p>
-                        <p className={styles.emptyHint}>
-                          Click "Sync from Azure" to load documents from Azure storage
-                        </p>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  currentDocuments.map(doc => (
-                    <tr 
-                      key={doc.id}
-                      className={`${styles.docRow} ${selectedDocumentId === doc.id ? styles.selectedDoc : ''}`}
-                      onClick={() => onDocumentSelect?.(doc)}
-                    >
-                      <td>
-                        <div className={styles.nameCell}>
-                          {getFileIcon(doc.contentType, doc.name)}
-                          <span className={styles.docName}>{doc.originalName || doc.name}</span>
-                          {doc.isFromAzure && (
-                            <span className={styles.azureBadge} title="Stored in Azure">Azure</span>
-                          )}
-                          {doc.isOwned && (
-                            <span className={styles.ownedBadge} title="You own this document">Owner</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className={styles.folderCell}>
-                        {doc.folderPath ? (
-                          <button 
-                            className={styles.folderLink}
-                            onClick={(e) => { e.stopPropagation(); navigateToFolder(doc.folderPath!); }}
-                            title={doc.folderPath}
-                          >
-                            {doc.folderPath.length > 30 
-                              ? '...' + doc.folderPath.slice(-30) 
-                              : doc.folderPath
-                            }
-                          </button>
-                        ) : (
-                          <span className={styles.rootFolder}>Root</span>
-                        )}
-                      </td>
-                      <td>{formatSize(doc.size)}</td>
-                      <td>
-                        <div className={styles.rowActions}>
-                          <button 
-                            className={styles.downloadBtn}
-                            onClick={(e) => downloadFile(doc, e)}
-                            disabled={downloadingId === doc.id}
-                            title="Download"
-                          >
-                            {downloadingId === doc.id ? (
-                              <Loader2 size={16} className={styles.spinner} />
-                            ) : (
-                              <Download size={16} />
-                            )}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+            <div className={styles.tableHeader}>
+              <div>Name</div>
+              <div>Folder</div>
+              <div>Size</div>
+              <div>Actions</div>
+            </div>
+            <div className={styles.tableBody}>
+              {loading && documents.length === 0 ? (
+                <div className={styles.skeletonList}>
+                  {Array.from({ length: 6 }).map((_, index) => (
+                    <div key={index} className={styles.skeletonRow}>
+                      <div className={styles.skeletonCell} />
+                      <div className={styles.skeletonCell} />
+                      <div className={styles.skeletonCell} />
+                      <div className={styles.skeletonCell} />
+                    </div>
+                  ))}
+                </div>
+              ) : documents.length === 0 ? (
+                <div className={styles.emptyState}>
+                  <FolderOpen size={32} />
+                  <p>{emptyMessage || 'No documents found'}</p>
+                  <p className={styles.emptyHint}>
+                    Click "Sync from Azure" to load documents from Azure storage
+                  </p>
+                </div>
+              ) : (
+                <AutoSizer
+                  renderProp={({ height, width }: { height: number | undefined; width: number | undefined }) => {
+                    if (height == null || width == null) return null
+                    return (
+                      <VirtualList
+                        height={height}
+                        width={width}
+                        itemCount={hasMore ? documents.length + 1 : documents.length}
+                        itemSize={LIST_ROW_HEIGHT}
+                        onItemsRendered={handleItemsRendered}
+                        itemKey={(index: number) => documents[index]?.id || `loading-${index}`}
+                        overscanCount={6}
+                      >
+                        {renderDocumentRow}
+                      </VirtualList>
+                    )
+                  }}
+                />
+              )}
+            </div>
           </div>
 
           {/* Stats footer */}
-          {browseData?.stats && (
+          {stats && (
             <div className={styles.footer}>
-              <span>{currentDocuments.length} documents in this view</span>
+              <span>{documents.length} documents in this view</span>
               <span className={styles.divider}>•</span>
-              <span>{browseData.stats.totalFiles} total files</span>
+              <span>{stats.totalFiles} total files</span>
               <span className={styles.divider}>•</span>
-              <span>{formatSize(browseData.stats.totalSize)}</span>
-              {browseData.source === 'cache' && (
+              <span>{formatSize(stats.totalSize)}</span>
+              {source === 'cache' && (
                 <>
                   <span className={styles.divider}>•</span>
                   <span className={styles.cacheIndicator}>Cached</span>

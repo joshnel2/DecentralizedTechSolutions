@@ -1,4 +1,6 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback, type CSSProperties } from 'react'
+import { AutoSizer } from 'react-virtualized-auto-sizer'
+import { FixedSizeList as VirtualList } from 'react-window'
 import { useNavigate } from 'react-router-dom'
 import { useDataStore } from '../stores/dataStore'
 import { useAIStore } from '../stores/aiStore'
@@ -14,6 +16,7 @@ import {
 } from 'lucide-react'
 import { FolderBrowser } from '../components/FolderBrowser'
 import { documentsApi, driveApi, wordOnlineApi } from '../services/api'
+import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useEmailCompose } from '../contexts/EmailComposeContext'
 import { format, parseISO } from 'date-fns'
 import styles from './DocumentsPage.module.css'
@@ -31,9 +34,35 @@ const AI_SUGGESTIONS = [
   { icon: MessageSquare, label: 'Ask Questions', prompt: '' },
 ]
 
+const LIST_PAGE_SIZE = 50
+const LIST_ROW_HEIGHT = 56
+const LIST_CACHE_TTL_MS = 45000
+const LIST_REQUEST_GAP_MS = 200
+
+interface DocumentListItem {
+  id: string
+  name: string
+  originalName?: string
+  type?: string
+  contentType?: string
+  size: number
+  matterId?: string
+  matterName?: string
+  uploadedAt: string
+  uploadedByName?: string
+  version?: number
+  folderPath?: string
+  externalPath?: string
+}
+
+type DocumentActionItem = DocumentListItem & {
+  azurePath?: string
+  path?: string
+}
+
 export function DocumentsPage() {
   const navigate = useNavigate()
-  const { documents, matters, fetchDocuments, fetchMatters, addDocument, deleteDocument } = useDataStore()
+  const { matters, fetchMatters, addDocument, deleteDocument } = useDataStore()
   const { setSelectedMode, setDocumentContext, createConversation, setInitialMessage } = useAIStore()
   const { user } = useAuthStore()
   const isAdmin = user?.role === 'owner' || user?.role === 'admin'
@@ -54,15 +83,130 @@ export function DocumentsPage() {
   useEffect(() => {
     localStorage.setItem('documentsViewMode', viewMode)
   }, [viewMode])
-  
-  // Fetch data from API on mount
+
+  const [searchQuery, setSearchQuery] = useState('')
+  const debouncedSearch = useDebouncedValue(searchQuery, 300)
+  const documentCacheRef = useRef(new Map<string, { items: DocumentListItem[]; total: number; timestamp: number }>())
+  const documentsRequestIdRef = useRef(0)
+  const documentsLastRequestAtRef = useRef(0)
+  const [documentItems, setDocumentItems] = useState<DocumentListItem[]>([])
+  const [documentsTotal, setDocumentsTotal] = useState(0)
+  const [isDocumentsLoading, setIsDocumentsLoading] = useState(false)
+  const [isDocumentsLoadingMore, setIsDocumentsLoadingMore] = useState(false)
+  const [documentsHasMore, setDocumentsHasMore] = useState(true)
+  const [documentsError, setDocumentsError] = useState<string | null>(null)
+  const listCacheKey = useMemo(() => `documents:${debouncedSearch || ''}`, [debouncedSearch])
+  const documentsHasMoreRef = useRef(documentsHasMore)
+  const documentsLoadingRef = useRef(isDocumentsLoading)
+  const documentsLoadingMoreRef = useRef(isDocumentsLoadingMore)
+
   useEffect(() => {
-    fetchDocuments()
+    documentsHasMoreRef.current = documentsHasMore
+  }, [documentsHasMore])
+
+  useEffect(() => {
+    documentsLoadingRef.current = isDocumentsLoading
+  }, [isDocumentsLoading])
+
+  useEffect(() => {
+    documentsLoadingMoreRef.current = isDocumentsLoadingMore
+  }, [isDocumentsLoadingMore])
+  
+  // Fetch matter data on mount
+  useEffect(() => {
     fetchMatters()
-  }, [fetchDocuments, fetchMatters])
+  }, [fetchMatters])
+
+  const loadDocumentsPage = useCallback(async (offset: number, options: { reset?: boolean } = {}) => {
+    const isReset = options.reset ?? false
+    const now = Date.now()
+    if (!isReset && (documentsLoadingRef.current || documentsLoadingMoreRef.current || !documentsHasMoreRef.current)) {
+      return
+    }
+    if (now - documentsLastRequestAtRef.current < LIST_REQUEST_GAP_MS) {
+      return
+    }
+    documentsLastRequestAtRef.current = now
+    const requestId = ++documentsRequestIdRef.current
+
+    if (isReset) {
+      setIsDocumentsLoading(true)
+      setDocumentsError(null)
+    } else {
+      setIsDocumentsLoadingMore(true)
+    }
+
+    try {
+      const response = await documentsApi.getAll({
+        search: debouncedSearch || undefined,
+        limit: LIST_PAGE_SIZE,
+        offset,
+        sort: 'uploaded_at',
+        order: 'desc',
+      })
+
+      if (requestId !== documentsRequestIdRef.current) {
+        return
+      }
+
+      const incoming = response.documents || []
+      const total = response.total ?? incoming.length
+
+      setDocumentsTotal(total)
+      setDocumentItems(prev => {
+        const nextItems = isReset ? incoming : [...prev, ...incoming]
+        setDocumentsHasMore(nextItems.length < total)
+        documentCacheRef.current.set(listCacheKey, {
+          items: nextItems,
+          total,
+          timestamp: Date.now(),
+        })
+        return nextItems
+      })
+    } catch (error: any) {
+      if (requestId !== documentsRequestIdRef.current) {
+        return
+      }
+      console.error('Failed to load documents:', error)
+      setDocumentsError(error?.message || 'Failed to load documents')
+    } finally {
+      if (requestId === documentsRequestIdRef.current) {
+        setIsDocumentsLoading(false)
+        setIsDocumentsLoadingMore(false)
+      }
+    }
+  }, [debouncedSearch, listCacheKey])
+
+  const refreshDocumentList = useCallback(() => {
+    documentCacheRef.current.delete(listCacheKey)
+    setDocumentItems([])
+    setDocumentsHasMore(true)
+    setDocumentsTotal(0)
+    if (viewMode === 'list') {
+      loadDocumentsPage(0, { reset: true })
+    }
+  }, [listCacheKey, loadDocumentsPage, viewMode])
+
+  useEffect(() => {
+    if (viewMode !== 'list') return
+    const cached = documentCacheRef.current.get(listCacheKey)
+    if (cached && Date.now() - cached.timestamp < LIST_CACHE_TTL_MS) {
+      setDocumentItems(cached.items)
+      setDocumentsTotal(cached.total)
+      setDocumentsHasMore(cached.items.length < cached.total)
+      setDocumentsError(null)
+      setIsDocumentsLoading(false)
+      return
+    }
+
+    setDocumentItems([])
+    setDocumentsTotal(0)
+    setDocumentsHasMore(true)
+    loadDocumentsPage(0, { reset: true })
+  }, [listCacheKey, loadDocumentsPage, viewMode])
   
   // Open document in Word (Desktop or Online)
-  const editInWord = async (doc: typeof documents[0], preferDesktop = true, e?: React.MouseEvent) => {
+  const editInWord = async (doc: DocumentActionItem, preferDesktop = true, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
     
     // Check if it's a Word document
@@ -193,7 +337,7 @@ export function DocumentsPage() {
   }
   
   // Download document
-  const downloadDocument = async (doc: typeof documents[0], e?: React.MouseEvent) => {
+  const downloadDocument = async (doc: DocumentActionItem, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
     const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
@@ -224,7 +368,7 @@ export function DocumentsPage() {
   // Delete document
   const handleDeleteDocument = (docId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
-    const doc = documents.find(d => d.id === docId)
+    const doc = documentItems.find(d => d.id === docId)
     setConfirmModal({
       isOpen: true,
       docId,
@@ -237,7 +381,8 @@ export function DocumentsPage() {
       await deleteDocument(confirmModal.docId)
       setConfirmModal({ isOpen: false, docId: '', docName: '' })
       setVersionPanelDoc(null)
-      fetchDocuments()
+      documentCacheRef.current.clear()
+      refreshDocumentList()
     } catch (error) {
       console.error('Failed to delete document:', error)
       alert('Failed to delete document')
@@ -259,10 +404,10 @@ export function DocumentsPage() {
   }
 
   const toggleSelectAll = () => {
-    if (selectedDocIds.size === filteredDocuments.length) {
+    if (selectedDocIds.size === documentItems.length && documentItems.length > 0) {
       setSelectedDocIds(new Set())
     } else {
-      setSelectedDocIds(new Set(filteredDocuments.map(d => d.id)))
+      setSelectedDocIds(new Set(documentItems.map(d => d.id)))
     }
   }
 
@@ -282,7 +427,8 @@ export function DocumentsPage() {
       setBulkDeleteModal(false)
       setSelectedDocIds(new Set())
       setVersionPanelDoc(null)
-      fetchDocuments()
+      documentCacheRef.current.clear()
+      refreshDocumentList()
     } catch (error) {
       console.error('Failed to delete documents:', error)
       alert('Failed to delete some documents. Please try again.')
@@ -292,7 +438,7 @@ export function DocumentsPage() {
   }
   
   // Open AI with document context and optional prompt
-  const openAIWithDocument = async (doc: typeof documents[0], prompt?: string) => {
+  const openAIWithDocument = async (doc: DocumentActionItem, prompt?: string) => {
     setIsExtracting(true)
     
     try {
@@ -326,7 +472,7 @@ export function DocumentsPage() {
           
           if (downloadResponse.ok) {
             const blob = await downloadResponse.blob()
-            const fileType = doc.type || blob.type || 'application/octet-stream'
+            const fileType = doc.type || doc.contentType || blob.type || 'application/octet-stream'
             const file = new File([blob], doc.name, { type: fileType })
             const parseResult = await parseDocument(file)
             extractedContent = parseResult.content
@@ -338,7 +484,8 @@ export function DocumentsPage() {
       
       // If we still don't have content, provide a fallback message
       if (!extractedContent) {
-        extractedContent = `[Document: ${doc.name}]\nType: ${doc.type}\nSize: ${formatFileSize(doc.size)}\n\nUnable to extract text content. The document may be an image or scanned PDF.`
+        const docType = doc.type || doc.contentType || 'application/octet-stream'
+        extractedContent = `[Document: ${doc.name}]\nType: ${docType}\nSize: ${formatFileSize(doc.size)}\n\nUnable to extract text content. The document may be an image or scanned PDF.`
       }
       
       // Set up AI context
@@ -347,7 +494,7 @@ export function DocumentsPage() {
         id: doc.id,
         name: doc.name,
         content: extractedContent,
-        type: doc.type,
+        type: doc.type || doc.contentType,
         size: doc.size
       })
       
@@ -368,13 +515,12 @@ export function DocumentsPage() {
     }
   }
   
-  const [searchQuery, setSearchQuery] = useState('')
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [selectedMatterId, setSelectedMatterId] = useState('')
   
   // Version history panel state - shows on right side when document clicked
-  const [versionPanelDoc, setVersionPanelDoc] = useState<typeof documents[0] | null>(null)
+  const [versionPanelDoc, setVersionPanelDoc] = useState<DocumentActionItem | null>(null)
   
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -388,6 +534,20 @@ export function DocumentsPage() {
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
   const [bulkDeleteModal, setBulkDeleteModal] = useState(false)
 
+  useEffect(() => {
+    if (viewMode !== 'list') return
+    setSelectedDocIds(prev => {
+      const visibleIds = new Set(documentItems.map(doc => doc.id))
+      const next = new Set(Array.from(prev).filter(id => visibleIds.has(id)))
+      return next
+    })
+  }, [documentItems, viewMode])
+
+  useEffect(() => {
+    if (viewMode !== 'list') return
+    setSelectedDocIds(new Set())
+  }, [listCacheKey, viewMode])
+
   // Share modal state
   const [shareModal, setShareModal] = useState<{
     isOpen: boolean
@@ -399,7 +559,7 @@ export function DocumentsPage() {
   const { emailDocument } = useEmailCompose()
 
   // Open email with document attached
-  const openEmailWithDocument = (doc: typeof documents[0]) => {
+  const openEmailWithDocument = (doc: DocumentActionItem) => {
     emailDocument({
       id: doc.id,
       name: doc.name,
@@ -409,12 +569,12 @@ export function DocumentsPage() {
   }
 
   // Document viewer state (preview only - no editing)
-  const [editorDoc, setEditorDoc] = useState<typeof documents[0] | null>(null)
+  const [editorDoc, setEditorDoc] = useState<DocumentActionItem | null>(null)
   const [editorContent, setEditorContent] = useState('')
   const [isLoadingContent, setIsLoadingContent] = useState(false)
 
   // Open document preview
-  const openDocumentViewer = async (doc: typeof documents[0]) => {
+  const openDocumentViewer = async (doc: DocumentActionItem) => {
     setEditorDoc(doc)
     setIsLoadingContent(true)
     
@@ -437,7 +597,7 @@ export function DocumentsPage() {
   }
   
   // Open file on computer (download and open)
-  const openFileOnComputer = async (doc: typeof documents[0]) => {
+  const openFileOnComputer = async (doc: DocumentActionItem) => {
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
     const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
     
@@ -484,7 +644,8 @@ export function DocumentsPage() {
           matterId: selectedMatterId || undefined 
         })
       }
-      fetchDocuments()
+      documentCacheRef.current.clear()
+      refreshDocumentList()
       setShowUploadModal(false)
       setPendingFiles([])
       setSelectedMatterId('')
@@ -496,18 +657,10 @@ export function DocumentsPage() {
     }
   }
 
-  const filteredDocuments = useMemo(() => {
-    const query = searchQuery.toLowerCase()
-    return documents.filter(doc =>
-      (doc.originalName || doc.name).toLowerCase().includes(query) ||
-      doc.name.toLowerCase().includes(query)
-    ).sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
-  }, [documents, searchQuery])
-
   const getMatterName = (matterId?: string) => 
     matterId ? matters.find(m => m.id === matterId)?.name : null
 
-  const getFileIcon = (type: string) => {
+  const getFileIcon = (type?: string) => {
     if (type?.includes('pdf')) return '📄'
     if (type?.includes('word') || type?.includes('document')) return '📝'
     if (type?.includes('spreadsheet') || type?.includes('excel')) return '📊'
@@ -522,13 +675,105 @@ export function DocumentsPage() {
     return `${(bytes / 1024 / 1024).toFixed(2)} MB`
   }
 
+  const handleListItemsRendered = useCallback(({ visibleStopIndex }: { visibleStopIndex: number }) => {
+    if (!documentsHasMore || isDocumentsLoadingMore) return
+    if (visibleStopIndex >= documentItems.length - 10) {
+      loadDocumentsPage(documentItems.length)
+    }
+  }, [documentItems.length, documentsHasMore, isDocumentsLoadingMore, loadDocumentsPage])
+
+  const renderListRow = useCallback(({ index, style }: { index: number; style: CSSProperties }) => {
+    if (index >= documentItems.length) {
+      return (
+        <div style={style} className={styles.loadingRow}>
+          <Loader2 size={16} className={styles.spinner} />
+          <span>{isDocumentsLoadingMore ? 'Loading more documents...' : 'Scroll to load more'}</span>
+        </div>
+      )
+    }
+
+    const doc = documentItems[index]
+    const wordExtensions = ['.doc', '.docx', '.odt', '.rtf']
+    const docName = doc.originalName || doc.name
+    const isWordDoc = wordExtensions.some(ext => docName.toLowerCase().endsWith(ext))
+    const isRowSelected = versionPanelDoc?.id === doc.id
+    const isChecked = selectedDocIds.has(doc.id)
+
+    return (
+      <div
+        key={doc.id}
+        style={style}
+        className={`${styles.tableRow} ${styles.clickableRow} ${isRowSelected ? styles.selectedRow : ''} ${isChecked ? styles.checkedRow : ''}`}
+        onClick={() => setVersionPanelDoc(doc)}
+      >
+        <div className={styles.checkboxCol}>
+          <button 
+            className={`${styles.rowCheckbox} ${isChecked ? styles.checked : ''}`}
+            onClick={(e) => toggleSelectDoc(doc.id, e)}
+            title={isChecked ? 'Deselect' : 'Select'}
+          >
+            {isChecked ? <CheckSquare size={18} /> : <Square size={18} />}
+          </button>
+        </div>
+        <div>
+          <div className={styles.nameCell}>
+            <span className={styles.fileIcon}>{getFileIcon(doc.type)}</span>
+            <span className={styles.docNameLink}>{doc.originalName || doc.name}</span>
+            {isWordDoc && (
+              <span className={styles.wordBadge} title="Word Document">
+                <Edit3 size={12} />
+              </span>
+            )}
+          </div>
+        </div>
+        <div>{getMatterName(doc.matterId) || '-'}</div>
+        <div>{formatFileSize(doc.size)}</div>
+        <div>
+          <span className={styles.versionBadge}>
+            v{doc.version || 1}
+          </span>
+        </div>
+        <div>{format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}</div>
+        <div>
+          <div className={styles.rowActions}>
+            <button 
+              onClick={(e) => downloadDocument(doc, e)}
+              title="Download"
+              className={styles.actionBtn}
+            >
+              <Download size={16} />
+            </button>
+            <button 
+              onClick={(e) => handleDeleteDocument(doc.id, e)}
+              title="Delete"
+              className={styles.deleteBtn}
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }, [
+    documentItems,
+    downloadDocument,
+    formatFileSize,
+    getFileIcon,
+    getMatterName,
+    handleDeleteDocument,
+    selectedDocIds,
+    setVersionPanelDoc,
+    toggleSelectDoc,
+    versionPanelDoc?.id
+  ])
+
   return (
     <div className={styles.documentsPage}>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <h1>Documents</h1>
           {viewMode === 'list' && (
-            <span className={styles.count}>{documents.length} files</span>
+            <span className={styles.count}>{documentsTotal || documentItems.length} files</span>
           )}
           {viewMode === 'folders' && (
             <span className={styles.count}>Apex Drive</span>
@@ -685,8 +930,20 @@ export function DocumentsPage() {
           showHeader={false}
           className={styles.folderBrowser}
           onDocumentSelect={(doc) => {
-            const fullDoc = documents.find(d => d.id === doc.id)
-            if (fullDoc) setVersionPanelDoc(fullDoc)
+            setVersionPanelDoc({
+              id: doc.id,
+              name: doc.name,
+              originalName: doc.originalName,
+              type: doc.type || doc.contentType || 'application/octet-stream',
+              contentType: doc.contentType,
+              size: doc.size,
+              matterId: doc.matterId,
+              matterName: doc.matterName,
+              uploadedAt: doc.uploadedAt || new Date().toISOString(),
+              uploadedByName: doc.uploadedByName,
+              folderPath: doc.folderPath,
+              externalPath: doc.externalPath || doc.azurePath || doc.path
+            })
           }}
           selectedDocumentId={versionPanelDoc?.id}
         />
@@ -707,110 +964,99 @@ export function DocumentsPage() {
         </div>
       </div>
 
-      <div className={styles.documentsTable}>
-        <table>
-          <thead>
-            <tr>
-              <th className={styles.checkboxCol}>
-                <button 
-                  className={styles.selectAllBtn}
-                  onClick={toggleSelectAll}
-                  title={selectedDocIds.size === filteredDocuments.length ? 'Deselect all' : 'Select all'}
-                >
-                  {selectedDocIds.size === filteredDocuments.length && filteredDocuments.length > 0 ? (
-                    <CheckSquare size={18} />
-                  ) : selectedDocIds.size > 0 ? (
-                    <Square size={18} className={styles.partialSelect} />
-                  ) : (
-                    <Square size={18} />
-                  )}
-                </button>
-              </th>
-              <th>Name</th>
-              <th>Matter</th>
-              <th>Size</th>
-              <th>Version</th>
-              <th>Last Modified</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredDocuments.map(doc => {
-              const wordExtensions = ['.doc', '.docx', '.odt', '.rtf']
-              const docName = doc.originalName || doc.name
-              const isWordDoc = wordExtensions.some(ext => docName.toLowerCase().endsWith(ext))
-              const isRowSelected = versionPanelDoc?.id === doc.id
-              const isChecked = selectedDocIds.has(doc.id)
-              
-              return (
-                <tr 
-                  key={doc.id} 
-                  onClick={() => setVersionPanelDoc(doc)}
-                  className={`${styles.clickableRow} ${isRowSelected ? styles.selectedRow : ''} ${isChecked ? styles.checkedRow : ''}`}
-                >
-                  <td className={styles.checkboxCol}>
-                    <button 
-                      className={`${styles.rowCheckbox} ${isChecked ? styles.checked : ''}`}
-                      onClick={(e) => toggleSelectDoc(doc.id, e)}
-                      title={isChecked ? 'Deselect' : 'Select'}
-                    >
-                      {isChecked ? <CheckSquare size={18} /> : <Square size={18} />}
-                    </button>
-                  </td>
-                  <td>
-                    <div className={styles.nameCell}>
-                      <span className={styles.fileIcon}>{getFileIcon(doc.type)}</span>
-                      <span className={styles.docNameLink}>{doc.originalName || doc.name}</span>
-                      {isWordDoc && (
-                        <span className={styles.wordBadge} title="Word Document">
-                          <Edit3 size={12} />
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td>{getMatterName(doc.matterId) || '-'}</td>
-                  <td>{formatFileSize(doc.size)}</td>
-                  <td>
-                    <span className={styles.versionBadge}>
-                      v{doc.version || 1}
-                    </span>
-                  </td>
-                  <td>{format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}</td>
-                  <td>
-                    <div className={styles.rowActions}>
-                      <button 
-                        onClick={(e) => downloadDocument(doc, e)}
-                        title="Download"
-                        className={styles.actionBtn}
-                      >
-                        <Download size={16} />
-                      </button>
-                      <button 
-                        onClick={(e) => handleDeleteDocument(doc.id, e)}
-                        title="Delete"
-                        className={styles.deleteBtn}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {filteredDocuments.length === 0 && (
-        <div className={styles.emptyState}>
-          <FolderOpen size={48} />
-          <h3>No documents found</h3>
-          <p>Upload your first document to get started</p>
+      {documentsError && (
+        <div className={styles.errorBanner}>
+          <AlertTriangle size={16} />
+          <span>{documentsError}</span>
+          <button onClick={refreshDocumentList} className={styles.retryBtn}>
+            Retry
+          </button>
         </div>
       )}
 
+      <div className={styles.documentsTable}>
+        <div className={styles.tableHeader}>
+          <div className={styles.checkboxCol}>
+            <button 
+              className={styles.selectAllBtn}
+              onClick={toggleSelectAll}
+              title={selectedDocIds.size === documentItems.length && documentItems.length > 0 ? 'Deselect all' : 'Select all'}
+            >
+              {selectedDocIds.size === documentItems.length && documentItems.length > 0 ? (
+                <CheckSquare size={18} />
+              ) : selectedDocIds.size > 0 ? (
+                <Square size={18} className={styles.partialSelect} />
+              ) : (
+                <Square size={18} />
+              )}
+            </button>
+          </div>
+          <div>Name</div>
+          <div>Matter</div>
+          <div>Size</div>
+          <div>Version</div>
+          <div>Last Modified</div>
+          <div>Actions</div>
+        </div>
+        <div className={styles.tableBody}>
+          {isDocumentsLoading && documentItems.length === 0 ? (
+            <div className={styles.skeletonList}>
+              {Array.from({ length: 8 }).map((_, index) => (
+                <div key={index} className={styles.skeletonRow}>
+                  <div className={styles.skeletonCell} />
+                  <div className={styles.skeletonCell} />
+                  <div className={styles.skeletonCell} />
+                  <div className={styles.skeletonCell} />
+                  <div className={styles.skeletonCell} />
+                  <div className={styles.skeletonCell} />
+                  <div className={styles.skeletonCell} />
+                </div>
+              ))}
+            </div>
+          ) : documentItems.length === 0 ? (
+            <div className={styles.emptyState}>
+              <FolderOpen size={48} />
+              <h3>No documents found</h3>
+              <p>{debouncedSearch ? 'No documents match your search' : 'Upload your first document to get started'}</p>
+            </div>
+          ) : (
+            <AutoSizer
+              renderProp={({ height, width }: { height: number | undefined; width: number | undefined }) => {
+                if (height == null || width == null) return null
+                return (
+                  <VirtualList
+                    height={height}
+                    width={width}
+                    itemCount={documentsHasMore ? documentItems.length + 1 : documentItems.length}
+                    itemSize={LIST_ROW_HEIGHT}
+                    onItemsRendered={handleListItemsRendered}
+                    itemKey={(index: number) => documentItems[index]?.id || `loading-${index}`}
+                    overscanCount={6}
+                  >
+                    {renderListRow}
+                  </VirtualList>
+                )
+              }}
+            />
+          )}
+        </div>
+        {documentItems.length > 0 && (
+          <div className={styles.tableFooter}>
+            <span>
+              {Math.min(documentItems.length, documentsTotal || documentItems.length)} of {documentsTotal || documentItems.length} loaded
+            </span>
+            {isDocumentsLoadingMore && (
+              <span className={styles.footerLoading}>
+                <Loader2 size={14} className={styles.spinner} />
+                Loading more...
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Helpful tip for documents */}
-      {filteredDocuments.length > 0 && (
+      {documentItems.length > 0 && (
         <div className={styles.documentTip}>
           <Edit3 size={14} />
           <span>
@@ -932,13 +1178,13 @@ export function DocumentsPage() {
               id: versionPanelDoc.id,
               name: versionPanelDoc.name,
               originalName: versionPanelDoc.originalName,
-              type: versionPanelDoc.type,
+              type: versionPanelDoc.type || versionPanelDoc.contentType || 'application/octet-stream',
               size: versionPanelDoc.size,
               uploadedAt: versionPanelDoc.uploadedAt,
               matterName: getMatterName(versionPanelDoc.matterId) || undefined,
               uploadedByName: versionPanelDoc.uploadedByName,
-              folderPath: (versionPanelDoc as any).folderPath,
-              externalPath: (versionPanelDoc as any).externalPath,
+              folderPath: versionPanelDoc.folderPath,
+              externalPath: versionPanelDoc.externalPath,
             }}
             onClose={() => setVersionPanelDoc(null)}
             onOpenInWord={(preferDesktop) => {

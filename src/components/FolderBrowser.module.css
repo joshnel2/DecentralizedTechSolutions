@@ -187,6 +187,20 @@
   padding: 8px;
 }
 
+.folderLoading,
+.folderError {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #94A3B8;
+}
+
+.folderError {
+  color: #EF4444;
+}
+
 .folderItem {
   /* Container for recursive folder items */
 }
@@ -389,17 +403,17 @@
 /* Documents Table */
 .documentsTable {
   flex: 1;
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   padding: 0 20px;
 }
 
-.documentsTable table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.documentsTable th {
-  text-align: left;
+.tableHeader {
+  display: grid;
+  grid-template-columns: 2fr 2fr 0.6fr 0.4fr;
+  align-items: center;
+  gap: 12px;
   padding: 12px 16px;
   font-size: 11px;
   font-weight: 600;
@@ -413,15 +427,20 @@
   z-index: 10;
 }
 
-.documentsTable td {
+.tableBody {
+  flex: 1;
+  min-height: 220px;
+}
+
+.docRow {
+  display: grid;
+  grid-template-columns: 2fr 2fr 0.6fr 0.4fr;
+  align-items: center;
+  gap: 12px;
   padding: 12px 16px;
   font-size: 14px;
   color: #475569;
   border-bottom: 1px solid #F1F5F9;
-  vertical-align: middle;
-}
-
-.docRow {
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -432,6 +451,37 @@
 
 .docRow.selectedDoc {
   background: #EFF6FF;
+}
+
+.loadingRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  font-size: 12px;
+  color: #64748B;
+}
+
+.skeletonList {
+  display: flex;
+  flex-direction: column;
+}
+
+.skeletonRow {
+  display: grid;
+  grid-template-columns: 2fr 2fr 0.6fr 0.4fr;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #F1F5F9;
+}
+
+.skeletonCell {
+  height: 12px;
+  background: linear-gradient(90deg, rgba(148, 163, 184, 0.25) 25%, rgba(148, 163, 184, 0.4) 37%, rgba(148, 163, 184, 0.25) 63%);
+  background-size: 400% 100%;
+  border-radius: 999px;
+  animation: shimmer 1.4s ease infinite;
 }
 
 .nameCell {
@@ -690,6 +740,11 @@
   to { transform: rotate(360deg); }
 }
 
+@keyframes shimmer {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .content {
@@ -703,9 +758,14 @@
     border-right: none;
     border-bottom: 1px solid #E2E8F0;
   }
-  
-  .documentsTable th:nth-child(4),
-  .documentsTable td:nth-child(4) {
-    display: none;
+
+  .documentsTable {
+    overflow-x: auto;
+  }
+
+  .tableHeader,
+  .docRow,
+  .skeletonRow {
+    min-width: 640px;
   }
 }
