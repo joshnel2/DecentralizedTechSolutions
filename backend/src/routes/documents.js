@@ -350,13 +350,16 @@ router.get('/azure-files', authenticate, async (req, res) => {
 
 router.get('/', authenticate, requirePermission('documents:view'), async (req, res) => {
   try {
-    const { matterId, clientId, search, status, offset = 0, source = 'auto', folder } = req.query;
+    const { matterId, clientId, search, status, offset = 0, source = 'auto', folder, sort, order } = req.query;
     const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
     const firmId = req.user.firmId;
-    
-    // Users get all their docs (filtered, so manageable count)
-    // Admins get capped at 100 (use mapped drive for full access)
-    const limit = req.query.limit ? parseInt(req.query.limit) : (isAdmin ? 100 : 5000);
+    const MAX_LIMIT = 200;
+    const rawLimit = req.query.limit ? parseInt(req.query.limit) : 50;
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), MAX_LIMIT) : 50;
+    const rawOffset = parseInt(offset) || 0;
+    const safeOffset = Math.max(rawOffset, 0);
+    const sortKey = sort === 'name' ? 'd.name' : 'd.uploaded_at';
+    const sortDirection = order === 'asc' ? 'ASC' : 'DESC';
     
     console.log(`[DOCS API] User: ${req.user.email}, Role: ${req.user.role}, FirmId: ${firmId}, isAdmin: ${isAdmin}`);
     
@@ -385,9 +388,11 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
       
       // STEP 2: Simple query with IN clause (much faster than EXISTS on every row)
       let queryStr = `
-        SELECT d.*, m.name as matter_name, m.number as matter_number
+        SELECT d.*, m.name as matter_name, m.number as matter_number,
+               u.first_name || ' ' || u.last_name as uploaded_by_name
         FROM documents d
         LEFT JOIN matters m ON d.matter_id = m.id
+        LEFT JOIN users u ON d.uploaded_by = u.id
         WHERE d.firm_id = $1
           AND (
             d.uploaded_by = $2
@@ -404,34 +409,48 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
         paramIndex++;
       }
       
-      // Filter by folder path
+      const filters = [];
+      
       if (folder) {
-        queryStr += ` AND d.folder_path = $${paramIndex}`;
+        filters.push(`d.folder_path = $${paramIndex}`);
         params.push(folder);
         paramIndex++;
       }
       
-      // Filter by matter
       if (matterId) {
-        queryStr += ` AND d.matter_id = $${paramIndex}`;
+        filters.push(`d.matter_id = $${paramIndex}`);
         params.push(matterId);
         paramIndex++;
       }
       
-      // Filter by search
+      if (clientId) {
+        filters.push(`d.client_id = $${paramIndex}`);
+        params.push(clientId);
+        paramIndex++;
+      }
+      
+      if (status) {
+        filters.push(`d.status = $${paramIndex}`);
+        params.push(status);
+        paramIndex++;
+      }
+      
       if (search) {
-        queryStr += ` AND (d.name ILIKE $${paramIndex} OR d.folder_path ILIKE $${paramIndex})`;
+        filters.push(`(d.name ILIKE $${paramIndex} OR d.folder_path ILIKE $${paramIndex})`);
         params.push(`%${search}%`);
         paramIndex++;
       }
       
-      queryStr += ` ORDER BY d.folder_path, d.name LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-      params.push(parseInt(limit), parseInt(offset));
+      if (filters.length > 0) {
+        queryStr += ` AND ${filters.join(' AND ')}`;
+      }
       
-      const result = await query(queryStr, params);
+      queryStr += ` ORDER BY ${sortKey} ${sortDirection} NULLS LAST LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+      const queryParams = [...params, limit, safeOffset];
       
-      // Get total count efficiently
-      const countResult = await query(`
+      const result = await query(queryStr, queryParams);
+      
+      const countSql = `
         SELECT COUNT(*) FROM documents d
         WHERE d.firm_id = $1
           AND (
@@ -440,7 +459,9 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
             OR d.privacy_level = 'firm'
             ${userMatterIds.length > 0 ? `OR d.matter_id = ANY($3)` : ''}
           )
-      `, userMatterIds.length > 0 ? [firmId, req.user.id, userMatterIds] : [firmId, req.user.id]);
+          ${filters.length > 0 ? ` AND ${filters.join(' AND ')}` : ''}
+      `;
+      const countResult = await query(countSql, params);
       const total = parseInt(countResult.rows[0].count) || result.rows.length;
       
       const documents = result.rows.map(d => ({
@@ -457,6 +478,8 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
         ownerId: d.owner_id,
         uploadedBy: d.uploaded_by,
         uploadedAt: d.uploaded_at,
+        uploadedByName: d.uploaded_by_name,
+        version: d.version,
         privacyLevel: d.privacy_level,
         status: d.status,
         storageLocation: d.storage_location || 'azure',
@@ -470,7 +493,7 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
         documents,
         total,
         source: 'database',
-        pagination: { limit: parseInt(limit), offset: parseInt(offset) }
+        pagination: { limit, offset: safeOffset, hasMore: safeOffset + documents.length < total }
       });
     }
     
@@ -631,7 +654,7 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
     }
 
     if (search) {
-      sql += ` AND d.name ILIKE $${paramIndex}`;
+      sql += ` AND (d.name ILIKE $${paramIndex} OR d.folder_path ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
       paramIndex++;
     }
@@ -642,12 +665,58 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
       paramIndex++;
     }
 
-    sql += ` ORDER BY d.uploaded_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-    params.push(parseInt(limit), parseInt(offset));
+    if (folder) {
+      sql += ` AND d.folder_path = $${paramIndex}`;
+      params.push(folder);
+      paramIndex++;
+    }
+
+    sql += ` ORDER BY ${sortKey} ${sortDirection} NULLS LAST LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(limit, safeOffset);
 
     const result = await query(sql, params);
     
     console.log(`[DOCS API] Found ${result.rows.length} documents from database for firm ${firmId}`);
+
+    const countParams = [...accessFilter.params];
+    let countIndex = accessFilter.nextParamIndex;
+    let countSql = `
+      SELECT COUNT(*) FROM documents d
+      WHERE ${accessFilter.whereClause}
+    `;
+
+    if (matterId) {
+      countSql += ` AND d.matter_id = $${countIndex}`;
+      countParams.push(matterId);
+      countIndex++;
+    }
+
+    if (clientId) {
+      countSql += ` AND d.client_id = $${countIndex}`;
+      countParams.push(clientId);
+      countIndex++;
+    }
+
+    if (search) {
+      countSql += ` AND (d.name ILIKE $${countIndex} OR d.folder_path ILIKE $${countIndex})`;
+      countParams.push(`%${search}%`);
+      countIndex++;
+    }
+
+    if (status) {
+      countSql += ` AND d.status = $${countIndex}`;
+      countParams.push(status);
+      countIndex++;
+    }
+
+    if (folder) {
+      countSql += ` AND d.folder_path = $${countIndex}`;
+      countParams.push(folder);
+      countIndex++;
+    }
+
+    const countResult = await query(countSql, countParams);
+    const total = parseInt(countResult.rows[0]?.count) || result.rows.length;
 
     res.json({
       documents: result.rows.map(d => ({
@@ -678,6 +747,8 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
       })),
       isAdmin,
       source: 'database',
+      total,
+      pagination: { limit, offset: safeOffset, hasMore: safeOffset + result.rows.length < total },
     });
   } catch (error) {
     console.error('Get documents error:', error);

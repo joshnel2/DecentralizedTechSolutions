@@ -578,13 +578,27 @@ export const calendarApi = {
 // ============================================
 
 export const documentsApi = {
-  async getAll(params?: { matterId?: string; clientId?: string; search?: string }) {
+  async getAll(params?: { 
+    matterId?: string; 
+    clientId?: string; 
+    search?: string;
+    limit?: number;
+    offset?: number;
+    folder?: string;
+    sort?: 'name' | 'uploaded_at';
+    order?: 'asc' | 'desc';
+  }, options?: RequestInit) {
     const query = new URLSearchParams();
     if (params?.matterId) query.set('matterId', params.matterId);
     if (params?.clientId) query.set('clientId', params.clientId);
     if (params?.search) query.set('search', params.search);
+    if (params?.limit !== undefined) query.set('limit', String(params.limit));
+    if (params?.offset !== undefined) query.set('offset', String(params.offset));
+    if (params?.folder) query.set('folder', params.folder);
+    if (params?.sort) query.set('sort', params.sort);
+    if (params?.order) query.set('order', params.order);
     
-    return fetchWithAuth(`/documents?${query}`);
+    return fetchWithAuth(`/documents?${query}`, options);
   },
 
   async upload(file: File, metadata: { matterId?: string; clientId?: string; tags?: string[] }) {
@@ -1725,10 +1739,24 @@ export const driveApi = {
   },
 
   // Admin: Browse all files (from database - instant)
-  async browseAllFiles(search?: string) {
-    const params = new URLSearchParams();
-    if (search) params.set('search', search);
-    return fetchWithAuth(`/drive/browse-all?${params}`);
+  async browseAllFiles(params?: { 
+    search?: string; 
+    folder?: string; 
+    limit?: number; 
+    offset?: number;
+    includeChildren?: boolean;
+    sort?: 'name' | 'uploaded_at';
+    order?: 'asc' | 'desc';
+  }, options?: RequestInit) {
+    const query = new URLSearchParams();
+    if (params?.search) query.set('search', params.search);
+    if (params?.folder) query.set('folder', params.folder);
+    if (params?.limit !== undefined) query.set('limit', String(params.limit));
+    if (params?.offset !== undefined) query.set('offset', String(params.offset));
+    if (params?.includeChildren !== undefined) query.set('includeChildren', String(params.includeChildren));
+    if (params?.sort) query.set('sort', params.sort);
+    if (params?.order) query.set('order', params.order);
+    return fetchWithAuth(`/drive/browse-all?${query}`, options);
   },
   
   // Sync files from Azure to database

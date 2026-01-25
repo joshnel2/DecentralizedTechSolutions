@@ -1399,29 +1399,37 @@ router.get('/documents/:documentId/activities', authenticate, async (req, res) =
 // Get folder structure
 router.get('/folders', authenticate, async (req, res) => {
   try {
-    const { driveId, path = '/' } = req.query;
+    const { driveId } = req.query;
+    const accessFilter = await buildDocumentAccessFilter(
+      req.user.id,
+      req.user.role,
+      req.user.firmId,
+      'd',
+      1
+    );
 
     let sql = `
-      SELECT DISTINCT folder_path, 
-             COUNT(CASE WHEN is_folder = false THEN 1 END) as file_count,
-             MAX(updated_at) as last_modified
-      FROM documents
-      WHERE firm_id = $1
+      SELECT DISTINCT d.folder_path, 
+             COUNT(CASE WHEN d.is_folder = false THEN 1 END) as file_count,
+             MAX(d.updated_at) as last_modified
+      FROM documents d
+      WHERE ${accessFilter.whereClause}
+        AND d.folder_path IS NOT NULL
+        AND d.folder_path != ''
     `;
-    const params = [req.user.firmId];
-    let paramIndex = 2;
+    const params = [...accessFilter.params];
+    let paramIndex = accessFilter.nextParamIndex;
 
     if (driveId) {
-      sql += ` AND drive_id = $${paramIndex}`;
+      sql += ` AND d.drive_id = $${paramIndex}`;
       params.push(driveId);
       paramIndex++;
     }
 
-    sql += ` GROUP BY folder_path ORDER BY folder_path`;
+    sql += ` GROUP BY d.folder_path ORDER BY d.folder_path`;
 
     const result = await query(sql, params);
 
-    // Build folder tree
     const folders = result.rows.map(r => ({
       path: r.folder_path,
       fileCount: parseInt(r.file_count),
@@ -2151,40 +2159,107 @@ router.get('/download-azure', authenticate, async (req, res) => {
  */
 router.get('/browse-all', authenticate, async (req, res) => {
   try {
-    const { search } = req.query;
+    const { search, folder, offset = 0, sort, order, includeChildren = 'true' } = req.query;
     const firmId = req.user.firmId;
     const firmFolder = `firm-${firmId}`;
+    const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
+    const MAX_LIMIT = 200;
+    const rawLimit = req.query.limit ? parseInt(req.query.limit) : 60;
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), MAX_LIMIT) : 60;
+    const rawOffset = parseInt(offset) || 0;
+    const safeOffset = Math.max(rawOffset, 0);
+    const sortKey = sort === 'uploaded_at' ? 'd.uploaded_at' : 'd.name';
+    const sortDirection = order === 'desc' ? 'DESC' : 'ASC';
+    const includeNested = includeChildren !== 'false';
     
-    // Get files from database (instant)
+    const accessFilter = await buildDocumentAccessFilter(
+      req.user.id,
+      req.user.role,
+      firmId,
+      'd',
+      1
+    );
+    
     let sql = `
-      SELECT id, name, original_name, type, size, folder_path, 
-             COALESCE(external_path, path) as azure_path
-      FROM documents 
-      WHERE firm_id = $1
+      SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path, 
+             COALESCE(d.external_path, d.path) as azure_path,
+             d.matter_id,
+             m.name as matter_name,
+             m.number as matter_number,
+             d.uploaded_at,
+             u.first_name || ' ' || u.last_name as uploaded_by_name,
+             d.version_count,
+             d.privacy_level,
+             d.external_path,
+             d.storage_location
+      FROM documents d
+      LEFT JOIN matters m ON d.matter_id = m.id
+      LEFT JOIN users u ON d.uploaded_by = u.id
+      WHERE ${accessFilter.whereClause}
+        AND d.is_folder = false
     `;
-    const params = [firmId];
+    const params = [...accessFilter.params];
+    let paramIndex = accessFilter.nextParamIndex;
     
     if (search) {
-      sql += ` AND (name ILIKE $2 OR folder_path ILIKE $2)`;
+      sql += ` AND (d.name ILIKE $${paramIndex} OR d.folder_path ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
+      paramIndex++;
     }
     
-    sql += ` ORDER BY folder_path, name LIMIT 10000`;
-    
-    const result = await query(sql, params);
-    
-    // Build folder tree
-    const folderSet = new Set();
-    const files = result.rows.map(row => {
-      if (row.folder_path) {
-        folderSet.add(row.folder_path);
-        // Add parent folders
-        const parts = row.folder_path.split('/');
-        for (let i = 1; i < parts.length; i++) {
-          folderSet.add(parts.slice(0, i).join('/'));
-        }
+    if (folder) {
+      if (includeNested) {
+        sql += ` AND (d.folder_path = $${paramIndex} OR d.folder_path LIKE $${paramIndex + 1})`;
+        params.push(folder, `${folder}/%`);
+        paramIndex += 2;
+      } else {
+        sql += ` AND d.folder_path = $${paramIndex}`;
+        params.push(folder);
+        paramIndex++;
       }
-      return {
+    }
+    
+    sql += ` ORDER BY ${sortKey} ${sortDirection} NULLS LAST LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    const queryParams = [...params, limit, safeOffset];
+    
+    const result = await query(sql, queryParams);
+    
+    let statsSql = `
+      SELECT COUNT(*) as total_files, COALESCE(SUM(d.size), 0) as total_size
+      FROM documents d
+      WHERE ${accessFilter.whereClause}
+        AND d.is_folder = false
+    `;
+    const statsParams = [...accessFilter.params];
+    let statsIndex = accessFilter.nextParamIndex;
+    
+    if (search) {
+      statsSql += ` AND (d.name ILIKE $${statsIndex} OR d.folder_path ILIKE $${statsIndex})`;
+      statsParams.push(`%${search}%`);
+      statsIndex++;
+    }
+    
+    if (folder) {
+      if (includeNested) {
+        statsSql += ` AND (d.folder_path = $${statsIndex} OR d.folder_path LIKE $${statsIndex + 1})`;
+        statsParams.push(folder, `${folder}/%`);
+        statsIndex += 2;
+      } else {
+        statsSql += ` AND d.folder_path = $${statsIndex}`;
+        statsParams.push(folder);
+        statsIndex++;
+      }
+    }
+    
+    const statsResult = await query(statsSql, statsParams);
+    const statsRow = statsResult.rows[0] || { total_files: 0, total_size: 0 };
+    const total = parseInt(statsRow.total_files) || result.rows.length;
+    
+    return res.json({
+      configured: true,
+      isAdmin,
+      firmFolder,
+      files: result.rows.map(row => ({
         id: row.id,
         name: row.name,
         originalName: row.original_name || row.name,
@@ -2193,22 +2268,23 @@ router.get('/browse-all', authenticate, async (req, res) => {
         folderPath: row.folder_path || '',
         path: row.azure_path,
         azurePath: row.azure_path,
-        storageLocation: 'azure',
-        isFromAzure: true
-      };
-    });
-    
-    return res.json({
-      configured: true,
-      isAdmin: true,
-      firmFolder,
-      files,
-      folders: Array.from(folderSet).sort(),
+        storageLocation: row.storage_location || 'azure',
+        isFromAzure: true,
+        matterId: row.matter_id,
+        matterName: row.matter_name,
+        matterNumber: row.matter_number,
+        uploadedAt: row.uploaded_at,
+        uploadedByName: row.uploaded_by_name,
+        versionCount: row.version_count || 1,
+        privacyLevel: row.privacy_level,
+        externalPath: row.external_path || row.azure_path
+      })),
       stats: { 
-        totalFiles: files.length, 
-        totalFolders: folderSet.size,
-        totalSize: files.reduce((sum, f) => sum + (f.size || 0), 0)
+        totalFiles: total, 
+        totalSize: parseInt(statsRow.total_size) || 0
       },
+      total,
+      pagination: { limit, offset: safeOffset, hasMore: safeOffset + result.rows.length < total },
       source: 'database'
     });
     
