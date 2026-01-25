@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, HardDrive, Check, AlertCircle, Loader2, FileText, Users, Lock,
-  History, GitCompare, Cloud, CheckCircle2, Globe, Copy, Eye, X
+  History, GitCompare, Cloud, CheckCircle2, Globe, Copy, Eye, X, Download,
+  Monitor, Apple, Laptop
 } from 'lucide-react'
 import { driveApi, documentsApi } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
@@ -214,9 +215,70 @@ export function ApexDrivePage() {
           </div>
         )}
 
+        {/* Desktop App Download Section */}
+        <div className={styles.desktopAppSection}>
+          <div className={styles.desktopAppHeader}>
+            <div className={styles.desktopAppIcon}>
+              <Laptop size={28} />
+            </div>
+            <div className={styles.desktopAppText}>
+              <h3>Apex Drive Desktop App</h3>
+              <p>Sync documents to your computer for instant access. Files open immediately - no download wait.</p>
+            </div>
+          </div>
+          
+          <div className={styles.downloadGrid}>
+            <div className={styles.downloadCard}>
+              <Monitor size={32} />
+              <h4>Windows</h4>
+              <p>Windows 10 or later</p>
+              <a 
+                href="/downloads/apex-drive-setup.exe" 
+                className={styles.downloadBtn}
+                download
+              >
+                <Download size={16} />
+                Download for Windows
+              </a>
+            </div>
+            <div className={styles.downloadCard}>
+              <Apple size={32} />
+              <h4>macOS</h4>
+              <p>macOS 10.13 or later</p>
+              <a 
+                href="/downloads/apex-drive.dmg" 
+                className={styles.downloadBtn}
+                download
+              >
+                <Download size={16} />
+                Download for Mac
+              </a>
+            </div>
+          </div>
+          
+          <div className={styles.desktopFeatures}>
+            <div className={styles.desktopFeature}>
+              <CheckCircle2 size={16} />
+              <span>Files sync to your Documents folder</span>
+            </div>
+            <div className={styles.desktopFeature}>
+              <CheckCircle2 size={16} />
+              <span>Only your matters - secure by default</span>
+            </div>
+            <div className={styles.desktopFeature}>
+              <CheckCircle2 size={16} />
+              <span>Changes sync back automatically</span>
+            </div>
+            <div className={styles.desktopFeature}>
+              <CheckCircle2 size={16} />
+              <span>Works offline - syncs when connected</span>
+            </div>
+          </div>
+        </div>
+
         {/* Access Options */}
         <div className={styles.accessSection}>
-          <h3>Access your documents</h3>
+          <h3>Or access through the web</h3>
           <div className={styles.accessGrid}>
             <div className={styles.accessCard}>
               <Globe size={32} />

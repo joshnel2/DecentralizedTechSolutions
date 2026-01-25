@@ -1,0 +1,13 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="512" height="512" rx="128" fill="#2563eb"/>
+  
+  <!-- Mountain/Apex shape -->
+  <path d="M256 96L416 352H96L256 96Z" fill="white"/>
+  
+  <!-- Drive/disk circle -->
+  <circle cx="256" cy="304" r="48" fill="#2563eb"/>
+  
+  <!-- Inner highlight -->
+  <circle cx="256" cy="304" r="24" fill="white" opacity="0.3"/>
+</svg>

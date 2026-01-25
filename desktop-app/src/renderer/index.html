@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <title>Apex Drive</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Login Page -->
+    <div id="login-page" class="page active">
+      <div class="login-container">
+        <div class="logo">
+          <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+            <rect width="64" height="64" rx="16" fill="#2563eb"/>
+            <path d="M32 12L48 44H16L32 12Z" fill="white"/>
+            <circle cx="32" cy="38" r="6" fill="#2563eb"/>
+          </svg>
+        </div>
+        <h1>Apex Drive</h1>
+        <p class="subtitle">Sign in to sync your documents</p>
+        
+        <form id="login-form">
+          <div class="form-group">
+            <label for="api-url">Server URL</label>
+            <input type="url" id="api-url" placeholder="https://your-firm.apexdrive.com/api" required>
+          </div>
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" placeholder="you@firm.com" required>
+          </div>
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" placeholder="••••••••" required>
+          </div>
+          <button type="submit" id="login-btn" class="btn btn-primary">
+            <span class="btn-text">Sign In</span>
+            <span class="btn-loader" style="display: none;">
+              <svg class="spinner" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" stroke-dasharray="30 70"/>
+              </svg>
+            </span>
+          </button>
+          <p id="login-error" class="error-message"></p>
+        </form>
+      </div>
+    </div>
+    
+    <!-- Main Dashboard -->
+    <div id="main-page" class="page">
+      <header class="header">
+        <div class="header-left">
+          <svg class="header-logo" width="32" height="32" viewBox="0 0 64 64" fill="none">
+            <rect width="64" height="64" rx="16" fill="#2563eb"/>
+            <path d="M32 12L48 44H16L32 12Z" fill="white"/>
+            <circle cx="32" cy="38" r="6" fill="#2563eb"/>
+          </svg>
+          <h1>Apex Drive</h1>
+        </div>
+        <div class="header-right">
+          <span id="user-name" class="user-name"></span>
+          <button id="settings-btn" class="btn btn-icon" title="Settings">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+      
+      <nav class="nav-tabs">
+        <button class="nav-tab active" data-tab="overview">Overview</button>
+        <button class="nav-tab" data-tab="matters">Matters</button>
+        <button class="nav-tab" data-tab="activity">Activity</button>
+      </nav>
+      
+      <!-- Overview Tab -->
+      <div id="tab-overview" class="tab-content active">
+        <div class="sync-status-card">
+          <div class="sync-status-header">
+            <h2>Sync Status</h2>
+            <div id="sync-indicator" class="sync-indicator idle">
+              <span class="sync-dot"></span>
+              <span id="sync-status-text">Idle</span>
+            </div>
+          </div>
+          
+          <div class="sync-stats">
+            <div class="stat-item">
+              <span class="stat-value" id="stat-matters">-</span>
+              <span class="stat-label">Matters</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-value" id="stat-documents">-</span>
+              <span class="stat-label">Documents</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-value" id="stat-last-sync">Never</span>
+              <span class="stat-label">Last Sync</span>
+            </div>
+          </div>
+          
+          <div class="sync-actions">
+            <button id="sync-now-btn" class="btn btn-primary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+              Sync Now
+            </button>
+            <button id="open-folder-btn" class="btn btn-secondary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              </svg>
+              Open Folder
+            </button>
+          </div>
+        </div>
+        
+        <div class="recent-activity-card">
+          <h2>Recent Activity</h2>
+          <ul id="recent-activity" class="activity-list">
+            <li class="activity-item empty">No recent activity</li>
+          </ul>
+        </div>
+      </div>
+      
+      <!-- Matters Tab -->
+      <div id="tab-matters" class="tab-content">
+        <div class="matters-header">
+          <h2>Your Matters</h2>
+          <input type="search" id="matter-search" placeholder="Search matters..." class="search-input">
+        </div>
+        <ul id="matters-list" class="matters-list">
+          <li class="loading-item">Loading matters...</li>
+        </ul>
+      </div>
+      
+      <!-- Activity Tab -->
+      <div id="tab-activity" class="tab-content">
+        <h2>Sync Activity Log</h2>
+        <ul id="activity-log" class="activity-list full">
+          <li class="activity-item empty">No activity yet</li>
+        </ul>
+      </div>
+    </div>
+    
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Settings</h2>
+          <button id="close-settings" class="btn btn-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        
+        <div class="modal-body">
+          <div class="setting-group">
+            <label>Sync Folder</label>
+            <div class="folder-select">
+              <input type="text" id="sync-folder-path" readonly>
+              <button id="change-folder-btn" class="btn btn-secondary">Change</button>
+            </div>
+            <p class="setting-help">Documents will be synced to this folder on your computer.</p>
+          </div>
+          
+          <div class="setting-group">
+            <label class="toggle-label">
+              <input type="checkbox" id="auto-sync-toggle" checked>
+              <span>Auto-sync</span>
+            </label>
+            <p class="setting-help">Automatically sync changes every few minutes.</p>
+          </div>
+          
+          <div class="setting-group">
+            <label>Sync Interval</label>
+            <select id="sync-interval">
+              <option value="1">Every 1 minute</option>
+              <option value="5" selected>Every 5 minutes</option>
+              <option value="15">Every 15 minutes</option>
+              <option value="30">Every 30 minutes</option>
+              <option value="60">Every hour</option>
+            </select>
+          </div>
+          
+          <div class="setting-group danger-zone">
+            <h3>Account</h3>
+            <button id="logout-btn" class="btn btn-danger">Sign Out</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script src="app.js"></script>
+</body>
+</html>
