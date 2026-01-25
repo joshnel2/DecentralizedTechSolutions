@@ -577,16 +577,200 @@ export const calendarApi = {
 // DOCUMENTS API
 // ============================================
 
+/**
+ * @module DocumentsApi
+ * @description Documents API service for managing files in Apex Drive.
+ * 
+ * ## Overview
+ * This service handles document operations including upload, download, listing,
+ * and integration with Azure Blob Storage for cloud-based file management.
+ * 
+ * ---
+ * 
+ * ## Clio Document Migration Flow
+ * 
+ * The Clio document migration system enables seamless transfer of documents from
+ * Clio's cloud storage to Azure Blob Storage while maintaining folder structure,
+ * metadata, and access permissions.
+ * 
+ * ### Migration Architecture
+ * 
+ * ```
+ * ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+ * │    Clio API     │────▶│  Apex Backend    │────▶│  Azure Storage  │
+ * │  (Documents)    │     │  (Streaming)     │     │  (Blob Storage) │
+ * └─────────────────┘     └──────────────────┘     └─────────────────┘
+ *         │                       │                        │
+ *         ▼                       ▼                        ▼
+ *   Document Manifest      Memory Buffer           Permanent Storage
+ *   (Metadata First)       (No Disk I/O)           (Original Names)
+ * ```
+ * 
+ * ### Key Methods
+ * 
+ * #### 1. `fetchDocumentManifestFromClio(accessToken, firmId, options)`
+ * Fetches ALL document metadata from Clio with proper pagination.
+ * - Uses limit=200 per page (Clio's maximum)
+ * - Follows `meta.paging.next` URL for pagination
+ * - Handles rate limiting (429) with automatic retry and exponential backoff
+ * - Builds folder hierarchy from Clio's folder structure
+ * - Stores documents in `clio_document_manifest` table for tracking
+ * 
+ * @example
+ * ```typescript
+ * const result = await fetchDocumentManifestFromClio(clioToken, firmId, {
+ *   onProgress: (progress) => console.log(`Fetched ${progress.fetched} documents`),
+ *   matterIdMap: new Map() // Maps Clio matter IDs to local IDs
+ * });
+ * // Returns: { documentsFound: 1500, foldersFound: 200, stored: 1500, errors: 0 }
+ * ```
+ * 
+ * #### 2. `streamDocumentToAzure(accessToken, manifest, firmId, options)`
+ * Streams a single document from Clio directly to Azure (NO disk storage).
+ * - Fetches from Clio using chunked response
+ * - Buffers in memory only (never touches local disk)
+ * - Uploads directly to Azure Blob Storage using 4MB chunks
+ * - Preserves original filename with extension
+ * - Creates document record with proper permissions
+ * 
+ * @example
+ * ```typescript
+ * const result = await streamDocumentToAzure(clioToken, manifestDoc, firmId, {
+ *   matterIdMap,
+ *   clientIdMap,
+ *   customFirmFolder: 'firm-abc123'
+ * });
+ * // Returns: { success: true, documentId: 'uuid', path: 'firm-abc123/Matters/...', size: 12345 }
+ * ```
+ * 
+ * #### 3. `batchStreamDocuments(accessToken, firmId, options)`
+ * Batch streams documents with high concurrency and progress tracking.
+ * - Processes documents in parallel (default batch size: 50)
+ * - Implements retry logic for transient failures (timeout, network errors)
+ * - Sorts by file size for faster progress feedback
+ * - Provides ETA and documents-per-second metrics
+ * 
+ * @example
+ * ```typescript
+ * const result = await batchStreamDocuments(clioToken, firmId, {
+ *   batchSize: 50,
+ *   maxRetries: 3,
+ *   onProgress: (p) => {
+ *     console.log(`${p.processed}/${p.total} - ${p.docsPerSecond}/s - ETA: ${p.etaMinutes} min`);
+ *   }
+ * });
+ * // Returns: { success: 1450, failed: 5, errors: [...], retried: 10 }
+ * ```
+ * 
+ * #### 4. `getDocumentMigrationStatus(firmId)`
+ * Returns migration progress statistics.
+ * 
+ * @example
+ * ```typescript
+ * const status = await getDocumentMigrationStatus(firmId);
+ * // Returns: { total: 1500, pending: 50, imported: 1445, errors: 5, totalSizeMB: '2340.50' }
+ * ```
+ * 
+ * ### Error Handling & Retry Logic
+ * 
+ * The migration system implements robust error handling:
+ * 
+ * | Error Type | Handling Strategy |
+ * |------------|-------------------|
+ * | 429 (Rate Limit) | Wait for `Retry in X seconds` + 5s buffer, then retry |
+ * | 400/404 | Skip document (likely export, report, or system file) |
+ * | Timeout/ETIMEDOUT | Retry up to 3 times with 1s delay |
+ * | ECONNRESET | Retry up to 3 times with 1s delay |
+ * | 502/503 | Retry up to 3 times with 1s delay |
+ * 
+ * ### Data Flow
+ * 
+ * 1. **Manifest Phase**: Fetch all document metadata from Clio
+ *    - Paginate through all documents (200 per page)
+ *    - Build folder hierarchy
+ *    - Store in `clio_document_manifest` with status='pending'
+ * 
+ * 2. **Transfer Phase**: Stream documents to Azure
+ *    - For each pending document in manifest:
+ *      a. Get download URL from Clio `/documents/{id}/download.json`
+ *      b. Follow 303 redirect to S3 presigned URL
+ *      c. Stream content into memory buffer
+ *      d. Upload to Azure using 4MB chunks
+ *      e. Create document record in local database
+ *      f. Update manifest status to 'imported' or 'error'
+ * 
+ * 3. **Verification Phase**: Check migration status
+ *    - Query manifest for pending/imported/error counts
+ *    - Calculate total size migrated
+ * 
+ * ### Database Tables
+ * 
+ * - `clio_document_manifest`: Tracks all Clio documents and their migration status
+ * - `clio_folder_manifest`: Tracks Clio folder structure for path reconstruction
+ * - `documents`: Final document records with Azure paths
+ * - `document_permissions`: Access control for migrated documents
+ * 
+ * ### Configuration
+ * 
+ * Required environment variables:
+ * - `AZURE_STORAGE_ACCOUNT_NAME`: Azure storage account
+ * - `AZURE_STORAGE_ACCOUNT_KEY`: Azure storage key
+ * - `AZURE_FILE_SHARE_NAME`: Share name (default: 'apexdrive')
+ * 
+ * Or use connection string:
+ * - `AZURE_CONNECTION_STRING`: Full connection string
+ * 
+ * ---
+ */
+
 export const documentsApi = {
-  async getAll(params?: { matterId?: string; clientId?: string; search?: string }) {
+  /**
+   * Get all documents with optional filtering.
+   * 
+   * @param params - Filter parameters
+   * @param params.matterId - Filter by matter ID
+   * @param params.clientId - Filter by client ID
+   * @param params.search - Search term for document name
+   * @param params.limit - Maximum number of documents to return (default: 100 for admins, 5000 for users)
+   * @param params.offset - Pagination offset
+   * @returns Promise<{ documents: Document[], total: number, source: string }>
+   * 
+   * @description
+   * Returns documents based on user permissions:
+   * - Admins (owner/admin): See ALL documents in the firm
+   * - Regular users: See documents they uploaded, own, or have explicit access to
+   * 
+   * Documents are fetched from database if available, with Azure live scan as fallback.
+   */
+  async getAll(params?: { matterId?: string; clientId?: string; search?: string; limit?: number; offset?: number }) {
     const query = new URLSearchParams();
     if (params?.matterId) query.set('matterId', params.matterId);
     if (params?.clientId) query.set('clientId', params.clientId);
     if (params?.search) query.set('search', params.search);
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
     
     return fetchWithAuth(`/documents?${query}`);
   },
 
+  /**
+   * Upload a document to the system.
+   * 
+   * @param file - The file to upload
+   * @param metadata - Document metadata
+   * @param metadata.matterId - Associate with a matter
+   * @param metadata.clientId - Associate with a client
+   * @param metadata.tags - Document tags
+   * @returns Promise<Document>
+   * 
+   * @description
+   * Uploads a file and:
+   * 1. Stores locally on server
+   * 2. Uploads to Azure Blob Storage (if configured)
+   * 3. Extracts text content for AI analysis (PDF, DOCX, TXT)
+   * 4. Creates document record with permissions
+   * 5. Creates initial version record
+   */
   async upload(file: File, metadata: { matterId?: string; clientId?: string; tags?: string[] }) {
     const formData = new FormData();
     formData.append('file', file);
@@ -614,6 +798,13 @@ export const documentsApi = {
     return response.json();
   },
 
+  /**
+   * Update document metadata.
+   * 
+   * @param id - Document ID
+   * @param data - Fields to update (name, matterId, tags, status, etc.)
+   * @returns Promise<Document>
+   */
   async update(id: string, data: any) {
     return fetchWithAuth(`/documents/${id}`, {
       method: 'PUT',
@@ -621,14 +812,36 @@ export const documentsApi = {
     });
   },
 
+  /**
+   * Delete a document.
+   * 
+   * @param id - Document ID
+   * @returns Promise<{ message: string }>
+   */
   async delete(id: string) {
     return fetchWithAuth(`/documents/${id}`, { method: 'DELETE' });
   },
 
+  /**
+   * Get the download URL for a document.
+   * 
+   * @param id - Document ID
+   * @returns The full download URL
+   */
   getDownloadUrl(id: string) {
     return `${API_URL}/documents/${id}/download`;
   },
 
+  /**
+   * Download a document as a Blob.
+   * 
+   * @param id - Document ID
+   * @returns Promise<Blob>
+   * 
+   * @description
+   * Downloads from local storage first, falls back to Azure Blob Storage
+   * if local file is missing. Preserves original filename and MIME type.
+   */
   async download(id: string): Promise<Blob> {
     const headers: HeadersInit = {};
     if (accessToken) {
@@ -647,11 +860,34 @@ export const documentsApi = {
     return response.blob();
   },
 
+  /**
+   * Get the text content of a document for AI analysis.
+   * 
+   * @param id - Document ID
+   * @returns Promise<{ id: string, name: string, type: string, size: number, content: string }>
+   * 
+   * @description
+   * Extracts text content from documents:
+   * - PDF: Uses pdf-parse, with OCR fallback for scanned documents
+   * - DOCX: Uses mammoth for extraction
+   * - TXT/MD/JSON: Direct text read
+   * - Images: Azure Vision OCR (if configured)
+   * 
+   * Caches extracted content in database for future requests.
+   */
   async getContent(id: string) {
     return fetchWithAuth(`/documents/${id}/content`);
   },
 
-  // Download all documents as a zip file
+  /**
+   * Download all documents as a zip file.
+   * 
+   * @returns Promise<Blob>
+   * 
+   * @description
+   * Creates a zip archive containing all documents the user has access to,
+   * organized by matter and client folders. Skips external files.
+   */
   async downloadAll() {
     const headers: HeadersInit = {};
     if (accessToken) {
@@ -670,7 +906,24 @@ export const documentsApi = {
     return response.blob();
   },
 
-  // Extract text from a file without saving it (for AI analysis)
+  /**
+   * Extract text from a file without saving it.
+   * 
+   * @param file - The file to extract text from
+   * @returns Promise<{ name: string, type: string, size: number, content: string }>
+   * 
+   * @description
+   * Extracts text content from uploaded files for AI analysis without
+   * persisting the file. Useful for real-time document analysis in the
+   * AI Assistant before deciding to save.
+   * 
+   * Supported formats:
+   * - PDF: Text extraction with pdf-parse
+   * - DOCX: Word document text extraction
+   * - TXT, MD, JSON, CSV: Direct text read
+   * - Excel files: Not yet supported
+   * - Images: Requires OCR processing
+   */
   async extractText(file: File): Promise<{ name: string; type: string; size: number; content: string }> {
     const formData = new FormData();
     formData.append('file', file);
