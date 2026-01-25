@@ -713,14 +713,17 @@ router.get('/sections', authenticate, requirePermission('documents:view'), async
   try {
     const { search, limit = 50 } = req.query;
     const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
+    const parsedLimit = parseInt(limit);
     
     const response = {
       isAdmin,
       sections: [],
     };
 
-    // ===== MY DOCUMENTS SECTION =====
-    // Shows: documents user uploaded + owns + has explicit permission to
+    // ===== BUILD QUERIES =====
+    // Build all queries first, then execute in parallel to reduce latency
+    
+    // My Documents query
     let myDocsSql = `
       SELECT 
         d.id, d.name, d.original_name, d.type, d.size, d.folder_path,
@@ -753,18 +756,19 @@ router.get('/sections', authenticate, requirePermission('documents:view'), async
     }
 
     myDocsSql += ` ORDER BY d.uploaded_at DESC LIMIT $${paramIdx}`;
-    myDocsParams.push(parseInt(limit));
+    myDocsParams.push(parsedLimit);
 
-    const myDocsResult = await query(myDocsSql, myDocsParams);
-
-    // Get my documents stats
-    const myStatsResult = await query(`
-      SELECT 
-        COUNT(*) as total,
-        COALESCE(SUM(size), 0) as total_size
-      FROM documents
-      WHERE firm_id = $1 AND (uploaded_by = $2 OR owner_id = $2)
-    `, [req.user.firmId, req.user.id]);
+    // OPTIMIZED: Run document list and stats queries in parallel
+    const [myDocsResult, myStatsResult] = await Promise.all([
+      query(myDocsSql, myDocsParams),
+      query(`
+        SELECT 
+          COUNT(*) as total,
+          COALESCE(SUM(size), 0) as total_size
+        FROM documents
+        WHERE firm_id = $1 AND (uploaded_by = $2 OR owner_id = $2)
+      `, [req.user.firmId, req.user.id])
+    ]);
 
     response.sections.push({
       id: 'my-documents',
@@ -814,20 +818,21 @@ router.get('/sections', authenticate, requirePermission('documents:view'), async
       }
 
       firmDocsSql += ` ORDER BY d.uploaded_at DESC LIMIT $${firmParamIdx}`;
-      firmDocsParams.push(parseInt(limit));
+      firmDocsParams.push(parsedLimit);
 
-      const firmDocsResult = await query(firmDocsSql, firmDocsParams);
-
-      // Get firm-wide stats
-      const firmStatsResult = await query(`
-        SELECT 
-          COUNT(*) as total,
-          COALESCE(SUM(size), 0) as total_size,
-          COUNT(DISTINCT uploaded_by) as unique_uploaders,
-          COUNT(DISTINCT matter_id) as matters_with_docs
-        FROM documents
-        WHERE firm_id = $1
-      `, [req.user.firmId]);
+      // OPTIMIZED: Run firm documents and stats queries in parallel
+      const [firmDocsResult, firmStatsResult] = await Promise.all([
+        query(firmDocsSql, firmDocsParams),
+        query(`
+          SELECT 
+            COUNT(*) as total,
+            COALESCE(SUM(size), 0) as total_size,
+            COUNT(DISTINCT uploaded_by) as unique_uploaders,
+            COUNT(DISTINCT matter_id) as matters_with_docs
+          FROM documents
+          WHERE firm_id = $1
+        `, [req.user.firmId])
+      ]);
 
       response.sections.unshift({
         id: 'firm-drive',
