@@ -2311,17 +2311,15 @@ router.get('/browse-all', authenticate, async (req, res) => {
     
     console.log(`[BROWSE-ALL] User: ${req.user.email}, isAdmin: ${isAdmin}, folder: ${folderPath || 'all'}, matter: ${matterId || 'none'}, limit: ${maxLimit}`);
     
-    // For non-admins, get accessible matter IDs first (cached for efficiency)
+    // For non-admins, get their matter IDs (same list they see in Matters section)
     let userMatterIds = [];
     if (!isAdmin) {
       const userMattersResult = await query(`
         SELECT DISTINCT m.id FROM matters m
-        WHERE m.firm_id = $1 AND m.status != 'archived' AND (
-          m.visibility = 'firm_wide'
-          OR m.responsible_attorney = $2
+        WHERE m.firm_id = $1 AND (
+          m.responsible_attorney = $2
           OR m.originating_attorney = $2
           OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
-          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
         )
       `, [firmId, req.user.id]);
       userMatterIds = userMattersResult.rows.map(r => r.id);

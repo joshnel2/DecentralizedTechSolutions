@@ -426,67 +426,70 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
       });
     }
     
-    // STANDARD PATH: Documents section without matter filter
-    // For large datasets (after scan), use database as primary source
-    // This is much faster than scanning Azure live
+    // STANDARD PATH: Documents section - show docs from user's matters + their uploads + shared with them
+    // Simple logic:
+    // 1. Documents from their matters (same matters they see in Matters section)
+    // 2. Documents they uploaded
+    // 3. Documents shared with them by other users
+    
+    // Get user's matter IDs (same list they see in Matters section)
+    const userMattersResult = await query(`
+      SELECT DISTINCT m.id FROM matters m
+      WHERE m.firm_id = $1 AND (
+        m.responsible_attorney = $2
+        OR m.originating_attorney = $2
+        OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+      )
+    `, [firmId, req.user.id]);
+    
+    const userMatterIds = userMattersResult.rows.map(r => r.id);
+    console.log(`[DOCS API] User ${req.user.email} has ${userMatterIds.length} matters`);
+    
+    // Simple query: docs from their matters + docs they uploaded + docs shared with them
+    let queryStr = `
+      SELECT d.*, m.name as matter_name, m.number as matter_number
+      FROM documents d
+      LEFT JOIN matters m ON d.matter_id = m.id
+      WHERE d.firm_id = $1
+        AND (
+          d.uploaded_by = $2
+          ${userMatterIds.length > 0 ? `OR d.matter_id = ANY($3)` : ''}
+          OR EXISTS (
+            SELECT 1 FROM document_permissions dp 
+            WHERE dp.document_id = d.id AND dp.user_id = $2 AND dp.can_view = true
+          )
+        )
+    `;
+    const params = [firmId, req.user.id];
+    let paramIndex = 3;
+    
+    if (userMatterIds.length > 0) {
+      params.push(userMatterIds);
+      paramIndex++;
+    }
+    
+    // Filter by folder path
+    if (folder) {
+      queryStr += ` AND d.folder_path = $${paramIndex}`;
+      params.push(folder);
+      paramIndex++;
+    }
+    
+    // Filter by search
+    if (search) {
+      queryStr += ` AND (d.name ILIKE $${paramIndex} OR d.folder_path ILIKE $${paramIndex})`;
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+    
+    queryStr += ` ORDER BY d.folder_path, d.name LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(parseInt(limit), parseInt(offset));
+    
+    // Check if we have documents
     const docCountResult = await query('SELECT COUNT(*) FROM documents WHERE firm_id = $1', [firmId]);
     const totalDocsInDb = parseInt(docCountResult.rows[0].count) || 0;
     
-    // If we have documents in DB, use DB-first approach (fast)
     if (totalDocsInDb > 0) {
-      console.log(`[DOCS API] Using database (${totalDocsInDb} docs) for firm ${firmId}`);
-      
-      // STEP 1: Get user's accessible matter IDs (fast, small result)
-      const userMattersResult = await query(`
-        SELECT DISTINCT m.id FROM matters m
-        WHERE m.firm_id = $1 AND (
-          m.responsible_attorney = $2
-          OR m.originating_attorney = $2
-          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
-          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
-        )
-      `, [firmId, req.user.id]);
-      
-      const userMatterIds = userMattersResult.rows.map(r => r.id);
-      console.log(`[DOCS API] User ${req.user.email} has access to ${userMatterIds.length} matters`);
-      
-      // STEP 2: Simple query with IN clause (much faster than EXISTS on every row)
-      let queryStr = `
-        SELECT d.*, m.name as matter_name, m.number as matter_number
-        FROM documents d
-        LEFT JOIN matters m ON d.matter_id = m.id
-        WHERE d.firm_id = $1
-          AND (
-            d.uploaded_by = $2
-            OR d.owner_id = $2
-            OR d.privacy_level = 'firm'
-            ${userMatterIds.length > 0 ? `OR d.matter_id = ANY($3)` : ''}
-          )
-      `;
-      const params = [firmId, req.user.id];
-      let paramIndex = 3;
-      
-      if (userMatterIds.length > 0) {
-        params.push(userMatterIds);
-        paramIndex++;
-      }
-      
-      // Filter by folder path
-      if (folder) {
-        queryStr += ` AND d.folder_path = $${paramIndex}`;
-        params.push(folder);
-        paramIndex++;
-      }
-      
-      // Filter by search
-      if (search) {
-        queryStr += ` AND (d.name ILIKE $${paramIndex} OR d.folder_path ILIKE $${paramIndex})`;
-        params.push(`%${search}%`);
-        paramIndex++;
-      }
-      
-      queryStr += ` ORDER BY d.folder_path, d.name LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-      params.push(parseInt(limit), parseInt(offset));
       
       const result = await query(queryStr, params);
       
@@ -534,210 +537,14 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
       });
     }
     
-    // No Azure fallback - just return empty if no docs in DB
-    // Users must run the scan first to populate documents
+    // No docs in database - return empty with message to scan
     console.log(`[DOCS API] No docs in DB for firm ${firmId} - scan required`);
-    
-    // DISABLED: Azure live scanning - too slow for large firms
-    // Documents must be imported via Scan first
-    // Return empty result with message to run scan
     return res.json({
       documents: [],
       total: 0,
       source: 'database',
       needsScan: true,
       message: 'No documents in database. Run "Scan Documents" from admin portal first.'
-    });
-    
-    /* DISABLED - Azure live scan
-    if (source !== 'db-only') {
-      try {
-        const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
-        
-        if (await isAzureConfigured()) {
-          const shareClient = await getShareClient();
-          const firmFolder = `firm-${firmId}`;
-          const azureFiles = [];
-          
-          // Get user's accessible matters (for ALL users, including admins)
-          let accessibleMatterIds = new Set();
-          let accessibleMatterNames = new Set();
-          const mattersResult = await query(`
-            SELECT DISTINCT m.id, m.name, m.number FROM matters m
-            WHERE m.firm_id = $1 AND m.status != 'archived'
-              AND (
-                m.visibility = 'firm_wide'
-                OR m.responsible_attorney = $2
-                OR m.originating_attorney = $2
-                OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
-                OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
-              )
-          `, [firmId, req.user.id]);
-          mattersResult.rows.forEach(m => {
-            accessibleMatterIds.add(m.id);
-            if (m.name) accessibleMatterNames.add(m.name.toLowerCase());
-            if (m.number) accessibleMatterNames.add(m.number.toLowerCase());
-          });
-          
-          // Scan Azure for files (limited for live scanning)
-          const MAX_LIVE_SCAN = 500;
-          const scanDir = async (dirClient, relativePath = '') => {
-            if (azureFiles.length >= MAX_LIVE_SCAN) return;
-            try {
-              for await (const item of dirClient.listFilesAndDirectories()) {
-                if (azureFiles.length >= MAX_LIVE_SCAN) return;
-                const itemPath = relativePath ? `${relativePath}/${item.name}` : item.name;
-                if (item.kind === 'directory') {
-                  await scanDir(dirClient.getDirectoryClient(item.name), itemPath);
-                } else {
-                  // Apply search filter if provided
-                  if (search && !item.name.toLowerCase().includes(search.toLowerCase())) {
-                    continue;
-                  }
-                  
-                  const ext = item.name.split('.').pop()?.toLowerCase() || '';
-                  const mimeTypes = {
-                    'pdf': 'application/pdf', 'doc': 'application/msword',
-                    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                    'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    'txt': 'text/plain', 'csv': 'text/csv', 'jpg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif'
-                  };
-                  
-                  azureFiles.push({
-                    id: `azure-${Buffer.from(`${firmFolder}/${itemPath}`).toString('base64').substring(0, 32)}`,
-                    name: item.name,
-                    originalName: item.name,
-                    type: mimeTypes[ext] || 'application/octet-stream',
-                    size: 0,
-                    path: `${firmFolder}/${itemPath}`,
-                    folderPath: relativePath,
-                    storageLocation: 'azure',
-                    externalPath: `${firmFolder}/${itemPath}`,
-                    uploadedAt: new Date().toISOString(),
-                    isFromAzure: true
-                  });
-                }
-              }
-            } catch (e) {
-              console.log(`[DOCS] Error scanning ${relativePath}:`, e.message);
-            }
-          };
-          
-          await scanDir(shareClient.getDirectoryClient(firmFolder));
-          
-          // Filter by user's accessible matters (applies to ALL users)
-          const documents = azureFiles.filter(doc => {
-            // Check if folder path matches an accessible matter name
-            const folderParts = (doc.folderPath || '').toLowerCase().split('/');
-            for (const part of folderParts) {
-              if (accessibleMatterNames.has(part)) return true;
-            }
-            return false;
-          });
-          
-          console.log(`[DOCS API] Found ${documents.length} files in Azure for user ${req.user.email}`);
-          
-          return res.json({
-            documents: documents.slice(parseInt(offset), parseInt(offset) + parseInt(limit)),
-            total: documents.length,
-            source: 'azure-live',
-            needsScan: true,
-            message: 'Run Scan Documents to import files into database for faster access'
-          });
-        }
-      } catch (azureErr) {
-        console.log(`[DOCS API] Azure scan failed, falling back to database:`, azureErr.message);
-      }
-    }
-    END DISABLED Azure live scan */
-    
-    // Fallback: query database (for non-admins or if Azure fails)
-    const accessFilter = await buildDocumentAccessFilter(
-      req.user.id, 
-      req.user.role, 
-      firmId, 
-      'd',
-      1
-    );
-    
-    let sql = `
-      SELECT d.*,
-             m.name as matter_name,
-             m.number as matter_number,
-             u.first_name || ' ' || u.last_name as uploaded_by_name,
-             CASE 
-               WHEN d.uploaded_by = $${accessFilter.nextParamIndex} THEN true
-               WHEN d.owner_id = $${accessFilter.nextParamIndex} THEN true
-               ELSE false
-             END as is_owned
-      FROM documents d
-      LEFT JOIN matters m ON d.matter_id = m.id
-      LEFT JOIN users u ON d.uploaded_by = u.id
-      WHERE ${accessFilter.whereClause}
-    `;
-    let params = [...accessFilter.params, req.user.id];
-    let paramIndex = accessFilter.nextParamIndex + 1;
-
-    if (matterId) {
-      sql += ` AND d.matter_id = $${paramIndex}`;
-      params.push(matterId);
-      paramIndex++;
-    }
-
-    if (clientId) {
-      sql += ` AND d.client_id = $${paramIndex}`;
-      params.push(clientId);
-      paramIndex++;
-    }
-
-    if (search) {
-      sql += ` AND d.name ILIKE $${paramIndex}`;
-      params.push(`%${search}%`);
-      paramIndex++;
-    }
-
-    if (status) {
-      sql += ` AND d.status = $${paramIndex}`;
-      params.push(status);
-      paramIndex++;
-    }
-
-    sql += ` ORDER BY d.uploaded_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-    params.push(parseInt(limit), parseInt(offset));
-
-    const result = await query(sql, params);
-    
-    console.log(`[DOCS API] Found ${result.rows.length} documents from database for firm ${firmId}`);
-
-    res.json({
-      documents: result.rows.map(d => ({
-        id: d.id,
-        name: d.name,
-        originalName: d.original_name,
-        type: d.type,
-        size: d.size,
-        matterId: d.matter_id,
-        matterName: d.matter_name,
-        matterNumber: d.matter_number,
-        clientId: d.client_id,
-        version: d.version,
-        isLatestVersion: d.is_latest_version,
-        status: d.status,
-        isConfidential: d.is_confidential,
-        aiSummary: d.ai_summary,
-        tags: d.tags,
-        externalPath: d.external_path,
-        externalType: d.external_type,
-        uploadedBy: d.uploaded_by,
-        uploadedByName: d.uploaded_by_name,
-        uploadedAt: d.uploaded_at,
-        updatedAt: d.updated_at,
-        isOwned: d.is_owned,
-        privacyLevel: d.privacy_level,
-        storageLocation: d.storage_location,
-      })),
-      isAdmin,
-      source: 'database',
     });
   } catch (error) {
     console.error('Get documents error:', error);
