@@ -1893,6 +1893,42 @@ router.post('/firms/:firmId/scan-azure-folders', requireSecureAdmin, async (req,
   });
 });
 
+// ============================================
+// BEST PRACTICES FOR CLIO MIGRATIONS (Industry Research)
+// ============================================
+// 
+// How top case management systems migrate from Clio:
+//
+// 1. FILEVINE / SMOKEBALL APPROACH (Full API):
+//    - Fetch ALL metadata via Clio API first
+//    - Build complete manifest with matter/document relationships
+//    - Stream files directly via API
+//    - Preserves: versions, timestamps, permissions, custom fields
+//    - Con: Slow due to API rate limits (5 req/sec)
+//
+// 2. MYCASE / PRACTICEPANTHER APPROACH (Hybrid):
+//    - API for structured data (matters, contacts, time)
+//    - Robocopy/rsync for bulk file transfer
+//    - Post-scan to match files to matters
+//    - Pro: Fast for large volumes (100K+ files)
+//    - Con: Relies on folder naming conventions
+//
+// 3. OUR APPROACH (Best of Both):
+//    - OPTION A: Full API streaming (scan-documents endpoint)
+//      Uses clio_document_manifest for precise matching
+//    - OPTION B: Folder-based scan (scan-azure-folders endpoint)
+//      Simple folder=matter matching, no API needed
+//
+// KEY METADATA TO PRESERVE:
+//    - matter_id: Which matter the document belongs to
+//    - owner_id: Who uploaded/created it (responsible attorney)
+//    - timestamps: created_at, updated_at from Clio
+//    - versions: Document version history (if available)
+//    - content_type: MIME type for proper viewing
+//    - original_path: Folder structure from source system
+//
+// ============================================
+
 // Background folder-based scan function
 async function runFolderBasedScan(firmId, dryRun, includeMetadata, job) {
   try {
@@ -2556,6 +2592,178 @@ router.post('/firms/:firmId/manual-match', requireSecureAdmin, async (req, res) 
     
   } catch (error) {
     console.error('Manual match error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// MIGRATION STATUS - Industry Best Practice Report
+// ============================================
+// Shows what data has been migrated and what metadata was preserved
+// Similar to migration reports from Filevine, Smokeball, etc.
+router.get('/firms/:firmId/migration-status', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    
+    // Get comprehensive migration stats
+    const [
+      firmResult,
+      documentStats,
+      manifestStats,
+      matterStats,
+      userStats,
+      clientStats
+    ] = await Promise.all([
+      query('SELECT name, created_at FROM firms WHERE id = $1', [firmId]),
+      
+      // Document statistics
+      query(`
+        SELECT 
+          COUNT(*) as total,
+          COUNT(matter_id) as linked_to_matter,
+          COUNT(owner_id) as with_owner,
+          COUNT(CASE WHEN storage_location = 'azure' THEN 1 END) as in_azure,
+          COUNT(CASE WHEN type IS NOT NULL AND type != 'application/octet-stream' THEN 1 END) as with_mime_type,
+          COUNT(CASE WHEN size > 0 THEN 1 END) as with_size,
+          COUNT(CASE WHEN folder_path IS NOT NULL THEN 1 END) as with_folder_path,
+          COALESCE(SUM(size), 0) as total_size_bytes,
+          MIN(uploaded_at) as first_upload,
+          MAX(uploaded_at) as last_upload
+        FROM documents WHERE firm_id = $1
+      `, [firmId]),
+      
+      // Clio manifest statistics (if API migration was used)
+      query(`
+        SELECT 
+          COUNT(*) as total,
+          COUNT(CASE WHEN match_status = 'matched' THEN 1 END) as matched,
+          COUNT(CASE WHEN match_status = 'imported' THEN 1 END) as imported,
+          COUNT(CASE WHEN match_status = 'pending' THEN 1 END) as pending,
+          COUNT(CASE WHEN match_status = 'missing' THEN 1 END) as missing,
+          COUNT(matter_id) as with_matter_id,
+          COUNT(owner_id) as with_owner_id,
+          COUNT(clio_created_at) as with_created_date,
+          COUNT(content_type) as with_content_type
+        FROM clio_document_manifest WHERE firm_id = $1
+      `, [firmId]).catch(() => ({ rows: [{ total: 0 }] })),
+      
+      // Matter statistics
+      query(`
+        SELECT 
+          COUNT(*) as total,
+          COUNT(CASE WHEN status = 'Open' THEN 1 END) as open,
+          COUNT(responsible_attorney) as with_attorney,
+          COUNT(client_id) as with_client
+        FROM matters WHERE firm_id = $1
+      `, [firmId]),
+      
+      // User statistics
+      query(`
+        SELECT 
+          COUNT(*) as total,
+          COUNT(CASE WHEN is_active THEN 1 END) as active
+        FROM users WHERE firm_id = $1
+      `, [firmId]),
+      
+      // Client statistics
+      query('SELECT COUNT(*) as total FROM clients WHERE firm_id = $1', [firmId])
+    ]);
+    
+    if (firmResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Firm not found' });
+    }
+    
+    const docs = documentStats.rows[0];
+    const manifest = manifestStats.rows[0];
+    const matters = matterStats.rows[0];
+    const users = userStats.rows[0];
+    const clients = clientStats.rows[0];
+    
+    // Calculate metadata completeness percentages
+    const totalDocs = parseInt(docs.total) || 0;
+    const metadataCompleteness = totalDocs > 0 ? {
+      matterLink: Math.round((parseInt(docs.linked_to_matter) / totalDocs) * 100),
+      ownerAssigned: Math.round((parseInt(docs.with_owner) / totalDocs) * 100),
+      mimeType: Math.round((parseInt(docs.with_mime_type) / totalDocs) * 100),
+      fileSize: Math.round((parseInt(docs.with_size) / totalDocs) * 100),
+      folderPath: Math.round((parseInt(docs.with_folder_path) / totalDocs) * 100)
+    } : null;
+    
+    // Determine migration method used
+    const usedApiMigration = parseInt(manifest.total) > 0;
+    const usedFolderScan = totalDocs > 0 && !usedApiMigration;
+    
+    res.json({
+      firmId,
+      firmName: firmResult.rows[0].name,
+      
+      // Migration Summary
+      summary: {
+        migrationMethod: usedApiMigration ? 'Clio API + Manifest' : (usedFolderScan ? 'Folder-Based Scan' : 'Not Started'),
+        totalDocuments: totalDocs,
+        totalMatters: parseInt(matters.total),
+        totalUsers: parseInt(users.total),
+        totalClients: parseInt(clients.total),
+        storageSizeMB: Math.round(parseInt(docs.total_size_bytes) / (1024 * 1024))
+      },
+      
+      // Document Details
+      documents: {
+        total: totalDocs,
+        linkedToMatter: parseInt(docs.linked_to_matter),
+        withOwner: parseInt(docs.with_owner),
+        inAzureStorage: parseInt(docs.in_azure),
+        firstUpload: docs.first_upload,
+        lastUpload: docs.last_upload,
+        orphaned: totalDocs - parseInt(docs.linked_to_matter)
+      },
+      
+      // Metadata Completeness (Industry KPI)
+      metadataCompleteness,
+      
+      // Clio Manifest Details (if API migration used)
+      clioManifest: usedApiMigration ? {
+        totalFetched: parseInt(manifest.total),
+        matched: parseInt(manifest.matched),
+        imported: parseInt(manifest.imported),
+        pending: parseInt(manifest.pending),
+        missing: parseInt(manifest.missing),
+        withMatterId: parseInt(manifest.with_matter_id),
+        withOwnerId: parseInt(manifest.with_owner_id),
+        withCreatedDate: parseInt(manifest.with_created_date),
+        withContentType: parseInt(manifest.with_content_type)
+      } : null,
+      
+      // Matters Summary
+      matters: {
+        total: parseInt(matters.total),
+        open: parseInt(matters.open),
+        withAttorney: parseInt(matters.with_attorney),
+        withClient: parseInt(matters.with_client)
+      },
+      
+      // Best Practices Checklist
+      bestPracticesChecklist: {
+        mattersImported: parseInt(matters.total) > 0,
+        documentsScanned: totalDocs > 0,
+        documentsLinkedToMatters: parseInt(docs.linked_to_matter) > 0,
+        ownersAssigned: parseInt(docs.with_owner) > 0,
+        usersCreated: parseInt(users.total) > 0,
+        metadataPreserved: metadataCompleteness && metadataCompleteness.matterLink > 80
+      },
+      
+      // Recommendations
+      recommendations: [
+        ...(parseInt(matters.total) === 0 ? ['Import matters from Clio first using the API migration'] : []),
+        ...(totalDocs === 0 ? ['Run a document scan after copying files to Azure'] : []),
+        ...(metadataCompleteness && metadataCompleteness.matterLink < 80 ? ['Run "Rescan Unmatched" to link more documents to matters'] : []),
+        ...(metadataCompleteness && metadataCompleteness.ownerAssigned < 50 ? ['Assign document owners for better access control'] : []),
+        ...(parseInt(manifest.pending) > 0 ? [`${manifest.pending} documents pending in Clio manifest - run sync`] : [])
+      ].filter(Boolean)
+    });
+    
+  } catch (error) {
+    console.error('Migration status error:', error);
     res.status(500).json({ error: error.message });
   }
 });
