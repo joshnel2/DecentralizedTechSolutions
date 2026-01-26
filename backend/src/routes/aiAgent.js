@@ -4698,17 +4698,26 @@ async function generateReport(args, user) {
 async function listDocuments(args, user) {
   const { matter_id, client_id, search, source, limit = 20 } = args;
   
+  // Filter documents by user's matter permissions
   let sql = `
-    SELECT d.id, d.name, d.original_name, d.type, d.size, d.status, d.uploaded_at, 
+    SELECT DISTINCT d.id, d.name, d.original_name, d.type, d.size, d.status, d.uploaded_at, 
            d.external_source, d.external_url, d.content_text IS NOT NULL as has_content,
            m.name as matter_name, c.display_name as client_name
     FROM documents d
     LEFT JOIN matters m ON d.matter_id = m.id
     LEFT JOIN clients c ON d.client_id = c.id
+    LEFT JOIN matter_permissions mp ON mp.matter_id = m.id
     WHERE d.firm_id = $1
+      AND (
+        d.matter_id IS NULL
+        OR m.responsible_attorney_id = $2
+        OR m.originating_attorney_id = $2
+        OR mp.user_id = $2
+        OR EXISTS (SELECT 1 FROM users u WHERE u.id = $2 AND u.firm_id = $1 AND u.role IN ('owner', 'admin'))
+      )
   `;
-  const params = [user.firmId];
-  let idx = 2;
+  const params = [user.firmId, user.id];
+  let idx = 3;
   
   if (matter_id) {
     sql += ` AND d.matter_id = $${idx++}`;
@@ -4761,19 +4770,28 @@ async function getDocument(args, user) {
     return { error: 'document_id is required' };
   }
   
+  // Filter by user's matter permissions
   const result = await query(
-    `SELECT d.*, m.name as matter_name, c.display_name as client_name, 
+    `SELECT DISTINCT d.*, m.name as matter_name, c.display_name as client_name, 
             u.first_name || ' ' || u.last_name as uploaded_by_name
      FROM documents d
      LEFT JOIN matters m ON d.matter_id = m.id
      LEFT JOIN clients c ON d.client_id = c.id
      LEFT JOIN users u ON d.uploaded_by = u.id
-     WHERE d.id = $1 AND d.firm_id = $2`,
-    [document_id, user.firmId]
+     LEFT JOIN matter_permissions mp ON mp.matter_id = m.id
+     WHERE d.id = $1 AND d.firm_id = $2
+       AND (
+         d.matter_id IS NULL
+         OR m.responsible_attorney_id = $3
+         OR m.originating_attorney_id = $3
+         OR mp.user_id = $3
+         OR EXISTS (SELECT 1 FROM users u2 WHERE u2.id = $3 AND u2.firm_id = $2 AND u2.role IN ('owner', 'admin'))
+       )`,
+    [document_id, user.firmId, user.id]
   );
   
   if (result.rows.length === 0) {
-    return { error: 'Document not found' };
+    return { error: 'Document not found or access denied' };
   }
   
   const d = result.rows[0];
@@ -4803,17 +4821,26 @@ async function readDocumentContent(args, user) {
     return { error: 'document_id is required' };
   }
   
+  // Filter by user's matter permissions
   const result = await query(
-    `SELECT d.id, d.name, d.original_name, d.type, d.content_text, d.ai_summary, d.path, 
+    `SELECT DISTINCT d.id, d.name, d.original_name, d.type, d.content_text, d.ai_summary, d.path, 
             d.azure_path, d.external_path, d.folder_path, d.size, m.name as matter_name
      FROM documents d
      LEFT JOIN matters m ON d.matter_id = m.id
-     WHERE d.id = $1 AND d.firm_id = $2`,
-    [document_id, user.firmId]
+     LEFT JOIN matter_permissions mp ON mp.matter_id = m.id
+     WHERE d.id = $1 AND d.firm_id = $2
+       AND (
+         d.matter_id IS NULL
+         OR m.responsible_attorney_id = $3
+         OR m.originating_attorney_id = $3
+         OR mp.user_id = $3
+         OR EXISTS (SELECT 1 FROM users u WHERE u.id = $3 AND u.firm_id = $2 AND u.role IN ('owner', 'admin'))
+       )`,
+    [document_id, user.firmId, user.id]
   );
   
   if (result.rows.length === 0) {
-    return { error: 'Document not found' };
+    return { error: 'Document not found or access denied' };
   }
   
   const doc = result.rows[0];
@@ -4971,25 +4998,35 @@ async function findAndReadDocument(args, user) {
   const keywords = document_name.trim().split(/\s+/).filter(k => k.length >= 2);
   
   // Build flexible search - match ANY keyword in name OR original_name
+  // Filter by user's matter permissions
   let sql = `
-    SELECT d.id, d.name, d.original_name, d.type, d.content_text, d.ai_summary, d.path,
+    SELECT DISTINCT d.id, d.name, d.original_name, d.type, d.content_text, d.ai_summary, d.path,
            d.azure_path, d.external_path, d.folder_path, m.name as matter_name,
            (
-             CASE WHEN d.name ILIKE $2 OR d.original_name ILIKE $2 THEN 10 ELSE 0 END +
-             CASE WHEN d.name ILIKE $3 OR d.original_name ILIKE $3 THEN 5 ELSE 0 END
+             CASE WHEN d.name ILIKE $3 OR d.original_name ILIKE $3 THEN 10 ELSE 0 END +
+             CASE WHEN d.name ILIKE $4 OR d.original_name ILIKE $4 THEN 5 ELSE 0 END
            ) as relevance
     FROM documents d
     LEFT JOIN matters m ON d.matter_id = m.id
-    WHERE d.firm_id = $1 AND (
-      d.name ILIKE $2 OR d.original_name ILIKE $2 OR
-      d.name ILIKE $3 OR d.original_name ILIKE $3
+    LEFT JOIN matter_permissions mp ON mp.matter_id = m.id
+    WHERE d.firm_id = $1 
+      AND (
+        d.matter_id IS NULL
+        OR m.responsible_attorney_id = $2
+        OR m.originating_attorney_id = $2
+        OR mp.user_id = $2
+        OR EXISTS (SELECT 1 FROM users u WHERE u.id = $2 AND u.firm_id = $1 AND u.role IN ('owner', 'admin'))
+      )
+      AND (
+        d.name ILIKE $3 OR d.original_name ILIKE $3 OR
+        d.name ILIKE $4 OR d.original_name ILIKE $4
   `;
   
   // Full phrase match gets higher priority, individual keywords also match
   const fullPhrase = `%${document_name}%`;
   const firstKeyword = keywords.length > 0 ? `%${keywords[0]}%` : fullPhrase;
-  const params = [user.firmId, fullPhrase, firstKeyword];
-  let idx = 4;
+  const params = [user.firmId, user.id, fullPhrase, firstKeyword];
+  let idx = 5;
   
   // Add additional keywords to search
   for (let i = 1; i < keywords.length && i < 4; i++) {
@@ -5011,16 +5048,25 @@ async function findAndReadDocument(args, user) {
   const result = await query(sql, params);
   
   if (result.rows.length === 0) {
-    // Try one more search with just the first keyword
+    // Try one more search with just the first keyword - still filtered by permissions
     const fallbackSql = `
-      SELECT d.id, d.name, d.original_name, d.type, d.content_text, d.ai_summary, d.path,
+      SELECT DISTINCT d.id, d.name, d.original_name, d.type, d.content_text, d.ai_summary, d.path,
              d.azure_path, d.external_path, d.folder_path, m.name as matter_name
       FROM documents d
       LEFT JOIN matters m ON d.matter_id = m.id
-      WHERE d.firm_id = $1 AND (d.name ILIKE $2 OR d.original_name ILIKE $2)
+      LEFT JOIN matter_permissions mp ON mp.matter_id = m.id
+      WHERE d.firm_id = $1 
+        AND (d.name ILIKE $3 OR d.original_name ILIKE $3)
+        AND (
+          d.matter_id IS NULL
+          OR m.responsible_attorney_id = $2
+          OR m.originating_attorney_id = $2
+          OR mp.user_id = $2
+          OR EXISTS (SELECT 1 FROM users u WHERE u.id = $2 AND u.firm_id = $1 AND u.role IN ('owner', 'admin'))
+        )
       ORDER BY d.uploaded_at DESC NULLS LAST LIMIT 10
     `;
-    const fallbackResult = await query(fallbackSql, [user.firmId, `%${keywords[0] || document_name}%`]);
+    const fallbackResult = await query(fallbackSql, [user.firmId, user.id, `%${keywords[0] || document_name}%`]);
     
     if (fallbackResult.rows.length === 0) {
       return { 
@@ -5379,17 +5425,26 @@ async function searchDocumentContent(args, user) {
     return { error: 'search_term must be at least 2 characters' };
   }
   
+  // Filter by user's matter permissions
   let sql = `
-    SELECT d.id, d.name, d.original_name, d.type, d.content_text, d.ai_summary, 
+    SELECT DISTINCT d.id, d.name, d.original_name, d.type, d.content_text, d.ai_summary, 
            m.name as matter_name, m.number as matter_number, c.display_name as client_name
     FROM documents d
     LEFT JOIN matters m ON d.matter_id = m.id
     LEFT JOIN clients c ON d.client_id = c.id
+    LEFT JOIN matter_permissions mp ON mp.matter_id = m.id
     WHERE d.firm_id = $1 
-      AND (d.content_text ILIKE $2 OR d.ai_summary ILIKE $2 OR d.name ILIKE $2 OR d.original_name ILIKE $2)
+      AND (d.content_text ILIKE $3 OR d.ai_summary ILIKE $3 OR d.name ILIKE $3 OR d.original_name ILIKE $3)
+      AND (
+        d.matter_id IS NULL
+        OR m.responsible_attorney_id = $2
+        OR m.originating_attorney_id = $2
+        OR mp.user_id = $2
+        OR EXISTS (SELECT 1 FROM users u WHERE u.id = $2 AND u.firm_id = $1 AND u.role IN ('owner', 'admin'))
+      )
   `;
-  const params = [user.firmId, `%${search_term}%`];
-  let idx = 3;
+  const params = [user.firmId, user.id, `%${search_term}%`];
+  let idx = 4;
   
   if (matter_id) {
     sql += ` AND d.matter_id = $${idx++}`;
