@@ -4974,6 +4974,31 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 addLog(`📂 Loaded ${folderById.size} folders from Clio`);
               }
               
+              // Save folders to clio_folder_manifest for tracking
+              let foldersSaved = 0;
+              for (const [folderId, f] of folderById.entries()) {
+                try {
+                  const folderPath = buildFolderPath(folderId);
+                  const matterIdForFolder = f.matterId ? (matterIdMap.get(`clio:${f.matterId}`) || null) : null;
+                  
+                  await query(`
+                    INSERT INTO clio_folder_manifest (firm_id, clio_id, clio_parent_id, clio_matter_id, name, full_path, matter_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    ON CONFLICT (firm_id, clio_id) DO UPDATE SET
+                      name = EXCLUDED.name,
+                      full_path = EXCLUDED.full_path,
+                      matter_id = COALESCE(EXCLUDED.matter_id, clio_folder_manifest.matter_id)
+                  `, [firmId, folderId, f.parentId, f.matterId, f.name, folderPath, matterIdForFolder]);
+                  foldersSaved++;
+                } catch (folderErr) {
+                  // Non-fatal - continue with other folders
+                }
+              }
+              console.log(`[CLIO] Saved ${foldersSaved} folders to manifest`);
+              if (foldersSaved > 0) {
+                addLog(`📂 Saved ${foldersSaved} folders to manifest for future reference`);
+              }
+              
               // Build folder path lookup function
               const buildFolderPath = (folderId, visited = new Set()) => {
                 if (!folderId || visited.has(folderId)) return '';
@@ -5239,7 +5264,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     }
                     
                     try {
-                      await query(`
+                      // 1. Create the document record
+                      const docResult = await query(`
                         INSERT INTO documents (
                           firm_id, matter_id, name, original_name, path, folder_path,
                           type, size, privacy_level, status, storage_location, external_path,
@@ -5250,6 +5276,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                           owner_id = COALESCE(EXCLUDED.owner_id, documents.owner_id),
                           size = EXCLUDED.size,
                           updated_at = NOW()
+                        RETURNING id
                       `, [
                         firmId,
                         matterId,
@@ -5267,6 +5294,48 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                         doc.created_at || new Date(),
                         ownerId
                       ]);
+                      
+                      // 2. ALSO save to clio_document_manifest for tracking
+                      // This preserves the Clio metadata for future re-scans
+                      const documentId = docResult.rows[0]?.id;
+                      try {
+                        await query(`
+                          INSERT INTO clio_document_manifest (
+                            firm_id, clio_id, clio_matter_id, clio_folder_id, clio_created_by_id,
+                            matter_id, owner_id, name, clio_path, content_type, size,
+                            clio_created_at, clio_updated_at, match_status, matched_azure_path,
+                            matched_document_id, match_confidence, match_method
+                          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'imported', $14, $15, 100, 'api_migration')
+                          ON CONFLICT (firm_id, clio_id) DO UPDATE SET
+                            matter_id = COALESCE(EXCLUDED.matter_id, clio_document_manifest.matter_id),
+                            owner_id = COALESCE(EXCLUDED.owner_id, clio_document_manifest.owner_id),
+                            match_status = 'imported',
+                            matched_azure_path = EXCLUDED.matched_azure_path,
+                            matched_document_id = EXCLUDED.matched_document_id,
+                            match_confidence = 100,
+                            match_method = 'api_migration',
+                            updated_at = NOW()
+                        `, [
+                          firmId,
+                          doc.id,                          // clio_id
+                          doc.matter?.id || null,          // clio_matter_id
+                          doc.parent?.id || null,          // clio_folder_id
+                          null,                            // clio_created_by_id (not available in this endpoint)
+                          matterId,                        // matter_id (our internal ID)
+                          ownerId,                         // owner_id
+                          originalFilename,                // name
+                          relativePath,                    // clio_path
+                          contentType,                     // content_type
+                          fileBuffer.length,               // size
+                          doc.created_at || null,          // clio_created_at
+                          doc.updated_at || null,          // clio_updated_at
+                          azurePath,                       // matched_azure_path
+                          documentId                       // matched_document_id
+                        ]);
+                      } catch (manifestErr) {
+                        // Non-fatal - manifest is for tracking, document is already saved
+                        console.log(`[CLIO] Manifest save (non-fatal): ${manifestErr.message}`);
+                      }
                     } catch (dbErr) {
                       console.log(`[CLIO] DB record error (non-fatal): ${dbErr.message}`);
                     }
