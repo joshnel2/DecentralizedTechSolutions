@@ -6209,7 +6209,7 @@ bob@example.com, Bob, Wilson, partner"
 
                   {/* Scan Options */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-                    {/* Primary: Folder-Based Scan */}
+                    {/* Primary: Manifest-Based Scan (uses Clio API data) */}
                     <div style={{ 
                       background: 'white', 
                       borderRadius: '16px', 
@@ -6217,8 +6217,8 @@ bob@example.com, Bob, Wilson, partner"
                       color: '#1E293B'
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                        <HardDrive size={24} color="#059669" />
-                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>Folder Scan</h3>
+                        <FileSearch size={24} color="#059669" />
+                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>Clio Data Scan</h3>
                         <span style={{ 
                           background: '#DCFCE7', 
                           color: '#166534', 
@@ -6226,13 +6226,13 @@ bob@example.com, Bob, Wilson, partner"
                           borderRadius: '4px', 
                           fontSize: '11px', 
                           fontWeight: 600 
-                        }}>RECOMMENDED</span>
+                        }}>ACCURATE</span>
                       </div>
                       <p style={{ margin: '0 0 16px 0', fontSize: '14px', color: '#64748B', lineHeight: 1.5 }}>
-                        Each folder = a matter. Simple and fast. No Clio data needed.
+                        Uses actual matter relationships from Clio API. 100% accurate matching.
                       </p>
                       <button
-                        onClick={() => handleFolderScan(selectedFirmDetail.id, false)}
+                        onClick={() => handleScanDocuments(selectedFirmDetail.id)}
                         disabled={scanningFirmId === selectedFirmDetail.id}
                         style={{
                           display: 'flex',
@@ -6254,12 +6254,12 @@ bob@example.com, Bob, Wilson, partner"
                         {scanningFirmId === selectedFirmDetail.id ? (
                           <><RefreshCw size={18} className="animate-spin" /> Scanning...</>
                         ) : (
-                          <><FolderSync size={18} /> Scan Folders</>
+                          <><FileText size={18} /> Scan with Clio Data</>
                         )}
                       </button>
                     </div>
 
-                    {/* Secondary: Manifest-Based Scan */}
+                    {/* Secondary: Folder-Based Scan (fallback when no API data) */}
                     <div style={{ 
                       background: 'rgba(255,255,255,0.15)', 
                       borderRadius: '16px', 
@@ -6267,14 +6267,22 @@ bob@example.com, Bob, Wilson, partner"
                       border: '1px solid rgba(255,255,255,0.3)'
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                        <FileSearch size={24} />
-                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>Clio Manifest Scan</h3>
+                        <HardDrive size={24} />
+                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>Folder Name Scan</h3>
+                        <span style={{ 
+                          background: 'rgba(255,255,255,0.2)', 
+                          color: 'white', 
+                          padding: '2px 8px', 
+                          borderRadius: '4px', 
+                          fontSize: '11px', 
+                          fontWeight: 600 
+                        }}>FALLBACK</span>
                       </div>
                       <p style={{ margin: '0 0 16px 0', fontSize: '14px', opacity: 0.9, lineHeight: 1.5 }}>
-                        Uses Clio API data for precise matching. Requires "Fetch Document List" first.
+                        Matches folder names to matters. Use when Clio data unavailable.
                       </p>
                       <button
-                        onClick={() => handleScanDocuments(selectedFirmDetail.id)}
+                        onClick={() => handleFolderScan(selectedFirmDetail.id, false)}
                         disabled={scanningFirmId === selectedFirmDetail.id}
                         style={{
                           display: 'flex',
@@ -6296,7 +6304,7 @@ bob@example.com, Bob, Wilson, partner"
                         {scanningFirmId === selectedFirmDetail.id ? (
                           <><RefreshCw size={18} className="animate-spin" /> Scanning...</>
                         ) : (
-                          <><FileText size={18} /> Manifest Scan</>
+                          <><FolderSync size={18} /> Scan by Folder Names</>
                         )}
                       </button>
                     </div>
@@ -6530,13 +6538,13 @@ bob@example.com, Bob, Wilson, partner"
                   padding: '28px'
                 }}>
                   <h3 style={{ margin: '0 0 20px 0', color: '#1E293B', fontSize: '18px', fontWeight: 600 }}>
-                    How Document Scanning Works
+                    Document Migration Workflow
                   </h3>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
                     {[
-                      { step: '1', title: 'Organize by Matter', desc: 'Each folder in Azure = one matter name. Files inside get linked to that matter.' },
-                      { step: '2', title: 'Click Folder Scan', desc: 'Scan matches folder names to existing matters automatically.' },
-                      { step: '3', title: 'Rescan if Needed', desc: 'Create missing matters, then click Rescan Unmatched.' }
+                      { step: '1', title: 'API Migration', desc: 'Run Clio migration with "Include Documents" checked. This saves matter relationships from Clio.' },
+                      { step: '2', title: 'Copy Files', desc: 'If needed, copy additional files from Clio Drive to Azure using Robocopy.' },
+                      { step: '3', title: 'Scan with Clio Data', desc: 'Click "Scan with Clio Data" to match files using the actual matter relationships.' }
                     ].map((item, i) => (
                       <div key={i} style={{ display: 'flex', gap: '16px' }}>
                         <div style={{ 
@@ -6569,7 +6577,7 @@ bob@example.com, Bob, Wilson, partner"
                     fontSize: '13px',
                     color: '#166534'
                   }}>
-                    <strong>Tip:</strong> Folder names are matched to matter names, matter numbers, or "Client Name - Matter Name" format. Windows special characters are handled automatically.
+                    <strong>Best Practice:</strong> The Clio API stores which matter each document belongs to. "Scan with Clio Data" uses this for 100% accurate matching. "Folder Name Scan" is a fallback when Clio data isn't available.
                   </div>
                 </div>
               </div>
