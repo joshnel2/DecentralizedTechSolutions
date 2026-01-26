@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../db/connection.js';
 import { authenticate } from '../middleware/auth.js';
 import { downloadFile, uploadFileBuffer, deleteFile, ensureDirectory, listFiles } from '../utils/azureStorage.js';
+import { analyzeDocument } from '../services/documentAI.js';
 
 const router = Router();
 
@@ -244,6 +245,11 @@ router.put('/files/:documentId/upload', authenticate, async (req, res) => {
       WHERE id = $2
     `, [content.length, documentId]);
 
+    // Trigger AI analysis in background (don't wait)
+    analyzeDocument(documentId, firmId, req.user.id).catch(err => {
+      console.log('[DRIVE API] AI analysis queued (or skipped):', err?.message || 'ok');
+    });
+
     res.json({ success: true, size: content.length });
   } catch (error) {
     console.error('[DRIVE API] Upload error:', error);
@@ -293,8 +299,13 @@ router.post('/matters/:matterId/files', authenticate, async (req, res) => {
       RETURNING id
     `, [firmId, matterId, name, mimeType, folderPath || '', azurePath, req.user.id]);
 
+    const newDocId = result.rows[0].id;
+
+    // Queue for AI analysis when content is added
+    analyzeDocument(newDocId, firmId, req.user.id).catch(() => {});
+
     res.json({
-      documentId: result.rows[0].id,
+      documentId: newDocId,
       azurePath,
       name,
     });

@@ -295,6 +295,55 @@ LEGAL_TOOLS: List[ToolDefinition] = [
         required=["search_term"],
         category="documents"
     ),
+    ToolDefinition(
+        name="smart_search_documents",
+        description="AI-powered semantic search across all documents. Understands meaning, not just keywords. Use this for questions like 'find contracts about non-compete' or 'show me documents mentioning the settlement'.",
+        parameters={
+            "query": {"type": "string", "description": "Natural language search query"},
+            "matter_id": {"type": "string", "description": "Limit to specific matter"},
+            "document_type": {"type": "string", "description": "Filter by type (contract, pleading, correspondence, etc.)"},
+            "limit": {"type": "integer", "description": "Max results (default 20)"}
+        },
+        required=["query"],
+        category="documents"
+    ),
+    ToolDefinition(
+        name="get_document_insights",
+        description="Get AI-generated insights for a document: summary, key dates, suggested tags, importance score, related documents.",
+        parameters={
+            "document_id": {"type": "string", "description": "UUID of the document"}
+        },
+        required=["document_id"],
+        category="documents"
+    ),
+    ToolDefinition(
+        name="get_matter_brief",
+        description="Generate a quick AI briefing for a matter. Includes case summary, document summaries, key dates, recent activity. Perfect for 'give me an overview of the Smith case'.",
+        parameters={
+            "matter_id": {"type": "string", "description": "UUID or name of the matter"}
+        },
+        required=["matter_id"],
+        category="documents"
+    ),
+    ToolDefinition(
+        name="find_related_documents",
+        description="Find documents similar to a given document across all matters. Use for 'find me similar contracts' or 'show related precedents'.",
+        parameters={
+            "document_id": {"type": "string", "description": "UUID of the source document"},
+            "limit": {"type": "integer", "description": "Max results (default 5)"}
+        },
+        required=["document_id"],
+        category="documents"
+    ),
+    ToolDefinition(
+        name="extract_matter_deadlines",
+        description="Extract all dates and deadlines mentioned in documents for a matter. AI reads through documents and finds important dates.",
+        parameters={
+            "matter_id": {"type": "string", "description": "UUID of the matter"}
+        },
+        required=["matter_id"],
+        category="documents"
+    ),
     
     # ============== CALENDAR ==============
     ToolDefinition(
@@ -648,6 +697,44 @@ class ToolExecutor:
             "text": f"[Statute text for {citation} would be retrieved from legal database]",
             "note": "This is a simulated result. Connect to legal database for actual text."
         }
+    
+    # ============== DOCUMENT AI TOOLS ==============
+    
+    def _execute_smart_search_documents(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """AI-powered semantic search across documents"""
+        query_text = args.get("query", "")
+        matter_id = args.get("matter_id", "")
+        doc_type = args.get("document_type", "")
+        limit = args.get("limit", 20)
+        
+        params = [f"q={query_text}", f"limit={limit}"]
+        if matter_id:
+            params.append(f"matterId={matter_id}")
+        if doc_type:
+            params.append(f"type={doc_type}")
+        
+        return self.api.get(f"/api/document-ai/search?{'&'.join(params)}")
+    
+    def _execute_get_document_insights(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Get AI-generated insights for a document"""
+        document_id = args.get("document_id", "")
+        return self.api.get(f"/api/document-ai/documents/{document_id}/insights")
+    
+    def _execute_get_matter_brief(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate AI briefing for a matter"""
+        matter_id = args.get("matter_id", "")
+        return self.api.get(f"/api/document-ai/matters/{matter_id}/brief")
+    
+    def _execute_find_related_documents(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Find documents similar to a given document"""
+        document_id = args.get("document_id", "")
+        limit = args.get("limit", 5)
+        return self.api.get(f"/api/document-ai/documents/{document_id}/related?limit={limit}")
+    
+    def _execute_extract_matter_deadlines(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract all deadlines from documents in a matter"""
+        matter_id = args.get("matter_id", "")
+        return self.api.get(f"/api/document-ai/matters/{matter_id}/deadlines")
 
 
 # Convenience function to get a configured executor
