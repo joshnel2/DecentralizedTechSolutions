@@ -79,7 +79,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Apex Drive"
+      "shortcutName": "Apex Drive",
+      "include": "build/installer.nsh"
     },
     "publish": {
       "provider": "generic",
