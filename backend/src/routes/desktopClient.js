@@ -16,16 +16,12 @@ const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'apex-jwt-secret-change-me';
 
 // Desktop client download info
-// Update these URLs after building and hosting the installer
 const DESKTOP_CLIENT_INFO = {
   version: '1.0.0',
   releaseDate: '2024-01-26',
   downloadUrl: {
-    // These will be populated after the GitHub Action builds the installer
-    // Option 1: Azure Blob Storage
-    windows: process.env.APEX_DESKTOP_DOWNLOAD_URL || 'https://github.com/joshnel2/DecentralizedTechSolutions/releases/latest/download/Apex-Drive-Setup.exe',
-    // Option 2: GitHub Releases (fallback)
-    mac: 'https://github.com/joshnel2/DecentralizedTechSolutions/releases/latest/download/Apex-Drive-Setup.dmg',
+    windows: process.env.APEX_DESKTOP_DOWNLOAD_URL || 'https://github.com/joshnel2/DecentralizedTechSolutions/releases/latest/download/Apex.Drive.Setup.1.0.0.exe',
+    mac: null, // Mac version coming soon
   },
   requirements: {
     windows: 'Windows 10 or later (64-bit)',
