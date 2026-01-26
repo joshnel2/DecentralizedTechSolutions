@@ -16,11 +16,13 @@ const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'apex-jwt-secret-change-me';
 
 // Desktop client download info
+const DOWNLOAD_URL_WINDOWS = process.env.APEX_DESKTOP_DOWNLOAD_URL || 'https://github.com/joshnel2/DecentralizedTechSolutions/releases/latest/download/Apex.Drive.Setup.1.0.0.exe';
+
 const DESKTOP_CLIENT_INFO = {
   version: '1.0.0',
   releaseDate: '2024-01-26',
   downloadUrl: {
-    windows: process.env.APEX_DESKTOP_DOWNLOAD_URL || 'https://github.com/joshnel2/DecentralizedTechSolutions/releases/latest/download/Apex.Drive.Setup.1.0.0.exe',
+    windows: DOWNLOAD_URL_WINDOWS,
     mac: null, // Mac version coming soon
   },
   requirements: {
@@ -41,6 +43,14 @@ const DESKTOP_CLIENT_INFO = {
     'System tray integration',
   ],
 };
+
+/**
+ * Direct download redirect - /installdrive
+ * Public endpoint - no auth required
+ */
+router.get('/download', (req, res) => {
+  res.redirect(DOWNLOAD_URL_WINDOWS);
+});
 
 /**
  * Get desktop client info and download links

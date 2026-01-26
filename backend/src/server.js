@@ -89,6 +89,12 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Apex Drive download shortcut - /installdrive redirects to latest installer
+const APEX_DRIVE_DOWNLOAD = process.env.APEX_DESKTOP_DOWNLOAD_URL || 'https://github.com/joshnel2/DecentralizedTechSolutions/releases/latest/download/Apex.Drive.Setup.1.0.0.exe';
+app.get('/installdrive', (req, res) => {
+  res.redirect(APEX_DRIVE_DOWNLOAD);
+});
+
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/clients', clientRoutes);
