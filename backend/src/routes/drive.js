@@ -2147,73 +2147,34 @@ router.get('/download-azure', authenticate, async (req, res) => {
 
 /**
  * APEX DRIVE - Get files from database (instant load)
- * Only shows documents in user's matters (or all for admins)
  * Background sync keeps database updated automatically
  */
 router.get('/browse-all', authenticate, async (req, res) => {
   try {
     const { search } = req.query;
     const firmId = req.user.firmId;
-    const userId = req.user.id;
     const userRole = req.user.role;
     const firmFolder = `firm-${firmId}`;
     
-    // Check if user is admin (can see all documents)
+    // Check if user is admin
     const isAdmin = userRole === 'owner' || userRole === 'admin';
     
-    // Get files from database - filtered by user's matters for non-admins
-    let sql;
-    let params;
+    // Get files from database with reasonable limit
+    let sql = `
+      SELECT id, name, original_name, type, size, folder_path, 
+             COALESCE(external_path, path) as azure_path
+      FROM documents 
+      WHERE firm_id = $1
+    `;
+    const params = [firmId];
     
-    if (isAdmin) {
-      // Admins see all documents, but still limit to prevent overload
-      sql = `
-        SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path, 
-               COALESCE(d.external_path, d.path) as azure_path,
-               d.matter_id, m.name as matter_name, m.number as matter_number
-        FROM documents d
-        LEFT JOIN matters m ON d.matter_id = m.id
-        WHERE d.firm_id = $1
-      `;
-      params = [firmId];
-      
-      if (search) {
-        sql += ` AND (d.name ILIKE $2 OR d.folder_path ILIKE $2)`;
-        params.push(`%${search}%`);
-      }
-      
-      sql += ` ORDER BY d.folder_path, d.name LIMIT 5000`;
-    } else {
-      // Non-admins only see documents in their matters
-      sql = `
-        SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path, 
-               COALESCE(d.external_path, d.path) as azure_path,
-               d.matter_id, m.name as matter_name, m.number as matter_number
-        FROM documents d
-        INNER JOIN matters m ON d.matter_id = m.id
-        WHERE d.firm_id = $1
-          AND (
-            m.responsible_attorney = $2
-            OR m.originating_attorney = $2
-            OR EXISTS (
-              SELECT 1 FROM jsonb_array_elements_text(m.assigned_to::jsonb) as assignee
-              WHERE assignee = $2
-            )
-            OR EXISTS (
-              SELECT 1 FROM matter_permissions mp
-              WHERE mp.matter_id = m.id AND mp.user_id = $2
-            )
-          )
-      `;
-      params = [firmId, userId];
-      
-      if (search) {
-        sql += ` AND (d.name ILIKE $3 OR d.folder_path ILIKE $3)`;
-        params.push(`%${search}%`);
-      }
-      
-      sql += ` ORDER BY d.folder_path, d.name LIMIT 2000`;
+    if (search) {
+      sql += ` AND (name ILIKE $2 OR folder_path ILIKE $2)`;
+      params.push(`%${search}%`);
     }
+    
+    // Limit results to prevent overload
+    sql += ` ORDER BY folder_path, name LIMIT 2000`;
     
     const result = await query(sql, params);
     
@@ -2237,9 +2198,6 @@ router.get('/browse-all', authenticate, async (req, res) => {
         folderPath: row.folder_path || '',
         path: row.azure_path,
         azurePath: row.azure_path,
-        matterId: row.matter_id,
-        matterName: row.matter_name,
-        matterNumber: row.matter_number,
         storageLocation: 'azure',
         isFromAzure: true
       };
@@ -2257,7 +2215,7 @@ router.get('/browse-all', authenticate, async (req, res) => {
         totalSize: files.reduce((sum, f) => sum + (f.size || 0), 0)
       },
       source: 'database',
-      message: isAdmin ? null : `Showing ${files.length} documents from your matters`
+      message: files.length >= 2000 ? `Showing first 2000 documents` : null
     });
     
   } catch (error) {
