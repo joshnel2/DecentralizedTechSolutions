@@ -1842,6 +1842,397 @@ async function runManifestScan(firmId, dryRun, job) {
 }
 
 // ============================================
+// FOLDER-BASED SCAN - Simple scan matching folders to matters
+// ============================================
+// This is the simpler approach: each folder = a matter name
+// No Clio manifest required - just scans Azure and matches by folder name
+router.post('/firms/:firmId/scan-azure-folders', requireSecureAdmin, async (req, res) => {
+  const { firmId } = req.params;
+  const { dryRun, includeMetadata } = req.body || {};
+  
+  // Check if a scan is already running
+  const existingJob = scanJobs.get(firmId);
+  if (existingJob && existingJob.status === 'running') {
+    return res.json({
+      success: false,
+      message: 'A scan is already running for this firm',
+      status: 'already_running'
+    });
+  }
+  
+  // Initialize scan job
+  const job = {
+    status: 'running',
+    startedAt: new Date().toISOString(),
+    phase: 'initializing',
+    progress: { scanned: 0, matched: 0, created: 0, total: 0, percent: 0 },
+    results: null,
+    error: null,
+    cancelled: false,
+    dryRun: !!dryRun,
+    scanType: 'folder-based'
+  };
+  scanJobs.set(firmId, job);
+  
+  console.log(`[FOLDER SCAN] Starting folder-based scan for firm ${firmId}`);
+  console.log(`[FOLDER SCAN] Mode: ${dryRun ? 'DRY RUN' : 'LIVE'}, Include metadata: ${includeMetadata}`);
+  
+  // Return immediately - scan runs in background
+  res.json({
+    success: true,
+    message: 'Folder-based scan started. Matches folder names to matter names.',
+    status: 'started',
+    job
+  });
+  
+  // Run scan in background
+  runFolderBasedScan(firmId, dryRun, includeMetadata, job).catch(err => {
+    console.error('[FOLDER SCAN] Error:', err);
+    job.status = 'error';
+    job.error = err.message;
+  });
+});
+
+// Background folder-based scan function
+async function runFolderBasedScan(firmId, dryRun, includeMetadata, job) {
+  try {
+    const results = {
+      scanned: 0,
+      matched: 0,
+      created: 0,
+      skipped: 0,
+      unmatched: 0,
+      errors: [],
+      matchedFolders: [],
+      unmatchedFolders: new Set()
+    };
+    
+    // ============================================
+    // 1. CHECK AZURE CONFIGURATION
+    // ============================================
+    job.phase = 'checking_azure';
+    const { getShareClient, isAzureConfigured } = await import('../utils/azureStorage.js');
+    if (!(await isAzureConfigured())) {
+      throw new Error('Azure Storage not configured. Go to Platform Settings.');
+    }
+    
+    // ============================================
+    // 2. LOAD MATTERS FOR MATCHING
+    // ============================================
+    job.phase = 'loading_matters';
+    const mattersResult = await query(`
+      SELECT m.id, m.name, m.number, m.responsible_attorney,
+             c.display_name as client_name
+      FROM matters m
+      LEFT JOIN clients c ON m.client_id = c.id
+      WHERE m.firm_id = $1
+    `, [firmId]);
+    
+    if (mattersResult.rows.length === 0) {
+      throw new Error('No matters found. Import matters first, then scan documents.');
+    }
+    
+    console.log(`[FOLDER SCAN] Loaded ${mattersResult.rows.length} matters for matching`);
+    
+    // Normalize function for Windows character handling
+    const normalize = (str) => {
+      if (!str) return '';
+      return str.toLowerCase().replace(/[:\\/\*\?"<>\|]/g, '').replace(/\s+/g, ' ').trim();
+    };
+    
+    // Build lookup maps for matching
+    const matterByExactName = new Map();
+    const matterByNormalizedName = new Map();
+    const matterByNumber = new Map();
+    const matterByClientMatter = new Map();
+    
+    for (const m of mattersResult.rows) {
+      if (m.name) {
+        matterByExactName.set(m.name.toLowerCase(), m);
+        matterByNormalizedName.set(normalize(m.name), m);
+      }
+      if (m.number) {
+        matterByNumber.set(m.number.toLowerCase(), m);
+        matterByNormalizedName.set(normalize(m.number), m);
+      }
+      if (m.client_name && m.name) {
+        // Clio format: "Client Name - Matter Name"
+        const clioFormat = `${m.client_name} - ${m.name}`.toLowerCase();
+        matterByClientMatter.set(clioFormat, m);
+        matterByNormalizedName.set(normalize(clioFormat), m);
+        
+        // Also try just client name for root folders
+        const clientLower = m.client_name.toLowerCase();
+        if (!matterByExactName.has(clientLower)) {
+          // Store first matter for this client (useful for client-level folders)
+          matterByExactName.set(clientLower, m);
+        }
+      }
+    }
+    
+    // Function to match a folder name to a matter
+    const matchFolderToMatter = (folderName) => {
+      if (!folderName) return null;
+      
+      const folderLower = folderName.toLowerCase();
+      const folderNorm = normalize(folderName);
+      
+      // Try exact name match
+      if (matterByExactName.has(folderLower)) return matterByExactName.get(folderLower);
+      
+      // Try "Client - Matter" format
+      if (matterByClientMatter.has(folderLower)) return matterByClientMatter.get(folderLower);
+      
+      // Try matter number
+      if (matterByNumber.has(folderLower)) return matterByNumber.get(folderLower);
+      
+      // Try normalized
+      if (matterByNormalizedName.has(folderNorm)) return matterByNormalizedName.get(folderNorm);
+      
+      // Try after " - " separator (for "Client - Matter" format)
+      if (folderName.includes(' - ')) {
+        const afterDash = folderName.split(' - ').slice(1).join(' - ').trim();
+        const afterDashLower = afterDash.toLowerCase();
+        const afterDashNorm = normalize(afterDash);
+        
+        if (matterByExactName.has(afterDashLower)) return matterByExactName.get(afterDashLower);
+        if (matterByNormalizedName.has(afterDashNorm)) return matterByNormalizedName.get(afterDashNorm);
+      }
+      
+      return null;
+    };
+    
+    // Function to extract matter folder from path
+    // Path structure: firm-{id}/CLIENT/MATTER/file.pdf or firm-{id}/MATTER/file.pdf
+    const getMatterFolderFromPath = (filePath, firmFolder) => {
+      const parts = filePath.split('/').filter(p => p && p !== firmFolder);
+      if (parts.length < 1) return null;
+      
+      // Try each folder level for a match (usually it's the first or second folder)
+      for (let i = 0; i < Math.min(parts.length - 1, 3); i++) {
+        const folder = parts[i];
+        const matter = matchFolderToMatter(folder);
+        if (matter) {
+          return { folder, matter, folderPath: parts.slice(0, i + 1).join('/') };
+        }
+      }
+      
+      // If no direct match, return the first folder as unmatched
+      return { folder: parts[0], matter: null, folderPath: parts[0] };
+    };
+    
+    // ============================================
+    // 3. OPTIONALLY LOAD CLIO METADATA
+    // ============================================
+    let clioMetadata = new Map();
+    if (includeMetadata) {
+      job.phase = 'loading_metadata';
+      try {
+        const metaResult = await query(`
+          SELECT name, content_type, size, clio_created_at, clio_updated_at, owner_id
+          FROM clio_document_manifest
+          WHERE firm_id = $1
+        `, [firmId]);
+        
+        for (const row of metaResult.rows) {
+          clioMetadata.set(row.name.toLowerCase(), row);
+        }
+        console.log(`[FOLDER SCAN] Loaded ${clioMetadata.size} metadata entries from Clio manifest`);
+      } catch (e) {
+        console.log(`[FOLDER SCAN] No Clio metadata available: ${e.message}`);
+      }
+    }
+    
+    // ============================================
+    // 4. SCAN AZURE AND CREATE DOCUMENTS
+    // ============================================
+    job.phase = 'scanning_azure';
+    const shareClient = await getShareClient();
+    const firmFolder = `firm-${firmId}`;
+    
+    // MIME type lookup
+    const getMimeType = (filename) => {
+      const ext = filename?.split('.').pop()?.toLowerCase() || '';
+      return {
+        pdf: 'application/pdf', doc: 'application/msword', 
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        xls: 'application/vnd.ms-excel', 
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ppt: 'application/vnd.ms-powerpoint', 
+        pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        txt: 'text/plain', rtf: 'application/rtf', csv: 'text/csv',
+        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+        msg: 'application/vnd.ms-outlook', eml: 'message/rfc822',
+        zip: 'application/zip', html: 'text/html', xml: 'text/xml', json: 'application/json'
+      }[ext] || 'application/octet-stream';
+    };
+    
+    let lastProgressUpdate = Date.now();
+    const folderMatchCounts = new Map(); // Track files per matched folder
+    
+    // Recursive function to scan directories
+    const scanDirectory = async (dirClient, basePath = '') => {
+      if (job.cancelled) return;
+      
+      try {
+        for await (const item of dirClient.listFilesAndDirectories()) {
+          if (job.cancelled) return;
+          const itemPath = basePath ? `${basePath}/${item.name}` : item.name;
+          
+          if (item.kind === 'directory') {
+            // Recurse into subdirectory
+            await scanDirectory(dirClient.getDirectoryClient(item.name), itemPath);
+          } else {
+            // Process file
+            results.scanned++;
+            const fullPath = `${firmFolder}/${itemPath}`;
+            const fileName = item.name;
+            
+            // Find matter from folder structure
+            const matchInfo = getMatterFolderFromPath(itemPath, firmFolder);
+            
+            if (matchInfo && matchInfo.matter) {
+              results.matched++;
+              
+              // Track folder match counts
+              const folderKey = matchInfo.folderPath;
+              folderMatchCounts.set(folderKey, (folderMatchCounts.get(folderKey) || 0) + 1);
+              
+              if (!dryRun) {
+                try {
+                  // Get optional metadata from Clio manifest
+                  const meta = clioMetadata.get(fileName.toLowerCase()) || {};
+                  const mimeType = meta.content_type || getMimeType(fileName);
+                  const folderPath = fullPath.split('/').slice(0, -1).join('/');
+                  
+                  // Upsert document
+                  const insertResult = await query(`
+                    INSERT INTO documents (
+                      firm_id, matter_id, owner_id, name, original_name,
+                      path, folder_path, type, size, privacy_level,
+                      status, storage_location, external_path, uploaded_at
+                    ) VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, 'team', 'final', 'azure', $5, NOW())
+                    ON CONFLICT (firm_id, path) DO UPDATE SET
+                      matter_id = COALESCE(EXCLUDED.matter_id, documents.matter_id),
+                      updated_at = NOW()
+                    RETURNING (xmax = 0) as was_inserted
+                  `, [
+                    firmId,
+                    matchInfo.matter.id,
+                    meta.owner_id || matchInfo.matter.responsible_attorney,
+                    fileName,
+                    fullPath,
+                    folderPath,
+                    mimeType,
+                    meta.size || item.properties?.contentLength || 0
+                  ]);
+                  
+                  if (insertResult.rows[0]?.was_inserted) {
+                    results.created++;
+                  } else {
+                    results.skipped++;
+                  }
+                } catch (e) {
+                  if (results.errors.length < 50) {
+                    results.errors.push(`${fileName}: ${e.message}`);
+                  }
+                }
+              }
+            } else {
+              results.unmatched++;
+              if (matchInfo && matchInfo.folder) {
+                results.unmatchedFolders.add(matchInfo.folder);
+              }
+            }
+            
+            // Progress update every 2 seconds
+            if (Date.now() - lastProgressUpdate > 2000) {
+              job.progress.scanned = results.scanned;
+              job.progress.matched = results.matched;
+              job.progress.created = results.created;
+              console.log(`[FOLDER SCAN] Progress: ${results.scanned} scanned, ${results.matched} matched, ${results.created} created`);
+              lastProgressUpdate = Date.now();
+            }
+          }
+        }
+      } catch (e) {
+        console.log(`[FOLDER SCAN] Error scanning ${basePath}: ${e.message}`);
+      }
+    };
+    
+    console.log(`[FOLDER SCAN] Scanning Azure folder: ${firmFolder}`);
+    await scanDirectory(shareClient.getDirectoryClient(firmFolder));
+    
+    // ============================================
+    // 5. BUILD RESULTS
+    // ============================================
+    job.phase = 'finalizing';
+    
+    // Build matched folders summary
+    const matchedFoldersSummary = [];
+    for (const [folder, count] of folderMatchCounts.entries()) {
+      const matter = matchFolderToMatter(folder.split('/')[0]) || matchFolderToMatter(folder);
+      matchedFoldersSummary.push({
+        folder,
+        matterName: matter?.name || 'Unknown',
+        fileCount: count
+      });
+    }
+    matchedFoldersSummary.sort((a, b) => b.fileCount - a.fileCount);
+    
+    // Build unmatched folders summary
+    const unmatchedFoldersSummary = Array.from(results.unmatchedFolders).map(folder => ({
+      folder,
+      hint: 'Create a matter with this name, then rescan'
+    }));
+    
+    // Get final document counts
+    const finalStats = await query(`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(matter_id) as with_matter,
+        COUNT(*) - COUNT(matter_id) as without_matter
+      FROM documents WHERE firm_id = $1
+    `, [firmId]);
+    
+    const stats = finalStats.rows[0];
+    
+    const message = dryRun
+      ? `DRY RUN: Would create ${results.matched} documents from ${results.scanned} files. ${results.unmatched} files have no matching matter.`
+      : `Scan complete: ${results.created} documents created, ${results.matched} matched to matters. ${results.unmatched} files unmatched.`;
+    
+    console.log(`[FOLDER SCAN] ${message}`);
+    
+    job.status = 'completed';
+    job.completedAt = new Date().toISOString();
+    job.phase = 'done';
+    job.results = {
+      success: true,
+      message,
+      dryRun: !!dryRun,
+      scanned: results.scanned,
+      matched: results.matched,
+      created: results.created,
+      skipped: results.skipped,
+      unmatched: results.unmatched,
+      mattersAvailable: mattersResult.rows.length,
+      totalInDatabase: parseInt(stats.total || 0),
+      withMatter: parseInt(stats.with_matter || 0),
+      withoutMatter: parseInt(stats.without_matter || 0),
+      matchedFolders: matchedFoldersSummary.slice(0, 20),
+      unmatchedFolders: unmatchedFoldersSummary.slice(0, 20),
+      errors: results.errors.slice(0, 20)
+    };
+    
+  } catch (error) {
+    console.error('[FOLDER SCAN] Error:', error);
+    job.status = error.message === 'Scan cancelled by user' ? 'cancelled' : 'error';
+    job.error = error.message;
+    job.completedAt = new Date().toISOString();
+  }
+}
+
+// ============================================
 // RESCAN UNMATCHED - Re-match documents after adding new matters
 // ============================================
 // Uses the same improved matching logic as the main scan

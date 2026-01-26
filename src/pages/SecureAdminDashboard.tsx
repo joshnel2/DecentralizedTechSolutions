@@ -1177,6 +1177,129 @@ export default function SecureAdminDashboard() {
     }
   }
 
+  // Folder-based scan - matches folder names to matter names directly (no Clio manifest needed)
+  const handleFolderScan = async (firmId: string, includeMetadata: boolean = false) => {
+    setScanningFirmId(firmId)
+    setScanResult(null)
+    console.log('[FOLDER SCAN] Starting folder-based scan for firm:', firmId)
+    
+    try {
+      // Start the background scan
+      const res = await fetch(`${API_URL}/secure-admin/firms/${firmId}/scan-azure-folders`, {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ includeMetadata })
+      })
+      const data = await res.json()
+      console.log('[FOLDER SCAN] Initial response:', data)
+      
+      if (data.status === 'already_running') {
+        showNotification('success', 'A scan is already running. Click Reset if stuck.')
+        setScanResult({
+          firmId,
+          message: 'A scan is already running. If stuck, click Reset Scan below.',
+          success: false
+        })
+        setScanningFirmId(null)
+      } else if (data.status === 'started') {
+        showNotification('success', 'Folder scan started - matching folders to matters...')
+        
+        // Poll for progress
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await fetch(`${API_URL}/secure-admin/firms/${firmId}/scan-status`, {
+              headers: getAuthHeaders()
+            })
+            const status = await statusRes.json()
+            console.log('[FOLDER SCAN] Status:', status)
+            
+            if (status.status === 'running') {
+              const progress = status.progress || {}
+              const phase = status.phase || ''
+              
+              let phaseMessage = 'Processing...'
+              if (phase === 'scanning_azure') {
+                phaseMessage = `Scanning Azure: ${(progress.scanned || 0).toLocaleString()} files, ${(progress.matched || 0).toLocaleString()} matched`
+              } else if (phase === 'loading_matters') {
+                phaseMessage = 'Loading matters for matching...'
+              } else if (phase === 'loading_metadata') {
+                phaseMessage = 'Loading Clio metadata...'
+              } else if (phase === 'finalizing') {
+                phaseMessage = 'Finalizing...'
+              }
+              
+              setScanResult({
+                firmId,
+                message: phaseMessage,
+                success: true,
+                scanned: progress.scanned,
+                matched: progress.matched,
+                created: progress.created
+              })
+            } else if (status.status === 'completed' && status.results) {
+              clearInterval(pollInterval)
+              setScanningFirmId(null)
+              const results = status.results
+              setScanResult({ 
+                firmId, 
+                message: results.message, 
+                success: true,
+                scanned: results.scanned,
+                matched: results.matched,
+                created: results.created,
+                skipped: results.skipped,
+                withMatter: results.withMatter,
+                withoutMatter: results.withoutMatter,
+                matchedFolders: results.matchedFolders,
+                unmatchedFolders: results.unmatchedFolders?.map((f: any) => ({ folder: f.folder, fileCount: 0 })),
+                orphanCount: results.unmatched
+              })
+              showNotification('success', results.message)
+              // Refresh firm data
+              if (selectedFirmDetail && selectedFirmDetail.id === firmId) {
+                handleViewFirmDetail(selectedFirmDetail)
+              }
+            } else if (status.status === 'error' || status.status === 'cancelled') {
+              clearInterval(pollInterval)
+              setScanningFirmId(null)
+              setScanResult({ 
+                firmId, 
+                message: status.error || `Scan ${status.status}`, 
+                success: false 
+              })
+              showNotification('error', status.error || `Scan ${status.status}`)
+            }
+          } catch (pollError) {
+            console.error('[FOLDER SCAN] Poll error:', pollError)
+          }
+        }, 2000)
+        
+        // Safety timeout - stop polling after 30 minutes
+        setTimeout(() => {
+          clearInterval(pollInterval)
+          if (scanningFirmId === firmId) {
+            setScanningFirmId(null)
+            showNotification('error', 'Scan is taking longer than expected. Check status later.')
+          }
+        }, 30 * 60 * 1000)
+      } else {
+        const errorMsg = data.error || 'Failed to start folder scan'
+        setScanResult({ firmId, message: errorMsg, success: false })
+        showNotification('error', errorMsg)
+        setScanningFirmId(null)
+      }
+    } catch (error: any) {
+      console.error('[FOLDER SCAN] Error:', error)
+      const errorMsg = error.message || 'Failed to scan folders'
+      setScanResult({ firmId, message: errorMsg, success: false })
+      showNotification('error', errorMsg)
+      setScanningFirmId(null)
+    }
+  }
+
   // Rescan unmatched documents (for when matters/users are added later)
   // Reset stuck scan
   const handleResetScan = async (firmId: string) => {
@@ -6067,83 +6190,140 @@ bob@example.com, Bob, Wilson, partner"
                   <div style={{ flex: 1, height: '1px', background: '#E2E8F0' }} />
                 </div>
 
-                {/* Big Scan Button Card */}
+                {/* Scan Documents Section */}
                 <div style={{ 
                   background: 'linear-gradient(135deg, #059669 0%, #10B981 100%)',
                   borderRadius: '20px',
                   padding: '40px 48px',
                   color: 'white',
-                  marginBottom: '32px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
+                  marginBottom: '32px'
                 }}>
-                  <div style={{ maxWidth: '450px' }}>
+                  <div style={{ marginBottom: '28px' }}>
                     <h2 style={{ margin: '0 0 12px 0', fontSize: '28px', fontWeight: 700 }}>
-                      Scan Documents
+                      Scan Azure Documents
                     </h2>
                     <p style={{ margin: 0, opacity: 0.9, fontSize: '16px', lineHeight: 1.6 }}>
-                      After copying files from Clio Drive to Azure, scan to import them. Use Rescan to re-match documents after adding new matters/users.
+                      Import documents from Azure into matters. Folders are matched to matters by name.
                     </p>
                   </div>
-                  <div style={{ display: 'flex', gap: '16px' }}>
-                    <button
-                      onClick={() => handleScanDocuments(selectedFirmDetail.id)}
-                      disabled={scanningFirmId === selectedFirmDetail.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '12px',
-                        padding: '18px 32px',
-                        background: 'white',
-                        color: '#059669',
-                        border: 'none',
-                        borderRadius: '14px',
-                        cursor: scanningFirmId === selectedFirmDetail.id ? 'not-allowed' : 'pointer',
-                        fontWeight: 700,
-                        fontSize: '16px',
-                        boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-                        transition: 'transform 0.2s, box-shadow 0.2s',
-                        opacity: scanningFirmId === selectedFirmDetail.id ? 0.8 : 1
-                      }}
-                      onMouseOver={e => { if (scanningFirmId !== selectedFirmDetail.id) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 12px 32px rgba(0,0,0,0.2)' }}}
-                      onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.15)' }}
-                    >
-                      {scanningFirmId === selectedFirmDetail.id ? (
-                        <>
-                          <RefreshCw size={22} className="animate-spin" />
-                          Scanning...
-                        </>
-                      ) : (
-                        <>
-                          <FolderSync size={22} />
-                          Full Scan
-                        </>
-                      )}
-                    </button>
+
+                  {/* Scan Options */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
+                    {/* Primary: Folder-Based Scan */}
+                    <div style={{ 
+                      background: 'white', 
+                      borderRadius: '16px', 
+                      padding: '24px',
+                      color: '#1E293B'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                        <HardDrive size={24} color="#059669" />
+                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>Folder Scan</h3>
+                        <span style={{ 
+                          background: '#DCFCE7', 
+                          color: '#166534', 
+                          padding: '2px 8px', 
+                          borderRadius: '4px', 
+                          fontSize: '11px', 
+                          fontWeight: 600 
+                        }}>RECOMMENDED</span>
+                      </div>
+                      <p style={{ margin: '0 0 16px 0', fontSize: '14px', color: '#64748B', lineHeight: 1.5 }}>
+                        Each folder = a matter. Simple and fast. No Clio data needed.
+                      </p>
+                      <button
+                        onClick={() => handleFolderScan(selectedFirmDetail.id, false)}
+                        disabled={scanningFirmId === selectedFirmDetail.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '10px',
+                          width: '100%',
+                          padding: '14px 24px',
+                          background: '#059669',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '10px',
+                          cursor: scanningFirmId === selectedFirmDetail.id ? 'not-allowed' : 'pointer',
+                          fontWeight: 700,
+                          fontSize: '15px',
+                          opacity: scanningFirmId === selectedFirmDetail.id ? 0.7 : 1
+                        }}
+                      >
+                        {scanningFirmId === selectedFirmDetail.id ? (
+                          <><RefreshCw size={18} className="animate-spin" /> Scanning...</>
+                        ) : (
+                          <><FolderSync size={18} /> Scan Folders</>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Secondary: Manifest-Based Scan */}
+                    <div style={{ 
+                      background: 'rgba(255,255,255,0.15)', 
+                      borderRadius: '16px', 
+                      padding: '24px',
+                      border: '1px solid rgba(255,255,255,0.3)'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                        <FileSearch size={24} />
+                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>Clio Manifest Scan</h3>
+                      </div>
+                      <p style={{ margin: '0 0 16px 0', fontSize: '14px', opacity: 0.9, lineHeight: 1.5 }}>
+                        Uses Clio API data for precise matching. Requires "Fetch Document List" first.
+                      </p>
+                      <button
+                        onClick={() => handleScanDocuments(selectedFirmDetail.id)}
+                        disabled={scanningFirmId === selectedFirmDetail.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '10px',
+                          width: '100%',
+                          padding: '14px 24px',
+                          background: 'rgba(255,255,255,0.2)',
+                          color: 'white',
+                          border: '2px solid rgba(255,255,255,0.5)',
+                          borderRadius: '10px',
+                          cursor: scanningFirmId === selectedFirmDetail.id ? 'not-allowed' : 'pointer',
+                          fontWeight: 700,
+                          fontSize: '15px',
+                          opacity: scanningFirmId === selectedFirmDetail.id ? 0.7 : 1
+                        }}
+                      >
+                        {scanningFirmId === selectedFirmDetail.id ? (
+                          <><RefreshCw size={18} className="animate-spin" /> Scanning...</>
+                        ) : (
+                          <><FileText size={18} /> Manifest Scan</>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Secondary Actions */}
+                  <div style={{ display: 'flex', gap: '12px' }}>
                     <button
                       onClick={() => handleRescanUnmatched(selectedFirmDetail.id)}
                       disabled={scanningFirmId === selectedFirmDetail.id}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '12px',
-                        padding: '18px 32px',
-                        background: 'rgba(255,255,255,0.2)',
+                        gap: '8px',
+                        padding: '12px 20px',
+                        background: 'rgba(255,255,255,0.15)',
                         color: 'white',
-                        border: '2px solid white',
-                        borderRadius: '14px',
+                        border: '1px solid rgba(255,255,255,0.3)',
+                        borderRadius: '10px',
                         cursor: scanningFirmId === selectedFirmDetail.id ? 'not-allowed' : 'pointer',
-                        fontWeight: 700,
-                        fontSize: '16px',
-                        transition: 'transform 0.2s, background 0.2s',
-                        opacity: scanningFirmId === selectedFirmDetail.id ? 0.8 : 1
+                        fontWeight: 600,
+                        fontSize: '14px',
+                        opacity: scanningFirmId === selectedFirmDetail.id ? 0.7 : 1
                       }}
-                      onMouseOver={e => { if (scanningFirmId !== selectedFirmDetail.id) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.background = 'rgba(255,255,255,0.3)' }}}
-                      onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.background = 'rgba(255,255,255,0.2)' }}
-                      title="Re-match unmatched documents to matters (run after adding new matters)"
+                      title="Re-match unmatched documents after adding new matters"
                     >
-                      <RefreshCw size={22} />
+                      <RefreshCw size={16} />
                       Rescan Unmatched
                     </button>
                     <button
@@ -6155,15 +6335,15 @@ bob@example.com, Bob, Wilson, partner"
                         padding: '12px 20px',
                         background: 'rgba(239, 68, 68, 0.2)',
                         color: 'white',
-                        border: '2px solid #EF4444',
-                        borderRadius: '14px',
+                        border: '1px solid rgba(239, 68, 68, 0.5)',
+                        borderRadius: '10px',
                         cursor: 'pointer',
                         fontWeight: 600,
                         fontSize: '14px'
                       }}
                       title="Clear stuck scan job"
                     >
-                      <X size={18} />
+                      <X size={16} />
                       Reset Scan
                     </button>
                   </div>
@@ -6178,7 +6358,7 @@ bob@example.com, Bob, Wilson, partner"
                     background: scanResult.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
                     border: `2px solid ${scanResult.success ? '#10B981' : '#EF4444'}`
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: scanResult.success && scanResult.scanned ? '16px' : 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: scanResult.success && (scanResult.scanned || scanResult.processed) ? '16px' : 0 }}>
                       {scanResult.success ? <CheckCircle size={24} color="#10B981" /> : <AlertCircle size={24} color="#EF4444" />}
                       <span style={{ flex: 1, fontSize: '15px', fontWeight: 600, color: scanResult.success ? '#065F46' : '#991B1B' }}>
                         {scanResult.message}
@@ -6191,10 +6371,15 @@ bob@example.com, Bob, Wilson, partner"
                       </button>
                     </div>
                     
-                    {/* Detailed Stats - Manifest-based */}
-                    {scanResult.success && scanResult.processed !== undefined && (
+                    {/* Detailed Stats */}
+                    {scanResult.success && (scanResult.processed !== undefined || scanResult.scanned !== undefined) && (
                       <div style={{ marginTop: '12px' }}>
                         <div style={{ display: 'flex', gap: '24px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                          {scanResult.scanned !== undefined && (
+                            <div style={{ fontSize: '14px', color: '#374151' }}>
+                              <strong>{scanResult.scanned?.toLocaleString()}</strong> files scanned
+                            </div>
+                          )}
                           {scanResult.manifestEntries !== undefined && (
                             <div style={{ fontSize: '14px', color: '#374151' }}>
                               <strong>{scanResult.manifestEntries?.toLocaleString()}</strong> in manifest
@@ -6216,7 +6401,70 @@ bob@example.com, Bob, Wilson, partner"
                               <strong>{scanResult.missing?.toLocaleString()}</strong> not found in Azure
                             </div>
                           )}
+                          {(scanResult.orphanCount || 0) > 0 && (
+                            <div style={{ fontSize: '14px', color: '#D97706' }}>
+                              <strong>{scanResult.orphanCount?.toLocaleString()}</strong> unmatched (no matter)
+                            </div>
+                          )}
                         </div>
+                        
+                        {/* Matched Folders Summary */}
+                        {scanResult.matchedFolders && scanResult.matchedFolders.length > 0 && (
+                          <div style={{ 
+                            background: 'white', 
+                            borderRadius: '8px', 
+                            padding: '12px 16px',
+                            marginTop: '12px'
+                          }}>
+                            <div style={{ fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>
+                              Folders Matched to Matters
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '12px' }}>
+                              {scanResult.matchedFolders.slice(0, 10).map((f: any, i: number) => (
+                                <span key={i} style={{ 
+                                  background: '#DCFCE7', 
+                                  color: '#166534', 
+                                  padding: '4px 8px', 
+                                  borderRadius: '4px' 
+                                }}>
+                                  {f.folder} → {f.matterName} ({f.fileCount} files)
+                                </span>
+                              ))}
+                              {scanResult.matchedFolders.length > 10 && (
+                                <span style={{ color: '#6B7280' }}>+{scanResult.matchedFolders.length - 10} more</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Unmatched Folders */}
+                        {scanResult.unmatchedFolders && scanResult.unmatchedFolders.length > 0 && (
+                          <div style={{ 
+                            background: '#FEF3C7', 
+                            borderRadius: '8px', 
+                            padding: '12px 16px',
+                            marginTop: '12px'
+                          }}>
+                            <div style={{ fontSize: '13px', fontWeight: 600, color: '#92400E', marginBottom: '8px' }}>
+                              Folders Without Matching Matters (create these matters, then rescan)
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '12px' }}>
+                              {scanResult.unmatchedFolders.slice(0, 10).map((f: any, i: number) => (
+                                <span key={i} style={{ 
+                                  background: '#FDE68A', 
+                                  color: '#78350F', 
+                                  padding: '4px 8px', 
+                                  borderRadius: '4px' 
+                                }}>
+                                  {f.folder}
+                                </span>
+                              ))}
+                              {scanResult.unmatchedFolders.length > 10 && (
+                                <span style={{ color: '#92400E' }}>+{scanResult.unmatchedFolders.length - 10} more</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
                         
                         {/* Matter Assignment Summary */}
                         {(scanResult.withMatter !== undefined || scanResult.withoutMatter !== undefined) && (
@@ -6227,7 +6475,7 @@ bob@example.com, Bob, Wilson, partner"
                             marginTop: '12px'
                           }}>
                             <div style={{ fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>
-                              Document → Matter Assignments (from Clio manifest)
+                              Document → Matter Assignments
                             </div>
                             <div style={{ display: 'flex', gap: '16px', fontSize: '13px' }}>
                               <span style={{ color: '#059669' }}>
@@ -6282,13 +6530,13 @@ bob@example.com, Bob, Wilson, partner"
                   padding: '28px'
                 }}>
                   <h3 style={{ margin: '0 0 20px 0', color: '#1E293B', fontSize: '18px', fontWeight: 600 }}>
-                    How to Migrate Documents
+                    How Document Scanning Works
                   </h3>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
                     {[
-                      { step: '1', title: 'Copy Files', desc: 'Copy documents from Clio Drive to Azure File Share' },
-                      { step: '2', title: 'Scan', desc: 'Click the Scan Documents button above' },
-                      { step: '3', title: 'Done', desc: 'Documents are matched to matters automatically' }
+                      { step: '1', title: 'Organize by Matter', desc: 'Each folder in Azure = one matter name. Files inside get linked to that matter.' },
+                      { step: '2', title: 'Click Folder Scan', desc: 'Scan matches folder names to existing matters automatically.' },
+                      { step: '3', title: 'Rescan if Needed', desc: 'Create missing matters, then click Rescan Unmatched.' }
                     ].map((item, i) => (
                       <div key={i} style={{ display: 'flex', gap: '16px' }}>
                         <div style={{ 
@@ -6312,6 +6560,16 @@ bob@example.com, Bob, Wilson, partner"
                         </div>
                       </div>
                     ))}
+                  </div>
+                  <div style={{ 
+                    marginTop: '20px', 
+                    padding: '12px 16px', 
+                    background: '#F0FDF4', 
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    color: '#166534'
+                  }}>
+                    <strong>Tip:</strong> Folder names are matched to matter names, matter numbers, or "Client Name - Matter Name" format. Windows special characters are handled automatically.
                   </div>
                 </div>
               </div>
