@@ -65,8 +65,11 @@ async function syncFirmFiles(firmId, shareClient) {
         }
       }
     } catch (err) {
-      // Directory might not exist, that's OK
-      if (!err.message?.includes('ResourceNotFound')) {
+      // Directory might not exist, that's OK - don't log for non-existent folders
+      const isNotFound = err.message?.includes('ResourceNotFound') || 
+                         err.message?.includes('does not exist') ||
+                         err.statusCode === 404;
+      if (!isNotFound) {
         console.log(`[SYNC] Could not scan ${dirPath}: ${err.message}`);
       }
     }
