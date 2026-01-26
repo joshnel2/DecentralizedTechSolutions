@@ -7350,16 +7350,29 @@ router.post('/documents/fetch-manifest', requireSecureAdmin, async (req, res) =>
     console.log(`[DOC STREAM] Fetching document manifest for firm ${firmId}...`);
     
     // Build matter ID mapping if we have migrated matters
+    // NOTE: Clio ID is embedded in the matter number field as {display_number}-{clio_id}
+    // because the matters table doesn't have a direct clio_id column
     const matterIdMap = new Map();
     try {
       const matters = await query(
-        `SELECT id, clio_id FROM matters WHERE firm_id = $1 AND clio_id IS NOT NULL`,
+        `SELECT id, number FROM matters WHERE firm_id = $1`,
         [firmId]
       );
+      let mappedCount = 0;
       for (const m of matters.rows) {
-        matterIdMap.set(m.clio_id, m.id);
+        if (m.number) {
+          // Also store the full number for matching
+          matterIdMap.set(m.number, m.id);
+          // Extract Clio ID from the number format: {display_number}-{clio_id}
+          const match = m.number.match(/-(\d+)$/);
+          if (match) {
+            const clioId = parseInt(match[1]);
+            matterIdMap.set(clioId, m.id);
+            mappedCount++;
+          }
+        }
       }
-      console.log(`[DOC STREAM] Loaded ${matterIdMap.size} matter mappings`);
+      console.log(`[DOC STREAM] Loaded ${matterIdMap.size} matter mappings from ${matters.rows.length} matters (${mappedCount} with Clio IDs)`);
     } catch (e) {
       console.log(`[DOC STREAM] Could not load matter mappings: ${e.message}`);
     }
@@ -7406,19 +7419,38 @@ router.post('/documents/stream-to-azure', requireSecureAdmin, async (req, res) =
     console.log(`[DOC STREAM] Starting document streaming for firm ${firmId}...`);
     
     // Build ID mappings from previous migration
+    // NOTE: Clio IDs are embedded in matter/client/user number fields (format: {display_number}-{clio_id})
     const matterIdMap = new Map();
     const clientIdMap = new Map();
     const userIdMap = new Map();
     
     try {
-      const matters = await query(`SELECT id, clio_id FROM matters WHERE firm_id = $1 AND clio_id IS NOT NULL`, [firmId]);
-      for (const m of matters.rows) matterIdMap.set(m.clio_id, m.id);
+      // Extract Clio IDs from matter numbers (format: {display_number}-{clio_id})
+      const matters = await query(`SELECT id, number FROM matters WHERE firm_id = $1`, [firmId]);
+      for (const m of matters.rows) {
+        if (m.number) {
+          const match = m.number.match(/-(\d+)$/);
+          if (match) {
+            matterIdMap.set(parseInt(match[1]), m.id);
+          }
+        }
+      }
       
-      const clients = await query(`SELECT id, clio_id FROM clients WHERE firm_id = $1 AND clio_id IS NOT NULL`, [firmId]);
-      for (const c of clients.rows) clientIdMap.set(c.clio_id, c.id);
+      // Try clients table - may or may not have clio_id column
+      try {
+        const clients = await query(`SELECT id, clio_id FROM clients WHERE firm_id = $1 AND clio_id IS NOT NULL`, [firmId]);
+        for (const c of clients.rows) clientIdMap.set(c.clio_id, c.id);
+      } catch (clientErr) {
+        console.log(`[DOC STREAM] Clients clio_id not available: ${clientErr.message}`);
+      }
       
-      const users = await query(`SELECT id, clio_id FROM users WHERE firm_id = $1 AND clio_id IS NOT NULL`, [firmId]);
-      for (const u of users.rows) userIdMap.set(u.clio_id, u.id);
+      // Try users table - may or may not have clio_id column
+      try {
+        const users = await query(`SELECT id, clio_id FROM users WHERE firm_id = $1 AND clio_id IS NOT NULL`, [firmId]);
+        for (const u of users.rows) userIdMap.set(u.clio_id, u.id);
+      } catch (userErr) {
+        console.log(`[DOC STREAM] Users clio_id not available: ${userErr.message}`);
+      }
       
       console.log(`[DOC STREAM] Loaded mappings: ${matterIdMap.size} matters, ${clientIdMap.size} clients, ${userIdMap.size} users`);
     } catch (e) {

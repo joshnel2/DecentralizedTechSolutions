@@ -1516,14 +1516,152 @@ async function runManifestScan(firmId, dryRun, job) {
     }
     
     // ============================================
-    // 2. GET MANIFEST STATS
+    // 2. BUILD MATTER LOOKUP MAPS
+    // ============================================
+    job.phase = 'loading_matters';
+    console.log(`[SCAN] Building matter lookup maps...`);
+    
+    // Multiple lookup strategies for maximum matching:
+    // 1. clioMatterIdToApexId: Clio ID (from manifest) -> Apex matter ID
+    // 2. matterByName: Matter name -> Apex matter
+    // 3. matterByNumber: Matter number -> Apex matter
+    // 4. matterByClientMatter: "Client - Matter" format -> Apex matter
+    
+    const clioMatterIdToApexId = new Map();
+    const matterByName = new Map();
+    const matterByNumber = new Map();
+    const matterByClientMatter = new Map();
+    const matterByNormalizedName = new Map();
+    
+    // Normalize function for Windows character handling and fuzzy matching
+    const normalizeName = (str) => {
+      if (!str) return '';
+      return str.toLowerCase().replace(/[:\\/\*\?"<>\|_-]/g, ' ').replace(/\s+/g, ' ').trim();
+    };
+    
+    // Check if folder is an alphabetical/numerical index (Clio structure)
+    const isIndexFolder = (name) => {
+      if (!name) return false;
+      const trimmed = name.trim();
+      return /^[A-Za-z0-9]$/.test(trimmed) || 
+             ['firm', 'matters', 'clients', 'templates', 'documents'].includes(trimmed.toLowerCase()) ||
+             trimmed.startsWith('firm-');
+    };
+    
+    try {
+      // Get matters with client names for full matching capability
+      const mattersResult = await query(`
+        SELECT m.id, m.number, m.name, m.responsible_attorney, c.display_name as client_name
+        FROM matters m
+        LEFT JOIN clients c ON m.client_id = c.id
+        WHERE m.firm_id = $1
+      `, [firmId]);
+      
+      for (const m of mattersResult.rows) {
+        // Map by Clio ID (extracted from matter number)
+        if (m.number) {
+          const match = m.number.match(/-(\d+)$/);
+          if (match) {
+            clioMatterIdToApexId.set(parseInt(match[1]), m.id);
+          }
+          // Also map by full matter number
+          matterByNumber.set(m.number.toLowerCase(), m);
+          matterByNormalizedName.set(normalizeName(m.number), m);
+        }
+        
+        // Map by matter name
+        if (m.name) {
+          matterByName.set(m.name.toLowerCase(), m);
+          matterByNormalizedName.set(normalizeName(m.name), m);
+        }
+        
+        // Map by "Client - Matter" format (Clio's common folder naming)
+        if (m.client_name && m.name) {
+          const clioFormat = `${m.client_name} - ${m.name}`.toLowerCase();
+          matterByClientMatter.set(clioFormat, m);
+          matterByNormalizedName.set(normalizeName(clioFormat), m);
+        }
+      }
+      
+      console.log(`[SCAN] Built mappings: ${clioMatterIdToApexId.size} Clio IDs, ${matterByName.size} names, ${matterByClientMatter.size} client-matter pairs`);
+    } catch (e) {
+      console.log(`[SCAN] Could not build matter mappings: ${e.message}`);
+    }
+    
+    // Also load Clio folder manifest for folder->matter mapping
+    // In Clio, folders can be directly linked to matters
+    const clioFolderIdToMatterId = new Map();
+    const clioFolderPathToMatterId = new Map();
+    try {
+      const foldersResult = await query(`
+        SELECT clio_id, clio_matter_id, full_path, matter_id 
+        FROM clio_folder_manifest 
+        WHERE firm_id = $1 AND (clio_matter_id IS NOT NULL OR matter_id IS NOT NULL)
+      `, [firmId]);
+      
+      for (const f of foldersResult.rows) {
+        // If folder has a direct matter_id, use it
+        let matterId = f.matter_id;
+        // Otherwise try to resolve via clio_matter_id
+        if (!matterId && f.clio_matter_id) {
+          matterId = clioMatterIdToApexId.get(parseInt(f.clio_matter_id));
+        }
+        
+        if (matterId) {
+          if (f.clio_id) clioFolderIdToMatterId.set(parseInt(f.clio_id), matterId);
+          if (f.full_path) clioFolderPathToMatterId.set(f.full_path.toLowerCase(), matterId);
+        }
+      }
+      console.log(`[SCAN] Loaded ${clioFolderIdToMatterId.size} Clio folder->matter mappings`);
+    } catch (e) {
+      console.log(`[SCAN] Could not load folder manifest: ${e.message}`);
+    }
+    
+    // Function to match a folder path to a matter
+    const matchFolderToMatter = (folderPath) => {
+      if (!folderPath) return null;
+      
+      // Split path and filter out index folders
+      const parts = folderPath.split('/').filter(p => p && !isIndexFolder(p));
+      
+      for (const part of parts) {
+        const partLower = part.toLowerCase();
+        const partNorm = normalizeName(part);
+        
+        // Try exact matches first
+        if (matterByName.has(partLower)) return matterByName.get(partLower);
+        if (matterByClientMatter.has(partLower)) return matterByClientMatter.get(partLower);
+        if (matterByNumber.has(partLower)) return matterByNumber.get(partLower);
+        if (matterByNormalizedName.has(partNorm)) return matterByNormalizedName.get(partNorm);
+        
+        // Try "Client - Matter" format parsing
+        if (part.includes(' - ')) {
+          const [clientPart, ...matterParts] = part.split(' - ');
+          const afterDash = matterParts.join(' - ').trim();
+          
+          if (matterByName.has(afterDash.toLowerCase())) return matterByName.get(afterDash.toLowerCase());
+          if (matterByNormalizedName.has(normalizeName(afterDash))) return matterByNormalizedName.get(normalizeName(afterDash));
+        }
+        
+        // Try extracting matter number (e.g., "2024-001 Smith Case")
+        const numberMatch = part.match(/^(\d{4}[-_]\d+|\d+[-_]\d+)/);
+        if (numberMatch && matterByNumber.has(numberMatch[1].toLowerCase())) {
+          return matterByNumber.get(numberMatch[1].toLowerCase());
+        }
+      }
+      
+      return null;
+    };
+    
+    // ============================================
+    // 3. GET MANIFEST STATS
     // ============================================
     job.phase = 'loading_manifest';
     const statsResult = await query(`
       SELECT 
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE match_status = 'matched') as already_matched,
-        COUNT(*) FILTER (WHERE match_status IS NULL OR match_status != 'matched') as pending
+        COUNT(*) FILTER (WHERE match_status IS NULL OR match_status NOT IN ('matched', 'not_found')) as pending
       FROM clio_document_manifest
       WHERE firm_id = $1
     `, [firmId]);
@@ -1536,6 +1674,7 @@ async function runManifestScan(firmId, dryRun, job) {
     job.progress.manifestTotal = totalManifest;
     job.progress.alreadyMatched = alreadyMatched;
     job.progress.pending = pendingCount;
+    job.progress.matterMappings = clioMatterIdToApexId.size;
     
     console.log(`[SCAN] Manifest: ${totalManifest.toLocaleString()} total, ${alreadyMatched.toLocaleString()} already matched, ${pendingCount.toLocaleString()} pending`);
     
@@ -1556,7 +1695,7 @@ async function runManifestScan(firmId, dryRun, job) {
     }
     
     // ============================================
-    // 3. CREATE TEMP TABLE FOR AZURE FILES
+    // 4. CREATE TEMP TABLE FOR AZURE FILES
     // ============================================
     job.phase = 'preparing';
     console.log(`[SCAN] Creating temp table ${tempTable}...`);
@@ -1571,7 +1710,7 @@ async function runManifestScan(firmId, dryRun, job) {
     `);
     
     // ============================================
-    // 4. STREAM AZURE FILES TO DATABASE
+    // 5. STREAM AZURE FILES TO DATABASE
     // ============================================
     job.phase = 'scanning_azure';
     const shareClient = await getShareClient();
@@ -1646,7 +1785,7 @@ async function runManifestScan(firmId, dryRun, job) {
     await query(`CREATE INDEX ON ${tempTable} (name_lower)`);
     
     // ============================================
-    // 5. SQL-BASED MATCHING (no memory limits!)
+    // 6. SQL-BASED MATCHING (no memory limits!)
     // ============================================
     job.phase = 'matching';
     console.log(`[SCAN] Matching manifest entries to Azure files...`);
@@ -1671,13 +1810,17 @@ async function runManifestScan(firmId, dryRun, job) {
     // Process in chunks - no OFFSET needed since processed rows get filtered out
     const CHUNK_SIZE = 1000;
     let hasMore = true;
+    let matterLookupHits = 0;
+    let matterLookupMisses = 0;
     
     while (hasMore && !job.cancelled) {
       // Get next chunk of unmatched manifest entries WITH their Azure matches
+      // IMPORTANT: Also fetch clio_matter_id and clio_folder_id to look up matters via our mappings
       // Rows get filtered out after processing (match_status updated), so always LIMIT from start
       const chunkResult = await query(`
         SELECT 
-          m.id, m.name, m.size, m.matter_id, m.owner_id, m.content_type,
+          m.id, m.name, m.size, m.matter_id, m.clio_matter_id, m.clio_folder_id, m.clio_path,
+          m.owner_id, m.content_type,
           af.path as azure_path, af.name as azure_name
         FROM clio_document_manifest m
         LEFT JOIN ${tempTable} af ON LOWER(m.name) = af.name_lower
@@ -1719,7 +1862,78 @@ async function runManifestScan(firmId, dryRun, job) {
             
             // Ensure UUIDs are valid or null (not "0" or empty string)
             const isValidUuid = (val) => val && typeof val === 'string' && val.length > 10 && val !== '0';
-            const matterId = isValidUuid(entry.matter_id) ? entry.matter_id : null;
+            
+            // Resolve matter_id using multiple strategies:
+            // 1. Pre-mapped value from manifest
+            // 2. Lookup via clio_matter_id
+            // 3. Folder path matching (for Robocopy migrations)
+            let matterId = isValidUuid(entry.matter_id) ? entry.matter_id : null;
+            let matchMethod = matterId ? 'manifest' : null;
+            
+            // Strategy 2: If matter_id is not set but we have clio_matter_id, try to resolve it
+            if (!matterId && entry.clio_matter_id) {
+              const resolvedMatterId = clioMatterIdToApexId.get(parseInt(entry.clio_matter_id));
+              if (resolvedMatterId) {
+                matterId = resolvedMatterId;
+                matchMethod = 'clio_matter_id';
+                matterLookupHits++;
+                // Also update the manifest record for future scans
+                await query(`
+                  UPDATE clio_document_manifest SET matter_id = $1 WHERE id = $2
+                `, [matterId, entry.id]);
+              }
+            }
+            
+            // Strategy 3: Try Clio folder manifest (folder may be linked to a matter)
+            if (!matterId && entry.clio_folder_id) {
+              const folderMatterId = clioFolderIdToMatterId.get(parseInt(entry.clio_folder_id));
+              if (folderMatterId) {
+                matterId = folderMatterId;
+                matchMethod = 'clio_folder_id';
+                matterLookupHits++;
+                await query(`
+                  UPDATE clio_document_manifest SET matter_id = $1 WHERE id = $2
+                `, [matterId, entry.id]);
+              }
+            }
+            
+            // Strategy 4: Try matching by clio_path in folder manifest
+            if (!matterId && entry.clio_path) {
+              // Try matching the folder portion of the clio_path
+              const pathParts = entry.clio_path.split('/');
+              pathParts.pop(); // Remove filename
+              const folderPath = pathParts.join('/').toLowerCase();
+              
+              if (clioFolderPathToMatterId.has(folderPath)) {
+                matterId = clioFolderPathToMatterId.get(folderPath);
+                matchMethod = 'clio_folder_path';
+                matterLookupHits++;
+                await query(`
+                  UPDATE clio_document_manifest SET matter_id = $1 WHERE id = $2
+                `, [matterId, entry.id]);
+              }
+            }
+            
+            // Strategy 5: Try Azure folder path matching (for Robocopy-migrated files or when all Clio lookups fail)
+            if (!matterId && entry.azure_path) {
+              const matchedMatter = matchFolderToMatter(folderPath);
+              if (matchedMatter) {
+                matterId = matchedMatter.id;
+                matchMethod = 'azure_folder_path';
+                matterLookupHits++;
+                // Update manifest for future scans
+                await query(`
+                  UPDATE clio_document_manifest SET matter_id = $1 WHERE id = $2
+                `, [matterId, entry.id]);
+              } else if (entry.clio_matter_id || entry.clio_folder_id) {
+                // Count as a miss if we had Clio metadata but couldn't resolve
+                matterLookupMisses++;
+                if (matterLookupMisses <= 10) {
+                  console.log(`[SCAN] Warning: Could not match matter for document "${entry.name}" (clio_matter_id: ${entry.clio_matter_id}, clio_folder_id: ${entry.clio_folder_id}, folder: "${folderPath}")`);
+                }
+              }
+            }
+            
             const ownerId = isValidUuid(entry.owner_id) ? entry.owner_id : null;
             
             // Upsert document
@@ -1775,9 +1989,13 @@ async function runManifestScan(firmId, dryRun, job) {
     }
     
     results.alreadyMatched = alreadyMatched;
+    results.matterLookupHits = matterLookupHits;
+    results.matterLookupMisses = matterLookupMisses;
+    
+    console.log(`[SCAN] Matter lookup stats: ${matterLookupHits} resolved via clio_matter_id, ${matterLookupMisses} could not be resolved`);
     
     // ============================================
-    // 6. CLEANUP & FINAL STATS
+    // 7. CLEANUP & FINAL STATS
     // ============================================
     job.phase = 'finalizing';
     
@@ -1818,6 +2036,9 @@ async function runManifestScan(firmId, dryRun, job) {
       created: results.created,
       skipped: results.skipped,
       missing: results.missing,
+      matterMappings: clioMatterIdToApexId.size,
+      matterLookupHits: results.matterLookupHits,
+      matterLookupMisses: results.matterLookupMisses,
       totalInDatabase: parseInt(stats.total || 0),
       withMatter: parseInt(stats.with_matter || 0),
       withoutMatter: parseInt(stats.without_matter || 0),
@@ -1887,31 +2108,92 @@ router.post('/firms/:firmId/rescan-unmatched', requireSecureAdmin, async (req, r
       }
     }
     
+    // Helper: Check if a folder name is a Clio alphabetical/numerical index folder
+    // Clio uses single letters (A, B, C) or numbers (1, 2, 3) as top-level index folders
+    const isIndexFolder = (name) => {
+      if (!name) return false;
+      const trimmed = name.trim();
+      // Single letter A-Z, single digit 0-9, or common folder names to skip
+      return /^[A-Za-z0-9]$/.test(trimmed) || 
+             trimmed.toLowerCase() === 'firm' ||
+             trimmed.toLowerCase() === 'matters' ||
+             trimmed.toLowerCase() === 'clients' ||
+             trimmed.toLowerCase() === 'templates' ||
+             trimmed.toLowerCase() === 'documents' ||
+             trimmed.startsWith('firm-');
+    };
+    
     // Matching function - tries folder path parts
+    // Understands Clio's structure: /A/Adams - Personal Injury/Pleadings/file.pdf
+    // where A is an alphabetical index folder, Adams - Personal Injury is the matter
     const matchFolderPath = (folderPath) => {
       if (!folderPath) return null;
       
       // Get all path parts and try to match each
-      const parts = folderPath.split('/').filter(p => p);
+      const parts = folderPath.split('/').filter(p => p && !isIndexFolder(p));
+      
+      console.log(`[RESCAN] Matching path "${folderPath}" - candidate parts: ${parts.join(', ')}`);
       
       for (const part of parts) {
         const partLower = part.toLowerCase();
         const partNorm = normalize(part);
         
         // Try all matching strategies
-        if (matterByExactName.has(partLower)) return matterByExactName.get(partLower);
-        if (matterByClientMatter.has(partLower)) return matterByClientMatter.get(partLower);
-        if (matterByNumber.has(partLower)) return matterByNumber.get(partLower);
-        if (matterByNormalizedName.has(partNorm)) return matterByNormalizedName.get(partNorm);
+        if (matterByExactName.has(partLower)) {
+          console.log(`[RESCAN] Matched "${part}" to matter by exact name`);
+          return matterByExactName.get(partLower);
+        }
+        if (matterByClientMatter.has(partLower)) {
+          console.log(`[RESCAN] Matched "${part}" to matter by client-matter format`);
+          return matterByClientMatter.get(partLower);
+        }
+        if (matterByNumber.has(partLower)) {
+          console.log(`[RESCAN] Matched "${part}" to matter by number`);
+          return matterByNumber.get(partLower);
+        }
+        if (matterByNormalizedName.has(partNorm)) {
+          console.log(`[RESCAN] Matched "${part}" to matter by normalized name`);
+          return matterByNormalizedName.get(partNorm);
+        }
         
-        // Try after " - " separator
+        // Try after " - " separator (Clio format: "Client Name - Matter Description")
         if (part.includes(' - ')) {
-          const afterDash = part.split(' - ').slice(1).join(' - ').trim();
+          const [clientPart, ...matterParts] = part.split(' - ');
+          const afterDash = matterParts.join(' - ').trim();
           const afterDashLower = afterDash.toLowerCase();
           const afterDashNorm = normalize(afterDash);
           
-          if (matterByExactName.has(afterDashLower)) return matterByExactName.get(afterDashLower);
-          if (matterByNormalizedName.has(afterDashNorm)) return matterByNormalizedName.get(afterDashNorm);
+          // Try just the matter description part
+          if (matterByExactName.has(afterDashLower)) {
+            console.log(`[RESCAN] Matched "${afterDash}" (after dash) to matter by exact name`);
+            return matterByExactName.get(afterDashLower);
+          }
+          if (matterByNormalizedName.has(afterDashNorm)) {
+            console.log(`[RESCAN] Matched "${afterDash}" (after dash) to matter by normalized name`);
+            return matterByNormalizedName.get(afterDashNorm);
+          }
+          
+          // Also try matching the client name to find their matters
+          const clientLower = clientPart.trim().toLowerCase();
+          const clientNorm = normalize(clientPart);
+          
+          // Check if any matter has this client and similar description
+          for (const [key, m] of matterByClientMatter) {
+            if (key.startsWith(clientLower + ' - ')) {
+              console.log(`[RESCAN] Matched via client "${clientPart}" to matter "${m.name}"`);
+              return m;
+            }
+          }
+        }
+        
+        // Try extracting matter number from beginning (e.g., "2024-001 Smith Case")
+        const numberMatch = part.match(/^(\d{4}[-_]\d+|\d+[-_]\d+)/);
+        if (numberMatch) {
+          const extractedNumber = numberMatch[1].toLowerCase();
+          if (matterByNumber.has(extractedNumber)) {
+            console.log(`[RESCAN] Matched "${extractedNumber}" (extracted number) to matter`);
+            return matterByNumber.get(extractedNumber);
+          }
         }
       }
       

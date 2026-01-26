@@ -459,6 +459,10 @@ export default function SecureAdminDashboard() {
     alreadyMatched?: number
     withMatter?: number
     withoutMatter?: number
+    // Matter lookup stats (from Clio metadata)
+    matterMappings?: number
+    matterLookupHits?: number
+    matterLookupMisses?: number
     // Legacy properties (for compatibility)
     scanned?: number
     added?: number
@@ -1132,7 +1136,11 @@ export default function SecureAdminDashboard() {
                 skipped: results.skipped,
                 missing: results.missing,
                 withMatter: results.withMatter,
-                withoutMatter: results.withoutMatter
+                withoutMatter: results.withoutMatter,
+                // New matter lookup stats from Clio metadata
+                matterMappings: results.matterMappings,
+                matterLookupHits: results.matterLookupHits,
+                matterLookupMisses: results.matterLookupMisses
               })
               showNotification('success', results.message)
               // Refresh firm data
@@ -6227,9 +6235,9 @@ bob@example.com, Bob, Wilson, partner"
                             marginTop: '12px'
                           }}>
                             <div style={{ fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>
-                              Document → Matter Assignments (from Clio manifest)
+                              Document → Matter Assignments (from Clio metadata)
                             </div>
-                            <div style={{ display: 'flex', gap: '16px', fontSize: '13px' }}>
+                            <div style={{ display: 'flex', gap: '16px', fontSize: '13px', flexWrap: 'wrap' }}>
                               <span style={{ color: '#059669' }}>
                                 <CheckCircle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
                                 {scanResult.withMatter?.toLocaleString() || 0} with matter
@@ -6240,6 +6248,26 @@ bob@example.com, Bob, Wilson, partner"
                                 </span>
                               )}
                             </div>
+                            {/* Show Clio matter lookup stats if available */}
+                            {(scanResult.matterLookupHits !== undefined || scanResult.matterMappings !== undefined) && (
+                              <div style={{ display: 'flex', gap: '16px', fontSize: '12px', marginTop: '8px', color: '#6B7280', flexWrap: 'wrap' }}>
+                                {scanResult.matterMappings !== undefined && (
+                                  <span>
+                                    {scanResult.matterMappings} matter mappings loaded
+                                  </span>
+                                )}
+                                {scanResult.matterLookupHits !== undefined && scanResult.matterLookupHits > 0 && (
+                                  <span style={{ color: '#059669' }}>
+                                    {scanResult.matterLookupHits} resolved via Clio ID
+                                  </span>
+                                )}
+                                {scanResult.matterLookupMisses !== undefined && scanResult.matterLookupMisses > 0 && (
+                                  <span style={{ color: '#D97706' }}>
+                                    {scanResult.matterLookupMisses} Clio matter IDs not found
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
