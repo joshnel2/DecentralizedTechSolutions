@@ -758,7 +758,7 @@ export function DocumentVersionPanel({
                           {isLatest && <span className={styles.latestBadge}>Current</span>}
                         </span>
                         <span className={styles.versionTime}>
-                          {formatDistanceToNow(parseISO(version.createdAt), { addSuffix: true })}
+                          {version.createdAt ? formatDistanceToNow(parseISO(version.createdAt), { addSuffix: true }) : 'Unknown'}
                         </span>
                       </div>
                       <button 
@@ -798,7 +798,7 @@ export function DocumentVersionPanel({
                         <div className={styles.detailRow}>
                           <Clock size={12} />
                           <span>
-                            {format(parseISO(version.createdAt), 'MMMM d, yyyy \'at\' h:mm a')}
+                            {version.createdAt ? format(parseISO(version.createdAt), 'MMMM d, yyyy \'at\' h:mm a') : 'Unknown date'}
                           </span>
                         </div>
                         {version.changeSummary && (

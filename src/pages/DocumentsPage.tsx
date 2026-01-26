@@ -501,7 +501,11 @@ export function DocumentsPage() {
     return documents.filter(doc =>
       (doc.originalName || doc.name).toLowerCase().includes(query) ||
       doc.name.toLowerCase().includes(query)
-    ).sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
+    ).sort((a, b) => {
+      const dateA = a.uploadedAt ? new Date(a.uploadedAt).getTime() : 0
+      const dateB = b.uploadedAt ? new Date(b.uploadedAt).getTime() : 0
+      return dateB - dateA
+    })
   }, [documents, searchQuery])
 
   const getMatterName = (matterId?: string) => 
@@ -685,8 +689,27 @@ export function DocumentsPage() {
           showHeader={false}
           className={styles.folderBrowser}
           onDocumentSelect={(doc) => {
+            // Try to find the full document in the main documents array
             const fullDoc = documents.find(d => d.id === doc.id)
-            if (fullDoc) setVersionPanelDoc(fullDoc)
+            if (fullDoc) {
+              setVersionPanelDoc(fullDoc)
+            } else {
+              // For Azure-only documents, create a compatible document object
+              setVersionPanelDoc({
+                id: doc.id,
+                name: doc.name || 'Unknown',
+                originalName: doc.originalName,
+                type: doc.contentType || 'application/octet-stream',
+                size: doc.size || 0,
+                uploadedAt: doc.uploadedAt || new Date().toISOString(),
+                uploadedBy: '',
+                version: 1,
+                tags: [],
+                isConfidential: false,
+                matterId: doc.matterId,
+                folderPath: doc.folderPath,
+              } as any)
+            }
           }}
           selectedDocumentId={versionPanelDoc?.id}
         />
@@ -930,11 +953,11 @@ export function DocumentsPage() {
           <DocumentVersionPanel
             document={{
               id: versionPanelDoc.id,
-              name: versionPanelDoc.name,
+              name: versionPanelDoc.name || 'Unknown',
               originalName: versionPanelDoc.originalName,
-              type: versionPanelDoc.type,
-              size: versionPanelDoc.size,
-              uploadedAt: versionPanelDoc.uploadedAt,
+              type: versionPanelDoc.type || 'application/octet-stream',
+              size: versionPanelDoc.size || 0,
+              uploadedAt: versionPanelDoc.uploadedAt || new Date().toISOString(),
               matterName: getMatterName(versionPanelDoc.matterId) || undefined,
               uploadedByName: versionPanelDoc.uploadedByName,
               folderPath: (versionPanelDoc as any).folderPath,
@@ -943,8 +966,9 @@ export function DocumentsPage() {
             onClose={() => setVersionPanelDoc(null)}
             onOpenInWord={(preferDesktop) => {
               const wordExtensions = ['.doc', '.docx', '.odt', '.rtf']
+              const docName = versionPanelDoc.name || versionPanelDoc.originalName || ''
               const isWordDoc = wordExtensions.some(ext => 
-                versionPanelDoc.name.toLowerCase().endsWith(ext)
+                docName.toLowerCase().endsWith(ext)
               )
               if (isWordDoc) {
                 editInWord(versionPanelDoc, preferDesktop)
