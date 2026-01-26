@@ -175,7 +175,7 @@ async function runSync() {
     const shareClient = await getShareClient();
     
     // Get all firms
-    const firmsResult = await query(`SELECT id FROM firms WHERE status = 'active' OR status IS NULL`);
+    const firmsResult = await query(`SELECT id FROM firms`);
     
     console.log(`[DRIVE SYNC] Syncing ${firmsResult.rows.length} firms...`);
     
