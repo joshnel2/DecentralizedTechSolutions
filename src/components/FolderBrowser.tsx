@@ -82,6 +82,8 @@ export function FolderBrowser({
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [syncing, setSyncing] = useState(false)
+  const [pageSize] = useState(100) // Show 100 docs at a time
+  const [currentPage, setCurrentPage] = useState(0)
 
   // Build folder tree from flat folder list
   const buildFolderTree = useCallback((folders: string[]) => {
@@ -319,13 +321,25 @@ export function FolderBrowser({
   }
 
   // Filter documents by current path
-  const currentDocuments = browseData?.files?.filter(f => {
+  const allCurrentDocuments = browseData?.files?.filter(f => {
     if (!currentPath) return true
     return f.folderPath === currentPath || f.folderPath?.startsWith(currentPath + '/')
   }) || []
+  
+  // Paginate to prevent rendering too many items
+  const totalPages = Math.ceil(allCurrentDocuments.length / pageSize)
+  const currentDocuments = allCurrentDocuments.slice(
+    currentPage * pageSize, 
+    (currentPage + 1) * pageSize
+  )
 
   // Get breadcrumb path parts
   const pathParts = currentPath.split('/').filter(p => p)
+  
+  // Reset page when path changes
+  useEffect(() => {
+    setCurrentPage(0)
+  }, [currentPath, searchQuery])
 
   if (loading && !browseData) {
     return (
@@ -556,11 +570,34 @@ export function FolderBrowser({
               </tbody>
             </table>
           </div>
+          
+          {/* Pagination controls */}
+          {totalPages > 1 && (
+            <div className={styles.pagination}>
+              <button 
+                onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                disabled={currentPage === 0}
+                className={styles.pageBtn}
+              >
+                Previous
+              </button>
+              <span className={styles.pageInfo}>
+                Page {currentPage + 1} of {totalPages} ({allCurrentDocuments.length} documents)
+              </span>
+              <button 
+                onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+                disabled={currentPage >= totalPages - 1}
+                className={styles.pageBtn}
+              >
+                Next
+              </button>
+            </div>
+          )}
 
           {/* Stats footer */}
           {browseData?.stats && (
             <div className={styles.footer}>
-              <span>{currentDocuments.length} documents in this view</span>
+              <span>{allCurrentDocuments.length} documents in this view</span>
               <span className={styles.divider}>•</span>
               <span>{browseData.stats.totalFiles} total files</span>
               <span className={styles.divider}>•</span>

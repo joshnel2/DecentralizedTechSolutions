@@ -690,6 +690,43 @@
   to { transform: rotate(360deg); }
 }
 
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 12px;
+  border-top: 1px solid #E2E8F0;
+  background: #F8FAFC;
+}
+
+.pageBtn {
+  padding: 8px 16px;
+  background: #3B82F6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.pageBtn:hover:not(:disabled) {
+  background: #2563EB;
+}
+
+.pageBtn:disabled {
+  background: #CBD5E1;
+  cursor: not-allowed;
+}
+
+.pageInfo {
+  font-size: 13px;
+  color: #64748B;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .content {

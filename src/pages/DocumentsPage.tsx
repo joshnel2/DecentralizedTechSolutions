@@ -21,6 +21,7 @@ import { ConfirmationModal } from '../components/ConfirmationModal'
 import { ShareDocumentModal } from '../components/ShareDocumentModal'
 import { DocumentVersionPanel } from '../components/DocumentVersionPanel'
 import { parseDocument } from '../utils/documentParser'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 
 // AI suggestion prompts for document analysis
 const AI_SUGGESTIONS = [
@@ -685,34 +686,36 @@ export function DocumentsPage() {
 
       {/* Folder Browser View (Clio-style) */}
       {viewMode === 'folders' && (
-        <FolderBrowser
-          showHeader={false}
-          className={styles.folderBrowser}
-          onDocumentSelect={(doc) => {
-            // Try to find the full document in the main documents array
-            const fullDoc = documents.find(d => d.id === doc.id)
-            if (fullDoc) {
-              setVersionPanelDoc(fullDoc)
-            } else {
-              // For Azure-only documents, create a compatible document object
-              setVersionPanelDoc({
-                id: doc.id,
-                name: doc.name || 'Unknown',
-                originalName: doc.originalName,
-                type: doc.contentType || 'application/octet-stream',
-                size: doc.size || 0,
-                uploadedAt: doc.uploadedAt || new Date().toISOString(),
-                uploadedBy: '',
-                version: 1,
-                tags: [],
-                isConfidential: false,
-                matterId: doc.matterId,
-                folderPath: doc.folderPath,
-              } as any)
-            }
-          }}
-          selectedDocumentId={versionPanelDoc?.id}
-        />
+        <ErrorBoundary>
+          <FolderBrowser
+            showHeader={false}
+            className={styles.folderBrowser}
+            onDocumentSelect={(doc) => {
+              // Try to find the full document in the main documents array
+              const fullDoc = documents.find(d => d.id === doc.id)
+              if (fullDoc) {
+                setVersionPanelDoc(fullDoc)
+              } else {
+                // For Azure-only documents, create a compatible document object
+                setVersionPanelDoc({
+                  id: doc.id,
+                  name: doc.name || 'Unknown',
+                  originalName: doc.originalName,
+                  type: doc.contentType || 'application/octet-stream',
+                  size: doc.size || 0,
+                  uploadedAt: doc.uploadedAt || new Date().toISOString(),
+                  uploadedBy: '',
+                  version: 1,
+                  tags: [],
+                  isConfidential: false,
+                  matterId: doc.matterId,
+                  folderPath: doc.folderPath,
+                } as any)
+              }
+            }}
+            selectedDocumentId={versionPanelDoc?.id}
+          />
+        </ErrorBoundary>
       )}
 
       {/* List View (Classic table) */}
