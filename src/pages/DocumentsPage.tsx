@@ -775,7 +775,7 @@ export function DocumentsPage() {
                       v{doc.version || 1}
                     </span>
                   </td>
-                  <td>{format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}</td>
+                  <td>{doc.uploadedAt ? format(parseISO(doc.uploadedAt), 'MMM d, yyyy') : '-'}</td>
                   <td>
                     <div className={styles.rowActions}>
                       <button 
