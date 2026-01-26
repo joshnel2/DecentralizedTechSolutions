@@ -1387,6 +1387,176 @@ router.get('/firms/:firmId/documents-debug', requireSecureAdmin, async (req, res
 });
 
 // ============================================
+// SCAN DIAGNOSTIC - Comprehensive check of scan data
+// ============================================
+router.get('/firms/:firmId/scan-diagnostic', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    console.log(`[DIAGNOSTIC] Running scan diagnostic for firm ${firmId}`);
+    
+    // 1. Check firm exists
+    const firmResult = await query('SELECT id, name FROM firms WHERE id = $1', [firmId]);
+    if (firmResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Firm not found' });
+    }
+    
+    // 2. Check matters and how they're stored
+    const mattersResult = await query(`
+      SELECT id, number, name, 
+             CASE WHEN number ~ '-\\d+$' THEN SUBSTRING(number FROM '-([0-9]+)$') ELSE NULL END as extracted_clio_id
+      FROM matters 
+      WHERE firm_id = $1 
+      ORDER BY created_at DESC 
+      LIMIT 10
+    `, [firmId]);
+    
+    const mattersWithClioId = mattersResult.rows.filter(m => m.extracted_clio_id);
+    
+    // 3. Check manifest stats
+    let manifestStats = { total: 0, matched: 0, pending: 0, withMatterId: 0, withClioMatterId: 0 };
+    try {
+      const manifestResult = await query(`
+        SELECT 
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE match_status = 'matched') as matched,
+          COUNT(*) FILTER (WHERE match_status IS NULL OR match_status = 'pending') as pending,
+          COUNT(*) FILTER (WHERE matter_id IS NOT NULL) as with_matter_id,
+          COUNT(*) FILTER (WHERE clio_matter_id IS NOT NULL) as with_clio_matter_id
+        FROM clio_document_manifest
+        WHERE firm_id = $1
+      `, [firmId]);
+      manifestStats = {
+        total: parseInt(manifestResult.rows[0].total),
+        matched: parseInt(manifestResult.rows[0].matched),
+        pending: parseInt(manifestResult.rows[0].pending),
+        withMatterId: parseInt(manifestResult.rows[0].with_matter_id),
+        withClioMatterId: parseInt(manifestResult.rows[0].with_clio_matter_id)
+      };
+    } catch (e) {
+      manifestStats.error = e.message;
+    }
+    
+    // 4. Sample manifest entries
+    let manifestSamples = [];
+    try {
+      const sampleResult = await query(`
+        SELECT id, name, clio_matter_id, clio_folder_id, matter_id, clio_path, match_status
+        FROM clio_document_manifest
+        WHERE firm_id = $1
+        ORDER BY clio_matter_id NULLS LAST
+        LIMIT 10
+      `, [firmId]);
+      manifestSamples = sampleResult.rows;
+    } catch (e) {
+      // Table might not exist
+    }
+    
+    // 5. Check folder manifest
+    let folderManifest = { total: 0, withMatterId: 0, samples: [] };
+    try {
+      const folderResult = await query(`
+        SELECT 
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE clio_matter_id IS NOT NULL OR matter_id IS NOT NULL) as with_matter
+        FROM clio_folder_manifest
+        WHERE firm_id = $1
+      `, [firmId]);
+      folderManifest.total = parseInt(folderResult.rows[0].total);
+      folderManifest.withMatterId = parseInt(folderResult.rows[0].with_matter);
+      
+      const folderSamples = await query(`
+        SELECT clio_id, name, full_path, clio_matter_id, matter_id
+        FROM clio_folder_manifest
+        WHERE firm_id = $1 AND (clio_matter_id IS NOT NULL OR matter_id IS NOT NULL)
+        LIMIT 5
+      `, [firmId]);
+      folderManifest.samples = folderSamples.rows;
+    } catch (e) {
+      folderManifest.error = e.message;
+    }
+    
+    // 6. Check documents in database
+    const docsResult = await query(`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(matter_id) as with_matter,
+        COUNT(*) - COUNT(matter_id) as without_matter,
+        COUNT(*) FILTER (WHERE storage_location = 'azure') as azure_docs
+      FROM documents
+      WHERE firm_id = $1
+    `, [firmId]);
+    
+    // 7. Sample documents with their folder paths
+    const docSamples = await query(`
+      SELECT d.id, d.name, d.folder_path, d.path, d.matter_id, m.name as matter_name
+      FROM documents d
+      LEFT JOIN matters m ON d.matter_id = m.id
+      WHERE d.firm_id = $1
+      ORDER BY d.created_at DESC
+      LIMIT 10
+    `, [firmId]);
+    
+    // 8. Check Azure folder
+    let azureStatus = { configured: false, firmFolderExists: false, fileCount: 0 };
+    try {
+      const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
+      azureStatus.configured = await isAzureConfigured();
+      
+      if (azureStatus.configured) {
+        const shareClient = await getShareClient();
+        const firmFolder = `firm-${firmId}`;
+        const dirClient = shareClient.getDirectoryClient(firmFolder);
+        
+        try {
+          let count = 0;
+          for await (const item of dirClient.listFilesAndDirectories()) {
+            count++;
+            if (count >= 100) break; // Just check if folder has files
+          }
+          azureStatus.firmFolderExists = true;
+          azureStatus.fileCount = count;
+        } catch (e) {
+          azureStatus.firmFolderExists = false;
+          azureStatus.error = e.message;
+        }
+      }
+    } catch (e) {
+      azureStatus.error = e.message;
+    }
+    
+    res.json({
+      firm: firmResult.rows[0],
+      matters: {
+        total: mattersResult.rows.length,
+        withClioId: mattersWithClioId.length,
+        samples: mattersResult.rows
+      },
+      manifest: manifestStats,
+      manifestSamples,
+      folderManifest,
+      documents: {
+        total: parseInt(docsResult.rows[0].total),
+        withMatter: parseInt(docsResult.rows[0].with_matter),
+        withoutMatter: parseInt(docsResult.rows[0].without_matter),
+        azureDocs: parseInt(docsResult.rows[0].azure_docs)
+      },
+      documentSamples: docSamples.rows,
+      azure: azureStatus,
+      diagnosis: {
+        hasManifest: manifestStats.total > 0,
+        hasMattersWithClioId: mattersWithClioId.length > 0,
+        manifestHasClioMatterIds: manifestStats.withClioMatterId > 0,
+        canMatchByClioId: mattersWithClioId.length > 0 && manifestStats.withClioMatterId > 0,
+        documentsMatchedToMatters: parseInt(docsResult.rows[0].with_matter)
+      }
+    });
+  } catch (error) {
+    console.error('Scan diagnostic error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
 // SCAN JOB STORAGE - Track background scan progress
 // ============================================
 const scanJobs = new Map(); // firmId -> { status, progress, results, startedAt, ... }
