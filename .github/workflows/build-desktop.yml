@@ -42,35 +42,7 @@ jobs:
           name: apex-drive-windows
           path: |
             desktop-client/release/*.exe
-            desktop-client/release/*.msi
           retention-days: 30
-
-      - name: Upload to Azure Blob Storage
-        if: github.ref == 'refs/heads/main'
-        shell: pwsh
-        env:
-          AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
-          AZURE_STORAGE_KEY: ${{ secrets.AZURE_STORAGE_KEY }}
-        run: |
-          if ($env:AZURE_STORAGE_ACCOUNT -and $env:AZURE_STORAGE_KEY) {
-            $files = Get-ChildItem -Path "desktop-client/release" -Filter "*.exe"
-            foreach ($file in $files) {
-              Write-Host "Uploading $($file.Name)..."
-              $headers = @{
-                "x-ms-blob-type" = "BlockBlob"
-                "x-ms-date" = (Get-Date).ToUniversalTime().ToString("R")
-                "x-ms-version" = "2020-10-02"
-              }
-              # Use azcopy if available, otherwise skip
-              try {
-                azcopy copy $file.FullName "https://$env:AZURE_STORAGE_ACCOUNT.blob.core.windows.net/downloads/$($file.Name)" --overwrite=true
-              } catch {
-                Write-Host "Azure upload skipped - configure AZURE_STORAGE_ACCOUNT and AZURE_STORAGE_KEY secrets"
-              }
-            }
-          } else {
-            Write-Host "Azure storage secrets not configured, skipping upload"
-          }
 
   # Create release on tag
   release:
