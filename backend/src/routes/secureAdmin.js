@@ -1516,14 +1516,43 @@ async function runManifestScan(firmId, dryRun, job) {
     }
     
     // ============================================
-    // 2. GET MANIFEST STATS
+    // 2. BUILD CLIO MATTER ID -> APEX MATTER ID MAPPING
+    // ============================================
+    job.phase = 'loading_matters';
+    console.log(`[SCAN] Building Clio matter ID -> Apex matter ID mapping...`);
+    
+    // Build a lookup from Clio matter ID to our matter ID
+    // The Clio ID is embedded in the matter number field as {display_number}-{clio_id}
+    const clioMatterIdToApexId = new Map();
+    try {
+      const mattersResult = await query(
+        `SELECT id, number, name FROM matters WHERE firm_id = $1`,
+        [firmId]
+      );
+      for (const m of mattersResult.rows) {
+        if (m.number) {
+          // Extract Clio ID from the number format: {display_number}-{clio_id}
+          const match = m.number.match(/-(\d+)$/);
+          if (match) {
+            const clioId = parseInt(match[1]);
+            clioMatterIdToApexId.set(clioId, m.id);
+          }
+        }
+      }
+      console.log(`[SCAN] Built mapping for ${clioMatterIdToApexId.size} Clio matters from ${mattersResult.rows.length} total matters`);
+    } catch (e) {
+      console.log(`[SCAN] Could not build matter mapping: ${e.message}`);
+    }
+    
+    // ============================================
+    // 3. GET MANIFEST STATS
     // ============================================
     job.phase = 'loading_manifest';
     const statsResult = await query(`
       SELECT 
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE match_status = 'matched') as already_matched,
-        COUNT(*) FILTER (WHERE match_status IS NULL OR match_status != 'matched') as pending
+        COUNT(*) FILTER (WHERE match_status IS NULL OR match_status NOT IN ('matched', 'not_found')) as pending
       FROM clio_document_manifest
       WHERE firm_id = $1
     `, [firmId]);
@@ -1536,6 +1565,7 @@ async function runManifestScan(firmId, dryRun, job) {
     job.progress.manifestTotal = totalManifest;
     job.progress.alreadyMatched = alreadyMatched;
     job.progress.pending = pendingCount;
+    job.progress.matterMappings = clioMatterIdToApexId.size;
     
     console.log(`[SCAN] Manifest: ${totalManifest.toLocaleString()} total, ${alreadyMatched.toLocaleString()} already matched, ${pendingCount.toLocaleString()} pending`);
     
@@ -1556,7 +1586,7 @@ async function runManifestScan(firmId, dryRun, job) {
     }
     
     // ============================================
-    // 3. CREATE TEMP TABLE FOR AZURE FILES
+    // 4. CREATE TEMP TABLE FOR AZURE FILES
     // ============================================
     job.phase = 'preparing';
     console.log(`[SCAN] Creating temp table ${tempTable}...`);
@@ -1571,7 +1601,7 @@ async function runManifestScan(firmId, dryRun, job) {
     `);
     
     // ============================================
-    // 4. STREAM AZURE FILES TO DATABASE
+    // 5. STREAM AZURE FILES TO DATABASE
     // ============================================
     job.phase = 'scanning_azure';
     const shareClient = await getShareClient();
@@ -1646,7 +1676,7 @@ async function runManifestScan(firmId, dryRun, job) {
     await query(`CREATE INDEX ON ${tempTable} (name_lower)`);
     
     // ============================================
-    // 5. SQL-BASED MATCHING (no memory limits!)
+    // 6. SQL-BASED MATCHING (no memory limits!)
     // ============================================
     job.phase = 'matching';
     console.log(`[SCAN] Matching manifest entries to Azure files...`);
@@ -1671,13 +1701,16 @@ async function runManifestScan(firmId, dryRun, job) {
     // Process in chunks - no OFFSET needed since processed rows get filtered out
     const CHUNK_SIZE = 1000;
     let hasMore = true;
+    let matterLookupHits = 0;
+    let matterLookupMisses = 0;
     
     while (hasMore && !job.cancelled) {
       // Get next chunk of unmatched manifest entries WITH their Azure matches
+      // IMPORTANT: Also fetch clio_matter_id to look up matters via our mapping
       // Rows get filtered out after processing (match_status updated), so always LIMIT from start
       const chunkResult = await query(`
         SELECT 
-          m.id, m.name, m.size, m.matter_id, m.owner_id, m.content_type,
+          m.id, m.name, m.size, m.matter_id, m.clio_matter_id, m.owner_id, m.content_type,
           af.path as azure_path, af.name as azure_name
         FROM clio_document_manifest m
         LEFT JOIN ${tempTable} af ON LOWER(m.name) = af.name_lower
@@ -1719,7 +1752,28 @@ async function runManifestScan(firmId, dryRun, job) {
             
             // Ensure UUIDs are valid or null (not "0" or empty string)
             const isValidUuid = (val) => val && typeof val === 'string' && val.length > 10 && val !== '0';
-            const matterId = isValidUuid(entry.matter_id) ? entry.matter_id : null;
+            
+            // Resolve matter_id: first try the pre-mapped value, then look up via clio_matter_id
+            let matterId = isValidUuid(entry.matter_id) ? entry.matter_id : null;
+            
+            // If matter_id is not set but we have clio_matter_id, try to resolve it
+            if (!matterId && entry.clio_matter_id) {
+              const resolvedMatterId = clioMatterIdToApexId.get(parseInt(entry.clio_matter_id));
+              if (resolvedMatterId) {
+                matterId = resolvedMatterId;
+                matterLookupHits++;
+                // Also update the manifest record for future scans
+                await query(`
+                  UPDATE clio_document_manifest SET matter_id = $1 WHERE id = $2
+                `, [matterId, entry.id]);
+              } else {
+                matterLookupMisses++;
+                if (matterLookupMisses <= 5) {
+                  console.log(`[SCAN] Warning: Could not find matter for Clio matter ID ${entry.clio_matter_id} (document: ${entry.name})`);
+                }
+              }
+            }
+            
             const ownerId = isValidUuid(entry.owner_id) ? entry.owner_id : null;
             
             // Upsert document
@@ -1775,9 +1829,13 @@ async function runManifestScan(firmId, dryRun, job) {
     }
     
     results.alreadyMatched = alreadyMatched;
+    results.matterLookupHits = matterLookupHits;
+    results.matterLookupMisses = matterLookupMisses;
+    
+    console.log(`[SCAN] Matter lookup stats: ${matterLookupHits} resolved via clio_matter_id, ${matterLookupMisses} could not be resolved`);
     
     // ============================================
-    // 6. CLEANUP & FINAL STATS
+    // 7. CLEANUP & FINAL STATS
     // ============================================
     job.phase = 'finalizing';
     
@@ -1818,6 +1876,9 @@ async function runManifestScan(firmId, dryRun, job) {
       created: results.created,
       skipped: results.skipped,
       missing: results.missing,
+      matterMappings: clioMatterIdToApexId.size,
+      matterLookupHits: results.matterLookupHits,
+      matterLookupMisses: results.matterLookupMisses,
       totalInDatabase: parseInt(stats.total || 0),
       withMatter: parseInt(stats.with_matter || 0),
       withoutMatter: parseInt(stats.without_matter || 0),
