@@ -9,7 +9,7 @@ import {
   TrendingUp, UserCheck, AlertCircle, BarChart3, Copy,
   Settings, ChevronDown, ExternalLink, Briefcase, FileText,
   ShieldCheck, Check, X, Sparkles, Brain, Wand2, FolderSync,
-  HardDrive, FileSearch, ArrowRight
+  HardDrive, FileSearch, ArrowRight, Database
 } from 'lucide-react'
 import styles from './SecureAdminDashboard.module.css'
 
@@ -443,6 +443,19 @@ export default function SecureAdminDashboard() {
   
   // Scan Documents state
   const [scanningFirmId, setScanningFirmId] = useState<string | null>(null)
+  const [checkingMetadata, setCheckingMetadata] = useState(false)
+  const [metadataStatus, setMetadataStatus] = useState<{
+    firmId: string
+    status: 'none' | 'partial' | 'full' | 'incomplete'
+    recommendation: string
+    hasMattersWithClioId: boolean
+    mattersWithClioIdCount: number
+    mattersTotal: number
+    hasDocumentManifest: boolean
+    documentManifestCount: number
+    hasFolderManifest: boolean
+    folderManifestCount: number
+  } | null>(null)
   const [scanResult, setScanResult] = useState<{ 
     firmId: string
     message: string
@@ -1235,6 +1248,44 @@ export default function SecureAdminDashboard() {
       showNotification('error', errorMsg)
     } finally {
       setScanningFirmId(null)
+    }
+  }
+
+  // Check Clio metadata status for a firm
+  const handleCheckMetadata = async (firmId: string) => {
+    setCheckingMetadata(true)
+    setMetadataStatus(null)
+    console.log('[METADATA] Checking metadata for firm:', firmId)
+    try {
+      const res = await fetch(`${API_URL}/secure-admin/firms/${firmId}/scan-diagnostic`, {
+        headers: getAuthHeaders()
+      })
+      console.log('[METADATA] Response status:', res.status)
+      const data = await res.json()
+      console.log('[METADATA] Response data:', data)
+      if (res.ok && data.clioMetadataStatus) {
+        setMetadataStatus({
+          firmId,
+          ...data.clioMetadataStatus
+        })
+        const status = data.clioMetadataStatus.status
+        if (status === 'full') {
+          showNotification('success', 'Full Clio metadata found - ready for document matching!')
+        } else if (status === 'partial') {
+          showNotification('success', 'Partial metadata found - will use folder-based matching')
+        } else if (status === 'incomplete') {
+          showNotification('error', 'Incomplete metadata - matters may be missing')
+        } else {
+          showNotification('error', 'No Clio metadata found for this firm')
+        }
+      } else {
+        showNotification('error', data.error || 'Failed to check metadata')
+      }
+    } catch (error: any) {
+      console.error('[METADATA] Error:', error)
+      showNotification('error', error.message || 'Failed to check metadata')
+    } finally {
+      setCheckingMetadata(false)
     }
   }
 
@@ -6174,8 +6225,103 @@ bob@example.com, Bob, Wilson, partner"
                       <X size={18} />
                       Reset Scan
                     </button>
+                    <button
+                      onClick={() => handleCheckMetadata(selectedFirmDetail.id)}
+                      disabled={checkingMetadata}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '12px 20px',
+                        background: 'rgba(59, 130, 246, 0.2)',
+                        color: 'white',
+                        border: '2px solid #3B82F6',
+                        borderRadius: '14px',
+                        cursor: checkingMetadata ? 'not-allowed' : 'pointer',
+                        fontWeight: 600,
+                        fontSize: '14px',
+                        opacity: checkingMetadata ? 0.7 : 1
+                      }}
+                      title="Check if Clio migration metadata exists for this firm"
+                    >
+                      <Database size={18} />
+                      {checkingMetadata ? 'Checking...' : 'Check Metadata'}
+                    </button>
                   </div>
                 </div>
+
+                {/* Metadata Status Display */}
+                {metadataStatus && metadataStatus.firmId === selectedFirmDetail.id && (
+                  <div style={{
+                    marginBottom: '24px',
+                    padding: '20px 24px',
+                    borderRadius: '12px',
+                    background: metadataStatus.status === 'full' ? 'rgba(16, 185, 129, 0.1)' : 
+                               metadataStatus.status === 'none' ? 'rgba(239, 68, 68, 0.1)' : 
+                               'rgba(245, 158, 11, 0.1)',
+                    border: `2px solid ${metadataStatus.status === 'full' ? '#10B981' : 
+                                        metadataStatus.status === 'none' ? '#EF4444' : 
+                                        '#F59E0B'}`
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                      <Database size={20} style={{ 
+                        color: metadataStatus.status === 'full' ? '#10B981' : 
+                               metadataStatus.status === 'none' ? '#EF4444' : 
+                               '#F59E0B' 
+                      }} />
+                      <span style={{ 
+                        fontWeight: 700, 
+                        fontSize: '16px',
+                        color: metadataStatus.status === 'full' ? '#059669' : 
+                               metadataStatus.status === 'none' ? '#DC2626' : 
+                               '#D97706'
+                      }}>
+                        Clio Metadata Status: {metadataStatus.status.toUpperCase()}
+                      </span>
+                    </div>
+                    <p style={{ 
+                      margin: '0 0 16px 0', 
+                      color: '#374151', 
+                      fontSize: '14px', 
+                      lineHeight: 1.6 
+                    }}>
+                      {metadataStatus.recommendation}
+                    </p>
+                    <div style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(3, 1fr)', 
+                      gap: '16px',
+                      background: 'white',
+                      padding: '16px',
+                      borderRadius: '8px'
+                    }}>
+                      <div>
+                        <div style={{ fontSize: '24px', fontWeight: 700, color: metadataStatus.hasMattersWithClioId ? '#059669' : '#9CA3AF' }}>
+                          {metadataStatus.mattersWithClioIdCount}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#6B7280' }}>
+                          Matters with Clio ID (of {metadataStatus.mattersTotal})
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '24px', fontWeight: 700, color: metadataStatus.hasDocumentManifest ? '#059669' : '#9CA3AF' }}>
+                          {metadataStatus.documentManifestCount.toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#6B7280' }}>
+                          Document Manifest Entries
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '24px', fontWeight: 700, color: metadataStatus.hasFolderManifest ? '#059669' : '#9CA3AF' }}>
+                          {metadataStatus.folderManifestCount.toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#6B7280' }}>
+                          Folder Manifest Entries
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Scan Result Display */}
                 {scanResult && scanResult.firmId === selectedFirmDetail.id && (
