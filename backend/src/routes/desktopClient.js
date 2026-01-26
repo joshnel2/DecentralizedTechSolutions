@@ -420,7 +420,7 @@ router.get('/check-update', async (req, res) => {
       currentVersion: currentVersion || 'unknown',
       latestVersion,
       releaseNotes: updateAvailable ? DESKTOP_CLIENT_INFO.releaseNotes : [],
-      downloadUrl: DESKTOP_CLIENT_INFO.downloadUrl[platform as string] || DESKTOP_CLIENT_INFO.downloadUrl.windows,
+      downloadUrl: DESKTOP_CLIENT_INFO.downloadUrl[platform] || DESKTOP_CLIENT_INFO.downloadUrl.windows,
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to check for updates' });
