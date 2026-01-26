@@ -7358,6 +7358,7 @@ router.post('/documents/fetch-manifest', requireSecureAdmin, async (req, res) =>
         `SELECT id, number FROM matters WHERE firm_id = $1`,
         [firmId]
       );
+      let mappedCount = 0;
       for (const m of matters.rows) {
         if (m.number) {
           // Also store the full number for matching
@@ -7367,11 +7368,11 @@ router.post('/documents/fetch-manifest', requireSecureAdmin, async (req, res) =>
           if (match) {
             const clioId = parseInt(match[1]);
             matterIdMap.set(clioId, m.id);
-            console.log(`[DOC STREAM] Mapped Clio matter ${clioId} -> ${m.id}`);
+            mappedCount++;
           }
         }
       }
-      console.log(`[DOC STREAM] Loaded ${matterIdMap.size} matter mappings from ${matters.rows.length} matters`);
+      console.log(`[DOC STREAM] Loaded ${matterIdMap.size} matter mappings from ${matters.rows.length} matters (${mappedCount} with Clio IDs)`);
     } catch (e) {
       console.log(`[DOC STREAM] Could not load matter mappings: ${e.message}`);
     }
