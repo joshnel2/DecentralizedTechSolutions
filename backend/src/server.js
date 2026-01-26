@@ -34,6 +34,7 @@ import driveSecureRoutes from './routes/driveSecure.js';
 import sharingGroupsRoutes from './routes/sharingGroups.js';
 import apiKeysRoutes from './routes/apiKeys.js';
 import desktopDriveRoutes from './routes/desktopDrive.js';
+import desktopClientRoutes from './routes/desktopClient.js';
 
 // Background services
 import { startDriveSync } from './services/driveSync.js';
@@ -117,6 +118,7 @@ app.use('/api/word-online', wordOnlineRoutes);
 app.use('/api/sharing-groups', sharingGroupsRoutes);
 app.use('/api/api-keys', apiKeysRoutes);
 app.use('/api/drive', desktopDriveRoutes);  // Apex Drive desktop client API
+app.use('/api/desktop-client', desktopClientRoutes);  // Desktop client download & connection
 
 // AI Agent Tool Routes (v1 API - optimized for AI interaction)
 app.use('/api/v1/billing', billingRoutes);

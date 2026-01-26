@@ -6,7 +6,8 @@ import {
   Link2, Calendar, Cloud, FileSignature,
   Calculator, MessageSquare, Shield, CheckCircle2,
   RefreshCw, AlertTriangle,
-  Lock, Globe, Zap, AlertCircle, ArrowLeft, HardDrive, FileText, Users
+  Lock, Globe, Zap, AlertCircle, ArrowLeft, HardDrive, FileText, Users,
+  Download, Monitor, Smartphone, Copy, ExternalLink, Laptop
 } from 'lucide-react'
 import styles from './IntegrationsPage.module.css'
 
@@ -194,13 +195,84 @@ export function IntegrationsPage() {
   const [syncing, setSyncing] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  
+  // Desktop client state
+  const [desktopClientInfo, setDesktopClientInfo] = useState<{
+    version: string
+    isAvailable: boolean
+    documentCount: number
+    registeredDevices: any[]
+    serverUrl: string
+    downloadUrl: { windows: string; mac: string }
+  } | null>(null)
+  const [connectionToken, setConnectionToken] = useState<{
+    token: string
+    code: string
+    url: string
+    expiresIn: number
+  } | null>(null)
+  const [generatingToken, setGeneratingToken] = useState(false)
+  const [showDesktopSetup, setShowDesktopSetup] = useState(false)
 
   // All users can access integrations (not just admins)
 
   // Load integrations on mount
   useEffect(() => {
     loadIntegrations()
+    loadDesktopClientInfo()
   }, [])
+
+  const loadDesktopClientInfo = async () => {
+    try {
+      const response = await fetch('/api/desktop-client/info', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setDesktopClientInfo(data)
+      }
+    } catch (error) {
+      console.error('Failed to load desktop client info:', error)
+    }
+  }
+
+  const generateConnectionToken = async () => {
+    setGeneratingToken(true)
+    try {
+      const response = await fetch('/api/desktop-client/connection-token', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ deviceName: `${user?.firstName}'s Computer` }),
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setConnectionToken({
+          token: data.connectionToken,
+          code: data.connectionCode,
+          url: data.connectionUrl,
+          expiresIn: data.expiresIn,
+        })
+        setShowDesktopSetup(true)
+      } else {
+        throw new Error('Failed to generate token')
+      }
+    } catch (error) {
+      setNotification({ type: 'error', message: 'Failed to generate connection code' })
+    } finally {
+      setGeneratingToken(false)
+    }
+  }
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text)
+    setNotification({ type: 'success', message: `${label} copied to clipboard!` })
+  }
 
   // Handle OAuth callbacks
   useEffect(() => {
@@ -480,6 +552,152 @@ export function IntegrationsPage() {
           <span><Shield size={14} /> Encrypted</span>
           <span><Globe size={14} /> Revocable</span>
         </div>
+      </div>
+
+      {/* Desktop Client Download Section */}
+      <div className={styles.desktopClientSection}>
+        <div className={styles.desktopClientCard}>
+          <div className={styles.desktopClientHeader}>
+            <div className={styles.desktopClientIcon}>
+              <Laptop size={32} />
+            </div>
+            <div className={styles.desktopClientInfo}>
+              <h2>Apex Drive Desktop</h2>
+              <p>Access your documents as a local drive in Windows Explorer</p>
+            </div>
+            {desktopClientInfo?.isAvailable && (
+              <span className={styles.availableBadge}>
+                <CheckCircle2 size={14} /> Available
+              </span>
+            )}
+          </div>
+
+          <div className={styles.desktopClientFeatures}>
+            <div className={styles.featureItem}>
+              <HardDrive size={18} />
+              <span>Virtual Z: Drive</span>
+            </div>
+            <div className={styles.featureItem}>
+              <RefreshCw size={18} />
+              <span>Real-time Sync</span>
+            </div>
+            <div className={styles.featureItem}>
+              <FileText size={18} />
+              <span>Edit in Word/Excel</span>
+            </div>
+            <div className={styles.featureItem}>
+              <Shield size={18} />
+              <span>Matter Permissions</span>
+            </div>
+          </div>
+
+          {desktopClientInfo?.isAvailable ? (
+            <div className={styles.desktopClientActions}>
+              <button 
+                className={styles.downloadBtn}
+                onClick={() => window.open(desktopClientInfo.downloadUrl?.windows || '#', '_blank')}
+              >
+                <Download size={18} />
+                Download for Windows
+              </button>
+              <button 
+                className={styles.connectBtn}
+                onClick={generateConnectionToken}
+                disabled={generatingToken}
+              >
+                {generatingToken ? (
+                  <>
+                    <RefreshCw size={18} className={styles.spinning} />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Link2 size={18} />
+                    Connect Existing Install
+                  </>
+                )}
+              </button>
+            </div>
+          ) : (
+            <div className={styles.desktopClientDisabled}>
+              <AlertCircle size={18} />
+              <span>Apex Drive must be enabled by your administrator to use the desktop client.</span>
+            </div>
+          )}
+
+          {desktopClientInfo?.registeredDevices && desktopClientInfo.registeredDevices.length > 0 && (
+            <div className={styles.registeredDevices}>
+              <h4>Your Connected Devices</h4>
+              <div className={styles.devicesList}>
+                {desktopClientInfo.registeredDevices.map((device: any) => (
+                  <div key={device.id} className={styles.deviceItem}>
+                    <Monitor size={16} />
+                    <span className={styles.deviceName}>{device.device_name}</span>
+                    <span className={styles.devicePlatform}>{device.platform}</span>
+                    <span className={styles.deviceLastSeen}>
+                      Last seen: {new Date(device.last_seen_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Connection Setup Modal */}
+        {showDesktopSetup && connectionToken && (
+          <div className={styles.setupModal}>
+            <div className={styles.setupModalContent}>
+              <button className={styles.closeModal} onClick={() => setShowDesktopSetup(false)}>×</button>
+              
+              <h2>Connect Apex Drive Desktop</h2>
+              <p>Use one of these methods to connect the desktop app:</p>
+
+              <div className={styles.setupMethods}>
+                <div className={styles.setupMethod}>
+                  <h3>Option 1: Connection Code</h3>
+                  <p>Enter this code in the desktop app:</p>
+                  <div className={styles.connectionCode}>
+                    <span>{connectionToken.code}</span>
+                    <button onClick={() => copyToClipboard(connectionToken.code, 'Code')}>
+                      <Copy size={16} />
+                    </button>
+                  </div>
+                  <small>Expires in 10 minutes</small>
+                </div>
+
+                <div className={styles.setupDivider}>or</div>
+
+                <div className={styles.setupMethod}>
+                  <h3>Option 2: One-Click Connect</h3>
+                  <p>Click to open Apex Drive and connect automatically:</p>
+                  <a 
+                    href={connectionToken.url}
+                    className={styles.oneClickBtn}
+                    onClick={(e) => {
+                      // Try to open the app
+                      window.location.href = connectionToken.url
+                    }}
+                  >
+                    <ExternalLink size={18} />
+                    Open Apex Drive
+                  </a>
+                  <small>Requires Apex Drive to be installed</small>
+                </div>
+              </div>
+
+              <div className={styles.setupInstructions}>
+                <h4>First time setup?</h4>
+                <ol>
+                  <li>Download Apex Drive for Windows above</li>
+                  <li>Run the installer (WinFsp will be installed if needed)</li>
+                  <li>Open Apex Drive and enter the connection code</li>
+                  <li>Your documents will appear in the Z: drive</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Category Filter */}
