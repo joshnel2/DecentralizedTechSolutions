@@ -1588,6 +1588,35 @@ async function runManifestScan(firmId, dryRun, job) {
       console.log(`[SCAN] Could not build matter mappings: ${e.message}`);
     }
     
+    // Also load Clio folder manifest for folder->matter mapping
+    // In Clio, folders can be directly linked to matters
+    const clioFolderIdToMatterId = new Map();
+    const clioFolderPathToMatterId = new Map();
+    try {
+      const foldersResult = await query(`
+        SELECT clio_id, clio_matter_id, full_path, matter_id 
+        FROM clio_folder_manifest 
+        WHERE firm_id = $1 AND (clio_matter_id IS NOT NULL OR matter_id IS NOT NULL)
+      `, [firmId]);
+      
+      for (const f of foldersResult.rows) {
+        // If folder has a direct matter_id, use it
+        let matterId = f.matter_id;
+        // Otherwise try to resolve via clio_matter_id
+        if (!matterId && f.clio_matter_id) {
+          matterId = clioMatterIdToApexId.get(parseInt(f.clio_matter_id));
+        }
+        
+        if (matterId) {
+          if (f.clio_id) clioFolderIdToMatterId.set(parseInt(f.clio_id), matterId);
+          if (f.full_path) clioFolderPathToMatterId.set(f.full_path.toLowerCase(), matterId);
+        }
+      }
+      console.log(`[SCAN] Loaded ${clioFolderIdToMatterId.size} Clio folder->matter mappings`);
+    } catch (e) {
+      console.log(`[SCAN] Could not load folder manifest: ${e.message}`);
+    }
+    
     // Function to match a folder path to a matter
     const matchFolderToMatter = (folderPath) => {
       if (!folderPath) return null;
@@ -1786,11 +1815,12 @@ async function runManifestScan(firmId, dryRun, job) {
     
     while (hasMore && !job.cancelled) {
       // Get next chunk of unmatched manifest entries WITH their Azure matches
-      // IMPORTANT: Also fetch clio_matter_id to look up matters via our mapping
+      // IMPORTANT: Also fetch clio_matter_id and clio_folder_id to look up matters via our mappings
       // Rows get filtered out after processing (match_status updated), so always LIMIT from start
       const chunkResult = await query(`
         SELECT 
-          m.id, m.name, m.size, m.matter_id, m.clio_matter_id, m.owner_id, m.content_type,
+          m.id, m.name, m.size, m.matter_id, m.clio_matter_id, m.clio_folder_id, m.clio_path,
+          m.owner_id, m.content_type,
           af.path as azure_path, af.name as azure_name
         FROM clio_document_manifest m
         LEFT JOIN ${tempTable} af ON LOWER(m.name) = af.name_lower
@@ -1845,7 +1875,7 @@ async function runManifestScan(firmId, dryRun, job) {
               const resolvedMatterId = clioMatterIdToApexId.get(parseInt(entry.clio_matter_id));
               if (resolvedMatterId) {
                 matterId = resolvedMatterId;
-                matchMethod = 'clio_id';
+                matchMethod = 'clio_matter_id';
                 matterLookupHits++;
                 // Also update the manifest record for future scans
                 await query(`
@@ -1854,22 +1884,52 @@ async function runManifestScan(firmId, dryRun, job) {
               }
             }
             
-            // Strategy 3: Try folder path matching (for Robocopy-migrated files or when Clio ID fails)
+            // Strategy 3: Try Clio folder manifest (folder may be linked to a matter)
+            if (!matterId && entry.clio_folder_id) {
+              const folderMatterId = clioFolderIdToMatterId.get(parseInt(entry.clio_folder_id));
+              if (folderMatterId) {
+                matterId = folderMatterId;
+                matchMethod = 'clio_folder_id';
+                matterLookupHits++;
+                await query(`
+                  UPDATE clio_document_manifest SET matter_id = $1 WHERE id = $2
+                `, [matterId, entry.id]);
+              }
+            }
+            
+            // Strategy 4: Try matching by clio_path in folder manifest
+            if (!matterId && entry.clio_path) {
+              // Try matching the folder portion of the clio_path
+              const pathParts = entry.clio_path.split('/');
+              pathParts.pop(); // Remove filename
+              const folderPath = pathParts.join('/').toLowerCase();
+              
+              if (clioFolderPathToMatterId.has(folderPath)) {
+                matterId = clioFolderPathToMatterId.get(folderPath);
+                matchMethod = 'clio_folder_path';
+                matterLookupHits++;
+                await query(`
+                  UPDATE clio_document_manifest SET matter_id = $1 WHERE id = $2
+                `, [matterId, entry.id]);
+              }
+            }
+            
+            // Strategy 5: Try Azure folder path matching (for Robocopy-migrated files or when all Clio lookups fail)
             if (!matterId && entry.azure_path) {
               const matchedMatter = matchFolderToMatter(folderPath);
               if (matchedMatter) {
                 matterId = matchedMatter.id;
-                matchMethod = 'folder_path';
+                matchMethod = 'azure_folder_path';
                 matterLookupHits++;
                 // Update manifest for future scans
                 await query(`
                   UPDATE clio_document_manifest SET matter_id = $1 WHERE id = $2
                 `, [matterId, entry.id]);
-              } else if (entry.clio_matter_id) {
-                // Only count as a miss if we had a clio_matter_id but couldn't resolve
+              } else if (entry.clio_matter_id || entry.clio_folder_id) {
+                // Count as a miss if we had Clio metadata but couldn't resolve
                 matterLookupMisses++;
-                if (matterLookupMisses <= 5) {
-                  console.log(`[SCAN] Warning: Could not match matter for Clio ID ${entry.clio_matter_id}, folder "${folderPath}" (document: ${entry.name})`);
+                if (matterLookupMisses <= 10) {
+                  console.log(`[SCAN] Warning: Could not match matter for document "${entry.name}" (clio_matter_id: ${entry.clio_matter_id}, clio_folder_id: ${entry.clio_folder_id}, folder: "${folderPath}")`);
                 }
               }
             }
