@@ -2,7 +2,7 @@
  * Apex Drive Desktop Client - Main Process
  * 
  * This is the entry point for the Electron application.
- * It manages the virtual file system, system tray, and window lifecycle.
+ * It manages authentication, file sync, and the system tray.
  */
 
 import { app, BrowserWindow, Menu, Tray, ipcMain, dialog, shell, nativeImage } from 'electron';
@@ -11,7 +11,6 @@ import log from 'electron-log';
 import { autoUpdater } from 'electron-updater';
 import Store from 'electron-store';
 
-import { ApexDriveVFS } from './vfs/ApexDriveVFS';
 import { ApiClient } from './api/ApiClient';
 import { SyncEngine } from './sync/SyncEngine';
 import { AuthManager } from './auth/AuthManager';
@@ -25,7 +24,6 @@ autoUpdater.logger = log;
 // Global references
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
-let vfs: ApexDriveVFS | null = null;
 let apiClient: ApiClient | null = null;
 let syncEngine: SyncEngine | null = null;
 let authManager: AuthManager | null = null;
@@ -35,10 +33,7 @@ let configManager: ConfigManager | null = null;
 const store = new Store({
   name: 'apex-drive-settings',
   defaults: {
-    driveLetter: 'Z',
-    autoStart: true,
-    autoMount: true,
-    serverUrl: 'https://api.apexlegal.com',
+    serverUrl: process.env.APEX_SERVER_URL || 'https://api.apexlegal.com',
     syncInterval: 30000, // 30 seconds
     cacheDir: '',
     maxCacheSize: 5 * 1024 * 1024 * 1024, // 5GB
@@ -48,19 +43,14 @@ const store = new Store({
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 async function createWindow(): Promise<void> {
-  const iconPath = isDev 
-    ? path.join(__dirname, '../../build/icon.png')
-    : path.join(process.resourcesPath, 'resources/icon.png');
-
   mainWindow = new BrowserWindow({
-    width: 900,
+    width: 1000,
     height: 700,
-    minWidth: 600,
-    minHeight: 500,
+    minWidth: 800,
+    minHeight: 600,
     show: false,
     frame: true,
     titleBarStyle: 'default',
-    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       nodeIntegration: false,
@@ -71,7 +61,6 @@ async function createWindow(): Promise<void> {
 
   // Load the renderer
   if (isDev) {
-    // In development, connect to Vite dev server
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
   } else {
@@ -84,7 +73,7 @@ async function createWindow(): Promise<void> {
 
   mainWindow.on('close', (event) => {
     // Minimize to tray instead of closing
-    if (tray && !app.isQuitting) {
+    if (tray && !(app as any).isQuitting) {
       event.preventDefault();
       mainWindow?.hide();
     }
@@ -96,20 +85,12 @@ async function createWindow(): Promise<void> {
 }
 
 function createTray(): void {
-  const iconPath = isDev
-    ? path.join(__dirname, '../../build/tray-icon.png')
-    : path.join(process.resourcesPath, 'resources/tray-icon.png');
+  // Create a simple tray icon
+  const icon = nativeImage.createFromDataURL(
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAA7AAAAOwBeShxvQAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAJhSURBVFiF7ZY9aBRBFMd/s3t3l5wfkIgIgoiFFhYWFoKNjY2NjYWFhY2FjY2NjYWNjYWNjYWNjYWNjYWNjYWNhY2NhY2NhYWIIKJBEhLj7nZn5i1uc7t3e3uBiD9Y2H3z5s2b/3/ezAqMMfxPyf8lwL8WgOj1gVpr1ey+gAL6AXkA2esDuqXcXYLOAmxLVwLgAngRjHnkA/gcgJsBO4BlwJVAf0AewKcA3J+5vAhc8QGOB2BvAN4GJo0xY16QfQH1APrAJT/I44DcCmxJCJ1AWdM0SwB8E8B7wGGllF8kfHMkIJ8BZwJ4J4C3Ob8IfAYMG2OOez35HeAEpVQ5gHcJmAzgbSASwHFglT7gtRfkOwCvBHI8IBeCywE8E8CzAq4H8rQPsO5tANL7gVcCeSeADwZwk1LqtHfQbwLLgbyojKn4AJcArxZwNYCXgUsBeD2Q1wN4PpCXAngXiATwVkfurSoANwN4WSm1NID2ATifEIIAfgrgcwF8JICb9DkAfyYQ/ELg7QBuD+CFDlyWlnc9gPcE8IwPsFUAbwfyagAvBvJyAC8qpdYH4A2l1FGllBdkvwJOR1naCuDdIGK2BOAk4IhS6lQAdwq4HsDbwKtewGcdOKaUOhXA+4G8pJS65QX5Grgm1pwEHFBK3QKyAE74AO8CeSWApwN5KZB3O3DOG/IaMKmUuuaFDMAVF+58AG8H8BbgllfkHWC/hxwN4NsqAA8E8DYQDeBlH8i3gbcA3AtwIwRwxkPO+0EGYL8X6DcBPOiDDALbPABvhQA+6IN8FMALHrLuhXwvgFcCOGH+Bf0FBaC/LlVkvkoAAAAASUVORK5CYII='
+  );
 
-  // Create a default icon if the file doesn't exist
-  let trayIcon;
-  try {
-    trayIcon = nativeImage.createFromPath(iconPath);
-  } catch {
-    // Create a simple default icon
-    trayIcon = nativeImage.createEmpty();
-  }
-
-  tray = new Tray(trayIcon);
+  tray = new Tray(icon);
   tray.setToolTip('Apex Drive');
 
   updateTrayMenu();
@@ -129,8 +110,6 @@ function updateTrayMenu(): void {
   if (!tray) return;
 
   const isConnected = apiClient?.isConnected() ?? false;
-  const isMounted = vfs?.isMounted() ?? false;
-  const driveLetter = store.get('driveLetter') as string;
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -142,52 +121,30 @@ function updateTrayMenu(): void {
       label: `Status: ${isConnected ? 'Connected' : 'Disconnected'}`,
       enabled: false,
     },
-    {
-      label: `Drive ${driveLetter}: ${isMounted ? 'Mounted' : 'Not Mounted'}`,
-      enabled: false,
-    },
     { type: 'separator' },
     {
-      label: isMounted ? 'Unmount Drive' : 'Mount Drive',
-      click: async () => {
-        if (isMounted) {
-          await unmountDrive();
-        } else {
-          await mountDrive();
-        }
-        updateTrayMenu();
-      },
-    },
-    {
-      label: 'Open Drive',
-      enabled: isMounted,
+      label: 'Open Apex Drive',
       click: () => {
-        shell.openPath(`${driveLetter}:\\`);
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
       },
     },
     {
       label: 'Sync Now',
-      enabled: isConnected && isMounted,
+      enabled: isConnected,
       click: () => {
         syncEngine?.syncNow();
       },
     },
     { type: 'separator' },
     {
-      label: 'Open Settings',
+      label: 'Settings',
       click: () => {
         if (mainWindow) {
           mainWindow.show();
           mainWindow.webContents.send('navigate', '/settings');
-        }
-      },
-    },
-    {
-      label: 'View Sync Log',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.webContents.send('navigate', '/logs');
         }
       },
     },
@@ -199,9 +156,9 @@ function updateTrayMenu(): void {
       },
     },
     {
-      label: 'Quit Apex Drive',
+      label: 'Quit',
       click: () => {
-        app.isQuitting = true;
+        (app as any).isQuitting = true;
         app.quit();
       },
     },
@@ -214,10 +171,10 @@ async function initializeApp(): Promise<void> {
   log.info('Initializing Apex Drive...');
 
   // Initialize config manager
-  configManager = new ConfigManager(store);
+  configManager = new ConfigManager(store as any);
 
   // Initialize auth manager
-  authManager = new AuthManager(store);
+  authManager = new AuthManager(store as any);
   const isAuthenticated = await authManager.isAuthenticated();
 
   if (!isAuthenticated) {
@@ -243,14 +200,6 @@ async function initializeApp(): Promise<void> {
 
   // Initialize sync engine
   syncEngine = new SyncEngine(apiClient, configManager);
-  
-  // Initialize virtual file system
-  vfs = new ApexDriveVFS(apiClient, syncEngine, configManager);
-
-  // Auto-mount if configured
-  if (store.get('autoMount')) {
-    await mountDrive();
-  }
 
   // Start sync engine
   syncEngine.start();
@@ -258,10 +207,8 @@ async function initializeApp(): Promise<void> {
   // Create system tray
   createTray();
 
-  // Show window if not running in background
-  if (!store.get('startMinimized')) {
-    await createWindow();
-  }
+  // Show main window
+  await createWindow();
 
   // Check for updates
   if (!isDev) {
@@ -269,65 +216,20 @@ async function initializeApp(): Promise<void> {
   }
 }
 
-async function mountDrive(): Promise<boolean> {
-  if (!vfs) {
-    log.error('VFS not initialized');
-    return false;
-  }
-
-  try {
-    const driveLetter = store.get('driveLetter') as string;
-    await vfs.mount(driveLetter);
-    log.info(`Drive ${driveLetter}: mounted successfully`);
-    
-    // Notify renderer
-    mainWindow?.webContents.send('drive-status', { mounted: true, driveLetter });
-    
-    return true;
-  } catch (error) {
-    log.error('Failed to mount drive:', error);
-    
-    dialog.showErrorBox(
-      'Mount Failed',
-      `Failed to mount Apex Drive: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
-    
-    return false;
-  }
-}
-
-async function unmountDrive(): Promise<boolean> {
-  if (!vfs) {
-    return true;
-  }
-
-  try {
-    await vfs.unmount();
-    log.info('Drive unmounted successfully');
-    
-    // Notify renderer
-    mainWindow?.webContents.send('drive-status', { mounted: false });
-    
-    return true;
-  } catch (error) {
-    log.error('Failed to unmount drive:', error);
-    return false;
-  }
-}
-
 async function signOut(): Promise<void> {
-  await unmountDrive();
   syncEngine?.stop();
   await authManager?.signOut();
   
   // Reset state
   apiClient = null;
   syncEngine = null;
-  vfs = null;
   
   // Show login window
-  await createWindow();
-  mainWindow?.webContents.send('navigate', '/login');
+  if (mainWindow) {
+    mainWindow.webContents.send('navigate', '/login');
+  } else {
+    await createWindow();
+  }
 }
 
 // IPC Handlers
@@ -341,6 +243,7 @@ function setupIpcHandlers(): void {
       const result = await tempClient.login(credentials.email, credentials.password);
       
       await authManager?.saveToken(result.token, result.refreshToken);
+      authManager?.saveUserInfo(result.user);
       
       // Initialize full app
       apiClient = tempClient;
@@ -348,14 +251,10 @@ function setupIpcHandlers(): void {
       
       // Initialize other components
       syncEngine = new SyncEngine(apiClient, configManager!);
-      vfs = new ApexDriveVFS(apiClient, syncEngine, configManager!);
-      
-      if (store.get('autoMount')) {
-        await mountDrive();
-      }
-      
       syncEngine.start();
+      
       createTray();
+      updateTrayMenu();
       
       return { success: true, user: result.user };
     } catch (error) {
@@ -374,32 +273,28 @@ function setupIpcHandlers(): void {
     return { authenticated: isAuthenticated };
   });
 
-  // Drive operations
+  // Drive operations (placeholder for future virtual drive)
   ipcMain.handle('drive:mount', async () => {
-    const result = await mountDrive();
-    return { success: result };
+    return { success: true, message: 'Virtual drive coming soon - use the file browser in the app' };
   });
 
   ipcMain.handle('drive:unmount', async () => {
-    const result = await unmountDrive();
-    return { success: result };
+    return { success: true };
   });
 
   ipcMain.handle('drive:status', async () => {
     return {
-      mounted: vfs?.isMounted() ?? false,
-      driveLetter: store.get('driveLetter'),
+      mounted: false,
+      driveLetter: 'Z',
       connected: apiClient?.isConnected() ?? false,
     };
   });
 
   ipcMain.handle('drive:open', async () => {
-    const driveLetter = store.get('driveLetter') as string;
-    if (vfs?.isMounted()) {
-      shell.openPath(`${driveLetter}:\\`);
-      return { success: true };
-    }
-    return { success: false, error: 'Drive not mounted' };
+    // Open the app's file browser
+    mainWindow?.show();
+    mainWindow?.webContents.send('navigate', '/files');
+    return { success: true };
   });
 
   // Settings
@@ -463,6 +358,25 @@ function setupIpcHandlers(): void {
     }
   });
 
+  ipcMain.handle('files:download', async (_, documentId: string, fileName: string) => {
+    try {
+      const content = await apiClient?.downloadFile(documentId);
+      if (!content) throw new Error('No content');
+      
+      // Save to temp and open
+      const tempPath = path.join(app.getPath('temp'), fileName);
+      const fs = await import('fs/promises');
+      await fs.writeFile(tempPath, content);
+      
+      // Open with default app
+      shell.openPath(tempPath);
+      
+      return { success: true, path: tempPath };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to download file' };
+    }
+  });
+
   // App info
   ipcMain.handle('app:version', () => {
     return app.getVersion();
@@ -497,23 +411,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', async () => {
-  app.isQuitting = true;
-  await unmountDrive();
+  (app as any).isQuitting = true;
   syncEngine?.stop();
 });
-
-// Auto-start configuration
-if (app.isPackaged) {
-  const autoLaunch = store.get('autoStart') as boolean;
-  app.setLoginItemSettings({
-    openAtLogin: autoLaunch,
-    openAsHidden: true,
-  });
-}
-
-// Extend Electron's App type
-declare module 'electron' {
-  interface App {
-    isQuitting?: boolean;
-  }
-}

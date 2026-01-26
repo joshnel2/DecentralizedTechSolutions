@@ -2,23 +2,12 @@
  * Apex Drive Authentication Manager
  * 
  * Handles secure storage and retrieval of authentication tokens.
- * Uses the system keychain for secure credential storage.
+ * Uses electron-store with encryption for credential storage.
  */
 
 import log from 'electron-log';
 import Store from 'electron-store';
-
-// Keytar is used for secure credential storage in the system keychain
-// Falls back to encrypted store if keytar is not available
-let keytar: typeof import('keytar') | null = null;
-try {
-  keytar = require('keytar');
-} catch {
-  log.warn('Keytar not available, using encrypted store for credentials');
-}
-
-const SERVICE_NAME = 'ApexDrive';
-const ACCOUNT_NAME = 'auth';
+import { safeStorage } from 'electron';
 
 interface AuthData {
   token: string;
@@ -75,22 +64,23 @@ export class AuthManager {
 
     this.store.set('authExpiresAt', expiresAt);
 
-    if (keytar) {
+    // Use Electron's safeStorage if available (encrypts data)
+    if (safeStorage.isEncryptionAvailable()) {
       try {
-        // Store in system keychain
-        await keytar.setPassword(SERVICE_NAME, ACCOUNT_NAME, JSON.stringify({
-          token,
-          refreshToken,
-          expiresAt,
-        }));
-        log.info('Auth tokens saved to system keychain');
+        const encryptedToken = safeStorage.encryptString(token).toString('base64');
+        const encryptedRefresh = safeStorage.encryptString(refreshToken).toString('base64');
+        this.store.set('authTokenEncrypted', encryptedToken);
+        this.store.set('authRefreshTokenEncrypted', encryptedRefresh);
+        this.store.delete('authToken');
+        this.store.delete('authRefreshToken');
+        log.info('Auth tokens saved with encryption');
         return;
       } catch (error) {
-        log.error('Failed to save to keychain, using encrypted store:', error);
+        log.error('Failed to encrypt tokens, using plain storage:', error);
       }
     }
 
-    // Fallback to encrypted store
+    // Fallback to plain storage
     this.store.set('authToken', token);
     this.store.set('authRefreshToken', refreshToken);
   }
@@ -103,21 +93,19 @@ export class AuthManager {
       return this.cachedToken;
     }
 
-    if (keytar) {
+    // Try encrypted storage first
+    const encryptedToken = this.store.get('authTokenEncrypted') as string | undefined;
+    if (encryptedToken && safeStorage.isEncryptionAvailable()) {
       try {
-        const stored = await keytar.getPassword(SERVICE_NAME, ACCOUNT_NAME);
-        if (stored) {
-          const data = JSON.parse(stored) as AuthData;
-          this.cachedToken = data.token;
-          this.cachedRefreshToken = data.refreshToken;
-          return data.token;
-        }
+        const decrypted = safeStorage.decryptString(Buffer.from(encryptedToken, 'base64'));
+        this.cachedToken = decrypted;
+        return decrypted;
       } catch (error) {
-        log.error('Failed to read from keychain:', error);
+        log.error('Failed to decrypt token:', error);
       }
     }
 
-    // Fallback to encrypted store
+    // Fallback to plain storage
     const token = this.store.get('authToken') as string | undefined;
     if (token) {
       this.cachedToken = token;
@@ -133,20 +121,19 @@ export class AuthManager {
       return this.cachedRefreshToken;
     }
 
-    if (keytar) {
+    // Try encrypted storage first
+    const encryptedRefresh = this.store.get('authRefreshTokenEncrypted') as string | undefined;
+    if (encryptedRefresh && safeStorage.isEncryptionAvailable()) {
       try {
-        const stored = await keytar.getPassword(SERVICE_NAME, ACCOUNT_NAME);
-        if (stored) {
-          const data = JSON.parse(stored) as AuthData;
-          this.cachedRefreshToken = data.refreshToken;
-          return data.refreshToken;
-        }
+        const decrypted = safeStorage.decryptString(Buffer.from(encryptedRefresh, 'base64'));
+        this.cachedRefreshToken = decrypted;
+        return decrypted;
       } catch (error) {
-        log.error('Failed to read refresh token from keychain:', error);
+        log.error('Failed to decrypt refresh token:', error);
       }
     }
 
-    // Fallback to encrypted store
+    // Fallback to plain storage
     return this.store.get('authRefreshToken') as string | null;
   }
 
@@ -162,18 +149,13 @@ export class AuthManager {
 
     this.store.set('authExpiresAt', expiresAt);
 
-    if (keytar) {
+    if (safeStorage.isEncryptionAvailable()) {
       try {
-        const stored = await keytar.getPassword(SERVICE_NAME, ACCOUNT_NAME);
-        if (stored) {
-          const data = JSON.parse(stored) as AuthData;
-          data.token = token;
-          data.expiresAt = expiresAt;
-          await keytar.setPassword(SERVICE_NAME, ACCOUNT_NAME, JSON.stringify(data));
-          return;
-        }
+        const encryptedToken = safeStorage.encryptString(token).toString('base64');
+        this.store.set('authTokenEncrypted', encryptedToken);
+        return;
       } catch (error) {
-        log.error('Failed to update token in keychain:', error);
+        log.error('Failed to encrypt updated token:', error);
       }
     }
 
@@ -190,16 +172,11 @@ export class AuthManager {
 
     this.store.delete('authToken');
     this.store.delete('authRefreshToken');
+    this.store.delete('authTokenEncrypted');
+    this.store.delete('authRefreshTokenEncrypted');
     this.store.delete('authExpiresAt');
-
-    if (keytar) {
-      try {
-        await keytar.deletePassword(SERVICE_NAME, ACCOUNT_NAME);
-        log.info('Auth tokens cleared from keychain');
-      } catch (error) {
-        log.error('Failed to clear keychain:', error);
-      }
-    }
+    
+    log.info('Auth tokens cleared');
   }
 
   /**

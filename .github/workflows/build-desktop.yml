@@ -1,0 +1,81 @@
+name: Build Desktop Client
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop-client/**'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: desktop-client/package-lock.json
+
+      - name: Install dependencies
+        working-directory: desktop-client
+        run: npm install
+
+      - name: Build application
+        working-directory: desktop-client
+        run: npm run build
+
+      - name: Build Windows installer
+        working-directory: desktop-client
+        run: npm run dist:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apex-drive-windows
+          path: |
+            desktop-client/release/*.exe
+            desktop-client/release/*.msi
+          retention-days: 30
+
+      - name: Upload to Azure Blob Storage
+        if: github.ref == 'refs/heads/main'
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az storage blob upload-batch \
+              --account-name ${{ secrets.AZURE_STORAGE_ACCOUNT }} \
+              --destination downloads \
+              --source desktop-client/release \
+              --pattern "*.exe" \
+              --overwrite
+        env:
+          AZURE_STORAGE_KEY: ${{ secrets.AZURE_STORAGE_KEY }}
+
+  # Create release on tag
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-windows
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: apex-drive-windows
+          path: dist
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

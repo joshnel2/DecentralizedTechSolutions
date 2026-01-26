@@ -22,14 +22,11 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "@azure/storage-file-share": "^12.18.0",
     "axios": "^1.6.2",
     "chokidar": "^3.5.3",
     "electron-log": "^5.0.1",
     "electron-store": "^8.1.0",
     "electron-updater": "^6.1.7",
-    "fuse-native": "^2.2.8",
-    "keytar": "^7.9.0",
     "uuid": "^9.0.1",
     "ws": "^8.14.2"
   },
@@ -37,13 +34,10 @@
     "@types/node": "^20.10.4",
     "@types/uuid": "^9.0.7",
     "@types/ws": "^8.5.10",
-    "@typescript-eslint/eslint-plugin": "^6.14.0",
-    "@typescript-eslint/parser": "^6.14.0",
     "@vitejs/plugin-react": "^4.2.1",
     "concurrently": "^8.2.2",
     "electron": "^28.0.0",
     "electron-builder": "^24.9.1",
-    "eslint": "^8.55.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "typescript": "^5.3.3",
@@ -77,17 +71,15 @@
           "arch": ["x64"]
         }
       ],
-      "icon": "build/icon.ico",
-      "requestedExecutionLevel": "requireAdministrator"
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
-      "perMachine": true,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Apex Drive",
-      "include": "build/installer.nsh"
+      "shortcutName": "Apex Drive"
     },
     "publish": {
       "provider": "generic",
