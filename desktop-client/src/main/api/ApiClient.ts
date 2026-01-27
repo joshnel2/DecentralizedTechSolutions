@@ -325,11 +325,19 @@ export class ApiClient extends EventEmitter {
   // Files
 
   public async listFiles(matterId: string, folderPath?: string): Promise<VirtualFile[]> {
-    const response = await this.httpClient.get<{ files: VirtualFile[] }>(
-      `/drive/matters/${matterId}/files`,
-      { params: { path: folderPath } }
-    );
-    return response.data.files || [];
+    try {
+      log.info(`[API] Listing files for matter ${matterId}${folderPath ? ` in folder ${folderPath}` : ''}`);
+      const response = await this.httpClient.get<{ files: VirtualFile[] }>(
+        `/drive/matters/${matterId}/files`,
+        { params: { path: folderPath } }
+      );
+      const files = response.data.files || [];
+      log.info(`[API] Found ${files.length} files for matter ${matterId}`);
+      return files;
+    } catch (error) {
+      log.error(`[API] Failed to list files for matter ${matterId}:`, error);
+      throw error;
+    }
   }
 
   public async downloadFile(documentId: string): Promise<Buffer> {

@@ -116,6 +116,7 @@ router.get('/matters', authenticate, async (req, res) => {
 
 /**
  * List files in a matter (for virtual drive directory listing)
+ * Returns all documents linked to the matter, organized hierarchically
  */
 router.get('/matters/:matterId/files', authenticate, async (req, res) => {
   try {
@@ -135,13 +136,13 @@ router.get('/matters/:matterId/files', authenticate, async (req, res) => {
     // First, check how many documents exist for this matter (for debugging)
     const countResult = await query(`
       SELECT COUNT(*) as total,
-             COUNT(*) FILTER (WHERE status != 'deleted') as active,
+             COUNT(*) FILTER (WHERE status IS NULL OR status != 'deleted') as active,
              COUNT(*) FILTER (WHERE status = 'deleted') as deleted
       FROM documents WHERE firm_id = $1 AND matter_id = $2
     `, [firmId, matterId]);
     console.log(`[DRIVE API] Matter ${matterId} document counts:`, countResult.rows[0]);
 
-    // Get files from database
+    // Get files from database - include all non-deleted documents for this matter
     let filesQuery;
     let queryParams;
     
@@ -150,49 +151,60 @@ router.get('/matters/:matterId/files', authenticate, async (req, res) => {
       filesQuery = `
         SELECT 
           id,
-          name,
+          COALESCE(original_name, name) as name,
           folder_path as "folderPath",
-          type,
-          size,
-          external_path as "azurePath",
+          COALESCE(type, 'application/octet-stream') as type,
+          COALESCE(size, 0) as size,
+          COALESCE(external_path, path, azure_path) as "azurePath",
           created_at as "createdAt",
           updated_at as "updatedAt",
           false as "isFolder"
         FROM documents
         WHERE firm_id = $1
           AND matter_id = $2
-          AND folder_path = $3
-          AND status != 'deleted'
+          AND (folder_path = $3 OR folder_path LIKE $4)
+          AND (status IS NULL OR status != 'deleted')
         ORDER BY name ASC
       `;
-      queryParams = [firmId, matterId, folderPath];
+      queryParams = [firmId, matterId, folderPath, `${folderPath}/%`];
     } else {
       // Get all files for this matter (hierarchical view)
       filesQuery = `
         SELECT 
           id,
-          name,
+          COALESCE(original_name, name) as name,
           folder_path as "folderPath",
-          type,
-          size,
-          external_path as "azurePath",
+          COALESCE(type, 'application/octet-stream') as type,
+          COALESCE(size, 0) as size,
+          COALESCE(external_path, path, azure_path) as "azurePath",
           created_at as "createdAt",
           updated_at as "updatedAt",
           false as "isFolder"
         FROM documents
         WHERE firm_id = $1
           AND matter_id = $2
-          AND status != 'deleted'
-        ORDER BY folder_path ASC, name ASC
+          AND (status IS NULL OR status != 'deleted')
+        ORDER BY folder_path ASC NULLS FIRST, name ASC
       `;
       queryParams = [firmId, matterId];
     }
 
     const result = await query(filesQuery, queryParams);
-    console.log(`[DRIVE API] Found ${result.rows.length} files for matter ${matterId}`);
+    console.log(`[DRIVE API] Query returned ${result.rows.length} files for matter ${matterId}`);
+    
+    // Log first few files for debugging
+    if (result.rows.length > 0) {
+      console.log(`[DRIVE API] Sample files:`, result.rows.slice(0, 3).map(f => ({
+        id: f.id,
+        name: f.name,
+        folderPath: f.folderPath,
+        azurePath: f.azurePath
+      })));
+    }
     
     // Build folder structure
     const files = buildFileTree(result.rows);
+    console.log(`[DRIVE API] Built file tree with ${files.length} top-level items`);
 
     res.json({ files });
   } catch (error) {
@@ -255,12 +267,13 @@ router.get('/files/:documentId/download', authenticate, async (req, res) => {
 });
 
 /**
- * Upload/update file content
+ * Upload/update file content - Creates a new version like Clio Drive
  */
 router.put('/files/:documentId/upload', authenticate, async (req, res) => {
   try {
     const { documentId } = req.params;
     const firmId = req.user.firmId;
+    const userId = req.user.id;
 
     // Get document info
     const docResult = await query(`
@@ -291,25 +304,94 @@ router.put('/files/:documentId/upload', authenticate, async (req, res) => {
     }
     const content = Buffer.concat(chunks);
 
+    // Compute content hash to check if actually changed
+    const crypto = await import('crypto');
+    const contentHash = crypto.createHash('sha256').update(content).digest('hex');
+
+    // Check if content actually changed (compare with last version hash)
+    const lastVersionResult = await query(`
+      SELECT content_hash FROM document_versions 
+      WHERE document_id = $1 
+      ORDER BY version_number DESC 
+      LIMIT 1
+    `, [documentId]);
+
+    const lastHash = lastVersionResult.rows[0]?.content_hash;
+    
+    if (lastHash === contentHash) {
+      console.log(`[DRIVE API] File unchanged (same hash): ${doc.name}`);
+      return res.json({ success: true, size: content.length, unchanged: true });
+    }
+
     // Upload to Azure
     const azurePath = doc.external_path || doc.path;
-    const relativePath = azurePath.replace(`firm-${firmId}/`, '');
+    const relativePath = azurePath ? azurePath.replace(`firm-${firmId}/`, '') : doc.name;
     
     await uploadFileBuffer(content, relativePath, firmId);
 
-    // Update database
+    // Get current version count
+    const versionResult = await query(`
+      SELECT COALESCE(MAX(version_number), 0) as max_version 
+      FROM document_versions 
+      WHERE document_id = $1
+    `, [documentId]);
+    
+    const newVersionNumber = (parseInt(versionResult.rows[0].max_version) || 0) + 1;
+
+    // Create new version record
+    const versionId = crypto.randomUUID();
+    await query(`
+      INSERT INTO document_versions (
+        id, document_id, version_number, content_hash, 
+        size, created_by, created_at, change_summary, storage_tier
+      ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, 'hot')
+    `, [
+      versionId,
+      documentId,
+      newVersionNumber,
+      contentHash,
+      content.length,
+      userId,
+      `Updated via Apex Drive Desktop`
+    ]);
+
+    // Update document record
     await query(`
       UPDATE documents 
-      SET size = $1, updated_at = NOW()
-      WHERE id = $2
-    `, [content.length, documentId]);
+      SET size = $1, 
+          updated_at = NOW(),
+          version_count = $2,
+          status = 'active'
+      WHERE id = $3
+    `, [content.length, newVersionNumber, documentId]);
+
+    // Log the activity
+    await query(`
+      INSERT INTO document_activities (document_id, user_id, action, details, created_at)
+      VALUES ($1, $2, 'version_created', $3, NOW())
+    `, [
+      documentId, 
+      userId, 
+      JSON.stringify({ 
+        version: newVersionNumber, 
+        size: content.length,
+        source: 'desktop_drive'
+      })
+    ]).catch(() => {}); // Don't fail if activity table doesn't exist
+
+    console.log(`[DRIVE API] Created version ${newVersionNumber} for ${doc.name}`);
 
     // Trigger AI analysis in background (don't wait)
-    analyzeDocument(documentId, firmId, req.user.id).catch(err => {
+    analyzeDocument(documentId, firmId, userId).catch(err => {
       console.log('[DRIVE API] AI analysis queued (or skipped):', err?.message || 'ok');
     });
 
-    res.json({ success: true, size: content.length });
+    res.json({ 
+      success: true, 
+      size: content.length,
+      version: newVersionNumber,
+      versionId
+    });
   } catch (error) {
     console.error('[DRIVE API] Upload error:', error);
     res.status(500).json({ error: 'Failed to upload file' });

@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "axios": "^1.6.2",
-    "chokidar": "^3.5.3",
+    "chokidar": "^3.6.0",
     "electron-log": "^5.0.1",
     "electron-store": "^8.1.0",
     "electron-updater": "^6.1.7",
@@ -61,14 +61,18 @@
       {
         "from": "resources/",
         "to": "resources/",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "build/icon.ico"

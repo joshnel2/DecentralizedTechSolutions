@@ -259,6 +259,76 @@ async function initializeApp(): Promise<void> {
   }
 }
 
+/**
+ * Wire up VirtualDrive events to SyncEngine and UI
+ */
+function setupVirtualDriveEvents(): void {
+  if (!virtualDrive || !syncEngine) return;
+
+  // File uploaded (new or updated)
+  virtualDrive.on('fileUploaded', (data: { filePath: string; documentId: string; size?: number; isNew: boolean }) => {
+    const fileName = data.filePath.split(/[/\\]/).pop() || 'Unknown';
+    if (data.isNew) {
+      syncEngine?.addLog('upload', `New file created: ${fileName}`, data.documentId);
+    } else {
+      syncEngine?.logUpload(fileName, data.documentId);
+    }
+    updateTrayMenu();
+    
+    // Notify renderer
+    mainWindow?.webContents.send('file-uploaded', { fileName, documentId: data.documentId, isNew: data.isNew });
+  });
+
+  // Upload started
+  virtualDrive.on('uploadStarted', (data: { filePath: string; documentId: string }) => {
+    const fileName = data.filePath.split(/[/\\]/).pop() || 'Unknown';
+    log.info(`Uploading: ${fileName}`);
+    mainWindow?.webContents.send('upload-started', { fileName, documentId: data.documentId });
+  });
+
+  // Upload error
+  virtualDrive.on('uploadError', (data: { filePath: string; documentId?: string; error: string }) => {
+    const fileName = data.filePath.split(/[/\\]/).pop() || 'Unknown';
+    syncEngine?.logError(`Upload failed: ${fileName} - ${data.error}`, data.documentId);
+    mainWindow?.webContents.send('upload-error', { fileName, error: data.error });
+  });
+
+  // File deleted locally
+  virtualDrive.on('fileDeletedLocally', (data: { filePath: string; documentId: string }) => {
+    const fileName = data.filePath.split(/[/\\]/).pop() || 'Unknown';
+    syncEngine?.addLog('info', `File removed locally: ${fileName}`, data.documentId);
+  });
+
+  // Sync events
+  virtualDrive.on('syncStarted', () => {
+    log.info('Drive sync started');
+    mainWindow?.webContents.send('sync-status', { syncing: true });
+  });
+
+  virtualDrive.on('syncCompleted', (data: { matterCount: number; fileCount: number }) => {
+    log.info(`Drive sync completed: ${data.matterCount} matters, ${data.fileCount} files`);
+    syncEngine?.addLog('info', `Synced ${data.matterCount} matters with ${data.fileCount} files`);
+    mainWindow?.webContents.send('sync-status', { syncing: false, ...data });
+    updateTrayMenu();
+  });
+
+  virtualDrive.on('syncFailed', (error: Error) => {
+    syncEngine?.logError(`Sync failed: ${error.message}`);
+    mainWindow?.webContents.send('sync-status', { syncing: false, error: error.message });
+  });
+
+  // Mount/unmount events
+  virtualDrive.on('mounted', (data: { driveLetter: string }) => {
+    syncEngine?.addLog('info', `Drive ${data.driveLetter}: mounted`);
+    mainWindow?.webContents.send('drive-status', { mounted: true, driveLetter: data.driveLetter });
+  });
+
+  virtualDrive.on('unmounted', () => {
+    syncEngine?.addLog('info', 'Drive unmounted');
+    mainWindow?.webContents.send('drive-status', { mounted: false });
+  });
+}
+
 async function signOut(): Promise<void> {
   // Stop sync and unmount drive
   syncEngine?.stop();
@@ -311,6 +381,9 @@ function setupIpcHandlers(): void {
       
       // Initialize virtual drive (will be mounted when user clicks Mount)
       virtualDrive = new VirtualDrive(apiClient, 'Z');
+      
+      // Wire up VirtualDrive events to SyncEngine for logging
+      setupVirtualDriveEvents();
       
       createTray();
       updateTrayMenu();

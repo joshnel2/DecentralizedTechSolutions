@@ -1,8 +1,8 @@
 /**
  * Apex Drive Sync Engine
  * 
- * Handles synchronization status and notifications.
- * Works with HTTP-only backend (no WebSocket required).
+ * Coordinates synchronization between local files and server.
+ * Works with VirtualDrive for two-way sync like Clio Drive.
  */
 
 import { EventEmitter } from 'events';
@@ -15,10 +15,11 @@ import { ConfigManager } from '../config/ConfigManager';
 interface SyncLog {
   id: string;
   timestamp: Date;
-  type: 'upload' | 'download' | 'conflict' | 'error' | 'info';
+  type: 'upload' | 'download' | 'conflict' | 'error' | 'info' | 'version';
   message: string;
   documentId?: string;
   matterId?: string;
+  fileName?: string;
 }
 
 export class SyncEngine extends EventEmitter {
@@ -35,17 +36,24 @@ export class SyncEngine extends EventEmitter {
   private lastSyncTime: Date | null = null;
   private httpConnected: boolean = false;
 
+  // Stats
+  private uploadCount: number = 0;
+  private downloadCount: number = 0;
+  private errorCount: number = 0;
+
   constructor(apiClient: ApiClient, configManager: ConfigManager) {
     super();
     this.apiClient = apiClient;
     this.configManager = configManager;
 
     // Listen for server-side changes (if WebSocket available)
-    this.apiClient.on('fileChanged', () => {
-      this.addLog('info', 'File changed on server');
+    this.apiClient.on('fileChanged', (data) => {
+      this.addLog('info', `File changed on server: ${data?.path || 'unknown'}`, data?.documentId);
+      this.emit('serverFileChanged', data);
     });
 
     this.apiClient.on('syncRequired', () => {
+      this.addLog('info', 'Server requested sync');
       this.syncNow();
     });
   }
@@ -64,13 +72,13 @@ export class SyncEngine extends EventEmitter {
     // Initial sync
     this.syncNow();
 
-    // Schedule periodic sync
+    // Schedule periodic sync check
     const interval = this.configManager.getSyncInterval();
     this.syncTimer = setInterval(() => {
-      this.syncNow();
+      this.checkConnection();
     }, interval);
 
-    this.addLog('info', 'Sync engine started');
+    this.addLog('info', 'Sync engine started - two-way sync enabled');
   }
 
   /**
@@ -100,6 +108,19 @@ export class SyncEngine extends EventEmitter {
   }
 
   /**
+   * Check connection to server
+   */
+  private async checkConnection(): Promise<void> {
+    try {
+      await this.apiClient.getMatters();
+      this.httpConnected = true;
+    } catch (error) {
+      this.httpConnected = false;
+      this.addLog('error', 'Lost connection to server');
+    }
+  }
+
+  /**
    * Trigger sync immediately
    */
   public async syncNow(): Promise<void> {
@@ -112,13 +133,12 @@ export class SyncEngine extends EventEmitter {
     this.emit('syncStarted');
 
     try {
-      // Try to verify the connection by making an API call
-      // This works even without WebSocket
+      // Verify connection
       const matters = await this.apiClient.getMatters();
       
       this.httpConnected = true;
       this.lastSyncTime = new Date();
-      this.addLog('info', `Sync completed - ${matters.length} matters available`);
+      this.addLog('info', `Connection verified - ${matters.length} matters available`);
       
       this.emit('syncCompleted', { lastSync: this.lastSyncTime, matterCount: matters.length });
     } catch (error) {
@@ -134,19 +154,66 @@ export class SyncEngine extends EventEmitter {
   }
 
   /**
+   * Log an upload event
+   */
+  public logUpload(fileName: string, documentId: string, version?: number): void {
+    this.uploadCount++;
+    const message = version 
+      ? `Uploaded: ${fileName} (version ${version})`
+      : `Uploaded: ${fileName}`;
+    this.addLog('upload', message, documentId);
+  }
+
+  /**
+   * Log a download event
+   */
+  public logDownload(fileName: string, documentId: string): void {
+    this.downloadCount++;
+    this.addLog('download', `Downloaded: ${fileName}`, documentId);
+  }
+
+  /**
+   * Log a version creation
+   */
+  public logVersionCreated(fileName: string, documentId: string, version: number): void {
+    this.addLog('version', `New version ${version} created: ${fileName}`, documentId);
+  }
+
+  /**
+   * Log an error
+   */
+  public logError(message: string, documentId?: string): void {
+    this.errorCount++;
+    this.addLog('error', message, documentId);
+  }
+
+  /**
+   * Log a conflict
+   */
+  public logConflict(fileName: string, documentId: string): void {
+    this.addLog('conflict', `Conflict detected: ${fileName}`, documentId);
+  }
+
+  /**
    * Get sync status
    */
   public getStatus(): {
     syncing: boolean;
     lastSync: Date | null;
-    dirtyFiles: number;
     running: boolean;
+    connected: boolean;
+    uploadCount: number;
+    downloadCount: number;
+    errorCount: number;
   } {
     return {
       syncing: this.syncing,
       lastSync: this.lastSyncTime,
-      dirtyFiles: 0,
       running: this.running,
+      connected: this.httpConnected,
+      uploadCount: this.uploadCount,
+      downloadCount: this.downloadCount,
+      errorCount: this.errorCount,
     };
   }
 
@@ -158,13 +225,30 @@ export class SyncEngine extends EventEmitter {
   }
 
   /**
+   * Clear sync logs
+   */
+  public clearLogs(): void {
+    this.syncLogs = [];
+  }
+
+  /**
+   * Reset stats
+   */
+  public resetStats(): void {
+    this.uploadCount = 0;
+    this.downloadCount = 0;
+    this.errorCount = 0;
+  }
+
+  /**
    * Add a log entry
    */
-  private addLog(
+  public addLog(
     type: SyncLog['type'],
     message: string,
     documentId?: string,
-    matterId?: string
+    matterId?: string,
+    fileName?: string
   ): void {
     const entry: SyncLog = {
       id: uuidv4(),
@@ -173,6 +257,7 @@ export class SyncEngine extends EventEmitter {
       message,
       documentId,
       matterId,
+      fileName,
     };
 
     this.syncLogs.push(entry);
@@ -183,5 +268,9 @@ export class SyncEngine extends EventEmitter {
     }
 
     this.emit('logAdded', entry);
+    
+    // Also log to console
+    const logLevel = type === 'error' ? 'error' : type === 'conflict' ? 'warn' : 'info';
+    log[logLevel](`[SYNC] ${message}`);
   }
 }
