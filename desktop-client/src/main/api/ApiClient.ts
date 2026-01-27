@@ -305,6 +305,18 @@ export class ApiClient extends EventEmitter {
     return response.data.matters || [];
   }
 
+  /**
+   * Get matters for drive view (with A-Z structure)
+   */
+  public async getDriveMatters(): Promise<{
+    matters: Matter[];
+    structure: { letter: string; matters: Matter[] }[];
+    totalMatters: number;
+  }> {
+    const response = await this.httpClient.get('/drive/matters');
+    return response.data;
+  }
+
   public async getMatter(matterId: string): Promise<Matter> {
     const response = await this.httpClient.get<Matter>(`/matters/${matterId}`);
     return response.data;
