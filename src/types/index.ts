@@ -1186,6 +1186,7 @@ export interface Document {
   matterId?: string
   clientId?: string
   folderId?: string
+  folderPath?: string // Path within matter folder structure
   
   // Version Control
   version: number

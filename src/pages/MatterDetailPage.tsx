@@ -1814,7 +1814,7 @@ Only analyze documents actually associated with this matter.`
                     if (!file) return
                     setIsUploading(true)
                     try {
-                      await addDocument(file, { matterId: id, clientId: matter?.clientId, folderPath: currentDocFolder || undefined })
+                      await addDocument(file, { matterId: id, clientId: matter?.clientId })
                       fetchDocuments({ matterId: id })
                     } catch (error) {
                       console.error('Upload failed:', error)
