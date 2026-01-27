@@ -1845,99 +1845,60 @@ Only analyze documents actually associated with this matter.`
               </div>
             </div>
             
-            {/* Folder Breadcrumb Navigation */}
-            <div className={styles.folderBreadcrumb}>
-              <button 
-                className={styles.breadcrumbItem}
-                onClick={() => setCurrentDocFolder('')}
-              >
-                <Folder size={16} />
-                <span>Documents</span>
-              </button>
-              {folderBreadcrumbs.map((crumb, i) => (
-                <span key={crumb.path} className={styles.breadcrumbPath}>
-                  <span className={styles.breadcrumbSep}>/</span>
-                  <button 
-                    className={styles.breadcrumbItem}
-                    onClick={() => setCurrentDocFolder(crumb.path)}
-                  >
-                    {crumb.name}
-                  </button>
-                </span>
-              ))}
-            </div>
-            
-            {/* Folders and Files List */}
-            <div className={styles.folderList}>
-              {/* Folders */}
-              {documentFolders.folders.map(folder => (
-                <div 
-                  key={folder.path}
-                  className={styles.folderItem}
-                  onClick={() => setCurrentDocFolder(folder.path)}
-                >
-                  <div className={styles.folderIcon}>
-                    <Folder size={24} />
-                  </div>
-                  <div className={styles.folderInfo}>
-                    <span className={styles.folderName}>{folder.name}</span>
-                    <span className={styles.folderMeta}>{folder.count} item{folder.count !== 1 ? 's' : ''}</span>
-                  </div>
-                </div>
-              ))}
-              
-              {/* Files */}
-              {documentFolders.files.map(doc => {
-                const wordExtensions = ['.doc', '.docx', '.odt', '.rtf']
-                const docName = doc.originalName || doc.name
-                const isWordDoc = wordExtensions.some(ext => docName.toLowerCase().endsWith(ext))
-                
-                return (
-                  <div 
-                    key={doc.id} 
-                    className={clsx(styles.fileItem, selectedDocument?.id === doc.id && styles.selectedFileItem)}
-                    onClick={() => handleDocumentClick(doc)}
-                  >
-                    <div className={styles.fileIcon}>
-                      <FileText size={24} />
-                      {isWordDoc && (
-                        <span className={styles.wordBadge} title="Word Document">
-                          <Edit3 size={10} />
-                        </span>
-                      )}
-                    </div>
-                    <div className={styles.fileInfo}>
-                      <span className={styles.fileName}>{docName}</span>
-                      <span className={styles.fileMeta}>
-                        {format(parseISO(doc.uploadedAt), 'MMM d, yyyy')} · 
-                        {(doc.size / 1024 / 1024).toFixed(2)} MB
-                      </span>
-                    </div>
-                    <div className={styles.fileActions} onClick={e => e.stopPropagation()}>
-                      <button 
-                        className={styles.fileDownloadBtn}
-                        onClick={() => downloadDocument(doc)}
-                        title="Download"
+            {/* Simple Document List Table */}
+            <div className={styles.documentTable}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Date</th>
+                    <th>Size</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {matterDocuments.map(doc => {
+                    const docName = doc.originalName || doc.name
+                    return (
+                      <tr 
+                        key={doc.id}
+                        className={clsx(selectedDocument?.id === doc.id && styles.selectedRow)}
+                        onClick={() => handleDocumentClick(doc)}
                       >
-                        <Download size={16} />
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-              
-              {/* Empty state */}
-              {documentFolders.folders.length === 0 && documentFolders.files.length === 0 && (
+                        <td>
+                          <div className={styles.docNameCell}>
+                            <FileText size={18} />
+                            <span>{docName}</span>
+                          </div>
+                        </td>
+                        <td>{format(parseISO(doc.uploadedAt), 'MMM d, yyyy')}</td>
+                        <td>{(doc.size / 1024).toFixed(0)} KB</td>
+                        <td>
+                          <div className={styles.docTableActions} onClick={e => e.stopPropagation()}>
+                            <button 
+                              onClick={() => downloadDocument(doc)}
+                              title="Download"
+                            >
+                              <Download size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              {matterDocuments.length === 0 && (
                 <div className={styles.emptyDocs}>
                   <FileText size={48} />
-                  <p>{currentDocFolder ? 'This folder is empty' : 'No documents uploaded'}</p>
+                  <p>No documents uploaded</p>
                   <button 
                     className={styles.primaryBtn} 
                     onClick={() => fileInputRef.current?.click()}
                     style={{ marginTop: '1rem' }}
                   >
                     <Upload size={18} />
-                    Upload Document
+                    Upload First Document
                   </button>
                 </div>
               )}

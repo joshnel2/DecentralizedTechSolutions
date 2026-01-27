@@ -1073,7 +1073,94 @@
   color: var(--apex-subtle);
 }
 
-/* Documents */
+/* Documents Table */
+.documentTable {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.documentTable table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.documentTable thead {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.documentTable th {
+  padding: var(--space-md) var(--space-lg);
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--apex-text);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.documentTable td {
+  padding: var(--space-md) var(--space-lg);
+  font-size: 0.875rem;
+  color: var(--apex-white);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.documentTable tbody tr {
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.documentTable tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.documentTable tbody tr.selectedRow {
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.documentTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.docNameCell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.docNameCell svg {
+  color: var(--apex-gold-bright);
+  flex-shrink: 0;
+}
+
+.docTableActions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.docTableActions button {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  color: var(--apex-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.docTableActions button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--apex-white);
+}
+
+/* Legacy doc styles for other pages */
 .docGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
