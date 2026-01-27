@@ -26,7 +26,7 @@ interface AppConfig {
 }
 
 const DEFAULT_CONFIG: AppConfig = {
-  driveLetter: 'Z',
+  driveLetter: 'B',
   autoStart: true,
   autoMount: true,
   startMinimized: false,

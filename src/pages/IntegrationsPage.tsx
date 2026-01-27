@@ -575,7 +575,7 @@ export function IntegrationsPage() {
           <div className={styles.desktopClientFeatures}>
             <div className={styles.featureItem}>
               <HardDrive size={18} />
-              <span>Virtual Z: Drive</span>
+              <span>Virtual B: Drive</span>
             </div>
             <div className={styles.featureItem}>
               <RefreshCw size={18} />

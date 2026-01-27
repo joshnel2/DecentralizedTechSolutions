@@ -331,10 +331,10 @@ function Dashboard() {
           <div className="card-content">
             <ol className="instructions-list">
               <li>
-                <strong>Click "Mount Drive"</strong> to create your Z: drive
+                <strong>Click "Mount Drive"</strong> to create your B: drive
               </li>
               <li>
-                <strong>Open Windows Explorer</strong> - you'll see Z: Apex Drive
+                <strong>Open Windows Explorer</strong> - you'll see B: Apex Drive
               </li>
               <li>
                 <strong>Browse your files</strong> - only files you have permission to access are shown

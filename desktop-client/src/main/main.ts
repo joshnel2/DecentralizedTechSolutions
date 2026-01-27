@@ -117,7 +117,7 @@ function updateTrayMenu(): void {
   const statusText = isConnected 
     ? (syncStatus?.syncing ? 'Syncing...' : 'Connected') 
     : 'Disconnected';
-  const driveText = isMounted ? `Z: Mounted` : 'Not Mounted';
+  const driveText = isMounted ? `B: Mounted` : 'Not Mounted';
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -135,7 +135,7 @@ function updateTrayMenu(): void {
     },
     { type: 'separator' },
     {
-      label: isMounted ? 'Open Z: Drive' : 'Mount Z: Drive',
+      label: isMounted ? 'Open B: Drive' : 'Mount B: Drive',
       enabled: isConnected,
       click: async () => {
         if (isMounted) {

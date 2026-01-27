@@ -1,14 +1,14 @@
 /**
  * Apex Drive Virtual Drive
  * 
- * Creates a mapped drive (Z:) that ONLY shows files the user has permission to access.
+ * Creates a mapped drive (B:) that ONLY shows files the user has permission to access.
  * Uses local sync folder + drive mapping - no special drivers needed.
  * 
  * How it works:
  * 1. Creates a local folder: C:\Users\{user}\ApexDrive
- * 2. Maps it to Z: drive using Windows subst command
+ * 2. Maps it to B: drive using Windows subst command
  * 3. Syncs ONLY files the user has permission to see (via API)
- * 4. User sees Z: drive in Explorer with only their permitted files
+ * 4. User sees B: drive in Explorer with only their permitted files
  */
 
 import { EventEmitter } from 'events';
@@ -26,12 +26,12 @@ const execAsync = promisify(exec);
 export class VirtualDrive extends EventEmitter {
   private apiClient: ApiClient;
   private mounted: boolean = false;
-  private driveLetter: string = 'Z';
+  private driveLetter: string = 'B';
   private localPath: string;
   private syncInProgress: boolean = false;
   private syncInterval: NodeJS.Timeout | null = null;
 
-  constructor(apiClient: ApiClient, driveLetter: string = 'Z') {
+  constructor(apiClient: ApiClient, driveLetter: string = 'B') {
     super();
     this.apiClient = apiClient;
     this.driveLetter = driveLetter;
