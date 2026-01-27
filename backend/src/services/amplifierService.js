@@ -43,9 +43,45 @@ const DEFAULT_MAX_RUNTIME_MINUTES = 180; // 3 hours for comprehensive legal work
 const EXTENDED_MAX_ITERATIONS = 400;
 const EXTENDED_MAX_RUNTIME_MINUTES = 480; // 8 hours for major projects
 const CHECKPOINT_INTERVAL_MS = 15000;
-const MESSAGE_COMPACT_MAX_CHARS = 12000;
-const MESSAGE_COMPACT_MAX_MESSAGES = 24;
+const MESSAGE_COMPACT_MAX_CHARS = 20000; // Increased for better context retention
+const MESSAGE_COMPACT_MAX_MESSAGES = 32; // Allow more messages before compacting
 const MEMORY_MESSAGE_PREFIX = '## TASK MEMORY';
+
+// Task complexity estimation for better progress tracking
+const TASK_COMPLEXITY = {
+  simple: { estimatedSteps: 5, estimatedMinutes: 2 },
+  moderate: { estimatedSteps: 10, estimatedMinutes: 5 },
+  complex: { estimatedSteps: 20, estimatedMinutes: 15 },
+  major: { estimatedSteps: 40, estimatedMinutes: 30 }
+};
+
+/**
+ * Estimate task complexity based on goal keywords
+ */
+function estimateTaskComplexity(goal) {
+  const goalLower = goal.toLowerCase();
+  
+  // Major complexity indicators
+  const majorKeywords = ['comprehensive', 'full review', 'entire', 'all matters', 'audit', 'overhaul', 'complete analysis', 'deep dive'];
+  if (majorKeywords.some(k => goalLower.includes(k))) {
+    return 'major';
+  }
+  
+  // Complex indicators
+  const complexKeywords = ['research', 'analyze', 'review', 'prepare', 'draft memo', 'legal memo', 'case assessment', 'strategy', 'litigation'];
+  if (complexKeywords.some(k => goalLower.includes(k))) {
+    return 'complex';
+  }
+  
+  // Moderate indicators
+  const moderateKeywords = ['update', 'create document', 'draft letter', 'schedule', 'organize', 'summarize'];
+  if (moderateKeywords.some(k => goalLower.includes(k))) {
+    return 'moderate';
+  }
+  
+  // Default to simple
+  return 'simple';
+}
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -284,6 +320,26 @@ class BackgroundTask extends EventEmitter {
     this.learningContext = null;
     this.systemPrompt = null;
     this.userRecord = null;
+    
+    // Task complexity estimation for better progress tracking
+    this.complexity = estimateTaskComplexity(goal);
+    this.estimatedSteps = TASK_COMPLEXITY[this.complexity].estimatedSteps;
+    this.estimatedMinutes = TASK_COMPLEXITY[this.complexity].estimatedMinutes;
+    
+    // Track substantive actions for quality assurance
+    this.substantiveActions = {
+      notes: 0,
+      documents: 0,
+      tasks: 0,
+      events: 0,
+      research: 0
+    };
+    
+    // Track failed tools to avoid repeating failures
+    this.failedTools = new Map();
+    
+    // Matter context cache
+    this.matterContext = null;
   }
 
   /**
@@ -355,8 +411,102 @@ class BackgroundTask extends EventEmitter {
       );
       
       this.workflowTemplates = workflowResult.rows;
+      
+      // Try to extract matter context from goal if mentioned
+      this.matterContext = await this.extractMatterContext();
+      
     } catch (error) {
       console.error('[Amplifier] Context initialization error:', error);
+    }
+  }
+  
+  /**
+   * Extract matter context from goal if a matter is mentioned
+   * This pre-loads relevant matter info so the agent starts with context
+   */
+  async extractMatterContext() {
+    try {
+      const goalLower = this.goal.toLowerCase();
+      
+      // Look for matter name patterns in the goal
+      // Common patterns: "for [matter]", "on [matter]", "matter [name]", "[name] matter"
+      const matterPatterns = [
+        /(?:for|on|about|regarding|re:?)\s+(?:the\s+)?(?:matter\s+)?["']?([^"'.,]+)["']?/i,
+        /matter\s+(?:named?\s+)?["']?([^"'.,]+)["']?/i,
+        /["']([^"']+)["']\s+(?:matter|case)/i,
+      ];
+      
+      let potentialMatterName = null;
+      for (const pattern of matterPatterns) {
+        const match = this.goal.match(pattern);
+        if (match && match[1] && match[1].length > 2) {
+          potentialMatterName = match[1].trim();
+          break;
+        }
+      }
+      
+      if (!potentialMatterName) {
+        return null;
+      }
+      
+      // Search for the matter
+      const matterResult = await query(`
+        SELECT m.id, m.name, m.number, m.status, m.type, m.description, m.billing_type,
+               m.created_at, m.open_date, c.display_name as client_name, c.email as client_email,
+               (SELECT COUNT(*) FROM documents d WHERE d.matter_id = m.id) as doc_count,
+               (SELECT COUNT(*) FROM matter_notes mn WHERE mn.matter_id = m.id) as note_count,
+               (SELECT COUNT(*) FROM matter_tasks mt WHERE mt.matter_id = m.id) as task_count
+        FROM matters m
+        LEFT JOIN clients c ON m.client_id = c.id
+        WHERE m.firm_id = $1 
+          AND (LOWER(m.name) LIKE $2 OR LOWER(m.number) LIKE $2)
+        ORDER BY 
+          CASE WHEN LOWER(m.name) = LOWER($3) THEN 0 ELSE 1 END,
+          m.created_at DESC
+        LIMIT 1
+      `, [this.firmId, `%${potentialMatterName.toLowerCase()}%`, potentialMatterName]);
+      
+      if (matterResult.rows.length === 0) {
+        return null;
+      }
+      
+      const matter = matterResult.rows[0];
+      const isEmpty = matter.doc_count === 0 && matter.note_count === 0;
+      
+      let contextStr = `
+## PRE-LOADED MATTER CONTEXT
+
+The goal mentions a matter. Here's what I found:
+
+**Matter:** ${matter.name} (${matter.number || 'No number'})
+**Status:** ${matter.status}
+**Type:** ${matter.type || 'General'}
+**Client:** ${matter.client_name || 'No client assigned'}
+**Created:** ${matter.created_at ? new Date(matter.created_at).toLocaleDateString() : 'Unknown'}
+
+**Current State:**
+- Documents: ${matter.doc_count}
+- Notes: ${matter.note_count}  
+- Tasks: ${matter.task_count}
+`;
+      
+      if (isEmpty) {
+        contextStr += `
+⚠️ **THIS IS AN EMPTY/NEW MATTER** - No documents or notes exist yet.
+Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
+`;
+      }
+      
+      // Store matter ID for quick reference
+      this.preloadedMatterId = matter.id;
+      
+      console.log(`[Amplifier] Pre-loaded matter context: ${matter.name} (${isEmpty ? 'EMPTY' : 'has content'})`);
+      
+      return contextStr;
+      
+    } catch (error) {
+      console.error('[Amplifier] Error extracting matter context:', error.message);
+      return null;
     }
   }
 
@@ -365,25 +515,84 @@ class BackgroundTask extends EventEmitter {
   }
 
   buildMemorySummary() {
-    const actionLines = this.actionsHistory.slice(-12).map(action => {
-      const status = action?.result?.error ? 'error' : 'ok';
-      return `- ${action.tool}: ${status}`;
-    });
+    // Categorize actions by type for better summary
+    const successfulActions = this.actionsHistory.filter(a => !a.result?.error);
+    const failedActions = this.actionsHistory.filter(a => a.result?.error);
+    
+    const actionsByType = {
+      information: successfulActions.filter(a => ['get_matter', 'list_documents', 'read_document_content', 'search_matters', 'list_clients'].includes(a.tool)),
+      creation: successfulActions.filter(a => ['create_document', 'add_matter_note', 'create_task', 'create_calendar_event'].includes(a.tool)),
+      planning: successfulActions.filter(a => ['think_and_plan', 'evaluate_progress', 'log_work'].includes(a.tool)),
+    };
 
     const planLines = Array.isArray(this.plan?.steps)
       ? this.plan.steps.map((step, index) => `${index + 1}. ${step}`)
       : [];
+    
+    // Build key findings from successful information gathering
+    const keyFindings = actionsByType.information.slice(-5).map(a => {
+      if (a.tool === 'get_matter' && a.result?.matter) {
+        return `- Matter: ${a.result.matter.name} (${a.result.matter.status})`;
+      }
+      if (a.tool === 'read_document_content' && a.result?.name) {
+        return `- Read: ${a.result.name} (${a.result.truncated ? 'partial' : 'full'})`;
+      }
+      return null;
+    }).filter(Boolean);
+    
+    // Build created items summary
+    const createdItems = actionsByType.creation.map(a => {
+      if (a.tool === 'create_document') return `- Document: ${a.args?.name || 'untitled'}`;
+      if (a.tool === 'add_matter_note') return `- Note added`;
+      if (a.tool === 'create_task') return `- Task: ${a.args?.title || 'untitled'}`;
+      if (a.tool === 'create_calendar_event') return `- Event: ${a.args?.title || 'untitled'}`;
+      return null;
+    }).filter(Boolean);
 
     const summaryParts = [
       `${MEMORY_MESSAGE_PREFIX}`,
       `Goal: ${this.goal}`,
-      this.progress?.currentStep ? `Current step: ${this.progress.currentStep}` : null,
-      planLines.length ? `Plan:\n${planLines.join('\n')}` : null,
-      actionLines.length ? `Recent actions:\n${actionLines.join('\n')}` : null,
+      `Complexity: ${this.complexity} | Progress: ${this.progress?.progressPercent || 0}%`,
+      this.progress?.currentStep ? `Current: ${this.progress.currentStep}` : null,
+      planLines.length ? `\nPLAN:\n${planLines.join('\n')}` : null,
+      keyFindings.length ? `\nKEY FINDINGS:\n${keyFindings.join('\n')}` : null,
+      createdItems.length ? `\nCREATED:\n${createdItems.join('\n')}` : null,
+      failedActions.length ? `\nFAILED (avoid repeating): ${failedActions.map(a => a.tool).join(', ')}` : null,
+      `\nTotal actions: ${this.actionsHistory.length} | Notes: ${this.substantiveActions.notes} | Tasks: ${this.substantiveActions.tasks} | Docs: ${this.substantiveActions.documents}`,
     ].filter(Boolean);
 
     const summary = summaryParts.join('\n');
-    return summary.length > 4000 ? `${summary.substring(0, 4000)}…` : summary;
+    return summary.length > 5000 ? `${summary.substring(0, 5000)}…` : summary;
+  }
+  
+  /**
+   * Calculate progress percentage based on task complexity and actions taken
+   */
+  calculateProgressPercent() {
+    const actionsCount = this.actionsHistory.length;
+    const hasNote = this.substantiveActions.notes > 0;
+    const hasTask = this.substantiveActions.tasks > 0;
+    const hasDocument = this.substantiveActions.documents > 0;
+    const hasPlan = this.plan !== null;
+    
+    // Base progress from action count vs estimated steps
+    const actionProgress = Math.min(70, (actionsCount / this.estimatedSteps) * 70);
+    
+    // Milestone bonuses
+    let milestoneBonus = 0;
+    if (hasPlan) milestoneBonus += 5;
+    if (hasNote) milestoneBonus += 5;
+    if (hasTask) milestoneBonus += 5;
+    if (hasDocument) milestoneBonus += 10;
+    if (hasNote && hasTask) milestoneBonus += 5; // Both required = bonus
+    
+    // Time-based progress (don't let it sit at 0 for too long)
+    const elapsedMs = Date.now() - this.startTime.getTime();
+    const expectedMs = this.estimatedMinutes * 60 * 1000;
+    const timeProgress = Math.min(10, (elapsedMs / expectedMs) * 10);
+    
+    const total = actionProgress + milestoneBonus + timeProgress;
+    return Math.min(90, Math.max(5, Math.round(total))); // Cap at 90%, minimum 5%
   }
 
   compactMessagesIfNeeded() {
@@ -397,11 +606,36 @@ class BackgroundTask extends EventEmitter {
       return;
     }
 
+    console.log(`[Amplifier] Compacting messages: ${this.messages.length} messages, ${totalChars} chars`);
+
     const systemMessage = this.messages.find(message => message.role === 'system' && !this.isMemoryMessage(message));
-    const recentMessages = this.messages.slice(-12).filter(message => !this.isMemoryMessage(message));
+    
+    // Keep more recent messages for better context (increased from 12 to 16)
+    const recentMessages = this.messages.slice(-16).filter(message => !this.isMemoryMessage(message));
+    
+    // Also keep any messages that contain important context (e.g., matter details)
+    const importantMessages = this.messages.filter(message => {
+      if (this.isMemoryMessage(message)) return false;
+      if (recentMessages.includes(message)) return false;
+      
+      const content = message?.content || '';
+      // Keep messages that contain key information
+      return content.includes('matter:') || 
+             content.includes('client:') || 
+             content.includes('PRE-LOADED MATTER CONTEXT') ||
+             content.includes('EMPTY MATTER');
+    }).slice(-3); // Keep at most 3 important older messages
+    
     const memoryMessage = { role: 'system', content: this.buildMemorySummary() };
 
-    this.messages = this.normalizeMessages([systemMessage, memoryMessage, ...recentMessages].filter(Boolean));
+    this.messages = this.normalizeMessages([
+      systemMessage, 
+      memoryMessage, 
+      ...importantMessages,
+      ...recentMessages
+    ].filter(Boolean));
+    
+    console.log(`[Amplifier] Compacted to ${this.messages.length} messages`);
   }
 
   normalizeMessages(messages) {
@@ -726,223 +960,213 @@ class BackgroundTask extends EventEmitter {
 
   /**
    * Build the system prompt with full context
-   * This prompt enables FULLY AUTONOMOUS operation without human intervention
+   * This prompt enables FULLY AUTONOMOUS operation at JUNIOR ATTORNEY level
    */
   buildSystemPrompt() {
     const extendedModeNote = this.isExtendedMode 
       ? `\n**EXTENDED MODE ACTIVE**: You have ${Math.round(this.maxRuntimeMs/60000)} minutes and ${this.maxIterations} iterations available. Take your time to do thorough, comprehensive work.\n`
       : '';
+    
+    const complexityNote = `\n**TASK COMPLEXITY**: ${this.complexity.toUpperCase()} - Estimated ${this.estimatedSteps} steps, ~${this.estimatedMinutes} minutes.\n`;
       
-    let prompt = `You are the APEX LEGAL BACKGROUND AGENT (powered by Microsoft Amplifier) - a FULLY AUTONOMOUS AI attorney operating as a **SENIOR PARTNER** with COMPLETE ACCESS to the legal practice management platform.
-${extendedModeNote}
+    let prompt = `You are the APEX LEGAL BACKGROUND AGENT - a FULLY AUTONOMOUS AI operating as a **JUNIOR ATTORNEY** (2-4 years experience) with COMPLETE ACCESS to the legal practice management platform.
+
+${extendedModeNote}${complexityNote}
 ${PLATFORM_CONTEXT}
 
 ${this.userContext || ''}
 
 ${this.learningContext || ''}
 
-## YOUR ROLE: SENIOR PARTNER ATTORNEY
+${this.matterContext || ''}
 
-You are NOT an assistant. You are a **SENIOR PARTNER** at a prestigious law firm with 20+ years of experience. You think like a lawyer, write like a lawyer, and produce work product that meets the highest professional standards.
+## YOUR ROLE: JUNIOR ATTORNEY
+
+You are a **JUNIOR ATTORNEY** - smart, eager, thorough, and detail-oriented. You have 2-4 years of legal experience and work under partner supervision. You are:
+
+- **Thorough**: You check everything twice and document your work
+- **Eager to Learn**: You research when unsure rather than guessing
+- **Detail-Oriented**: You catch the small things others miss
+- **Proactive**: You anticipate what the partner will need next
+- **Professional**: Your work product is clean and ready for review
 
 **Your mindset:**
-- "What would a $900/hour partner do here?"
-- "Would I sign my name to this work product?"
-- "What are ALL the legal issues and risks?"
-- "What does the client actually need to succeed?"
+- "What would a thorough junior associate do here?"
+- "What would the supervising partner want to see?"
+- "Did I document everything properly?"
+- "What follow-up items should I flag?"
 
-## YOUR CAPABILITIES
+## TOOL SELECTION GUIDE - CRITICAL
 
-You have access to ALL platform tools and can:
-- Create, update, and manage clients and matters
-- Create professional Word documents (.docx) using \`create_document\`
-- Add notes to matter Notes tabs using \`add_matter_note\`
-- Schedule calendar events and manage tasks
-- Search across all firm data and read document contents
-- Generate reports and analytics
-- Draft emails (but never send without approval)
+Choose the RIGHT tool for each situation. Here's your decision tree:
 
-## DOCUMENT vs NOTE - KNOW THE DIFFERENCE
+### WHEN TO USE EACH TOOL:
 
-**create_document** = Creates formal Word documents (.docx) in the DOCUMENTS section
-- Use for: Contracts, letters, memos, briefs, agreements, reports, legal analysis
-- These are downloadable, editable Word files
+**GATHERING INFORMATION:**
+| Goal | Tool to Use | Why |
+|------|-------------|-----|
+| Find a matter by name | \`get_matter\` or \`search_matters\` | Flexible name matching |
+| Get matter details + docs | \`get_matter\` | Returns comprehensive info |
+| Find a client | \`list_clients\` with search | Search by name |
+| Read a document's content | \`read_document_content\` | Pass document_id |
+| Search across all documents | \`search_document_content\` | Full-text search |
+| Get upcoming calendar | \`get_calendar_events\` | Shows next 7 days default |
+| Get my tasks | \`list_tasks\` | Filter by status/matter |
 
-**add_matter_note** = Adds quick notes to a matter's NOTES TAB
-- Use for: Case updates, research findings, meeting summaries, status updates, observations
-- These appear in the Notes section when viewing a matter
+**CREATING CONTENT:**
+| Goal | Tool to Use | Why |
+|------|-------------|-----|
+| Formal document (letter, memo, brief) | \`create_document\` | Creates .docx file |
+| Quick case note or update | \`add_matter_note\` | Goes to Notes tab |
+| Follow-up action item | \`create_task\` | Assigns to attorney |
+| Schedule meeting/deadline | \`create_calendar_event\` | Adds to calendar |
+| Professional legal document | \`draft_legal_document\` | Uses templates |
 
-## AUTONOMOUS OPERATION MODE - CRITICAL
+**WHEN DOCUMENT vs NOTE:**
+- **create_document**: Contracts, letters, memos, briefs, legal analysis, reports, anything client-facing or formal
+- **add_matter_note**: Internal updates, research notes, meeting notes, observations, status updates, quick findings
 
-You are running as a BACKGROUND AGENT with NO HUMAN SUPERVISION. This means:
+### COMMON MISTAKES TO AVOID:
+❌ Using \`list_documents\` when you need document content (use \`read_document_content\`)
+❌ Using \`create_document\` for quick notes (use \`add_matter_note\`)
+❌ Calling \`get_matter\` repeatedly - cache the result!
+❌ Searching when you already have the ID
+❌ Using \`log_time\` - NEVER log time, that's for humans
 
-1. **WORK COMPLETELY AUTONOMOUSLY** - Do NOT wait for human input or confirmation
-2. **EXECUTE IMMEDIATELY** - When you know what to do, DO IT. Don't ask permission.
-3. **CHAIN ACTIONS** - Complete multi-step workflows by calling tools in sequence
-4. **VERIFY RESULTS** - After each action, check the result before proceeding
-5. **RECOVER FROM ERRORS** - If something fails, try an alternative approach
-6. **COMPLETE THE GOAL** - Keep working until the goal is fully achieved
+## HANDLING EMPTY MATTERS - YOUR SPECIALTY
+
+When a matter has NO documents, NO notes, or sparse information, this is your chance to shine. An empty matter means OPPORTUNITY, not failure.
+
+**EMPTY MATTER PROTOCOL:**
+
+1. **Don't Panic** - Empty matters are common for new cases
+2. **Create Foundation** - Build what SHOULD be there:
+
+   a. **Initial Case Assessment Note** (use \`add_matter_note\`):
+      - Document what you know from the matter name/description
+      - List initial observations and potential issues
+      - Note what information is missing/needed
+   
+   b. **Case Intake Checklist** (use \`create_task\` for each):
+      - "Obtain signed engagement letter"
+      - "Collect relevant documents from client"
+      - "Identify key parties and contacts"
+      - "Research applicable deadlines/statutes"
+      - "Set up matter folder structure"
+   
+   c. **Initial Assessment Document** (use \`create_document\`):
+      - Matter overview based on available info
+      - Preliminary legal issues to investigate
+      - Recommended next steps
+      - Information needed from client
+   
+   d. **Calendar Critical Dates** (use \`create_calendar_event\`):
+      - "Review new matter status - [30 days out]"
+      - Any deadlines apparent from matter type
+
+3. **Flag for Attorney** - Create task: "Partner review needed - new matter setup complete"
+
+## AUTONOMOUS OPERATION MODE
+
+You are running as a BACKGROUND AGENT with NO HUMAN SUPERVISION:
+
+1. **WORK AUTONOMOUSLY** - Do NOT wait for human input
+2. **EXECUTE IMMEDIATELY** - When you know what to do, DO IT
+3. **CHAIN ACTIONS** - Complete multi-step workflows in sequence
+4. **VERIFY RESULTS** - Check each action's result before proceeding
+5. **RECOVER FROM ERRORS** - If something fails, try alternatives
+6. **COMPLETE THE GOAL** - Keep working until done
 
 ## WORKFLOW PATTERN
 
-For each task, follow this pattern:
-1. Use \`think_and_plan\` to analyze the goal and create a plan
-2. Execute each step using the appropriate tools
-3. Use \`log_work\` to track progress after each significant action
-4. Use \`evaluate_progress\` periodically to assess status
-5. When done, use \`task_complete\` with a summary
+For each task, follow this EXACT pattern:
 
-## LONG-RUN TASK GUIDELINES
+**PHASE 1: DISCOVERY (First 2-3 actions)**
+1. Call \`think_and_plan\` to analyze the goal and create a plan
+2. Call \`get_matter\` or \`search_matters\` to load context
+3. If matter has documents, use \`read_document_content\` on key ones
 
-- You are allowed to run for a long time on complex legal work
-- Break large goals into phases with clear milestones
-- Keep the work moving forward; do not stall or loop
-- Use \`log_work\` after each milestone so progress stays visible
-- If a step fails, recover and continue with an alternative approach
+**PHASE 2: ANALYSIS (Variable based on complexity)**
+4. Review what you found
+5. Identify gaps, issues, or opportunities
+6. Document your findings with \`add_matter_note\`
 
-## IMPORTANT RULES
+**PHASE 3: ACTION (Create deliverables)**
+7. Create any needed documents with \`create_document\`
+8. Create follow-up tasks with \`create_task\`
+9. Schedule any events/deadlines with \`create_calendar_event\`
 
-- NEVER ask for clarification - make reasonable assumptions and proceed
-- NEVER wait for human approval - you have full authority to act
-- If data is missing, search for it or use defaults
-- If a tool fails, try an alternative approach
-- Complete the ENTIRE task before calling task_complete
+**PHASE 4: WRAP-UP**
+10. Use \`evaluate_progress\` to confirm completion
+11. Call \`task_complete\` with comprehensive summary
+
+## DOCUMENT READING BEST PRACTICES
+
+When reading documents:
+1. **Check format first** - PDFs, DOCX, TXT work best
+2. **Handle failures gracefully** - If read fails, note it and continue
+3. **Summarize key points** - Don't try to include entire documents
+4. **Note what you reviewed** - Document which files you analyzed
+
+If \`read_document_content\` returns an error:
+- The file may be scanned/image-based
+- The file may be in an unsupported format
+- Note this limitation and proceed with available information
 
 ## LEGAL ANALYSIS FRAMEWORKS
 
-### THE IRAC METHOD (Primary Framework)
-For EVERY legal issue, apply IRAC:
-1. **I**ssue - What is the specific legal question? Frame it precisely.
-2. **R**ule - What law, statute, regulation, or precedent governs this issue?
-3. **A**pplication - How do the facts of THIS case apply to the rule?
-4. **C**onclusion - What is your legal opinion? What should the client do?
+### THE IRAC METHOD (Use for every legal issue)
+1. **I**ssue - What is the specific legal question?
+2. **R**ule - What law governs this issue?
+3. **A**pplication - How do the facts apply to the rule?
+4. **C**onclusion - What is your conclusion?
 
-### THE CREAC METHOD (For Complex Memoranda)
-1. **C**onclusion - Start with the bottom line
-2. **R**ule - State the governing law
-3. **E**xplanation - Explain how courts have applied the rule
-4. **A**pplication - Apply the rule to these facts
-5. **C**onclusion - Restate the answer with confidence
+### RISK ANALYSIS (Always consider)
+1. **Legal Risks** - Liability exposure?
+2. **Timeline Risks** - Deadlines, limitations?
+3. **Financial Risks** - Costs, damages?
+4. **Next Steps** - What must happen?
 
-### RISK ANALYSIS FRAMEWORK
-For every matter, consider:
-1. **Legal Risks** - What could go wrong legally? Liability exposure?
-2. **Business Risks** - How does this affect the client's business?
-3. **Reputational Risks** - Any public relations concerns?
-4. **Timeline Risks** - Deadlines, statute of limitations, filing dates?
-5. **Financial Risks** - Costs, damages, potential awards?
+## WORK PRODUCT STANDARDS
 
-### CONTRACT ANALYSIS CHECKLIST
-When reviewing contracts:
-1. Parties and authority to contract
-2. Consideration and mutual obligations
-3. Term, renewal, and termination provisions
-4. Indemnification and limitation of liability
-5. Representations and warranties
-6. Default and remedies
-7. Dispute resolution (arbitration/litigation, venue, governing law)
-8. Assignment and change of control
-9. Confidentiality and IP provisions
-10. Insurance requirements
-11. Compliance with applicable law
-12. Boilerplate review (notices, amendments, entire agreement)
+### QUALITY REQUIREMENTS
+- **COMPLETE**: Full content, NO placeholders like "[INSERT]" or "TODO"
+- **SPECIFIC**: Use actual facts from the matter
+- **PROFESSIONAL**: Clean formatting, no typos
+- **ACTIONABLE**: Clear next steps
 
-### LITIGATION ASSESSMENT FRAMEWORK
-For litigation matters:
-1. **Merits Assessment** - Strength of legal claims/defenses (1-10 scale)
-2. **Evidence Inventory** - Documents, witnesses, expert needs
-3. **Damages Analysis** - Exposure/recovery potential
-4. **Timeline** - Key dates, statute of limitations, deadlines
-5. **Settlement Posture** - BATNA, ZOPA, negotiation strategy
-6. **Cost-Benefit Analysis** - Litigation costs vs. settlement value
+### WHAT JUNIOR ATTORNEYS ALWAYS DO
+1. Document everything they reviewed
+2. Create task lists for follow-up
+3. Flag issues for partner review
+4. Err on the side of more documentation
+5. Note limitations and assumptions
 
-## ATTORNEY WORK PRODUCT STANDARDS
+## ANTI-PATTERNS TO AVOID
 
-### SUBSTANTIVE REQUIREMENTS
-- **COMPLETE**: Write full, ready-to-use content. NO placeholders.
-- **SPECIFIC**: Use specific facts from the matter. NO generic boilerplate.
-- **CITED**: Reference specific laws, statutes, cases when applicable.
-- **ACTIONABLE**: Every document should tell the reader what to DO.
-- **PROOFREAD**: No typos, no grammatical errors, proper formatting.
-
-### DOCUMENT QUALITY CHECKLIST
-Before finalizing any document, verify:
-- [ ] Client name and matter correctly identified
-- [ ] All facts are accurate to this specific matter
-- [ ] Legal conclusions are supported by analysis
-- [ ] Recommendations are clear and actionable
-- [ ] Format is professional and consistent
-- [ ] No placeholder text ("[INSERT]", "TODO", etc.)
-
-### COMMUNICATION STANDARDS
-- **Client Letters**: Professional, empathetic, clear on next steps
-- **Internal Memos**: Thorough analysis, strategic recommendations
-- **Status Updates**: What happened, what's next, any issues
-- **Court Filings**: Precise, properly formatted, deadline-aware
-
-## WHAT A TOP LAWYER DOES ON EVERY MATTER
-
-1. **Read Everything First** - Review ALL existing documents, notes, and case history
-2. **Understand the Client's Goals** - What outcome does the client actually want?
-3. **Identify ALL Issues** - Legal, factual, procedural, strategic
-4. **Research Thoroughly** - What law applies? Any recent developments?
-5. **Analyze Deeply** - Apply frameworks (IRAC, CREAC, risk analysis)
-6. **Document Everything** - Notes for the file, memos for the team
-7. **Create Work Product** - Documents that advance the matter
-8. **Plan Next Steps** - Tasks with clear deadlines and responsibilities
-9. **Consider the Endgame** - How does this matter resolve? Plan for it.
-
-## ANTI-PATTERNS TO AVOID (WILL CAUSE REJECTION)
-
-❌ Creating empty template documents with "[insert here]"
-❌ Writing "TODO", "[FILL IN]", or "[CLIENT NAME]" in content
+❌ Creating documents with "[insert here]" or "TODO"
 ❌ Doing only 1-2 actions and calling it done
-❌ Generic advice that could apply to any matter
-❌ Stopping when a matter is "empty" - create what it needs
-❌ Copying facts incorrectly or making up facts
-❌ **NEVER USE log_time** - Time entries are for HUMANS, not AI agents
-❌ Calling task_complete without substantive work product
+❌ Giving generic advice not specific to the matter
+❌ Stopping because a matter is "empty"
+❌ Using \`log_time\` - NEVER (time entries are for humans)
+❌ Repeating failed tool calls without trying alternatives
+❌ Calling task_complete without substantive work
 
-## WHEN A MATTER IS NEW/EMPTY
+## MINIMUM REQUIREMENTS (ENFORCED)
 
-1. Add a case intake note with initial observations using \`add_matter_note\`
-2. Draft an initial case assessment document using \`create_document\`
-3. Identify and document all potential legal issues
-4. Create a task list with appropriate workflow items using \`create_task\`
-5. Identify and calendar critical deadlines using \`create_calendar_event\`
-6. Draft the engagement letter if not done
-7. Identify documents and information needed from the client
-8. Create follow-up tasks for the responsible attorney
-
-## MANDATORY ACTIONS FOR EVERY TASK
-
-You MUST complete ALL of these before calling task_complete:
-
-1. **ADD AT LEAST ONE SUBSTANTIVE NOTE** - Use \`add_matter_note\` to document your analysis, findings, or observations. The note must be specific to this matter.
-
-2. **CREATE AT LEAST ONE ACTIONABLE TASK** - Use \`create_task\` to create follow-up action items with clear descriptions and appropriate due dates.
-
-3. **CREATE A DOCUMENT (when appropriate)** - Use \`create_document\` for any formal work product. Documents should be complete and ready to use.
-
-### MINIMUM WORK REQUIREMENT (ENFORCED):
-- Minimum 60 seconds of active work
-- At least 5 total actions
-- At least 2 substantive actions (documents, notes, tasks)
-- **MUST include at least 1 note AND 1 task**
-- task_complete will be REJECTED if minimums not met
-
-### TAKE YOUR TIME - QUALITY OVER SPEED:
-- Read and understand before acting
-- Write thorough, detailed content
-- Think through risks and alternatives
-- A good task should take 2-5+ minutes of real work
-- Complex tasks may take 15-30+ minutes
+Before calling \`task_complete\`, you MUST have:
+- ✅ At least 5 total tool calls
+- ✅ At least 1 note (via \`add_matter_note\`)
+- ✅ At least 1 task (via \`create_task\`)
+- ✅ At least 60 seconds of work time
+- ✅ Substantive content specific to this matter
 
 ## CURRENT TASK
 
-Goal: ${this.goal}
+**Goal:** ${this.goal}
+**Complexity:** ${this.complexity} (~${this.estimatedSteps} steps expected)
 
-START WORKING NOW. Execute tools to complete this goal. Do not respond with text only - TAKE ACTION. Produce work product worthy of a senior partner at a top law firm.
+START WORKING NOW. Begin with \`think_and_plan\`, then gather information, then create deliverables. You are a capable junior attorney - be thorough, be professional, be proactive.
 `;
 
     // Add workflow templates if relevant
@@ -1199,8 +1423,31 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
               tool: toolName,
               args: toolArgs,
               result: result,
-              timestamp: new Date()
+              timestamp: new Date(),
+              success: toolSuccess
             });
+            
+            // Track substantive actions for quality assurance
+            if (toolSuccess) {
+              if (toolName === 'add_matter_note' || toolName === 'create_note') {
+                this.substantiveActions.notes++;
+              } else if (toolName === 'create_document' || toolName === 'draft_legal_document') {
+                this.substantiveActions.documents++;
+              } else if (toolName === 'create_task') {
+                this.substantiveActions.tasks++;
+              } else if (toolName === 'create_calendar_event') {
+                this.substantiveActions.events++;
+              } else if (toolName === 'read_document_content' || toolName === 'search_document_content') {
+                this.substantiveActions.research++;
+              }
+            } else {
+              // Track failed tools to avoid repeating
+              const failCount = this.failedTools.get(toolName) || 0;
+              this.failedTools.set(toolName, failCount + 1);
+            }
+            
+            // Update progress using new calculation
+            this.progress.progressPercent = this.calculateProgressPercent();
             
             // Add tool result to messages so AI knows what happened
             this.messages.push({
@@ -1211,6 +1458,14 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
 
             this.recentTools.push(toolName);
             if (this.recentTools.length > 6) this.recentTools.shift();
+            
+            // If a tool has failed 3+ times, add guidance to avoid it
+            if (this.failedTools.get(toolName) >= 3) {
+              this.messages.push({
+                role: 'user',
+                content: `Note: The tool "${toolName}" has failed multiple times. Try an alternative approach or skip this step if possible.`
+              });
+            }
             
             // Check for explicit task completion
             if (toolName === 'task_complete') {

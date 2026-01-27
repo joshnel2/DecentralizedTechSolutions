@@ -1059,63 +1059,156 @@ async function extractDocumentText(doc, firmId) {
   return null;
 }
 
+// Supported file formats for text extraction
+const SUPPORTED_TEXT_FORMATS = ['.pdf', '.docx', '.doc', '.txt', '.md', '.json', '.csv', '.xml', '.html', '.htm', '.rtf'];
+const UNSUPPORTED_FORMATS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.mp3', '.mp4', '.wav', '.avi', '.mov', '.zip', '.rar', '.exe'];
+
+function getFileExtension(filename) {
+  if (!filename) return '';
+  const lastDot = filename.lastIndexOf('.');
+  if (lastDot === -1) return '';
+  return filename.substring(lastDot).toLowerCase();
+}
+
 async function readDocumentContent(params, userId, firmId) {
   const { document_id, max_length = 10000 } = params;
   
+  if (!document_id) {
+    return { 
+      error: 'document_id is required',
+      suggestion: 'Use list_documents to find document IDs first'
+    };
+  }
+  
   try {
     const result = await query(`
-      SELECT name, original_name, content_text, path, external_path, azure_path, type 
+      SELECT name, original_name, content_text, path, external_path, azure_path, type, size, created_at
       FROM documents 
       WHERE id = $1 AND firm_id = $2
     `, [document_id, firmId]);
     
-    if (!result.rows.length) return { error: 'Document not found' };
+    if (!result.rows.length) {
+      return { 
+        error: 'Document not found',
+        suggestion: 'Check the document_id or use list_documents to find valid IDs'
+      };
+    }
     
     const doc = result.rows[0];
+    const fileName = doc.original_name || doc.name || 'document';
+    const ext = getFileExtension(fileName);
     let content = doc.content_text || '';
-    const safeMax = Number.isFinite(Number(max_length)) ? Math.min(Number(max_length), 50000) : 10000;
+    const safeMax = Number.isFinite(Number(max_length)) ? Math.min(Number(max_length), 100000) : 10000;
     
+    // Check if format is known to be unsupported
+    if (UNSUPPORTED_FORMATS.includes(ext)) {
+      return {
+        success: false,
+        name: fileName,
+        error: `Cannot extract text from ${ext} files`,
+        file_type: ext,
+        file_size: doc.size,
+        suggestion: ext.match(/\.(jpg|jpeg|png|gif|bmp|tiff)$/i) 
+          ? 'This is an image file. Use analyze_image if you need to understand its contents.'
+          : 'This file format does not contain extractable text.',
+        created_at: doc.created_at
+      };
+    }
+    
+    // If no stored content, try to extract
     if (!content) {
+      // Check if format is likely supported
+      const isLikelySupported = SUPPORTED_TEXT_FORMATS.includes(ext) || ext === '';
+      
+      if (!isLikelySupported) {
+        return {
+          success: false,
+          name: fileName,
+          content: '',
+          file_type: ext || 'unknown',
+          file_size: doc.size,
+          note: `File format "${ext || 'unknown'}" may not be supported for text extraction. The document exists but content could not be read.`,
+          suggestion: 'You can still reference this document exists - just note that you could not read its contents.',
+          created_at: doc.created_at
+        };
+      }
+      
       try {
-        // Add timeout protection for document extraction (30 seconds)
-        const extractionTimeout = 30000;
+        // Add timeout protection for document extraction (45 seconds for larger files)
+        const extractionTimeout = doc.size > 5000000 ? 60000 : 30000; // 60s for >5MB, else 30s
         const extractionPromise = extractDocumentText(doc, firmId);
         const timeoutPromise = new Promise((resolve) => 
           setTimeout(() => resolve(null), extractionTimeout)
         );
         
+        console.log(`[Amplifier Tool] Extracting content from ${fileName} (${ext}, ${doc.size} bytes)`);
+        
         const extracted = await Promise.race([extractionPromise, timeoutPromise]);
         
-        if (extracted) {
+        if (extracted && extracted.trim().length > 0) {
           content = extracted;
           try {
             await query(
               `UPDATE documents SET content_text = $1, content_extracted_at = NOW() WHERE id = $2`,
-              [content.substring(0, 100000), document_id] // Limit stored content to 100K chars
+              [content.substring(0, 200000), document_id] // Limit stored content to 200K chars
             );
-          } catch (error) {
-            console.error('[Amplifier Tool] Failed to store extracted content:', error.message);
+            console.log(`[Amplifier Tool] Stored extracted content: ${content.length} chars`);
+          } catch (storeError) {
+            console.error('[Amplifier Tool] Failed to store extracted content:', storeError.message);
           }
+        } else {
+          console.log(`[Amplifier Tool] Extraction returned empty for ${fileName}`);
         }
       } catch (extractError) {
         console.error('[Amplifier Tool] Document extraction failed:', extractError.message);
-        // Continue without extracted content rather than crashing
+        // Continue - we'll return appropriate message below
       }
     }
     
-    return {
-      success: true,
-      name: doc.original_name || doc.name,
-      content: content.substring(0, safeMax),
-      truncated: content.length > safeMax,
-      length: content.length,
-      note: content ? undefined : 'No extracted text available for this document - file may be unsupported format'
-    };
+    // Return result with appropriate messaging
+    if (content && content.trim().length > 0) {
+      const truncatedContent = content.substring(0, safeMax);
+      const isTruncated = content.length > safeMax;
+      
+      return {
+        success: true,
+        name: fileName,
+        file_type: ext || doc.type,
+        content: truncatedContent,
+        content_length: content.length,
+        truncated: isTruncated,
+        truncated_at: isTruncated ? safeMax : null,
+        created_at: doc.created_at,
+        note: isTruncated 
+          ? `Document truncated at ${safeMax.toLocaleString()} characters. Full document is ${content.length.toLocaleString()} characters.`
+          : null
+      };
+    } else {
+      // No content available
+      return {
+        success: false,
+        name: fileName,
+        file_type: ext || doc.type,
+        file_size: doc.size,
+        content: '',
+        note: 'No text content could be extracted from this document.',
+        possible_reasons: [
+          'The file may be a scanned image/PDF without OCR',
+          'The file may be password-protected',
+          'The file format may not be fully supported',
+          'The file may be corrupted or empty'
+        ],
+        suggestion: 'Document exists but content is not readable. Note this limitation and proceed with other available information.',
+        created_at: doc.created_at
+      };
+    }
   } catch (error) {
     console.error('[Amplifier Tool] readDocumentContent error:', error.message);
     return { 
+      success: false,
       error: 'Failed to read document content',
-      details: error.message 
+      details: error.message,
+      suggestion: 'This may be a temporary error. You can try again or proceed without this document.'
     };
   }
 }
