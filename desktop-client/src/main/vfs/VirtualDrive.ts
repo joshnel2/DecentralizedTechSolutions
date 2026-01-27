@@ -148,36 +148,39 @@ export class VirtualDrive extends EventEmitter {
       log.info('Syncing files (only user-permitted files)...');
 
       // Get matters the user has access to (API filters by permissions)
-      const mattersResponse = await this.apiClient.getMatters();
-      const matters = mattersResponse.matters || mattersResponse;
-      const structure = (mattersResponse as any).structure;
-      log.info(`User has access to ${Array.isArray(matters) ? matters.length : 0} matters`);
+      const matters = await this.apiClient.getMatters();
+      log.info(`User has access to ${matters.length} matters`);
 
-      // Use Clio-style A-Z folder structure
-      if (structure && Array.isArray(structure)) {
-        // Create letter folders (A, B, C, etc.)
-        for (const letterGroup of structure) {
-          const letterPath = path.join(this.localPath, letterGroup.letter);
-          await fs.mkdir(letterPath, { recursive: true });
-          
-          // Create matter folders inside each letter
-          for (const matter of letterGroup.matters) {
-            await this.syncMatterInLetter(matter, letterPath);
-          }
+      // Group matters by first letter of client name (A-Z structure)
+      const mattersByLetter = new Map<string, Matter[]>();
+      
+      for (const matter of matters) {
+        // Get first letter of client name, default to '#' for numbers/special chars
+        const clientName = matter.clientName || matter.name || 'Unknown';
+        let letter = clientName.charAt(0).toUpperCase();
+        if (!/[A-Z]/.test(letter)) {
+          letter = '#'; // Numbers and special characters go in '#' folder
         }
-      } else {
-        // Fallback: Create Matters folder with flat structure
-        const mattersPath = path.join(this.localPath, 'Matters');
-        await fs.mkdir(mattersPath, { recursive: true });
+        
+        if (!mattersByLetter.has(letter)) {
+          mattersByLetter.set(letter, []);
+        }
+        mattersByLetter.get(letter)!.push(matter);
+      }
 
-        const mattersList = Array.isArray(matters) ? matters : [];
-        for (const matter of mattersList) {
-          await this.syncMatter(matter, mattersPath);
+      // Create letter folders (A, B, C, etc.) and sync matters
+      for (const [letter, letterMatters] of mattersByLetter) {
+        const letterPath = path.join(this.localPath, letter);
+        await fs.mkdir(letterPath, { recursive: true });
+        
+        // Create matter folders inside each letter
+        for (const matter of letterMatters) {
+          await this.syncMatterInLetter(matter, letterPath);
         }
       }
 
-      // Clean up matters user no longer has access to
-      await this.cleanupRemovedMatters(Array.isArray(matters) ? matters : [], this.localPath);
+      // Clean up removed matters
+      await this.cleanupRemovedMatters(matters, this.localPath);
 
       this.emit('syncCompleted');
       log.info('File sync completed');
@@ -191,13 +194,15 @@ export class VirtualDrive extends EventEmitter {
   }
 
   /**
-   * Sync a matter inside a letter folder (Clio-style: /A/Anderson - Case/)
+   * Sync a matter inside a letter folder (Clio-style: /A/Anderson - Case 123/)
    */
-  private async syncMatterInLetter(matter: any, letterPath: string): Promise<void> {
-    // Use folderName from API or construct from client + matter name
-    const matterFolderName = this.sanitizeFolderName(
-      matter.folderName || matter.name
-    );
+  private async syncMatterInLetter(matter: Matter, letterPath: string): Promise<void> {
+    // Folder name: "ClientName - MatterNumber MatterName" or "ClientName - MatterName"
+    const clientName = matter.clientName || 'Unknown Client';
+    const matterName = matter.number 
+      ? `${matter.number} ${matter.name}`
+      : matter.name;
+    const matterFolderName = this.sanitizeFolderName(`${clientName} - ${matterName}`);
     const matterPath = path.join(letterPath, matterFolderName);
 
     try {
@@ -214,7 +219,12 @@ export class VirtualDrive extends EventEmitter {
 
       // Store matter ID mapping
       const metaPath = path.join(matterPath, '.apex-matter');
-      await fs.writeFile(metaPath, JSON.stringify({ matterId: matter.id, name: matter.name }));
+      await fs.writeFile(metaPath, JSON.stringify({ 
+        matterId: matter.id, 
+        name: matter.name,
+        number: matter.number,
+        clientName: matter.clientName
+      }));
       // Hide the metadata file on Windows
       try {
         await execAsync(`attrib +h "${metaPath}"`);
@@ -348,26 +358,65 @@ export class VirtualDrive extends EventEmitter {
   }
 
   /**
-   * Clean up matters the user no longer has access to
+   * Clean up matters the user no longer has access to (handles A-Z structure)
    */
-  private async cleanupRemovedMatters(currentMatters: Matter[], mattersPath: string): Promise<void> {
+  private async cleanupRemovedMatters(currentMatters: Matter[], basePath: string): Promise<void> {
     try {
-      const existingFolders = await fs.readdir(mattersPath);
-      const currentMatterNames = new Set(
-        currentMatters.map(m => this.sanitizeFolderName(
-          m.number ? `${m.number} - ${m.name}` : m.name
-        ))
+      // Build set of current matter folder names (including client name)
+      const currentMatterFolders = new Set(
+        currentMatters.map(m => {
+          const clientName = m.clientName || 'Unknown Client';
+          const matterName = m.number ? `${m.number} ${m.name}` : m.name;
+          return this.sanitizeFolderName(`${clientName} - ${matterName}`);
+        })
       );
 
+      // Get the first letter for each matter
+      const currentLetters = new Set(
+        currentMatters.map(m => {
+          const clientName = m.clientName || m.name || 'Unknown';
+          let letter = clientName.charAt(0).toUpperCase();
+          return /[A-Z]/.test(letter) ? letter : '#';
+        })
+      );
+
+      // Iterate through letter folders
+      const existingFolders = await fs.readdir(basePath);
+      
       for (const folder of existingFolders) {
-        if (!currentMatterNames.has(folder)) {
-          // User no longer has access to this matter - remove it
-          const folderPath = path.join(mattersPath, folder);
-          try {
-            await fs.rm(folderPath, { recursive: true });
-            log.info(`Removed matter folder (no longer accessible): ${folder}`);
-          } catch (e) {
-            log.error(`Failed to remove folder ${folder}:`, e);
+        // Skip hidden files
+        if (folder.startsWith('.')) continue;
+        
+        const folderPath = path.join(basePath, folder);
+        const stat = await fs.stat(folderPath).catch(() => null);
+        if (!stat?.isDirectory()) continue;
+
+        // Check if this is a letter folder (A-Z or #)
+        if (folder.length === 1 && (/[A-Z#]/.test(folder))) {
+          if (!currentLetters.has(folder)) {
+            // No matters for this letter anymore - remove entire letter folder
+            try {
+              await fs.rm(folderPath, { recursive: true });
+              log.info(`Removed letter folder (no matters): ${folder}`);
+            } catch (e) {
+              log.error(`Failed to remove letter folder ${folder}:`, e);
+            }
+          } else {
+            // Letter folder still needed - check individual matter folders inside
+            const matterFolders = await fs.readdir(folderPath);
+            for (const matterFolder of matterFolders) {
+              if (matterFolder.startsWith('.')) continue;
+              
+              if (!currentMatterFolders.has(matterFolder)) {
+                const matterPath = path.join(folderPath, matterFolder);
+                try {
+                  await fs.rm(matterPath, { recursive: true });
+                  log.info(`Removed matter folder (no longer accessible): ${folder}/${matterFolder}`);
+                } catch (e) {
+                  log.error(`Failed to remove matter folder ${matterFolder}:`, e);
+                }
+              }
+            }
           }
         }
       }
