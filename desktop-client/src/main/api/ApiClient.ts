@@ -62,11 +62,14 @@ export interface VirtualFolder {
 }
 
 export interface LoginResponse {
-  token: string;
+  accessToken: string;
   refreshToken: string;
   user: User;
-  expiresIn: number;
+  expiresIn?: number;
 }
+
+// Alias for compatibility
+export type { LoginResponse as AuthResponse };
 
 export interface CreateFileResponse {
   documentId: string;

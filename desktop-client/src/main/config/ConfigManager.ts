@@ -30,7 +30,7 @@ const DEFAULT_CONFIG: AppConfig = {
   autoStart: true,
   autoMount: true,
   startMinimized: false,
-  serverUrl: 'https://api.apexlegal.com',
+  serverUrl: 'https://strappedai-gpfra9f8gsg9d9hy.canadacentral-01.azurewebsites.net',
   syncInterval: 30000, // 30 seconds
   cacheDir: '',
   maxCacheSize: 5 * 1024 * 1024 * 1024, // 5GB

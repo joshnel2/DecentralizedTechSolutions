@@ -6,7 +6,7 @@ interface LoginProps {
 }
 
 // Default server URL - can be overridden by IT admin during deployment
-const DEFAULT_SERVER_URL = process.env.APEX_SERVER_URL || 'https://api.apexlegal.com';
+const DEFAULT_SERVER_URL = process.env.APEX_SERVER_URL || 'https://strappedai-gpfra9f8gsg9d9hy.canadacentral-01.azurewebsites.net';
 
 function Login({ onSuccess }: LoginProps) {
   const [email, setEmail] = useState('');
@@ -206,7 +206,7 @@ function Login({ onSuccess }: LoginProps) {
                 id="serverUrl"
                 value={serverUrl}
                 onChange={(e) => setServerUrl(e.target.value)}
-                placeholder="https://api.apexlegal.com"
+                placeholder="https://strappedai.com"
               />
               <small>Only change this if directed by your IT administrator</small>
             </div>

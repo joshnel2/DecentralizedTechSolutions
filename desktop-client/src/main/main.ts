@@ -33,7 +33,7 @@ let configManager: ConfigManager | null = null;
 const store = new Store({
   name: 'apex-drive-settings',
   defaults: {
-    serverUrl: process.env.APEX_SERVER_URL || 'https://api.apexlegal.com',
+    serverUrl: process.env.APEX_SERVER_URL || 'https://strappedai-gpfra9f8gsg9d9hy.canadacentral-01.azurewebsites.net',
     syncInterval: 30000, // 30 seconds
     cacheDir: '',
     maxCacheSize: 5 * 1024 * 1024 * 1024, // 5GB
@@ -242,12 +242,12 @@ function setupIpcHandlers(): void {
       const tempClient = new ApiClient(credentials.serverUrl);
       const result = await tempClient.login(credentials.email, credentials.password);
       
-      await authManager?.saveToken(result.token, result.refreshToken);
+      await authManager?.saveToken(result.accessToken, result.refreshToken);
       authManager?.saveUserInfo(result.user);
       
       // Initialize full app
       apiClient = tempClient;
-      apiClient.setToken(result.token);
+      apiClient.setToken(result.accessToken);
       
       // Initialize other components
       syncEngine = new SyncEngine(apiClient, configManager!);
