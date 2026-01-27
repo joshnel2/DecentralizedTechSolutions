@@ -684,7 +684,7 @@ export function DocumentsPage() {
         </div>
       )}
 
-      {/* Folder Browser View (Clio-style) */}
+      {/* Folder Browser View - Documents organized by Matter */}
       {viewMode === 'folders' && (
         <ErrorBoundary>
           <FolderBrowser
@@ -696,7 +696,7 @@ export function DocumentsPage() {
               if (fullDoc) {
                 setVersionPanelDoc(fullDoc)
               } else {
-                // For Azure-only documents, create a compatible document object
+                // Create a compatible document object for display
                 setVersionPanelDoc({
                   id: doc.id,
                   name: doc.name || 'Unknown',
@@ -709,7 +709,7 @@ export function DocumentsPage() {
                   tags: [],
                   isConfidential: false,
                   matterId: doc.matterId,
-                  folderPath: doc.folderPath,
+                  matterName: doc.matterName,
                 } as any)
               }
             }}

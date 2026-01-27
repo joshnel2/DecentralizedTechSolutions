@@ -2,16 +2,10 @@ import { useState, useEffect, useCallback } from 'react'
 import { 
   Folder, FolderOpen, FileText, ChevronRight, ChevronDown,
   RefreshCw, Home, File, FileSpreadsheet, FileImage, 
-  FilePlus, Loader2, AlertCircle, Lock, Download, List, FolderTree
+  Loader2, AlertCircle, Download, Briefcase
 } from 'lucide-react'
 import { driveApi } from '../services/api'
 import styles from './FolderBrowser.module.css'
-
-interface FolderItem {
-  path: string
-  name: string
-  fileCount?: number
-}
 
 interface DocumentItem {
   id: string
@@ -21,7 +15,6 @@ interface DocumentItem {
   size: number
   folderPath?: string
   path?: string
-  azurePath?: string
   matterId?: string
   matterName?: string
   matterNumber?: string
@@ -30,27 +23,24 @@ interface DocumentItem {
   versionCount?: number
   isOwned?: boolean
   privacyLevel?: string
-  isFromAzure?: boolean
-  storageLocation?: string
+}
+
+interface MatterFolder {
+  id: string
+  name: string
+  caseNumber?: string
+  folderPath: string
 }
 
 interface BrowseResult {
-  firmFolder: string
-  currentPath?: string
   isAdmin: boolean
   files: DocumentItem[]
-  folders: string[]
-  matters?: { id: string; name: string; caseNumber?: string; folderPath: string }[]
+  matters?: MatterFolder[]
+  hasUnassigned?: boolean
   stats: {
     totalFiles: number
     totalSize: number
-    mattersWithFiles?: number
-    totalFolders?: number
-  }
-  azureConfig?: {
-    configured: boolean
-    shareName?: string
-    connectionPath?: string
+    totalMatters?: number
   }
   configured?: boolean
   message?: string
@@ -76,54 +66,13 @@ export function FolderBrowser({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [browseData, setBrowseData] = useState<BrowseResult | null>(null)
-  const [currentPath, setCurrentPath] = useState('')
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
-  const [folderTree, setFolderTree] = useState<Map<string, FolderItem[]>>(new Map())
+  const [selectedMatterId, setSelectedMatterId] = useState<string | null>(null) // null = all, 'unassigned' = no matter
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [syncing, setSyncing] = useState(false)
   const [pageSize] = useState(100) // Show 100 docs at a time
   const [currentPage, setCurrentPage] = useState(0)
 
-  // Build folder tree from flat folder list
-  const buildFolderTree = useCallback((folders: string[]) => {
-    const tree = new Map<string, FolderItem[]>()
-    tree.set('', []) // Root level
-    
-    // Sort folders for consistent ordering
-    const sortedFolders = [...folders].sort()
-    
-    for (const folderPath of sortedFolders) {
-      if (!folderPath) continue
-      
-      const parts = folderPath.split('/').filter(p => p)
-      let currentParent = ''
-      
-      for (let i = 0; i < parts.length; i++) {
-        const partPath = parts.slice(0, i + 1).join('/')
-        const parentPath = i === 0 ? '' : parts.slice(0, i).join('/')
-        
-        if (!tree.has(parentPath)) {
-          tree.set(parentPath, [])
-        }
-        
-        // Check if this folder already exists in parent
-        const siblings = tree.get(parentPath)!
-        if (!siblings.find(f => f.path === partPath)) {
-          siblings.push({
-            path: partPath,
-            name: parts[i]
-          })
-        }
-        
-        currentParent = partPath
-      }
-    }
-    
-    return tree
-  }, [])
-
-  // Fetch files from database (instant)
+  // Fetch documents from database
   const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -131,37 +80,13 @@ export function FolderBrowser({
     try {
       const result = await driveApi.browseAllFiles(searchQuery || undefined)
       setBrowseData(result)
-      
-      if (result.folders) {
-        const tree = buildFolderTree(result.folders)
-        setFolderTree(tree)
-      }
     } catch (err: any) {
       console.error('Failed to load files:', err)
       setError(err.message || 'Failed to load documents')
     } finally {
       setLoading(false)
     }
-  }, [buildFolderTree, searchQuery])
-  
-  // Sync from Azure (runs in background)
-  const syncFromAzure = useCallback(async () => {
-    setSyncing(true)
-    try {
-      const result = await driveApi.syncFromAzure()
-      console.log('Sync started:', result)
-      alert(result.message || 'Sync started. Refresh the page in a few minutes.')
-      // Refresh after a delay
-      setTimeout(() => {
-        fetchData()
-        setSyncing(false)
-      }, 5000)
-    } catch (err: any) {
-      console.error('Sync failed:', err)
-      alert('Sync failed: ' + err.message)
-      setSyncing(false)
-    }
-  }, [fetchData])
+  }, [searchQuery])
 
   // Fetch on mount
   useEffect(() => {
@@ -176,36 +101,22 @@ export function FolderBrowser({
     return () => clearTimeout(timer)
   }, [searchQuery])
   
-  // Download file (handles both database and Azure files)
+  // Download file from database
   const downloadFile = async (doc: DocumentItem, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
     
     setDownloadingId(doc.id)
     
     try {
-      let blob: Blob
-      
-      // Check if this is an Azure file
-      if (doc.isFromAzure || doc.storageLocation === 'azure' || doc.id.startsWith('azure-')) {
-        // Use the full Azure path for download
-        // Priority: azurePath > path > constructed path
-        const downloadPath = doc.azurePath || doc.path || 
-          (doc.folderPath ? `${doc.folderPath}/${doc.name}` : doc.name)
-        
-        console.log('[FolderBrowser] Downloading Azure file:', downloadPath)
-        blob = await driveApi.downloadAzureFile(downloadPath)
-      } else {
-        // Use standard document download for database files
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
-        const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
-        const response = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
-        if (!response.ok) {
-          throw new Error('Download failed')
-        }
-        blob = await response.blob()
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+      const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
+      const response = await fetch(`${apiUrl}/documents/${doc.id}/download`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (!response.ok) {
+        throw new Error('Download failed')
       }
+      const blob = await response.blob()
       
       // Create download link
       const url = window.URL.createObjectURL(blob)
@@ -225,31 +136,10 @@ export function FolderBrowser({
     }
   }
 
-  // Toggle folder expansion
-  const toggleFolder = (path: string) => {
-    const newExpanded = new Set(expandedFolders)
-    if (newExpanded.has(path)) {
-      newExpanded.delete(path)
-    } else {
-      newExpanded.add(path)
-    }
-    setExpandedFolders(newExpanded)
-  }
-
-  // Navigate to folder
-  const navigateToFolder = (path: string) => {
-    setCurrentPath(path)
-    onFolderSelect?.(path)
-    
-    // Expand parent folders
-    const parts = path.split('/').filter(p => p)
-    const newExpanded = new Set(expandedFolders)
-    let currentParent = ''
-    for (const part of parts) {
-      currentParent = currentParent ? `${currentParent}/${part}` : part
-      newExpanded.add(currentParent)
-    }
-    setExpandedFolders(newExpanded)
+  // Select a matter to filter documents
+  const selectMatter = (matterId: string | null) => {
+    setSelectedMatterId(matterId)
+    onFolderSelect?.(matterId || '')
   }
 
   // Get file icon based on type
@@ -284,46 +174,11 @@ export function FolderBrowser({
     return `${size.toFixed(1)} ${units[unitIndex]}`
   }
 
-  // Render folder tree recursively
-  const renderFolderTree = (parentPath: string = '', level: number = 0) => {
-    const children = folderTree.get(parentPath) || []
-    if (children.length === 0) return null
-
-    return children.map(folder => {
-      const isExpanded = expandedFolders.has(folder.path)
-      const isSelected = currentPath === folder.path
-      const hasChildren = folderTree.has(folder.path) && (folderTree.get(folder.path)?.length || 0) > 0
-      
-      return (
-        <div key={folder.path} className={styles.folderItem}>
-          <div 
-            className={`${styles.folderRow} ${isSelected ? styles.selected : ''}`}
-            style={{ paddingLeft: `${level * 16 + 8}px` }}
-            onClick={() => navigateToFolder(folder.path)}
-          >
-            <span 
-              className={styles.expandIcon}
-              onClick={(e) => { e.stopPropagation(); toggleFolder(folder.path) }}
-            >
-              {hasChildren ? (
-                isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />
-              ) : (
-                <span style={{ width: 14 }} />
-              )}
-            </span>
-            {isExpanded ? <FolderOpen size={16} className={styles.folderIcon} /> : <Folder size={16} className={styles.folderIcon} />}
-            <span className={styles.folderName}>{folder.name}</span>
-          </div>
-          {isExpanded && renderFolderTree(folder.path, level + 1)}
-        </div>
-      )
-    })
-  }
-
-  // Filter documents by current path
+  // Filter documents by selected matter
   const allCurrentDocuments = browseData?.files?.filter(f => {
-    if (!currentPath) return true
-    return f.folderPath === currentPath || f.folderPath?.startsWith(currentPath + '/')
+    if (selectedMatterId === null) return true // All documents
+    if (selectedMatterId === 'unassigned') return !f.matterId // No matter assigned
+    return f.matterId === selectedMatterId // Specific matter
   }) || []
   
   // Paginate to prevent rendering too many items
@@ -333,13 +188,15 @@ export function FolderBrowser({
     (currentPage + 1) * pageSize
   )
 
-  // Get breadcrumb path parts
-  const pathParts = currentPath.split('/').filter(p => p)
+  // Get current matter name for breadcrumb
+  const currentMatterName = selectedMatterId === 'unassigned' 
+    ? 'Unassigned'
+    : browseData?.matters?.find(m => m.id === selectedMatterId)?.name
   
-  // Reset page when path changes
+  // Reset page when matter changes
   useEffect(() => {
     setCurrentPage(0)
-  }, [currentPath, searchQuery])
+  }, [selectedMatterId, searchQuery])
 
   if (loading && !browseData) {
     return (
@@ -379,50 +236,41 @@ export function FolderBrowser({
             <button onClick={fetchData} className={styles.refreshBtn} title="Refresh">
               <RefreshCw size={16} />
             </button>
-            <button 
-              onClick={syncFromAzure} 
-              className={styles.syncBtn} 
-              disabled={syncing}
-              title="Sync from Azure"
-            >
-              {syncing ? <Loader2 size={16} className={styles.spinner} /> : <Download size={16} />}
-              {syncing ? 'Syncing...' : 'Sync from Azure'}
-            </button>
           </div>
         </div>
       )}
 
       <div className={styles.content}>
-        {/* Folder Tree Sidebar */}
+        {/* Matter Sidebar */}
         <div className={styles.sidebar}>
           <div className={styles.sidebarHeader}>
-            <span>Folders</span>
+            <span>Matters</span>
             {browseData?.stats && (
               <span className={styles.statsCount}>{browseData.stats.totalFiles} files</span>
             )}
           </div>
           <div className={styles.folderTree}>
-            {/* Root folder */}
+            {/* All Documents */}
             <div 
-              className={`${styles.folderRow} ${!currentPath ? styles.selected : ''}`}
-              onClick={() => navigateToFolder('')}
+              className={`${styles.folderRow} ${selectedMatterId === null ? styles.selected : ''}`}
+              onClick={() => selectMatter(null)}
             >
               <Home size={16} className={styles.folderIcon} />
               <span className={styles.folderName}>All Documents</span>
             </div>
             
-            {/* Matter folders */}
+            {/* Matters with documents */}
             {browseData?.matters && browseData.matters.length > 0 && (
               <div className={styles.matterSection}>
                 <div className={styles.sectionLabel}>Matters</div>
                 {browseData.matters.map(matter => (
                   <div
                     key={matter.id}
-                    className={`${styles.folderRow} ${currentPath === matter.folderPath ? styles.selected : ''}`}
-                    onClick={() => navigateToFolder(matter.folderPath)}
+                    className={`${styles.folderRow} ${selectedMatterId === matter.id ? styles.selected : ''}`}
+                    onClick={() => selectMatter(matter.id)}
                     style={{ paddingLeft: '16px' }}
                   >
-                    <Folder size={14} className={styles.folderIcon} />
+                    <Briefcase size={14} className={styles.folderIcon} />
                     <span className={styles.folderName} title={matter.name}>
                       {matter.caseNumber ? `${matter.caseNumber} - ` : ''}{matter.name}
                     </span>
@@ -431,11 +279,15 @@ export function FolderBrowser({
               </div>
             )}
 
-            {/* Custom folders from Clio */}
-            {folderTree.size > 0 && (
-              <div className={styles.customFolders}>
-                <div className={styles.sectionLabel}>Folders</div>
-                {renderFolderTree()}
+            {/* Unassigned documents */}
+            {browseData?.hasUnassigned && (
+              <div 
+                className={`${styles.folderRow} ${selectedMatterId === 'unassigned' ? styles.selected : ''}`}
+                onClick={() => selectMatter('unassigned')}
+                style={{ paddingLeft: '16px', marginTop: '8px' }}
+              >
+                <Folder size={14} className={styles.folderIcon} />
+                <span className={styles.folderName}>Unassigned</span>
               </div>
             )}
           </div>
@@ -443,29 +295,17 @@ export function FolderBrowser({
 
         {/* Document List */}
         <div className={styles.main}>
-          {/* Breadcrumb / Actions */}
+          {/* Breadcrumb */}
           <div className={styles.breadcrumb}>
-            <button onClick={() => setCurrentPath('')} className={styles.breadcrumbItem}>
+            <button onClick={() => selectMatter(null)} className={styles.breadcrumbItem}>
               <Home size={14} />
               <span>All Documents</span>
             </button>
-            {currentPath && (
+            {currentMatterName && (
               <>
                 <ChevronRight size={14} className={styles.breadcrumbSep} />
-                <span className={styles.breadcrumbItem}>{currentPath}</span>
+                <span className={styles.breadcrumbItem}>{currentMatterName}</span>
               </>
-            )}
-            {/* Sync button when header is hidden */}
-            {!showHeader && (
-              <button 
-                onClick={syncFromAzure} 
-                className={styles.inlineSyncBtn} 
-                disabled={syncing}
-                title="Sync from Azure"
-              >
-                {syncing ? <Loader2 size={14} className={styles.spinner} /> : <Download size={14} />}
-                {syncing ? 'Syncing...' : 'Sync from Azure'}
-              </button>
             )}
           </div>
 
@@ -494,7 +334,7 @@ export function FolderBrowser({
               <thead>
                 <tr>
                   <th>Name</th>
-                  <th>Folder</th>
+                  <th>Matter</th>
                   <th>Size</th>
                   <th>Actions</th>
                 </tr>
@@ -507,7 +347,7 @@ export function FolderBrowser({
                         <FolderOpen size={32} />
                         <p>{browseData?.message || 'No documents found'}</p>
                         <p className={styles.emptyHint}>
-                          Click "Sync from Azure" to load documents from Azure storage
+                          Upload documents to your matters to see them here
                         </p>
                       </div>
                     </td>
@@ -523,28 +363,22 @@ export function FolderBrowser({
                         <div className={styles.nameCell}>
                           {getFileIcon(doc.contentType, doc.name)}
                           <span className={styles.docName}>{doc.originalName || doc.name}</span>
-                          {doc.isFromAzure && (
-                            <span className={styles.azureBadge} title="Stored in Azure">Azure</span>
-                          )}
                           {doc.isOwned && (
                             <span className={styles.ownedBadge} title="You own this document">Owner</span>
                           )}
                         </div>
                       </td>
                       <td className={styles.folderCell}>
-                        {doc.folderPath ? (
+                        {doc.matterName ? (
                           <button 
                             className={styles.folderLink}
-                            onClick={(e) => { e.stopPropagation(); navigateToFolder(doc.folderPath!); }}
-                            title={doc.folderPath}
+                            onClick={(e) => { e.stopPropagation(); selectMatter(doc.matterId!); }}
+                            title={doc.matterName}
                           >
-                            {doc.folderPath.length > 30 
-                              ? '...' + doc.folderPath.slice(-30) 
-                              : doc.folderPath
-                            }
+                            {doc.matterNumber ? `${doc.matterNumber} - ` : ''}{doc.matterName}
                           </button>
                         ) : (
-                          <span className={styles.rootFolder}>Root</span>
+                          <span className={styles.rootFolder}>Unassigned</span>
                         )}
                       </td>
                       <td>{formatSize(doc.size)}</td>
@@ -602,10 +436,10 @@ export function FolderBrowser({
               <span>{browseData.stats.totalFiles} total files</span>
               <span className={styles.divider}>•</span>
               <span>{formatSize(browseData.stats.totalSize)}</span>
-              {browseData.source === 'cache' && (
+              {browseData.stats.totalMatters && (
                 <>
                   <span className={styles.divider}>•</span>
-                  <span className={styles.cacheIndicator}>Cached</span>
+                  <span>{browseData.stats.totalMatters} matters</span>
                 </>
               )}
             </div>

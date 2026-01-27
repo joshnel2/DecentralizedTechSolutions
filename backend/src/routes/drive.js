@@ -2146,72 +2146,129 @@ router.get('/download-azure', authenticate, async (req, res) => {
 });
 
 /**
- * APEX DRIVE - Get files from database (instant load)
- * Background sync keeps database updated automatically
+ * APEX DRIVE - Get documents from database organized by matters
+ * Displays all documents the user has access to, grouped by their associated matters
  */
 router.get('/browse-all', authenticate, async (req, res) => {
   try {
     const { search } = req.query;
     const firmId = req.user.firmId;
+    const userId = req.user.id;
     const userRole = req.user.role;
-    const firmFolder = `firm-${firmId}`;
     
     // Check if user is admin
     const isAdmin = userRole === 'owner' || userRole === 'admin';
     
-    // Get files from database with reasonable limit
-    let sql = `
-      SELECT id, name, original_name, type, size, folder_path, 
-             COALESCE(external_path, path) as azure_path
-      FROM documents 
-      WHERE firm_id = $1
-    `;
-    const params = [firmId];
-    
-    if (search) {
-      sql += ` AND (name ILIKE $2 OR folder_path ILIKE $2)`;
-      params.push(`%${search}%`);
+    // Get user's accessible matter IDs (for non-admins)
+    let userMatterIds = [];
+    if (!isAdmin) {
+      const userMattersResult = await query(`
+        SELECT DISTINCT m.id FROM matters m
+        WHERE m.firm_id = $1 AND (
+          m.responsible_attorney = $2
+          OR m.originating_attorney = $2
+          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
+        )
+      `, [firmId, userId]);
+      userMatterIds = userMattersResult.rows.map(r => r.id);
     }
     
-    // Limit results to prevent overload
-    sql += ` ORDER BY folder_path, name LIMIT 2000`;
+    // Get documents from database with matter information
+    let sql = `
+      SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path,
+             d.uploaded_at, d.uploaded_by, d.matter_id, d.path,
+             m.name as matter_name, m.number as matter_number,
+             u.first_name || ' ' || u.last_name as uploaded_by_name
+      FROM documents d
+      LEFT JOIN matters m ON d.matter_id = m.id
+      LEFT JOIN users u ON d.uploaded_by = u.id
+      WHERE d.firm_id = $1
+    `;
+    const params = [firmId];
+    let paramIndex = 2;
+    
+    // Apply permission filter for non-admins
+    if (!isAdmin) {
+      if (userMatterIds.length > 0) {
+        sql += ` AND (d.uploaded_by = $${paramIndex} OR d.owner_id = $${paramIndex} OR d.privacy_level = 'firm' OR d.matter_id = ANY($${paramIndex + 1}))`;
+        params.push(userId, userMatterIds);
+        paramIndex += 2;
+      } else {
+        sql += ` AND (d.uploaded_by = $${paramIndex} OR d.owner_id = $${paramIndex} OR d.privacy_level = 'firm')`;
+        params.push(userId);
+        paramIndex++;
+      }
+    }
+    
+    // Search filter
+    if (search) {
+      sql += ` AND (d.name ILIKE $${paramIndex} OR d.original_name ILIKE $${paramIndex} OR m.name ILIKE $${paramIndex})`;
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+    
+    // Order by matter name then document name
+    sql += ` ORDER BY m.name NULLS LAST, d.name LIMIT 2000`;
     
     const result = await query(sql, params);
     
-    // Build folder tree
-    const folderSet = new Set();
+    // Get all matters with documents for the folder tree
+    const mattersResult = await query(`
+      SELECT DISTINCT m.id, m.name, m.number
+      FROM matters m
+      INNER JOIN documents d ON d.matter_id = m.id
+      WHERE m.firm_id = $1
+      ${!isAdmin && userMatterIds.length > 0 ? `AND m.id = ANY($2)` : ''}
+      ORDER BY m.name
+    `, !isAdmin && userMatterIds.length > 0 ? [firmId, userMatterIds] : [firmId]);
+    
+    // Build files list with matter-based folder paths
     const files = result.rows.map(row => {
-      if (row.folder_path) {
-        folderSet.add(row.folder_path);
-        // Add parent folders
-        const parts = row.folder_path.split('/');
-        for (let i = 1; i < parts.length; i++) {
-          folderSet.add(parts.slice(0, i).join('/'));
-        }
-      }
+      // Use matter name as the folder path if document has a matter
+      const folderPath = row.matter_name 
+        ? (row.matter_number ? `${row.matter_number} - ${row.matter_name}` : row.matter_name)
+        : 'Unassigned';
+      
       return {
         id: row.id,
         name: row.name,
         originalName: row.original_name || row.name,
         contentType: row.type,
         size: row.size || 0,
-        folderPath: row.folder_path || '',
-        path: row.azure_path,
-        azurePath: row.azure_path,
-        storageLocation: 'azure',
-        isFromAzure: true
+        folderPath: folderPath,
+        matterId: row.matter_id,
+        matterName: row.matter_name,
+        matterNumber: row.matter_number,
+        uploadedAt: row.uploaded_at,
+        uploadedByName: row.uploaded_by_name,
+        path: row.path,
+        // No Azure references
+        isFromAzure: false,
+        storageLocation: 'database'
       };
     });
+    
+    // Build matters list for sidebar
+    const matters = mattersResult.rows.map(m => ({
+      id: m.id,
+      name: m.name,
+      caseNumber: m.number,
+      folderPath: m.number ? `${m.number} - ${m.name}` : m.name
+    }));
+    
+    // Add "Unassigned" folder if there are documents without matters
+    const hasUnassigned = files.some(f => !f.matterId);
     
     return res.json({
       configured: true,
       isAdmin,
-      firmFolder,
       files,
-      folders: Array.from(folderSet).sort(),
+      matters,
+      hasUnassigned,
       stats: { 
         totalFiles: files.length, 
-        totalFolders: folderSet.size,
+        totalMatters: matters.length,
         totalSize: files.reduce((sum, f) => sum + (f.size || 0), 0)
       },
       source: 'database',
@@ -2220,7 +2277,7 @@ router.get('/browse-all', authenticate, async (req, res) => {
     
   } catch (error) {
     console.error('Browse error:', error);
-    res.status(500).json({ error: 'Failed to load files', files: [], folders: [] });
+    res.status(500).json({ error: 'Failed to load files', files: [], folders: [], matters: [] });
   }
 });
 
