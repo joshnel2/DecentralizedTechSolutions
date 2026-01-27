@@ -19,12 +19,15 @@ const router = Router();
 
 /**
  * Get all matters the user has access to
- * Returns matter list for the virtual drive root
+ * Returns matter list organized by first letter (Clio-style)
+ * Structure: /A/Anderson - Personal Injury/, /B/Baker v Smith/, etc.
  */
 router.get('/matters', authenticate, async (req, res) => {
   try {
     const userId = req.user.id;
     const firmId = req.user.firmId;
+    
+    console.log(`[DRIVE API] Get matters for user ${req.user.email}, firmId: ${firmId}`);
     
     // Get matters where user is assigned (via matter_permissions or as responsible attorney)
     const result = await query(`
@@ -35,7 +38,7 @@ router.get('/matters', authenticate, async (req, res) => {
         m.description,
         m.status,
         m.client_id as "clientId",
-        c.name as "clientName",
+        c.display_name as "clientName",
         m.created_at as "createdAt",
         m.updated_at as "updatedAt"
       FROM matters m
@@ -44,8 +47,9 @@ router.get('/matters', authenticate, async (req, res) => {
       WHERE m.firm_id = $1
         AND m.status != 'closed'
         AND (
-          m.responsible_attorney_id = $2
-          OR m.originating_attorney_id = $2
+          m.responsible_attorney = $2
+          OR m.originating_attorney = $2
+          OR m.created_by = $2
           OR mp.user_id = $2
           OR EXISTS (
             SELECT 1 FROM users u 
@@ -54,10 +58,52 @@ router.get('/matters', authenticate, async (req, res) => {
             AND u.role IN ('owner', 'admin')
           )
         )
-      ORDER BY m.updated_at DESC NULLS LAST, m.created_at DESC
+      ORDER BY m.name ASC
     `, [firmId, userId]);
 
-    res.json({ matters: result.rows });
+    console.log(`[DRIVE API] Found ${result.rows.length} matters for user`);
+
+    // Build Clio-style folder structure: first letter -> matter folders
+    const letterFolders = {};
+    
+    result.rows.forEach(matter => {
+      // Get folder name: "ClientName - MatterName" or just "MatterName"
+      const folderName = matter.clientName 
+        ? `${matter.clientName} - ${matter.name}`
+        : matter.name;
+      
+      // Get first letter (uppercase)
+      const firstLetter = (folderName.charAt(0) || 'Z').toUpperCase();
+      
+      if (!letterFolders[firstLetter]) {
+        letterFolders[firstLetter] = [];
+      }
+      
+      letterFolders[firstLetter].push({
+        id: matter.id,
+        name: matter.name,
+        number: matter.number,
+        folderName: folderName,
+        clientName: matter.clientName,
+        status: matter.status,
+        createdAt: matter.createdAt,
+        updatedAt: matter.updatedAt
+      });
+    });
+
+    // Convert to array sorted by letter
+    const structure = Object.keys(letterFolders)
+      .sort()
+      .map(letter => ({
+        letter,
+        matters: letterFolders[letter]
+      }));
+
+    res.json({ 
+      matters: result.rows,
+      structure,
+      totalMatters: result.rows.length
+    });
   } catch (error) {
     console.error('[DRIVE API] Get matters error:', error);
     res.status(500).json({ error: 'Failed to fetch matters' });
@@ -698,8 +744,9 @@ async function verifyMatterAccess(userId, matterId, firmId) {
     LEFT JOIN matter_permissions mp ON mp.matter_id = m.id
     WHERE m.id = $1 AND m.firm_id = $2
       AND (
-        m.responsible_attorney_id = $3
-        OR m.originating_attorney_id = $3
+        m.responsible_attorney = $3
+        OR m.originating_attorney = $3
+        OR m.created_by = $3
         OR mp.user_id = $3
         OR EXISTS (
           SELECT 1 FROM users u 
