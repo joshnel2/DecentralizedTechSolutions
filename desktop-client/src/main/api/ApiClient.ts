@@ -91,11 +91,12 @@ export class ApiClient extends EventEmitter {
   private wsClient: WebSocket | null = null;
   private token: string | null = null;
   private serverUrl: string;
-  private connected: boolean = false;
+  private wsConnected: boolean = false;
+  private httpConnected: boolean = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectAttempts: number = 0;
-  private maxReconnectAttempts: number = 10;
-  private reconnectDelay: number = 1000;
+  private maxReconnectAttempts: number = 3; // Reduced since WebSocket may not be available
+  private reconnectDelay: number = 2000;
 
   constructor(serverUrl: string, token?: string | null) {
     super();
@@ -120,7 +121,11 @@ export class ApiClient extends EventEmitter {
 
     // Add response error interceptor
     this.httpClient.interceptors.response.use(
-      (response) => response,
+      (response) => {
+        // Successful HTTP response means we're connected
+        this.httpConnected = true;
+        return response;
+      },
       async (error: AxiosError) => {
         if (error.response?.status === 401) {
           this.emit('unauthorized');
@@ -129,25 +134,44 @@ export class ApiClient extends EventEmitter {
       }
     );
 
-    // Connect WebSocket if we have a token
+    // Try to connect WebSocket if we have a token (optional - server may not support it)
     if (this.token) {
-      this.connectWebSocket();
+      this.tryConnectWebSocket();
     }
   }
 
   public setToken(token: string): void {
     this.token = token;
-    this.connectWebSocket();
-  }
-
-  public isConnected(): boolean {
-    return this.connected;
+    this.httpConnected = true; // If we have a token, assume HTTP works
+    this.tryConnectWebSocket();
   }
 
   /**
-   * Connect to WebSocket for real-time updates
+   * Check if connected - HTTP connection is sufficient, WebSocket is optional
    */
-  private connectWebSocket(): void {
+  public isConnected(): boolean {
+    return this.httpConnected || this.wsConnected;
+  }
+
+  /**
+   * Check if WebSocket is connected (for real-time features)
+   */
+  public isWebSocketConnected(): boolean {
+    return this.wsConnected;
+  }
+
+  /**
+   * Mark HTTP as connected (called after successful login)
+   */
+  public setHttpConnected(connected: boolean): void {
+    this.httpConnected = connected;
+  }
+
+  /**
+   * Try to connect to WebSocket for real-time updates (optional feature)
+   * If the server doesn't support WebSocket, HTTP-only mode works fine
+   */
+  private tryConnectWebSocket(): void {
     if (this.wsClient) {
       this.wsClient.close();
     }
@@ -164,8 +188,8 @@ export class ApiClient extends EventEmitter {
       });
 
       this.wsClient.on('open', () => {
-        log.info('WebSocket connected');
-        this.connected = true;
+        log.info('WebSocket connected (real-time updates enabled)');
+        this.wsConnected = true;
         this.reconnectAttempts = 0;
         this.emit('connected');
       });
@@ -180,19 +204,21 @@ export class ApiClient extends EventEmitter {
       });
 
       this.wsClient.on('close', () => {
-        log.info('WebSocket disconnected');
-        this.connected = false;
-        this.emit('disconnected');
+        log.debug('WebSocket disconnected');
+        this.wsConnected = false;
+        // Don't emit disconnected - HTTP is still working
         this.scheduleReconnect();
       });
 
       this.wsClient.on('error', (error) => {
-        log.error('WebSocket error:', error);
-        this.emit('error', error);
+        // WebSocket is optional - log but don't treat as critical
+        log.debug('WebSocket not available (server may not support it):', (error as Error).message);
+        this.wsConnected = false;
       });
     } catch (error) {
-      log.error('Failed to create WebSocket:', error);
-      this.scheduleReconnect();
+      // WebSocket is optional - just log and continue
+      log.debug('WebSocket connection failed (using HTTP-only mode)');
+      this.wsConnected = false;
     }
   }
 
@@ -202,18 +228,17 @@ export class ApiClient extends EventEmitter {
     }
 
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      log.error('Max reconnect attempts reached');
-      this.emit('reconnectFailed');
+      log.debug('WebSocket reconnect attempts exhausted, continuing with HTTP-only mode');
       return;
     }
 
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts);
     this.reconnectAttempts++;
 
-    log.info(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    log.debug(`WebSocket reconnect in ${delay}ms (attempt ${this.reconnectAttempts})`);
 
     this.reconnectTimer = setTimeout(() => {
-      this.connectWebSocket();
+      this.tryConnectWebSocket();
     }, delay);
   }
 
@@ -247,7 +272,8 @@ export class ApiClient extends EventEmitter {
       this.wsClient.close();
       this.wsClient = null;
     }
-    this.connected = false;
+    this.wsConnected = false;
+    this.httpConnected = false;
   }
 
   // Authentication

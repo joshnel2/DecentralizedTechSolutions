@@ -110,6 +110,10 @@ function updateTrayMenu(): void {
   if (!tray) return;
 
   const isConnected = apiClient?.isConnected() ?? false;
+  const syncStatus = syncEngine?.getStatus();
+  const statusText = isConnected 
+    ? (syncStatus?.syncing ? 'Syncing...' : 'Connected') 
+    : 'Disconnected';
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -118,7 +122,7 @@ function updateTrayMenu(): void {
     },
     { type: 'separator' },
     {
-      label: `Status: ${isConnected ? 'Connected' : 'Disconnected'}`,
+      label: `Status: ${statusText}`,
       enabled: false,
     },
     { type: 'separator' },
@@ -191,7 +195,8 @@ async function initializeApp(): Promise<void> {
   // Verify token is valid
   try {
     await apiClient.verifyToken();
-    log.info('Token verified successfully');
+    apiClient.setHttpConnected(true); // Mark HTTP as connected after token verification
+    log.info('Token verified successfully - connected to server');
   } catch (error) {
     log.error('Token verification failed:', error);
     await createWindow();
@@ -248,6 +253,7 @@ function setupIpcHandlers(): void {
       // Initialize full app
       apiClient = tempClient;
       apiClient.setToken(result.accessToken);
+      apiClient.setHttpConnected(true); // Mark HTTP as connected after successful login
       
       // Initialize other components
       syncEngine = new SyncEngine(apiClient, configManager!);
@@ -256,6 +262,7 @@ function setupIpcHandlers(): void {
       createTray();
       updateTrayMenu();
       
+      log.info('Login successful for user:', result.user.email);
       return { success: true, user: result.user };
     } catch (error) {
       log.error('Login failed:', error);

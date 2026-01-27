@@ -2,6 +2,7 @@
  * Apex Drive Sync Engine
  * 
  * Handles synchronization status and notifications.
+ * Works with HTTP-only backend (no WebSocket required).
  */
 
 import { EventEmitter } from 'events';
@@ -32,13 +33,14 @@ export class SyncEngine extends EventEmitter {
   private maxLogs: number = 1000;
   
   private lastSyncTime: Date | null = null;
+  private httpConnected: boolean = false;
 
   constructor(apiClient: ApiClient, configManager: ConfigManager) {
     super();
     this.apiClient = apiClient;
     this.configManager = configManager;
 
-    // Listen for server-side changes
+    // Listen for server-side changes (if WebSocket available)
     this.apiClient.on('fileChanged', () => {
       this.addLog('info', 'File changed on server');
     });
@@ -91,6 +93,13 @@ export class SyncEngine extends EventEmitter {
   }
 
   /**
+   * Check if we have HTTP connectivity to the server
+   */
+  public isHttpConnected(): boolean {
+    return this.httpConnected;
+  }
+
+  /**
    * Trigger sync immediately
    */
   public async syncNow(): Promise<void> {
@@ -103,21 +112,17 @@ export class SyncEngine extends EventEmitter {
     this.emit('syncStarted');
 
     try {
-      // Check connection
-      const connected = this.apiClient.isConnected();
-      if (!connected) {
-        this.addLog('info', 'Not connected to server, skipping sync');
-        return;
-      }
-
-      // Get sync status from server
-      const status = await this.apiClient.getSyncStatus();
+      // Try to verify the connection by making an API call
+      // This works even without WebSocket
+      const matters = await this.apiClient.getMatters();
       
+      this.httpConnected = true;
       this.lastSyncTime = new Date();
-      this.addLog('info', 'Sync completed successfully');
+      this.addLog('info', `Sync completed - ${matters.length} matters available`);
       
-      this.emit('syncCompleted', { lastSync: this.lastSyncTime });
+      this.emit('syncCompleted', { lastSync: this.lastSyncTime, matterCount: matters.length });
     } catch (error) {
+      this.httpConnected = false;
       const message = error instanceof Error ? error.message : 'Unknown error';
       log.error('Sync failed:', message);
       this.addLog('error', `Sync failed: ${message}`);
