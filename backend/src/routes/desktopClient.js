@@ -16,7 +16,7 @@ const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'apex-jwt-secret-change-me';
 
 // Desktop client download info
-const DOWNLOAD_URL_WINDOWS = process.env.APEX_DESKTOP_DOWNLOAD_URL || 'https://github.com/joshnel2/DecentralizedTechSolutions/releases/download/v1.0.1/ApexDriveSetup.exe';
+const DOWNLOAD_URL_WINDOWS = process.env.APEX_DESKTOP_DOWNLOAD_URL || 'https://github.com/joshnel2/DecentralizedTechSolutions/releases/download/v1.0.2/Apex.Drive.Setup.1.0.0.exe';
 
 const DESKTOP_CLIENT_INFO = {
   version: '1.0.0',
