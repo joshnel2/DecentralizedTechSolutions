@@ -5,82 +5,23 @@ interface LoginProps {
   onSuccess: () => void;
 }
 
-// Default server URL - can be overridden by IT admin during deployment
-const DEFAULT_SERVER_URL = process.env.APEX_SERVER_URL || 'https://strappedai-gpfra9f8gsg9d9hy.canadacentral-01.azurewebsites.net';
+// Server URL - hardcoded for simplicity
+const SERVER_URL = 'https://strappedai-gpfra9f8gsg9d9hy.canadacentral-01.azurewebsites.net';
 
 function Login({ onSuccess }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
 
-  // Check for connection token in URL (deep link from web app)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
-    const server = params.get('server');
-    
-    if (token) {
-      if (server) setServerUrl(server);
-      handleTokenConnect(token);
-    }
-    
     // Load saved email if exists
     const savedEmail = localStorage.getItem('apex_saved_email');
     if (savedEmail) {
       setEmail(savedEmail);
     }
   }, []);
-
-  // Handle deep link token connection (from web app "Connect" button)
-  const handleTokenConnect = async (token: string) => {
-    setIsLoading(true);
-    setError('');
-    
-    try {
-      const response = await fetch(`${serverUrl}/api/desktop-client/validate-token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token,
-          deviceName: getDeviceName(),
-          platform: window.platform?.os || 'windows',
-          version: '1.0.0',
-        }),
-      });
-
-      const result = await response.json();
-      
-      if (result.success) {
-        // Save credentials and connect
-        const loginResult = await window.apexDrive.auth.login({
-          email: result.user.email,
-          password: result.token,
-          serverUrl: result.serverUrl || serverUrl,
-        });
-        
-        if (loginResult.success) {
-          onSuccess();
-        } else {
-          setError('Connection failed. Please try logging in manually.');
-        }
-      } else {
-        setError(result.error || 'Invalid or expired connection link. Please log in manually.');
-      }
-    } catch (err) {
-      setError('Connection failed. Please log in manually.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const getDeviceName = () => {
-    // Try to get a meaningful device name
-    return `${window.platform?.os || 'Windows'} Desktop`;
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,7 +39,7 @@ function Login({ onSuccess }: LoginProps) {
       const result = await window.apexDrive.auth.login({
         email,
         password,
-        serverUrl,
+        serverUrl: SERVER_URL,
       });
 
       if (result.success) {
@@ -186,31 +127,6 @@ function Login({ onSuccess }: LoginProps) {
               'Sign In'
             )}
           </button>
-
-          <button
-            type="button"
-            className="advanced-toggle"
-            onClick={() => setShowAdvanced(!showAdvanced)}
-          >
-            {showAdvanced ? 'Hide' : 'Show'} Server Settings
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={showAdvanced ? 'rotated' : ''}>
-              <polyline points="6 9 12 15 18 9"/>
-            </svg>
-          </button>
-
-          {showAdvanced && (
-            <div className="form-group advanced">
-              <label htmlFor="serverUrl">Server URL</label>
-              <input
-                type="url"
-                id="serverUrl"
-                value={serverUrl}
-                onChange={(e) => setServerUrl(e.target.value)}
-                placeholder="https://strappedai.com"
-              />
-              <small>Only change this if directed by your IT administrator</small>
-            </div>
-          )}
         </form>
 
         <div className="login-footer">
