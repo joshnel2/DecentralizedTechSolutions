@@ -174,10 +174,11 @@ export function FolderBrowser({
   }
 
   // Format file size
-  const formatSize = (bytes: number) => {
-    if (!bytes) return '-'
+  const formatSize = (bytes: number | string | null | undefined) => {
+    const numBytes = Number(bytes)
+    if (!numBytes || isNaN(numBytes)) return '-'
     const units = ['B', 'KB', 'MB', 'GB']
-    let size = bytes
+    let size = numBytes
     let unitIndex = 0
     while (size >= 1024 && unitIndex < units.length - 1) {
       size /= 1024
