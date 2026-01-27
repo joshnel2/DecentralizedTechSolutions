@@ -2,6 +2,14 @@
 
 !include "MUI2.nsh"
 
+; Pre-installation: Try to close running instance
+!macro customInit
+  ; Try to close any running instance of Apex Drive
+  nsExec::ExecToLog 'taskkill /F /IM "Apex Drive.exe"'
+  ; Give it a moment to close
+  Sleep 1000
+!macroend
+
 ; Installation hooks
 !macro customInstall
   ; Create Start Menu shortcut
