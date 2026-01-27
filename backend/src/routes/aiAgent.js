@@ -14,7 +14,7 @@ import {
   formatDateTime,
   getDateInTimezone
 } from '../utils/dateUtils.js';
-import { extractTextFromFile, extractTextFromMsgBuffer, extractTextFromEml } from './documents.js';
+import { extractTextFromFile, extractTextFromMsgBuffer, extractTextFromEml, extractTextFromDocBuffer, extractTextFromRtf } from './documents.js';
 import { uploadFile, uploadFileBuffer, downloadFile, deleteFile, isAzureConfigured } from '../utils/azureStorage.js';
 import PDFDocument from 'pdfkit';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle } from 'docx';
@@ -4937,6 +4937,14 @@ async function readDocumentContent(args, user) {
         // Parse .eml email files
         console.log(`[AI Agent] Extracting text from .eml file: ${fileName}`);
         extractedContent = extractTextFromEml(fileBuffer.toString('utf-8'), fileName);
+      } else if (ext === '.doc') {
+        // Parse old Word .doc files
+        console.log(`[AI Agent] Extracting text from Word .doc file: ${fileName}`);
+        extractedContent = await extractTextFromDocBuffer(fileBuffer, fileName);
+      } else if (ext === '.rtf') {
+        // Parse RTF files
+        console.log(`[AI Agent] Extracting text from RTF file: ${fileName}`);
+        extractedContent = extractTextFromRtf(fileBuffer, fileName);
       }
       
       if (extractedContent && extractedContent.trim().length > 0) {
@@ -5179,6 +5187,14 @@ async function findAndReadDocument(args, user) {
         // Parse .eml email files
         console.log(`[AI Agent] Extracting text from .eml file: ${fileName}`);
         extractedContent = extractTextFromEml(fileBuffer.toString('utf-8'), fileName);
+      } else if (ext === '.doc') {
+        // Parse old Word .doc files
+        console.log(`[AI Agent] Extracting text from Word .doc file: ${fileName}`);
+        extractedContent = await extractTextFromDocBuffer(fileBuffer, fileName);
+      } else if (ext === '.rtf') {
+        // Parse RTF files
+        console.log(`[AI Agent] Extracting text from RTF file: ${fileName}`);
+        extractedContent = extractTextFromRtf(fileBuffer, fileName);
       }
       
       if (extractedContent && extractedContent.trim().length > 0) {

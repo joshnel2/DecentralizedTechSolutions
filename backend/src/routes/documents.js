@@ -12,6 +12,7 @@ import mammoth from 'mammoth';
 import { uploadFile, isAzureConfigured, downloadFile } from '../utils/azureStorage.js';
 import { learnFromDocument } from '../services/manualLearning.js';
 import MsgReader from 'msgreader';
+import WordExtractor from 'word-extractor';
 
 // Use createRequire for CommonJS modules
 import { createRequire } from 'module';
@@ -1074,6 +1075,79 @@ function extractTextFromEml(emlContent, fileName) {
   }
 }
 
+// Helper function to extract text from old Word .doc files
+async function extractTextFromDocFile(filePath, fileName) {
+  try {
+    const extractor = new WordExtractor();
+    const doc = await extractor.extract(filePath);
+    const text = doc.getBody();
+    
+    if (text && text.trim().length > 0) {
+      return text;
+    }
+    return null;
+  } catch (error) {
+    console.error(`[DOC] Error parsing ${fileName}:`, error.message);
+    return null;
+  }
+}
+
+// Helper function to extract text from .doc buffer
+async function extractTextFromDocBuffer(buffer, fileName) {
+  try {
+    const extractor = new WordExtractor();
+    const doc = await extractor.extract(buffer);
+    const text = doc.getBody();
+    
+    if (text && text.trim().length > 0) {
+      return text;
+    }
+    return null;
+  } catch (error) {
+    console.error(`[DOC] Error parsing ${fileName}:`, error.message);
+    return null;
+  }
+}
+
+// Helper function to extract text from RTF files
+function extractTextFromRtf(buffer, fileName) {
+  try {
+    let text = buffer.toString('utf-8');
+    
+    // Basic RTF to plain text conversion
+    // Remove RTF control words and groups
+    text = text
+      // Remove font tables, color tables, etc.
+      .replace(/\\fonttbl[^}]*}/g, '')
+      .replace(/\\colortbl[^}]*}/g, '')
+      .replace(/\\stylesheet[^}]*}/g, '')
+      .replace(/\\info[^}]*}/g, '')
+      // Remove control words with parameters
+      .replace(/\\[a-z]+(-?[0-9]+)?[ ]?/gi, '')
+      // Remove hex characters
+      .replace(/\\'[0-9a-f]{2}/gi, '')
+      // Handle special characters
+      .replace(/\\~/g, ' ')
+      .replace(/\\-/g, '-')
+      .replace(/\\_/g, '_')
+      // Remove curly braces
+      .replace(/[{}]/g, '')
+      // Clean up whitespace
+      .replace(/\r\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/[ \t]+/g, ' ')
+      .trim();
+    
+    if (text.length > 0) {
+      return text;
+    }
+    return null;
+  } catch (error) {
+    console.error(`[RTF] Error parsing ${fileName}:`, error.message);
+    return null;
+  }
+}
+
 // Helper function to extract text from a file
 async function extractTextFromFile(filePath, originalName, mimeType = null) {
   const ext = path.extname(originalName).toLowerCase();
@@ -1131,6 +1205,23 @@ async function extractTextFromFile(filePath, originalName, mimeType = null) {
       
       if (textContent) {
         console.log(`Successfully extracted ${textContent.length} characters from .eml file`);
+      }
+    } else if (ext === '.doc') {
+      // Parse old Word .doc files
+      console.log(`Extracting text from Word .doc file "${originalName}"...`);
+      textContent = await extractTextFromDocFile(filePath, originalName);
+      
+      if (textContent) {
+        console.log(`Successfully extracted ${textContent.length} characters from .doc file`);
+      }
+    } else if (ext === '.rtf') {
+      // Parse RTF files
+      console.log(`Extracting text from RTF file "${originalName}"...`);
+      const rtfContent = await fs.readFile(filePath);
+      textContent = extractTextFromRtf(rtfContent, originalName);
+      
+      if (textContent) {
+        console.log(`Successfully extracted ${textContent.length} characters from .rtf file`);
       }
     }
   } catch (error) {
@@ -1972,5 +2063,11 @@ export async function extractTextForExistingDocuments() {
   }
 }
 
-export { extractTextFromFile, extractTextFromMsgBuffer, extractTextFromEml };
+export { 
+  extractTextFromFile, 
+  extractTextFromMsgBuffer, 
+  extractTextFromEml,
+  extractTextFromDocBuffer,
+  extractTextFromRtf
+};
 export default router;
