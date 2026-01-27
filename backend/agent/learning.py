@@ -9,6 +9,9 @@ Features:
 - Detects and records user corrections via diff analysis
 - Provides tools for the agent to update its own preferences
 - Tracks patterns in user edits to improve future output
+- OBSERVATION LEARNING: Learns from successful outcomes
+- WORKFLOW LEARNING: Learns sequences of actions that work well
+- USER EMULATION: Tracks what the user typically does on similar matters
 """
 
 import os
@@ -20,6 +23,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field, asdict
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +62,81 @@ class EditPattern:
         return asdict(self)
 
 
+@dataclass
+class WorkflowPattern:
+    """A sequence of actions that worked well for a type of task"""
+    task_type: str  # e.g., "new_matter_intake", "motion_drafting", "discovery_response"
+    action_sequence: List[str]  # Ordered list of tool calls / actions
+    matter_type: Optional[str] = None  # e.g., "litigation", "contract", "bankruptcy"
+    success_count: int = 1
+    failure_count: int = 0
+    avg_time_seconds: float = 0.0
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    last_used: str = field(default_factory=lambda: datetime.now().isoformat())
+    notes: str = ""
+    
+    @property
+    def success_rate(self) -> float:
+        total = self.success_count + self.failure_count
+        return self.success_count / total if total > 0 else 0.0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        d = asdict(self)
+        d['success_rate'] = self.success_rate
+        return d
+
+
+@dataclass
+class UserBehaviorPattern:
+    """
+    Tracks what the user typically does in certain situations.
+    This helps the agent emulate the user's decision-making.
+    """
+    trigger_context: str  # What situation triggers this behavior
+    typical_action: str  # What the user typically does
+    matter_types: List[str] = field(default_factory=list)
+    frequency: int = 1
+    priority_level: str = "medium"  # How important this seems to the user
+    time_sensitivity: Optional[str] = None  # "immediate", "same_day", "week", "flexible"
+    notes: str = ""
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    last_seen: str = field(default_factory=lambda: datetime.now().isoformat())
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ObservationRecord:
+    """
+    Records an observation of a successful or unsuccessful outcome.
+    Used for learning what works and what doesn't.
+    """
+    task_description: str
+    actions_taken: List[str]
+    outcome: str  # "success", "partial", "failure"
+    matter_id: Optional[str] = None
+    matter_type: Optional[str] = None
+    client_feedback: Optional[str] = None  # If user provided feedback
+    time_taken_seconds: float = 0.0
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    lessons_learned: List[str] = field(default_factory=list)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
 class LearningManager:
     """
     Manages persistent learning from user interactions.
     
     Maintains a style_guide.md that the agent reads before every task,
     and updates based on detected patterns in user corrections.
+    
+    ENHANCED CAPABILITIES:
+    - Workflow pattern learning: Learn sequences of actions that work
+    - User behavior emulation: Track and emulate user decision patterns
+    - Observation learning: Learn from successful/unsuccessful outcomes
     """
     
     def __init__(self, preferences_dir: str = "./case_data/preferences"):
@@ -74,14 +147,23 @@ class LearningManager:
         self.style_guide_path = self.preferences_dir / "style_guide.md"
         self.preferences_json_path = self.preferences_dir / "preferences.json"
         self.edit_patterns_path = self.preferences_dir / "edit_patterns.json"
+        self.workflow_patterns_path = self.preferences_dir / "workflow_patterns.json"
+        self.user_behaviors_path = self.preferences_dir / "user_behaviors.json"
+        self.observations_path = self.preferences_dir / "observations.json"
         
         # In-memory caches
         self._preferences: Dict[str, StylePreference] = {}
         self._edit_patterns: List[EditPattern] = []
+        self._workflow_patterns: Dict[str, WorkflowPattern] = {}
+        self._user_behaviors: List[UserBehaviorPattern] = []
+        self._observations: List[ObservationRecord] = []
         
         # Load existing data
         self._load_preferences()
         self._load_edit_patterns()
+        self._load_workflow_patterns()
+        self._load_user_behaviors()
+        self._load_observations()
     
     def _load_preferences(self):
         """Load preferences from JSON file"""
@@ -137,6 +219,82 @@ class LearningManager:
                 json.dump(data, f, indent=2)
         except Exception as e:
             logger.error(f"Failed to save edit patterns: {e}")
+    
+    def _load_workflow_patterns(self):
+        """Load workflow patterns from JSON file"""
+        if self.workflow_patterns_path.exists():
+            try:
+                with open(self.workflow_patterns_path, "r") as f:
+                    data = json.load(f)
+                    for key, pattern_data in data.get("patterns", {}).items():
+                        self._workflow_patterns[key] = WorkflowPattern(**pattern_data)
+                logger.info(f"Loaded {len(self._workflow_patterns)} workflow patterns")
+            except Exception as e:
+                logger.error(f"Failed to load workflow patterns: {e}")
+    
+    def _save_workflow_patterns(self):
+        """Save workflow patterns to JSON file"""
+        try:
+            data = {
+                "patterns": {k: v.to_dict() for k, v in self._workflow_patterns.items()},
+                "last_updated": datetime.now().isoformat()
+            }
+            with open(self.workflow_patterns_path, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save workflow patterns: {e}")
+    
+    def _load_user_behaviors(self):
+        """Load user behavior patterns from JSON file"""
+        if self.user_behaviors_path.exists():
+            try:
+                with open(self.user_behaviors_path, "r") as f:
+                    data = json.load(f)
+                    self._user_behaviors = [
+                        UserBehaviorPattern(**b) for b in data.get("behaviors", [])
+                    ]
+                logger.info(f"Loaded {len(self._user_behaviors)} user behavior patterns")
+            except Exception as e:
+                logger.error(f"Failed to load user behaviors: {e}")
+    
+    def _save_user_behaviors(self):
+        """Save user behavior patterns to JSON file"""
+        try:
+            data = {
+                "behaviors": [b.to_dict() for b in self._user_behaviors],
+                "last_updated": datetime.now().isoformat()
+            }
+            with open(self.user_behaviors_path, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save user behaviors: {e}")
+    
+    def _load_observations(self):
+        """Load observation records from JSON file"""
+        if self.observations_path.exists():
+            try:
+                with open(self.observations_path, "r") as f:
+                    data = json.load(f)
+                    self._observations = [
+                        ObservationRecord(**o) for o in data.get("observations", [])
+                    ]
+                logger.info(f"Loaded {len(self._observations)} observations")
+            except Exception as e:
+                logger.error(f"Failed to load observations: {e}")
+    
+    def _save_observations(self):
+        """Save observation records to JSON file"""
+        try:
+            # Keep only last 500 observations to prevent unbounded growth
+            recent_observations = self._observations[-500:]
+            data = {
+                "observations": [o.to_dict() for o in recent_observations],
+                "last_updated": datetime.now().isoformat()
+            }
+            with open(self.observations_path, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save observations: {e}")
     
     def _update_style_guide_md(self):
         """Update the human-readable style guide markdown file"""
@@ -480,6 +638,413 @@ class LearningManager:
         lines.append("")
         
         return "\n".join(lines)
+    
+    # =========================================================================
+    # WORKFLOW PATTERN LEARNING
+    # =========================================================================
+    
+    def record_workflow(
+        self,
+        task_type: str,
+        action_sequence: List[str],
+        success: bool,
+        matter_type: Optional[str] = None,
+        time_taken: float = 0.0,
+        notes: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Record a workflow pattern from a completed task.
+        
+        This allows the agent to learn effective sequences of actions
+        for different types of legal tasks.
+        
+        Args:
+            task_type: Type of task (e.g., "matter_intake", "motion_drafting")
+            action_sequence: List of actions/tools used in order
+            success: Whether the workflow was successful
+            matter_type: Optional matter type for context-specific learning
+            time_taken: How long the workflow took
+            notes: Any notes about the workflow
+        """
+        key = f"{task_type}:{matter_type or 'general'}"
+        
+        if key in self._workflow_patterns:
+            pattern = self._workflow_patterns[key]
+            if success:
+                pattern.success_count += 1
+                # Update average time
+                total_time = pattern.avg_time_seconds * (pattern.success_count - 1) + time_taken
+                pattern.avg_time_seconds = total_time / pattern.success_count
+                # Merge action sequences if different
+                if action_sequence != pattern.action_sequence:
+                    # Keep the more successful sequence
+                    if pattern.success_rate > 0.8:
+                        pass  # Keep existing
+                    else:
+                        pattern.action_sequence = action_sequence
+            else:
+                pattern.failure_count += 1
+            pattern.last_used = datetime.now().isoformat()
+            if notes:
+                pattern.notes = notes
+        else:
+            self._workflow_patterns[key] = WorkflowPattern(
+                task_type=task_type,
+                action_sequence=action_sequence,
+                matter_type=matter_type,
+                success_count=1 if success else 0,
+                failure_count=0 if success else 1,
+                avg_time_seconds=time_taken,
+                notes=notes
+            )
+        
+        self._save_workflow_patterns()
+        
+        return {
+            "success": True,
+            "pattern_key": key,
+            "success_rate": self._workflow_patterns[key].success_rate,
+            "message": f"Recorded workflow for {task_type}"
+        }
+    
+    def get_recommended_workflow(
+        self,
+        task_type: str,
+        matter_type: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get the recommended workflow for a task type.
+        
+        Returns the most successful workflow pattern for the given task type.
+        """
+        # Try specific matter type first
+        key = f"{task_type}:{matter_type}" if matter_type else None
+        if key and key in self._workflow_patterns:
+            pattern = self._workflow_patterns[key]
+            if pattern.success_rate >= 0.5:  # At least 50% success rate
+                return {
+                    "action_sequence": pattern.action_sequence,
+                    "success_rate": pattern.success_rate,
+                    "avg_time_seconds": pattern.avg_time_seconds,
+                    "notes": pattern.notes,
+                    "source": "matter_specific"
+                }
+        
+        # Try general pattern
+        general_key = f"{task_type}:general"
+        if general_key in self._workflow_patterns:
+            pattern = self._workflow_patterns[general_key]
+            if pattern.success_rate >= 0.5:
+                return {
+                    "action_sequence": pattern.action_sequence,
+                    "success_rate": pattern.success_rate,
+                    "avg_time_seconds": pattern.avg_time_seconds,
+                    "notes": pattern.notes,
+                    "source": "general"
+                }
+        
+        return None
+    
+    # =========================================================================
+    # USER BEHAVIOR EMULATION
+    # =========================================================================
+    
+    def record_user_behavior(
+        self,
+        trigger_context: str,
+        action_taken: str,
+        matter_type: Optional[str] = None,
+        priority: str = "medium",
+        time_sensitivity: Optional[str] = None,
+        notes: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Record a user behavior pattern for emulation.
+        
+        Tracks what the user typically does in certain situations so the
+        agent can emulate their decision-making.
+        
+        Args:
+            trigger_context: What situation triggered this (e.g., "new_document_received")
+            action_taken: What the user did (e.g., "review_and_add_to_matter")
+            matter_type: Optional matter type for context
+            priority: How important this seems ("low", "medium", "high", "urgent")
+            time_sensitivity: How time-sensitive ("immediate", "same_day", "week", "flexible")
+            notes: Any notes
+        """
+        # Check if similar behavior exists
+        existing = next(
+            (b for b in self._user_behaviors 
+             if b.trigger_context == trigger_context and b.typical_action == action_taken),
+            None
+        )
+        
+        if existing:
+            existing.frequency += 1
+            existing.last_seen = datetime.now().isoformat()
+            if matter_type and matter_type not in existing.matter_types:
+                existing.matter_types.append(matter_type)
+            existing.priority_level = priority
+            existing.time_sensitivity = time_sensitivity
+        else:
+            self._user_behaviors.append(UserBehaviorPattern(
+                trigger_context=trigger_context,
+                typical_action=action_taken,
+                matter_types=[matter_type] if matter_type else [],
+                frequency=1,
+                priority_level=priority,
+                time_sensitivity=time_sensitivity,
+                notes=notes
+            ))
+        
+        self._save_user_behaviors()
+        
+        return {
+            "success": True,
+            "trigger": trigger_context,
+            "action": action_taken,
+            "message": "Recorded user behavior pattern"
+        }
+    
+    def get_user_typical_action(
+        self,
+        context: str,
+        matter_type: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get what the user typically does in a given context.
+        
+        Returns the most frequent user action for the given context.
+        """
+        # Find matching behaviors
+        matches = []
+        for behavior in self._user_behaviors:
+            if context.lower() in behavior.trigger_context.lower():
+                # Boost score if matter type matches
+                score = behavior.frequency
+                if matter_type and matter_type in behavior.matter_types:
+                    score *= 1.5
+                matches.append((behavior, score))
+        
+        if not matches:
+            return None
+        
+        # Sort by score and return best match
+        matches.sort(key=lambda x: -x[1])
+        best = matches[0][0]
+        
+        return {
+            "typical_action": best.typical_action,
+            "priority": best.priority_level,
+            "time_sensitivity": best.time_sensitivity,
+            "frequency": best.frequency,
+            "notes": best.notes
+        }
+    
+    def get_user_priorities(self, matter_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get the user's typical priorities sorted by importance.
+        
+        Returns behaviors sorted by how the user prioritizes them.
+        """
+        priority_order = {"urgent": 4, "high": 3, "medium": 2, "low": 1}
+        
+        behaviors = self._user_behaviors
+        if matter_type:
+            behaviors = [b for b in behaviors if matter_type in b.matter_types or not b.matter_types]
+        
+        sorted_behaviors = sorted(
+            behaviors,
+            key=lambda b: (priority_order.get(b.priority_level, 0), b.frequency),
+            reverse=True
+        )
+        
+        return [
+            {
+                "context": b.trigger_context,
+                "action": b.typical_action,
+                "priority": b.priority_level,
+                "frequency": b.frequency
+            }
+            for b in sorted_behaviors[:10]  # Top 10
+        ]
+    
+    # =========================================================================
+    # OBSERVATION LEARNING
+    # =========================================================================
+    
+    def record_observation(
+        self,
+        task_description: str,
+        actions_taken: List[str],
+        outcome: str,
+        matter_id: Optional[str] = None,
+        matter_type: Optional[str] = None,
+        time_taken: float = 0.0,
+        lessons: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Record an observation for learning.
+        
+        This allows the agent to learn from both successes and failures.
+        
+        Args:
+            task_description: What was the task
+            actions_taken: What actions were performed
+            outcome: "success", "partial", "failure"
+            matter_id: Optional matter ID
+            matter_type: Optional matter type
+            time_taken: How long it took
+            lessons: What was learned from this
+        """
+        observation = ObservationRecord(
+            task_description=task_description,
+            actions_taken=actions_taken,
+            outcome=outcome,
+            matter_id=matter_id,
+            matter_type=matter_type,
+            time_taken_seconds=time_taken,
+            lessons_learned=lessons or []
+        )
+        
+        self._observations.append(observation)
+        self._save_observations()
+        
+        # If successful, also record as a workflow pattern
+        if outcome == "success" and actions_taken:
+            # Infer task type from description
+            task_type = self._infer_task_type(task_description)
+            if task_type:
+                self.record_workflow(
+                    task_type=task_type,
+                    action_sequence=actions_taken,
+                    success=True,
+                    matter_type=matter_type,
+                    time_taken=time_taken
+                )
+        
+        return {
+            "success": True,
+            "outcome": outcome,
+            "lessons_count": len(lessons or []),
+            "total_observations": len(self._observations)
+        }
+    
+    def _infer_task_type(self, description: str) -> Optional[str]:
+        """Infer task type from description"""
+        desc_lower = description.lower()
+        
+        task_type_keywords = {
+            "matter_intake": ["intake", "new matter", "open matter", "onboard"],
+            "motion_drafting": ["motion", "draft motion", "file motion"],
+            "discovery": ["discovery", "interrogator", "request for production", "deposition"],
+            "document_review": ["review document", "analyze document", "summarize document"],
+            "client_communication": ["email client", "call client", "client update"],
+            "research": ["research", "case law", "statute", "precedent"],
+            "deadline_management": ["deadline", "calendar", "due date", "filing date"],
+            "billing": ["time entry", "invoice", "billing", "hours"],
+            "conflict_check": ["conflict", "conflict check", "adverse party"],
+        }
+        
+        for task_type, keywords in task_type_keywords.items():
+            if any(kw in desc_lower for kw in keywords):
+                return task_type
+        
+        return None
+    
+    def get_lessons_for_task(self, task_description: str) -> List[str]:
+        """
+        Get relevant lessons learned from past observations.
+        
+        Returns lessons from similar past tasks.
+        """
+        task_type = self._infer_task_type(task_description)
+        if not task_type:
+            return []
+        
+        lessons = []
+        for obs in self._observations[-100:]:  # Check last 100 observations
+            obs_task_type = self._infer_task_type(obs.task_description)
+            if obs_task_type == task_type and obs.lessons_learned:
+                lessons.extend(obs.lessons_learned)
+        
+        # Deduplicate and return
+        return list(set(lessons))[:10]
+    
+    def get_success_patterns_for_task(self, task_description: str) -> List[Dict[str, Any]]:
+        """
+        Get successful patterns from past observations for similar tasks.
+        """
+        task_type = self._infer_task_type(task_description)
+        if not task_type:
+            return []
+        
+        patterns = []
+        for obs in self._observations[-100:]:
+            if obs.outcome == "success":
+                obs_task_type = self._infer_task_type(obs.task_description)
+                if obs_task_type == task_type:
+                    patterns.append({
+                        "task": obs.task_description,
+                        "actions": obs.actions_taken,
+                        "time_taken": obs.time_taken_seconds
+                    })
+        
+        return patterns[:5]  # Return top 5 patterns
+    
+    # =========================================================================
+    # COMBINED CONTEXT FOR AGENT
+    # =========================================================================
+    
+    def get_full_learning_context(self, task_description: str, matter_type: Optional[str] = None) -> str:
+        """
+        Get the complete learning context for the agent.
+        
+        Combines preferences, workflow recommendations, user behavior patterns,
+        and lessons learned into a single context string for the system prompt.
+        """
+        lines = []
+        
+        # Style preferences
+        prefs_text = self.format_preferences_for_prompt(task_description)
+        if prefs_text:
+            lines.append(prefs_text)
+        
+        # Recommended workflow
+        task_type = self._infer_task_type(task_description)
+        if task_type:
+            workflow = self.get_recommended_workflow(task_type, matter_type)
+            if workflow:
+                lines.append("## RECOMMENDED WORKFLOW")
+                lines.append("")
+                lines.append(f"Based on past success ({workflow['success_rate']:.0%} success rate), follow these steps:")
+                for i, action in enumerate(workflow['action_sequence'][:10], 1):
+                    lines.append(f"{i}. {action}")
+                if workflow.get('notes'):
+                    lines.append(f"\nNote: {workflow['notes']}")
+                lines.append("")
+        
+        # User behavior guidance
+        user_action = self.get_user_typical_action(task_description, matter_type)
+        if user_action:
+            lines.append("## USER TYPICALLY DOES")
+            lines.append("")
+            lines.append(f"In similar situations, the user typically: **{user_action['typical_action']}**")
+            lines.append(f"- Priority level: {user_action['priority']}")
+            if user_action.get('time_sensitivity'):
+                lines.append(f"- Time sensitivity: {user_action['time_sensitivity']}")
+            lines.append("")
+        
+        # Lessons learned
+        lessons = self.get_lessons_for_task(task_description)
+        if lessons:
+            lines.append("## LESSONS FROM PAST TASKS")
+            lines.append("")
+            for lesson in lessons[:5]:
+                lines.append(f"- {lesson}")
+            lines.append("")
+        
+        return "\n".join(lines)
 
 
 # Tool definitions for the agent to update preferences
@@ -526,6 +1091,141 @@ LEARNING_TOOLS = [
                 "required": ["task_description"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "record_workflow_success",
+            "description": "Record a successful workflow pattern. Call this when a sequence of actions successfully completes a task, so you can repeat it in the future.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_type": {
+                        "type": "string",
+                        "description": "Type of task (e.g., 'matter_intake', 'motion_drafting', 'discovery_response')"
+                    },
+                    "actions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "The sequence of actions/tools that worked"
+                    },
+                    "matter_type": {
+                        "type": "string",
+                        "description": "Optional: Type of matter (e.g., 'litigation', 'contract')"
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Optional: Notes about why this workflow works well"
+                    }
+                },
+                "required": ["task_type", "actions"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_recommended_workflow",
+            "description": "Get the recommended workflow for a task type based on past successes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_type": {
+                        "type": "string",
+                        "description": "Type of task to get workflow for"
+                    },
+                    "matter_type": {
+                        "type": "string",
+                        "description": "Optional: Matter type for more specific recommendation"
+                    }
+                },
+                "required": ["task_type"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "record_observation",
+            "description": "Record an observation about a task outcome for future learning. Call this after completing (or failing) a task.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_description": {
+                        "type": "string",
+                        "description": "What was the task"
+                    },
+                    "actions_taken": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "What actions were performed"
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": ["success", "partial", "failure"],
+                        "description": "How did it turn out"
+                    },
+                    "lessons_learned": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "What did you learn from this"
+                    }
+                },
+                "required": ["task_description", "actions_taken", "outcome"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_user_typical_action",
+            "description": "Get what the user typically does in a given situation. Use this to emulate the user's decision-making.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "context": {
+                        "type": "string",
+                        "description": "The situation/context to check"
+                    },
+                    "matter_type": {
+                        "type": "string",
+                        "description": "Optional: Matter type for more specific recommendation"
+                    }
+                },
+                "required": ["context"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "record_user_behavior",
+            "description": "Record what the user typically does in a situation. Use this when you observe the user's decision pattern.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "trigger_context": {
+                        "type": "string",
+                        "description": "What situation triggers this behavior"
+                    },
+                    "action_taken": {
+                        "type": "string",
+                        "description": "What the user does"
+                    },
+                    "priority": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high", "urgent"],
+                        "description": "How important this seems to the user"
+                    },
+                    "time_sensitivity": {
+                        "type": "string",
+                        "enum": ["immediate", "same_day", "week", "flexible"],
+                        "description": "How time-sensitive"
+                    }
+                },
+                "required": ["trigger_context", "action_taken"]
+            }
+        }
     }
 ]
 
@@ -551,5 +1251,43 @@ def execute_learning_tool(
             "success": True,
             "preferences": [p.to_dict() for p in prefs]
         }
+    elif tool_name == "record_workflow_success":
+        return learning_manager.record_workflow(
+            task_type=args.get("task_type", ""),
+            action_sequence=args.get("actions", []),
+            success=True,
+            matter_type=args.get("matter_type"),
+            notes=args.get("notes", "")
+        )
+    elif tool_name == "get_recommended_workflow":
+        workflow = learning_manager.get_recommended_workflow(
+            task_type=args.get("task_type", ""),
+            matter_type=args.get("matter_type")
+        )
+        if workflow:
+            return {"success": True, "workflow": workflow}
+        return {"success": True, "workflow": None, "message": "No workflow pattern found for this task type"}
+    elif tool_name == "record_observation":
+        return learning_manager.record_observation(
+            task_description=args.get("task_description", ""),
+            actions_taken=args.get("actions_taken", []),
+            outcome=args.get("outcome", "partial"),
+            lessons=args.get("lessons_learned", [])
+        )
+    elif tool_name == "get_user_typical_action":
+        action = learning_manager.get_user_typical_action(
+            context=args.get("context", ""),
+            matter_type=args.get("matter_type")
+        )
+        if action:
+            return {"success": True, "user_action": action}
+        return {"success": True, "user_action": None, "message": "No user behavior pattern found"}
+    elif tool_name == "record_user_behavior":
+        return learning_manager.record_user_behavior(
+            trigger_context=args.get("trigger_context", ""),
+            action_taken=args.get("action_taken", ""),
+            priority=args.get("priority", "medium"),
+            time_sensitivity=args.get("time_sensitivity")
+        )
     else:
         return {"success": False, "error": f"Unknown learning tool: {tool_name}"}
