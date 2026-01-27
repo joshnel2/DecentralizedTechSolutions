@@ -806,4 +806,327 @@ router.get('/suggestions', authenticate, async (req, res) => {
   });
 });
 
+// ============================================
+// LEARNING PATTERNS API
+// ============================================
+// These endpoints allow the Python background agent to access
+// learned patterns from user interactions for personalized behavior
+
+/**
+ * GET /api/ai/learning-patterns
+ * Fetch learning patterns for the background agent
+ * 
+ * HIERARCHICAL PRIVACY LEVELS:
+ * - level=user: Private patterns for this user only
+ * - level=firm: Shared patterns within the firm
+ * - level=global: Anonymized patterns from all users (no identifying info)
+ * 
+ * The agent gets continuously smarter by learning from:
+ * 1. User's personal patterns (private)
+ * 2. Firm's collective patterns (shared within firm)
+ * 3. Global anonymized patterns (everyone contributes, no privacy leak)
+ */
+router.get('/learning-patterns', authenticate, async (req, res) => {
+  try {
+    const { firmId, userId, patternType, category, minConfidence = 0.3, level = 'user' } = req.query;
+    
+    // Use authenticated user's firm if not specified
+    const targetFirmId = firmId || req.user.firmId;
+    const targetUserId = userId || req.user.id;
+    
+    let sql;
+    let params;
+    
+    if (level === 'global') {
+      // Global patterns: anonymized, no firm_id or user_id filter
+      // These are patterns that work across all users (no identifying info stored)
+      sql = `
+        SELECT 
+          id, pattern_type, pattern_category, pattern_data,
+          confidence, occurrences, last_used_at, created_at
+        FROM ai_learning_patterns
+        WHERE level = 'global'
+          AND confidence >= $1
+      `;
+      params = [parseFloat(minConfidence)];
+      
+    } else if (level === 'firm') {
+      // Firm-wide patterns: shared within the firm
+      sql = `
+        SELECT 
+          id, pattern_type, pattern_category, pattern_data,
+          confidence, occurrences, last_used_at, created_at
+        FROM ai_learning_patterns
+        WHERE firm_id = $1
+          AND (user_id IS NULL OR level = 'firm')
+          AND confidence >= $2
+      `;
+      params = [targetFirmId, parseFloat(minConfidence)];
+      
+    } else {
+      // User-specific patterns: private to this user
+      sql = `
+        SELECT 
+          id, pattern_type, pattern_category, pattern_data,
+          confidence, occurrences, last_used_at, created_at
+        FROM ai_learning_patterns
+        WHERE firm_id = $1
+          AND user_id = $2
+          AND (level = 'user' OR level IS NULL)
+          AND confidence >= $3
+      `;
+      params = [targetFirmId, targetUserId, parseFloat(minConfidence)];
+    }
+    
+    let paramIndex = params.length + 1;
+    
+    if (patternType) {
+      sql += ` AND pattern_type = $${paramIndex}`;
+      params.push(patternType);
+      paramIndex++;
+    }
+    
+    if (category) {
+      sql += ` AND pattern_category = $${paramIndex}`;
+      params.push(category);
+      paramIndex++;
+    }
+    
+    sql += ` ORDER BY confidence DESC, occurrences DESC LIMIT 100`;
+    
+    const result = await query(sql, params);
+    
+    res.json({
+      patterns: result.rows.map(p => ({
+        id: p.id,
+        pattern_type: p.pattern_type,
+        pattern_category: p.pattern_category,
+        pattern_data: p.pattern_data,
+        confidence: parseFloat(p.confidence),
+        occurrences: p.occurrences,
+        last_used_at: p.last_used_at,
+        created_at: p.created_at
+      })),
+      count: result.rows.length,
+      level: level,
+      firm_id: level !== 'global' ? targetFirmId : null,
+      user_id: level === 'user' ? targetUserId : null
+    });
+    
+  } catch (error) {
+    console.error('Get learning patterns error:', error);
+    res.status(500).json({ error: 'Failed to get learning patterns' });
+  }
+});
+
+/**
+ * POST /api/ai/learning-patterns
+ * Save a new learning pattern from the background agent
+ * 
+ * PRIVACY LEVELS:
+ * - level=user: Private to this user (default)
+ * - level=firm: Shared within the firm
+ * - level=global: Anonymized pattern for global learning (NO identifying info!)
+ * 
+ * For global patterns, the system automatically strips any identifying information
+ * to ensure privacy while allowing collective improvement.
+ */
+router.post('/learning-patterns', authenticate, async (req, res) => {
+  try {
+    const { firmId, userId, patternType, category, patternData, level = 'user' } = req.body;
+    
+    if (!patternType || !patternData) {
+      return res.status(400).json({ error: 'patternType and patternData are required' });
+    }
+    
+    // For global patterns, ensure no identifying information
+    let safePatternData = patternData;
+    let targetFirmId = firmId || req.user.firmId;
+    let targetUserId = userId || req.user.id;
+    
+    if (level === 'global') {
+      // Strip identifying information for global patterns
+      safePatternData = sanitizeForGlobalLearning(patternData);
+      targetFirmId = null;  // Don't store firm ID for global patterns
+      targetUserId = null;  // Don't store user ID for global patterns
+    } else if (level === 'firm') {
+      targetUserId = null;  // Firm patterns don't have a specific user
+    }
+    
+    // Generate a key for the pattern
+    const patternKey = safePatternData.key || `${patternType}:${level}:${JSON.stringify(safePatternData).substring(0, 50)}`;
+    
+    // Check if pattern already exists
+    let existingQuery;
+    let existingParams;
+    
+    if (level === 'global') {
+      existingQuery = `
+        SELECT id, occurrences, pattern_data 
+        FROM ai_learning_patterns
+        WHERE level = 'global' AND pattern_type = $1 AND pattern_data->>'key' = $2
+      `;
+      existingParams = [patternType, patternKey];
+    } else {
+      existingQuery = `
+        SELECT id, occurrences, pattern_data 
+        FROM ai_learning_patterns
+        WHERE firm_id = $1 AND (user_id = $2 OR ($2 IS NULL AND user_id IS NULL))
+          AND pattern_type = $3 AND pattern_data->>'key' = $4
+      `;
+      existingParams = [targetFirmId, targetUserId, patternType, patternKey];
+    }
+    
+    const existing = await query(existingQuery, existingParams);
+    
+    if (existing.rows.length > 0) {
+      // Update existing pattern - merge data and increase confidence
+      const existingData = existing.rows[0].pattern_data;
+      const mergedData = mergePatternData(existingData, safePatternData);
+      
+      await query(`
+        UPDATE ai_learning_patterns 
+        SET occurrences = occurrences + 1, 
+            last_used_at = NOW(),
+            pattern_data = $2::jsonb,
+            confidence = LEAST(0.95, confidence + 0.02)
+        WHERE id = $1
+        RETURNING *
+      `, [existing.rows[0].id, JSON.stringify(mergedData)]);
+      
+      res.json({ success: true, action: 'updated', id: existing.rows[0].id, level });
+    } else {
+      // Create new pattern
+      const result = await query(`
+        INSERT INTO ai_learning_patterns (firm_id, user_id, pattern_type, pattern_category, pattern_data, confidence, level)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id
+      `, [
+        targetFirmId, 
+        targetUserId, 
+        patternType, 
+        category || 'general', 
+        JSON.stringify(safePatternData),
+        level === 'global' ? 0.3 : 0.4,  // Global patterns start with lower confidence
+        level
+      ]);
+      
+      res.status(201).json({ success: true, action: 'created', id: result.rows[0].id, level });
+    }
+    
+  } catch (error) {
+    console.error('Save learning pattern error:', error);
+    res.status(500).json({ error: 'Failed to save learning pattern' });
+  }
+});
+
+/**
+ * Sanitize pattern data for global learning (remove all identifying info)
+ */
+function sanitizeForGlobalLearning(data) {
+  const sensitiveFields = [
+    'client_name', 'client_id', 'matter_name', 'matter_id', 'firm_id', 'user_id',
+    'party_name', 'user_name', 'attorney_name', 'firm_name', 'email', 'phone',
+    'document_content', 'note_content', 'description', 'sample', 'sample_title',
+    'sample_start', 'typical_description', 'billing_rate', 'amount', 'rate', 'address'
+  ];
+  
+  const safeData = {};
+  for (const [key, value] of Object.entries(data)) {
+    // Skip sensitive fields
+    if (sensitiveFields.some(f => key.toLowerCase().includes(f.toLowerCase()))) {
+      continue;
+    }
+    
+    // Skip values that look like names or identifiers
+    if (typeof value === 'string' && value.length > 3 && value.length < 50) {
+      const words = value.trim().split(/\s+/);
+      // Skip if looks like a name (2-3 capitalized words)
+      if (words.length >= 2 && words.length <= 3 && words.every(w => /^[A-Z]/.test(w))) {
+        continue;
+      }
+      // Skip if looks like an ID
+      if (/^[0-9a-f-]{20,}$/i.test(value)) {
+        continue;
+      }
+    }
+    
+    safeData[key] = value;
+  }
+  
+  return safeData;
+}
+
+/**
+ * Merge pattern data, averaging numeric fields
+ */
+function mergePatternData(existing, newData) {
+  const merged = { ...existing };
+  
+  for (const [key, value] of Object.entries(newData)) {
+    if (typeof value === 'number' && typeof existing[key] === 'number') {
+      // Average numeric values
+      merged[key] = (existing[key] + value) / 2;
+    } else if (key !== 'key') {
+      merged[key] = value;
+    }
+  }
+  
+  return merged;
+}
+
+/**
+ * GET /api/ai/user-learning-summary
+ * Get a summary of what has been learned about a user
+ */
+router.get('/user-learning-summary', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.query;
+    const targetUserId = userId || req.user.id;
+    
+    // Get pattern counts by category
+    const categoryCounts = await query(`
+      SELECT pattern_category, COUNT(*) as count, AVG(confidence) as avg_confidence
+      FROM ai_learning_patterns
+      WHERE firm_id = $1 AND (user_id = $2 OR user_id IS NULL)
+      GROUP BY pattern_category
+      ORDER BY count DESC
+    `, [req.user.firmId, targetUserId]);
+    
+    // Get most used patterns
+    const topPatterns = await query(`
+      SELECT pattern_type, pattern_category, pattern_data, occurrences, confidence
+      FROM ai_learning_patterns
+      WHERE firm_id = $1 AND (user_id = $2 OR user_id IS NULL)
+      ORDER BY occurrences DESC
+      LIMIT 10
+    `, [req.user.firmId, targetUserId]);
+    
+    // Get recent learning activity
+    const recentActivity = await query(`
+      SELECT pattern_type, pattern_category, created_at, last_used_at
+      FROM ai_learning_patterns
+      WHERE firm_id = $1 AND (user_id = $2 OR user_id IS NULL)
+      ORDER BY COALESCE(last_used_at, created_at) DESC
+      LIMIT 10
+    `, [req.user.firmId, targetUserId]);
+    
+    res.json({
+      user_id: targetUserId,
+      categories: categoryCounts.rows.map(c => ({
+        category: c.pattern_category,
+        pattern_count: parseInt(c.count),
+        avg_confidence: parseFloat(c.avg_confidence).toFixed(2)
+      })),
+      top_patterns: topPatterns.rows,
+      recent_activity: recentActivity.rows,
+      total_patterns: categoryCounts.rows.reduce((sum, c) => sum + parseInt(c.count), 0)
+    });
+    
+  } catch (error) {
+    console.error('Get user learning summary error:', error);
+    res.status(500).json({ error: 'Failed to get learning summary' });
+  }
+});
+
 export default router;

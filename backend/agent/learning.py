@@ -133,17 +133,65 @@ class LearningManager:
     Maintains a style_guide.md that the agent reads before every task,
     and updates based on detected patterns in user corrections.
     
-    ENHANCED CAPABILITIES:
-    - Workflow pattern learning: Learn sequences of actions that work
-    - User behavior emulation: Track and emulate user decision patterns
-    - Observation learning: Learn from successful/unsuccessful outcomes
+    HIERARCHICAL LEARNING ARCHITECTURE:
+    ====================================
+    
+    The agent learns at THREE levels for both privacy AND continuous improvement:
+    
+    1. USER-SPECIFIC (Private)
+       - Personal writing style and preferences
+       - Individual shortcuts and patterns
+       - Only visible to that specific user's agent
+    
+    2. FIRM-WIDE (Shared within firm)
+       - Common workflows that work for the firm
+       - Document naming conventions
+       - Billing patterns and rates
+       - Shared by all users in the firm (collective improvement)
+    
+    3. ANONYMIZED PATTERNS (Global learning)
+       - General legal best practices
+       - Task type success patterns (no client/matter names)
+       - Aggregated across all firms for continuous improvement
+       - Completely anonymized - no identifying information
+    
+    This allows:
+    - Privacy: User A can't see User B's personal preferences
+    - Collective Learning: Firm gets smarter as everyone uses it
+    - Continuous Improvement: Agent learns general patterns over time
     """
     
-    def __init__(self, preferences_dir: str = "./case_data/preferences"):
-        self.preferences_dir = Path(preferences_dir)
+    def __init__(
+        self, 
+        preferences_dir: str = "./case_data/preferences",
+        user_id: Optional[str] = None,
+        firm_id: Optional[str] = None,
+        backend_url: Optional[str] = None
+    ):
+        """
+        Initialize the learning manager.
+        
+        Args:
+            preferences_dir: Base directory for preferences (will be organized by firm/user)
+            user_id: UUID of the user (for per-user learning)
+            firm_id: UUID of the firm (for per-firm learning)
+            backend_url: URL of the backend API (for database integration)
+        """
+        self.user_id = user_id
+        self.firm_id = firm_id
+        self.backend_url = backend_url or os.environ.get("BACKEND_URL", "http://localhost:3001")
+        
+        # Create user/firm-specific preferences directory
+        if firm_id and user_id:
+            self.preferences_dir = Path(preferences_dir) / firm_id / user_id
+        elif firm_id:
+            self.preferences_dir = Path(preferences_dir) / firm_id / "firm_shared"
+        else:
+            self.preferences_dir = Path(preferences_dir) / "default"
+        
         self.preferences_dir.mkdir(parents=True, exist_ok=True)
         
-        # File paths
+        # File paths (now user/firm specific)
         self.style_guide_path = self.preferences_dir / "style_guide.md"
         self.preferences_json_path = self.preferences_dir / "preferences.json"
         self.edit_patterns_path = self.preferences_dir / "edit_patterns.json"
@@ -158,12 +206,20 @@ class LearningManager:
         self._user_behaviors: List[UserBehaviorPattern] = []
         self._observations: List[ObservationRecord] = []
         
-        # Load existing data
+        # Hierarchical learning patterns from database
+        self._user_patterns: List[Dict] = []      # Private to this user
+        self._firm_patterns: List[Dict] = []      # Shared within firm
+        self._global_patterns: List[Dict] = []    # Anonymized global patterns
+        
+        # Load existing data from files
         self._load_preferences()
         self._load_edit_patterns()
         self._load_workflow_patterns()
         self._load_user_behaviors()
         self._load_observations()
+        
+        # Load patterns from database (hierarchical: user -> firm -> global)
+        self._load_hierarchical_patterns()
     
     def _load_preferences(self):
         """Load preferences from JSON file"""
@@ -295,6 +351,213 @@ class LearningManager:
                 json.dump(data, f, indent=2)
         except Exception as e:
             logger.error(f"Failed to save observations: {e}")
+    
+    def _load_hierarchical_patterns(self):
+        """
+        Load learning patterns from the database at all three levels:
+        
+        1. USER-SPECIFIC: Private patterns for this user only
+        2. FIRM-WIDE: Shared patterns within the firm  
+        3. GLOBAL: Anonymized patterns from all users (no identifying info)
+        
+        This allows the agent to:
+        - Respect privacy (user patterns stay private)
+        - Benefit from collective firm learning
+        - Get continuously smarter from anonymized global patterns
+        """
+        try:
+            import urllib.request
+            import urllib.error
+            
+            headers = {"Content-Type": "application/json"}
+            auth_token = os.environ.get("AGENT_AUTH_TOKEN")
+            if auth_token:
+                headers["Authorization"] = f"Bearer {auth_token}"
+            
+            # Load user-specific patterns (private)
+            if self.firm_id and self.user_id:
+                self._user_patterns = self._fetch_patterns(
+                    f"{self.backend_url}/api/ai/learning-patterns?firmId={self.firm_id}&userId={self.user_id}&level=user",
+                    headers
+                )
+                logger.info(f"Loaded {len(self._user_patterns)} user-specific patterns")
+            
+            # Load firm-wide patterns (shared within firm)
+            if self.firm_id:
+                self._firm_patterns = self._fetch_patterns(
+                    f"{self.backend_url}/api/ai/learning-patterns?firmId={self.firm_id}&level=firm",
+                    headers
+                )
+                logger.info(f"Loaded {len(self._firm_patterns)} firm-wide patterns")
+            
+            # Load global anonymized patterns (continuously improving)
+            self._global_patterns = self._fetch_patterns(
+                f"{self.backend_url}/api/ai/learning-patterns?level=global",
+                headers
+            )
+            logger.info(f"Loaded {len(self._global_patterns)} global anonymized patterns")
+                
+        except Exception as e:
+            logger.warning(f"Failed to load hierarchical patterns: {e}")
+    
+    def _fetch_patterns(self, url: str, headers: Dict) -> List[Dict]:
+        """Fetch patterns from a URL"""
+        import urllib.request
+        import urllib.error
+        
+        try:
+            request = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(request, timeout=10) as response:
+                data = json.loads(response.read().decode("utf-8"))
+                return data.get("patterns", [])
+        except:
+            return []
+    
+    def _save_pattern_to_database(
+        self, 
+        pattern_type: str, 
+        category: str, 
+        pattern_data: Dict,
+        level: str = "user"
+    ) -> bool:
+        """
+        Save a learning pattern to the database at the appropriate level.
+        
+        Levels:
+        - "user": Private to this user only (contains personal preferences)
+        - "firm": Shared within the firm (contains firm-specific patterns)
+        - "global": Anonymized pattern for all users (NO identifying info)
+        
+        PRIVACY RULES FOR GLOBAL PATTERNS:
+        - NO client names, matter names, or party names
+        - NO document content or specific text
+        - NO billing rates or financial details
+        - ONLY aggregate statistics and action patterns
+        """
+        try:
+            import urllib.request
+            import urllib.error
+            
+            url = f"{self.backend_url}/api/ai/learning-patterns"
+            
+            # For global patterns, strip any potentially identifying information
+            safe_pattern_data = pattern_data.copy()
+            if level == "global":
+                safe_pattern_data = self._anonymize_pattern_data(safe_pattern_data)
+            
+            payload = {
+                "firmId": self.firm_id if level != "global" else None,
+                "userId": self.user_id if level == "user" else None,
+                "patternType": pattern_type,
+                "category": category,
+                "patternData": safe_pattern_data,
+                "level": level
+            }
+            
+            headers = {"Content-Type": "application/json"}
+            auth_token = os.environ.get("AGENT_AUTH_TOKEN")
+            if auth_token:
+                headers["Authorization"] = f"Bearer {auth_token}"
+            
+            data = json.dumps(payload).encode("utf-8")
+            request = urllib.request.Request(url, data=data, headers=headers, method="POST")
+            
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return response.status == 200 or response.status == 201
+                
+        except Exception as e:
+            logger.warning(f"Failed to save pattern to database: {e}")
+            return False
+    
+    def _anonymize_pattern_data(self, data: Dict) -> Dict:
+        """
+        Remove any potentially identifying information from pattern data
+        before saving to the global (shared) learning pool.
+        
+        This ensures privacy while allowing the agent to learn general patterns.
+        """
+        # Fields that should NEVER be in global patterns
+        sensitive_fields = [
+            'client_name', 'client_id', 'matter_name', 'matter_id',
+            'party_name', 'user_name', 'attorney_name', 'firm_name',
+            'document_content', 'note_content', 'description',
+            'billing_rate', 'amount', 'email', 'phone', 'address',
+            'sample', 'sample_title', 'sample_start', 'typical_description'
+        ]
+        
+        safe_data = {}
+        for key, value in data.items():
+            # Skip sensitive fields
+            if key.lower() in [f.lower() for f in sensitive_fields]:
+                continue
+            
+            # Skip fields that might contain names (heuristic)
+            if isinstance(value, str) and len(value) > 5:
+                # Check for patterns that look like names
+                words = value.split()
+                if len(words) <= 3 and all(w[0].isupper() for w in words if w):
+                    continue  # Likely a name, skip it
+            
+            safe_data[key] = value
+        
+        # Keep only aggregate/statistical data
+        safe_keys = [
+            'task_type', 'action_type', 'pattern_type', 'category',
+            'avg_time', 'avg_hours', 'avg_duration', 'success_rate',
+            'action_sequence', 'step_count', 'priority', 'frequency',
+            'day_of_week', 'time_slot', 'document_type', 'matter_type',
+            'practice_area', 'event_type', 'has_due_date', 'has_location'
+        ]
+        
+        return {k: v for k, v in safe_data.items() if k in safe_keys or k == 'key'}
+    
+    def get_database_patterns_for_context(self, context: str) -> Dict[str, List[Dict]]:
+        """
+        Get relevant patterns from ALL learning levels for the context.
+        
+        Returns patterns organized by level:
+        - user: This user's personal patterns (private)
+        - firm: Firm-wide shared patterns
+        - global: Anonymized patterns from all users
+        
+        The agent uses all three levels, with user patterns taking priority.
+        """
+        context_lower = context.lower()
+        
+        # Map context keywords to pattern categories
+        category_keywords = {
+            "billing": ["time", "hour", "bill", "invoice", "rate"],
+            "documents": ["document", "file", "upload", "draft"],
+            "tasks": ["task", "todo", "deadline", "due"],
+            "calendar": ["meeting", "event", "schedule", "calendar"],
+            "workflow": ["workflow", "process", "sequence"],
+            "matters": ["matter", "case", "client"]
+        }
+        
+        # Find matching categories
+        matching_categories = set()
+        for category, keywords in category_keywords.items():
+            if any(kw in context_lower for kw in keywords):
+                matching_categories.add(category)
+        
+        def filter_patterns(patterns: List[Dict], min_confidence: float = 0.3) -> List[Dict]:
+            """Filter patterns by relevance and confidence"""
+            relevant = []
+            for pattern in patterns:
+                pattern_category = pattern.get("pattern_category", "").lower()
+                if pattern_category in matching_categories or not matching_categories:
+                    if pattern.get("confidence", 0) >= min_confidence:
+                        relevant.append(pattern)
+            
+            # Sort by confidence and occurrences
+            relevant.sort(key=lambda p: (p.get("confidence", 0), p.get("occurrences", 0)), reverse=True)
+            return relevant
+        
+        return {
+            "user": filter_patterns(self._user_patterns, 0.3)[:10],      # More lenient for personal
+            "firm": filter_patterns(self._firm_patterns, 0.5)[:10],      # Medium threshold
+            "global": filter_patterns(self._global_patterns, 0.6)[:10]   # Higher threshold for global
+        }
     
     def _update_style_guide_md(self):
         """Update the human-readable style guide markdown file"""
@@ -700,11 +963,29 @@ class LearningManager:
         
         self._save_workflow_patterns()
         
+        # Also save to database at multiple levels for collective learning
+        pattern_data = {
+            "key": f"workflow:{task_type}",
+            "task_type": task_type,
+            "action_sequence": action_sequence,
+            "success_rate": self._workflow_patterns[key].success_rate,
+            "avg_time": time_taken
+        }
+        
+        # Save to firm level (shared within firm)
+        self._save_pattern_to_database("workflow", "workflow", pattern_data, level="firm")
+        
+        # If successful and high confidence, also save anonymized version globally
+        if success and self._workflow_patterns[key].success_rate >= 0.7:
+            self._save_pattern_to_database("workflow", "workflow", pattern_data, level="global")
+        
         return {
             "success": True,
             "pattern_key": key,
             "success_rate": self._workflow_patterns[key].success_rate,
-            "message": f"Recorded workflow for {task_type}"
+            "message": f"Recorded workflow for {task_type}",
+            "shared_with_firm": True,
+            "shared_globally": success and self._workflow_patterns[key].success_rate >= 0.7
         }
     
     def get_recommended_workflow(
@@ -1001,7 +1282,8 @@ class LearningManager:
         Get the complete learning context for the agent.
         
         Combines preferences, workflow recommendations, user behavior patterns,
-        and lessons learned into a single context string for the system prompt.
+        lessons learned, AND patterns from manual user interactions into a 
+        single context string for the system prompt.
         """
         lines = []
         
@@ -1044,7 +1326,62 @@ class LearningManager:
                 lines.append(f"- {lesson}")
             lines.append("")
         
+        # Hierarchical patterns from database (user → firm → global)
+        all_patterns = self.get_database_patterns_for_context(task_description)
+        
+        # User-specific patterns (private, highest priority)
+        if all_patterns.get("user"):
+            lines.append("## YOUR PERSONAL PATTERNS (Private)")
+            lines.append("")
+            self._format_patterns_for_prompt(all_patterns["user"], lines)
+        
+        # Firm-wide patterns (shared within firm)
+        if all_patterns.get("firm"):
+            lines.append("## FIRM BEST PRACTICES (Shared)")
+            lines.append("")
+            lines.append("Patterns that work well for your firm:")
+            self._format_patterns_for_prompt(all_patterns["firm"], lines)
+        
+        # Global anonymized patterns (continuously improving)
+        if all_patterns.get("global"):
+            lines.append("## PROVEN PATTERNS (From Legal Community)")
+            lines.append("")
+            lines.append("Anonymized patterns that work well across the legal industry:")
+            self._format_patterns_for_prompt(all_patterns["global"], lines)
+        
         return "\n".join(lines)
+    
+    def _format_patterns_for_prompt(self, patterns: List[Dict], lines: List[str]):
+        """Format patterns for inclusion in the prompt"""
+        # Group patterns by category
+        by_category = defaultdict(list)
+        for pattern in patterns:
+            cat = pattern.get("pattern_category", "general")
+            by_category[cat].append(pattern)
+        
+        for category, cat_patterns in by_category.items():
+            if cat_patterns:
+                lines.append(f"**{category.title()}:**")
+                for p in cat_patterns[:3]:
+                    data = p.get("pattern_data", {})
+                    confidence = p.get("confidence", 0)
+                    
+                    # Format based on pattern type
+                    if "action_sequence" in data:
+                        seq = " → ".join(data["action_sequence"][:5])
+                        lines.append(f"  - Workflow: {seq} ({confidence:.0%} success)")
+                    elif "avg_hours" in data:
+                        lines.append(f"  - Typical duration: {data['avg_hours']:.1f} hours")
+                    elif "avg_days_ahead" in data:
+                        lines.append(f"  - Usually scheduled {data['avg_days_ahead']:.0f} days ahead")
+                    elif "success_rate" in data:
+                        lines.append(f"  - Success rate: {data['success_rate']:.0%}")
+                    elif "pattern" in data:
+                        lines.append(f"  - Pattern: {data['pattern']}")
+                    elif "task_type" in data or "event_type" in data:
+                        t = data.get("task_type") or data.get("event_type")
+                        lines.append(f"  - Common for: {t}")
+                lines.append("")
 
 
 # Tool definitions for the agent to update preferences

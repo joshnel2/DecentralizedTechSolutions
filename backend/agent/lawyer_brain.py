@@ -200,13 +200,24 @@ class SuperLawyerAgent:
         self,
         config: AgentConfig,
         log_callback: Optional[Callable[[str], None]] = None,
-        preferences_dir: str = "./case_data/preferences"
+        preferences_dir: str = "./case_data/preferences",
+        user_id: Optional[str] = None,
+        firm_id: Optional[str] = None,
+        backend_url: Optional[str] = None
     ):
         self.config = config
         self.log_callback = log_callback or (lambda msg: logger.info(msg))
+        self.user_id = user_id
+        self.firm_id = firm_id
+        self.backend_url = backend_url or os.environ.get("BACKEND_URL", "http://localhost:3001")
         
-        # Initialize components
-        self.learning = LearningManager(preferences_dir)
+        # Initialize components with user/firm context for personalized learning
+        self.learning = LearningManager(
+            preferences_dir=preferences_dir,
+            user_id=user_id,
+            firm_id=firm_id,
+            backend_url=self.backend_url
+        )
         self.legal_knowledge = get_legal_knowledge_base()
         self.fs_tool = FileSystemTool(config.sandbox_directory)
         self.tool_executor = get_tool_executor()
@@ -224,6 +235,8 @@ class SuperLawyerAgent:
         self.start_time: Optional[float] = None
         self.actions_taken: List[str] = []  # Track actions for observation learning
         self.current_task: str = ""  # Current task description
+        
+        self._log(f"SuperLawyerAgent initialized for user={user_id}, firm={firm_id}")
     
     def _init_azure_client(self):
         """Initialize Azure OpenAI client"""
