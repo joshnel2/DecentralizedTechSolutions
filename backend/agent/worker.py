@@ -77,6 +77,9 @@ class Task:
     error: Optional[str] = None
     output_path: Optional[str] = None
     priority: int = 0
+    user_id: Optional[str] = None  # User who created/owns the task
+    firm_id: Optional[str] = None  # Firm context for the task
+    matter_id: Optional[str] = None  # Optional matter context
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -89,7 +92,10 @@ class Task:
             "result": self.result,
             "error": self.error,
             "output_path": self.output_path,
-            "priority": self.priority
+            "priority": self.priority,
+            "user_id": self.user_id,
+            "firm_id": self.firm_id,
+            "matter_id": self.matter_id
         }
     
     @classmethod
@@ -104,7 +110,10 @@ class Task:
             result=data.get("result"),
             error=data.get("error"),
             output_path=data.get("output_path"),
-            priority=data.get("priority", 0)
+            priority=data.get("priority", 0),
+            user_id=data.get("user_id"),
+            firm_id=data.get("firm_id"),
+            matter_id=data.get("matter_id")
         )
 
 
@@ -417,9 +426,18 @@ class BackgroundWorker:
             # Use SuperLawyerAgent if available (preferred - has IRAC + learning)
             if SUPER_LAWYER_AVAILABLE:
                 self.logger.info(f"[Task {task.id}] Using SuperLawyerAgent (IRAC + Learning)")
+                self.logger.info(f"[Task {task.id}] User: {task.user_id}, Firm: {task.firm_id}")
                 if self.emitter:
                     self.emitter.emit(EventType.STATUS_UPDATE, message="Loading SuperLawyerAgent (IRAC + Learning)")
-                agent = SuperLawyerAgent(self.config, log_callback)
+                
+                # Pass user/firm context for personalized learning
+                agent = SuperLawyerAgent(
+                    self.config, 
+                    log_callback,
+                    user_id=task.user_id,
+                    firm_id=task.firm_id,
+                    backend_url=self.backend_url
+                )
             else:
                 self.logger.info(f"[Task {task.id}] Using MetacognitiveAgent (fallback)")
                 if self.emitter:

@@ -24,6 +24,10 @@ from bridge_tools import (
     LEGAL_TOOLS, get_tools_in_openai_format, ToolExecutor, get_tool_executor
 )
 from learning import LearningManager, LEARNING_TOOLS, execute_learning_tool
+from legal_knowledge import (
+    LegalKnowledgeBase, get_legal_knowledge_base,
+    LEGAL_KNOWLEDGE_TOOLS, execute_legal_knowledge_tool
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +42,18 @@ SUPER_LAWYER_PROMPT = """You are the APEX LEGAL AI - an elite legal practitioner
 
 You are not just an AI assistant - you are a LEGAL POWERHOUSE. You think like a partner at Cravath, Skadden, or Wachtell. You write with precision, argue with force, and never miss a deadline.
 
+## YOUR MISSION: DO WHAT THE USER WOULD DO
+
+Your primary objective is to **emulate the user** - to do exactly what the lawyer user would do if they had unlimited time. This means:
+
+1. **Anticipate their needs** - Think ahead about what they'll need next
+2. **Match their style** - Use your learned preferences about how they work
+3. **Prioritize like they do** - Handle urgent matters first, follow their typical priorities
+4. **Be proactive** - Don't just complete tasks, think about follow-up steps they'd take
+5. **Learn continuously** - Every task is an opportunity to learn their preferences better
+
+When you complete a task, ask yourself: "Is this what the user would have done?"
+
 ## CORE CAPABILITIES
 
 You have FULL ACCESS to:
@@ -47,6 +63,8 @@ You have FULL ACCESS to:
 - Calendar and deadline tracking
 - Billing and time entry systems
 - Case file systems (read/write documents)
+- Learning system to record preferences and patterns
+- Legal knowledge base with practice area guidance
 
 ## THE IRAC METHOD - YOUR THINKING FRAMEWORK
 
@@ -103,8 +121,19 @@ After EVERY substantive output, you MUST critique yourself:
 3. **Completeness Check**: Did I address all issues? Any gaps?
 4. **Persuasion Check**: Would a judge/client be convinced?
 5. **Style Check**: Does this match the firm's preferences?
+6. **User Emulation Check**: Is this what the user would have done?
 
 If ANY critique fails, you MUST refine and rewrite before finalizing.
+
+## LEARNING PROTOCOL
+
+You have powerful learning capabilities. USE THEM:
+
+1. **Record Successful Workflows**: When a sequence of actions works well, use `record_workflow_success` so you can repeat it
+2. **Observe Outcomes**: After completing tasks, use `record_observation` to capture what worked or didn't
+3. **Learn User Behavior**: When you notice how the user handles something, use `record_user_behavior`
+4. **Check What User Would Do**: Use `get_user_typical_action` to see how the user usually handles similar situations
+5. **Get Recommended Workflows**: Use `get_recommended_workflow` to follow proven successful patterns
 
 ## AUTONOMOUS OPERATION
 
@@ -131,13 +160,17 @@ Your work product must be:
 - Ready for partner review
 - Free of errors, typos, and weak arguments
 
+{legal_knowledge}
+
 {style_guide}
+
+{learning_context}
 
 ## CURRENT TASK
 
 You will receive a task and must complete it autonomously using IRAC methodology and your full toolkit. Begin by identifying the legal issues, then proceed systematically.
 
-REMEMBER: You are the BEST LAWYER in the world. Act like it.
+REMEMBER: You are the BEST LAWYER in the world. Do what the user would do, but faster and more thoroughly.
 """
 
 
@@ -167,13 +200,25 @@ class SuperLawyerAgent:
         self,
         config: AgentConfig,
         log_callback: Optional[Callable[[str], None]] = None,
-        preferences_dir: str = "./case_data/preferences"
+        preferences_dir: str = "./case_data/preferences",
+        user_id: Optional[str] = None,
+        firm_id: Optional[str] = None,
+        backend_url: Optional[str] = None
     ):
         self.config = config
         self.log_callback = log_callback or (lambda msg: logger.info(msg))
+        self.user_id = user_id
+        self.firm_id = firm_id
+        self.backend_url = backend_url or os.environ.get("BACKEND_URL", "http://localhost:3001")
         
-        # Initialize components
-        self.learning = LearningManager(preferences_dir)
+        # Initialize components with user/firm context for personalized learning
+        self.learning = LearningManager(
+            preferences_dir=preferences_dir,
+            user_id=user_id,
+            firm_id=firm_id,
+            backend_url=self.backend_url
+        )
+        self.legal_knowledge = get_legal_knowledge_base()
         self.fs_tool = FileSystemTool(config.sandbox_directory)
         self.tool_executor = get_tool_executor()
         
@@ -188,6 +233,10 @@ class SuperLawyerAgent:
         self.irac_analysis: Dict[str, IRACStep] = {}
         self.iteration_count = 0
         self.start_time: Optional[float] = None
+        self.actions_taken: List[str] = []  # Track actions for observation learning
+        self.current_task: str = ""  # Current task description
+        
+        self._log(f"SuperLawyerAgent initialized for user={user_id}, firm={firm_id}")
     
     def _init_azure_client(self):
         """Initialize Azure OpenAI client"""
@@ -264,8 +313,11 @@ class SuperLawyerAgent:
         # Legal/platform tools (from bridge)
         tools.extend(get_tools_in_openai_format())
         
-        # Learning tools
+        # Learning tools (enhanced with workflow and observation learning)
         tools.extend(LEARNING_TOOLS)
+        
+        # Legal knowledge tools
+        tools.extend(LEGAL_KNOWLEDGE_TOOLS)
         
         # IRAC-specific tools
         tools.extend(self._get_irac_tools())
@@ -507,14 +559,25 @@ class SuperLawyerAgent:
         """Execute a tool call"""
         self._log(f"Executing tool: {tool_name}")
         
+        # Track action for observation learning
+        self.actions_taken.append(tool_name)
+        
         # Filesystem tools
         if tool_name in ("list_directory", "list_directory_recursive", "read_file",
                          "write_file", "file_exists", "create_directory"):
             return execute_filesystem_tool(tool_name, args, self.fs_tool)
         
-        # Learning tools
-        if tool_name in ("update_preference", "get_style_preferences"):
+        # Learning tools (expanded set)
+        if tool_name in ("update_preference", "get_style_preferences", 
+                         "record_workflow_success", "get_recommended_workflow",
+                         "record_observation", "get_user_typical_action",
+                         "record_user_behavior"):
             return execute_learning_tool(tool_name, args, self.learning)
+        
+        # Legal knowledge tools
+        if tool_name in ("get_practice_area_knowledge", "get_legal_procedure",
+                         "get_intake_checklist"):
+            return execute_legal_knowledge_tool(tool_name, args, self.legal_knowledge)
         
         # IRAC tools
         if tool_name == "identify_legal_issue":
@@ -655,31 +718,53 @@ class SuperLawyerAgent:
     
     def _handle_task_complete(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle task completion"""
-        self._log(f"Task completed: {args.get('summary', '')[:100]}")
+        success = args.get("success", True)
+        summary = args.get("summary", "")
+        
+        self._log(f"Task completed: {summary[:100]}")
+        
+        # Record observation for future learning
+        elapsed = time.time() - self.start_time if self.start_time else 0
+        try:
+            self.learning.record_observation(
+                task_description=self.current_task,
+                actions_taken=self.actions_taken,
+                outcome="success" if success else "partial",
+                time_taken=elapsed,
+                lessons=args.get("irac_summary", {}).get("lessons", []) if isinstance(args.get("irac_summary"), dict) else []
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record observation: {e}")
+        
         return {
             "success": True,
             "task_complete": True,
-            "summary": args.get("summary", ""),
+            "summary": summary,
             "output_files": args.get("output_files", []),
             "irac_phases_completed": list(self.irac_analysis.keys())
         }
     
     def _build_system_prompt(self, task: str) -> str:
-        """Build the full system prompt with style guide"""
+        """Build the full system prompt with legal knowledge, style guide, and learning context"""
+        # Get legal knowledge for this task
+        legal_knowledge = self.legal_knowledge.format_knowledge_for_prompt(task)
+        
         # Get style guide content
         style_guide = self.learning.get_style_guide_content()
         
-        # Get task-relevant preferences
-        preferences_text = self.learning.format_preferences_for_prompt(task)
+        # Get full learning context (preferences, workflows, user behavior, lessons)
+        learning_context = self.learning.get_full_learning_context(task)
         
-        # Combine into system prompt
+        # Combine style guide
         combined_style = ""
         if style_guide:
             combined_style += "\n## FIRM STYLE GUIDE\n\n" + style_guide
-        if preferences_text:
-            combined_style += "\n" + preferences_text
         
-        return SUPER_LAWYER_PROMPT.format(style_guide=combined_style)
+        return SUPER_LAWYER_PROMPT.format(
+            legal_knowledge=legal_knowledge if legal_knowledge else "",
+            style_guide=combined_style,
+            learning_context=learning_context if learning_context else ""
+        )
     
     def run(self, goal: str) -> Dict[str, Any]:
         """
@@ -694,6 +779,8 @@ class SuperLawyerAgent:
         self.start_time = time.time()
         self.iteration_count = 0
         self.irac_analysis = {}
+        self.actions_taken = []  # Reset actions tracking
+        self.current_task = goal  # Track current task for observation learning
         
         self._log(f"Super Lawyer starting task: {goal}")
         
