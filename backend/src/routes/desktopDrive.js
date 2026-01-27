@@ -155,7 +155,7 @@ router.get('/matters/:matterId/files', authenticate, async (req, res) => {
           type,
           size,
           external_path as "azurePath",
-          created_at as "createdAt",
+          uploaded_at as "createdAt",
           updated_at as "updatedAt",
           false as "isFolder"
         FROM documents
@@ -176,7 +176,7 @@ router.get('/matters/:matterId/files', authenticate, async (req, res) => {
           type,
           size,
           external_path as "azurePath",
-          created_at as "createdAt",
+          uploaded_at as "createdAt",
           updated_at as "updatedAt",
           false as "isFolder"
         FROM documents
@@ -631,7 +631,7 @@ router.get('/sync/changes', authenticate, async (req, res) => {
         external_path as "path",
         CASE 
           WHEN status = 'deleted' THEN 'delete'
-          WHEN created_at > $1 THEN 'create'
+          WHEN uploaded_at > $1 THEN 'create'
           ELSE 'update'
         END as type,
         updated_at as timestamp
