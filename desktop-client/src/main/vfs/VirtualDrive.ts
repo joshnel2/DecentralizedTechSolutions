@@ -147,40 +147,53 @@ export class VirtualDrive extends EventEmitter {
     try {
       log.info('Syncing files (only user-permitted files)...');
 
-      // Get matters the user has access to (API filters by permissions)
-      const matters = await this.apiClient.getMatters();
-      log.info(`User has access to ${matters.length} matters`);
+      // Get matters with A-Z structure from drive API
+      const driveData = await this.apiClient.getDriveMatters();
+      log.info(`User has access to ${driveData.totalMatters} matters`);
 
-      // Group matters by first letter of client name (A-Z structure)
-      const mattersByLetter = new Map<string, Matter[]>();
-      
-      for (const matter of matters) {
-        // Get first letter of client name, default to '#' for numbers/special chars
-        const clientName = matter.clientName || matter.name || 'Unknown';
-        let letter = clientName.charAt(0).toUpperCase();
-        if (!/[A-Z]/.test(letter)) {
-          letter = '#'; // Numbers and special characters go in '#' folder
+      // Use the pre-built A-Z structure from the API
+      if (driveData.structure && driveData.structure.length > 0) {
+        for (const letterGroup of driveData.structure) {
+          const letterPath = path.join(this.localPath, letterGroup.letter);
+          await fs.mkdir(letterPath, { recursive: true });
+          
+          log.info(`Syncing letter ${letterGroup.letter} with ${letterGroup.matters.length} matters`);
+          
+          // Create matter folders inside each letter
+          for (const matter of letterGroup.matters) {
+            await this.syncMatterInLetter(matter as Matter, letterPath);
+          }
         }
+      } else {
+        // Fallback: use flat matters list and build structure locally
+        const matters = driveData.matters || [];
+        const mattersByLetter = new Map<string, Matter[]>();
         
-        if (!mattersByLetter.has(letter)) {
-          mattersByLetter.set(letter, []);
+        for (const matter of matters) {
+          const clientName = matter.clientName || matter.name || 'Unknown';
+          let letter = clientName.charAt(0).toUpperCase();
+          if (!/[A-Z]/.test(letter)) {
+            letter = '#';
+          }
+          
+          if (!mattersByLetter.has(letter)) {
+            mattersByLetter.set(letter, []);
+          }
+          mattersByLetter.get(letter)!.push(matter);
         }
-        mattersByLetter.get(letter)!.push(matter);
-      }
 
-      // Create letter folders (A, B, C, etc.) and sync matters
-      for (const [letter, letterMatters] of mattersByLetter) {
-        const letterPath = path.join(this.localPath, letter);
-        await fs.mkdir(letterPath, { recursive: true });
-        
-        // Create matter folders inside each letter
-        for (const matter of letterMatters) {
-          await this.syncMatterInLetter(matter, letterPath);
+        for (const [letter, letterMatters] of mattersByLetter) {
+          const letterPath = path.join(this.localPath, letter);
+          await fs.mkdir(letterPath, { recursive: true });
+          
+          for (const matter of letterMatters) {
+            await this.syncMatterInLetter(matter, letterPath);
+          }
         }
       }
 
       // Clean up removed matters
-      await this.cleanupRemovedMatters(matters, this.localPath);
+      await this.cleanupRemovedMatters(driveData.matters || [], this.localPath);
 
       this.emit('syncCompleted');
       log.info('File sync completed');
@@ -197,23 +210,28 @@ export class VirtualDrive extends EventEmitter {
    * Sync a matter inside a letter folder (Clio-style: /A/Anderson - Case 123/)
    */
   private async syncMatterInLetter(matter: Matter, letterPath: string): Promise<void> {
-    // Folder name: "ClientName - MatterNumber MatterName" or "ClientName - MatterName"
-    const clientName = matter.clientName || 'Unknown Client';
-    const matterName = matter.number 
-      ? `${matter.number} ${matter.name}`
-      : matter.name;
-    const matterFolderName = this.sanitizeFolderName(`${clientName} - ${matterName}`);
+    // Use folderName from API if available, otherwise construct it
+    const folderName = (matter as any).folderName || 
+      `${matter.clientName || 'Unknown'} - ${matter.number ? `${matter.number} ` : ''}${matter.name}`;
+    const matterFolderName = this.sanitizeFolderName(folderName);
     const matterPath = path.join(letterPath, matterFolderName);
 
     try {
       await fs.mkdir(matterPath, { recursive: true });
+      log.info(`Created matter folder: ${matterFolderName}`);
 
       // Get files for this matter (API filters by user permissions)
+      log.info(`Fetching files for matter ${matter.id} (${matter.name})...`);
       const files = await this.apiClient.listFiles(matter.id);
-      log.info(`Matter "${matter.name}" has ${files.length} files`);
+      log.info(`Matter "${matter.name}" (${matter.id}) has ${files.length} files`);
+
+      if (files.length === 0) {
+        log.info(`No files found for matter "${matter.name}" - folder will be empty`);
+      }
 
       // Create subfolders and files
       for (const file of files) {
+        log.debug(`Syncing file: ${file.name} (isFolder: ${file.isFolder})`);
         await this.syncFile(file, matterPath, matter.id);
       }
 
