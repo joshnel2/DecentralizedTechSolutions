@@ -16,6 +16,7 @@ interface ActiveTask {
   summary?: string
   result?: any
   isAmplifier?: boolean  // Track if this is an Amplifier background task
+  lastActivityAt?: number  // Track last activity timestamp
 }
 
 const clampPercent = (value: number | null | undefined, fallback = 0) => {
@@ -35,6 +36,10 @@ export function BackgroundTaskBar() {
   
   // Use ref to track isAmplifier immediately (avoids race condition with state updates)
   const isAmplifierRef = useRef(false)
+  
+  // Track last progress update to detect activity
+  const lastProgressRef = useRef<{ step: string; percent: number; timestamp: number }>({ step: '', percent: 0, timestamp: Date.now() })
+  const [isThinking, setIsThinking] = useState(false)
 
   // Check task status - supports both regular AI Agent and Amplifier background tasks
   const checkActiveTask = useCallback(async () => {
@@ -58,6 +63,21 @@ export function BackgroundTaskBar() {
             return
           }
           
+          const currentStep = task.progress?.currentStep || 'Working...'
+          const now = Date.now()
+          
+          // Detect if we're in a "thinking" state (same step for a while but still running)
+          if (lastProgressRef.current.step === currentStep && lastProgressRef.current.percent === progressPercent) {
+            // Same state for a while - agent might be thinking
+            if (now - lastProgressRef.current.timestamp > 5000) {
+              setIsThinking(true)
+            }
+          } else {
+            // Progress changed - update tracker and reset thinking state
+            lastProgressRef.current = { step: currentStep, percent: progressPercent, timestamp: now }
+            setIsThinking(false)
+          }
+          
           setActiveTask({
             id: task.id,
             goal: task.goal,
@@ -66,10 +86,11 @@ export function BackgroundTaskBar() {
             iterations: task.progress?.iterations || 0,
             totalSteps: task.progress?.totalSteps,
             completedSteps: task.progress?.completedSteps,
-            currentStep: task.progress?.currentStep || 'Working...',
+            currentStep: currentStep,
             summary: task.result?.summary,
             result: task.result,
-            isAmplifier: true
+            isAmplifier: true,
+            lastActivityAt: now
           })
           setIsComplete(false)
           setHasError(task.status === 'error' || task.status === 'failed')
@@ -355,23 +376,30 @@ export function BackgroundTaskBar() {
         <div className={styles.clickableArea} onClick={handleViewProgress} title="Click to view progress">
           <div className={styles.icon}>
             {activeTask?.isAmplifier ? (
-              <Rocket size={20} className={styles.spinning} />
+              <Rocket size={20} className={isThinking ? styles.pulsing : styles.spinning} />
             ) : (
-              <Bot size={20} className={styles.spinning} />
+              <Bot size={20} className={isThinking ? styles.pulsing : styles.spinning} />
             )}
           </div>
           
           <div className={styles.info}>
             <div className={styles.header}>
               <div className={styles.title}>
-                {activeTask?.isAmplifier ? 'Background Agent Working' : 'AI Agent Working'}
+                {isThinking 
+                  ? (activeTask?.isAmplifier ? 'Background Agent Thinking...' : 'AI Agent Thinking...') 
+                  : (activeTask?.isAmplifier ? 'Background Agent Working' : 'AI Agent Working')
+                }
               </div>
               <div className={styles.iterations}>
                 {stepLabel}
               </div>
+              {/* Activity indicator - shows agent is still alive */}
+              <span className={styles.activityDot} title="Agent is active" />
             </div>
             <div className={styles.goal}>{activeTask.goal}</div>
-            <div className={styles.step}>{activeTask.currentStep}</div>
+            <div className={styles.step}>
+              {isThinking ? `🧠 ${activeTask.currentStep}` : activeTask.currentStep}
+            </div>
           </div>
 
           <div className={styles.progress}>

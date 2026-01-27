@@ -536,9 +536,13 @@ export function BackgroundAgentPage() {
                   </div>
                   <div className={styles.liveActivityFeed} ref={liveEventsRef}>
                     {liveEvents.length === 0 && (
-                      <div className={styles.liveEventItem}>
-                        <span className={styles.liveEventTime}>--:--:--</span>
-                        <span className={styles.liveEventMessage}>Waiting for agent activity...</span>
+                      <div className={styles.thinkingIndicator}>
+                        <div className={styles.thinkingDots}>
+                          <span className={styles.thinkingDot}></span>
+                          <span className={styles.thinkingDot}></span>
+                          <span className={styles.thinkingDot}></span>
+                        </div>
+                        <span>Agent is analyzing and preparing actions...</span>
                       </div>
                     )}
                     {liveEvents.map((event, idx) => (

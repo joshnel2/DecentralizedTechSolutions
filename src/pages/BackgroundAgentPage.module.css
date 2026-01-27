@@ -427,6 +427,60 @@
   word-break: break-word;
 }
 
+/* Thinking indicator animation */
+.thinkingIndicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(139, 92, 246, 0.1);
+  border-radius: 8px;
+  color: #a78bfa;
+  font-size: 12px;
+  animation: thinkingPulse 2s ease-in-out infinite;
+}
+
+.thinkingDots {
+  display: flex;
+  gap: 4px;
+}
+
+.thinkingDot {
+  width: 6px;
+  height: 6px;
+  background: #a78bfa;
+  border-radius: 50%;
+  animation: dotBounce 1.4s infinite ease-in-out both;
+}
+
+.thinkingDot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.thinkingDot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes thinkingPulse {
+  0%, 100% {
+    opacity: 1;
+    background: rgba(139, 92, 246, 0.1);
+  }
+  50% {
+    opacity: 0.7;
+    background: rgba(139, 92, 246, 0.2);
+  }
+}
+
+@keyframes dotBounce {
+  0%, 80%, 100% {
+    transform: scale(0);
+  }
+  40% {
+    transform: scale(1);
+  }
+}
+
 /* Scrollbar styling for live feed */
 .liveActivityFeed::-webkit-scrollbar {
   width: 6px;
