@@ -485,6 +485,80 @@ class BackgroundTask extends EventEmitter {
   }
 
   /**
+   * Detect if the agent is stuck in a loop pattern
+   * Returns null if no loop detected, or an object describing the loop
+   */
+  detectLoopPattern(currentTool) {
+    if (this.recentTools.length < 4) return null;
+    
+    const recent = this.recentTools.slice(-8);
+    
+    // Pattern 1: Same tool repeated 4+ times
+    const lastFour = recent.slice(-4);
+    if (lastFour.every(t => t === currentTool)) {
+      return {
+        pattern: 'repetition',
+        description: `Tool "${currentTool}" called ${lastFour.length + 1} times consecutively without progress`,
+        tool: currentTool
+      };
+    }
+    
+    // Pattern 2: Oscillation between 2 tools (A-B-A-B pattern)
+    if (recent.length >= 6) {
+      const lastSix = recent.slice(-6);
+      const uniqueTools = [...new Set(lastSix)];
+      if (uniqueTools.length === 2) {
+        const [a, b] = uniqueTools;
+        const isOscillating = lastSix.every((t, i) => t === (i % 2 === 0 ? a : b)) ||
+                              lastSix.every((t, i) => t === (i % 2 === 0 ? b : a));
+        if (isOscillating) {
+          return {
+            pattern: 'oscillation',
+            description: `Oscillating between "${a}" and "${b}" without progress`,
+            tools: [a, b]
+          };
+        }
+      }
+    }
+    
+    // Pattern 3: Three-tool cycle (A-B-C-A-B-C)
+    if (recent.length >= 6) {
+      const lastSix = recent.slice(-6);
+      const uniqueTools = [...new Set(lastSix)];
+      if (uniqueTools.length === 3) {
+        const [a, b, c] = [lastSix[0], lastSix[1], lastSix[2]];
+        const isCycling = lastSix[0] === a && lastSix[1] === b && lastSix[2] === c &&
+                          lastSix[3] === a && lastSix[4] === b && lastSix[5] === c;
+        if (isCycling) {
+          return {
+            pattern: 'cycle',
+            description: `Cycling through "${a}" -> "${b}" -> "${c}" without progress`,
+            tools: [a, b, c]
+          };
+        }
+      }
+    }
+    
+    // Pattern 4: Planning tools without action (think_and_plan, evaluate_progress without substantive tools)
+    const planningTools = ['think_and_plan', 'evaluate_progress', 'log_work'];
+    const recentPlanningCount = recent.filter(t => planningTools.includes(t)).length;
+    const recentSubstantiveCount = recent.filter(t => 
+      ['create_document', 'add_matter_note', 'create_task', 'create_calendar_event', 
+       'create_matter', 'update_matter', 'send_invoice', 'create_invoice'].includes(t)
+    ).length;
+    
+    if (recentPlanningCount >= 5 && recentSubstantiveCount === 0) {
+      return {
+        pattern: 'planning_without_action',
+        description: 'Too much planning/evaluation without taking substantive actions',
+        planningCount: recentPlanningCount
+      };
+    }
+    
+    return null;
+  }
+
+  /**
    * Get detailed, human-readable description of what tool is doing
    * Used for precise live activity feed updates
    */
@@ -1030,14 +1104,42 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
    */
   async runAgentLoop() {
     const MAX_ITERATIONS = this.maxIterations;
-    const MAX_TEXT_ONLY_RESPONSES = 3; // Max times AI can respond with only text before we re-prompt
+    const MAX_TEXT_ONLY_RESPONSES = 5; // Increased from 3 - be more patient with AI thinking
+    const MAX_CONSECUTIVE_TEXT = 8; // Absolute max before failing (AI may be stuck)
+    const API_CALL_TIMEOUT_MS = 90000; // 90s timeout for API calls
     const tools = getOpenAITools();
     let textOnlyCount = 0;
+    let consecutiveTextCount = 0; // Track truly consecutive text responses (no actions between)
+    let lastApiCallTime = Date.now();
+    let stallCount = 0; // Track how many times we've detected potential stalls
     
     console.log(`[Amplifier] Starting agent loop with ${tools.length} tools available`);
     
+    // Heartbeat tracking for long-running tasks
+    let lastHeartbeatTime = Date.now();
+    const HEARTBEAT_INTERVAL_MS = 10000; // Send heartbeat every 10 seconds
+    
     while (this.progress.iterations < MAX_ITERATIONS && !this.cancelled) {
       const elapsedMs = Date.now() - this.startTime.getTime();
+      
+      // Send periodic heartbeat to keep frontend informed during long operations
+      const timeSinceHeartbeat = Date.now() - lastHeartbeatTime;
+      if (timeSinceHeartbeat >= HEARTBEAT_INTERVAL_MS) {
+        lastHeartbeatTime = Date.now();
+        const elapsedMinutes = Math.floor(elapsedMs / 60000);
+        const elapsedSeconds = Math.floor((elapsedMs % 60000) / 1000);
+        
+        this.streamEvent('heartbeat', `💓 Working... (${elapsedMinutes}m ${elapsedSeconds}s, ${this.actionsHistory.length} actions)`, {
+          elapsed_ms: elapsedMs,
+          elapsed_formatted: `${elapsedMinutes}m ${elapsedSeconds}s`,
+          actions_count: this.actionsHistory.length,
+          iteration: this.progress.iterations,
+          icon: 'activity',
+          color: 'blue'
+        });
+        this.streamProgress();
+      }
+      
       if (elapsedMs > this.maxRuntimeMs) {
         console.warn(`[Amplifier] Task ${this.id} reached max runtime (${this.maxRuntimeMs}ms)`);
         
@@ -1101,11 +1203,45 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
         this.messages = this.normalizeMessages(this.messages);
         this.compactMessagesIfNeeded();
         
-        // Call Azure OpenAI with tools
-        const response = await callAzureOpenAI(this.messages, tools, {
-          temperature: this.options?.temperature ?? 0.3,
-          max_tokens: this.options?.max_tokens ?? 4000
-        });
+        // Call Azure OpenAI with tools - add timeout protection
+        lastApiCallTime = Date.now();
+        let response;
+        try {
+          const apiPromise = callAzureOpenAI(this.messages, tools, {
+            temperature: this.options?.temperature ?? 0.3,
+            max_tokens: this.options?.max_tokens ?? 4000
+          });
+          
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error(`API call timed out after ${API_CALL_TIMEOUT_MS/1000}s`)), API_CALL_TIMEOUT_MS)
+          );
+          
+          response = await Promise.race([apiPromise, timeoutPromise]);
+        } catch (apiError) {
+          // If it's a timeout, log it and try to recover
+          if (apiError.message?.includes('timed out')) {
+            console.warn(`[Amplifier] API call timeout at iteration ${this.progress.iterations}`);
+            stallCount++;
+            
+            this.streamEvent('api_timeout', `⏳ API call timed out, retrying...`, {
+              iteration: this.progress.iterations,
+              icon: 'clock',
+              color: 'yellow'
+            });
+            
+            // If we've had multiple timeouts, something might be wrong
+            if (stallCount >= 3) {
+              this.messages.push({
+                role: 'user',
+                content: 'The previous request timed out. Please provide a shorter, more focused response and call tools immediately.'
+              });
+            }
+            
+            continue; // Retry the iteration
+          }
+          throw apiError; // Re-throw non-timeout errors
+        }
+        
         const choice = response.choices[0];
         const message = choice.message;
         
@@ -1115,6 +1251,8 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
         // Check for tool calls (this is what makes it an AGENT)
         if (message.tool_calls && message.tool_calls.length > 0) {
           textOnlyCount = 0; // Reset text-only counter
+          consecutiveTextCount = 0; // Reset consecutive counter on any tool call
+          stallCount = 0; // Reset stall counter on progress
           
           const toolNames = message.tool_calls.map(tc => tc.function?.name || 'unknown');
           console.log(`[Amplifier] Iteration ${this.progress.iterations}: ${message.tool_calls.length} tool(s) to execute: ${toolNames.join(', ')}`);
@@ -1210,7 +1348,39 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             });
 
             this.recentTools.push(toolName);
-            if (this.recentTools.length > 6) this.recentTools.shift();
+            if (this.recentTools.length > 10) this.recentTools.shift();
+            
+            // ENHANCED LOOP DETECTION: Check for various stuck patterns
+            const loopDetected = this.detectLoopPattern(toolName);
+            if (loopDetected) {
+              console.log(`[Amplifier] Loop pattern detected: ${loopDetected.pattern}`);
+              this.streamEvent('loop_detected', `⚠️ Detected repetitive pattern: ${loopDetected.description}`, {
+                pattern: loopDetected.pattern,
+                icon: 'alert-triangle',
+                color: 'yellow'
+              });
+              
+              // Add message to break out of loop
+              this.messages.push({
+                role: 'user',
+                content: `LOOP DETECTED: ${loopDetected.description}
+
+You appear to be stuck in a repetitive pattern. To break out:
+1. Review what you've accomplished so far
+2. Identify what's actually blocking progress
+3. Try a DIFFERENT approach or tool
+4. If the current path isn't working, consider alternatives
+
+Goal reminder: "${this.goal}"
+
+What specific action will move this forward?`
+              });
+              
+              stallCount++;
+              if (stallCount >= 3) {
+                console.warn(`[Amplifier] Task ${this.id} stuck in loops ${stallCount} times, may need intervention`);
+              }
+            }
             
             // Check for explicit task completion
             if (toolName === 'task_complete') {
@@ -1244,8 +1414,8 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
               if (missing.length > 0) {
                 console.log(`[Amplifier] Task ${this.id} attempted early completion: ${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive, hasNote=${hasNote}, hasTask=${hasTask}`);
                 
-                // Reject early completion - push message to continue
-                toolCallResults.push({
+                // Reject early completion - add tool response to messages so AI knows to continue
+                this.messages.push({
                   role: 'tool',
                   tool_call_id: toolCall.id,
                   content: JSON.stringify({
@@ -1261,6 +1431,13 @@ You MUST do the following before completing:
 
 Keep working on: "${this.goal}"`
                   })
+                });
+                
+                // Stream rejection event so user sees why completion was rejected
+                this.streamEvent('quality_gate', `⚠️ Quality gate: Need more work before completion`, {
+                  icon: 'alert-triangle',
+                  color: 'yellow',
+                  missing: missing
                 });
                 
                 // Don't mark complete - continue the loop
@@ -1360,32 +1537,29 @@ Keep working on: "${this.goal}"`
               }
             }
 
-            if (this.recentTools.length === 6 && this.recentTools.every(t => t === toolName)) {
-              this.messages.push({
-                role: 'user',
-                content: `You have used ${toolName} repeatedly without progress. Try a different tool or a new approach to complete: "${this.goal}".`
-              });
-            }
+            // Note: Loop detection is now handled by detectLoopPattern() above
 
             await this.saveCheckpoint('periodic');
           }
         } else {
           // No tool calls - AI just responded with text
           textOnlyCount++;
-          console.log(`[Amplifier] Iteration ${this.progress.iterations}: text-only response (count: ${textOnlyCount})`);
+          consecutiveTextCount++;
+          console.log(`[Amplifier] Iteration ${this.progress.iterations}: text-only response (count: ${textOnlyCount}, consecutive: ${consecutiveTextCount})`);
           
           // Stream that we got a thinking/text response
           const responsePreview = message.content ? message.content.substring(0, 80) : '';
           this.streamEvent('thought_response', `💭 Thinking: "${responsePreview}${responsePreview.length >= 80 ? '...' : ''}"`, {
             iteration: this.progress.iterations,
+            text_only_count: textOnlyCount,
             icon: 'message-square',
             color: 'gray'
           });
           
           // Check if finish_reason indicates completion
           if (choice.finish_reason === 'stop') {
-            // If we've done some work and the AI seems done, complete the task
-            if (this.actionsHistory.length > 0) {
+            // If we've done substantial work and the AI seems done, complete the task
+            if (this.actionsHistory.length >= 3) {
               console.log(`[Amplifier] Task ${this.id} completed after ${this.actionsHistory.length} actions`);
               
               // SMOOTH COMPLETION SEQUENCE
@@ -1424,25 +1598,61 @@ Keep working on: "${this.goal}"`
               return;
             }
             
-            // If no actions were taken and AI just responded with text, prompt it to take action
-            if (textOnlyCount < MAX_TEXT_ONLY_RESPONSES) {
-              console.log(`[Amplifier] Re-prompting AI to take action`);
+            // If minimal/no actions were taken, AI needs to be prompted to work
+            // Use escalating prompts based on how many times we've had to re-prompt
+            if (consecutiveTextCount < MAX_CONSECUTIVE_TEXT) {
+              let promptMessage;
+              
+              if (consecutiveTextCount <= 2) {
+                // Gentle first prompt
+                promptMessage = 'You are in AUTONOMOUS EXECUTION mode. You MUST call tools to complete tasks - text responses alone cannot accomplish anything. Call think_and_plan to create your plan, then start executing tools.';
+              } else if (consecutiveTextCount <= 4) {
+                // More direct prompt
+                promptMessage = `CRITICAL: You have responded ${consecutiveTextCount} times without calling any tools. This task REQUIRES tool usage. Your goal is: "${this.goal}". Call a tool NOW - start with think_and_plan or list_my_matters to begin.`;
+              } else {
+                // Urgent prompt with specific tool suggestion
+                promptMessage = `URGENT: ${consecutiveTextCount} consecutive responses without tool calls. The system will fail if you don't act. Here's exactly what to do:
+1. Call think_and_plan with goal="${this.goal}" to create your plan
+2. Then call the appropriate tools to execute each step
+3. Do NOT respond with text - ONLY call tools
+
+CALL A TOOL NOW.`;
+              }
+              
+              console.log(`[Amplifier] Re-prompting AI to take action (attempt ${consecutiveTextCount})`);
               this.messages.push({
                 role: 'user',
-                content: 'You must call tools to complete this task. Do NOT just respond with text. Start by calling think_and_plan, then execute the necessary tools. Call tools NOW.'
+                content: promptMessage
+              });
+              
+              this.streamEvent('reprompt', `🔄 Re-prompting agent to take action (attempt ${consecutiveTextCount})`, {
+                attempt: consecutiveTextCount,
+                icon: 'refresh-cw',
+                color: 'yellow'
               });
             } else {
-              // AI keeps responding with text only - something is wrong
-              console.error(`[Amplifier] Task ${this.id} failed: AI not calling tools`);
+              // AI keeps responding with text only - something is fundamentally wrong
+              console.error(`[Amplifier] Task ${this.id} failed: AI not calling tools after ${consecutiveTextCount} attempts`);
               this.status = TaskStatus.FAILED;
-              this.error = 'Agent did not execute any actions. The AI model may not support function calling.';
+              this.error = `Agent did not execute any actions after ${consecutiveTextCount} prompts. The AI model may not support function calling properly.`;
               this.endTime = new Date();
               await this.saveTaskHistory();
               await this.persistCompletion(TaskStatus.FAILED);
+              
+              this.streamEvent('task_failed', `❌ Task failed: Agent unable to execute tools`, {
+                reason: this.error,
+                icon: 'x-circle',
+                color: 'red'
+              });
+              
               this.emit('error', new Error(this.error));
               return;
             }
+          } else if (choice.finish_reason === 'length') {
+            // Response was truncated - this is normal, continue
+            console.log(`[Amplifier] Response truncated (finish_reason=length), continuing`);
           }
+          // For other finish_reasons (tool_calls, etc.), just continue the loop
         }
         
         // Gradual progress update
@@ -1511,9 +1721,34 @@ Keep working on: "${this.goal}"`
           return;
         }
         
+        // Track error count to prevent infinite recovery loops
+        if (!this.errorRecoveryCount) this.errorRecoveryCount = 0;
+        this.errorRecoveryCount++;
+        
+        // If we've had too many errors, fail the task
+        const MAX_ERROR_RECOVERIES = 5;
+        if (this.errorRecoveryCount >= MAX_ERROR_RECOVERIES) {
+          console.error(`[Amplifier] Task ${this.id} failed after ${this.errorRecoveryCount} error recoveries`);
+          this.status = TaskStatus.FAILED;
+          this.error = `Task failed after multiple errors. Last error: ${error.message}`;
+          this.endTime = new Date();
+          await this.saveTaskHistory();
+          await this.persistCompletion(TaskStatus.FAILED, this.error);
+          
+          this.streamEvent('task_failed', `❌ Task failed after ${this.errorRecoveryCount} errors`, {
+            reason: this.error,
+            icon: 'x-circle',
+            color: 'red'
+          });
+          
+          this.emit('error', new Error(this.error));
+          return;
+        }
+        
         // For other errors, add to messages and let AI recover
-        this.streamEvent('recovery', `⚠️ Recovering from error: ${error.message.substring(0, 80)}...`, {
+        this.streamEvent('recovery', `⚠️ Recovering from error (${this.errorRecoveryCount}/${MAX_ERROR_RECOVERIES}): ${error.message.substring(0, 60)}...`, {
           error: error.message,
+          recovery_attempt: this.errorRecoveryCount,
           icon: 'alert-triangle',
           color: 'yellow'
         });
