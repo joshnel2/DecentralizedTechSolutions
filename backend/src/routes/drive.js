@@ -2146,34 +2146,61 @@ router.get('/download-azure', authenticate, async (req, res) => {
 });
 
 /**
- * APEX DRIVE - Get documents from database organized by matters
- * Displays all documents the user has access to, grouped by their associated matters
+ * APEX DRIVE - Get documents from user's matters
+ * Shows only documents from matters the user has access to
  */
 router.get('/browse-all', authenticate, async (req, res) => {
   try {
     const { search } = req.query;
     const firmId = req.user.firmId;
     const userId = req.user.id;
-    const userRole = req.user.role;
     
-    // Check if user is admin
-    const isAdmin = userRole === 'owner' || userRole === 'admin';
+    console.log(`[BROWSE-ALL] User: ${req.user.email}, FirmId: ${firmId}`);
     
-    console.log(`[BROWSE-ALL] User: ${req.user.email}, Role: ${userRole}, isAdmin: ${isAdmin}, FirmId: ${firmId}`);
+    // Get user's matters (matters they're assigned to or have access to)
+    const userMattersResult = await query(`
+      SELECT DISTINCT m.id, m.name, m.number
+      FROM matters m
+      WHERE m.firm_id = $1 AND (
+        m.responsible_attorney = $2
+        OR m.originating_attorney = $2
+        OR m.created_by = $2
+        OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+        OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
+      )
+      ORDER BY m.name
+    `, [firmId, userId]);
     
-    // Get ALL documents for the firm - simple query
+    const userMatterIds = userMattersResult.rows.map(r => r.id);
+    console.log(`[BROWSE-ALL] User has access to ${userMatterIds.length} matters`);
+    
+    if (userMatterIds.length === 0) {
+      // User has no matters
+      return res.json({
+        configured: true,
+        isAdmin: false,
+        files: [],
+        matters: [],
+        hasUnassigned: false,
+        stats: { totalFiles: 0, totalMatters: 0, totalSize: 0 },
+        source: 'database',
+        message: 'No matters found for this user'
+      });
+    }
+    
+    // Get documents ONLY from user's matters
     let sql = `
       SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path,
              d.uploaded_at, d.uploaded_by, d.matter_id, d.path,
              m.name as matter_name, m.number as matter_number,
              u.first_name || ' ' || u.last_name as uploaded_by_name
       FROM documents d
-      LEFT JOIN matters m ON d.matter_id = m.id
+      INNER JOIN matters m ON d.matter_id = m.id
       LEFT JOIN users u ON d.uploaded_by = u.id
-      WHERE d.firm_id = $1
+      WHERE d.firm_id = $1 AND d.matter_id = ANY($2)
     `;
-    const params = [firmId];
-    let paramIndex = 2;
+    const params = [firmId, userMatterIds];
+    let paramIndex = 3;
     
     // Search filter
     if (search) {
@@ -2182,71 +2209,53 @@ router.get('/browse-all', authenticate, async (req, res) => {
       paramIndex++;
     }
     
-    // Order by matter name then document name - no limit for now
-    sql += ` ORDER BY m.name NULLS LAST, d.name`;
+    // Order by matter name then document name
+    sql += ` ORDER BY m.name, d.name`;
     
-    console.log(`[BROWSE-ALL] Query:`, sql);
     const result = await query(sql, params);
-    console.log(`[BROWSE-ALL] Found ${result.rows.length} documents`);
+    console.log(`[BROWSE-ALL] Found ${result.rows.length} documents in user's matters`);
     
-    // Get all matters that have documents
-    const mattersResult = await query(`
-      SELECT DISTINCT m.id, m.name, m.number
-      FROM matters m
-      INNER JOIN documents d ON d.matter_id = m.id
-      WHERE m.firm_id = $1
-      ORDER BY m.name
-    `, [firmId]);
+    // Get only the user's matters that have documents
+    const mattersWithDocs = userMattersResult.rows.filter(m => 
+      result.rows.some(d => d.matter_id === m.id)
+    );
     
-    console.log(`[BROWSE-ALL] Found ${mattersResult.rows.length} matters with documents`);
+    // Build files list
+    const files = result.rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      originalName: row.original_name || row.name,
+      contentType: row.type,
+      size: row.size || 0,
+      folderPath: row.matter_number ? `${row.matter_number} - ${row.matter_name}` : row.matter_name,
+      matterId: row.matter_id,
+      matterName: row.matter_name,
+      matterNumber: row.matter_number,
+      uploadedAt: row.uploaded_at,
+      uploadedByName: row.uploaded_by_name,
+      path: row.path,
+      isFromAzure: false,
+      storageLocation: 'database'
+    }));
     
-    // Build files list with matter-based folder paths
-    const files = result.rows.map(row => {
-      // Use matter name as the folder path if document has a matter
-      const folderPath = row.matter_name 
-        ? (row.matter_number ? `${row.matter_number} - ${row.matter_name}` : row.matter_name)
-        : 'Unassigned';
-      
-      return {
-        id: row.id,
-        name: row.name,
-        originalName: row.original_name || row.name,
-        contentType: row.type,
-        size: row.size || 0,
-        folderPath: folderPath,
-        matterId: row.matter_id,
-        matterName: row.matter_name,
-        matterNumber: row.matter_number,
-        uploadedAt: row.uploaded_at,
-        uploadedByName: row.uploaded_by_name,
-        path: row.path,
-        // No Azure references
-        isFromAzure: false,
-        storageLocation: 'database'
-      };
-    });
-    
-    // Build matters list for sidebar
-    const matters = mattersResult.rows.map(m => ({
+    // Build matters list for sidebar (only matters that have documents)
+    const matters = mattersWithDocs.map(m => ({
       id: m.id,
       name: m.name,
       caseNumber: m.number,
       folderPath: m.number ? `${m.number} - ${m.name}` : m.name
     }));
     
-    // Add "Unassigned" folder if there are documents without matters
-    const hasUnassigned = files.some(f => !f.matterId);
-    
     return res.json({
       configured: true,
-      isAdmin,
+      isAdmin: false,
       files,
       matters,
-      hasUnassigned,
+      hasUnassigned: false,
       stats: { 
         totalFiles: files.length, 
         totalMatters: matters.length,
-        totalSize: files.reduce((sum, f) => sum + (f.size || 0), 0)
+        totalSize: files.reduce((sum, f) => sum + (Number(f.size) || 0), 0)
       },
       source: 'database',
       message: null
