@@ -90,7 +90,7 @@ app.get('/health', (req, res) => {
 });
 
 // Apex Drive download shortcut - /installdrive redirects to latest installer
-const APEX_DRIVE_DOWNLOAD = process.env.APEX_DESKTOP_DOWNLOAD_URL || 'https://github.com/joshnel2/DecentralizedTechSolutions/releases/download/v1.0.7/Apex.Drive.Setup.1.0.0.exe';
+const APEX_DRIVE_DOWNLOAD = process.env.APEX_DESKTOP_DOWNLOAD_URL || 'https://github.com/joshnel2/DecentralizedTechSolutions/releases/download/v1.0.8/Apex.Drive.Setup.1.0.0.exe';
 app.get('/installdrive', (req, res) => {
   res.redirect(APEX_DRIVE_DOWNLOAD);
 });
