@@ -15,6 +15,7 @@ import { ApiClient } from './api/ApiClient';
 import { SyncEngine } from './sync/SyncEngine';
 import { AuthManager } from './auth/AuthManager';
 import { ConfigManager } from './config/ConfigManager';
+import { VirtualDrive } from './vfs/VirtualDrive';
 
 // Configure logging
 log.transports.file.level = 'info';
@@ -28,6 +29,7 @@ let apiClient: ApiClient | null = null;
 let syncEngine: SyncEngine | null = null;
 let authManager: AuthManager | null = null;
 let configManager: ConfigManager | null = null;
+let virtualDrive: VirtualDrive | null = null;
 
 // Store for persistent settings
 const store = new Store({
@@ -110,10 +112,12 @@ function updateTrayMenu(): void {
   if (!tray) return;
 
   const isConnected = apiClient?.isConnected() ?? false;
+  const isMounted = virtualDrive?.isMounted() ?? false;
   const syncStatus = syncEngine?.getStatus();
   const statusText = isConnected 
     ? (syncStatus?.syncing ? 'Syncing...' : 'Connected') 
     : 'Disconnected';
+  const driveText = isMounted ? `Z: Mounted` : 'Not Mounted';
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -125,9 +129,42 @@ function updateTrayMenu(): void {
       label: `Status: ${statusText}`,
       enabled: false,
     },
+    {
+      label: `Drive: ${driveText}`,
+      enabled: false,
+    },
     { type: 'separator' },
     {
-      label: 'Open Apex Drive',
+      label: isMounted ? 'Open Z: Drive' : 'Mount Z: Drive',
+      enabled: isConnected,
+      click: async () => {
+        if (isMounted) {
+          virtualDrive?.openInExplorer();
+        } else {
+          try {
+            await virtualDrive?.mount();
+            updateTrayMenu();
+          } catch (e) {
+            log.error('Failed to mount from tray:', e);
+          }
+        }
+      },
+    },
+    {
+      label: 'Unmount Drive',
+      enabled: isMounted,
+      visible: isMounted,
+      click: async () => {
+        try {
+          await virtualDrive?.unmount();
+          updateTrayMenu();
+        } catch (e) {
+          log.error('Failed to unmount from tray:', e);
+        }
+      },
+    },
+    {
+      label: 'Open App Window',
       click: () => {
         if (mainWindow) {
           mainWindow.show();
@@ -136,10 +173,11 @@ function updateTrayMenu(): void {
       },
     },
     {
-      label: 'Sync Now',
-      enabled: isConnected,
-      click: () => {
+      label: 'Sync Files',
+      enabled: isConnected && isMounted,
+      click: async () => {
         syncEngine?.syncNow();
+        virtualDrive?.refresh();
       },
     },
     { type: 'separator' },
@@ -222,12 +260,24 @@ async function initializeApp(): Promise<void> {
 }
 
 async function signOut(): Promise<void> {
+  // Stop sync and unmount drive
   syncEngine?.stop();
+  
+  // Unmount virtual drive if mounted
+  if (virtualDrive?.isMounted()) {
+    try {
+      await virtualDrive.unmount();
+    } catch (e) {
+      log.error('Failed to unmount drive during sign out:', e);
+    }
+  }
+  
   await authManager?.signOut();
   
   // Reset state
   apiClient = null;
   syncEngine = null;
+  virtualDrive = null;
   
   // Show login window
   if (mainWindow) {
@@ -259,6 +309,9 @@ function setupIpcHandlers(): void {
       syncEngine = new SyncEngine(apiClient, configManager!);
       syncEngine.start();
       
+      // Initialize virtual drive (will be mounted when user clicks Mount)
+      virtualDrive = new VirtualDrive(apiClient, 'Z');
+      
       createTray();
       updateTrayMenu();
       
@@ -280,28 +333,78 @@ function setupIpcHandlers(): void {
     return { authenticated: isAuthenticated };
   });
 
-  // Drive operations (placeholder for future virtual drive)
+  // Drive operations - Mount Z: drive with ONLY user's permitted files
   ipcMain.handle('drive:mount', async () => {
-    return { success: true, message: 'Virtual drive coming soon - use the file browser in the app' };
+    try {
+      if (!apiClient) {
+        return { success: false, error: 'Not connected to server' };
+      }
+      
+      if (!virtualDrive) {
+        virtualDrive = new VirtualDrive(apiClient, 'Z');
+      }
+      
+      await virtualDrive.mount();
+      updateTrayMenu();
+      
+      return { 
+        success: true, 
+        driveLetter: virtualDrive.getDriveLetter(),
+        message: `Drive ${virtualDrive.getDriveLetter()}: mounted - only showing your permitted files`
+      };
+    } catch (error) {
+      log.error('Failed to mount drive:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to mount drive' };
+    }
   });
 
   ipcMain.handle('drive:unmount', async () => {
-    return { success: true };
+    try {
+      if (virtualDrive?.isMounted()) {
+        await virtualDrive.unmount();
+        updateTrayMenu();
+      }
+      return { success: true };
+    } catch (error) {
+      log.error('Failed to unmount drive:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to unmount drive' };
+    }
   });
 
   ipcMain.handle('drive:status', async () => {
     return {
-      mounted: false,
-      driveLetter: 'Z',
+      mounted: virtualDrive?.isMounted() ?? false,
+      driveLetter: virtualDrive?.getDriveLetter() ?? 'Z',
       connected: apiClient?.isConnected() ?? false,
+      localPath: virtualDrive?.getLocalPath() ?? null,
     };
   });
 
   ipcMain.handle('drive:open', async () => {
-    // Open the app's file browser
-    mainWindow?.show();
-    mainWindow?.webContents.send('navigate', '/files');
-    return { success: true };
+    try {
+      if (virtualDrive?.isMounted()) {
+        // Open Z: drive in Windows Explorer
+        await virtualDrive.openInExplorer();
+        return { success: true };
+      } else {
+        // Not mounted - offer to mount first
+        return { success: false, error: 'Drive not mounted. Mount the drive first.' };
+      }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to open drive' };
+    }
+  });
+
+  ipcMain.handle('drive:refresh', async () => {
+    try {
+      if (virtualDrive?.isMounted()) {
+        await virtualDrive.refresh();
+        return { success: true };
+      }
+      return { success: false, error: 'Drive not mounted' };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to refresh' };
+    }
   });
 
   // Settings

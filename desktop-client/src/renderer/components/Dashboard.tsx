@@ -5,12 +5,14 @@ interface DriveStatus {
   mounted: boolean;
   driveLetter: string;
   connected: boolean;
+  localPath?: string;
 }
 
 interface SyncStatus {
   syncing: boolean;
   lastSync: string | null;
   dirtyFiles?: number;
+  matterCount?: number;
 }
 
 interface Matter {
@@ -25,7 +27,8 @@ function Dashboard() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [matters, setMatters] = useState<Matter[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [mountingDrive, setMountingDrive] = useState(false);
+  const [isMounting, setIsMounting] = useState(false);
+  const [mountError, setMountError] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -75,26 +78,45 @@ function Dashboard() {
     }
   };
 
-  const handleMountToggle = async () => {
-    setMountingDrive(true);
+  const handleMountDrive = async () => {
+    setIsMounting(true);
+    setMountError(null);
     try {
-      if (driveStatus?.mounted) {
-        await window.apexDrive.drive.unmount();
+      const result = await window.apexDrive.drive.mount();
+      if (result.success) {
+        await refreshStatus();
       } else {
-        await window.apexDrive.drive.mount();
+        setMountError(result.error || 'Failed to mount drive');
       }
+    } catch (error) {
+      setMountError('Failed to mount drive');
+    } finally {
+      setIsMounting(false);
+    }
+  };
+
+  const handleUnmountDrive = async () => {
+    setIsMounting(true);
+    try {
+      await window.apexDrive.drive.unmount();
       await refreshStatus();
     } finally {
-      setMountingDrive(false);
+      setIsMounting(false);
     }
   };
 
   const handleOpenDrive = async () => {
-    await window.apexDrive.drive.open();
+    const result = await window.apexDrive.drive.open();
+    if (!result.success && result.error) {
+      setMountError(result.error);
+    }
   };
 
   const handleSyncNow = async () => {
     await window.apexDrive.sync.now();
+    if (driveStatus?.mounted) {
+      await window.apexDrive.drive.refresh();
+    }
     await refreshStatus();
   };
 
@@ -128,17 +150,17 @@ function Dashboard() {
       </header>
 
       <div className="dashboard-grid">
-        {/* Drive Status Card */}
+        {/* Drive Status Card - Main Feature */}
         <div className="card drive-status-card">
           <div className="card-header">
-            <h2>Drive Status</h2>
+            <h2>{driveStatus?.driveLetter || 'Z'}: Drive</h2>
             <span className={`status-badge ${driveStatus?.mounted ? 'success' : 'warning'}`}>
               {driveStatus?.mounted ? 'Mounted' : 'Not Mounted'}
             </span>
           </div>
           <div className="card-content">
             <div className="drive-info">
-              <div className="drive-icon">
+              <div className="drive-icon large">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <rect x="2" y="4" width="20" height="16" rx="2" ry="2"/>
                   <line x1="6" y1="12" x2="18" y2="12"/>
@@ -147,27 +169,70 @@ function Dashboard() {
               </div>
               <div className="drive-details">
                 <span className="drive-letter">{driveStatus?.driveLetter || 'Z'}:</span>
-                <span className="drive-label">Apex Drive</span>
+                <span className="drive-label">
+                  {driveStatus?.mounted 
+                    ? `Apex Drive (${matters.length} matters)` 
+                    : 'Click Mount to access your files'}
+                </span>
+                {driveStatus?.mounted && (
+                  <span className="drive-note">Only shows files you have permission to access</span>
+                )}
               </div>
             </div>
+            
+            {mountError && (
+              <div className="error-message">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="12"/>
+                  <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                {mountError}
+              </div>
+            )}
+            
             <div className="drive-actions">
-              <button
-                className={`btn ${driveStatus?.mounted ? 'btn-secondary' : 'btn-primary'}`}
-                onClick={handleMountToggle}
-                disabled={mountingDrive}
-              >
-                {mountingDrive ? (
-                  <span className="button-spinner"></span>
-                ) : driveStatus?.mounted ? (
-                  'Unmount'
-                ) : (
-                  'Mount Drive'
-                )}
-              </button>
-              {driveStatus?.mounted && (
-                <button className="btn btn-primary" onClick={handleOpenDrive}>
-                  Open in Explorer
+              {!driveStatus?.mounted ? (
+                <button
+                  className="btn btn-primary btn-large"
+                  onClick={handleMountDrive}
+                  disabled={isMounting || !driveStatus?.connected}
+                >
+                  {isMounting ? (
+                    <>
+                      <span className="button-spinner"></span>
+                      Mounting...
+                    </>
+                  ) : (
+                    <>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 18, height: 18, marginRight: 8 }}>
+                        <rect x="2" y="4" width="20" height="16" rx="2" ry="2"/>
+                        <line x1="12" y1="10" x2="12" y2="16"/>
+                        <line x1="9" y1="13" x2="15" y2="13"/>
+                      </svg>
+                      Mount Drive
+                    </>
+                  )}
                 </button>
+              ) : (
+                <>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleOpenDrive}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16, marginRight: 8 }}>
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    Open in Explorer
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleUnmountDrive}
+                    disabled={isMounting}
+                  >
+                    Unmount
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -193,17 +258,15 @@ function Dashboard() {
                 <span>Last Sync</span>
                 <span>{formatDate(syncStatus?.lastSync || null)}</span>
               </div>
-              {syncStatus?.dirtyFiles !== undefined && syncStatus.dirtyFiles > 0 && (
-                <div className="info-row">
-                  <span>Pending Changes</span>
-                  <span className="text-warning">{syncStatus.dirtyFiles} files</span>
-                </div>
-              )}
+              <div className="info-row">
+                <span>Your Matters</span>
+                <span>{matters.length} accessible</span>
+              </div>
             </div>
             <button
               className="btn btn-secondary sync-btn"
               onClick={handleSyncNow}
-              disabled={syncStatus?.syncing}
+              disabled={syncStatus?.syncing || !driveStatus?.connected}
             >
               {syncStatus?.syncing ? (
                 <>
@@ -226,8 +289,8 @@ function Dashboard() {
         {/* Recent Matters Card */}
         <div className="card matters-card">
           <div className="card-header">
-            <h2>Recent Matters</h2>
-            <span className="matter-count">{matters.length} matters available</span>
+            <h2>Your Matters</h2>
+            <span className="matter-count">{matters.length} matters</span>
           </div>
           <div className="card-content">
             {matters.length === 0 ? (
@@ -236,6 +299,7 @@ function Dashboard() {
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                 </svg>
                 <p>No matters found</p>
+                <p className="empty-note">You'll see matters here once you have access to them</p>
               </div>
             ) : (
               <ul className="matters-list">
@@ -259,34 +323,33 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* Quick Actions Card */}
-        <div className="card actions-card">
+        {/* Instructions Card */}
+        <div className="card instructions-card">
           <div className="card-header">
-            <h2>Quick Actions</h2>
+            <h2>How It Works</h2>
           </div>
           <div className="card-content">
-            <div className="quick-actions">
-              <button className="action-btn" onClick={handleOpenDrive} disabled={!driveStatus?.mounted}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                </svg>
-                <span>Open Drive</span>
-              </button>
-              <button className="action-btn" onClick={handleSyncNow} disabled={syncStatus?.syncing}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="23 4 23 10 17 10"/>
-                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                </svg>
-                <span>Sync Files</span>
-              </button>
-              <button className="action-btn" onClick={() => window.apexDrive.on('navigate', () => {})}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="3"/>
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                </svg>
-                <span>Settings</span>
-              </button>
-            </div>
+            <ol className="instructions-list">
+              <li>
+                <strong>Click "Mount Drive"</strong> to create your Z: drive
+              </li>
+              <li>
+                <strong>Open Windows Explorer</strong> - you'll see Z: Apex Drive
+              </li>
+              <li>
+                <strong>Browse your files</strong> - only files you have permission to access are shown
+              </li>
+              <li>
+                <strong>Files sync automatically</strong> - changes are uploaded to the server
+              </li>
+            </ol>
+            <p className="security-note">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16, marginRight: 6, verticalAlign: 'middle' }}>
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              Your drive only shows files from matters you have access to.
+            </p>
           </div>
         </div>
       </div>

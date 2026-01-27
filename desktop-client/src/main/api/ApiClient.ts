@@ -416,6 +416,30 @@ export class ApiClient extends EventEmitter {
     await this.httpClient.post('/drive/sync/changes', { changes });
   }
 
+  // Drive connection info (for mapping network drive)
+
+  public async getDriveConnectionInfo(): Promise<{
+    configured: boolean;
+    firmId?: string;
+    firmName?: string;
+    firmFolder?: string;
+    storageAccount?: string;
+    shareName?: string;
+    paths?: {
+      windows: string;
+      mac: string;
+      linux: string;
+    };
+    instructions?: {
+      windows: string[];
+      mac: string[];
+      powershell: string[];
+    };
+  }> {
+    const response = await this.httpClient.get('/drive/connection-info');
+    return response.data;
+  }
+
   // Desktop client specific endpoints
 
   public async registerDesktopClient(clientInfo: {

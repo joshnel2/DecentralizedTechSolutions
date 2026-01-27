@@ -18,10 +18,11 @@ export interface ApexDriveAPI {
 
   // Drive operations
   drive: {
-    mount: () => Promise<{ success: boolean }>;
-    unmount: () => Promise<{ success: boolean }>;
-    status: () => Promise<{ mounted: boolean; driveLetter: string; connected: boolean }>;
+    mount: () => Promise<{ success: boolean; driveLetter?: string; message?: string; error?: string }>;
+    unmount: () => Promise<{ success: boolean; error?: string }>;
+    status: () => Promise<{ mounted: boolean; driveLetter: string; connected: boolean; localPath?: string }>;
     open: () => Promise<{ success: boolean; error?: string }>;
+    refresh: () => Promise<{ success: boolean; error?: string }>;
   };
 
   // Settings
@@ -72,6 +73,7 @@ const apexDriveAPI: ApexDriveAPI = {
     unmount: () => ipcRenderer.invoke('drive:unmount'),
     status: () => ipcRenderer.invoke('drive:status'),
     open: () => ipcRenderer.invoke('drive:open'),
+    refresh: () => ipcRenderer.invoke('drive:refresh'),
   },
 
   settings: {
