@@ -332,9 +332,11 @@ export class ApiClient extends EventEmitter {
     return response.data.files || [];
   }
 
-  public async downloadFile(documentId: string): Promise<Buffer> {
+  public async downloadFile(documentId: string, azurePath?: string): Promise<Buffer> {
+    const params = azurePath ? { path: azurePath } : {};
     const response = await this.httpClient.get(`/drive/files/${documentId}/download`, {
       responseType: 'arraybuffer',
+      params,
     });
     return Buffer.from(response.data);
   }

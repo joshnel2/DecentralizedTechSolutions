@@ -315,14 +315,16 @@ export class VirtualDrive extends EventEmitter {
         const needsDownload = await this.fileNeedsDownload(filePath, file);
 
         if (needsDownload && file.id) {
-          // Download file content
+          // Download file content - pass Azure path for direct Azure files
           try {
-            const content = await this.apiClient.downloadFile(file.id);
+            const content = await this.apiClient.downloadFile(file.id, file.azurePath);
             await fs.writeFile(filePath, content);
-            log.debug(`Downloaded: ${file.name}`);
+            log.info(`Downloaded: ${file.name} (${content.length} bytes)`);
           } catch (downloadError) {
             log.error(`Failed to download ${file.name}:`, downloadError);
           }
+        } else if (!needsDownload) {
+          log.debug(`Skipping ${file.name} - already up to date`);
         }
 
         // Store file metadata

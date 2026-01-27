@@ -116,11 +116,12 @@ router.get('/matters', authenticate, async (req, res) => {
 
 /**
  * List files in a matter (for virtual drive directory listing)
+ * Browses Azure File Share directly to show actual files
  */
 router.get('/matters/:matterId/files', authenticate, async (req, res) => {
   try {
     const { matterId } = req.params;
-    const { path: folderPath } = req.query;
+    const { path: subFolderPath } = req.query;
     const firmId = req.user.firmId;
     
     console.log(`[DRIVE API] List files for matter ${matterId}, firmId: ${firmId}, user: ${req.user.email}`);
@@ -132,69 +133,142 @@ router.get('/matters/:matterId/files', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Access denied to this matter' });
     }
 
-    // First, check how many documents exist for this matter (for debugging)
-    const countResult = await query(`
-      SELECT COUNT(*) as total,
-             COUNT(*) FILTER (WHERE status != 'deleted') as active,
-             COUNT(*) FILTER (WHERE status = 'deleted') as deleted
-      FROM documents WHERE firm_id = $1 AND matter_id = $2
-    `, [firmId, matterId]);
-    console.log(`[DRIVE API] Matter ${matterId} document counts:`, countResult.rows[0]);
+    // Get matter info to find its folder path
+    const matterResult = await query(`
+      SELECT m.name, m.number, c.display_name as client_name
+      FROM matters m
+      LEFT JOIN clients c ON m.client_id = c.id
+      WHERE m.id = $1 AND m.firm_id = $2
+    `, [matterId, firmId]);
 
-    // Get files from database
-    let filesQuery;
-    let queryParams;
-    
-    if (folderPath) {
-      // Get files in specific folder
-      filesQuery = `
-        SELECT 
-          id,
-          name,
-          folder_path as "folderPath",
-          type,
-          size,
-          external_path as "azurePath",
-          uploaded_at as "createdAt",
-          updated_at as "updatedAt",
-          false as "isFolder"
-        FROM documents
-        WHERE firm_id = $1
-          AND matter_id = $2
-          AND folder_path = $3
-          AND status != 'deleted'
-        ORDER BY name ASC
-      `;
-      queryParams = [firmId, matterId, folderPath];
-    } else {
-      // Get all files for this matter (hierarchical view)
-      filesQuery = `
-        SELECT 
-          id,
-          name,
-          folder_path as "folderPath",
-          type,
-          size,
-          external_path as "azurePath",
-          uploaded_at as "createdAt",
-          updated_at as "updatedAt",
-          false as "isFolder"
-        FROM documents
-        WHERE firm_id = $1
-          AND matter_id = $2
-          AND status != 'deleted'
-        ORDER BY folder_path ASC, name ASC
-      `;
-      queryParams = [firmId, matterId];
+    if (matterResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Matter not found' });
     }
 
-    const result = await query(filesQuery, queryParams);
-    console.log(`[DRIVE API] Found ${result.rows.length} files for matter ${matterId}`);
+    const matter = matterResult.rows[0];
     
-    // Build folder structure
-    const files = buildFileTree(result.rows);
+    // Build the expected folder name (matching how matters are stored in Azure)
+    const matterFolderName = matter.client_name 
+      ? `${matter.client_name} - ${matter.name}`
+      : (matter.number ? `${matter.number} - ${matter.name}` : matter.name);
+    
+    console.log(`[DRIVE API] Looking for matter folder: ${matterFolderName}`);
 
-    res.json({ files });
+    // Try to browse Azure directly
+    try {
+      const { isAzureConfigured, getShareClient } = await import('../utils/azureStorage.js');
+      
+      if (await isAzureConfigured()) {
+        const shareClient = await getShareClient();
+        const firmFolder = `firm-${firmId}`;
+        
+        // Build Azure path - try multiple possible locations
+        const possiblePaths = [
+          `${firmFolder}/${matterFolderName}`,
+          `${firmFolder}/Clients/${matter.client_name}/${matterFolderName}`,
+          `${firmFolder}/Matters/${matterFolderName}`,
+          matter.client_name ? `${firmFolder}/${matter.client_name}` : null,
+        ].filter(Boolean);
+        
+        let files = [];
+        let foundPath = null;
+        
+        for (const azurePath of possiblePaths) {
+          const fullPath = subFolderPath ? `${azurePath}/${subFolderPath}` : azurePath;
+          console.log(`[DRIVE API] Trying Azure path: ${fullPath}`);
+          
+          try {
+            const dirClient = shareClient.getDirectoryClient(fullPath);
+            const tempFiles = [];
+            
+            for await (const item of dirClient.listFilesAndDirectories()) {
+              if (item.kind === 'directory') {
+                tempFiles.push({
+                  id: `folder-${Buffer.from(`${fullPath}/${item.name}`).toString('base64').substring(0, 32)}`,
+                  name: item.name,
+                  path: item.name,
+                  azurePath: `${fullPath}/${item.name}`,
+                  isFolder: true,
+                  size: 0,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                });
+              } else {
+                let fileSize = 0;
+                try {
+                  const fileClient = dirClient.getFileClient(item.name);
+                  const props = await fileClient.getProperties();
+                  fileSize = props.contentLength || 0;
+                } catch (e) { /* ignore */ }
+                
+                const ext = item.name.split('.').pop()?.toLowerCase() || '';
+                const mimeTypes = {
+                  'pdf': 'application/pdf', 'doc': 'application/msword',
+                  'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                  'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                  'txt': 'text/plain', 'rtf': 'application/rtf',
+                  'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
+                };
+                
+                tempFiles.push({
+                  id: `azure-${Buffer.from(`${fullPath}/${item.name}`).toString('base64').substring(0, 32)}`,
+                  name: item.name,
+                  path: `${fullPath}/${item.name}`,
+                  azurePath: `${fullPath}/${item.name}`,
+                  isFolder: false,
+                  size: fileSize,
+                  type: mimeTypes[ext] || 'application/octet-stream',
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                });
+              }
+            }
+            
+            if (tempFiles.length > 0) {
+              files = tempFiles;
+              foundPath = fullPath;
+              console.log(`[DRIVE API] Found ${files.length} items at ${fullPath}`);
+              break;
+            }
+          } catch (e) {
+            console.log(`[DRIVE API] Path ${fullPath} not found: ${e.message}`);
+          }
+        }
+        
+        if (files.length > 0) {
+          return res.json({ files, source: 'azure', path: foundPath });
+        }
+      }
+    } catch (azureErr) {
+      console.log(`[DRIVE API] Azure browse failed:`, azureErr.message);
+    }
+
+    // Fallback: Get files from database
+    console.log(`[DRIVE API] Falling back to database for matter ${matterId}`);
+    
+    const filesQuery = `
+      SELECT 
+        id,
+        name,
+        folder_path as "folderPath",
+        type,
+        size,
+        COALESCE(external_path, path, azure_path) as "azurePath",
+        uploaded_at as "createdAt",
+        updated_at as "updatedAt",
+        false as "isFolder"
+      FROM documents
+      WHERE firm_id = $1
+        AND matter_id = $2
+        AND status != 'deleted'
+      ORDER BY folder_path ASC, name ASC
+    `;
+
+    const result = await query(filesQuery, [firmId, matterId]);
+    console.log(`[DRIVE API] Found ${result.rows.length} files in database`);
+    
+    const files = buildFileTree(result.rows);
+    res.json({ files, source: 'database' });
   } catch (error) {
     console.error('[DRIVE API] List files error:', error);
     res.status(500).json({ error: 'Failed to list files' });
@@ -202,14 +276,54 @@ router.get('/matters/:matterId/files', authenticate, async (req, res) => {
 });
 
 /**
- * Download a file
+ * Download a file (supports both database IDs and Azure paths)
  */
 router.get('/files/:documentId/download', authenticate, async (req, res) => {
   try {
     const { documentId } = req.params;
+    const { path: azurePathParam } = req.query;
     const firmId = req.user.firmId;
 
-    // Get document info
+    console.log(`[DRIVE API] Download: ${documentId}, azurePath: ${azurePathParam}`);
+
+    // If it's an Azure-direct file or has path param
+    if (documentId.startsWith('azure-') || documentId.startsWith('folder-') || azurePathParam) {
+      const azurePath = azurePathParam;
+      if (!azurePath) {
+        return res.status(400).json({ error: 'Azure path required for direct Azure files' });
+      }
+      
+      const firmFolder = `firm-${firmId}`;
+      if (!azurePath.startsWith(firmFolder)) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      try {
+        const relativePath = azurePath.replace(`${firmFolder}/`, '');
+        const content = await downloadFile(relativePath, firmId);
+        
+        const fileName = azurePath.split('/').pop() || 'download';
+        const ext = fileName.split('.').pop()?.toLowerCase() || '';
+        const mimeTypes = {
+          'pdf': 'application/pdf', 'doc': 'application/msword',
+          'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'xls': 'application/vnd.ms-excel', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'txt': 'text/plain', 'jpg': 'image/jpeg', 'png': 'image/png',
+        };
+        
+        res.set({
+          'Content-Type': mimeTypes[ext] || 'application/octet-stream',
+          'Content-Length': content.length,
+          'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
+        });
+        return res.send(content);
+      } catch (azureErr) {
+        console.error(`[DRIVE API] Azure download failed:`, azureErr);
+        return res.status(404).json({ error: 'File not found' });
+      }
+    }
+
+    // Standard database document download
     const docResult = await query(`
       SELECT d.*, m.id as matter_id
       FROM documents d
@@ -232,12 +346,11 @@ router.get('/files/:documentId/download', authenticate, async (req, res) => {
     }
 
     // Download from Azure
-    const azurePath = doc.external_path || doc.path;
+    const azurePath = doc.external_path || doc.azure_path || doc.path;
     if (!azurePath) {
       return res.status(404).json({ error: 'File not found in storage' });
     }
 
-    // Remove firm prefix if present for download
     const relativePath = azurePath.replace(`firm-${firmId}/`, '');
     const content = await downloadFile(relativePath, firmId);
 
