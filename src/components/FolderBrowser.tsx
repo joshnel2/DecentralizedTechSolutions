@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { 
-  Folder, FolderOpen, FileText, ChevronRight, ChevronDown,
+  Folder, FolderOpen, FileText, ChevronRight,
   RefreshCw, Home, File, FileSpreadsheet, FileImage, 
   Loader2, AlertCircle, Download, Briefcase
 } from 'lucide-react'
@@ -79,7 +79,18 @@ export function FolderBrowser({
     
     try {
       const result = await driveApi.browseAllFiles(searchQuery || undefined)
-      setBrowseData(result)
+      // Ensure result has expected structure
+      setBrowseData({
+        isAdmin: result?.isAdmin ?? false,
+        files: result?.files ?? [],
+        matters: result?.matters ?? [],
+        hasUnassigned: result?.hasUnassigned ?? false,
+        stats: result?.stats ?? { totalFiles: 0, totalSize: 0 },
+        configured: result?.configured ?? true,
+        message: result?.message,
+        error: result?.error,
+        source: result?.source
+      })
     } catch (err: any) {
       console.error('Failed to load files:', err)
       setError(err.message || 'Failed to load documents')
@@ -91,15 +102,16 @@ export function FolderBrowser({
   // Fetch on mount
   useEffect(() => {
     fetchData()
-  }, [])
+  }, [fetchData])
   
   // Debounced search
   useEffect(() => {
+    if (searchQuery === '') return // Skip initial/empty search
     const timer = setTimeout(() => {
       fetchData()
     }, 300)
     return () => clearTimeout(timer)
-  }, [searchQuery])
+  }, [searchQuery, fetchData])
   
   // Download file from database
   const downloadFile = async (doc: DocumentItem, e?: React.MouseEvent) => {
