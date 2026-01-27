@@ -4726,8 +4726,8 @@ async function listDocuments(args, user) {
     WHERE d.firm_id = $1
       AND (
         d.matter_id IS NULL
-        OR m.responsible_attorney_id = $2
-        OR m.originating_attorney_id = $2
+        OR m.responsible_attorney = $2
+        OR m.originating_attorney = $2
         OR mp.user_id = $2
         OR EXISTS (SELECT 1 FROM users u WHERE u.id = $2 AND u.firm_id = $1 AND u.role IN ('owner', 'admin'))
       )
@@ -4798,8 +4798,8 @@ async function getDocument(args, user) {
      WHERE d.id = $1 AND d.firm_id = $2
        AND (
          d.matter_id IS NULL
-         OR m.responsible_attorney_id = $3
-         OR m.originating_attorney_id = $3
+         OR m.responsible_attorney = $3
+         OR m.originating_attorney = $3
          OR mp.user_id = $3
          OR EXISTS (SELECT 1 FROM users u2 WHERE u2.id = $3 AND u2.firm_id = $2 AND u2.role IN ('owner', 'admin'))
        )`,
@@ -4847,8 +4847,8 @@ async function readDocumentContent(args, user) {
      WHERE d.id = $1 AND d.firm_id = $2
        AND (
          d.matter_id IS NULL
-         OR m.responsible_attorney_id = $3
-         OR m.originating_attorney_id = $3
+         OR m.responsible_attorney = $3
+         OR m.originating_attorney = $3
          OR mp.user_id = $3
          OR EXISTS (SELECT 1 FROM users u WHERE u.id = $3 AND u.firm_id = $2 AND u.role IN ('owner', 'admin'))
        )`,
@@ -5036,8 +5036,8 @@ async function findAndReadDocument(args, user) {
     WHERE d.firm_id = $1 
       AND (
         d.matter_id IS NULL
-        OR m.responsible_attorney_id = $2
-        OR m.originating_attorney_id = $2
+        OR m.responsible_attorney = $2
+        OR m.originating_attorney = $2
         OR mp.user_id = $2
         OR EXISTS (SELECT 1 FROM users u WHERE u.id = $2 AND u.firm_id = $1 AND u.role IN ('owner', 'admin'))
       )
@@ -5083,8 +5083,8 @@ async function findAndReadDocument(args, user) {
         AND (d.name ILIKE $3 OR d.original_name ILIKE $3)
         AND (
           d.matter_id IS NULL
-          OR m.responsible_attorney_id = $2
-          OR m.originating_attorney_id = $2
+          OR m.responsible_attorney = $2
+          OR m.originating_attorney = $2
           OR mp.user_id = $2
           OR EXISTS (SELECT 1 FROM users u WHERE u.id = $2 AND u.firm_id = $1 AND u.role IN ('owner', 'admin'))
         )
@@ -5469,8 +5469,8 @@ async function searchDocumentContent(args, user) {
       AND (d.content_text ILIKE $3 OR d.ai_summary ILIKE $3 OR d.name ILIKE $3 OR d.original_name ILIKE $3)
       AND (
         d.matter_id IS NULL
-        OR m.responsible_attorney_id = $2
-        OR m.originating_attorney_id = $2
+        OR m.responsible_attorney = $2
+        OR m.originating_attorney = $2
         OR mp.user_id = $2
         OR EXISTS (SELECT 1 FROM users u WHERE u.id = $2 AND u.firm_id = $1 AND u.role IN ('owner', 'admin'))
       )
