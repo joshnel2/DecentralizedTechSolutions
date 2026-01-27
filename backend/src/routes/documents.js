@@ -11,6 +11,7 @@ import { buildDocumentAccessFilter, canAccessDocument, requireDocumentAccess, FU
 import mammoth from 'mammoth';
 import { uploadFile, isAzureConfigured, downloadFile } from '../utils/azureStorage.js';
 import { learnFromDocument } from '../services/manualLearning.js';
+import MsgReader from 'msgreader';
 
 // Use createRequire for CommonJS modules
 import { createRequire } from 'module';
@@ -898,6 +899,181 @@ router.get('/sections', authenticate, requirePermission('documents:view'), async
   }
 });
 
+// Helper function to extract text from Outlook .msg files
+function extractTextFromMsgBuffer(buffer, fileName) {
+  try {
+    const msgReader = new MsgReader(buffer);
+    const fileData = msgReader.getFileData();
+    
+    if (!fileData) {
+      console.log(`[MSG] No data extracted from ${fileName}`);
+      return null;
+    }
+    
+    // Build a readable text representation of the email
+    const parts = [];
+    
+    // Add headers
+    if (fileData.subject) {
+      parts.push(`Subject: ${fileData.subject}`);
+    }
+    if (fileData.senderName || fileData.senderEmail) {
+      parts.push(`From: ${fileData.senderName || ''} <${fileData.senderEmail || ''}>`);
+    }
+    if (fileData.recipients && fileData.recipients.length > 0) {
+      const toRecipients = fileData.recipients
+        .filter(r => r.recipType === 'to' || !r.recipType)
+        .map(r => `${r.name || ''} <${r.email || ''}>`)
+        .join(', ');
+      if (toRecipients) parts.push(`To: ${toRecipients}`);
+      
+      const ccRecipients = fileData.recipients
+        .filter(r => r.recipType === 'cc')
+        .map(r => `${r.name || ''} <${r.email || ''}>`)
+        .join(', ');
+      if (ccRecipients) parts.push(`CC: ${ccRecipients}`);
+    }
+    if (fileData.messageDeliveryTime) {
+      parts.push(`Date: ${new Date(fileData.messageDeliveryTime).toLocaleString()}`);
+    }
+    
+    parts.push(''); // Empty line before body
+    
+    // Add body content
+    if (fileData.body) {
+      parts.push(fileData.body);
+    } else if (fileData.bodyHTML) {
+      // Strip HTML tags for plain text
+      const plainText = fileData.bodyHTML
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/\s+/g, ' ')
+        .trim();
+      parts.push(plainText);
+    }
+    
+    // List attachments if any
+    if (fileData.attachments && fileData.attachments.length > 0) {
+      parts.push('');
+      parts.push('--- Attachments ---');
+      fileData.attachments.forEach((att, idx) => {
+        parts.push(`${idx + 1}. ${att.fileName || att.name || 'Unnamed attachment'} (${att.contentLength ? Math.round(att.contentLength / 1024) + ' KB' : 'size unknown'})`);
+      });
+    }
+    
+    return parts.join('\n');
+  } catch (error) {
+    console.error(`[MSG] Error parsing ${fileName}:`, error.message);
+    return null;
+  }
+}
+
+// Helper function to extract text from .eml email files
+function extractTextFromEml(emlContent, fileName) {
+  try {
+    const lines = emlContent.split(/\r?\n/);
+    const parts = [];
+    let inHeaders = true;
+    let inBody = false;
+    let body = [];
+    let boundary = null;
+    let currentPart = null;
+    
+    // Parse headers
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
+      if (inHeaders) {
+        if (line === '') {
+          inHeaders = false;
+          inBody = true;
+          continue;
+        }
+        
+        // Extract key headers
+        const headerMatch = line.match(/^(Subject|From|To|CC|Date|Content-Type):\s*(.+)/i);
+        if (headerMatch) {
+          const [, headerName, headerValue] = headerMatch;
+          parts.push(`${headerName}: ${headerValue}`);
+          
+          // Check for multipart boundary
+          if (headerName.toLowerCase() === 'content-type' && headerValue.includes('boundary=')) {
+            const boundaryMatch = headerValue.match(/boundary="?([^";\s]+)"?/i);
+            if (boundaryMatch) {
+              boundary = boundaryMatch[1];
+            }
+          }
+        }
+      } else if (inBody) {
+        body.push(line);
+      }
+    }
+    
+    parts.push('');
+    
+    // Process body
+    let bodyText = body.join('\n');
+    
+    // If multipart, try to extract text parts
+    if (boundary) {
+      const boundaryParts = bodyText.split('--' + boundary);
+      for (const part of boundaryParts) {
+        // Look for text/plain parts
+        if (part.includes('Content-Type: text/plain') || (!part.includes('Content-Type:') && part.trim())) {
+          // Remove headers from this part
+          const partLines = part.split(/\r?\n/);
+          let partBody = [];
+          let pastHeaders = false;
+          for (const pLine of partLines) {
+            if (pastHeaders) {
+              partBody.push(pLine);
+            } else if (pLine === '') {
+              pastHeaders = true;
+            }
+          }
+          if (partBody.length > 0) {
+            bodyText = partBody.join('\n');
+            break;
+          }
+        }
+      }
+    }
+    
+    // Decode quoted-printable if present
+    bodyText = bodyText
+      .replace(/=\r?\n/g, '') // Remove soft line breaks
+      .replace(/=([0-9A-F]{2})/gi, (match, hex) => String.fromCharCode(parseInt(hex, 16)));
+    
+    // Clean up HTML if the body appears to be HTML
+    if (bodyText.includes('<html') || bodyText.includes('<body') || bodyText.includes('<div')) {
+      bodyText = bodyText
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+    
+    parts.push(bodyText.trim());
+    
+    return parts.join('\n');
+  } catch (error) {
+    console.error(`[EML] Error parsing ${fileName}:`, error.message);
+    return null;
+  }
+}
+
 // Helper function to extract text from a file
 async function extractTextFromFile(filePath, originalName, mimeType = null) {
   const ext = path.extname(originalName).toLowerCase();
@@ -937,6 +1113,24 @@ async function extractTextFromFile(filePath, originalName, mimeType = null) {
       
       if (textContent) {
         console.log(`Successfully extracted ${textContent.length} characters from image`);
+      }
+    } else if (ext === '.msg') {
+      // Parse Outlook .msg files
+      console.log(`Extracting text from Outlook message "${originalName}"...`);
+      const msgBuffer = await fs.readFile(filePath);
+      textContent = extractTextFromMsgBuffer(msgBuffer, originalName);
+      
+      if (textContent) {
+        console.log(`Successfully extracted ${textContent.length} characters from .msg file`);
+      }
+    } else if (ext === '.eml') {
+      // Parse .eml email files (standard email format)
+      console.log(`Extracting text from email file "${originalName}"...`);
+      const emlContent = await fs.readFile(filePath, 'utf-8');
+      textContent = extractTextFromEml(emlContent, originalName);
+      
+      if (textContent) {
+        console.log(`Successfully extracted ${textContent.length} characters from .eml file`);
       }
     }
   } catch (error) {
@@ -1778,5 +1972,5 @@ export async function extractTextForExistingDocuments() {
   }
 }
 
-export { extractTextFromFile };
+export { extractTextFromFile, extractTextFromMsgBuffer, extractTextFromEml };
 export default router;

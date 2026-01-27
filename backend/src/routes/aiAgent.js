@@ -14,7 +14,7 @@ import {
   formatDateTime,
   getDateInTimezone
 } from '../utils/dateUtils.js';
-import { extractTextFromFile } from './documents.js';
+import { extractTextFromFile, extractTextFromMsgBuffer, extractTextFromEml } from './documents.js';
 import { uploadFile, uploadFileBuffer, downloadFile, deleteFile, isAzureConfigured } from '../utils/azureStorage.js';
 import PDFDocument from 'pdfkit';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle } from 'docx';
@@ -4929,6 +4929,14 @@ async function readDocumentContent(args, user) {
         extractedContent = result.value;
       } else if (['.txt', '.md', '.json', '.csv', '.xml', '.html'].includes(ext)) {
         extractedContent = fileBuffer.toString('utf-8');
+      } else if (ext === '.msg') {
+        // Parse Outlook .msg files
+        console.log(`[AI Agent] Extracting text from Outlook message: ${fileName}`);
+        extractedContent = extractTextFromMsgBuffer(fileBuffer, fileName);
+      } else if (ext === '.eml') {
+        // Parse .eml email files
+        console.log(`[AI Agent] Extracting text from .eml file: ${fileName}`);
+        extractedContent = extractTextFromEml(fileBuffer.toString('utf-8'), fileName);
       }
       
       if (extractedContent && extractedContent.trim().length > 0) {
@@ -5163,6 +5171,14 @@ async function findAndReadDocument(args, user) {
         extractedContent = result.value;
       } else if (['.txt', '.md', '.json', '.csv', '.xml', '.html'].includes(ext)) {
         extractedContent = fileBuffer.toString('utf-8');
+      } else if (ext === '.msg') {
+        // Parse Outlook .msg files
+        console.log(`[AI Agent] Extracting text from Outlook message: ${fileName}`);
+        extractedContent = extractTextFromMsgBuffer(fileBuffer, fileName);
+      } else if (ext === '.eml') {
+        // Parse .eml email files
+        console.log(`[AI Agent] Extracting text from .eml file: ${fileName}`);
+        extractedContent = extractTextFromEml(fileBuffer.toString('utf-8'), fileName);
       }
       
       if (extractedContent && extractedContent.trim().length > 0) {
