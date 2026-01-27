@@ -77,11 +77,23 @@ router.get('/matters/:matterId/files', authenticate, async (req, res) => {
     const { path: folderPath } = req.query;
     const firmId = req.user.firmId;
     
+    console.log(`[DRIVE API] List files for matter ${matterId}, firmId: ${firmId}, user: ${req.user.email}`);
+    
     // Verify user has access to this matter
     const hasAccess = await verifyMatterAccess(req.user.id, matterId, firmId);
     if (!hasAccess) {
+      console.log(`[DRIVE API] Access denied for user ${req.user.email} to matter ${matterId}`);
       return res.status(403).json({ error: 'Access denied to this matter' });
     }
+
+    // First, check how many documents exist for this matter (for debugging)
+    const countResult = await query(`
+      SELECT COUNT(*) as total,
+             COUNT(*) FILTER (WHERE status != 'deleted') as active,
+             COUNT(*) FILTER (WHERE status = 'deleted') as deleted
+      FROM documents WHERE firm_id = $1 AND matter_id = $2
+    `, [firmId, matterId]);
+    console.log(`[DRIVE API] Matter ${matterId} document counts:`, countResult.rows[0]);
 
     // Get files from database
     let filesQuery;
@@ -131,6 +143,7 @@ router.get('/matters/:matterId/files', authenticate, async (req, res) => {
     }
 
     const result = await query(filesQuery, queryParams);
+    console.log(`[DRIVE API] Found ${result.rows.length} files for matter ${matterId}`);
     
     // Build folder structure
     const files = buildFileTree(result.rows);
