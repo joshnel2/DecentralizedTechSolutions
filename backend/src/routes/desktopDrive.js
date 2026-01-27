@@ -63,7 +63,7 @@ router.get('/matters', authenticate, async (req, res) => {
 
     console.log(`[DRIVE API] Found ${result.rows.length} matters for user`);
 
-    // Build Clio-style folder structure: first letter -> matter folders
+    // Build Clio-style folder structure: first letter of MATTER NAME -> matter folders
     const letterFolders = {};
     
     result.rows.forEach(matter => {
@@ -72,8 +72,8 @@ router.get('/matters', authenticate, async (req, res) => {
         ? `${matter.clientName} - ${matter.name}`
         : matter.name;
       
-      // Get first letter (uppercase)
-      const firstLetter = (folderName.charAt(0) || 'Z').toUpperCase();
+      // Get first letter of MATTER NAME (not client name) - Clio-style
+      const firstLetter = (matter.name.charAt(0) || 'Z').toUpperCase();
       
       if (!letterFolders[firstLetter]) {
         letterFolders[firstLetter] = [];

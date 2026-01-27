@@ -166,14 +166,16 @@ export class VirtualDrive extends EventEmitter {
         }
       } else {
         // Fallback: use flat matters list and build structure locally
+        // Group by first letter of MATTER NAME (Clio-style)
         const matters = driveData.matters || [];
         const mattersByLetter = new Map<string, Matter[]>();
         
         for (const matter of matters) {
-          const clientName = matter.clientName || matter.name || 'Unknown';
-          let letter = clientName.charAt(0).toUpperCase();
+          // Use first letter of matter name, not client name
+          const matterName = matter.name || 'Unknown';
+          let letter = matterName.charAt(0).toUpperCase();
           if (!/[A-Z]/.test(letter)) {
-            letter = '#';
+            letter = '#'; // Numbers and special chars go to # folder
           }
           
           if (!mattersByLetter.has(letter)) {
@@ -391,11 +393,11 @@ export class VirtualDrive extends EventEmitter {
         })
       );
 
-      // Get the first letter for each matter
+      // Get the first letter for each matter (based on matter name, not client)
       const currentLetters = new Set(
         currentMatters.map(m => {
-          const clientName = m.clientName || m.name || 'Unknown';
-          let letter = clientName.charAt(0).toUpperCase();
+          const matterName = m.name || 'Unknown';
+          let letter = matterName.charAt(0).toUpperCase();
           return /[A-Z]/.test(letter) ? letter : '#';
         })
       );
