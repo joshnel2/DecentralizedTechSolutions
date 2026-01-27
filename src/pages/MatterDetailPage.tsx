@@ -12,7 +12,7 @@ import {
   ListTodo, Users, Circle, Upload, Download, X, 
   Trash2, Archive, XCircle, Eye, Play, Pause, StopCircle,
   MessageSquare, Settings, Share2, Globe, Lock, Shield,
-  Search, Filter, Edit3, User
+  Search, Filter, Edit3, User, Folder
 } from 'lucide-react'
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { parseAsLocalDate, localDateToISO } from '../utils/dateUtils'
@@ -120,6 +120,9 @@ export function MatterDetailPage() {
   // Time entries filter state
   const [timeEntriesSearch, setTimeEntriesSearch] = useState('')
   const [timeEntriesFilterStatus, setTimeEntriesFilterStatus] = useState<'all' | 'billed' | 'unbilled'>('all')
+  
+  // Document folder navigation state
+  const [currentDocFolder, setCurrentDocFolder] = useState<string>('')
   
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -767,6 +770,58 @@ export function MatterDetailPage() {
     documents.filter(d => d.matterId === id),
     [documents, id]
   )
+  
+  // Build folder structure from documents (Clio-style)
+  const documentFolders = useMemo(() => {
+    const folders = new Map<string, { name: string; path: string; count: number }>()
+    const filesInCurrentFolder: typeof matterDocuments = []
+    
+    matterDocuments.forEach(doc => {
+      const docPath = doc.folderPath || ''
+      
+      if (currentDocFolder === '') {
+        // At root - show top-level folders and root files
+        if (docPath) {
+          const topFolder = docPath.split('/')[0]
+          if (!folders.has(topFolder)) {
+            folders.set(topFolder, { name: topFolder, path: topFolder, count: 0 })
+          }
+          folders.get(topFolder)!.count++
+        } else {
+          filesInCurrentFolder.push(doc)
+        }
+      } else {
+        // Inside a folder
+        if (docPath === currentDocFolder) {
+          // File directly in this folder
+          filesInCurrentFolder.push(doc)
+        } else if (docPath.startsWith(currentDocFolder + '/')) {
+          // Subfolder or file in subfolder
+          const remaining = docPath.slice(currentDocFolder.length + 1)
+          const nextFolder = remaining.split('/')[0]
+          const subFolderPath = `${currentDocFolder}/${nextFolder}`
+          if (!folders.has(subFolderPath)) {
+            folders.set(subFolderPath, { name: nextFolder, path: subFolderPath, count: 0 })
+          }
+          folders.get(subFolderPath)!.count++
+        }
+      }
+    })
+    
+    return {
+      folders: Array.from(folders.values()).sort((a, b) => a.name.localeCompare(b.name)),
+      files: filesInCurrentFolder
+    }
+  }, [matterDocuments, currentDocFolder])
+  
+  // Get breadcrumb parts for folder navigation
+  const folderBreadcrumbs = useMemo(() => {
+    if (!currentDocFolder) return []
+    return currentDocFolder.split('/').map((part, i, arr) => ({
+      name: part,
+      path: arr.slice(0, i + 1).join('/')
+    }))
+  }, [currentDocFolder])
 
   const stats = useMemo(() => {
     const totalHours = matterTimeEntries.reduce((sum, t) => sum + t.hours, 0)
@@ -1759,7 +1814,7 @@ Only analyze documents actually associated with this matter.`
                     if (!file) return
                     setIsUploading(true)
                     try {
-                      await addDocument(file, { matterId: id, clientId: matter?.clientId })
+                      await addDocument(file, { matterId: id, clientId: matter?.clientId, folderPath: currentDocFolder || undefined })
                       fetchDocuments({ matterId: id })
                     } catch (error) {
                       console.error('Upload failed:', error)
@@ -1789,8 +1844,50 @@ Only analyze documents actually associated with this matter.`
                 </button>
               </div>
             </div>
-            <div className={styles.docGrid}>
-              {matterDocuments.map(doc => {
+            
+            {/* Folder Breadcrumb Navigation */}
+            <div className={styles.folderBreadcrumb}>
+              <button 
+                className={styles.breadcrumbItem}
+                onClick={() => setCurrentDocFolder('')}
+              >
+                <Folder size={16} />
+                <span>Documents</span>
+              </button>
+              {folderBreadcrumbs.map((crumb, i) => (
+                <span key={crumb.path} className={styles.breadcrumbPath}>
+                  <span className={styles.breadcrumbSep}>/</span>
+                  <button 
+                    className={styles.breadcrumbItem}
+                    onClick={() => setCurrentDocFolder(crumb.path)}
+                  >
+                    {crumb.name}
+                  </button>
+                </span>
+              ))}
+            </div>
+            
+            {/* Folders and Files List */}
+            <div className={styles.folderList}>
+              {/* Folders */}
+              {documentFolders.folders.map(folder => (
+                <div 
+                  key={folder.path}
+                  className={styles.folderItem}
+                  onClick={() => setCurrentDocFolder(folder.path)}
+                >
+                  <div className={styles.folderIcon}>
+                    <Folder size={24} />
+                  </div>
+                  <div className={styles.folderInfo}>
+                    <span className={styles.folderName}>{folder.name}</span>
+                    <span className={styles.folderMeta}>{folder.count} item{folder.count !== 1 ? 's' : ''}</span>
+                  </div>
+                </div>
+              ))}
+              
+              {/* Files */}
+              {documentFolders.files.map(doc => {
                 const wordExtensions = ['.doc', '.docx', '.odt', '.rtf']
                 const docName = doc.originalName || doc.name
                 const isWordDoc = wordExtensions.some(ext => docName.toLowerCase().endsWith(ext))
@@ -1798,10 +1895,10 @@ Only analyze documents actually associated with this matter.`
                 return (
                   <div 
                     key={doc.id} 
-                    className={clsx(styles.docCard, selectedDocument?.id === doc.id && styles.selectedDocCard)}
+                    className={clsx(styles.fileItem, selectedDocument?.id === doc.id && styles.selectedFileItem)}
                     onClick={() => handleDocumentClick(doc)}
                   >
-                    <div className={styles.docIcon}>
+                    <div className={styles.fileIcon}>
                       <FileText size={24} />
                       {isWordDoc && (
                         <span className={styles.wordBadge} title="Word Document">
@@ -1809,42 +1906,38 @@ Only analyze documents actually associated with this matter.`
                         </span>
                       )}
                     </div>
-                    <div className={styles.docInfo}>
-                      <span className={styles.docName}>{doc.name}</span>
-                      <span className={styles.docMeta}>
+                    <div className={styles.fileInfo}>
+                      <span className={styles.fileName}>{docName}</span>
+                      <span className={styles.fileMeta}>
                         {format(parseISO(doc.uploadedAt), 'MMM d, yyyy')} · 
                         {(doc.size / 1024 / 1024).toFixed(2)} MB
                       </span>
                     </div>
-                    <div className={styles.docActions} onClick={e => e.stopPropagation()}>
+                    <div className={styles.fileActions} onClick={e => e.stopPropagation()}>
                       <button 
-                        className={styles.docDownloadBtn}
+                        className={styles.fileDownloadBtn}
                         onClick={() => downloadDocument(doc)}
                         title="Download"
                       >
                         <Download size={16} />
                       </button>
                     </div>
-                    {doc.aiSummary && (
-                      <span className={styles.docAi}>
-                        <Sparkles size={12} />
-                        AI Summary
-                      </span>
-                    )}
                   </div>
                 )
               })}
-              {matterDocuments.length === 0 && (
+              
+              {/* Empty state */}
+              {documentFolders.folders.length === 0 && documentFolders.files.length === 0 && (
                 <div className={styles.emptyDocs}>
                   <FileText size={48} />
-                  <p>No documents uploaded</p>
+                  <p>{currentDocFolder ? 'This folder is empty' : 'No documents uploaded'}</p>
                   <button 
                     className={styles.primaryBtn} 
                     onClick={() => fileInputRef.current?.click()}
                     style={{ marginTop: '1rem' }}
                   >
                     <Upload size={18} />
-                    Upload First Document
+                    Upload Document
                   </button>
                 </div>
               )}

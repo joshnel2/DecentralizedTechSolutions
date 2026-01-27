@@ -1164,6 +1164,197 @@
   color: white;
 }
 
+/* Folder Breadcrumb Navigation */
+.folderBreadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: var(--space-md) 0;
+  margin-bottom: var(--space-md);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.breadcrumbItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  color: var(--apex-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.breadcrumbItem:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--apex-white);
+}
+
+.breadcrumbPath {
+  display: flex;
+  align-items: center;
+}
+
+.breadcrumbSep {
+  color: var(--apex-subtle);
+  margin: 0 2px;
+}
+
+/* Folder List */
+.folderList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.folderItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.folderItem:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.folderIcon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: rgba(245, 158, 11, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apex-gold-bright);
+  flex-shrink: 0;
+}
+
+.folderInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.folderName {
+  display: block;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--apex-white);
+}
+
+.folderMeta {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  margin-top: 2px;
+}
+
+/* File Item (in folder view) */
+.fileItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.fileItem:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.fileItem.selectedFileItem {
+  border-color: var(--apex-gold);
+  background: rgba(245, 158, 11, 0.05);
+}
+
+.fileIcon {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: var(--apex-slate);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apex-gold-bright);
+  flex-shrink: 0;
+}
+
+.fileIcon .wordBadge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 18px;
+  height: 18px;
+  background: #2B579A;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.fileInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.fileName {
+  display: block;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--apex-white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fileMeta {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  margin-top: 2px;
+}
+
+.fileActions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.fileDownloadBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  color: var(--apex-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.fileDownloadBtn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--apex-white);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
 /* Document Version Panel Overlay */
 .docVersionPanelOverlay {
   position: fixed;
