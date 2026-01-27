@@ -2159,22 +2159,9 @@ router.get('/browse-all', authenticate, async (req, res) => {
     // Check if user is admin
     const isAdmin = userRole === 'owner' || userRole === 'admin';
     
-    // Get user's accessible matter IDs (for non-admins)
-    let userMatterIds = [];
-    if (!isAdmin) {
-      const userMattersResult = await query(`
-        SELECT DISTINCT m.id FROM matters m
-        WHERE m.firm_id = $1 AND (
-          m.responsible_attorney = $2
-          OR m.originating_attorney = $2
-          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
-          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
-        )
-      `, [firmId, userId]);
-      userMatterIds = userMattersResult.rows.map(r => r.id);
-    }
+    console.log(`[BROWSE-ALL] User: ${req.user.email}, Role: ${userRole}, isAdmin: ${isAdmin}, FirmId: ${firmId}`);
     
-    // Get documents from database with matter information
+    // Get ALL documents for the firm - simple query
     let sql = `
       SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path,
              d.uploaded_at, d.uploaded_by, d.matter_id, d.path,
@@ -2188,19 +2175,6 @@ router.get('/browse-all', authenticate, async (req, res) => {
     const params = [firmId];
     let paramIndex = 2;
     
-    // Apply permission filter for non-admins
-    if (!isAdmin) {
-      if (userMatterIds.length > 0) {
-        sql += ` AND (d.uploaded_by = $${paramIndex} OR d.owner_id = $${paramIndex} OR d.privacy_level = 'firm' OR d.matter_id = ANY($${paramIndex + 1}))`;
-        params.push(userId, userMatterIds);
-        paramIndex += 2;
-      } else {
-        sql += ` AND (d.uploaded_by = $${paramIndex} OR d.owner_id = $${paramIndex} OR d.privacy_level = 'firm')`;
-        params.push(userId);
-        paramIndex++;
-      }
-    }
-    
     // Search filter
     if (search) {
       sql += ` AND (d.name ILIKE $${paramIndex} OR d.original_name ILIKE $${paramIndex} OR m.name ILIKE $${paramIndex})`;
@@ -2208,20 +2182,23 @@ router.get('/browse-all', authenticate, async (req, res) => {
       paramIndex++;
     }
     
-    // Order by matter name then document name
-    sql += ` ORDER BY m.name NULLS LAST, d.name LIMIT 2000`;
+    // Order by matter name then document name - no limit for now
+    sql += ` ORDER BY m.name NULLS LAST, d.name`;
     
+    console.log(`[BROWSE-ALL] Query:`, sql);
     const result = await query(sql, params);
+    console.log(`[BROWSE-ALL] Found ${result.rows.length} documents`);
     
-    // Get all matters with documents for the folder tree
+    // Get all matters that have documents
     const mattersResult = await query(`
       SELECT DISTINCT m.id, m.name, m.number
       FROM matters m
       INNER JOIN documents d ON d.matter_id = m.id
       WHERE m.firm_id = $1
-      ${!isAdmin && userMatterIds.length > 0 ? `AND m.id = ANY($2)` : ''}
       ORDER BY m.name
-    `, !isAdmin && userMatterIds.length > 0 ? [firmId, userMatterIds] : [firmId]);
+    `, [firmId]);
+    
+    console.log(`[BROWSE-ALL] Found ${mattersResult.rows.length} matters with documents`);
     
     // Build files list with matter-based folder paths
     const files = result.rows.map(row => {
@@ -2272,7 +2249,7 @@ router.get('/browse-all', authenticate, async (req, res) => {
         totalSize: files.reduce((sum, f) => sum + (f.size || 0), 0)
       },
       source: 'database',
-      message: files.length >= 2000 ? `Showing first 2000 documents` : null
+      message: null
     });
     
   } catch (error) {
