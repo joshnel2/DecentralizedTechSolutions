@@ -2947,12 +2947,22 @@ async function getMatter(args, user) {
     [actualMatterId, user.firmId]
   );
   
-  // Get upcoming events/tasks for this matter
+  // Get upcoming calendar events for this matter
   const eventsResult = await query(
-    `SELECT id, title, type, start_time, status, priority
+    `SELECT id, title, type, start_time, status, NULL as priority
      FROM calendar_events 
-     WHERE matter_id = $1 AND firm_id = $2 AND (start_time >= NOW() OR type = 'task')
+     WHERE matter_id = $1 AND firm_id = $2 AND start_time >= NOW()
      ORDER BY start_time ASC 
+     LIMIT 10`,
+    [actualMatterId, user.firmId]
+  );
+  
+  // Get tasks for this matter from matter_tasks
+  const tasksResult = await query(
+    `SELECT id, name as title, 'task' as type, due_date as start_time, status, priority
+     FROM matter_tasks 
+     WHERE matter_id = $1 AND firm_id = $2 AND status != 'completed'
+     ORDER BY due_date ASC NULLS LAST
      LIMIT 10`,
     [actualMatterId, user.firmId]
   );
@@ -3005,7 +3015,7 @@ async function getMatter(args, user) {
         notes: e.notes
       }))
     },
-    events_and_tasks: eventsResult.rows.map(e => ({
+    events_and_tasks: [...eventsResult.rows, ...tasksResult.rows].map(e => ({
       id: e.id,
       title: e.title,
       type: e.type,
@@ -4310,45 +4320,44 @@ async function createTask(args, user) {
     return { error: 'Task title is required' };
   }
   
-  // Default to today if no due date specified (start_time and end_time are NOT NULL in calendar_events)
-  let taskDate;
-  try {
-    taskDate = due_date ? new Date(due_date) : new Date();
-    // Ensure date is valid
-    if (isNaN(taskDate.getTime())) {
-      taskDate = new Date();
+  // UUID validation regex
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  
+  // Resolve assigned_to if it's a name instead of UUID
+  let assigneeId = assigned_to || user.id;
+  if (assigned_to && !uuidRegex.test(assigned_to)) {
+    // Try to find user by name
+    const userResult = await query(
+      `SELECT id FROM users WHERE firm_id = $1 AND (
+        LOWER(first_name || ' ' || last_name) LIKE LOWER($2)
+        OR LOWER(email) LIKE LOWER($2)
+      )`,
+      [user.firmId, `%${assigned_to}%`]
+    );
+    if (userResult.rows.length > 0) {
+      assigneeId = userResult.rows[0].id;
+    } else {
+      assigneeId = user.id; // Default to current user if not found
     }
-  } catch (e) {
-    taskDate = new Date();
   }
   
-  // For tasks, end_time = end of day (REQUIRED - NOT NULL constraint)
-  const taskEndDate = new Date(taskDate);
-  taskEndDate.setHours(23, 59, 59, 999); // End of day
-  
-  // Extra safety: ensure both dates are valid Date objects with ISO strings
-  const startTimeISO = taskDate.toISOString();
-  const endTimeISO = taskEndDate.toISOString();
-  
-  console.log(`[createTask] Creating task "${title}" with start=${startTimeISO}, end=${endTimeISO}`);
+  console.log(`[createTask] Creating task "${title}" with due_date=${due_date || 'none'}, matter_id=${matter_id || 'none'}`);
   
   try {
-    // Create task in database (uses calendar_events table with type='task' for simplicity)
+    // Create task in matter_tasks table
     const result = await query(
-      `INSERT INTO calendar_events (firm_id, title, description, start_time, end_time, type, matter_id, client_id, priority, status, created_by, assigned_to)
-       VALUES ($1, $2, $3, $4, $5, 'task', $6, $7, $8, 'pending', $9, $10)
-       RETURNING id, title`,
+      `INSERT INTO matter_tasks (firm_id, matter_id, name, description, status, priority, due_date, assignee, created_by)
+       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8)
+       RETURNING id, name`,
       [
         user.firmId,
+        matter_id || null,
         title,
         notes || null,
-        startTimeISO,
-        endTimeISO,
-        matter_id || null,
-        client_id || null,
         priority || 'medium',
-        user.id,
-        assigned_to || user.id
+        due_date || null,
+        assigneeId,
+        user.id
       ]
     );
     
@@ -4356,7 +4365,7 @@ async function createTask(args, user) {
     return {
       success: true,
       message: `Created task "${title}"${due_date ? ` due ${due_date}` : ''}`,
-      data: { id: task.id, title: task.title, due_date, priority }
+      data: { id: task.id, title: task.name, due_date, priority }
     };
   } catch (dbError) {
     console.error('[createTask] Database error:', dbError.message);
@@ -4371,44 +4380,43 @@ async function listTasks(args, user) {
   const { status, matter_id, assigned_to, due_before, include_completed = false } = args;
   
   let sql = `
-    SELECT ce.id, ce.title, ce.description, ce.start_time as due_date, ce.priority, ce.status, 
-           ce.matter_id, m.name as matter_name, ce.client_id, c.display_name as client_name,
+    SELECT t.id, t.name as title, t.description, t.due_date, t.priority, t.status, 
+           t.matter_id, m.name as matter_name,
            u.first_name || ' ' || u.last_name as assigned_to_name
-    FROM calendar_events ce
-    LEFT JOIN matters m ON ce.matter_id = m.id
-    LEFT JOIN clients c ON ce.client_id = c.id
-    LEFT JOIN users u ON ce.assigned_to = u.id
-    WHERE ce.firm_id = $1 AND ce.type = 'task'
+    FROM matter_tasks t
+    LEFT JOIN matters m ON t.matter_id = m.id
+    LEFT JOIN users u ON t.assignee = u.id
+    WHERE t.firm_id = $1
   `;
   const params = [user.firmId];
   let idx = 2;
   
   if (status) {
-    sql += ` AND ce.status = $${idx++}`;
+    sql += ` AND t.status = $${idx++}`;
     params.push(status);
   } else if (!include_completed) {
-    sql += ` AND ce.status != 'completed'`;
+    sql += ` AND t.status != 'completed'`;
   }
   
   if (matter_id) {
-    sql += ` AND ce.matter_id = $${idx++}`;
+    sql += ` AND t.matter_id = $${idx++}`;
     params.push(matter_id);
   }
   
   if (assigned_to === 'me') {
-    sql += ` AND ce.assigned_to = $${idx++}`;
+    sql += ` AND t.assignee = $${idx++}`;
     params.push(user.id);
   } else if (assigned_to) {
-    sql += ` AND ce.assigned_to = $${idx++}`;
+    sql += ` AND t.assignee = $${idx++}`;
     params.push(assigned_to);
   }
   
   if (due_before) {
-    sql += ` AND ce.start_time <= $${idx++}`;
+    sql += ` AND t.due_date <= $${idx++}`;
     params.push(due_before);
   }
   
-  sql += ` ORDER BY ce.start_time ASC NULLS LAST, ce.priority DESC LIMIT 50`;
+  sql += ` ORDER BY t.due_date ASC NULLS LAST, t.priority DESC LIMIT 50`;
   
   const result = await query(sql, params);
   
@@ -4421,7 +4429,6 @@ async function listTasks(args, user) {
       priority: t.priority,
       status: t.status,
       matter: t.matter_name,
-      client: t.client_name,
       assigned_to: t.assigned_to_name
     })),
     count: result.rows.length
@@ -4432,9 +4439,9 @@ async function completeTask(args, user) {
   const { task_id } = args;
   
   const result = await query(
-    `UPDATE calendar_events SET status = 'completed', updated_at = NOW()
-     WHERE id = $1 AND firm_id = $2 AND type = 'task'
-     RETURNING id, title`,
+    `UPDATE matter_tasks SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+     WHERE id = $1 AND firm_id = $2
+     RETURNING id, name`,
     [task_id, user.firmId]
   );
   
@@ -4444,7 +4451,7 @@ async function completeTask(args, user) {
   
   return {
     success: true,
-    message: `Completed task "${result.rows[0].title}"`,
+    message: `Completed task "${result.rows[0].name}"`,
     data: { id: result.rows[0].id, status: 'completed' }
   };
 }
@@ -4452,18 +4459,27 @@ async function completeTask(args, user) {
 async function updateTask(args, user) {
   const { task_id, title, due_date, priority, status, assigned_to, notes } = args;
   
+  // Handle completed_at if status is changing to completed
+  let completedAtClause = '';
+  if (status === 'completed') {
+    completedAtClause = ', completed_at = COALESCE(completed_at, NOW())';
+  } else if (status && status !== 'completed') {
+    completedAtClause = ', completed_at = NULL';
+  }
+  
   const result = await query(
-    `UPDATE calendar_events SET
-       title = COALESCE($1, title),
-       start_time = COALESCE($2, start_time),
+    `UPDATE matter_tasks SET
+       name = COALESCE($1, name),
+       due_date = COALESCE($2, due_date),
        priority = COALESCE($3, priority),
        status = COALESCE($4, status),
-       assigned_to = COALESCE($5, assigned_to),
+       assignee = COALESCE($5, assignee),
        description = COALESCE($6, description),
        updated_at = NOW()
-     WHERE id = $7 AND firm_id = $8 AND type = 'task'
-     RETURNING id, title, status`,
-    [title, due_date ? new Date(due_date) : null, priority, status, assigned_to, notes, task_id, user.firmId]
+       ${completedAtClause}
+     WHERE id = $7 AND firm_id = $8
+     RETURNING id, name, status`,
+    [title, due_date || null, priority, status, assigned_to, notes, task_id, user.firmId]
   );
   
   if (result.rows.length === 0) {
@@ -4472,7 +4488,7 @@ async function updateTask(args, user) {
   
   return {
     success: true,
-    message: `Updated task "${result.rows[0].title}"`,
+    message: `Updated task "${result.rows[0].name}"`,
     data: result.rows[0]
   };
 }
@@ -4485,7 +4501,7 @@ async function deleteTask(args, user) {
   }
   
   const taskResult = await query(
-    `SELECT id, title FROM calendar_events WHERE id = $1 AND firm_id = $2 AND type = 'task'`,
+    `SELECT id, name FROM matter_tasks WHERE id = $1 AND firm_id = $2`,
     [task_id, user.firmId]
   );
   
@@ -4495,11 +4511,11 @@ async function deleteTask(args, user) {
   
   const task = taskResult.rows[0];
   
-  await query('DELETE FROM calendar_events WHERE id = $1', [task_id]);
+  await query('DELETE FROM matter_tasks WHERE id = $1', [task_id]);
   
   return {
     success: true,
-    message: `Deleted task "${task.title}"`
+    message: `Deleted task "${task.name}"`
   };
 }
 
@@ -12467,17 +12483,16 @@ async function buildHotContext(userId, firmId) {
         LIMIT 5
       `, [firmId, userId]),
       
-      // 8. Tasks due today (tasks are stored in calendar_events with type='task')
+      // 8. Tasks due today (tasks are stored in matter_tasks table)
       query(`
-        SELECT ce.title, ce.priority, m.name as matter_name
-        FROM calendar_events ce
-        LEFT JOIN matters m ON ce.matter_id = m.id
-        WHERE ce.firm_id = $1
-          AND ce.assigned_to = $2
-          AND ce.type = 'task'
-          AND ce.status != 'completed'
-          AND DATE(ce.start_time) = CURRENT_DATE
-        ORDER BY CASE ce.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 ELSE 3 END
+        SELECT t.name as title, t.priority, m.name as matter_name
+        FROM matter_tasks t
+        LEFT JOIN matters m ON t.matter_id = m.id
+        WHERE t.firm_id = $1
+          AND t.assignee = $2
+          AND t.status != 'completed'
+          AND t.due_date = CURRENT_DATE
+        ORDER BY CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 ELSE 3 END
         LIMIT 5
       `, [firmId, userId]),
       
