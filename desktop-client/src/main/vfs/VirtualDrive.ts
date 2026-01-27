@@ -148,20 +148,36 @@ export class VirtualDrive extends EventEmitter {
       log.info('Syncing files (only user-permitted files)...');
 
       // Get matters the user has access to (API filters by permissions)
-      const matters = await this.apiClient.getMatters();
-      log.info(`User has access to ${matters.length} matters`);
+      const mattersResponse = await this.apiClient.getMatters();
+      const matters = mattersResponse.matters || mattersResponse;
+      const structure = (mattersResponse as any).structure;
+      log.info(`User has access to ${Array.isArray(matters) ? matters.length : 0} matters`);
 
-      // Create Matters folder
-      const mattersPath = path.join(this.localPath, 'Matters');
-      await fs.mkdir(mattersPath, { recursive: true });
+      // Use Clio-style A-Z folder structure
+      if (structure && Array.isArray(structure)) {
+        // Create letter folders (A, B, C, etc.)
+        for (const letterGroup of structure) {
+          const letterPath = path.join(this.localPath, letterGroup.letter);
+          await fs.mkdir(letterPath, { recursive: true });
+          
+          // Create matter folders inside each letter
+          for (const matter of letterGroup.matters) {
+            await this.syncMatterInLetter(matter, letterPath);
+          }
+        }
+      } else {
+        // Fallback: Create Matters folder with flat structure
+        const mattersPath = path.join(this.localPath, 'Matters');
+        await fs.mkdir(mattersPath, { recursive: true });
 
-      // Sync each matter's files
-      for (const matter of matters) {
-        await this.syncMatter(matter, mattersPath);
+        const mattersList = Array.isArray(matters) ? matters : [];
+        for (const matter of mattersList) {
+          await this.syncMatter(matter, mattersPath);
+        }
       }
 
       // Clean up matters user no longer has access to
-      await this.cleanupRemovedMatters(matters, mattersPath);
+      await this.cleanupRemovedMatters(Array.isArray(matters) ? matters : [], this.localPath);
 
       this.emit('syncCompleted');
       log.info('File sync completed');
@@ -175,7 +191,44 @@ export class VirtualDrive extends EventEmitter {
   }
 
   /**
-   * Sync a single matter's files
+   * Sync a matter inside a letter folder (Clio-style: /A/Anderson - Case/)
+   */
+  private async syncMatterInLetter(matter: any, letterPath: string): Promise<void> {
+    // Use folderName from API or construct from client + matter name
+    const matterFolderName = this.sanitizeFolderName(
+      matter.folderName || matter.name
+    );
+    const matterPath = path.join(letterPath, matterFolderName);
+
+    try {
+      await fs.mkdir(matterPath, { recursive: true });
+
+      // Get files for this matter (API filters by user permissions)
+      const files = await this.apiClient.listFiles(matter.id);
+      log.info(`Matter "${matter.name}" has ${files.length} files`);
+
+      // Create subfolders and files
+      for (const file of files) {
+        await this.syncFile(file, matterPath, matter.id);
+      }
+
+      // Store matter ID mapping
+      const metaPath = path.join(matterPath, '.apex-matter');
+      await fs.writeFile(metaPath, JSON.stringify({ matterId: matter.id, name: matter.name }));
+      // Hide the metadata file on Windows
+      try {
+        await execAsync(`attrib +h "${metaPath}"`);
+      } catch (e) {
+        // Ignore
+      }
+
+    } catch (error) {
+      log.error(`Failed to sync matter ${matter.name}:`, error);
+    }
+  }
+
+  /**
+   * Sync a single matter's files (fallback flat structure)
    */
   private async syncMatter(matter: Matter, mattersPath: string): Promise<void> {
     // Create matter folder with client name prefix if available
