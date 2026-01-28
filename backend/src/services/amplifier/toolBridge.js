@@ -18,6 +18,19 @@ import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Bord
 import { uploadFile, downloadFile, isAzureConfigured } from '../../utils/azureStorage.js';
 import { extractTextFromFile } from '../../routes/documents.js';
 
+// Import NY CPLR legal knowledge module
+import {
+  NY_CPLR,
+  CPLR_ARTICLE_2_LIMITATIONS,
+  CPLR_ARTICLE_3_JURISDICTION,
+  CPLR_ARTICLE_31_DISCLOSURE,
+  CPLR_ARTICLE_32_JUDGMENT,
+  CPLR_TIME_COMPUTATION,
+  CPLR_DEADLINES_QUICK_REFERENCE,
+  getCPLRGuidanceForMatter,
+  formatCPLRCitation
+} from './legalKnowledge/nyCPLR.js';
+
 // Import tools from aiAgent.js - these are the EXACT same tools used by the normal AI chat
 // This ensures the background agent has identical capabilities
 let AGENT_TOOLS = [];
@@ -415,6 +428,31 @@ const BASE_AMPLIFIER_TOOLS = {
     required: ["matter_id", "hours", "work_type", "description"]
   },
   
+  // ============== NY CPLR LEGAL REFERENCE ==============
+  lookup_cplr: {
+    description: "Look up New York Civil Practice Law and Rules (CPLR) - the procedural rules for NY courts. Use this to find statute of limitations, service rules, discovery deadlines, motion practice requirements, and time computation rules. ALWAYS use this when handling NY litigation matters.",
+    parameters: {
+      query_type: "string - Type of lookup: 'statute_of_limitations' | 'service_of_process' | 'discovery' | 'motions' | 'time_computation' | 'deadlines' | 'section' | 'matter_guidance'",
+      section: "string - Specific CPLR section number (e.g., '214', '3212', '308') - use with query_type='section'",
+      claim_type: "string - Type of claim for SOL lookup (e.g., 'personal_injury', 'contract', 'medical_malpractice', 'defamation')",
+      matter_type: "string - Matter type for guidance (e.g., 'Personal Injury', 'Contract', 'Medical Malpractice')",
+      matter_description: "string - Brief description of matter for more specific guidance"
+    },
+    required: ["query_type"]
+  },
+  
+  calculate_cplr_deadline: {
+    description: "Calculate deadlines according to NY CPLR time computation rules. Accounts for weekends, holidays, and mail service extensions. Use this for accurate deadline calculations.",
+    parameters: {
+      start_date: "string - Start date YYYY-MM-DD (e.g., date of service, date of filing)",
+      days: "number - Number of days in the period",
+      period_type: "string - Type: 'answer' | 'discovery_response' | 'motion' | 'appeal' | 'custom'",
+      service_method: "string - How paper was served: 'personal' | 'mail' | 'overnight' | 'electronic'",
+      description: "string - What this deadline is for"
+    },
+    required: ["start_date", "days"]
+  },
+  
   // ============== PLANNING & PROGRESS ==============
   think_and_plan: {
     description: "Create a plan for a complex task",
@@ -573,6 +611,13 @@ export async function executeTool(toolName, params, context) {
       
       case 'log_billable_work':
         return await logBillableWork(params, userId, firmId);
+      
+      // NY CPLR Legal Reference Tools
+      case 'lookup_cplr':
+        return await lookupCPLR(params);
+      
+      case 'calculate_cplr_deadline':
+        return await calculateCPLRDeadline(params);
       
       default:
         // Delegate to the standard AI agent tool executor (same as normal AI chat)
@@ -2544,6 +2589,658 @@ async function logBillableWork(params, userId, firmId) {
     date: date || getTodayInTimezone(),
     billable: true
   }, userId, firmId);
+}
+
+// ============== NY CPLR LEGAL REFERENCE TOOL IMPLEMENTATIONS ==============
+
+/**
+ * Look up NY CPLR provisions
+ * This tool gives the agent access to actual NY procedural law
+ */
+async function lookupCPLR(params) {
+  const { query_type, section, claim_type, matter_type, matter_description } = params;
+  
+  if (!query_type) {
+    return { error: 'query_type is required' };
+  }
+  
+  try {
+    switch (query_type) {
+      case 'statute_of_limitations':
+        return lookupStatuteOfLimitations(claim_type);
+      
+      case 'service_of_process':
+        return lookupServiceOfProcess(section);
+      
+      case 'discovery':
+        return lookupDiscovery(section);
+      
+      case 'motions':
+        return lookupMotions(section);
+      
+      case 'time_computation':
+        return lookupTimeComputation();
+      
+      case 'deadlines':
+        return lookupDeadlinesQuickReference();
+      
+      case 'section':
+        return lookupSpecificSection(section);
+      
+      case 'matter_guidance':
+        return getMatterSpecificGuidance(matter_type, matter_description);
+      
+      default:
+        return { 
+          error: `Unknown query_type: ${query_type}`,
+          valid_types: ['statute_of_limitations', 'service_of_process', 'discovery', 'motions', 'time_computation', 'deadlines', 'section', 'matter_guidance']
+        };
+    }
+  } catch (error) {
+    console.error('[CPLR Lookup] Error:', error);
+    return { error: 'Failed to look up CPLR: ' + error.message };
+  }
+}
+
+function lookupStatuteOfLimitations(claimType) {
+  const sol = CPLR_ARTICLE_2_LIMITATIONS;
+  
+  // Quick reference table
+  const quickRef = {
+    '20_years': ['Recover real property', 'Foreclose mortgage'],
+    '6_years': ['Contract (written/oral)', 'Judgment', 'Fraud (from discovery)', 'Property damage'],
+    '3_years': ['Personal injury', 'Property damage', 'Statutory liability'],
+    '2.5_years': ['Medical/dental malpractice'],
+    '1_year': ['Assault', 'Battery', 'Defamation', 'False imprisonment', 'Malicious prosecution'],
+    '4_months': ['Article 78 (challenging government action)']
+  };
+  
+  let result = {
+    source: 'NY CPLR Article 2 - Limitations of Time',
+    reference_url: 'https://codes.findlaw.com/ny/civil-practice-law-and-rules/',
+    quick_reference: quickRef
+  };
+  
+  // If specific claim type requested, provide detailed info
+  if (claimType) {
+    const claimLower = claimType.toLowerCase();
+    
+    if (claimLower.includes('personal injury') || claimLower === 'pi' || claimLower.includes('negligence')) {
+      result.specific_claim = {
+        claim_type: 'Personal Injury',
+        limitation_period: '3 years',
+        citation: 'CPLR § 214(5)',
+        accrual: 'From date of injury',
+        section_text: sol.sections['214'].claims,
+        notes: [
+          'Clock starts on date of injury, not discovery',
+          'Different from medical malpractice (2.5 years)',
+          'Notice of Claim required for municipalities (90 days)'
+        ]
+      };
+    } else if (claimLower.includes('medical') || claimLower.includes('malpractice') || claimLower.includes('doctor')) {
+      result.specific_claim = {
+        claim_type: 'Medical/Dental/Podiatric Malpractice',
+        limitation_period: '2 years 6 months',
+        citation: 'CPLR § 214-a',
+        accrual: 'From act/omission OR end of continuous treatment',
+        section_text: sol.sections['214-a'],
+        notes: [
+          'SHORTER than regular personal injury (2.5 years vs 3 years)',
+          'Continuous treatment doctrine may extend accrual date',
+          'Foreign object: 1 year from discovery',
+          'Certificate of merit required (CPLR 3012-a)'
+        ],
+        warning: '⚠️ SHORTER PERIOD THAN REGULAR PI - VERIFY DATES CAREFULLY'
+      };
+    } else if (claimLower.includes('contract') || claimLower.includes('breach')) {
+      result.specific_claim = {
+        claim_type: 'Contract',
+        limitation_period: '6 years',
+        citation: 'CPLR § 213(2)',
+        accrual: 'From date of breach',
+        section_text: sol.sections['213'].claims,
+        notes: [
+          'Same period for written and oral contracts',
+          'Accrual is from breach, not discovery',
+          'Part payment or written acknowledgment restarts clock (CPLR § 218)'
+        ]
+      };
+    } else if (claimLower.includes('defamation') || claimLower.includes('libel') || claimLower.includes('slander')) {
+      result.specific_claim = {
+        claim_type: 'Defamation (Libel/Slander)',
+        limitation_period: '1 year',
+        citation: 'CPLR § 215(3)',
+        accrual: 'From date of publication',
+        section_text: sol.sections['215'].claims,
+        notes: [
+          'VERY SHORT - Only 1 year',
+          'Single publication rule applies',
+          'Republication may restart clock'
+        ],
+        warning: '⚠️ VERY SHORT LIMITATION PERIOD - 1 YEAR ONLY'
+      };
+    } else if (claimLower.includes('assault') || claimLower.includes('battery') || claimLower.includes('false imprisonment')) {
+      result.specific_claim = {
+        claim_type: 'Intentional Torts',
+        limitation_period: '1 year',
+        citation: 'CPLR § 215',
+        accrual: 'From date of tort',
+        section_text: sol.sections['215'].claims,
+        notes: [
+          'Applies to: assault, battery, false imprisonment, malicious prosecution',
+          'Criminal conviction may toll under certain circumstances'
+        ],
+        warning: '⚠️ VERY SHORT LIMITATION PERIOD - 1 YEAR ONLY'
+      };
+    } else if (claimLower.includes('article 78') || claimLower.includes('government') || claimLower.includes('administrative')) {
+      result.specific_claim = {
+        claim_type: 'Article 78 Proceeding',
+        limitation_period: '4 months',
+        citation: 'CPLR § 217',
+        accrual: 'From final determination becomes binding',
+        section_text: sol.sections['217'],
+        notes: [
+          'EXTREMELY SHORT - Only 4 months',
+          'Used to challenge government/agency actions',
+          'Determination must be final and binding'
+        ],
+        warning: '⚠️ EXTREMELY SHORT - ONLY 4 MONTHS TO CHALLENGE GOVERNMENT ACTION'
+      };
+    } else if (claimLower.includes('fraud')) {
+      result.specific_claim = {
+        claim_type: 'Fraud',
+        limitation_period: '6 years from commission OR 2 years from discovery (whichever is longer)',
+        citation: 'CPLR § 213(8)',
+        accrual: 'Later of: 6 years from fraud OR 2 years from discovery/should have discovered',
+        section_text: sol.sections['213'].claims,
+        notes: [
+          'Two-pronged test - use whichever gives more time',
+          'Discovery rule applies to fraud claims',
+          'Must plead fraud with particularity'
+        ]
+      };
+    } else if (claimLower.includes('property') || claimLower.includes('real estate') || claimLower.includes('foreclosure')) {
+      result.specific_claim = {
+        claim_type: 'Real Property / Foreclosure',
+        limitation_period: '6 years (foreclosure) / 20 years (recovery of real property)',
+        citations: {
+          foreclosure: 'CPLR § 213(4)',
+          recovery: 'CPLR § 212'
+        },
+        notes: [
+          'Foreclosure: 6 years from default/acceleration',
+          'Recovery of property: 20 years',
+          'Acceleration letter date is critical for foreclosure SOL'
+        ]
+      };
+    }
+  }
+  
+  // Add savings provisions
+  result.savings_provisions = {
+    'CPLR § 205': {
+      rule: '6-MONTH SAVINGS PROVISION',
+      text: 'If action dismissed (not on merits), new action within 6 months is timely',
+      exceptions: ['Voluntary discontinuance by stipulation', 'Neglect to prosecute', 'Final judgment on merits']
+    },
+    'CPLR § 203(c)': {
+      rule: 'Relation back doctrine',
+      text: 'Amended pleading relates back if same transaction/occurrence'
+    },
+    'CPLR § 207': {
+      rule: 'Tolling for absence',
+      text: 'Time defendant is absent from state is NOT counted'
+    },
+    'CPLR § 208': {
+      rule: 'Disability tolling',
+      text: 'Tolled during infancy or insanity'
+    }
+  };
+  
+  return result;
+}
+
+function lookupServiceOfProcess(section) {
+  const service = CPLR_ARTICLE_3_JURISDICTION;
+  
+  let result = {
+    source: 'NY CPLR Article 3 - Jurisdiction and Service',
+    reference_url: 'https://codes.findlaw.com/ny/civil-practice-law-and-rules/',
+    critical_rule: {
+      section: 'CPLR § 306-b',
+      rule: 'Summons must be served within 120 DAYS of filing',
+      consequence: 'Failure to serve within 120 days requires court permission to extend'
+    },
+    service_methods_natural_person: {
+      source: 'CPLR § 308',
+      methods: {
+        '1_personal_delivery': {
+          description: 'Delivering summons directly to defendant personally',
+          completion: 'Immediately upon delivery',
+          priority: 'BEST METHOD - Try first'
+        },
+        '2_substituted_service': {
+          description: 'Leave with person of suitable age/discretion at dwelling + mail to last known residence',
+          completion: '10 days after filing proof of service',
+          requirements: 'Must be at actual dwelling place or place of business'
+        },
+        '3_agent': {
+          description: 'Delivering to designated agent for service',
+          completion: 'Upon delivery to agent'
+        },
+        '4_nail_and_mail': {
+          description: 'Affix to door of dwelling/business + mail',
+          completion: '10 days after filing proof',
+          requirements: 'Due diligence showing personal/substituted service impracticable - MUST DOCUMENT ATTEMPTS'
+        },
+        '5_court_ordered': {
+          description: 'Any method court directs',
+          requirements: 'Must show impracticability of other methods',
+          options: 'Can include service by publication, email, social media'
+        }
+      },
+      hierarchy_note: 'MUST ATTEMPT METHODS IN ORDER (except agent service)'
+    },
+    service_on_entities: {
+      corporation: {
+        source: 'CPLR § 311',
+        methods: ['Officer', 'Director', 'Managing/general agent', 'Cashier', 'Secretary of State', 'Authorized agent']
+      },
+      llc: {
+        source: 'CPLR § 311-a',
+        methods: ['Member', 'Manager', 'Secretary of State', 'Agent per operating agreement']
+      },
+      partnership: {
+        source: 'CPLR § 312',
+        methods: ['General partner', 'Managing agent', 'Authorized agent']
+      }
+    },
+    time_to_answer: {
+      personal_service_in_NY: '20 days',
+      mail_service_in_NY: '25 days (20 + 5 for mail)',
+      service_outside_NY: '30 days'
+    }
+  };
+  
+  // If specific section requested
+  if (section && service.sections[section]) {
+    result.specific_section = {
+      number: section,
+      ...service.sections[section]
+    };
+  }
+  
+  return result;
+}
+
+function lookupDiscovery(section) {
+  const discovery = CPLR_ARTICLE_31_DISCLOSURE;
+  
+  let result = {
+    source: 'NY CPLR Article 31 - Disclosure',
+    reference_url: 'https://codes.findlaw.com/ny/civil-practice-law-and-rules/',
+    scope: {
+      section: 'CPLR § 3101',
+      standard: 'Full disclosure of all matter MATERIAL AND NECESSARY',
+      interpretation: 'Broadly interpreted - relevant and reasonably calculated to lead to discoverable evidence'
+    },
+    deadlines: {
+      automatic_disclosure: '20 days after joinder of issue (CPLR § 3101-a)',
+      document_demand_response: '20 days (25 by mail)',
+      interrogatory_answers: '20 days (25 by mail)',
+      objections: '20 days (25 by mail)',
+      deposition_notice: '20 days before deposition',
+      deposition_signature: '60 days to review and sign',
+      expert_disclosure: '20 days after demand'
+    },
+    key_rules: {
+      interrogatories: {
+        source: 'CPLR § 3130',
+        limit: '25 interrogatories (including subparts)',
+        note: 'Court can modify limit'
+      },
+      depositions: {
+        notice: '20 days required (CPLR § 3106-3107)',
+        location: 'Plaintiff: county of residence/employment; Corporate officer: principal office',
+        objections: 'Form objections must be made at deposition or WAIVED; all others preserved for trial'
+      },
+      physical_exam: {
+        source: 'CPLR § 3121',
+        requirement: 'COURT ORDER REQUIRED - not automatic',
+        showing: 'Condition in controversy + good cause'
+      }
+    },
+    penalties_for_noncompliance: {
+      source: 'CPLR § 3126',
+      sanctions: [
+        'Issues resolved against non-compliant party',
+        'Preclusion of evidence',
+        'Striking of pleadings',
+        'Stay until compliance',
+        'DISMISSAL',
+        'DEFAULT JUDGMENT'
+      ],
+      warning: '⚠️ SEVERE PENALTIES for discovery abuse'
+    },
+    privileges: {
+      attorney_client: 'Absolutely privileged',
+      work_product: 'Qualified immunity - can be overcome with substantial need + undue hardship',
+      expert_materials: 'Trial preparation materials have qualified immunity'
+    }
+  };
+  
+  // If specific section requested
+  if (section && discovery.sections[section]) {
+    result.specific_section = {
+      number: section,
+      ...discovery.sections[section]
+    };
+  }
+  
+  return result;
+}
+
+function lookupMotions(section) {
+  const motions = CPLR_ARTICLE_32_JUDGMENT;
+  
+  let result = {
+    source: 'NY CPLR Article 32 - Accelerated Judgment',
+    reference_url: 'https://codes.findlaw.com/ny/civil-practice-law-and-rules/',
+    motion_to_dismiss: {
+      section: 'CPLR § 3211',
+      timing: 'Must move within 60 days of answer deadline',
+      grounds: {
+        'a(1)': 'Defense founded on documentary evidence',
+        'a(2)': 'Lack of subject matter jurisdiction (NEVER WAIVED)',
+        'a(3)': 'Lack of capacity to sue',
+        'a(4)': 'Another action pending (same parties, same cause)',
+        'a(5)': 'Arbitration agreement, bankruptcy discharge, infancy, etc.',
+        'a(7)': 'FAILURE TO STATE A CAUSE OF ACTION (NEVER WAIVED)',
+        'a(8)': 'Lack of personal jurisdiction (WAIVED if not raised in first response)',
+        'a(9)': 'Release, payment, res judicata, statute of limitations',
+        'a(10)': 'Statute of frauds',
+        'a(11)': 'Defendant not properly licensed'
+      },
+      waiver_rules: {
+        always_preserved: ['Subject matter jurisdiction (a(2))', 'Failure to state cause (a(7))'],
+        waived_if_not_raised: ['Personal jurisdiction (a(8))']
+      }
+    },
+    summary_judgment: {
+      section: 'CPLR § 3212',
+      timing: 'Must move within 120 DAYS of note of issue',
+      standard: 'No genuine issue of material fact AND movant entitled to judgment as a matter of law',
+      burden: 'Movant makes prima facie showing → burden shifts to opponent to raise triable issue',
+      key_rules: {
+        'search_the_record': 'Court can grant summary judgment to NON-MOVING party (CPLR § 3212(f))',
+        'partial_summary_judgment': 'Court can grant partial summary judgment to narrow issues'
+      },
+      warning: '⚠️ 120-DAY DEADLINE IS STRICTLY ENFORCED'
+    },
+    default_judgment: {
+      section: 'CPLR § 3215',
+      timing: 'Application within 1 YEAR of default, or default deemed vacated',
+      requirements: ['Proof of service', 'Proof of facts (affidavit)', 'Default not vacated']
+    },
+    failure_to_prosecute: {
+      section: 'CPLR § 3216',
+      rule: 'If no proceeding for 1 year, party may serve 90-day demand',
+      consequence: 'If no action within 90 days after demand, action may be DISMISSED'
+    },
+    settlement_offer: {
+      section: 'CPLR § 3220',
+      rule: 'Written offer to compromise - if not accepted and plaintiff fails to beat offer, plaintiff pays defendant\'s costs from time of offer'
+    }
+  };
+  
+  // If specific section requested
+  if (section && motions.sections[section]) {
+    result.specific_section = {
+      number: section,
+      ...motions.sections[section]
+    };
+  }
+  
+  return result;
+}
+
+function lookupTimeComputation() {
+  return {
+    source: 'CPLR § 2103, General Construction Law § 25',
+    reference_url: 'https://codes.findlaw.com/ny/civil-practice-law-and-rules/',
+    basic_rules: {
+      general: 'Exclude the first day, include the last day',
+      example: 'If served Monday, count starts Tuesday'
+    },
+    last_day_rule: {
+      rule: 'If last day falls on Saturday, Sunday, or public holiday, period extends to next business day'
+    },
+    short_periods: {
+      rule: 'For periods of 11 DAYS OR LESS, exclude Saturdays, Sundays, and public holidays',
+      example: '10-day period = 10 business days when period is 11 days or less'
+    },
+    service_extensions: {
+      mail_in_NY: {
+        extension: 'Add 5 days',
+        example: '20 days to respond becomes 25 days if served by mail'
+      },
+      overnight_delivery: {
+        extension: 'Add 1 day'
+      },
+      electronic: {
+        extension: 'None (if consent to e-service)'
+      }
+    },
+    common_calculations: {
+      answer_to_complaint: {
+        personal_service: '20 days',
+        mail_service: '25 days (20 + 5)',
+        outside_NY: '30 days'
+      },
+      reply_to_counterclaim: '20 days',
+      discovery_response: '20 days (25 by mail)',
+      summary_judgment_deadline: '120 days after note of issue',
+      appeal_appellate_division: '30 days from service with notice of entry',
+      appeal_court_of_appeals: '30 days from service with notice of entry'
+    },
+    calculator_tip: 'Use calculate_cplr_deadline tool for accurate calculations'
+  };
+}
+
+function lookupDeadlinesQuickReference() {
+  return {
+    source: 'NY CPLR - Deadlines Quick Reference',
+    reference_url: 'https://codes.findlaw.com/ny/civil-practice-law-and-rules/',
+    ...CPLR_DEADLINES_QUICK_REFERENCE,
+    note: 'All deadlines subject to time computation rules. Add 5 days for mail service in NY.'
+  };
+}
+
+function lookupSpecificSection(section) {
+  if (!section) {
+    return { error: 'Section number required for section lookup' };
+  }
+  
+  // Normalize section number
+  const sectionNum = section.toString().replace('§', '').replace('CPLR', '').trim();
+  
+  // Search across all articles
+  const articles = [
+    { name: 'Article 2 - Limitations', data: CPLR_ARTICLE_2_LIMITATIONS },
+    { name: 'Article 3 - Jurisdiction', data: CPLR_ARTICLE_3_JURISDICTION },
+    { name: 'Article 31 - Discovery', data: CPLR_ARTICLE_31_DISCLOSURE },
+    { name: 'Article 32 - Motions', data: CPLR_ARTICLE_32_JUDGMENT }
+  ];
+  
+  for (const article of articles) {
+    if (article.data.sections && article.data.sections[sectionNum]) {
+      return {
+        source: article.name,
+        reference_url: 'https://codes.findlaw.com/ny/civil-practice-law-and-rules/',
+        citation: formatCPLRCitation(sectionNum),
+        section: {
+          number: sectionNum,
+          ...article.data.sections[sectionNum]
+        }
+      };
+    }
+  }
+  
+  // Section not found in our database
+  return {
+    error: `Section ${sectionNum} not found in current database`,
+    suggestion: 'Check https://codes.findlaw.com/ny/civil-practice-law-and-rules/ for the full text',
+    available_sections: {
+      'Article 2 (Limitations)': '201-218',
+      'Article 3 (Jurisdiction)': '301-328',
+      'Article 31 (Discovery)': '3101-3140',
+      'Article 32 (Motions)': '3201-3222'
+    }
+  };
+}
+
+function getMatterSpecificGuidance(matterType, matterDescription) {
+  if (!matterType) {
+    return { error: 'matter_type is required for matter guidance' };
+  }
+  
+  const guidance = getCPLRGuidanceForMatter(matterType, matterDescription || '');
+  
+  return {
+    source: 'NY CPLR - Matter-Specific Guidance',
+    reference_url: 'https://codes.findlaw.com/ny/civil-practice-law-and-rules/',
+    matter_type: matterType,
+    matter_description: matterDescription || 'Not provided',
+    ...guidance,
+    recommendation: 'Always verify specific rules for your matter. This guidance is based on common provisions but may not cover all situations.'
+  };
+}
+
+/**
+ * Calculate deadline according to CPLR time computation rules
+ */
+async function calculateCPLRDeadline(params) {
+  const { start_date, days, period_type, service_method, description } = params;
+  
+  if (!start_date || !days) {
+    return { error: 'start_date and days are required' };
+  }
+  
+  try {
+    let daysToAdd = parseInt(days);
+    let calculationNotes = [];
+    
+    // Determine base days based on period type
+    if (period_type === 'answer') {
+      daysToAdd = 20;
+      calculationNotes.push('Answer period: 20 days base (CPLR § 3012)');
+    } else if (period_type === 'discovery_response') {
+      daysToAdd = 20;
+      calculationNotes.push('Discovery response: 20 days base (CPLR § 3122)');
+    } else if (period_type === 'motion') {
+      calculationNotes.push(`Motion period: ${daysToAdd} days specified`);
+    } else if (period_type === 'appeal') {
+      daysToAdd = 30;
+      calculationNotes.push('Appeal period: 30 days base (CPLR § 5513)');
+    }
+    
+    // Add service extensions
+    if (service_method === 'mail') {
+      daysToAdd += 5;
+      calculationNotes.push('Mail service: +5 days (CPLR § 2103)');
+    } else if (service_method === 'overnight') {
+      daysToAdd += 1;
+      calculationNotes.push('Overnight service: +1 day (CPLR § 2103)');
+    } else if (service_method === 'personal') {
+      calculationNotes.push('Personal service: no additional days');
+    } else if (service_method === 'electronic') {
+      calculationNotes.push('Electronic service: no additional days (with consent)');
+    }
+    
+    // Calculate the deadline
+    let deadline = new Date(start_date);
+    const originalDays = daysToAdd;
+    
+    // For short periods (11 days or less), exclude weekends/holidays
+    const isShortPeriod = originalDays <= 11;
+    
+    if (isShortPeriod) {
+      calculationNotes.push(`Short period rule applies (${originalDays} ≤ 11 days): excluding weekends`);
+      
+      // Add business days only
+      let addedDays = 0;
+      while (addedDays < daysToAdd) {
+        deadline.setDate(deadline.getDate() + 1);
+        const dayOfWeek = deadline.getDay();
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Not Sunday (0) or Saturday (6)
+          addedDays++;
+        }
+      }
+    } else {
+      // Add calendar days
+      deadline.setDate(deadline.getDate() + daysToAdd);
+      calculationNotes.push(`Calendar days added: ${daysToAdd}`);
+    }
+    
+    // If deadline falls on weekend, extend to Monday
+    const finalDay = deadline.getDay();
+    if (finalDay === 0) { // Sunday
+      deadline.setDate(deadline.getDate() + 1);
+      calculationNotes.push('Deadline fell on Sunday: extended to Monday');
+    } else if (finalDay === 6) { // Saturday
+      deadline.setDate(deadline.getDate() + 2);
+      calculationNotes.push('Deadline fell on Saturday: extended to Monday');
+    }
+    
+    const formattedDeadline = deadline.toISOString().split('T')[0];
+    const formattedDisplay = deadline.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    
+    // Calculate days from now for urgency
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const daysUntil = Math.ceil((deadline - today) / (1000 * 60 * 60 * 24));
+    
+    let urgency = 'normal';
+    if (daysUntil <= 3) urgency = 'CRITICAL';
+    else if (daysUntil <= 7) urgency = 'URGENT';
+    else if (daysUntil <= 14) urgency = 'APPROACHING';
+    
+    return {
+      success: true,
+      calculation: {
+        start_date,
+        base_days: days,
+        period_type: period_type || 'custom',
+        service_method: service_method || 'not specified',
+        total_days_added: daysToAdd,
+        short_period_rule_applied: isShortPeriod
+      },
+      deadline: formattedDeadline,
+      deadline_display: formattedDisplay,
+      days_until: daysUntil,
+      urgency,
+      description: description || 'Deadline',
+      calculation_notes: calculationNotes,
+      cplr_rules_applied: [
+        'CPLR § 2103 (service extensions)',
+        'General Construction Law § 25 (time computation)',
+        isShortPeriod ? 'Short period rule (≤11 days excludes weekends)' : 'Calendar day rule'
+      ],
+      disclaimer: '⚠️ This is an automated calculation. Always verify against applicable court rules, local practice, and check for court holidays. When in doubt, file early.',
+      recommendation: daysUntil <= 7 
+        ? `⚠️ ${urgency}: Only ${daysUntil} days remaining. Consider filing/responding immediately.`
+        : `Deadline is ${daysUntil} days away.`
+    };
+  } catch (error) {
+    console.error('[CPLR Deadline] Error:', error);
+    return { error: 'Failed to calculate deadline: ' + error.message };
+  }
 }
 
 export default {
