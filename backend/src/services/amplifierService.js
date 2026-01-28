@@ -17,6 +17,7 @@ import { query } from '../db/connection.js';
 import { PLATFORM_CONTEXT, getUserContext, getMatterContext, getLearningContext } from './amplifier/platformContext.js';
 import { AMPLIFIER_TOOLS, AMPLIFIER_OPENAI_TOOLS, executeTool } from './amplifier/toolBridge.js';
 import { pushAgentEvent, updateAgentProgress } from '../routes/agentStream.js';
+import { getCPLRContextForPrompt, getCPLRGuidanceForMatter } from './amplifier/legalKnowledge/nyCPLR.js';
 
 // Store active tasks per user
 const activeTasks = new Map();
@@ -495,6 +496,46 @@ The goal mentions a matter. Here's what I found:
 ⚠️ **THIS IS AN EMPTY/NEW MATTER** - No documents or notes exist yet.
 Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
 `;
+      }
+      
+      // Add CPLR-specific guidance based on matter type
+      try {
+        const cplrGuidance = getCPLRGuidanceForMatter(matter.type, matter.description || matter.name);
+        if (cplrGuidance && (cplrGuidance.relevantArticles.length > 0 || cplrGuidance.keyDeadlines.length > 0)) {
+          contextStr += `
+### APPLICABLE NY CPLR GUIDANCE FOR THIS MATTER
+
+`;
+          if (cplrGuidance.relevantArticles.length > 0) {
+            contextStr += `**Relevant CPLR Articles:** ${cplrGuidance.relevantArticles.join(', ')}\n\n`;
+          }
+          if (cplrGuidance.keyDeadlines.length > 0) {
+            contextStr += `**Key Deadlines to Track:**\n`;
+            for (const deadline of cplrGuidance.keyDeadlines) {
+              contextStr += `- **${deadline.name}**: ${deadline.period} (${deadline.citation})\n`;
+            }
+            contextStr += '\n';
+          }
+          if (cplrGuidance.warnings.length > 0) {
+            contextStr += `**⚠️ WARNINGS:**\n`;
+            for (const warning of cplrGuidance.warnings) {
+              contextStr += `- ${warning}\n`;
+            }
+            contextStr += '\n';
+          }
+          if (cplrGuidance.discoveryNotes.length > 0) {
+            contextStr += `**Discovery Notes:**\n`;
+            for (const note of cplrGuidance.discoveryNotes) {
+              contextStr += `- ${note}\n`;
+            }
+            contextStr += '\n';
+          }
+          if (cplrGuidance.commonMotions.length > 0) {
+            contextStr += `**Common Motions:** ${cplrGuidance.commonMotions.join('; ')}\n`;
+          }
+        }
+      } catch (cplrError) {
+        console.error('[Amplifier] Error getting CPLR guidance:', cplrError.message);
       }
       
       // Store matter ID for quick reference
@@ -1126,6 +1167,8 @@ If \`read_document_content\` returns an error:
 2. **Timeline Risks** - Deadlines, limitations?
 3. **Financial Risks** - Costs, damages?
 4. **Next Steps** - What must happen?
+
+${getCPLRContextForPrompt()}
 
 ## WORK PRODUCT STANDARDS
 
