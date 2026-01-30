@@ -224,7 +224,14 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
     
     const baseDelay = 1000 * Math.pow(2, attempt - 1);
     const delay = retryAfterMs ? Math.max(baseDelay, retryAfterMs) : baseDelay;
+    const delaySeconds = Math.round(delay / 1000);
     console.warn(`[Amplifier] Retryable error, retrying in ${delay}ms (attempt ${attempt}/${maxAttempts})`);
+    
+    // Log rate limit specifically for monitoring
+    if (response.status === 429) {
+      console.warn(`[Amplifier] Rate limited by Azure OpenAI, waiting ${delaySeconds}s`);
+    }
+    
     await sleep(delay);
   }
 }
@@ -2892,6 +2899,44 @@ const amplifierService = new AmplifierService();
 setInterval(() => {
   amplifierService.cleanup();
 }, 60 * 60 * 1000); // Every hour
+
+// Graceful shutdown handler - save all running task checkpoints
+async function gracefulShutdown(signal) {
+  console.log(`[AmplifierService] Received ${signal}, saving task checkpoints...`);
+  
+  const runningTasks = Array.from(amplifierService.tasks.values()).filter(
+    task => task.status === TaskStatus.RUNNING
+  );
+  
+  if (runningTasks.length === 0) {
+    console.log('[AmplifierService] No running tasks to checkpoint');
+    return;
+  }
+  
+  console.log(`[AmplifierService] Saving ${runningTasks.length} running task(s)...`);
+  
+  // Save checkpoints in parallel
+  await Promise.allSettled(
+    runningTasks.map(async (task) => {
+      try {
+        task.streamEvent('shutdown', '⚠️ Server shutting down, saving progress...', {
+          icon: 'alert-triangle',
+          color: 'yellow'
+        });
+        await task.saveCheckpoint('shutdown');
+        console.log(`[AmplifierService] Saved checkpoint for task ${task.id}`);
+      } catch (error) {
+        console.error(`[AmplifierService] Failed to save checkpoint for ${task.id}:`, error.message);
+      }
+    })
+  );
+  
+  console.log('[AmplifierService] All checkpoints saved');
+}
+
+// Register shutdown handlers
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 export default amplifierService;
 export { AmplifierService, BackgroundTask, TaskStatus };
