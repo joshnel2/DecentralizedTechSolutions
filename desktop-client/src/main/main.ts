@@ -333,6 +333,13 @@ function setupIpcHandlers(): void {
     return { authenticated: isAuthenticated };
   });
 
+  // Config (read-only app configuration for renderer)
+  ipcMain.handle('config:get', async () => {
+    return {
+      serverUrl: store.get('serverUrl') as string,
+    };
+  });
+
   // Drive operations - Mount Z: drive with ONLY user's permitted files
   ipcMain.handle('drive:mount', async () => {
     try {

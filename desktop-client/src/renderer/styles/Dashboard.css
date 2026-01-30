@@ -240,6 +240,107 @@
   color: var(--color-text);
 }
 
+/* Instructions Card */
+.instructions-card {
+  grid-column: 1 / -1;
+}
+
+.instructions-list {
+  list-style: none;
+  counter-reset: step;
+  padding: 0;
+  margin-bottom: 20px;
+}
+
+.instructions-list li {
+  position: relative;
+  padding: 12px 0 12px 48px;
+  border-bottom: 1px solid var(--color-border);
+  counter-increment: step;
+}
+
+.instructions-list li:last-child {
+  border-bottom: none;
+}
+
+.instructions-list li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary);
+  color: white;
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.instructions-list li strong {
+  color: var(--color-text);
+}
+
+.security-info {
+  background: var(--color-bg);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+
+.security-note {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.security-note:first-child {
+  padding-top: 0;
+}
+
+.security-note:last-child {
+  padding-bottom: 0;
+}
+
+.security-note svg {
+  width: 20px;
+  height: 20px;
+  color: var(--color-success);
+  flex-shrink: 0;
+}
+
+.drive-note {
+  font-size: 12px;
+  color: var(--color-text-light);
+  margin-top: 2px;
+}
+
+/* Error message in cards */
+.card .error-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 16px;
+  background: rgb(239 68 68 / 0.1);
+  border: 1px solid rgb(239 68 68 / 0.2);
+  border-radius: var(--radius);
+  color: var(--color-error);
+  font-size: 13px;
+}
+
+.card .error-message svg {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+}
+
 /* Responsive */
 @media (max-width: 700px) {
   .dashboard-grid {
@@ -249,7 +350,8 @@
   .drive-status-card,
   .connection-card,
   .matters-card,
-  .actions-card {
+  .actions-card,
+  .instructions-card {
     grid-column: 1;
   }
   

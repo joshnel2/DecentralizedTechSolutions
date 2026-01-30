@@ -1,30 +1,41 @@
 # Apex Drive Desktop Client
 
-A Windows desktop application that creates a virtual drive for seamless access to your legal documents, providing a Clio Drive-like experience on top of Azure File Share.
+A professional Windows desktop application that provides seamless access to your legal documents through a virtual drive, offering a Clio Drive-like experience with enterprise-grade security.
 
 ## Features
 
-- **Virtual Drive Letter** - Access all your matters through a single mapped drive (e.g., Z:)
-- **Matter-Filtered View** - See only the matters you have access to, based on your permissions
-- **Real-Time Sync** - Files sync automatically between your computer and Azure
-- **Desktop Integration** - Open, edit, and save files directly in Word, Excel, etc.
-- **Offline Cache** - Recently accessed files are cached locally for fast access
+- **Virtual Drive Letter** - Access all your matters through a dedicated mapped drive (e.g., Z:)
+- **Permission-Based View** - Only see documents from matters you have access to
+- **Automatic Sync** - Files synchronize automatically between your computer and the cloud
+- **Desktop Integration** - Open, edit, and save files directly in Microsoft Office applications
+- **Local Cache** - Recently accessed files are cached locally for fast access
 - **System Tray** - Runs in the background with quick access from the system tray
+- **Auto Updates** - Seamlessly receive updates when new versions are available
+
+## Security
+
+Apex Drive is built with security as a top priority:
+
+- **256-bit Encryption** - All data encrypted in transit using TLS 1.3
+- **Secure Token Storage** - Authentication tokens stored in encrypted local storage
+- **Role-Based Access** - Only documents you're authorized to view are synced
+- **Server-Side Enforcement** - All permissions verified server-side
+- **No Third-Party Drivers** - Uses native Windows drive mapping (no kernel drivers required)
 
 ## Requirements
 
 - Windows 10 or later (64-bit)
-- [WinFsp](https://winfsp.dev/) - Windows File System Proxy (installed automatically)
 - An Apex Legal account with document access
+- Internet connection for initial sync
 
 ## Installation
 
 ### From Installer
 
-1. Download the latest `Apex Drive Setup.exe` from the releases page
+1. Download the latest `Apex Drive Setup.exe` from your firm administrator
 2. Run the installer
-3. Follow the prompts (WinFsp will be installed if needed)
-4. Launch Apex Drive and sign in
+3. Launch Apex Drive and sign in with your Apex Legal credentials
+4. Click "Mount Drive" to access your documents
 
 ### Development Setup
 
@@ -38,7 +49,7 @@ npm run dev
 # Build for production
 npm run build
 
-# Create installer
+# Create Windows installer
 npm run dist:win
 ```
 
@@ -46,80 +57,89 @@ npm run dist:win
 
 ### Main Process (`src/main/`)
 
-- **main.ts** - Application entry point, window management, system tray
-- **vfs/** - Virtual file system implementation using WinFsp
-- **api/** - API client for server communication
-- **sync/** - Bidirectional sync engine
-- **cache/** - Local file cache management
-- **auth/** - Authentication and secure token storage
-- **config/** - Application settings
+| Module | Description |
+|--------|-------------|
+| `main.ts` | Application entry point, window management, system tray |
+| `vfs/VirtualDrive.ts` | Virtual drive implementation using Windows drive mapping |
+| `api/ApiClient.ts` | HTTP/WebSocket client for server communication |
+| `sync/SyncEngine.ts` | Synchronization status and management |
+| `auth/AuthManager.ts` | Authentication and secure token handling |
+| `config/ConfigManager.ts` | Application settings management |
 
 ### Preload Script (`src/preload/`)
 
-- **preload.ts** - Secure bridge between main and renderer processes
+- `preload.ts` - Secure context bridge between main and renderer processes
 
 ### Renderer (`src/renderer/`)
 
-- **App.tsx** - Main React application
-- **components/** - UI components (Login, Dashboard, Settings, SyncLogs)
-- **styles/** - CSS styles
+- `App.tsx` - Main React application with navigation
+- `components/` - UI components (Login, Dashboard, Settings, SyncLogs)
+- `styles/` - CSS modules and global styles
 
 ## How It Works
 
-1. **Authentication** - User logs in with Apex Legal credentials
-2. **Matter Loading** - Fetches list of matters the user has access to
-3. **Virtual Drive** - Creates a virtual drive using WinFsp
-4. **File Operations** - Intercepts file system calls and translates them to Azure operations
-5. **Caching** - Downloads files on demand and caches them locally
-6. **Sync** - Monitors for changes and syncs back to Azure
+1. **Authentication** - User signs in with Apex Legal credentials
+2. **Matter Loading** - Fetches list of matters the user has access to via API
+3. **Virtual Drive** - Maps a local folder to a drive letter (e.g., Z:)
+4. **Folder Structure** - Creates A-Z organized folders matching matter names
+5. **File Sync** - Downloads permitted files on-demand with local caching
+6. **Background Sync** - Periodically checks for changes and updates
 
 ## Configuration
 
-Settings are stored in:
-- Windows: `%APPDATA%\apex-drive-desktop\config.json`
+Settings are stored in the user's app data directory.
 
 ### Available Settings
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| driveLetter | Z | Virtual drive letter |
-| autoStart | true | Start with Windows |
-| autoMount | true | Mount drive on startup |
-| syncInterval | 30000 | Sync interval in ms |
-| maxCacheSize | 5GB | Maximum local cache size |
-| conflictStrategy | ask | How to handle conflicts |
-
-## Security
-
-- Authentication tokens stored in Windows Credential Manager
-- All communication over HTTPS
-- File content cached locally only when accessed
-- Permissions enforced server-side
+| `driveLetter` | Z | Virtual drive letter to use |
+| `autoStart` | true | Launch when Windows starts |
+| `autoMount` | true | Mount drive automatically on startup |
+| `syncInterval` | 30000 | Sync check interval (milliseconds) |
+| `maxCacheSize` | 5GB | Maximum local cache size |
+| `conflictStrategy` | ask | How to handle file conflicts |
+| `showNotifications` | true | Show sync notifications |
 
 ## Troubleshooting
 
 ### Drive not mounting
 
-1. Ensure WinFsp is installed: `winfsctl lsvol`
-2. Check if the drive letter is available
-3. Try running as administrator for first mount
-
-### Sync issues
-
-1. Check internet connection
-2. View sync logs in the app
-3. Try "Sync Now" to force immediate sync
+1. Ensure the drive letter is not already in use
+2. Try a different drive letter in Settings
+3. Restart the application
 
 ### Files not appearing
 
-1. Wait for initial sync to complete
-2. Check matter permissions in web app
-3. Refresh the file tree
+1. Wait for the initial sync to complete (check the Sync Logs)
+2. Verify your matter permissions in the web application
+3. Click "Sync Now" to force a refresh
+
+### Connection issues
+
+1. Check your internet connection
+2. Verify the server URL in Settings
+3. Try signing out and signing back in
+
+## Building for Production
+
+```bash
+# Install dependencies
+npm install
+
+# Build all components
+npm run build
+
+# Create installer
+npm run dist:win
+```
+
+The installer will be created in the `release/` directory.
 
 ## License
 
-Proprietary - Apex Legal, Inc.
+Proprietary - Apex Legal, Inc. All rights reserved.
 
 ## Support
 
-Contact support@apexlegal.com for assistance.
+For assistance, contact your firm administrator or email support@apexlegal.com.

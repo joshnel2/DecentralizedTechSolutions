@@ -67,9 +67,22 @@ function App() {
     return (
       <div className="loading-screen">
         <div className="loading-content">
-          <img src="./assets/logo.svg" alt="Apex Drive" className="loading-logo" />
+          <div className="loading-logo-container">
+            <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" className="loading-logo">
+              <rect width="48" height="48" rx="10" fill="#2563eb"/>
+              <path d="M24 12L36 30H12L24 12Z" fill="white"/>
+              <path d="M24 20L30 30H18L24 20Z" fill="#2563eb"/>
+            </svg>
+          </div>
+          <h1 className="loading-title">Apex Drive</h1>
           <div className="loading-spinner"></div>
-          <p>Connecting to Apex Drive...</p>
+          <p className="loading-status">Establishing secure connection...</p>
+          <p className="loading-security">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            Protected by 256-bit encryption
+          </p>
         </div>
       </div>
     );

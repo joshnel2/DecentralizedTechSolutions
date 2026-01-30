@@ -42,12 +42,22 @@
   font-size: 24px;
   font-weight: 700;
   color: var(--color-text);
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
-.login-header p {
+.login-subtitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px !important;
+}
+
+.login-description {
   color: var(--color-text-secondary);
   font-size: 14px;
+  line-height: 1.5;
 }
 
 .login-form {
@@ -182,14 +192,42 @@
 }
 
 .login-footer {
-  padding: 16px 32px;
+  padding: 20px 32px;
   background: var(--color-bg);
   text-align: center;
 }
 
-.login-footer p {
+.security-badges {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.security-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-success);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.security-badge svg {
+  width: 14px;
+  height: 14px;
+}
+
+.help-text {
   font-size: 13px;
   color: var(--color-text-secondary);
+}
+
+.login-button .lock-icon {
+  width: 16px;
+  height: 16px;
 }
 
 /* Background shapes */

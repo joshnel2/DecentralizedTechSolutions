@@ -25,6 +25,11 @@ export interface ApexDriveAPI {
     refresh: () => Promise<{ success: boolean; error?: string }>;
   };
 
+  // Config (read-only app configuration)
+  config: {
+    get: () => Promise<{ serverUrl: string }>;
+  };
+
   // Settings
   settings: {
     get: () => Promise<Record<string, any>>;
@@ -74,6 +79,10 @@ const apexDriveAPI: ApexDriveAPI = {
     status: () => ipcRenderer.invoke('drive:status'),
     open: () => ipcRenderer.invoke('drive:open'),
     refresh: () => ipcRenderer.invoke('drive:refresh'),
+  },
+
+  config: {
+    get: () => ipcRenderer.invoke('config:get'),
   },
 
   settings: {

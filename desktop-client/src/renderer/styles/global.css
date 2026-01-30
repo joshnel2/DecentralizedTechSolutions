@@ -257,7 +257,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   height: 100vh;
-  background: var(--color-bg);
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
 }
 
 .loading-content {
@@ -265,11 +265,49 @@ button:disabled {
   flex-direction: column;
   align-items: center;
   gap: 16px;
+  text-align: center;
+}
+
+.loading-logo-container {
+  width: 72px;
+  height: 72px;
+  margin-bottom: 8px;
 }
 
 .loading-logo {
-  width: 64px;
-  height: 64px;
+  width: 100%;
+  height: 100%;
+}
+
+.loading-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: white;
+  margin-bottom: 8px;
+}
+
+.loading-status {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+}
+
+.loading-security {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 24px;
+  padding: 12px 20px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 9999px;
+  color: var(--color-success);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.loading-security svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* Empty States */

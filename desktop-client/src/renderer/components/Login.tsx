@@ -5,23 +5,36 @@ interface LoginProps {
   onSuccess: () => void;
 }
 
-// Server URL - hardcoded for simplicity
-const SERVER_URL = 'https://strappedai-gpfra9f8gsg9d9hy.canadacentral-01.azurewebsites.net';
-
 function Login({ onSuccess }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
+  const [serverUrl, setServerUrl] = useState('');
 
   useEffect(() => {
-    // Load saved email if exists
-    const savedEmail = localStorage.getItem('apex_saved_email');
-    if (savedEmail) {
-      setEmail(savedEmail);
-    }
+    // Load saved email and server URL from config
+    loadInitialData();
   }, []);
+
+  const loadInitialData = async () => {
+    try {
+      // Get server URL from config
+      const config = await window.apexDrive.config.get();
+      if (config.serverUrl) {
+        setServerUrl(config.serverUrl);
+      }
+      
+      // Load saved email if exists
+      const savedEmail = localStorage.getItem('apex_saved_email');
+      if (savedEmail) {
+        setEmail(savedEmail);
+      }
+    } catch (err) {
+      console.error('Failed to load config:', err);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,7 +52,7 @@ function Login({ onSuccess }: LoginProps) {
       const result = await window.apexDrive.auth.login({
         email,
         password,
-        serverUrl: SERVER_URL,
+        serverUrl,
       });
 
       if (result.success) {
@@ -66,7 +79,8 @@ function Login({ onSuccess }: LoginProps) {
             </svg>
           </div>
           <h1>Apex Drive</h1>
-          <p>Sign in with your Apex account to access your matters</p>
+          <p className="login-subtitle">Secure Document Management</p>
+          <p className="login-description">Sign in with your Apex Legal account to access your firm's documents</p>
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
@@ -82,7 +96,7 @@ function Login({ onSuccess }: LoginProps) {
           )}
 
           <div className="form-group">
-            <label htmlFor="email">Email</label>
+            <label htmlFor="email">Email Address</label>
             <input
               type="email"
               id="email"
@@ -91,6 +105,7 @@ function Login({ onSuccess }: LoginProps) {
               placeholder="you@lawfirm.com"
               required
               autoFocus
+              autoComplete="email"
             />
           </div>
 
@@ -103,6 +118,7 @@ function Login({ onSuccess }: LoginProps) {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
               required
+              autoComplete="current-password"
             />
           </div>
 
@@ -121,16 +137,37 @@ function Login({ onSuccess }: LoginProps) {
             {isLoading ? (
               <>
                 <span className="button-spinner"></span>
-                Signing in...
+                Signing in securely...
               </>
             ) : (
-              'Sign In'
+              <>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="lock-icon">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                Sign In Securely
+              </>
             )}
           </button>
         </form>
 
         <div className="login-footer">
-          <p>Need help? Contact your firm administrator</p>
+          <div className="security-badges">
+            <span className="security-badge">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+              256-bit Encryption
+            </span>
+            <span className="security-badge">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              Secure Connection
+            </span>
+          </div>
+          <p className="help-text">Need help? Contact your firm administrator</p>
         </div>
       </div>
 
