@@ -5,7 +5,7 @@
  * It manages authentication, file sync, and the system tray.
  */
 
-import { app, BrowserWindow, Menu, Tray, ipcMain, dialog, shell, nativeImage } from 'electron';
+import { app, BrowserWindow, Menu, Tray, ipcMain, dialog, shell, nativeImage, Notification } from 'electron';
 import path from 'path';
 import log from 'electron-log';
 import { autoUpdater } from 'electron-updater';
@@ -21,6 +21,12 @@ import { VirtualDrive } from './vfs/VirtualDrive';
 log.transports.file.level = 'info';
 log.transports.console.level = 'debug';
 autoUpdater.logger = log;
+
+// Auto-update state
+let updateAvailable = false;
+let updateDownloaded = false;
+let updateInfo: any = null;
+let downloadProgress = 0;
 
 // Global references
 let mainWindow: BrowserWindow | null = null;
@@ -190,6 +196,36 @@ function updateTrayMenu(): void {
         }
       },
     },
+    // Update menu items
+    ...(updateAvailable || updateDownloaded ? [
+      { type: 'separator' as const },
+      {
+        label: updateDownloaded 
+          ? `Install Update (v${updateInfo?.version})` 
+          : `Download Update (v${updateInfo?.version})`,
+        click: async () => {
+          if (updateDownloaded) {
+            // Install update
+            if (virtualDrive?.isMounted()) {
+              try {
+                await virtualDrive.unmount();
+              } catch (e) {
+                log.error('Failed to unmount before update:', e);
+              }
+            }
+            autoUpdater.quitAndInstall(false, true);
+          } else {
+            // Download update
+            autoUpdater.downloadUpdate();
+            // Show window with settings page
+            if (mainWindow) {
+              mainWindow.show();
+              mainWindow.webContents.send('navigate', '/settings');
+            }
+          }
+        },
+      },
+    ] : []),
     { type: 'separator' },
     {
       label: 'Sign Out',
@@ -253,10 +289,8 @@ async function initializeApp(): Promise<void> {
   // Show main window
   await createWindow();
 
-  // Check for updates
-  if (!isDev) {
-    autoUpdater.checkForUpdatesAndNotify();
-  }
+  // Set up auto-updater
+  setupAutoUpdater();
 }
 
 async function signOut(): Promise<void> {
@@ -500,12 +534,221 @@ function setupIpcHandlers(): void {
   });
 
   ipcMain.handle('app:checkUpdates', async () => {
-    if (!isDev) {
-      const result = await autoUpdater.checkForUpdates();
-      return { updateAvailable: result?.updateInfo?.version !== app.getVersion() };
+    if (isDev) {
+      return { updateAvailable: false, currentVersion: app.getVersion() };
     }
-    return { updateAvailable: false };
+    
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      return { 
+        updateAvailable: updateAvailable,
+        currentVersion: app.getVersion(),
+        latestVersion: result?.updateInfo?.version,
+        releaseNotes: result?.updateInfo?.releaseNotes,
+        releaseDate: result?.updateInfo?.releaseDate,
+      };
+    } catch (error) {
+      log.error('Check updates failed:', error);
+      return { 
+        updateAvailable: false, 
+        currentVersion: app.getVersion(),
+        error: error instanceof Error ? error.message : 'Failed to check for updates'
+      };
+    }
   });
+
+  // Download update
+  ipcMain.handle('app:downloadUpdate', async () => {
+    if (isDev || !updateAvailable) {
+      return { success: false, error: 'No update available' };
+    }
+    
+    try {
+      await autoUpdater.downloadUpdate();
+      return { success: true };
+    } catch (error) {
+      log.error('Download update failed:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Download failed' };
+    }
+  });
+
+  // Install update (quit and install)
+  ipcMain.handle('app:installUpdate', async () => {
+    if (!updateDownloaded) {
+      return { success: false, error: 'Update not downloaded yet' };
+    }
+    
+    // Unmount drive before quitting
+    if (virtualDrive?.isMounted()) {
+      try {
+        await virtualDrive.unmount();
+      } catch (e) {
+        log.error('Failed to unmount before update:', e);
+      }
+    }
+    
+    // Quit and install
+    autoUpdater.quitAndInstall(false, true);
+    return { success: true };
+  });
+
+  // Get update status
+  ipcMain.handle('app:updateStatus', () => {
+    return {
+      updateAvailable,
+      updateDownloaded,
+      updateInfo,
+      downloadProgress,
+      currentVersion: app.getVersion(),
+    };
+  });
+}
+
+/**
+ * Set up auto-updater with event handlers
+ */
+function setupAutoUpdater(): void {
+  if (isDev) {
+    log.info('Skipping auto-updater in development mode');
+    return;
+  }
+
+  // Configure auto-updater
+  autoUpdater.autoDownload = false; // We'll control when to download
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  // Event: Checking for update
+  autoUpdater.on('checking-for-update', () => {
+    log.info('Checking for update...');
+    mainWindow?.webContents.send('update-status', { 
+      status: 'checking',
+      message: 'Checking for updates...' 
+    });
+  });
+
+  // Event: Update available
+  autoUpdater.on('update-available', (info) => {
+    log.info('Update available:', info.version);
+    updateAvailable = true;
+    updateInfo = info;
+    
+    mainWindow?.webContents.send('update-status', { 
+      status: 'available',
+      message: `Update ${info.version} is available`,
+      version: info.version,
+      releaseNotes: info.releaseNotes,
+      releaseDate: info.releaseDate,
+    });
+
+    // Show notification
+    if (Notification.isSupported()) {
+      const notification = new Notification({
+        title: 'Update Available',
+        body: `Apex Drive ${info.version} is available. Click to download.`,
+        icon: nativeImage.createFromDataURL(
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAA7AAAAOwBeShxvQAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAJhSURBVFiF7ZY9aBRBFMd/s3t3l5wfkIgIgoiFFhYWFoKNjY2NjYWFhY2FjY2NjYWNjYWNjYWNjYWNjYWNjYWNhY2NhY2NhYWIIKJBEhLj7nZn5i1uc7t3e3uBiD9Y2H3z5s2b/3/ezAqMMfxPyf8lwL8WgOj1gVpr1ey+gAL6AXkA2esDuqXcXYLOAmxLVwLgAngRjHnkA/gcgJsBO4BlwJVAf0AewKcA3J+5vAhc8QGOB2BvAN4GJo0xY16QfQH1APrAJT/I44DcCmxJCJ1AWdM0SwB8E8B7wGGllF8kfHMkIJ8BZwJ4J4C3Ob8IfAYMG2OOez35HeAEpVQ5gHcJmAzgbSASwHFglT7gtRfkOwCvBHI8IBeCywE8E8CzAq4H8rQPsO5tANL7gVcCeSeADwZwk1LqtHfQbwLLgbyojKn4AJcArxZwNYCXgUsBeD2Q1wN4PpCXAngXiATwVkfurSoANwN4WSm1NID2ATifEIIAfgrgcwF8JICb9DkAfyYQ/ELg7QBuD+CFDlyWlnc9gPcE8IwPsFUAbwfyagAvBvJyAC8qpdYH4A2l1FGllBdkvwJOR1naCuDdIGK2BOAk4IhS6lQAdwq4HsDbwKtewGcdOKaUOhXA+4G8pJS65QX5Grgm1pwEHFBK3QKyAE74AO8CeSWApwN5KZB3O3DOG/IaMKmUuuaFDMAVF+58AG8H8BbgllfkHWC/hxwN4NsqAA8E8DYQDeBlH8i3gbcA3AtwIwRwxkPO+0EGYL8X6DcBPOiDDALbPABvhQA+6IN8FMALHrLuhXwvgFcCOGH+Bf0FBaC/LlVkvkoAAAAASUVORK5CYII='
+        ),
+      });
+      
+      notification.on('click', () => {
+        mainWindow?.show();
+        mainWindow?.webContents.send('navigate', '/settings');
+      });
+      
+      notification.show();
+    }
+
+    // Update tray menu
+    updateTrayMenu();
+  });
+
+  // Event: Update not available
+  autoUpdater.on('update-not-available', (info) => {
+    log.info('Update not available, current version is latest');
+    updateAvailable = false;
+    updateInfo = info;
+    
+    mainWindow?.webContents.send('update-status', { 
+      status: 'up-to-date',
+      message: 'You have the latest version',
+      version: info.version,
+    });
+  });
+
+  // Event: Download progress
+  autoUpdater.on('download-progress', (progress) => {
+    downloadProgress = progress.percent;
+    log.info(`Download progress: ${progress.percent.toFixed(1)}%`);
+    
+    mainWindow?.webContents.send('update-status', { 
+      status: 'downloading',
+      message: `Downloading update: ${progress.percent.toFixed(0)}%`,
+      progress: progress.percent,
+      bytesPerSecond: progress.bytesPerSecond,
+      transferred: progress.transferred,
+      total: progress.total,
+    });
+  });
+
+  // Event: Update downloaded
+  autoUpdater.on('update-downloaded', (info) => {
+    log.info('Update downloaded:', info.version);
+    updateDownloaded = true;
+    downloadProgress = 100;
+    
+    mainWindow?.webContents.send('update-status', { 
+      status: 'ready',
+      message: `Update ${info.version} is ready to install`,
+      version: info.version,
+    });
+
+    // Show notification
+    if (Notification.isSupported()) {
+      const notification = new Notification({
+        title: 'Update Ready',
+        body: `Apex Drive ${info.version} is ready. Restart to install.`,
+        icon: nativeImage.createFromDataURL(
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAA7AAAAOwBeShxvQAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAJhSURBVFiF7ZY9aBRBFMd/s3t3l5wfkIgIgoiFFhYWFoKNjY2NjYWFhY2FjY2NjYWNjYWNjYWNjYWNjYWNjYWNhY2NhY2NhYWIIKJBEhLj7nZn5i1uc7t3e3uBiD9Y2H3z5s2b/3/ezAqMMfxPyf8lwL8WgOj1gVpr1ey+gAL6AXkA2esDuqXcXYLOAmxLVwLgAngRjHnkA/gcgJsBO4BlwJVAf0AewKcA3J+5vAhc8QGOB2BvAN4GJo0xY16QfQH1APrAJT/I44DcCmxJCJ1AWdM0SwB8E8B7wGGllF8kfHMkIJ8BZwJ4J4C3Ob8IfAYMG2OOez35HeAEpVQ5gHcJmAzgbSASwHFglT7gtRfkOwCvBHI8IBeCywE8E8CzAq4H8rQPsO5tANL7gVcCeSeADwZwk1LqtHfQbwLLgbyojKn4AJcArxZwNYCXgUsBeD2Q1wN4PpCXAngXiATwVkfurSoANwN4WSm1NID2ATifEIIAfgrgcwF8JICb9DkAfyYQ/ELg7QBuD+CFDlyWlnc9gPcE8IwPsFUAbwfyagAvBvJyAC8qpdYH4A2l1FGllBdkvwJOR1naCuDdIGK2BOAk4IhS6lQAdwq4HsDbwKtewGcdOKaUOhXA+4G8pJS65QX5Grgm1pwEHFBK3QKyAE74AO8CeSWApwN5KZB3O3DOG/IaMKmUuuaFDMAVF+58AG8H8BbgllfkHWC/hxwN4NsqAA8E8DYQDeBlH8i3gbcA3AtwIwRwxkPO+0EGYL8X6DcBPOiDDALbPABvhQA+6IN8FMALHrLuhXwvgFcCOGH+Bf0FBaC/LlVkvkoAAAAASUVORK5CYII='
+        ),
+      });
+      
+      notification.on('click', () => {
+        autoUpdater.quitAndInstall(false, true);
+      });
+      
+      notification.show();
+    }
+
+    // Update tray menu
+    updateTrayMenu();
+  });
+
+  // Event: Error
+  autoUpdater.on('error', (error) => {
+    log.error('Auto-updater error:', error);
+    
+    mainWindow?.webContents.send('update-status', { 
+      status: 'error',
+      message: 'Update check failed',
+      error: error.message,
+    });
+  });
+
+  // Check for updates after a short delay
+  setTimeout(() => {
+    log.info('Checking for updates...');
+    autoUpdater.checkForUpdates().catch(err => {
+      log.error('Initial update check failed:', err);
+    });
+  }, 5000);
+
+  // Check for updates periodically (every 4 hours)
+  setInterval(() => {
+    log.info('Periodic update check...');
+    autoUpdater.checkForUpdates().catch(err => {
+      log.error('Periodic update check failed:', err);
+    });
+  }, 4 * 60 * 60 * 1000);
 }
 
 // Protocol handler for apexdrive:// URLs

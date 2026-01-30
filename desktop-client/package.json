@@ -83,8 +83,10 @@
       "include": "build/installer.nsh"
     },
     "publish": {
-      "provider": "generic",
-      "url": "https://updates.apexlegal.com/desktop"
+      "provider": "github",
+      "owner": "joshnel2",
+      "repo": "DecentralizedTechSolutions",
+      "releaseType": "release"
     }
   }
 }

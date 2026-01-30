@@ -297,7 +297,207 @@ function SettingsPage() {
             </span>
           </div>
         </section>
+
+        {/* Updates Section */}
+        <section className="settings-section">
+          <h2>Updates</h2>
+          <UpdateSection />
+        </section>
       </div>
+    </div>
+  );
+}
+
+// Update section component
+function UpdateSection() {
+  const [updateStatus, setUpdateStatus] = useState<{
+    updateAvailable: boolean;
+    updateDownloaded: boolean;
+    downloadProgress: number;
+    currentVersion: string;
+    updateInfo: any;
+  } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadUpdateStatus();
+
+    // Listen for update status changes
+    window.apexDrive.on('update-status', (status: any) => {
+      if (status.status === 'downloading') {
+        setDownloading(true);
+        setUpdateStatus(prev => prev ? { ...prev, downloadProgress: status.progress } : null);
+      } else if (status.status === 'ready') {
+        setDownloading(false);
+        setUpdateStatus(prev => prev ? { ...prev, updateDownloaded: true, downloadProgress: 100 } : null);
+      } else if (status.status === 'available') {
+        setUpdateStatus(prev => prev ? { 
+          ...prev, 
+          updateAvailable: true, 
+          updateInfo: { version: status.version, releaseNotes: status.releaseNotes }
+        } : null);
+      } else if (status.status === 'error') {
+        setError(status.error || 'Update check failed');
+      }
+    });
+  }, []);
+
+  const loadUpdateStatus = async () => {
+    try {
+      const status = await window.apexDrive.app.updateStatus();
+      setUpdateStatus(status);
+    } catch (err) {
+      console.error('Failed to get update status:', err);
+    }
+  };
+
+  const checkForUpdates = async () => {
+    setChecking(true);
+    setError(null);
+    try {
+      const result = await window.apexDrive.app.checkUpdates();
+      if (result.error) {
+        setError(result.error);
+      } else if (!result.updateAvailable) {
+        setError(null);
+      }
+      await loadUpdateStatus();
+    } catch (err: any) {
+      setError(err.message || 'Failed to check for updates');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const downloadUpdate = async () => {
+    setDownloading(true);
+    setError(null);
+    try {
+      const result = await window.apexDrive.app.downloadUpdate();
+      if (!result.success) {
+        setError(result.error || 'Download failed');
+        setDownloading(false);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Download failed');
+      setDownloading(false);
+    }
+  };
+
+  const installUpdate = async () => {
+    try {
+      await window.apexDrive.app.installUpdate();
+    } catch (err: any) {
+      setError(err.message || 'Installation failed');
+    }
+  };
+
+  return (
+    <div className="update-section">
+      <div className="setting-group">
+        <div className="update-info">
+          <div className="update-version">
+            <span className="version-label">Current Version</span>
+            <span className="version-value">{updateStatus?.currentVersion || 'Loading...'}</span>
+          </div>
+          
+          {updateStatus?.updateAvailable && !updateStatus?.updateDownloaded && (
+            <div className="update-available">
+              <span className="update-badge">Update Available</span>
+              <span className="new-version">Version {updateStatus.updateInfo?.version}</span>
+            </div>
+          )}
+          
+          {updateStatus?.updateDownloaded && (
+            <div className="update-ready">
+              <span className="update-badge ready">Ready to Install</span>
+              <span className="new-version">Version {updateStatus.updateInfo?.version}</span>
+            </div>
+          )}
+          
+          {downloading && (
+            <div className="download-progress">
+              <div className="progress-bar">
+                <div 
+                  className="progress-fill" 
+                  style={{ width: `${updateStatus?.downloadProgress || 0}%` }}
+                />
+              </div>
+              <span className="progress-text">
+                Downloading... {(updateStatus?.downloadProgress || 0).toFixed(0)}%
+              </span>
+            </div>
+          )}
+          
+          {error && (
+            <div className="update-error">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="update-actions">
+          {!updateStatus?.updateAvailable && !updateStatus?.updateDownloaded && (
+            <button 
+              className="btn btn-secondary"
+              onClick={checkForUpdates}
+              disabled={checking}
+            >
+              {checking ? (
+                <>
+                  <span className="button-spinner"></span>
+                  Checking...
+                </>
+              ) : (
+                <>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="23 4 23 10 17 10"/>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                  </svg>
+                  Check for Updates
+                </>
+              )}
+            </button>
+          )}
+
+          {updateStatus?.updateAvailable && !updateStatus?.updateDownloaded && !downloading && (
+            <button 
+              className="btn btn-primary"
+              onClick={downloadUpdate}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Download Update
+            </button>
+          )}
+
+          {updateStatus?.updateDownloaded && (
+            <button 
+              className="btn btn-primary"
+              onClick={installUpdate}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              Restart to Install
+            </button>
+          )}
+        </div>
+      </div>
+
+      <span className="setting-help">
+        Apex Drive automatically checks for updates and will notify you when one is available.
+      </span>
     </div>
   );
 }

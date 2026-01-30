@@ -54,10 +54,25 @@ export interface ApexDriveAPI {
     list: (matterId: string, folderPath?: string) => Promise<{ success: boolean; files?: any[]; error?: string }>;
   };
 
-  // App info
+  // App info and updates
   app: {
     version: () => Promise<string>;
-    checkUpdates: () => Promise<{ updateAvailable: boolean }>;
+    checkUpdates: () => Promise<{ 
+      updateAvailable: boolean; 
+      currentVersion: string;
+      latestVersion?: string;
+      releaseNotes?: string;
+      error?: string;
+    }>;
+    downloadUpdate: () => Promise<{ success: boolean; error?: string }>;
+    installUpdate: () => Promise<{ success: boolean; error?: string }>;
+    updateStatus: () => Promise<{
+      updateAvailable: boolean;
+      updateDownloaded: boolean;
+      updateInfo: any;
+      downloadProgress: number;
+      currentVersion: string;
+    }>;
   };
 
   // Events
@@ -108,6 +123,9 @@ const apexDriveAPI: ApexDriveAPI = {
   app: {
     version: () => ipcRenderer.invoke('app:version'),
     checkUpdates: () => ipcRenderer.invoke('app:checkUpdates'),
+    downloadUpdate: () => ipcRenderer.invoke('app:downloadUpdate'),
+    installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
+    updateStatus: () => ipcRenderer.invoke('app:updateStatus'),
   },
 
   on: (channel, callback) => {
@@ -121,6 +139,8 @@ const apexDriveAPI: ApexDriveAPI = {
       'navigate',
       'notification',
       'error',
+      'update-status',
+      'connect-with-token',
     ];
     
     if (validChannels.includes(channel)) {
