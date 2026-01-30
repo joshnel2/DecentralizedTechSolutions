@@ -86,6 +86,15 @@ export function BackgroundAgentPage() {
   // Extended mode for long-running tasks
   const [extendedMode, setExtendedMode] = useState(false)
   
+  // Suggested task templates
+  const taskSuggestions = [
+    'Review and summarize all documents for [matter name]',
+    'Prepare case assessment memo for new personal injury matter',
+    'Create intake checklist and initial tasks for new client',
+    'Analyze contract and identify key terms and risks',
+    'Research statute of limitations for [claim type] in NY'
+  ]
+  
   // Feedback modal state
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   const [feedbackTaskId, setFeedbackTaskId] = useState<string | null>(null)
@@ -561,6 +570,22 @@ export function BackgroundAgentPage() {
             onChange={event => setGoalInput(event.target.value)}
             rows={3}
           />
+          {!goalInput && (
+            <div className={styles.suggestions}>
+              <span className={styles.suggestionsLabel}>Try:</span>
+              <div className={styles.suggestionChips}>
+                {taskSuggestions.slice(0, 3).map((suggestion, idx) => (
+                  <button
+                    key={idx}
+                    className={styles.suggestionChip}
+                    onClick={() => setGoalInput(suggestion)}
+                  >
+                    {suggestion.length > 50 ? suggestion.substring(0, 47) + '...' : suggestion}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className={styles.taskOptions}>
             <label className={styles.extendedMode}>
               <input
@@ -702,11 +727,23 @@ export function BackgroundAgentPage() {
               {/* Show result summary for completed tasks */}
               {displayTask.result?.summary && (
                 <div className={styles.taskSummary}>
-                  <strong>Summary:</strong> {displayTask.result.summary}
+                  <div className={styles.summaryHeader}>
+                    <CheckCircle size={16} className={styles.summaryIcon} />
+                    <strong>Task Completed</strong>
+                  </div>
+                  <div className={styles.summaryContent}>{displayTask.result.summary}</div>
+                  {displayTask.progress?.iterations && (
+                    <div className={styles.summaryMeta}>
+                      Completed in {displayTask.progress.iterations} steps
+                    </div>
+                  )}
                 </div>
               )}
               {displayTask.error && (
-                <div className={styles.taskError}>{displayTask.error}</div>
+                <div className={styles.taskError}>
+                  <AlertCircle size={16} />
+                  <span>{displayTask.error}</span>
+                </div>
               )}
               
               {/* Follow-up Section - Send additional instructions to running agent */}
