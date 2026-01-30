@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { AlertCircle, CheckCircle, Loader2, RefreshCw, Rocket, StopCircle, Wrench, Terminal, ExternalLink, Send, MessageCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle, Loader2, RefreshCw, Rocket, StopCircle, Wrench, Terminal, ExternalLink, Send, MessageCircle, Star, X, ThumbsUp } from 'lucide-react'
 import { aiApi } from '../services/api'
 import styles from './BackgroundAgentPage.module.css'
 
@@ -81,6 +81,15 @@ export function BackgroundAgentPage() {
   
   // Extended mode for long-running tasks
   const [extendedMode, setExtendedMode] = useState(false)
+  
+  // Feedback modal state
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false)
+  const [feedbackTaskId, setFeedbackTaskId] = useState<string | null>(null)
+  const [feedbackRating, setFeedbackRating] = useState<number>(0)
+  const [feedbackText, setFeedbackText] = useState('')
+  const [feedbackCorrection, setFeedbackCorrection] = useState('')
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false)
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState<Set<string>>(new Set())
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -380,6 +389,45 @@ export function BackgroundAgentPage() {
     }
   }
 
+  const openFeedbackModal = (taskId: string) => {
+    setFeedbackTaskId(taskId)
+    setFeedbackRating(0)
+    setFeedbackText('')
+    setFeedbackCorrection('')
+    setShowFeedbackModal(true)
+  }
+
+  const closeFeedbackModal = () => {
+    setShowFeedbackModal(false)
+    setFeedbackTaskId(null)
+    setFeedbackRating(0)
+    setFeedbackText('')
+    setFeedbackCorrection('')
+  }
+
+  const handleSubmitFeedback = async () => {
+    if (!feedbackTaskId || isSubmittingFeedback) return
+    if (feedbackRating === 0 && !feedbackText.trim() && !feedbackCorrection.trim()) return
+    
+    setIsSubmittingFeedback(true)
+    
+    try {
+      await backgroundApi.submitBackgroundTaskFeedback(feedbackTaskId, {
+        rating: feedbackRating > 0 ? feedbackRating : undefined,
+        feedback: feedbackText.trim() || undefined,
+        correction: feedbackCorrection.trim() || undefined,
+      })
+      
+      // Mark as submitted
+      setFeedbackSubmitted(prev => new Set([...prev, feedbackTaskId]))
+      closeFeedbackModal()
+    } catch (error: any) {
+      console.error('Failed to submit feedback:', error)
+    } finally {
+      setIsSubmittingFeedback(false)
+    }
+  }
+
   const taskStatus = useMemo(() => {
     if (!activeTask) return null
     const statusValue = activeTask.status
@@ -604,6 +652,23 @@ export function BackgroundAgentPage() {
                   Cancel Task
                 </button>
               )}
+              
+              {/* Feedback button for completed tasks */}
+              {(displayStatus === 'complete' || displayStatus === 'error') && displayTask.id && !feedbackSubmitted.has(displayTask.id) && (
+                <button 
+                  className={styles.feedbackBtn} 
+                  onClick={() => openFeedbackModal(displayTask.id)}
+                >
+                  <Star size={14} />
+                  Rate This Task
+                </button>
+              )}
+              {displayTask.id && feedbackSubmitted.has(displayTask.id) && (
+                <div className={styles.feedbackThanks}>
+                  <ThumbsUp size={14} />
+                  Thanks for your feedback!
+                </div>
+              )}
             </div>
             )
           })()}
@@ -659,6 +724,94 @@ export function BackgroundAgentPage() {
           </div>
         )}
       </div>
+
+      {/* Feedback Modal */}
+      {showFeedbackModal && (
+        <div className={styles.modalOverlay} onClick={closeFeedbackModal}>
+          <div className={styles.feedbackModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Rate This Task</h3>
+              <button className={styles.modalClose} onClick={closeFeedbackModal}>
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div className={styles.modalBody}>
+              {/* Star Rating */}
+              <div className={styles.ratingSection}>
+                <label>How did the agent perform?</label>
+                <div className={styles.starRating}>
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <button
+                      key={star}
+                      className={`${styles.starBtn} ${feedbackRating >= star ? styles.starActive : ''}`}
+                      onClick={() => setFeedbackRating(star)}
+                      type="button"
+                    >
+                      <Star size={28} fill={feedbackRating >= star ? '#f59e0b' : 'none'} />
+                    </button>
+                  ))}
+                </div>
+                <div className={styles.ratingLabel}>
+                  {feedbackRating === 0 && 'Click to rate'}
+                  {feedbackRating === 1 && 'Poor'}
+                  {feedbackRating === 2 && 'Fair'}
+                  {feedbackRating === 3 && 'Good'}
+                  {feedbackRating === 4 && 'Very Good'}
+                  {feedbackRating === 5 && 'Excellent'}
+                </div>
+              </div>
+
+              {/* Text Feedback */}
+              <div className={styles.feedbackField}>
+                <label>Additional feedback (optional)</label>
+                <textarea
+                  className={styles.feedbackTextarea}
+                  placeholder="What did you like or dislike about the result?"
+                  value={feedbackText}
+                  onChange={e => setFeedbackText(e.target.value)}
+                  rows={3}
+                />
+              </div>
+
+              {/* Correction Input */}
+              <div className={styles.feedbackField}>
+                <label>What should the agent have done differently? (optional)</label>
+                <textarea
+                  className={styles.feedbackTextarea}
+                  placeholder="Describe how you would have preferred the task to be handled..."
+                  value={feedbackCorrection}
+                  onChange={e => setFeedbackCorrection(e.target.value)}
+                  rows={3}
+                />
+                <div className={styles.feedbackHint}>
+                  This helps the agent learn and improve for future tasks.
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.modalFooter}>
+              <button className={styles.modalCancelBtn} onClick={closeFeedbackModal}>
+                Cancel
+              </button>
+              <button 
+                className={styles.modalSubmitBtn} 
+                onClick={handleSubmitFeedback}
+                disabled={isSubmittingFeedback || (feedbackRating === 0 && !feedbackText.trim() && !feedbackCorrection.trim())}
+              >
+                {isSubmittingFeedback ? (
+                  <>
+                    <Loader2 size={14} className={styles.spin} />
+                    Submitting...
+                  </>
+                ) : (
+                  'Submit Feedback'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

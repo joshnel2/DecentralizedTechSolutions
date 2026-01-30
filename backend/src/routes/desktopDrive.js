@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db/connection.js';
 import { authenticate } from '../middleware/auth.js';
-import { downloadFile, uploadFileBuffer, deleteFile, ensureDirectory, listFiles } from '../utils/azureStorage.js';
+import { downloadFile, uploadFileBuffer, deleteFile, ensureDirectory, listFiles, moveFile, moveFolderContents, renameFile } from '../utils/azureStorage.js';
 import { analyzeDocument } from '../services/documentAI.js';
 
 const router = Router();
@@ -560,22 +560,57 @@ router.patch('/files/:documentId', authenticate, async (req, res) => {
     }
 
     const doc = docResult.rows[0];
+    const oldExternalPath = doc.external_path;
 
     // Build update
     const updates = [];
     const values = [];
     let paramIndex = 1;
+    let newExternalPath = oldExternalPath;
 
-    if (name) {
+    // Handle rename
+    if (name && name !== doc.name) {
       updates.push(`name = $${paramIndex++}`);
       values.push(name);
+      
+      // Update external path with new filename
+      if (oldExternalPath) {
+        const pathParts = oldExternalPath.split('/');
+        pathParts[pathParts.length - 1] = name;
+        newExternalPath = pathParts.join('/');
+      }
     }
 
-    if (newPath !== undefined) {
+    // Handle move to new folder
+    if (newPath !== undefined && newPath !== doc.folder_path) {
       updates.push(`folder_path = $${paramIndex++}`);
       values.push(newPath);
       
-      // TODO: Move file in Azure
+      // Build new external path
+      const fileName = name || doc.name;
+      newExternalPath = newPath 
+        ? `firm-${firmId}/${newPath}/${fileName}`
+        : `firm-${firmId}/${fileName}`;
+    }
+
+    // Move file in Azure if path changed
+    if (oldExternalPath && newExternalPath !== oldExternalPath) {
+      try {
+        // Extract paths relative to firm folder
+        const oldRelativePath = oldExternalPath.replace(`firm-${firmId}/`, '');
+        const newRelativePath = newExternalPath.replace(`firm-${firmId}/`, '');
+        
+        console.log(`[DRIVE API] Moving file in Azure: ${oldRelativePath} -> ${newRelativePath}`);
+        await moveFile(oldRelativePath, newRelativePath, firmId);
+        
+        // Update external path in database
+        updates.push(`external_path = $${paramIndex++}`);
+        values.push(newExternalPath);
+      } catch (azureError) {
+        console.error('[DRIVE API] Azure move failed:', azureError.message);
+        // Continue with database update even if Azure move fails
+        // The file might not exist in Azure (externally stored)
+      }
     }
 
     if (updates.length === 0) {
@@ -590,7 +625,7 @@ router.patch('/files/:documentId', authenticate, async (req, res) => {
       WHERE id = $${paramIndex}
     `, values);
 
-    res.json({ success: true });
+    res.json({ success: true, newPath: newExternalPath });
   } catch (error) {
     console.error('[DRIVE API] Update file error:', error);
     res.status(500).json({ error: 'Failed to update file' });
@@ -682,7 +717,29 @@ router.patch('/matters/:matterId/folders', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Update all documents in the folder
+    // Get all documents that will be affected
+    const docsResult = await query(`
+      SELECT id, name, folder_path, external_path
+      FROM documents
+      WHERE firm_id = $1 AND matter_id = $2 AND folder_path LIKE $3
+    `, [firmId, matterId, `${oldPath}%`]);
+
+    console.log(`[DRIVE API] Renaming folder affects ${docsResult.rows.length} documents`);
+
+    // Move files in Azure first
+    const oldAzurePath = `firm-${firmId}/${oldPath}`;
+    const newAzurePath = `firm-${firmId}/${newPath}`;
+    
+    let azureMoveResult = { success: true, movedCount: 0, errors: [] };
+    try {
+      azureMoveResult = await moveFolderContents(oldAzurePath, newAzurePath);
+      console.log(`[DRIVE API] Azure folder move: ${azureMoveResult.movedCount} files moved`);
+    } catch (azureError) {
+      console.error('[DRIVE API] Azure folder move failed:', azureError.message);
+      // Continue with database update - files might be external or not in Azure
+    }
+
+    // Update all documents in the folder (database)
     await query(`
       UPDATE documents
       SET folder_path = REPLACE(folder_path, $1, $2),
@@ -691,9 +748,12 @@ router.patch('/matters/:matterId/folders', authenticate, async (req, res) => {
       WHERE firm_id = $3 AND matter_id = $4 AND folder_path LIKE $5
     `, [oldPath, newPath, firmId, matterId, `${oldPath}%`]);
 
-    // TODO: Rename in Azure (requires moving files)
-
-    res.json({ success: true });
+    res.json({ 
+      success: true, 
+      documentsUpdated: docsResult.rows.length,
+      azureFilesMoved: azureMoveResult.movedCount,
+      azureErrors: azureMoveResult.errors.length
+    });
   } catch (error) {
     console.error('[DRIVE API] Rename folder error:', error);
     res.status(500).json({ error: 'Failed to rename folder' });

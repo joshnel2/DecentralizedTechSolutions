@@ -696,20 +696,128 @@ router.post('/documents/:documentId/versions/:versionNumber/rehydrate', authenti
       ]
     );
 
-    // TODO: Create notification for when rehydration completes
-    // This would use Azure Event Grid or polling
+    // Track rehydration request for completion notification
+    // Store in document_activities with a special flag so we can poll for completion
+    await query(
+      `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
+       VALUES ($1, $2, 'rehydration_pending', $3, $4, $5)`,
+      [
+        documentId,
+        firmId,
+        req.user.id,
+        `${req.user.firstName} ${req.user.lastName}`,
+        JSON.stringify({ 
+          versionNumber: parseInt(versionNumber),
+          requestedAt: new Date().toISOString(),
+          blobPath: result.blobPath || null,
+          notifyOnComplete: true
+        })
+      ]
+    );
+
+    // Start background polling for this rehydration (non-blocking)
+    pollRehydrationStatus(
+      firmId,
+      documentId,
+      parseInt(versionNumber),
+      req.user.id,
+      `${req.user.firstName} ${req.user.lastName}`
+    ).catch(err => console.error('[REHYDRATE] Background poll error:', err));
 
     res.json({
       success: result.initiated,
       message: result.message,
       estimatedTime: '1-15 hours',
-      versionNumber: parseInt(versionNumber)
+      versionNumber: parseInt(versionNumber),
+      notificationEnabled: true
     });
   } catch (error) {
     console.error('Rehydration error:', error);
     res.status(500).json({ error: 'Failed to initiate version retrieval' });
   }
 });
+
+/**
+ * Poll Azure Blob for rehydration completion and notify user
+ * Uses exponential backoff: checks at 5min, 15min, 45min, 2hr, 6hr, 12hr intervals
+ */
+async function pollRehydrationStatus(firmId, documentId, versionNumber, userId, userName) {
+  const pollIntervals = [
+    5 * 60 * 1000,    // 5 minutes
+    15 * 60 * 1000,   // 15 minutes  
+    45 * 60 * 1000,   // 45 minutes
+    2 * 60 * 60 * 1000,  // 2 hours
+    6 * 60 * 60 * 1000,  // 6 hours
+    12 * 60 * 60 * 1000  // 12 hours (final check)
+  ];
+  
+  console.log(`[REHYDRATE] Starting background poll for doc ${documentId} v${versionNumber}`);
+  
+  for (let i = 0; i < pollIntervals.length; i++) {
+    await new Promise(resolve => setTimeout(resolve, pollIntervals[i]));
+    
+    try {
+      // Check if the version is now accessible (no longer archived)
+      const { checkVersionTier } = await import('../utils/azureBlobStorage.js');
+      const tier = await checkVersionTier(firmId, documentId, versionNumber);
+      
+      if (tier && tier !== 'Archive') {
+        // Rehydration complete! Create notification
+        console.log(`[REHYDRATE] Version ${versionNumber} rehydrated for doc ${documentId}`);
+        
+        // Get document name for notification
+        const docResult = await query(
+          `SELECT name FROM documents WHERE id = $1`,
+          [documentId]
+        );
+        const docName = docResult.rows[0]?.name || 'Document';
+        
+        // Create notification for the user
+        await query(
+          `INSERT INTO notifications (
+            firm_id, user_id, type, title, message, priority,
+            entity_type, entity_id, action_url, metadata
+          ) VALUES ($1, $2, 'document', $3, $4, 'normal', 'document', $5, $6, $7)`,
+          [
+            firmId,
+            userId,
+            'Version Retrieved Successfully',
+            `Version ${versionNumber} of "${docName}" is now available for download.`,
+            documentId,
+            `/app/documents/${documentId}?version=${versionNumber}`,
+            JSON.stringify({
+              documentId,
+              versionNumber,
+              documentName: docName,
+              retrievedAt: new Date().toISOString()
+            })
+          ]
+        );
+        
+        // Update the pending activity to completed
+        await query(
+          `UPDATE document_activities 
+           SET action = 'rehydration_complete', 
+               details = details || '{"completedAt": "${new Date().toISOString()}"}'::jsonb
+           WHERE document_id = $1 AND firm_id = $2 AND action = 'rehydration_pending'
+             AND (details->>'versionNumber')::int = $3`,
+          [documentId, firmId, versionNumber]
+        );
+        
+        console.log(`[REHYDRATE] Notification sent to user ${userId} for doc ${documentId}`);
+        return; // Done!
+      }
+      
+      console.log(`[REHYDRATE] Poll ${i + 1}/${pollIntervals.length}: doc ${documentId} v${versionNumber} still archived`);
+      
+    } catch (error) {
+      console.error(`[REHYDRATE] Poll error for doc ${documentId}:`, error.message);
+    }
+  }
+  
+  // If we've exhausted all polls and still not ready, log it
+  console.warn(`[REHYDRATE] Rehydration for doc ${documentId} v${versionNumber} not complete after max polls`);
+}
 
 // Create a new version (called on save)
 // Cloud-native: Stores content in Azure Blob (cheap, tiered), metadata in PostgreSQL (fast queries)

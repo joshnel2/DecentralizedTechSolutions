@@ -638,22 +638,21 @@ async function syncLocalDrive(driveConfig, user) {
 async function syncMicrosoftCloud(driveConfig, user) {
   // OneDrive/SharePoint sync using Microsoft Graph API
   // 
-  // Cloud-Native Architecture (Better than Clio's approach):
-  // 1. Register webhook with Graph API for change notifications
-  // 2. Use delta queries to get only changed files
+  // Cloud-Native Architecture:
+  // 1. Use delta queries to get only changed files (efficient incremental sync)
+  // 2. Store delta link for subsequent syncs
   // 3. Process changes incrementally instead of full scans
   //
   // Required setup:
   // - Microsoft Graph API permissions: Files.Read.All, Sites.Read.All
-  // - Webhook endpoint registered with Microsoft
   // - User's OAuth tokens stored in integrations table
   
-  const results = { synced: 0, updated: 0, matched: 0, errors: [] };
+  const results = { synced: 0, updated: 0, deleted: 0, matched: 0, errors: [] };
 
   try {
     // Check if user has Microsoft integration set up
     const integration = await query(
-      `SELECT access_token, refresh_token, token_expires_at, settings
+      `SELECT id, access_token, refresh_token, token_expires_at, settings
        FROM integrations 
        WHERE firm_id = $1 AND provider = 'microsoft' AND is_active = true`,
       [user.firmId]
@@ -668,27 +667,214 @@ async function syncMicrosoftCloud(driveConfig, user) {
       return results;
     }
 
-    const { access_token, token_expires_at } = integration.rows[0];
+    let { id: integrationId, access_token, refresh_token, token_expires_at, settings } = integration.rows[0];
+    settings = settings || {};
 
-    // Check if token is expired
+    // Check if token is expired and refresh if needed
     if (new Date(token_expires_at) < new Date()) {
-      results.errors.push({ 
-        error: 'Microsoft access token expired',
-        action: 'Re-authenticate in Settings → Integrations → Microsoft 365',
-        code: 'TOKEN_EXPIRED'
-      });
-      return results;
+      const refreshResult = await refreshMicrosoftToken(integrationId, refresh_token, user.firmId);
+      if (!refreshResult.success) {
+        results.errors.push({ 
+          error: 'Microsoft access token expired',
+          action: 'Re-authenticate in Settings → Integrations → Microsoft 365',
+          code: 'TOKEN_EXPIRED'
+        });
+        return results;
+      }
+      access_token = refreshResult.access_token;
     }
 
-    // TODO: Implement Graph API delta sync
-    // For now, return a helpful message indicating the feature is in development
-    results.errors.push({ 
-      error: 'OneDrive/SharePoint sync is coming soon',
-      message: 'For now, use Apex Drive (Azure File Share) for full sync support. OneDrive documents can still be opened directly via Word Online.',
-      code: 'FEATURE_IN_DEVELOPMENT'
-    });
-
-    console.log(`[SYNC] Microsoft Cloud sync requested for firm ${user.firmId} - feature in development`);
+    // Determine sync source (OneDrive or SharePoint)
+    const syncSource = driveConfig.settings?.sync_source || 'onedrive';
+    const syncPath = driveConfig.settings?.sync_path || '/';
+    
+    console.log(`[SYNC] Starting Microsoft ${syncSource} delta sync for firm ${user.firmId}`);
+    
+    // Get the delta link from previous sync (if any)
+    const deltaLink = settings.delta_link || null;
+    
+    // Build the Graph API URL
+    let graphUrl;
+    if (syncSource === 'sharepoint' && driveConfig.settings?.site_id) {
+      // SharePoint site sync
+      const siteId = driveConfig.settings.site_id;
+      const driveId = driveConfig.settings.drive_id || 'root';
+      graphUrl = deltaLink || `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root/delta`;
+    } else {
+      // OneDrive sync
+      if (syncPath && syncPath !== '/') {
+        graphUrl = deltaLink || `https://graph.microsoft.com/v1.0/me/drive/root:${syncPath}:/delta`;
+      } else {
+        graphUrl = deltaLink || 'https://graph.microsoft.com/v1.0/me/drive/root/delta';
+      }
+    }
+    
+    // Fetch changes using delta query
+    let hasMorePages = true;
+    let newDeltaLink = null;
+    
+    while (hasMorePages) {
+      const response = await fetch(graphUrl, {
+        headers: {
+          'Authorization': `Bearer ${access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[SYNC] Graph API error:', response.status, errorText);
+        
+        // If delta link is invalid, reset and do full sync
+        if (response.status === 410 || response.status === 404) {
+          console.log('[SYNC] Delta link expired, starting fresh sync');
+          // Clear delta link and retry with fresh URL
+          await query(
+            `UPDATE integrations SET settings = settings - 'delta_link' WHERE id = $1`,
+            [integrationId]
+          );
+          results.errors.push({
+            error: 'Sync state reset',
+            message: 'Previous sync state expired. Please sync again for a full refresh.',
+            code: 'DELTA_RESET'
+          });
+          return results;
+        }
+        
+        results.errors.push({ 
+          error: `Graph API error: ${response.status}`,
+          details: errorText.substring(0, 200)
+        });
+        return results;
+      }
+      
+      const data = await response.json();
+      const items = data.value || [];
+      
+      console.log(`[SYNC] Processing ${items.length} items from Microsoft Graph`);
+      
+      // Process each item (file or folder)
+      for (const item of items) {
+        try {
+          // Skip folders
+          if (item.folder) continue;
+          
+          // Skip items that are not files we care about
+          if (!item.file) continue;
+          
+          const fileName = item.name;
+          const ext = path.extname(fileName).toLowerCase();
+          const documentTypes = [
+            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+            '.txt', '.rtf', '.odt', '.ods', '.odp', '.csv', '.md',
+            '.jpg', '.jpeg', '.png', '.gif', '.tiff', '.bmp'
+          ];
+          
+          if (!documentTypes.includes(ext)) continue;
+          
+          // Handle deleted items
+          if (item.deleted) {
+            // Mark document as deleted in our system
+            await query(
+              `UPDATE documents 
+               SET status = 'deleted', updated_at = NOW()
+               WHERE firm_id = $1 AND external_id = $2 AND external_source = 'microsoft'`,
+              [user.firmId, item.id]
+            );
+            results.deleted++;
+            continue;
+          }
+          
+          // Get the file path
+          const filePath = item.parentReference?.path?.replace('/drive/root:', '') || '/';
+          const fullPath = filePath === '/' ? `/${fileName}` : `${filePath}/${fileName}`;
+          
+          // Check if document already exists
+          const existingDoc = await query(
+            `SELECT id, external_etag FROM documents 
+             WHERE firm_id = $1 AND external_id = $2 AND external_source = 'microsoft'`,
+            [user.firmId, item.id]
+          );
+          
+          if (existingDoc.rows.length > 0) {
+            // Update existing document if changed
+            const doc = existingDoc.rows[0];
+            if (doc.external_etag !== item.eTag) {
+              await query(
+                `UPDATE documents SET
+                   name = $1,
+                   file_size = $2,
+                   external_etag = $3,
+                   external_path = $4,
+                   external_download_url = $5,
+                   updated_at = NOW()
+                 WHERE id = $6`,
+                [
+                  fileName,
+                  item.size || 0,
+                  item.eTag,
+                  fullPath,
+                  item['@microsoft.graph.downloadUrl'] || null,
+                  doc.id
+                ]
+              );
+              results.updated++;
+            }
+          } else {
+            // Try to match to a matter based on folder path
+            const matterId = await matchPathToMatter(fullPath, user.firmId);
+            
+            // Create new document record
+            await query(
+              `INSERT INTO documents (
+                 firm_id, matter_id, name, original_name, file_size, mime_type,
+                 folder_path, external_id, external_source, external_path, 
+                 external_etag, external_download_url, status, uploaded_by, uploaded_at
+               ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'microsoft', $9, $10, $11, 'active', $12, NOW())`,
+              [
+                user.firmId,
+                matterId,
+                fileName,
+                fileName,
+                item.size || 0,
+                item.file?.mimeType || getFileType(ext),
+                filePath,
+                item.id,
+                fullPath,
+                item.eTag,
+                item['@microsoft.graph.downloadUrl'] || null,
+                user.id
+              ]
+            );
+            results.synced++;
+            if (matterId) results.matched++;
+          }
+        } catch (itemError) {
+          console.error(`[SYNC] Error processing item ${item.name}:`, itemError.message);
+          results.errors.push({ file: item.name, error: itemError.message });
+        }
+      }
+      
+      // Check for more pages or save delta link
+      if (data['@odata.nextLink']) {
+        graphUrl = data['@odata.nextLink'];
+      } else {
+        hasMorePages = false;
+        newDeltaLink = data['@odata.deltaLink'];
+      }
+    }
+    
+    // Save the new delta link for next sync
+    if (newDeltaLink) {
+      await query(
+        `UPDATE integrations 
+         SET settings = COALESCE(settings, '{}'::jsonb) || $1::jsonb
+         WHERE id = $2`,
+        [JSON.stringify({ delta_link: newDeltaLink }), integrationId]
+      );
+    }
+    
+    console.log(`[SYNC] Microsoft sync completed: ${results.synced} new, ${results.updated} updated, ${results.deleted} deleted`);
 
   } catch (error) {
     console.error('[SYNC] Microsoft Cloud sync error:', error);
@@ -696,6 +882,102 @@ async function syncMicrosoftCloud(driveConfig, user) {
   }
 
   return results;
+}
+
+/**
+ * Refresh Microsoft OAuth token
+ */
+async function refreshMicrosoftToken(integrationId, refreshToken, firmId) {
+  try {
+    const clientId = process.env.MICROSOFT_CLIENT_ID;
+    const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;
+    
+    if (!clientId || !clientSecret) {
+      console.error('[SYNC] Microsoft OAuth credentials not configured');
+      return { success: false };
+    }
+    
+    const response = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+        scope: 'Files.Read.All Sites.Read.All offline_access'
+      })
+    });
+    
+    if (!response.ok) {
+      console.error('[SYNC] Token refresh failed:', response.status);
+      return { success: false };
+    }
+    
+    const data = await response.json();
+    
+    // Update tokens in database
+    const expiresAt = new Date(Date.now() + (data.expires_in * 1000));
+    await query(
+      `UPDATE integrations SET
+         access_token = $1,
+         refresh_token = COALESCE($2, refresh_token),
+         token_expires_at = $3
+       WHERE id = $4`,
+      [data.access_token, data.refresh_token, expiresAt, integrationId]
+    );
+    
+    return { success: true, access_token: data.access_token };
+  } catch (error) {
+    console.error('[SYNC] Token refresh error:', error);
+    return { success: false };
+  }
+}
+
+/**
+ * Try to match a file path to a matter
+ */
+async function matchPathToMatter(filePath, firmId) {
+  try {
+    // Extract potential matter name from path
+    // Common patterns: /ClientName/MatterName/..., /Matters/MatterName/...
+    const pathParts = filePath.split('/').filter(p => p);
+    
+    if (pathParts.length === 0) return null;
+    
+    // Try matching the first few path segments against matter names
+    for (let i = 0; i < Math.min(pathParts.length, 3); i++) {
+      const segment = pathParts[i];
+      
+      // Skip common folder names
+      if (['documents', 'files', 'matters', 'clients', 'legal'].includes(segment.toLowerCase())) {
+        continue;
+      }
+      
+      // Try to find a matching matter
+      const matterResult = await query(
+        `SELECT id FROM matters 
+         WHERE firm_id = $1 AND (
+           LOWER(name) LIKE $2 OR 
+           LOWER(number) = $3 OR
+           LOWER(name) = $4
+         )
+         LIMIT 1`,
+        [firmId, `%${segment.toLowerCase()}%`, segment.toLowerCase(), segment.toLowerCase()]
+      );
+      
+      if (matterResult.rows.length > 0) {
+        return matterResult.rows[0].id;
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('[SYNC] Matter matching error:', error.message);
+    return null;
+  }
 }
 
 async function scanDirectory(dirPath, rootPath, files = []) {
