@@ -1205,32 +1205,75 @@ export default function SecureAdminDashboard() {
   }
 
   const handleRescanUnmatched = async (firmId: string) => {
+    if (!firmId) {
+      showNotification('error', 'No firm selected')
+      return
+    }
+    
     setScanningFirmId(firmId)
     setScanResult(null)
     console.log('[RESCAN] Starting rescan of unmatched documents for firm:', firmId)
+    
     try {
       const res = await fetch(`${API_URL}/secure-admin/firms/${firmId}/rescan-unmatched`, {
         method: 'POST',
         headers: getAuthHeaders()
       })
       console.log('[RESCAN] Response status:', res.status)
-      const data = await res.json()
+      
+      // Handle non-JSON responses (e.g., server errors)
+      let data
+      try {
+        data = await res.json()
+      } catch (jsonError) {
+        console.error('[RESCAN] Failed to parse response as JSON:', jsonError)
+        throw new Error('Server returned an invalid response. Please try again.')
+      }
+      
       console.log('[RESCAN] Response data:', data)
+      
       if (res.ok && data.success) {
-        setScanResult({ firmId, message: data.message, success: true })
+        // Show enhanced result info
+        const resultInfo: any = { 
+          firmId, 
+          message: data.message, 
+          success: true,
+          checked: data.checked,
+          matched: data.matched,
+          stillUnmatched: data.stillUnmatched,
+          withMatter: data.withMatter,
+          withoutMatter: data.withoutMatter
+        }
+        setScanResult(resultInfo)
         showNotification('success', data.message)
+        
         // Refresh firm data
         if (selectedFirmDetail && selectedFirmDetail.id === firmId) {
           handleViewFirmDetail(selectedFirmDetail)
         }
       } else {
-        const errorMsg = data.error || data.message || 'Rescan failed'
+        // Handle specific error types
+        let errorMsg = data.error || data.message || 'Rescan failed'
+        if (res.status === 401) {
+          errorMsg = 'Session expired. Please log in again.'
+        } else if (res.status === 404) {
+          errorMsg = 'Firm not found. Please refresh the page.'
+        } else if (res.status === 500) {
+          errorMsg = data.details ? `Error: ${data.error} (${data.details})` : data.error || 'Server error occurred'
+        }
         setScanResult({ firmId, message: errorMsg, success: false })
         showNotification('error', errorMsg)
       }
     } catch (error: any) {
       console.error('[RESCAN] Error:', error)
-      const errorMsg = error.message || 'Failed to rescan documents'
+      let errorMsg = 'Failed to rescan documents'
+      if (error.message) {
+        if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+          errorMsg = 'Network error. Please check your connection and try again.'
+        } else {
+          errorMsg = error.message
+        }
+      }
       setScanResult({ firmId, message: errorMsg, success: false })
       showNotification('error', errorMsg)
     } finally {

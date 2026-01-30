@@ -2583,6 +2583,30 @@ router.post('/firms/:firmId/rescan-unmatched', requireSecureAdmin, async (req, r
     const { firmId } = req.params;
     console.log(`[RESCAN] Re-matching unmatched documents for firm ${firmId}`);
     
+    // Validate firmId
+    if (!firmId) {
+      return res.status(400).json({ error: 'Firm ID is required' });
+    }
+    
+    // Check if the firm exists
+    const firmCheck = await query('SELECT id, name FROM firms WHERE id = $1', [firmId]);
+    if (firmCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Firm not found' });
+    }
+    console.log(`[RESCAN] Processing firm: ${firmCheck.rows[0].name}`);
+    
+    // Check which columns exist in the documents table
+    const columnsCheck = await query(`
+      SELECT column_name FROM information_schema.columns 
+      WHERE table_name = 'documents' AND column_name IN ('folder_path', 'owner_id', 'privacy_level')
+    `);
+    const existingColumns = new Set(columnsCheck.rows.map(r => r.column_name));
+    const hasFolderPath = existingColumns.has('folder_path');
+    const hasOwnerIdColumn = existingColumns.has('owner_id');
+    const hasPrivacyLevel = existingColumns.has('privacy_level');
+    
+    console.log(`[RESCAN] Column check - folder_path: ${hasFolderPath}, owner_id: ${hasOwnerIdColumn}, privacy_level: ${hasPrivacyLevel}`);
+    
     // Load matters with client info for better matching
     const mattersResult = await query(`
       SELECT m.id, m.name, m.number, m.responsible_attorney,
@@ -2591,6 +2615,22 @@ router.post('/firms/:firmId/rescan-unmatched', requireSecureAdmin, async (req, r
       LEFT JOIN clients c ON m.client_id = c.id
       WHERE m.firm_id = $1
     `, [firmId]);
+    
+    console.log(`[RESCAN] Found ${mattersResult.rows.length} matters to match against`);
+    
+    if (mattersResult.rows.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No matters found for this firm. Please add matters before rescanning.',
+        checked: 0,
+        matched: 0,
+        stillUnmatched: 0,
+        totalDocuments: 0,
+        withMatter: 0,
+        withoutMatter: 0,
+        sampleMatches: []
+      });
+    }
     
     // Normalize function for Windows character handling
     const normalize = (str) => {
@@ -2638,13 +2678,18 @@ router.post('/firms/:firmId/rescan-unmatched', requireSecureAdmin, async (req, r
     // Matching function - tries folder path parts
     // Understands Clio's structure: /A/Adams - Personal Injury/Pleadings/file.pdf
     // where A is an alphabetical index folder, Adams - Personal Injury is the matter
+    let matchAttempts = 0;
     const matchFolderPath = (folderPath) => {
       if (!folderPath) return null;
       
       // Get all path parts and try to match each
       const parts = folderPath.split('/').filter(p => p && !isIndexFolder(p));
       
-      console.log(`[RESCAN] Matching path "${folderPath}" - candidate parts: ${parts.join(', ')}`);
+      // Only log for first few documents to avoid spam
+      matchAttempts++;
+      if (matchAttempts <= 5) {
+        console.log(`[RESCAN] Matching path "${folderPath}" - candidate parts: ${parts.join(', ')}`);
+      }
       
       for (const part of parts) {
         const partLower = part.toLowerCase();
@@ -2652,19 +2697,15 @@ router.post('/firms/:firmId/rescan-unmatched', requireSecureAdmin, async (req, r
         
         // Try all matching strategies
         if (matterByExactName.has(partLower)) {
-          console.log(`[RESCAN] Matched "${part}" to matter by exact name`);
           return matterByExactName.get(partLower);
         }
         if (matterByClientMatter.has(partLower)) {
-          console.log(`[RESCAN] Matched "${part}" to matter by client-matter format`);
           return matterByClientMatter.get(partLower);
         }
         if (matterByNumber.has(partLower)) {
-          console.log(`[RESCAN] Matched "${part}" to matter by number`);
           return matterByNumber.get(partLower);
         }
         if (matterByNormalizedName.has(partNorm)) {
-          console.log(`[RESCAN] Matched "${part}" to matter by normalized name`);
           return matterByNormalizedName.get(partNorm);
         }
         
@@ -2677,22 +2718,18 @@ router.post('/firms/:firmId/rescan-unmatched', requireSecureAdmin, async (req, r
           
           // Try just the matter description part
           if (matterByExactName.has(afterDashLower)) {
-            console.log(`[RESCAN] Matched "${afterDash}" (after dash) to matter by exact name`);
             return matterByExactName.get(afterDashLower);
           }
           if (matterByNormalizedName.has(afterDashNorm)) {
-            console.log(`[RESCAN] Matched "${afterDash}" (after dash) to matter by normalized name`);
             return matterByNormalizedName.get(afterDashNorm);
           }
           
           // Also try matching the client name to find their matters
           const clientLower = clientPart.trim().toLowerCase();
-          const clientNorm = normalize(clientPart);
           
           // Check if any matter has this client and similar description
           for (const [key, m] of matterByClientMatter) {
             if (key.startsWith(clientLower + ' - ')) {
-              console.log(`[RESCAN] Matched via client "${clientPart}" to matter "${m.name}"`);
               return m;
             }
           }
@@ -2703,7 +2740,6 @@ router.post('/firms/:firmId/rescan-unmatched', requireSecureAdmin, async (req, r
         if (numberMatch) {
           const extractedNumber = numberMatch[1].toLowerCase();
           if (matterByNumber.has(extractedNumber)) {
-            console.log(`[RESCAN] Matched "${extractedNumber}" (extracted number) to matter`);
             return matterByNumber.get(extractedNumber);
           }
         }
@@ -2712,49 +2748,114 @@ router.post('/firms/:firmId/rescan-unmatched', requireSecureAdmin, async (req, r
       return null;
     };
     
-    // Get unmatched documents
-    const unmatched = await query(`
-      SELECT id, folder_path, path FROM documents 
-      WHERE firm_id = $1 AND matter_id IS NULL
-    `, [firmId]);
+    // Get unmatched documents - handle case where folder_path column might not exist
+    let unmatched;
+    try {
+      if (hasFolderPath) {
+        unmatched = await query(`
+          SELECT id, folder_path, path FROM documents 
+          WHERE firm_id = $1 AND matter_id IS NULL
+        `, [firmId]);
+      } else {
+        // Fallback query without folder_path
+        unmatched = await query(`
+          SELECT id, path FROM documents 
+          WHERE firm_id = $1 AND matter_id IS NULL
+        `, [firmId]);
+      }
+    } catch (queryError) {
+      console.error('[RESCAN] Error querying documents:', queryError.message);
+      // Try the simplest possible query
+      unmatched = await query(`
+        SELECT id, path FROM documents 
+        WHERE firm_id = $1 AND matter_id IS NULL
+      `, [firmId]);
+    }
     
     console.log(`[RESCAN] Found ${unmatched.rows.length} unmatched documents`);
     
+    if (unmatched.rows.length === 0) {
+      // Get total document count
+      const totalDocs = await query('SELECT COUNT(*) as total FROM documents WHERE firm_id = $1', [firmId]);
+      const total = parseInt(totalDocs.rows[0].total) || 0;
+      
+      return res.json({
+        success: true,
+        message: total === 0 
+          ? 'No documents found. Please run a Full Scan first to import documents.'
+          : 'All documents are already matched to matters.',
+        checked: 0,
+        matched: 0,
+        stillUnmatched: 0,
+        totalDocuments: total,
+        withMatter: total,
+        withoutMatter: 0,
+        sampleMatches: []
+      });
+    }
+    
     let matched = 0;
     const matchDetails = [];
+    const errors = [];
     
     for (const doc of unmatched.rows) {
-      // Try folder_path first, then extract from path
-      let folderToMatch = doc.folder_path;
-      if (!folderToMatch && doc.path) {
-        // Extract folder from path (remove filename)
-        const parts = doc.path.split('/');
-        parts.pop(); // Remove filename
-        folderToMatch = parts.join('/');
-      }
-      
-      const matter = matchFolderPath(folderToMatch);
-      if (matter) {
-        await query(`
-          UPDATE documents 
-          SET matter_id = $2, owner_id = COALESCE(owner_id, $3), privacy_level = 'team', updated_at = NOW()
-          WHERE id = $1
-        `, [doc.id, matter.id, matter.responsible_attorney]);
-        matched++;
+      try {
+        // Try folder_path first, then extract from path
+        let folderToMatch = doc.folder_path;
+        if (!folderToMatch && doc.path) {
+          // Extract folder from path (remove filename)
+          const parts = doc.path.split('/');
+          parts.pop(); // Remove filename
+          folderToMatch = parts.join('/');
+        }
         
-        if (matchDetails.length < 10) {
-          matchDetails.push({ folder: folderToMatch, matterName: matter.name });
+        const matter = matchFolderPath(folderToMatch);
+        if (matter) {
+          // Build dynamic update query based on available columns
+          let updateQuery = 'UPDATE documents SET matter_id = $2';
+          const updateParams = [doc.id, matter.id];
+          let paramIndex = 3;
+          
+          if (hasOwnerIdColumn && matter.responsible_attorney) {
+            updateQuery += `, owner_id = COALESCE(owner_id, $${paramIndex})`;
+            updateParams.push(matter.responsible_attorney);
+            paramIndex++;
+          }
+          
+          if (hasPrivacyLevel) {
+            updateQuery += `, privacy_level = 'team'`;
+          }
+          
+          updateQuery += ', updated_at = NOW() WHERE id = $1';
+          
+          await query(updateQuery, updateParams);
+          matched++;
+          
+          if (matchDetails.length < 10) {
+            matchDetails.push({ folder: folderToMatch, matterName: matter.name, docId: doc.id });
+          }
+        }
+      } catch (docError) {
+        console.error(`[RESCAN] Error processing document ${doc.id}:`, docError.message);
+        if (errors.length < 5) {
+          errors.push({ docId: doc.id, error: docError.message });
         }
       }
     }
     
-    // Fix ownership for any docs with matter but no owner
-    await query(`
-      UPDATE documents d SET owner_id = m.responsible_attorney
-      FROM matters m
-      WHERE d.matter_id = m.id AND d.firm_id = $1 
-        AND d.owner_id IS NULL AND m.responsible_attorney IS NOT NULL
-    `, [firmId]);
+    // Fix ownership for any docs with matter but no owner (if owner_id column exists)
+    if (hasOwnerIdColumn) {
+      try {
+        await query(`
+          UPDATE documents d SET owner_id = m.responsible_attorney
+          FROM matters m
+          WHERE d.matter_id = m.id AND d.firm_id = $1 
+            AND d.owner_id IS NULL AND m.responsible_attorney IS NOT NULL
+        `, [firmId]);
+      } catch (ownerError) {
+        console.error('[RESCAN] Error updating ownership:', ownerError.message);
+      }
+    }
     
     // Get updated stats
     const stats = await query(`
@@ -2765,7 +2866,9 @@ router.post('/firms/:firmId/rescan-unmatched', requireSecureAdmin, async (req, r
       FROM documents WHERE firm_id = $1
     `, [firmId]);
     
-    const message = `Rescan complete: checked ${unmatched.rows.length} unmatched documents, matched ${matched} to matters.`;
+    const message = matched > 0
+      ? `Rescan complete: matched ${matched} of ${unmatched.rows.length} unmatched documents to matters.`
+      : `Rescan complete: checked ${unmatched.rows.length} unmatched documents, but none could be matched. Check that folder names match matter names.`;
     console.log(`[RESCAN] ${message}`);
     
     res.json({ 
@@ -2777,12 +2880,22 @@ router.post('/firms/:firmId/rescan-unmatched', requireSecureAdmin, async (req, r
       totalDocuments: parseInt(stats.rows[0].total),
       withMatter: parseInt(stats.rows[0].with_matter),
       withoutMatter: parseInt(stats.rows[0].without_matter),
-      sampleMatches: matchDetails
+      sampleMatches: matchDetails,
+      errors: errors.length > 0 ? errors : undefined
     });
     
   } catch (error) {
     console.error('[RESCAN] Error:', error);
-    res.status(500).json({ error: error.message });
+    // Provide more helpful error messages
+    let errorMessage = error.message;
+    if (error.message.includes('column') && error.message.includes('does not exist')) {
+      errorMessage = 'Database schema needs updating. Please contact your administrator.';
+    } else if (error.message.includes('permission denied')) {
+      errorMessage = 'Database permission error. Please contact your administrator.';
+    } else if (error.message.includes('connection')) {
+      errorMessage = 'Database connection error. Please try again.';
+    }
+    res.status(500).json({ error: errorMessage, details: error.message });
   }
 });
 
