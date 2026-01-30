@@ -78,6 +78,39 @@ router.get('/status', authenticate, async (req, res) => {
 });
 
 /**
+ * Sanitize and validate user input
+ * Prevents injection attacks and ensures clean input
+ */
+function sanitizeGoal(goal) {
+  if (!goal || typeof goal !== 'string') {
+    return null;
+  }
+  
+  // Trim and normalize whitespace
+  let sanitized = goal.trim().replace(/\s+/g, ' ');
+  
+  // Limit length (reasonable max for a task goal)
+  const MAX_GOAL_LENGTH = 2000;
+  if (sanitized.length > MAX_GOAL_LENGTH) {
+    sanitized = sanitized.substring(0, MAX_GOAL_LENGTH) + '...';
+  }
+  
+  // Remove potentially dangerous patterns (basic XSS prevention)
+  sanitized = sanitized
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<[^>]*>/g, '') // Remove any HTML tags
+    .replace(/javascript:/gi, '')
+    .replace(/on\w+\s*=/gi, ''); // Remove event handlers
+  
+  // Normalize special characters
+  sanitized = sanitized
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+    .replace(/\u2028|\u2029/g, ' '); // Replace line/paragraph separators
+  
+  return sanitized.length > 0 ? sanitized : null;
+}
+
+/**
  * Start a new background task
  * This begins AUTONOMOUS execution of the task without human intervention
  * 
@@ -88,7 +121,25 @@ router.get('/status', authenticate, async (req, res) => {
  */
 router.post('/tasks', authenticate, async (req, res) => {
   try {
-    const { goal, options = {}, extended = false, mode } = req.body;
+    const { goal: rawGoal, options = {}, extended = false, mode } = req.body;
+    
+    // Sanitize and validate input
+    const goal = sanitizeGoal(rawGoal);
+    
+    if (!goal) {
+      return res.status(400).json({ 
+        error: 'Goal is required and must be a non-empty string',
+        details: 'Please provide a clear description of the task you want the agent to complete.'
+      });
+    }
+    
+    // Validate goal minimum length
+    if (goal.length < 10) {
+      return res.status(400).json({
+        error: 'Goal is too short',
+        details: 'Please provide a more detailed description of the task (at least 10 characters).'
+      });
+    }
     
     // Merge extended mode into options
     const taskOptions = {
@@ -97,12 +148,6 @@ router.post('/tasks', authenticate, async (req, res) => {
     };
     
     console.log(`[BackgroundAgent] Task start request from user ${req.user.id}: ${goal?.substring(0, 100)} (extended: ${taskOptions.extended})`);
-    
-    if (!goal || typeof goal !== 'string' || goal.trim().length === 0) {
-      return res.status(400).json({ 
-        error: 'Goal is required and must be a non-empty string' 
-      });
-    }
     
     // Check if service is available (Azure OpenAI credentials are set)
     const available = await amplifierService.checkAvailability();
@@ -156,9 +201,34 @@ router.post('/tasks', authenticate, async (req, res) => {
     
   } catch (error) {
     console.error('[BackgroundAgent] Error starting task:', error);
-    res.status(500).json({ 
-      error: error.message || 'Failed to start background task',
-      details: 'An unexpected error occurred while starting the background task'
+    
+    // Provide more specific error messages based on error type
+    let statusCode = 500;
+    let errorMessage = 'Failed to start background task';
+    let details = 'An unexpected error occurred while starting the background task';
+    
+    if (error.message?.includes('Azure OpenAI')) {
+      errorMessage = 'AI service temporarily unavailable';
+      details = 'The AI service is experiencing issues. Please try again in a few moments.';
+      statusCode = 503;
+    } else if (error.message?.includes('rate limit') || error.message?.includes('429')) {
+      errorMessage = 'AI service busy';
+      details = 'Too many requests. Please wait a moment before trying again.';
+      statusCode = 429;
+    } else if (error.message?.includes('timeout')) {
+      errorMessage = 'Request timed out';
+      details = 'The request took too long. Please try again.';
+      statusCode = 504;
+    } else if (error.message?.includes('database') || error.message?.includes('PostgreSQL')) {
+      errorMessage = 'Database error';
+      details = 'A database error occurred. Please try again.';
+      statusCode = 503;
+    }
+    
+    res.status(statusCode).json({ 
+      error: errorMessage,
+      details,
+      retryable: statusCode === 429 || statusCode === 503 || statusCode === 504
     });
   }
 });
