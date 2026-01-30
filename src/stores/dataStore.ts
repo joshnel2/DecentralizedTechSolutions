@@ -41,6 +41,9 @@ const defaultMatterTypes: MatterTypeConfig[] = [
   { id: '13', value: 'other', label: 'Other', active: true, createdAt: new Date().toISOString() },
 ]
 
+// Cache duration in milliseconds (5 minutes)
+const CACHE_DURATION = 5 * 60 * 1000
+
 interface DataState {
   // Data
   clients: Client[]
@@ -55,17 +58,31 @@ interface DataState {
   notifications: Notification[]
   matterTypes: MatterTypeConfig[]
   
+  // Cache timestamps
+  documentsLastFetched: number | null
+  mattersLastFetched: number | null
+  clientsLastFetched: number | null
+  
   // Loading states
   isLoading: boolean
+  documentsLoading: boolean
+  mattersLoading: boolean
+  clientsLoading: boolean
   error: string | null
   
-  // Fetch actions
-  fetchClients: (params?: { view?: 'my' | 'all' }) => Promise<void>
-  fetchMatters: (params?: { view?: 'my' | 'all' }) => Promise<void>
+  // Fetch actions (with optional forceRefresh)
+  fetchClients: (params?: { view?: 'my' | 'all'; forceRefresh?: boolean }) => Promise<void>
+  fetchMatters: (params?: { view?: 'my' | 'all'; forceRefresh?: boolean }) => Promise<void>
   fetchTimeEntries: (params?: { matterId?: string; limit?: number; offset?: number }) => Promise<void>
   fetchInvoices: (params?: { view?: 'my' | 'all' }) => Promise<void>
   fetchEvents: (params?: { startDate?: string; endDate?: string }) => Promise<void>
-  fetchDocuments: (params?: { matterId?: string }) => Promise<void>
+  fetchDocuments: (params?: { matterId?: string; forceRefresh?: boolean }) => Promise<void>
+  
+  // Cache helpers
+  isDocumentsCacheValid: () => boolean
+  isMattersCacheValid: () => boolean
+  isClientsCacheValid: () => boolean
+  invalidateDocumentsCache: () => void
   
   // Client actions
   addClient: (client: Omit<Client, 'id' | 'createdAt' | 'matterIds'>) => Promise<Client>
@@ -136,30 +153,85 @@ export const useDataStore = create<DataState>()(
   groups: [],
   notifications: [],
   matterTypes: defaultMatterTypes,
+  
+  // Cache timestamps
+  documentsLastFetched: null,
+  mattersLastFetched: null,
+  clientsLastFetched: null,
+  
+  // Loading states
   isLoading: false,
+  documentsLoading: false,
+  mattersLoading: false,
+  clientsLoading: false,
   error: null,
+  
+  // Cache validation helpers
+  isDocumentsCacheValid: () => {
+    const { documentsLastFetched, documents } = get()
+    if (!documentsLastFetched || documents.length === 0) return false
+    return Date.now() - documentsLastFetched < CACHE_DURATION
+  },
+  
+  isMattersCacheValid: () => {
+    const { mattersLastFetched, matters } = get()
+    if (!mattersLastFetched || matters.length === 0) return false
+    return Date.now() - mattersLastFetched < CACHE_DURATION
+  },
+  
+  isClientsCacheValid: () => {
+    const { clientsLastFetched, clients } = get()
+    if (!clientsLastFetched || clients.length === 0) return false
+    return Date.now() - clientsLastFetched < CACHE_DURATION
+  },
+  
+  invalidateDocumentsCache: () => {
+    set({ documentsLastFetched: null })
+  },
 
-  // Fetch clients from API
-  fetchClients: async (params?: { view?: 'my' | 'all' }) => {
-    set({ isLoading: true, error: null })
+  // Fetch clients from API (with caching)
+  fetchClients: async (params) => {
+    const { isClientsCacheValid } = get()
+    
+    // Use cache if valid and not forcing refresh
+    if (!params?.forceRefresh && isClientsCacheValid()) {
+      return
+    }
+    
+    set({ clientsLoading: true, error: null })
     try {
       const response = await clientsApi.getAll({ view: params?.view || 'my' })
-      set({ clients: response.clients, isLoading: false })
+      set({ 
+        clients: response.clients, 
+        clientsLoading: false,
+        clientsLastFetched: Date.now()
+      })
     } catch (error) {
       console.error('Failed to fetch clients:', error)
-      set({ error: 'Failed to fetch clients', isLoading: false })
+      set({ error: 'Failed to fetch clients', clientsLoading: false })
     }
   },
 
-  // Fetch matters from API
-  fetchMatters: async (params?: { view?: 'my' | 'all' }) => {
-    set({ isLoading: true, error: null })
+  // Fetch matters from API (with caching)
+  fetchMatters: async (params) => {
+    const { isMattersCacheValid } = get()
+    
+    // Use cache if valid and not forcing refresh
+    if (!params?.forceRefresh && isMattersCacheValid()) {
+      return
+    }
+    
+    set({ mattersLoading: true, error: null })
     try {
       const response = await mattersApi.getAll({ view: params?.view || 'my' })
-      set({ matters: response.matters, isLoading: false })
+      set({ 
+        matters: response.matters, 
+        mattersLoading: false,
+        mattersLastFetched: Date.now()
+      })
     } catch (error) {
       console.error('Failed to fetch matters:', error)
-      set({ error: 'Failed to fetch matters', isLoading: false })
+      set({ error: 'Failed to fetch matters', mattersLoading: false })
     }
   },
 
@@ -199,15 +271,30 @@ export const useDataStore = create<DataState>()(
     }
   },
 
-  // Fetch documents from API
+  // Fetch documents from API (with caching)
   fetchDocuments: async (params) => {
-    set({ isLoading: true, error: null })
+    const { isDocumentsCacheValid, documents } = get()
+    
+    // Use cache if valid, not forcing refresh, and no specific matterId filter
+    if (!params?.forceRefresh && !params?.matterId && isDocumentsCacheValid()) {
+      return
+    }
+    
+    // Only show loading spinner if we don't have any cached documents
+    const showLoading = documents.length === 0
+    set({ documentsLoading: true, isLoading: showLoading, error: null })
+    
     try {
       const response = await documentsApi.getAll(params)
-      set({ documents: response.documents, isLoading: false })
+      set({ 
+        documents: response.documents, 
+        documentsLoading: false, 
+        isLoading: false,
+        documentsLastFetched: params?.matterId ? get().documentsLastFetched : Date.now()
+      })
     } catch (error) {
       console.error('Failed to fetch documents:', error)
-      set({ error: 'Failed to fetch documents', isLoading: false })
+      set({ error: 'Failed to fetch documents', documentsLoading: false, isLoading: false })
     }
   },
 
@@ -309,13 +396,19 @@ export const useDataStore = create<DataState>()(
   // Document actions
   addDocument: async (file, metadata) => {
     const response = await documentsApi.upload(file, metadata)
-    set(state => ({ documents: [...state.documents, response] }))
+    set(state => ({ 
+      documents: [...state.documents, response],
+      documentsLastFetched: null // Invalidate cache to ensure fresh data on next fetch
+    }))
     return response
   },
 
   deleteDocument: async (id) => {
     await documentsApi.delete(id)
-    set(state => ({ documents: state.documents.filter(d => d.id !== id) }))
+    set(state => ({ 
+      documents: state.documents.filter(d => d.id !== id),
+      documentsLastFetched: null // Invalidate cache
+    }))
   },
 
   // Notification actions
@@ -511,6 +604,10 @@ export const useDataStore = create<DataState>()(
       groups: [],
       notifications: [],
       matterTypes: defaultMatterTypes,
+      // Clear cache timestamps
+      documentsLastFetched: null,
+      mattersLastFetched: null,
+      clientsLastFetched: null,
     })
   },
 })

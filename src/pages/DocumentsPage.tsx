@@ -12,7 +12,7 @@ import {
   HardDrive, Settings, Share2, Shield, Mail, Users, CheckSquare, Square,
   LayoutGrid, LayoutList, Folder
 } from 'lucide-react'
-import { FolderBrowser } from '../components/FolderBrowser'
+import { FolderBrowser, invalidateFolderBrowserCache } from '../components/FolderBrowser'
 import { documentsApi, driveApi, wordOnlineApi } from '../services/api'
 import { useEmailCompose } from '../contexts/EmailComposeContext'
 import { format, parseISO } from 'date-fns'
@@ -34,7 +34,7 @@ const AI_SUGGESTIONS = [
 
 export function DocumentsPage() {
   const navigate = useNavigate()
-  const { documents, matters, fetchDocuments, fetchMatters, addDocument, deleteDocument } = useDataStore()
+  const { documents, matters, fetchDocuments, fetchMatters, addDocument, deleteDocument, documentsLoading, mattersLoading } = useDataStore()
   const { setSelectedMode, setDocumentContext, createConversation, setInitialMessage } = useAIStore()
   const { user } = useAuthStore()
   const isAdmin = user?.role === 'owner' || user?.role === 'admin'
@@ -56,8 +56,9 @@ export function DocumentsPage() {
     localStorage.setItem('documentsViewMode', viewMode)
   }, [viewMode])
   
-  // Fetch data from API on mount
+  // Fetch data from API on mount (uses cache if available, preventing reload on every navigation)
   useEffect(() => {
+    // These calls will use cached data if available and not stale (5 min cache)
     fetchDocuments()
     fetchMatters()
   }, [fetchDocuments, fetchMatters])
@@ -238,6 +239,7 @@ export function DocumentsPage() {
       await deleteDocument(confirmModal.docId)
       setConfirmModal({ isOpen: false, docId: '', docName: '' })
       setVersionPanelDoc(null)
+      invalidateFolderBrowserCache() // Invalidate folder view cache
       fetchDocuments()
     } catch (error) {
       console.error('Failed to delete document:', error)
@@ -283,6 +285,7 @@ export function DocumentsPage() {
       setBulkDeleteModal(false)
       setSelectedDocIds(new Set())
       setVersionPanelDoc(null)
+      invalidateFolderBrowserCache() // Invalidate folder view cache
       fetchDocuments()
     } catch (error) {
       console.error('Failed to delete documents:', error)
@@ -485,6 +488,7 @@ export function DocumentsPage() {
           matterId: selectedMatterId || undefined 
         })
       }
+      invalidateFolderBrowserCache() // Invalidate folder view cache
       fetchDocuments()
       setShowUploadModal(false)
       setPendingFiles([])

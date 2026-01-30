@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { 
   Folder, FolderOpen, FileText, ChevronRight,
   RefreshCw, Home, File, FileSpreadsheet, FileImage, 
@@ -6,6 +6,24 @@ import {
 } from 'lucide-react'
 import { driveApi } from '../services/api'
 import styles from './FolderBrowser.module.css'
+
+// Module-level cache for browse data (persists between component mounts)
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+interface CacheEntry {
+  data: BrowseResult | null
+  timestamp: number
+  searchQuery: string
+}
+let browseCache: CacheEntry = {
+  data: null,
+  timestamp: 0,
+  searchQuery: ''
+}
+
+// Export function to invalidate cache from outside
+export function invalidateFolderBrowserCache() {
+  browseCache = { data: null, timestamp: 0, searchQuery: '' }
+}
 
 interface DocumentItem {
   id: string
@@ -63,24 +81,55 @@ export function FolderBrowser({
   showHeader = true,
   className
 }: FolderBrowserProps) {
-  const [loading, setLoading] = useState(true)
+  // Use cached data initially if available
+  const [loading, setLoading] = useState(() => {
+    // Don't show loading if we have valid cached data
+    const cacheValid = browseCache.data && 
+      Date.now() - browseCache.timestamp < CACHE_DURATION &&
+      browseCache.searchQuery === ''
+    return !cacheValid
+  })
   const [error, setError] = useState<string | null>(null)
-  const [browseData, setBrowseData] = useState<BrowseResult | null>(null)
+  const [browseData, setBrowseData] = useState<BrowseResult | null>(() => {
+    // Initialize with cached data if valid
+    if (browseCache.data && 
+        Date.now() - browseCache.timestamp < CACHE_DURATION &&
+        browseCache.searchQuery === '') {
+      return browseCache.data
+    }
+    return null
+  })
   const [selectedMatterId, setSelectedMatterId] = useState<string | null>(null) // null = all, 'unassigned' = no matter
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [pageSize] = useState(100) // Show 100 docs at a time
   const [currentPage, setCurrentPage] = useState(0)
+  const isInitialMount = useRef(true)
 
-  // Fetch documents from database
-  const fetchData = useCallback(async () => {
-    setLoading(true)
+  // Fetch documents from database (with caching)
+  const fetchData = useCallback(async (forceRefresh = false) => {
+    // Check cache validity (only for empty search query)
+    const cacheValid = !forceRefresh && 
+      searchQuery === '' && 
+      browseCache.data && 
+      Date.now() - browseCache.timestamp < CACHE_DURATION &&
+      browseCache.searchQuery === searchQuery
+    
+    if (cacheValid && browseData) {
+      // Use cached data, don't fetch
+      return
+    }
+    
+    // Only show loading spinner if we don't have any data
+    if (!browseData) {
+      setLoading(true)
+    }
     setError(null)
     
     try {
       const result = await driveApi.browseAllFiles(searchQuery || undefined)
       // Ensure result has expected structure
-      setBrowseData({
+      const normalizedData: BrowseResult = {
         isAdmin: result?.isAdmin ?? false,
         files: result?.files ?? [],
         matters: result?.matters ?? [],
@@ -90,23 +139,46 @@ export function FolderBrowser({
         message: result?.message,
         error: result?.error,
         source: result?.source
-      })
+      }
+      
+      setBrowseData(normalizedData)
+      
+      // Update cache (only for empty search)
+      if (searchQuery === '') {
+        browseCache = {
+          data: normalizedData,
+          timestamp: Date.now(),
+          searchQuery: ''
+        }
+      }
     } catch (err: any) {
       console.error('Failed to load files:', err)
       setError(err.message || 'Failed to load documents')
     } finally {
       setLoading(false)
     }
-  }, [searchQuery])
+  }, [searchQuery, browseData])
 
-  // Fetch on mount
+  // Fetch on mount (uses cache if available)
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    if (isInitialMount.current) {
+      isInitialMount.current = false
+      // Only fetch if we don't have cached data
+      if (!browseData) {
+        fetchData()
+      }
+    }
+  }, [fetchData, browseData])
   
   // Debounced search
   useEffect(() => {
-    if (searchQuery === '') return // Skip initial/empty search
+    if (searchQuery === '') {
+      // When clearing search, restore from cache if available
+      if (browseCache.data && Date.now() - browseCache.timestamp < CACHE_DURATION) {
+        setBrowseData(browseCache.data)
+        return
+      }
+    }
     const timer = setTimeout(() => {
       fetchData()
     }, 300)
@@ -246,7 +318,7 @@ export function FolderBrowser({
             {browseData?.isAdmin && <span className={styles.adminBadge}>Admin View</span>}
           </h2>
           <div className={styles.headerActions}>
-            <button onClick={fetchData} className={styles.refreshBtn} title="Refresh">
+            <button onClick={() => fetchData(true)} className={styles.refreshBtn} title="Refresh">
               <RefreshCw size={16} />
             </button>
           </div>
