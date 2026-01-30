@@ -1723,10 +1723,23 @@ export const driveApi = {
     return fetchWithAuth(`/drive/folders?${params}`);
   },
 
-  async createFolder(name: string, parentPath?: string, driveId?: string) {
+  async createFolder(data: { name: string; parentPath?: string; driveId?: string; matterId?: string }) {
     return fetchWithAuth('/drive/folders', {
       method: 'POST',
-      body: JSON.stringify({ name, parentPath, driveId }),
+      body: JSON.stringify(data),
+    });
+  },
+
+  async renameFolder(folderId: string, newName: string) {
+    return fetchWithAuth(`/drive/folders/${folderId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: newName }),
+    });
+  },
+
+  async deleteFolder(folderId: string) {
+    return fetchWithAuth(`/drive/folders/${folderId}`, {
+      method: 'DELETE',
     });
   },
 

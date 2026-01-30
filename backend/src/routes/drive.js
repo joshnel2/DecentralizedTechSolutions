@@ -1574,6 +1574,135 @@ router.post('/folders', authenticate, async (req, res) => {
   }
 });
 
+// Rename folder
+router.put('/folders/:id', authenticate, async (req, res) => {
+  try {
+    const { name } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Folder name is required' });
+    }
+
+    // Get existing folder
+    const existing = await query(
+      'SELECT * FROM documents WHERE id = $1 AND firm_id = $2 AND is_folder = true',
+      [req.params.id, req.user.firmId]
+    );
+
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Folder not found' });
+    }
+
+    const folder = existing.rows[0];
+
+    // Update folder name
+    const result = await query(
+      `UPDATE documents SET name = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [name, req.params.id]
+    );
+
+    // Also update the folder_path for this folder and all children
+    const oldPath = folder.folder_path;
+    const parentPath = oldPath.substring(0, oldPath.lastIndexOf('/')) || '/';
+    const newPath = parentPath === '/' ? `/${name}` : `${parentPath}/${name}`;
+
+    // Update this folder's path
+    await query(
+      `UPDATE documents SET folder_path = $1 WHERE id = $2`,
+      [newPath, req.params.id]
+    );
+
+    // Update all documents that are inside this folder
+    if (oldPath !== newPath) {
+      await query(
+        `UPDATE documents SET folder_path = REPLACE(folder_path, $1, $2) 
+         WHERE firm_id = $3 AND folder_path LIKE $4`,
+        [oldPath, newPath, req.user.firmId, oldPath + '/%']
+      );
+    }
+
+    // Try to rename in Azure if configured
+    try {
+      const { isAzureConfigured, moveFolderContents } = await import('../utils/azureStorage.js');
+      if (await isAzureConfigured()) {
+        const firmFolder = `firm-${req.user.firmId}`;
+        const oldAzurePath = `${firmFolder}${oldPath}`;
+        const newAzurePath = `${firmFolder}${newPath}`;
+        
+        // Move folder contents (Azure doesn't support rename, so we copy+delete)
+        await moveFolderContents(oldAzurePath, newAzurePath);
+        console.log(`[AZURE] Renamed folder from ${oldAzurePath} to ${newAzurePath}`);
+      }
+    } catch (azureError) {
+      console.error('[AZURE] Failed to rename folder in Azure:', azureError.message);
+      // Continue anyway - database is updated
+    }
+
+    res.json({
+      id: result.rows[0].id,
+      name: result.rows[0].name,
+      path: newPath,
+    });
+  } catch (error) {
+    console.error('Rename folder error:', error);
+    res.status(500).json({ error: 'Failed to rename folder' });
+  }
+});
+
+// Delete folder
+router.delete('/folders/:id', authenticate, async (req, res) => {
+  try {
+    // Get existing folder
+    const existing = await query(
+      'SELECT * FROM documents WHERE id = $1 AND firm_id = $2 AND is_folder = true',
+      [req.params.id, req.user.firmId]
+    );
+
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Folder not found' });
+    }
+
+    const folder = existing.rows[0];
+
+    // Check if folder has any documents inside
+    const childrenCount = await query(
+      `SELECT COUNT(*) FROM documents WHERE firm_id = $1 AND folder_path LIKE $2 AND is_folder = false`,
+      [req.user.firmId, folder.folder_path + '/%']
+    );
+
+    const hasChildren = parseInt(childrenCount.rows[0].count) > 0;
+
+    // Update documents inside this folder to have no folder (move to root)
+    if (hasChildren) {
+      await query(
+        `UPDATE documents SET folder_path = '/', updated_at = NOW() 
+         WHERE firm_id = $1 AND folder_path LIKE $2 AND is_folder = false`,
+        [req.user.firmId, folder.folder_path + '/%']
+      );
+    }
+
+    // Delete subfolders
+    await query(
+      `DELETE FROM documents WHERE firm_id = $1 AND folder_path LIKE $2 AND is_folder = true`,
+      [req.user.firmId, folder.folder_path + '/%']
+    );
+
+    // Delete the folder itself
+    await query('DELETE FROM documents WHERE id = $1', [req.params.id]);
+
+    res.json({ 
+      success: true, 
+      message: hasChildren 
+        ? 'Folder deleted. Documents inside were moved to root.' 
+        : 'Folder deleted.',
+      documentsRelocated: hasChildren ? parseInt(childrenCount.rows[0].count) : 0
+    });
+  } catch (error) {
+    console.error('Delete folder error:', error);
+    res.status(500).json({ error: 'Failed to delete folder' });
+  }
+});
+
 // ============================================
 // DRIVE BROWSER - View firm's drive contents
 // ============================================

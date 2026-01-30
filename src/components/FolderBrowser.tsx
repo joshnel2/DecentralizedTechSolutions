@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { 
   Folder, FolderOpen, FileText, ChevronRight,
   RefreshCw, Home, File, FileSpreadsheet, FileImage, 
-  Loader2, AlertCircle, Download, Briefcase
+  Loader2, AlertCircle, Download, Briefcase, Plus,
+  FolderPlus, Edit3, Trash2, X, Check, Upload, MoreVertical
 } from 'lucide-react'
-import { driveApi } from '../services/api'
+import { driveApi, documentsApi } from '../services/api'
 import styles from './FolderBrowser.module.css'
 
 // Module-level cache for browse data (persists between component mounts)
@@ -73,6 +74,7 @@ interface FolderBrowserProps {
   selectedDocumentId?: string
   showHeader?: boolean
   className?: string
+  onUpload?: () => void
 }
 
 export function FolderBrowser({ 
@@ -80,7 +82,8 @@ export function FolderBrowser({
   onFolderSelect,
   selectedDocumentId,
   showHeader = true,
-  className
+  className,
+  onUpload
 }: FolderBrowserProps) {
   // Use cached data initially if available
   const [loading, setLoading] = useState(() => {
@@ -106,6 +109,23 @@ export function FolderBrowser({
   const [pageSize] = useState(100) // Show 100 docs at a time
   const [currentPage, setCurrentPage] = useState(0)
   const isInitialMount = useRef(true)
+  
+  // Folder management state
+  const [showNewFolderModal, setShowNewFolderModal] = useState(false)
+  const [newFolderName, setNewFolderName] = useState('')
+  const [creatingFolder, setCreatingFolder] = useState(false)
+  const [folderError, setFolderError] = useState<string | null>(null)
+  const [contextMenuFolder, setContextMenuFolder] = useState<{ id: string; name: string; x: number; y: number } | null>(null)
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [deletingFolderId, setDeletingFolderId] = useState<string | null>(null)
+  
+  // Drag and drop state
+  const [isDragOver, setIsDragOver] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{current: number; total: number} | null>(null)
+  const dropZoneRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Fetch documents from database (with caching)
   const fetchData = useCallback(async (forceRefresh = false) => {
@@ -226,6 +246,153 @@ export function FolderBrowser({
     setSelectedMatterId(matterId)
     onFolderSelect?.(matterId || '')
   }
+  
+  // Create new folder
+  const createFolder = async () => {
+    if (!newFolderName.trim()) {
+      setFolderError('Folder name is required')
+      return
+    }
+    
+    setCreatingFolder(true)
+    setFolderError(null)
+    
+    try {
+      await driveApi.createFolder({
+        name: newFolderName.trim(),
+        parentPath: selectedMatterId ? `matter-${selectedMatterId}` : '/',
+        matterId: (selectedMatterId && selectedMatterId !== 'unassigned') ? selectedMatterId : undefined
+      })
+      
+      setShowNewFolderModal(false)
+      setNewFolderName('')
+      invalidateFolderBrowserCache()
+      fetchData(true)
+    } catch (err: any) {
+      setFolderError(err.message || 'Failed to create folder')
+    } finally {
+      setCreatingFolder(false)
+    }
+  }
+  
+  // Rename folder
+  const renameFolder = async (folderId: string, newName: string) => {
+    if (!newName.trim()) return
+    
+    try {
+      await driveApi.renameFolder(folderId, newName.trim())
+      setRenamingFolderId(null)
+      setRenameValue('')
+      invalidateFolderBrowserCache()
+      fetchData(true)
+    } catch (err: any) {
+      console.error('Failed to rename folder:', err)
+      alert('Failed to rename folder: ' + (err.message || 'Unknown error'))
+    }
+  }
+  
+  // Delete folder
+  const deleteFolder = async (folderId: string) => {
+    if (!confirm('Are you sure you want to delete this folder? Files inside may become unassigned.')) {
+      return
+    }
+    
+    setDeletingFolderId(folderId)
+    
+    try {
+      await driveApi.deleteFolder(folderId)
+      invalidateFolderBrowserCache()
+      fetchData(true)
+    } catch (err: any) {
+      console.error('Failed to delete folder:', err)
+      alert('Failed to delete folder: ' + (err.message || 'Unknown error'))
+    } finally {
+      setDeletingFolderId(null)
+    }
+  }
+  
+  // Handle drag and drop
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(true)
+  }
+  
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    // Only set false if leaving the container
+    if (dropZoneRef.current && !dropZoneRef.current.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false)
+    }
+  }
+  
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+  
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+    
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length === 0) return
+    
+    await uploadFiles(files)
+  }
+  
+  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+    
+    await uploadFiles(files)
+    
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+  
+  const uploadFiles = async (files: File[]) => {
+    setIsUploading(true)
+    setUploadProgress({ current: 0, total: files.length })
+    
+    try {
+      for (let i = 0; i < files.length; i++) {
+        setUploadProgress({ current: i + 1, total: files.length })
+        
+        // Build metadata for upload
+        const metadata: { matterId?: string } = {}
+        
+        // Add matter ID if we're in a matter folder
+        if (selectedMatterId && selectedMatterId !== 'unassigned') {
+          metadata.matterId = selectedMatterId
+        }
+        
+        await documentsApi.upload(files[i], metadata)
+      }
+      
+      invalidateFolderBrowserCache()
+      fetchData(true)
+    } catch (err: any) {
+      console.error('Upload failed:', err)
+      alert('Failed to upload file(s): ' + (err.message || 'Unknown error'))
+    } finally {
+      setIsUploading(false)
+      setUploadProgress(null)
+    }
+  }
+  
+  // Close context menu when clicking elsewhere
+  useEffect(() => {
+    const handleClick = () => setContextMenuFolder(null)
+    if (contextMenuFolder) {
+      document.addEventListener('click', handleClick)
+      return () => document.removeEventListener('click', handleClick)
+    }
+  }, [contextMenuFolder])
 
   // Get file icon based on type
   const getFileIcon = (contentType?: string, name?: string) => {
@@ -319,14 +486,67 @@ export function FolderBrowser({
             {browseData?.isAdmin && <span className={styles.adminBadge}>Admin View</span>}
           </h2>
           <div className={styles.headerActions}>
+            <button 
+              onClick={() => setShowNewFolderModal(true)} 
+              className={styles.newFolderBtn}
+              title="Create new folder"
+            >
+              <FolderPlus size={16} />
+              New Folder
+            </button>
+            <button 
+              onClick={() => fileInputRef.current?.click()} 
+              className={styles.uploadBtn}
+              title="Upload files"
+              disabled={isUploading}
+            >
+              <Upload size={16} />
+              {isUploading ? 'Uploading...' : 'Upload'}
+            </button>
             <button onClick={() => fetchData(true)} className={styles.refreshBtn} title="Refresh">
               <RefreshCw size={16} />
             </button>
           </div>
         </div>
       )}
+      
+      {/* Hidden file input for uploads */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        style={{ display: 'none' }}
+        onChange={handleFileInputChange}
+      />
 
-      <div className={styles.content}>
+      <div 
+        ref={dropZoneRef}
+        className={`${styles.content} ${isDragOver ? styles.dragOver : ''}`}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        {/* Drag overlay */}
+        {isDragOver && (
+          <div className={styles.dragOverlay}>
+            <Upload size={48} />
+            <p>Drop files here to upload</p>
+            {selectedMatterId && selectedMatterId !== 'unassigned' && (
+              <span className={styles.dragHint}>
+                Files will be added to the selected matter
+              </span>
+            )}
+          </div>
+        )}
+        
+        {/* Upload progress indicator */}
+        {isUploading && uploadProgress && (
+          <div className={styles.uploadProgress}>
+            <Loader2 size={16} className={styles.spinner} />
+            <span>Uploading {uploadProgress.current} of {uploadProgress.total}...</span>
+          </div>
+        )}
         {/* Matter Sidebar */}
         <div className={styles.sidebar}>
           <div className={styles.sidebarHeader}>
@@ -535,6 +755,111 @@ export function FolderBrowser({
           )}
         </div>
       </div>
+      
+      {/* New Folder Modal */}
+      {showNewFolderModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowNewFolderModal(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>
+                <FolderPlus size={20} />
+                Create New Folder
+              </h3>
+              <button 
+                className={styles.modalClose} 
+                onClick={() => setShowNewFolderModal(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className={styles.modalBody}>
+              <div className={styles.formGroup}>
+                <label>Folder Name</label>
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  placeholder="Enter folder name..."
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') createFolder()
+                    if (e.key === 'Escape') setShowNewFolderModal(false)
+                  }}
+                />
+              </div>
+              {selectedMatterId && selectedMatterId !== 'unassigned' && (
+                <p className={styles.folderHint}>
+                  This folder will be created inside the selected matter
+                </p>
+              )}
+              {folderError && (
+                <p className={styles.folderErrorMsg}>{folderError}</p>
+              )}
+            </div>
+            <div className={styles.modalFooter}>
+              <button 
+                className={styles.cancelBtn}
+                onClick={() => setShowNewFolderModal(false)}
+                disabled={creatingFolder}
+              >
+                Cancel
+              </button>
+              <button 
+                className={styles.createBtn}
+                onClick={createFolder}
+                disabled={creatingFolder || !newFolderName.trim()}
+              >
+                {creatingFolder ? (
+                  <>
+                    <Loader2 size={14} className={styles.spinner} />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <Check size={14} />
+                    Create Folder
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Context Menu for folders */}
+      {contextMenuFolder && (
+        <div 
+          className={styles.contextMenu}
+          style={{ 
+            position: 'fixed', 
+            left: contextMenuFolder.x, 
+            top: contextMenuFolder.y 
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button 
+            className={styles.contextMenuItem}
+            onClick={() => {
+              setRenamingFolderId(contextMenuFolder.id)
+              setRenameValue(contextMenuFolder.name)
+              setContextMenuFolder(null)
+            }}
+          >
+            <Edit3 size={14} />
+            Rename
+          </button>
+          <button 
+            className={`${styles.contextMenuItem} ${styles.deleteItem}`}
+            onClick={() => {
+              deleteFolder(contextMenuFolder.id)
+              setContextMenuFolder(null)
+            }}
+          >
+            <Trash2 size={14} />
+            Delete
+          </button>
+        </div>
+      )}
     </div>
   )
 }
