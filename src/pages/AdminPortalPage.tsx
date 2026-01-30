@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { adminApi } from '../services/api'
 import { 
   Building2, Users, Plus, Edit, Trash2, Search, 
   ChevronRight, BarChart3, FileText, Clock, X,
-  Shield, Eye, EyeOff, ArrowLeft, Link2, Save, CheckCircle2, AlertCircle, FolderSync
+  Shield, Eye, EyeOff, ArrowLeft, Link2, Save, CheckCircle2, AlertCircle, FolderSync,
+  Loader2, StopCircle, RotateCcw, Settings, History, RefreshCw
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -98,6 +99,39 @@ export function AdminPortalPage() {
   // Document scan state
   const [scanningFirmId, setScanningFirmId] = useState<string | null>(null)
   const [scanResult, setScanResult] = useState<{firmId: string, message: string, success: boolean} | null>(null)
+  const [showScanModal, setShowScanModal] = useState(false)
+  const [scanProgress, setScanProgress] = useState<{
+    status: string
+    phase: string
+    progress: { processed: number; matched: number; created: number; total: number; percent: number }
+    results: any
+    error: string | null
+    startedAt: string
+    completedAt?: string
+    scanMode?: string
+  } | null>(null)
+  const scanPollRef = useRef<NodeJS.Timeout | null>(null)
+  const [scanSettings, setScanSettings] = useState<{
+    autoSyncEnabled: boolean
+    syncInterval: number // minutes
+    permissionMode: 'inherit' | 'matter' | 'strict'
+  }>({
+    autoSyncEnabled: false,
+    syncInterval: 10,
+    permissionMode: 'matter'
+  })
+  const [scanHistory, setScanHistory] = useState<Array<{
+    id: string
+    firmId: string
+    status: string
+    filesProcessed: number
+    filesMatched: number
+    filesCreated: number
+    startedAt: string
+    completedAt: string
+    scanMode: string
+  }>>([])
+  const [showScanSettings, setShowScanSettings] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -899,8 +933,156 @@ export function AdminPortalPage() {
           }}
         />
       )}
+      
+      {/* Scan Progress Modal */}
+      {showScanModal && scanningFirmId && (
+        <div className={styles.modalOverlay} onClick={() => {
+          if (scanProgress?.status !== 'running') {
+            setShowScanModal(false)
+          }
+        }}>
+          <div className={styles.scanModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.scanModalHeader}>
+              <h3>
+                <FolderSync size={20} />
+                Document Scan
+                {scanProgress?.scanMode && (
+                  <span className={styles.scanModeBadge}>
+                    {scanProgress.scanMode === 'manifest' ? 'API Migration' : 'Folder Scan'}
+                  </span>
+                )}
+              </h3>
+              {scanProgress?.status !== 'running' && (
+                <button className={styles.modalClose} onClick={() => setShowScanModal(false)}>
+                  <X size={18} />
+                </button>
+              )}
+            </div>
+            
+            <div className={styles.scanModalBody}>
+              {/* Progress Phase */}
+              <div className={styles.scanPhase}>
+                <span className={styles.phaseLabel}>Status:</span>
+                <span className={clsx(styles.phaseValue, {
+                  [styles.phaseRunning]: scanProgress?.status === 'running',
+                  [styles.phaseCompleted]: scanProgress?.status === 'completed',
+                  [styles.phaseError]: scanProgress?.status === 'error',
+                  [styles.phaseCancelled]: scanProgress?.status === 'cancelled',
+                })}>
+                  {scanProgress?.status === 'running' && (
+                    <Loader2 size={14} className={styles.spinnerSmall} />
+                  )}
+                  {scanProgress?.status === 'completed' && <CheckCircle2 size={14} />}
+                  {scanProgress?.status === 'error' && <AlertCircle size={14} />}
+                  {formatPhase(scanProgress?.phase || scanProgress?.status || 'initializing')}
+                </span>
+              </div>
+              
+              {/* Progress Bar */}
+              <div className={styles.progressContainer}>
+                <div className={styles.progressBar}>
+                  <div 
+                    className={styles.progressFill}
+                    style={{ width: `${scanProgress?.progress?.percent || 0}%` }}
+                  />
+                </div>
+                <span className={styles.progressPercent}>
+                  {Math.round(scanProgress?.progress?.percent || 0)}%
+                </span>
+              </div>
+              
+              {/* Stats Grid */}
+              <div className={styles.scanStats}>
+                <div className={styles.scanStat}>
+                  <span className={styles.statLabel}>Files Processed</span>
+                  <span className={styles.statValue}>{scanProgress?.progress?.processed || 0}</span>
+                </div>
+                <div className={styles.scanStat}>
+                  <span className={styles.statLabel}>Matched to Matters</span>
+                  <span className={styles.statValue}>{scanProgress?.progress?.matched || 0}</span>
+                </div>
+                <div className={styles.scanStat}>
+                  <span className={styles.statLabel}>Records Created</span>
+                  <span className={styles.statValue}>{scanProgress?.progress?.created || 0}</span>
+                </div>
+                <div className={styles.scanStat}>
+                  <span className={styles.statLabel}>Total Found</span>
+                  <span className={styles.statValue}>{scanProgress?.progress?.total || 0}</span>
+                </div>
+              </div>
+              
+              {/* Error Message */}
+              {scanProgress?.error && (
+                <div className={styles.scanError}>
+                  <AlertCircle size={16} />
+                  {scanProgress.error}
+                </div>
+              )}
+              
+              {/* Timing */}
+              <div className={styles.scanTiming}>
+                <span>Started: {scanProgress?.startedAt ? format(parseISO(scanProgress.startedAt), 'h:mm:ss a') : '-'}</span>
+                {scanProgress?.completedAt && (
+                  <span>Completed: {format(parseISO(scanProgress.completedAt), 'h:mm:ss a')}</span>
+                )}
+              </div>
+            </div>
+            
+            <div className={styles.scanModalFooter}>
+              {scanProgress?.status === 'running' && (
+                <button 
+                  className={styles.cancelScanBtn}
+                  onClick={() => handleCancelScan(scanningFirmId)}
+                >
+                  <StopCircle size={16} />
+                  Cancel Scan
+                </button>
+              )}
+              {(scanProgress?.status === 'error' || scanProgress?.status === 'cancelled') && (
+                <button 
+                  className={styles.resetScanBtn}
+                  onClick={() => handleResetScan(scanningFirmId)}
+                >
+                  <RotateCcw size={16} />
+                  Reset & Try Again
+                </button>
+              )}
+              {scanProgress?.status === 'completed' && (
+                <button 
+                  className={styles.closeScanBtn}
+                  onClick={() => setShowScanModal(false)}
+                >
+                  <CheckCircle2 size={16} />
+                  Done
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
+  
+  function formatPhase(phase: string): string {
+    const phases: Record<string, string> = {
+      'initializing': 'Initializing...',
+      'starting': 'Starting scan...',
+      'checking_azure': 'Checking Azure connection...',
+      'checking_manifest': 'Checking for manifest data...',
+      'loading_matters': 'Loading matters...',
+      'scanning_azure': 'Scanning Azure files...',
+      'processing_manifest': 'Processing manifest...',
+      'processing_files': 'Processing files...',
+      'creating_records': 'Creating database records...',
+      'setting_permissions': 'Setting permissions...',
+      'completed': 'Completed',
+      'error': 'Error',
+      'cancelled': 'Cancelled',
+      'running': 'Running...',
+      'idle': 'Idle'
+    }
+    return phases[phase] || phase.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  }
 
   async function handleDeleteFirm(id: string) {
     if (!confirm('Are you sure you want to delete this firm? This will delete all users, matters, clients, and data associated with this firm.')) {
@@ -914,18 +1096,103 @@ export function AdminPortalPage() {
     }
   }
 
+  // Poll scan status
+  const pollScanStatus = useCallback(async (firmId: string) => {
+    try {
+      const status = await fetchSecureAdmin(`/firms/${firmId}/scan-status`)
+      setScanProgress(status)
+      
+      // If scan is complete or errored, stop polling
+      if (status.status === 'completed' || status.status === 'error' || status.status === 'cancelled') {
+        if (scanPollRef.current) {
+          clearInterval(scanPollRef.current)
+          scanPollRef.current = null
+        }
+        setScanningFirmId(null)
+        
+        // Update scan result for message display
+        setScanResult({
+          firmId,
+          message: status.status === 'completed' 
+            ? `Scan completed: ${status.progress?.created || 0} files created, ${status.progress?.matched || 0} matched`
+            : status.error || 'Scan failed',
+          success: status.status === 'completed'
+        })
+        
+        // Refresh firm data
+        loadData()
+      }
+    } catch (err) {
+      console.error('Failed to poll scan status:', err)
+    }
+  }, [])
+  
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (scanPollRef.current) {
+        clearInterval(scanPollRef.current)
+      }
+    }
+  }, [])
+
   async function handleScanDocuments(firmId: string) {
     setScanningFirmId(firmId)
     setScanResult(null)
+    setShowScanModal(true)
+    setScanProgress({
+      status: 'starting',
+      phase: 'initializing',
+      progress: { processed: 0, matched: 0, created: 0, total: 0, percent: 0 },
+      results: null,
+      error: null,
+      startedAt: new Date().toISOString()
+    })
+    
     try {
       const result = await fetchSecureAdmin(`/firms/${firmId}/scan-documents`, {
-        method: 'POST'
+        method: 'POST',
+        body: JSON.stringify({
+          dryRun: false,
+          mode: 'auto'
+        })
       })
-      setScanResult({ firmId, message: result.message, success: true })
+      
+      // Start polling for progress
+      if (result.status === 'started' || result.status === 'already_running') {
+        // Poll every second
+        scanPollRef.current = setInterval(() => pollScanStatus(firmId), 1000)
+        // Also poll immediately
+        pollScanStatus(firmId)
+      }
     } catch (err: any) {
+      setScanProgress(prev => prev ? {
+        ...prev,
+        status: 'error',
+        error: err.message || 'Failed to start scan'
+      } : null)
       setScanResult({ firmId, message: err.message || 'Scan failed', success: false })
-    } finally {
       setScanningFirmId(null)
+    }
+  }
+  
+  async function handleCancelScan(firmId: string) {
+    try {
+      await fetchSecureAdmin(`/firms/${firmId}/scan-cancel`, { method: 'POST' })
+      // Poll will pick up the cancellation
+    } catch (err: any) {
+      console.error('Failed to cancel scan:', err)
+    }
+  }
+  
+  async function handleResetScan(firmId: string) {
+    try {
+      await fetchSecureAdmin(`/firms/${firmId}/scan-reset`, { method: 'POST' })
+      setScanProgress(null)
+      setScanningFirmId(null)
+      setShowScanModal(false)
+    } catch (err: any) {
+      console.error('Failed to reset scan:', err)
     }
   }
 

@@ -721,6 +721,236 @@
   color: #ef4444;
 }
 
+/* Scan Modal */
+.scanModal {
+  background: var(--apex-deep);
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 480px;
+  overflow: hidden;
+  animation: modalSlide 0.2s ease-out;
+}
+
+@keyframes modalSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.scanModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--apex-border);
+}
+
+.scanModalHeader h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.scanModeBadge {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  background: var(--apex-gold);
+  color: var(--apex-deep);
+  border-radius: 4px;
+  font-weight: 500;
+  margin-left: 0.5rem;
+}
+
+.scanModalBody {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.scanPhase {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.phaseLabel {
+  color: var(--apex-subtle);
+}
+
+.phaseValue {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--apex-text);
+  font-weight: 500;
+}
+
+.phaseRunning {
+  color: #3B82F6;
+}
+
+.phaseCompleted {
+  color: #22C55E;
+}
+
+.phaseError {
+  color: #EF4444;
+}
+
+.phaseCancelled {
+  color: #F59E0B;
+}
+
+.spinnerSmall {
+  animation: spin 1s linear infinite;
+}
+
+.progressContainer {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.progressBar {
+  flex: 1;
+  height: 8px;
+  background: var(--apex-slate);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--apex-gold) 0%, #F59E0B 100%);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.progressPercent {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--apex-gold);
+  min-width: 40px;
+  text-align: right;
+}
+
+.scanStats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.scanStat {
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.statLabel {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.statValue {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.scanError {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  color: #EF4444;
+  font-size: 0.875rem;
+}
+
+.scanError svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.scanTiming {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--apex-border);
+}
+
+.scanModalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--apex-border);
+  background: var(--apex-slate);
+}
+
+.cancelScanBtn,
+.resetScanBtn,
+.closeScanBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1rem;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cancelScanBtn {
+  background: rgba(239, 68, 68, 0.1);
+  color: #EF4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.cancelScanBtn:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.resetScanBtn {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3B82F6;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.resetScanBtn:hover {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.closeScanBtn {
+  background: var(--apex-gold);
+  color: var(--apex-deep);
+}
+
+.closeScanBtn:hover {
+  background: #E2B100;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .sectionHeader {
@@ -742,6 +972,15 @@
   }
 
   .integrationFields {
+    grid-template-columns: 1fr;
+  }
+  
+  .scanModal {
+    margin: 1rem;
+    max-width: calc(100% - 2rem);
+  }
+  
+  .scanStats {
     grid-template-columns: 1fr;
   }
 }
