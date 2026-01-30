@@ -89,6 +89,95 @@
   color: var(--apex-white);
 }
 
+/* Lock Status */
+.lockStatus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  gap: 1rem;
+}
+
+.lockedStatus {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.unlockedStatus {
+  background: rgba(34, 197, 94, 0.05);
+}
+
+.lockInfo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--apex-text);
+  flex: 1;
+  min-width: 0;
+}
+
+.lockedStatus .lockInfo {
+  color: #F87171;
+}
+
+.lockedStatus .lockInfo svg {
+  color: #EF4444;
+}
+
+.unlockedStatus .lockInfo {
+  color: #4ADE80;
+}
+
+.unlockedStatus .lockInfo svg {
+  color: #22C55E;
+}
+
+.lockExpiry {
+  color: var(--apex-subtle);
+  font-size: 0.75rem;
+}
+
+.lockBtn, .unlockBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.lockBtn {
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #60A5FA;
+}
+
+.lockBtn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.unlockBtn {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #4ADE80;
+}
+
+.unlockBtn:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+.lockBtn:disabled, .unlockBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Quick Actions */
 .quickActions {
   display: flex;

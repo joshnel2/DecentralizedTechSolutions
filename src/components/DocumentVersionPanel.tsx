@@ -4,7 +4,7 @@ import {
   X, History, Clock, User, FileText, GitCompare, ExternalLink, 
   Download, ChevronDown, ChevronRight, RefreshCw, AlertCircle,
   Edit3, CheckCircle, ArrowUpRight, Loader2, Share2, Mail, 
-  Sparkles, Trash2, Eye, Cloud, FolderOpen, HardDrive
+  Sparkles, Trash2, Eye, Cloud, FolderOpen, HardDrive, Lock, Unlock
 } from 'lucide-react'
 import { wordOnlineApi, documentsApi, driveApi } from '../services/api'
 import { format, formatDistanceToNow, parseISO } from 'date-fns'
@@ -93,6 +93,17 @@ export function DocumentVersionPanel({
   const [driveLetter, setDriveLetter] = useState('Z')
   const [showExplorerPath, setShowExplorerPath] = useState(false)
   
+  // Lock state
+  const [lockStatus, setLockStatus] = useState<{
+    locked: boolean
+    lockedBy?: string
+    lockedByName?: string
+    expiresAt?: string
+    isOwnLock?: boolean
+  } | null>(null)
+  const [isAcquiringLock, setIsAcquiringLock] = useState(false)
+  const [isReleasingLock, setIsReleasingLock] = useState(false)
+  
   // Load drive preference
   useEffect(() => {
     driveApi.getDrivePreference().then(pref => {
@@ -168,6 +179,57 @@ export function DocumentVersionPanel({
     const name = document.name || document.originalName || ''
     setIsWordDoc(wordExtensions.some(ext => name.toLowerCase().endsWith(ext)))
   }, [document])
+  
+  // Fetch lock status
+  const fetchLockStatus = useCallback(async () => {
+    try {
+      const status = await driveApi.getLockStatus(document.id)
+      setLockStatus(status)
+    } catch (err) {
+      console.error('Failed to fetch lock status:', err)
+      setLockStatus(null)
+    }
+  }, [document.id])
+  
+  // Fetch lock status on mount and periodically
+  useEffect(() => {
+    fetchLockStatus()
+    // Poll lock status every 30 seconds for real-time updates
+    const interval = setInterval(fetchLockStatus, 30000)
+    return () => clearInterval(interval)
+  }, [fetchLockStatus])
+  
+  // Acquire lock
+  const acquireLock = async () => {
+    setIsAcquiringLock(true)
+    try {
+      await driveApi.acquireLock(document.id, 'edit')
+      await fetchLockStatus()
+    } catch (err: any) {
+      if (err.status === 423) {
+        // Lock conflict - refresh status to show who has it
+        await fetchLockStatus()
+        alert(`This document is currently being edited by ${lockStatus?.lockedByName || 'another user'}.`)
+      } else {
+        alert('Failed to acquire lock: ' + (err.message || 'Unknown error'))
+      }
+    } finally {
+      setIsAcquiringLock(false)
+    }
+  }
+  
+  // Release lock
+  const releaseLock = async () => {
+    setIsReleasingLock(true)
+    try {
+      await driveApi.releaseLock(document.id)
+      await fetchLockStatus()
+    } catch (err: any) {
+      alert('Failed to release lock: ' + (err.message || 'Unknown error'))
+    } finally {
+      setIsReleasingLock(false)
+    }
+  }
 
   // Word Online auto-sync - ALWAYS polls for Word docs to detect changes automatically
   const [syncEnabled, setSyncEnabled] = useState(true) // Always enabled by default
@@ -349,6 +411,56 @@ export function DocumentVersionPanel({
           <X size={18} />
         </button>
       </div>
+
+      {/* Lock Status */}
+      {lockStatus && (
+        <div className={`${styles.lockStatus} ${lockStatus.locked ? styles.lockedStatus : styles.unlockedStatus}`}>
+          {lockStatus.locked ? (
+            <>
+              <div className={styles.lockInfo}>
+                <Lock size={16} />
+                <span>
+                  {lockStatus.isOwnLock 
+                    ? 'You have this document locked' 
+                    : `Locked by ${lockStatus.lockedByName}`}
+                </span>
+                {lockStatus.expiresAt && (
+                  <span className={styles.lockExpiry}>
+                    • Expires {formatDistanceToNow(parseISO(lockStatus.expiresAt), { addSuffix: true })}
+                  </span>
+                )}
+              </div>
+              {lockStatus.isOwnLock && (
+                <button 
+                  className={styles.unlockBtn}
+                  onClick={releaseLock}
+                  disabled={isReleasingLock}
+                >
+                  {isReleasingLock ? <Loader2 size={14} className={styles.spinner} /> : <Unlock size={14} />}
+                  Release Lock
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <div className={styles.lockInfo}>
+                <Unlock size={16} />
+                <span>Document is unlocked</span>
+              </div>
+              {isWordDoc && (
+                <button 
+                  className={styles.lockBtn}
+                  onClick={acquireLock}
+                  disabled={isAcquiringLock}
+                >
+                  {isAcquiringLock ? <Loader2 size={14} className={styles.spinner} /> : <Lock size={14} />}
+                  Lock for Editing
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* Quick Actions - Main buttons */}
       <div className={styles.quickActions}>
