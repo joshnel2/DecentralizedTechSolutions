@@ -170,6 +170,32 @@
   font-weight: 600;
 }
 
+.bulkDownloadBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.1) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  border-radius: var(--radius-md);
+  color: #60a5fa;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.bulkDownloadBtn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.3) 0%, rgba(59, 130, 246, 0.15) 100%);
+  border-color: rgba(59, 130, 246, 0.6);
+  transform: translateY(-1px);
+}
+
+.bulkDownloadBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .bulkDeleteBtn {
   display: flex;
   align-items: center;
@@ -185,10 +211,15 @@
   transition: all var(--transition-fast);
 }
 
-.bulkDeleteBtn:hover {
+.bulkDeleteBtn:hover:not(:disabled) {
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.3) 0%, rgba(239, 68, 68, 0.15) 100%);
   border-color: rgba(239, 68, 68, 0.6);
   transform: translateY(-1px);
+}
+
+.bulkDeleteBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .clearSelectionBtn {

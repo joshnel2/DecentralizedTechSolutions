@@ -248,17 +248,37 @@ export function DocumentsPage() {
   }
 
   // Bulk selection handlers
+  const lastSelectedIndex = useRef<number | null>(null)
+  const [isBulkDownloading, setIsBulkDownloading] = useState(false)
+  
   const toggleSelectDoc = (docId: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    setSelectedDocIds(prev => {
-      const newSet = new Set(prev)
-      if (newSet.has(docId)) {
-        newSet.delete(docId)
-      } else {
-        newSet.add(docId)
-      }
-      return newSet
-    })
+    const currentIndex = filteredDocuments.findIndex(d => d.id === docId)
+    
+    // Shift+click for range selection
+    if (e.shiftKey && lastSelectedIndex.current !== null && currentIndex !== -1) {
+      const start = Math.min(lastSelectedIndex.current, currentIndex)
+      const end = Math.max(lastSelectedIndex.current, currentIndex)
+      const rangeIds = filteredDocuments.slice(start, end + 1).map(d => d.id)
+      
+      setSelectedDocIds(prev => {
+        const newSet = new Set(prev)
+        rangeIds.forEach(id => newSet.add(id))
+        return newSet
+      })
+    } else {
+      // Normal toggle
+      setSelectedDocIds(prev => {
+        const newSet = new Set(prev)
+        if (newSet.has(docId)) {
+          newSet.delete(docId)
+        } else {
+          newSet.add(docId)
+        }
+        return newSet
+      })
+      lastSelectedIndex.current = currentIndex
+    }
   }
 
   const toggleSelectAll = () => {
@@ -271,6 +291,7 @@ export function DocumentsPage() {
 
   const clearSelection = () => {
     setSelectedDocIds(new Set())
+    lastSelectedIndex.current = null
   }
 
   const confirmBulkDelete = async () => {
@@ -292,6 +313,64 @@ export function DocumentsPage() {
       alert('Failed to delete some documents. Please try again.')
     } finally {
       setIsBulkDeleting(false)
+    }
+  }
+  
+  // Bulk download selected documents
+  const bulkDownload = async () => {
+    if (selectedDocIds.size === 0) return
+    
+    setIsBulkDownloading(true)
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+      const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
+      
+      // If single document, download directly
+      if (selectedDocIds.size === 1) {
+        const docId = Array.from(selectedDocIds)[0]
+        const doc = documents.find(d => d.id === docId)
+        const response = await fetch(`${apiUrl}/documents/${docId}/download`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = doc?.originalName || doc?.name || 'document'
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+      } else {
+        // Multiple documents - download as zip
+        const response = await fetch(`${apiUrl}/documents/bulk-download`, {
+          method: 'POST',
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ documentIds: Array.from(selectedDocIds) })
+        })
+        
+        if (!response.ok) {
+          throw new Error('Failed to create download')
+        }
+        
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `documents-${new Date().toISOString().split('T')[0]}.zip`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+      }
+    } catch (error) {
+      console.error('Bulk download failed:', error)
+      alert('Failed to download documents. Please try again.')
+    } finally {
+      setIsBulkDownloading(false)
     }
   }
   
@@ -553,8 +632,18 @@ export function DocumentsPage() {
           {selectedDocIds.size > 0 && (
             <>
               <button 
+                className={styles.bulkDownloadBtn}
+                onClick={bulkDownload}
+                disabled={isBulkDownloading}
+                title={`Download ${selectedDocIds.size} documents`}
+              >
+                {isBulkDownloading ? <Loader2 size={18} className={styles.spinner} /> : <Download size={18} />}
+                Download{selectedDocIds.size > 1 ? ' as ZIP' : ''}
+              </button>
+              <button 
                 className={styles.bulkDeleteBtn}
                 onClick={() => setBulkDeleteModal(true)}
+                disabled={isBulkDeleting}
                 title={`Delete ${selectedDocIds.size} documents`}
               >
                 <Trash2 size={18} />

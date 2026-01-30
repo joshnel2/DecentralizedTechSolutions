@@ -1905,6 +1905,140 @@ router.get('/download-all/zip', authenticate, requirePermission('documents:view'
   }
 });
 
+// Bulk download - specific documents by IDs
+router.post('/bulk-download', authenticate, requirePermission('documents:view'), async (req, res) => {
+  try {
+    const { documentIds } = req.body;
+    
+    if (!documentIds || !Array.isArray(documentIds) || documentIds.length === 0) {
+      return res.status(400).json({ error: 'No document IDs provided' });
+    }
+    
+    // Limit to 100 documents per download
+    if (documentIds.length > 100) {
+      return res.status(400).json({ error: 'Maximum 100 documents per download' });
+    }
+    
+    // Get documents that user has access to
+    const placeholders = documentIds.map((_, i) => `$${i + 2}`).join(',');
+    const result = await query(
+      `SELECT d.*, m.name as matter_name, c.name as client_name
+       FROM documents d
+       LEFT JOIN matters m ON d.matter_id = m.id
+       LEFT JOIN clients c ON d.client_id = c.id
+       WHERE d.firm_id = $1 
+         AND d.id IN (${placeholders})
+         AND d.is_folder = false
+       ORDER BY d.folder_path, d.name`,
+      [req.user.firmId, ...documentIds]
+    );
+
+    const documents = result.rows;
+    
+    if (documents.length === 0) {
+      return res.status(404).json({ error: 'No accessible documents found' });
+    }
+
+    // If single document, send directly
+    if (documents.length === 1) {
+      const doc = documents[0];
+      const downloadFilename = doc.original_name || doc.name || 'document';
+      
+      // Check storage location
+      const isAzure = doc.storage_location === 'azure' || (await isAzureConfigured() && !doc.path);
+      
+      if (isAzure && doc.external_path) {
+        // Download from Azure
+        try {
+          const fileBuffer = await downloadFile(doc.external_path);
+          res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename}"`);
+          res.setHeader('Content-Type', doc.content_type || 'application/octet-stream');
+          return res.send(fileBuffer);
+        } catch (azureErr) {
+          console.error('Azure download failed:', azureErr);
+          return res.status(500).json({ error: 'Failed to download from Azure' });
+        }
+      } else if (doc.path) {
+        // Download from local storage
+        try {
+          await fs.access(doc.path);
+          res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename}"`);
+          res.setHeader('Content-Type', doc.content_type || 'application/octet-stream');
+          return createReadStream(doc.path).pipe(res);
+        } catch {
+          return res.status(404).json({ error: 'Document file not found' });
+        }
+      } else {
+        return res.status(404).json({ error: 'Document file path not available' });
+      }
+    }
+
+    // Multiple documents - create zip
+    const zipFilename = `documents_${new Date().toISOString().split('T')[0]}.zip`;
+    
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
+
+    const archive = archiver('zip', { zlib: { level: 5 } });
+    
+    archive.on('error', (err) => {
+      console.error('Archive error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to create archive' });
+      }
+    });
+
+    archive.pipe(res);
+
+    let addedCount = 0;
+    let skippedCount = 0;
+    const azureConfigured = await isAzureConfigured();
+
+    for (const doc of documents) {
+      const filename = doc.original_name || doc.name || `document_${doc.id}`;
+      
+      // Create folder structure in zip
+      let zipPath = '';
+      if (doc.matter_name) {
+        zipPath = `Matters/${doc.matter_name.replace(/[^a-zA-Z0-9 ]/g, '_')}/`;
+      } else if (doc.client_name) {
+        zipPath = `Clients/${doc.client_name.replace(/[^a-zA-Z0-9 ]/g, '_')}/`;
+      } else {
+        zipPath = 'General/';
+      }
+
+      try {
+        // Check storage location
+        const isAzure = doc.storage_location === 'azure' || (azureConfigured && !doc.path && doc.external_path);
+        
+        if (isAzure && doc.external_path) {
+          // Download from Azure and add to archive
+          const fileBuffer = await downloadFile(doc.external_path);
+          archive.append(fileBuffer, { name: zipPath + filename });
+          addedCount++;
+        } else if (doc.path) {
+          await fs.access(doc.path);
+          archive.file(doc.path, { name: zipPath + filename });
+          addedCount++;
+        } else {
+          skippedCount++;
+        }
+      } catch (err) {
+        console.log(`[ZIP] Skipped ${filename}: ${err.message}`);
+        skippedCount++;
+      }
+    }
+
+    console.log(`[ZIP] Created selective zip with ${addedCount} files, skipped ${skippedCount}`);
+    await archive.finalize();
+  } catch (error) {
+    console.error('Bulk download error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to download documents' });
+    }
+  }
+});
+
 // Update document metadata
 router.put('/:id', authenticate, requirePermission('documents:edit'), async (req, res) => {
   try {
