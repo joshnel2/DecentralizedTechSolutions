@@ -904,6 +904,7 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
       iterations: this.progress.iterations,
       plan: this.plan,
       systemPrompt: this.systemPrompt,
+      lastCheckpointAt: new Date().toISOString(), // Track when checkpoint was saved for resume timing
     };
   }
 
@@ -2286,6 +2287,10 @@ class AmplifierService {
 
   /**
    * Resume background tasks from checkpoints after restart
+   * 
+   * This is called at server startup to resume any tasks that were
+   * interrupted by a server restart. Tasks are resumed from their
+   * last checkpoint and continue where they left off.
    */
   async resumePendingTasks() {
     if (!persistenceAvailable) return;
@@ -2293,11 +2298,31 @@ class AmplifierService {
       const result = await query(
         `SELECT id, firm_id, user_id, goal, status, progress, result, error, iterations, max_iterations, options, checkpoint, started_at
          FROM ai_background_tasks
-         WHERE status IN ('running', 'pending') AND checkpoint IS NOT NULL`
+         WHERE status IN ('running', 'pending') AND checkpoint IS NOT NULL
+         ORDER BY started_at DESC`
       );
 
+      if (result.rows.length === 0) {
+        console.log('[AmplifierService] No interrupted tasks to resume');
+        return;
+      }
+
+      console.log(`[AmplifierService] Found ${result.rows.length} interrupted task(s) to resume`);
+
       for (const row of result.rows) {
-        if (this.tasks.has(row.id)) continue;
+        if (this.tasks.has(row.id)) {
+          console.log(`[AmplifierService] Task ${row.id} already active, skipping`);
+          continue;
+        }
+        
+        // Calculate how long the task was interrupted
+        const interruptedAt = row.checkpoint?.lastCheckpointAt 
+          ? new Date(row.checkpoint.lastCheckpointAt) 
+          : row.started_at ? new Date(row.started_at) : new Date();
+        const interruptedMinutes = Math.round((Date.now() - interruptedAt.getTime()) / 60000);
+        
+        console.log(`[AmplifierService] Resuming task ${row.id}: "${row.goal.substring(0, 50)}..." (interrupted ${interruptedMinutes} min ago)`);
+        
         const task = new BackgroundTask(row.id, row.user_id, row.firm_id, row.goal, row.options || {});
         task.progress = row.progress || task.progress;
         task.result = row.result || null;
@@ -2315,10 +2340,41 @@ class AmplifierService {
         task.on('error', () => activeTasks.delete(task.userId));
         task.on('cancelled', () => activeTasks.delete(task.userId));
 
+        // Create notification for the user that their task is resuming
+        try {
+          await query(
+            `INSERT INTO notifications (
+              firm_id, user_id, type, title, message, priority,
+              entity_type, entity_id, action_url, metadata
+            ) VALUES ($1, $2, 'ai_agent', $3, $4, 'normal', 'background_task', $5, $6, $7)`,
+            [
+              row.firm_id,
+              row.user_id,
+              'Background Task Resumed',
+              `Your task "${row.goal.substring(0, 50)}${row.goal.length > 50 ? '...' : ''}" is resuming after a server restart.`,
+              row.id,
+              '/app/background-agent',
+              JSON.stringify({
+                taskId: row.id,
+                resumedAt: new Date().toISOString(),
+                interruptedMinutes,
+                iteration: row.iterations || 0
+              })
+            ]
+          );
+        } catch (notifError) {
+          // Non-fatal - notification creation failed
+          console.warn(`[AmplifierService] Failed to create resume notification for task ${row.id}:`, notifError.message);
+        }
+
         task.start({ resumeFromCheckpoint: true }).catch(err => {
-          console.error(`[AmplifierService] Resumed task ${task.id} failed:`, err);
+          console.error(`[AmplifierService] Resumed task ${row.id} failed:`, err);
         });
+        
+        console.log(`[AmplifierService] Task ${row.id} resumed successfully`);
       }
+      
+      console.log(`[AmplifierService] Finished resuming ${result.rows.length} task(s)`);
     } catch (error) {
       markPersistenceUnavailable(error);
       if (persistenceAvailable) {

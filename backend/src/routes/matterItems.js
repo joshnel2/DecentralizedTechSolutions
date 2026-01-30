@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import { getTodayInTimezone } from '../utils/dateUtils.js';
+import { learnFromTask } from '../services/manualLearning.js';
 
 const router = Router();
 
@@ -83,6 +84,15 @@ router.post('/:matterId/tasks', authenticate, requirePermission('matters:edit'),
     );
     
     const t = result.rows[0];
+    
+    // Learn from this manual task creation (async, non-blocking)
+    learnFromTask({
+      title: t.name,
+      due_date: t.due_date,
+      priority: t.priority,
+      created_at: t.created_at
+    }, req.user.id, req.user.firmId).catch(() => {});
+    
     res.status(201).json({
       id: t.id,
       name: t.name,
