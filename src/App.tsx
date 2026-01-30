@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { useAuthStore } from './stores/authStore'
 import { AIChatProvider } from './contexts/AIChatContext'
 import { TimerProvider } from './contexts/TimerContext'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { Layout } from './components/Layout'
 import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
@@ -307,13 +308,15 @@ function AppContent() {
 
 export default function App() {
   return (
-    <TimerProvider>
-      <AIChatProvider>
-        <BrowserRouter>
-          <ScrollToTop />
-          <AppContent />
-        </BrowserRouter>
-      </AIChatProvider>
-    </TimerProvider>
+    <ErrorBoundary>
+      <TimerProvider>
+        <AIChatProvider>
+          <BrowserRouter>
+            <ScrollToTop />
+            <AppContent />
+          </BrowserRouter>
+        </AIChatProvider>
+      </TimerProvider>
+    </ErrorBoundary>
   )
 }
