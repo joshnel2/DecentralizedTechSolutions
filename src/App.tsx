@@ -43,6 +43,7 @@ import { CustomFieldsPage } from './pages/CustomFieldsPage'
 import { CourtRulesPage } from './pages/CourtRulesPage'
 import { TextSnippetsPage } from './pages/TextSnippetsPage'
 import { DocumentAutomationPage } from './pages/DocumentAutomationPage'
+import { DocumentTemplatesPage } from './pages/DocumentTemplatesPage'
 import { WorkflowsPage } from './pages/WorkflowsPage'
 import { BulkPermissionsPage } from './pages/BulkPermissionsPage'
 import { AdminPortalPage } from './pages/AdminPortalPage'
@@ -224,6 +225,7 @@ function AppContent() {
         <Route path="documents/:documentId/versions" element={<DocumentVersionsPage />} />
         <Route path="documents/:documentId/compare" element={<DocumentComparePage />} />
         <Route path="documents/permissions" element={<FolderPermissionsPage />} />
+        <Route path="documents/templates" element={<DocumentTemplatesPage />} />
         <Route path="document-automation" element={<DocumentAutomationPage />} />
         <Route path="ai" element={<AIAssistantPage />} />
         <Route path="background-agent" element={<BackgroundAgentPage />} />
