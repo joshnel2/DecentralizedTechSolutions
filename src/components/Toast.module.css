@@ -1,0 +1,192 @@
+.container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 420px;
+  width: 100%;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: var(--apex-slate);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  pointer-events: auto;
+  animation: slideIn 0.3s ease-out;
+  border-left: 4px solid transparent;
+}
+
+.toast.exiting {
+  animation: slideOut 0.3s ease-in forwards;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+.iconWrapper {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 0.125rem;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  color: var(--apex-white);
+  line-height: 1.4;
+}
+
+.message {
+  font-size: 0.875rem;
+  color: var(--apex-muted);
+  margin-top: 0.25rem;
+  line-height: 1.5;
+}
+
+.actionBtn {
+  margin-top: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--apex-white);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.actionBtn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.closeBtn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--apex-subtle);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin: -0.25rem -0.25rem -0.25rem 0;
+}
+
+.closeBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--apex-white);
+}
+
+/* Type-specific styles */
+.success {
+  border-left-color: var(--apex-success);
+}
+
+.success .iconWrapper {
+  color: var(--apex-success);
+}
+
+.error {
+  border-left-color: var(--apex-error);
+}
+
+.error .iconWrapper {
+  color: var(--apex-error);
+}
+
+.warning {
+  border-left-color: var(--apex-warning);
+}
+
+.warning .iconWrapper {
+  color: var(--apex-warning);
+}
+
+.info {
+  border-left-color: var(--apex-info);
+}
+
+.info .iconWrapper {
+  color: var(--apex-info);
+}
+
+/* Mobile responsiveness */
+@media (max-width: 480px) {
+  .container {
+    top: auto;
+    bottom: 1rem;
+    left: 1rem;
+    right: 1rem;
+    max-width: none;
+  }
+
+  .toast {
+    animation-name: slideUp;
+  }
+
+  .toast.exiting {
+    animation-name: slideDown;
+  }
+
+  @keyframes slideUp {
+    from {
+      transform: translateY(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes slideDown {
+    from {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    to {
+      transform: translateY(100%);
+      opacity: 0;
+    }
+  }
+}

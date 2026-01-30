@@ -1,0 +1,186 @@
+.skeleton {
+  background: var(--apex-slate);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Variants */
+.text {
+  height: 1em;
+  border-radius: var(--radius-sm);
+  width: 100%;
+}
+
+.circular {
+  border-radius: 50%;
+}
+
+.rectangular {
+  border-radius: 0;
+}
+
+.rounded {
+  border-radius: var(--radius-md);
+}
+
+/* Animations */
+.pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.wave::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.08),
+    transparent
+  );
+  animation: wave 1.6s linear infinite;
+}
+
+@keyframes wave {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.none {
+  animation: none;
+}
+
+/* Table Skeleton */
+.tableSkeleton {
+  width: 100%;
+  background: var(--apex-deep);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.tableHeader {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--apex-slate);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tableBody {
+  padding: 0.5rem 0;
+}
+
+.tableRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 1rem;
+  padding: 0.875rem 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.tableRow:last-child {
+  border-bottom: none;
+}
+
+/* List Skeleton */
+.listSkeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.listItem {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--apex-deep);
+  border-radius: var(--radius-md);
+}
+
+.listContent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Card Skeleton */
+.cardSkeleton {
+  background: var(--apex-deep);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.cardContent {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+/* Grid Skeleton */
+.gridSkeleton {
+  display: grid;
+  gap: 1.5rem;
+}
+
+/* Stats Skeleton */
+.statsSkeleton {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.statCard {
+  background: var(--apex-deep);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .tableHeader,
+  .tableRow {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .statsSkeleton {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .gridSkeleton {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .statsSkeleton {
+    grid-template-columns: 1fr;
+  }
+
+  .gridSkeleton {
+    grid-template-columns: 1fr;
+  }
+}

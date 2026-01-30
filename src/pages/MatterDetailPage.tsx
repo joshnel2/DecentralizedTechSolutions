@@ -26,6 +26,7 @@ import { DocumentVersionPanel } from '../components/DocumentVersionPanel'
 import { ShareDocumentModal } from '../components/ShareDocumentModal'
 import { useEmailCompose } from '../contexts/EmailComposeContext'
 import { useAuthStore } from '../stores/authStore'
+import { useToast } from '../components/Toast'
 
 // Task interface
 interface Task {
@@ -55,6 +56,7 @@ export function MatterDetailPage() {
   const navigate = useNavigate()
   const { openChat } = useAIChat()
   const { timer, startTimer, stopTimer, discardTimer } = useTimer()
+  const toast = useToast()
   const { 
     matters, clients, timeEntries, invoices, events, documents, 
     updateMatter, addTimeEntry, addInvoice, addEvent, addDocument,
@@ -365,7 +367,7 @@ export function MatterDetailPage() {
       fetchMatters()
     } catch (error) {
       console.error('Failed to update matter status:', error)
-      alert('Failed to update matter status')
+      toast.error('Failed to update matter status')
     }
   }
 
@@ -394,7 +396,7 @@ export function MatterDetailPage() {
       await fetchTimeEntries({ matterId: id })
     } catch (error) {
       console.error('Failed to save quick time entry:', error)
-      alert('Failed to save time entry')
+      toast.error('Failed to save time entry')
     } finally {
       setQuickTimeSaving(false)
     }
@@ -415,7 +417,7 @@ export function MatterDetailPage() {
           navigate('/app/matters')
         } catch (error) {
           console.error('Failed to delete matter:', error)
-          alert('Failed to delete matter')
+          toast.error('Failed to delete matter')
         }
       }
     })
@@ -437,7 +439,7 @@ export function MatterDetailPage() {
           setConfirmModal(prev => ({ ...prev, isOpen: false }))
         } catch (error) {
           console.error('Failed to delete time entry:', error)
-          alert('Failed to delete time entry')
+          toast.error('Failed to delete time entry')
         }
       }
     })
@@ -468,7 +470,7 @@ export function MatterDetailPage() {
           setConfirmModal(prev => ({ ...prev, isOpen: false }))
         } catch (error) {
           console.error('Failed to delete event:', error)
-          alert('Failed to delete event')
+          toast.error('Failed to delete event')
         }
       }
     })
@@ -494,11 +496,11 @@ export function MatterDetailPage() {
         window.URL.revokeObjectURL(url)
         document.body.removeChild(a)
       } else {
-        alert('Failed to download document')
+        toast.error('Failed to download document')
       }
     } catch (error) {
       console.error('Download error:', error)
-      alert('Failed to download document')
+      toast.error('Failed to download document')
     }
   }
 
@@ -519,11 +521,11 @@ export function MatterDetailPage() {
         // Open in new tab (browser will either display or download based on file type)
         window.open(url, '_blank')
       } else {
-        alert('Failed to open document')
+        toast.error('Failed to open document')
       }
     } catch (error) {
       console.error('Failed to open document:', error)
-      alert('Failed to open document')
+      toast.error('Failed to open document')
     }
   }
 
@@ -534,7 +536,7 @@ export function MatterDetailPage() {
     const isWordDoc = wordExtensions.some(ext => docName.toLowerCase().endsWith(ext))
     
     if (!isWordDoc) {
-      alert('Word editing is only available for Word documents (.doc, .docx)')
+      toast.warning('Word editing is only available for Word documents (.doc, .docx)')
       return
     }
 
@@ -689,7 +691,7 @@ export function MatterDetailPage() {
       fetchDocuments({ matterId: id })
     } catch (error) {
       console.error('Delete error:', error)
-      alert('Failed to delete document')
+      toast.error('Failed to delete document')
     }
   }
 
@@ -1818,7 +1820,7 @@ Only analyze documents actually associated with this matter.`
                       fetchDocuments({ matterId: id })
                     } catch (error) {
                       console.error('Upload failed:', error)
-                      alert('Failed to upload document. Please try again.')
+                      toast.error('Failed to upload document', 'Please try again.')
                     } finally {
                       setIsUploading(false)
                       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -2170,7 +2172,7 @@ Only analyze documents actually associated with this matter.`
                   await fetchTimeEntries({ matterId: id })
                 } catch (error) {
                   console.error('Failed to save time entry:', error)
-                  alert('Failed to save time entry. Please try again.')
+                  toast.error('Failed to save time entry', 'Please try again.')
                 }
               }}
             />
@@ -2200,7 +2202,7 @@ Only analyze documents actually associated with this matter.`
                   fetchInvoices()
                 } catch (error) {
                   console.error('Failed to create invoice:', error)
-                  alert('Failed to create invoice. Please try again.')
+                  toast.error('Failed to create invoice', 'Please try again.')
                 }
               }}
             />
@@ -2227,7 +2229,7 @@ Only analyze documents actually associated with this matter.`
                   fetchEvents()
                 } catch (error) {
                   console.error('Failed to create event:', error)
-                  alert('Failed to create event. Please try again.')
+                  toast.error('Failed to create event', 'Please try again.')
                 }
               }}
             />
@@ -2387,7 +2389,7 @@ Only analyze documents actually associated with this matter.`
                   fetchMatters()
                 } catch (error) {
                   console.error('Failed to update matter:', error)
-                  alert('Failed to update matter. Please try again.')
+                  toast.error('Failed to update matter', 'Please try again.')
                 }
               }}
               onManageTypes={() => {
@@ -2420,7 +2422,7 @@ Only analyze documents actually associated with this matter.`
                   await fetchTimeEntries({ matterId: id })
                 } catch (error) {
                   console.error('Failed to update time entry:', error)
-                  alert('Failed to update time entry. Please try again.')
+                  toast.error('Failed to update time entry', 'Please try again.')
                 }
               }}
             />
@@ -2448,7 +2450,7 @@ Only analyze documents actually associated with this matter.`
                   fetchEvents()
                 } catch (error) {
                   console.error('Failed to update event:', error)
-                  alert('Failed to update event. Please try again.')
+                  toast.error('Failed to update event', 'Please try again.')
                 }
               }}
             />
@@ -2546,7 +2548,7 @@ Only analyze documents actually associated with this matter.`
               setShowBillEntriesModal(false)
             } catch (error) {
               console.error('Failed to create invoice:', error)
-              alert('Failed to create invoice. Please try again.')
+              toast.error('Failed to create invoice', 'Please try again.')
             }
           }}
         />
@@ -2609,6 +2611,7 @@ function TaskForm({ matterName, onClose, onSave, existingTask }: {
   onSave: (data: Omit<Task, 'id'>) => void
   existingTask?: Task
 }) {
+  const toast = useToast()
   const [formData, setFormData] = useState({
     name: existingTask?.name || '',
     status: existingTask?.status || 'pending' as 'pending' | 'in_progress' | 'completed',
@@ -2620,11 +2623,11 @@ function TaskForm({ matterName, onClose, onSave, existingTask }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.name.trim()) {
-      alert('Please enter a task name')
+      toast.warning('Please enter a task name')
       return
     }
     if (!formData.assignee.trim()) {
-      alert('Please enter an assignee')
+      toast.warning('Please enter an assignee')
       return
     }
     onSave(formData)
@@ -2945,6 +2948,7 @@ function InvoiceForm({ matterId, clientId, clientName, matterName, unbilledAmoun
   onClose: () => void
   onSave: (data: any) => Promise<void>
 }) {
+  const toast = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     matterId,
@@ -2993,7 +2997,7 @@ function InvoiceForm({ matterId, clientId, clientName, matterName, unbilledAmoun
     e.preventDefault()
     if (isSubmitting) return
     if (totalAmount <= 0) {
-      alert('Please add at least one line item with an amount')
+      toast.warning('Please add at least one line item with an amount')
       return
     }
     setIsSubmitting(true)
@@ -3346,6 +3350,7 @@ function ContactForm({ matterName, onClose, onSave }: {
   onClose: () => void
   onSave: (data: { name: string; role: string; firm?: string; email?: string; phone?: string }) => void
 }) {
+  const toast = useToast()
   const [formData, setFormData] = useState({
     name: '',
     role: '',
@@ -3357,11 +3362,11 @@ function ContactForm({ matterName, onClose, onSave }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.name.trim()) {
-      alert('Please enter a contact name')
+      toast.warning('Please enter a contact name')
       return
     }
     if (!formData.role.trim()) {
-      alert('Please enter a role')
+      toast.warning('Please enter a role')
       return
     }
     onSave(formData)
@@ -3455,6 +3460,7 @@ function MatterUpdateForm({ matterName, existingUpdate, onClose, onSave }: {
   onClose: () => void
   onSave: (data: Omit<MatterUpdate, 'id' | 'createdAt' | 'updatedAt'>) => void
 }) {
+  const toast = useToast()
   const [formData, setFormData] = useState({
     date: existingUpdate?.date ? format(parseISO(existingUpdate.date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
     title: existingUpdate?.title || '',
@@ -3472,7 +3478,7 @@ function MatterUpdateForm({ matterName, existingUpdate, onClose, onSave }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.title.trim()) {
-      alert('Please enter a title')
+      toast.warning('Please enter a title')
       return
     }
     onSave({
@@ -3767,6 +3773,7 @@ function NotesSection({
   legacyNotes: string
   onSaveLegacyNotes: (notes: string) => Promise<void>
 }) {
+  const toast = useToast()
   const [notes, setNotes] = useState<MatterNote[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isAdding, setIsAdding] = useState(false)
@@ -3817,7 +3824,7 @@ function NotesSection({
       await fetchNotes()
     } catch (error) {
       console.error('Failed to add note:', error)
-      alert('Failed to add note. Please try again.')
+      toast.error('Failed to add note', 'Please try again.')
     } finally {
       setIsSaving(false)
     }
@@ -3831,7 +3838,7 @@ function NotesSection({
       await fetchNotes()
     } catch (error) {
       console.error('Failed to delete note:', error)
-      alert('Failed to delete note. Please try again.')
+      toast.error('Failed to delete note', 'Please try again.')
     }
   }
 
@@ -3844,7 +3851,7 @@ function NotesSection({
       setTimeout(() => setSaveSuccess(false), 3000)
     } catch (error) {
       console.error('Failed to save notes:', error)
-      alert('Failed to save notes. Please try again.')
+      toast.error('Failed to save notes', 'Please try again.')
     } finally {
       setIsSaving(false)
     }

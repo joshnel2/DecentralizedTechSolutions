@@ -1,0 +1,144 @@
+.tableWrapper {
+  width: 100%;
+  overflow-x: auto;
+  background: var(--apex-deep);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.stickyHeader {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.th {
+  padding: 0.875rem 1rem;
+  background: var(--apex-slate);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  color: var(--apex-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+}
+
+.th:first-child {
+  border-top-left-radius: var(--radius-lg);
+}
+
+.th:last-child {
+  border-top-right-radius: var(--radius-lg);
+}
+
+.th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color var(--transition-fast);
+}
+
+.th.sortable:hover {
+  color: var(--apex-white);
+}
+
+.headerContent {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.sortIconInactive {
+  opacity: 0.4;
+  transition: opacity var(--transition-fast);
+}
+
+.th.sortable:hover .sortIconInactive {
+  opacity: 0.7;
+}
+
+.sortIconActive {
+  color: var(--apex-gold);
+}
+
+.tr {
+  transition: background var(--transition-fast);
+}
+
+.tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tr.selected {
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.tr.clickable {
+  cursor: pointer;
+}
+
+.td {
+  padding: 0.875rem 1rem;
+  color: var(--apex-light);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.tr:last-child .td {
+  border-bottom: none;
+}
+
+/* Alignment */
+.alignleft {
+  text-align: left;
+}
+
+.aligncenter {
+  text-align: center;
+}
+
+.alignright {
+  text-align: right;
+}
+
+/* Checkbox column */
+.checkboxCell {
+  width: 48px;
+  padding: 0.875rem 1rem;
+  text-align: center;
+}
+
+.checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--apex-gold);
+  cursor: pointer;
+}
+
+/* Empty state */
+.emptyCell {
+  padding: 3rem 1rem;
+  text-align: center;
+  color: var(--apex-subtle);
+  font-size: 0.9375rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .th, .td {
+    padding: 0.75rem 0.625rem;
+  }
+
+  .th {
+    font-size: 0.75rem;
+  }
+
+  .table {
+    font-size: 0.875rem;
+  }
+}

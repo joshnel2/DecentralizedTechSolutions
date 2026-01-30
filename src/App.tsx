@@ -4,6 +4,7 @@ import { useAuthStore } from './stores/authStore'
 import { AIChatProvider } from './contexts/AIChatContext'
 import { TimerProvider } from './contexts/TimerContext'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { ToastProvider } from './components/Toast'
 import { Layout } from './components/Layout'
 import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
@@ -309,14 +310,16 @@ function AppContent() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <TimerProvider>
-        <AIChatProvider>
-          <BrowserRouter>
-            <ScrollToTop />
-            <AppContent />
-          </BrowserRouter>
-        </AIChatProvider>
-      </TimerProvider>
+      <ToastProvider>
+        <TimerProvider>
+          <AIChatProvider>
+            <BrowserRouter>
+              <ScrollToTop />
+              <AppContent />
+            </BrowserRouter>
+          </AIChatProvider>
+        </TimerProvider>
+      </ToastProvider>
     </ErrorBoundary>
   )
 }

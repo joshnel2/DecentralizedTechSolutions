@@ -6,6 +6,7 @@ import {
   FolderPlus, Edit3, Trash2, X, Check, Upload, MoreVertical
 } from 'lucide-react'
 import { driveApi, documentsApi } from '../services/api'
+import { useToast } from './Toast'
 import styles from './FolderBrowser.module.css'
 
 // Module-level cache for browse data (persists between component mounts)
@@ -85,6 +86,8 @@ export function FolderBrowser({
   className,
   onUpload
 }: FolderBrowserProps) {
+  const toast = useToast()
+  
   // Use cached data initially if available
   const [loading, setLoading] = useState(() => {
     // Don't show loading if we have valid cached data
@@ -235,7 +238,7 @@ export function FolderBrowser({
       
     } catch (err: any) {
       console.error('Download failed:', err)
-      alert('Failed to download file: ' + (err.message || 'Unknown error'))
+      toast.error('Failed to download file', err.message || 'Unknown error')
     } finally {
       setDownloadingId(null)
     }
@@ -287,7 +290,7 @@ export function FolderBrowser({
       fetchData(true)
     } catch (err: any) {
       console.error('Failed to rename folder:', err)
-      alert('Failed to rename folder: ' + (err.message || 'Unknown error'))
+      toast.error('Failed to rename folder', err.message || 'Unknown error')
     }
   }
   
@@ -305,7 +308,7 @@ export function FolderBrowser({
       fetchData(true)
     } catch (err: any) {
       console.error('Failed to delete folder:', err)
-      alert('Failed to delete folder: ' + (err.message || 'Unknown error'))
+      toast.error('Failed to delete folder', err.message || 'Unknown error')
     } finally {
       setDeletingFolderId(null)
     }
@@ -378,7 +381,7 @@ export function FolderBrowser({
       fetchData(true)
     } catch (err: any) {
       console.error('Upload failed:', err)
-      alert('Failed to upload file(s): ' + (err.message || 'Unknown error'))
+      toast.error('Failed to upload file(s)', err.message || 'Unknown error')
     } finally {
       setIsUploading(false)
       setUploadProgress(null)

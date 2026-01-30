@@ -22,6 +22,7 @@ import { ShareDocumentModal } from '../components/ShareDocumentModal'
 import { DocumentVersionPanel } from '../components/DocumentVersionPanel'
 import { parseDocument } from '../utils/documentParser'
 import { ErrorBoundary } from '../components/ErrorBoundary'
+import { useToast } from '../components/Toast'
 
 // AI suggestion prompts for document analysis
 const AI_SUGGESTIONS = [
@@ -34,6 +35,7 @@ const AI_SUGGESTIONS = [
 
 export function DocumentsPage() {
   const navigate = useNavigate()
+  const toast = useToast()
   const { documents, matters, fetchDocuments, fetchMatters, addDocument, deleteDocument, documentsLoading, mattersLoading } = useDataStore()
   const { setSelectedMode, setDocumentContext, createConversation, setInitialMessage } = useAIStore()
   const { user } = useAuthStore()
@@ -73,7 +75,7 @@ export function DocumentsPage() {
     const isWordDoc = wordExtensions.some(ext => docName.toLowerCase().endsWith(ext))
     
     if (!isWordDoc) {
-      alert('Word editing is only available for Word documents (.doc, .docx)')
+      toast.warning('Word editing is only available for Word documents (.doc, .docx)')
       return
     }
 
@@ -215,11 +217,11 @@ export function DocumentsPage() {
         document.body.removeChild(a)
       } else {
         console.error('Download failed:', response.status, response.statusText)
-        alert('Failed to download document. Please try again.')
+        toast.error('Failed to download document', 'Please try again.')
       }
     } catch (error) {
       console.error('Download error:', error)
-      alert('Failed to download document. Please try again.')
+      toast.error('Failed to download document', 'Please try again.')
     }
   }
   
@@ -243,7 +245,7 @@ export function DocumentsPage() {
       fetchDocuments()
     } catch (error) {
       console.error('Failed to delete document:', error)
-      alert('Failed to delete document')
+      toast.error('Failed to delete document')
     }
   }
 
@@ -310,7 +312,7 @@ export function DocumentsPage() {
       fetchDocuments()
     } catch (error) {
       console.error('Failed to delete documents:', error)
-      alert('Failed to delete some documents. Please try again.')
+      toast.error('Failed to delete some documents', 'Please try again.')
     } finally {
       setIsBulkDeleting(false)
     }
@@ -368,7 +370,7 @@ export function DocumentsPage() {
       }
     } catch (error) {
       console.error('Bulk download failed:', error)
-      alert('Failed to download documents. Please try again.')
+      toast.error('Failed to download documents', 'Please try again.')
     } finally {
       setIsBulkDownloading(false)
     }
@@ -445,7 +447,7 @@ export function DocumentsPage() {
       
     } catch (error) {
       console.error('Failed to extract document:', error)
-      alert('Failed to analyze document. Please try again.')
+      toast.error('Failed to analyze document', 'Please try again.')
     } finally {
       setIsExtracting(false)
     }
@@ -539,11 +541,11 @@ export function DocumentsPage() {
         // Clean up after a delay
         setTimeout(() => window.URL.revokeObjectURL(url), 10000)
       } else {
-        alert('Failed to open file. Please try downloading instead.')
+        toast.error('Failed to open file', 'Please try downloading instead.')
       }
     } catch (error) {
       console.error('Open file error:', error)
-      alert('Failed to open file.')
+      toast.error('Failed to open file')
     }
   }
 
@@ -574,7 +576,7 @@ export function DocumentsPage() {
       setSelectedMatterId('')
     } catch (error) {
       console.error('Upload failed:', error)
-      alert('Failed to upload file. Please try again.')
+      toast.error('Failed to upload file', 'Please try again.')
     } finally {
       setIsUploading(false)
     }
