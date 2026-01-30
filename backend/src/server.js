@@ -36,6 +36,7 @@ import apiKeysRoutes from './routes/apiKeys.js';
 import desktopDriveRoutes from './routes/desktopDrive.js';
 import desktopClientRoutes from './routes/desktopClient.js';
 import documentAIRoutes from './routes/documentAI.js';
+import permissionsRoutes from './routes/permissions.js';
 
 // Background services
 import { startDriveSync } from './services/driveSync.js';
@@ -127,6 +128,7 @@ app.use('/api/api-keys', apiKeysRoutes);
 app.use('/api/drive', desktopDriveRoutes);  // Apex Drive desktop client API
 app.use('/api/desktop-client', desktopClientRoutes);  // Desktop client download & connection
 app.use('/api/document-ai', documentAIRoutes);  // AI-powered document insights
+app.use('/api/permissions', permissionsRoutes);  // Advanced permissions management
 
 // AI Agent Tool Routes (v1 API - optimized for AI interaction)
 app.use('/api/v1/billing', billingRoutes);

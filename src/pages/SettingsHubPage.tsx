@@ -30,6 +30,15 @@ const systemSettings: SettingItem[] = [
     adminOnly: true
   },
   {
+    id: 'permissions',
+    name: 'Permissions & Roles',
+    description: 'Configure role permissions, access control, and permission templates.',
+    icon: Shield,
+    path: '/app/settings/permissions',
+    adminOnly: true,
+    badge: 'New'
+  },
+  {
     id: 'bulk-permissions',
     name: 'Bulk Permissions',
     description: 'Manage matter visibility and permissions in bulk.',

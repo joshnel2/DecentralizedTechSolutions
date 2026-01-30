@@ -29,6 +29,7 @@ import { SettingsPage } from './pages/SettingsPage'
 import { SettingsHubPage } from './pages/SettingsHubPage'
 import { FirmSettingsPage } from './pages/FirmSettingsPage'
 import { FirmAdminPage } from './pages/FirmAdminPage'
+import { PermissionsSettingsPage } from './pages/PermissionsSettingsPage'
 import { TeamPage } from './pages/TeamPage'
 import { APIKeysPage } from './pages/APIKeysPage'
 import { IntegrationsPage } from './pages/IntegrationsPage'
@@ -244,6 +245,7 @@ function AppContent() {
         <Route path="settings/firm" element={<FirmSettingsPage />} />
         <Route path="settings/team" element={<TeamPage />} />
         <Route path="settings/integrations" element={<IntegrationsPage />} />
+        <Route path="settings/permissions" element={<PermissionsSettingsPage />} />
         
         {/* Integration Data Pages */}
         <Route path="integrations/outlook" element={<OutlookIntegrationPage />} />
