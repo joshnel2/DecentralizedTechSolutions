@@ -40,6 +40,7 @@ interface DocumentItem {
   uploadedByName?: string
   versionCount?: number
   isOwned?: boolean
+  isShared?: boolean
   privacyLevel?: string
 }
 
@@ -450,6 +451,9 @@ export function FolderBrowser({
                           <span className={styles.docName}>{doc.originalName || doc.name}</span>
                           {doc.isOwned && (
                             <span className={styles.ownedBadge} title="You own this document">Owner</span>
+                          )}
+                          {doc.isShared && !doc.isOwned && (
+                            <span className={styles.sharedBadge} title="Shared with you">Shared</span>
                           )}
                         </div>
                       </td>

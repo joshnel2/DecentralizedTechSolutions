@@ -2146,16 +2146,23 @@ router.get('/download-azure', authenticate, async (req, res) => {
 });
 
 /**
- * APEX DRIVE - Get documents from user's matters
- * Shows only documents from matters the user has access to
+ * APEX DRIVE - Get documents the user has access to
+ * Shows:
+ * 1. Documents from matters the user is assigned to
+ * 2. Documents the user uploaded (even without matter assignment)
+ * 3. Documents the user owns (owner_id = userId)
+ * 4. Documents shared with the user
+ * 5. For admins: all firm documents
  */
 router.get('/browse-all', authenticate, async (req, res) => {
   try {
     const { search } = req.query;
     const firmId = req.user.firmId;
     const userId = req.user.id;
+    const userRole = req.user.role;
+    const isAdmin = ['owner', 'admin'].includes(userRole);
     
-    console.log(`[BROWSE-ALL] User: ${req.user.email}, FirmId: ${firmId}`);
+    console.log(`[BROWSE-ALL] User: ${req.user.email}, FirmId: ${firmId}, Role: ${userRole}, IsAdmin: ${isAdmin}`);
     
     // Get user's matters (matters they're assigned to or have access to)
     const userMattersResult = await query(`
@@ -2167,6 +2174,7 @@ router.get('/browse-all', authenticate, async (req, res) => {
         OR m.created_by = $2
         OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
         OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
+        ${isAdmin ? 'OR TRUE' : ''} -- Admins can see all matters
       )
       ORDER BY m.name
     `, [firmId, userId]);
@@ -2174,51 +2182,82 @@ router.get('/browse-all', authenticate, async (req, res) => {
     const userMatterIds = userMattersResult.rows.map(r => r.id);
     console.log(`[BROWSE-ALL] User has access to ${userMatterIds.length} matters`);
     
-    if (userMatterIds.length === 0) {
-      // User has no matters
-      return res.json({
-        configured: true,
-        isAdmin: false,
-        files: [],
-        matters: [],
-        hasUnassigned: false,
-        stats: { totalFiles: 0, totalMatters: 0, totalSize: 0 },
-        source: 'database',
-        message: 'No matters found for this user'
-      });
+    // Build the query to get documents the user can access
+    // For admins: all firm documents
+    // For regular users: documents from their matters + documents they uploaded + documents they own
+    let sql;
+    let params;
+    let paramIndex;
+    
+    if (isAdmin) {
+      // Admins see all firm documents
+      sql = `
+        SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path,
+               d.uploaded_at, d.uploaded_by, d.matter_id, d.path, d.owner_id,
+               m.name as matter_name, m.number as matter_number,
+               u.first_name || ' ' || u.last_name as uploaded_by_name,
+               (d.owner_id = $2 OR d.uploaded_by = $2) as is_owned
+        FROM documents d
+        LEFT JOIN matters m ON d.matter_id = m.id
+        LEFT JOIN users u ON d.uploaded_by = u.id
+        WHERE d.firm_id = $1
+      `;
+      params = [firmId, userId];
+      paramIndex = 3;
+      
+      // Search filter
+      if (search) {
+        sql += ` AND (d.name ILIKE $${paramIndex} OR d.original_name ILIKE $${paramIndex} OR COALESCE(m.name, '') ILIKE $${paramIndex})`;
+        params.push(`%${search}%`);
+        paramIndex++;
+      }
+    } else {
+      // Regular users see:
+      // 1. Documents from their matters
+      // 2. Documents they uploaded
+      // 3. Documents they own
+      // 4. Documents explicitly shared with them via document_permissions
+      sql = `
+        SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path,
+               d.uploaded_at, d.uploaded_by, d.matter_id, d.path, d.owner_id,
+               m.name as matter_name, m.number as matter_number,
+               u.first_name || ' ' || u.last_name as uploaded_by_name,
+               (d.owner_id = $2 OR d.uploaded_by = $2) as is_owned,
+               EXISTS(SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $2) as is_shared
+        FROM documents d
+        LEFT JOIN matters m ON d.matter_id = m.id
+        LEFT JOIN users u ON d.uploaded_by = u.id
+        WHERE d.firm_id = $1 AND (
+          d.matter_id = ANY($3)
+          OR d.uploaded_by = $2
+          OR d.owner_id = $2
+          OR EXISTS(SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $2)
+        )
+      `;
+      params = [firmId, userId, userMatterIds.length > 0 ? userMatterIds : [null]];
+      paramIndex = 4;
+      
+      // Search filter
+      if (search) {
+        sql += ` AND (d.name ILIKE $${paramIndex} OR d.original_name ILIKE $${paramIndex} OR COALESCE(m.name, '') ILIKE $${paramIndex})`;
+        params.push(`%${search}%`);
+        paramIndex++;
+      }
     }
     
-    // Get documents ONLY from user's matters
-    let sql = `
-      SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path,
-             d.uploaded_at, d.uploaded_by, d.matter_id, d.path,
-             m.name as matter_name, m.number as matter_number,
-             u.first_name || ' ' || u.last_name as uploaded_by_name
-      FROM documents d
-      INNER JOIN matters m ON d.matter_id = m.id
-      LEFT JOIN users u ON d.uploaded_by = u.id
-      WHERE d.firm_id = $1 AND d.matter_id = ANY($2)
-    `;
-    const params = [firmId, userMatterIds];
-    let paramIndex = 3;
-    
-    // Search filter
-    if (search) {
-      sql += ` AND (d.name ILIKE $${paramIndex} OR d.original_name ILIKE $${paramIndex} OR m.name ILIKE $${paramIndex})`;
-      params.push(`%${search}%`);
-      paramIndex++;
-    }
-    
-    // Order by matter name then document name
-    sql += ` ORDER BY m.name, d.name`;
+    // Order by matter name then document name (nulls last for unassigned)
+    sql += ` ORDER BY COALESCE(m.name, 'ZZZZZZ'), d.name`;
     
     const result = await query(sql, params);
-    console.log(`[BROWSE-ALL] Found ${result.rows.length} documents in user's matters`);
+    console.log(`[BROWSE-ALL] Found ${result.rows.length} documents for user`);
     
-    // Get only the user's matters that have documents
-    const mattersWithDocs = userMattersResult.rows.filter(m => 
-      result.rows.some(d => d.matter_id === m.id)
-    );
+    // Check for unassigned documents
+    const hasUnassigned = result.rows.some(d => !d.matter_id);
+    const unassignedCount = result.rows.filter(d => !d.matter_id).length;
+    
+    // Get all matters that have documents (for sidebar)
+    const mattersWithDocIds = [...new Set(result.rows.filter(d => d.matter_id).map(d => d.matter_id))];
+    const mattersWithDocs = userMattersResult.rows.filter(m => mattersWithDocIds.includes(m.id));
     
     // Build files list
     const files = result.rows.map(row => ({
@@ -2227,18 +2266,22 @@ router.get('/browse-all', authenticate, async (req, res) => {
       originalName: row.original_name || row.name,
       contentType: row.type,
       size: row.size || 0,
-      folderPath: row.matter_number ? `${row.matter_number} - ${row.matter_name}` : row.matter_name,
+      folderPath: row.matter_id 
+        ? (row.matter_number ? `${row.matter_number} - ${row.matter_name}` : row.matter_name)
+        : null,
       matterId: row.matter_id,
       matterName: row.matter_name,
       matterNumber: row.matter_number,
       uploadedAt: row.uploaded_at,
       uploadedByName: row.uploaded_by_name,
       path: row.path,
+      isOwned: row.is_owned,
+      isShared: row.is_shared || false,
       isFromAzure: false,
       storageLocation: 'database'
     }));
     
-    // Build matters list for sidebar (only matters that have documents)
+    // Build matters list for sidebar
     const matters = mattersWithDocs.map(m => ({
       id: m.id,
       name: m.name,
@@ -2248,17 +2291,18 @@ router.get('/browse-all', authenticate, async (req, res) => {
     
     return res.json({
       configured: true,
-      isAdmin: false,
+      isAdmin,
       files,
       matters,
-      hasUnassigned: false,
+      hasUnassigned,
+      unassignedCount,
       stats: { 
         totalFiles: files.length, 
         totalMatters: matters.length,
         totalSize: files.reduce((sum, f) => sum + (Number(f.size) || 0), 0)
       },
       source: 'database',
-      message: null
+      message: files.length === 0 ? 'No documents found. Upload documents or sync from Azure.' : null
     });
     
   } catch (error) {
