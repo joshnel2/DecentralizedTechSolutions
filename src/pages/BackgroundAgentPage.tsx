@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { AlertCircle, CheckCircle, Loader2, RefreshCw, Rocket, StopCircle, Wrench, Terminal, ExternalLink, Send, MessageCircle, Star, X, ThumbsUp } from 'lucide-react'
+import { AlertCircle, CheckCircle, Loader2, RefreshCw, Rocket, StopCircle, Wrench, Terminal, ExternalLink, Send, MessageCircle, Star, X, ThumbsUp, Clock, Search, Filter, ChevronDown, ChevronUp, Zap, FileText, Users, Calendar, DollarSign, Briefcase, Scale, LayoutTemplate } from 'lucide-react'
 import { aiApi } from '../services/api'
 import styles from './BackgroundAgentPage.module.css'
 
@@ -86,7 +86,71 @@ export function BackgroundAgentPage() {
   // Extended mode for long-running tasks
   const [extendedMode, setExtendedMode] = useState(false)
   
-  // Suggested task templates
+  // Task templates - pre-built complex workflows
+  const taskTemplates = [
+    {
+      id: 'new-matter-intake',
+      name: 'New Matter Intake',
+      description: 'Set up a new matter with all required tasks, deadlines, and initial documents',
+      icon: Briefcase,
+      estimatedTime: '~5 min',
+      complexity: 'medium',
+      prompt: 'Create a complete new matter intake workflow: set up initial tasks checklist, identify key deadlines including statute of limitations, create client communication templates, and generate a matter summary memo.',
+      tags: ['matters', 'intake', 'tasks']
+    },
+    {
+      id: 'monthly-billing-review',
+      name: 'Monthly Billing Review',
+      description: 'Analyze time entries, prepare invoices, and identify billing issues',
+      icon: DollarSign,
+      estimatedTime: '~8 min',
+      complexity: 'high',
+      prompt: 'Perform a comprehensive monthly billing review: analyze all unbilled time entries from the past month, identify entries that need descriptions improved, flag any time that might be written off, and prepare a summary of billing ready for invoicing.',
+      tags: ['billing', 'invoices', 'time']
+    },
+    {
+      id: 'document-review',
+      name: 'Document Analysis',
+      description: 'Review and summarize all documents for a matter',
+      icon: FileText,
+      estimatedTime: '~3 min',
+      complexity: 'low',
+      prompt: 'Review and analyze all documents in the current matter. Create a summary of each document, identify key terms and dates, flag any potential issues or missing documents, and generate a matter document index.',
+      tags: ['documents', 'analysis', 'review']
+    },
+    {
+      id: 'deadline-audit',
+      name: 'Deadline Audit',
+      description: 'Check all matters for upcoming deadlines and compliance',
+      icon: Calendar,
+      estimatedTime: '~4 min',
+      complexity: 'medium',
+      prompt: 'Audit all active matters for upcoming deadlines in the next 30 days. Identify any matters missing critical deadlines, check statute of limitations dates, and create a prioritized deadline report with recommended actions.',
+      tags: ['calendar', 'deadlines', 'compliance']
+    },
+    {
+      id: 'client-communication',
+      name: 'Client Update Prep',
+      description: 'Prepare client status updates and communication drafts',
+      icon: Users,
+      estimatedTime: '~3 min',
+      complexity: 'low',
+      prompt: 'Prepare client communication materials: summarize recent activity on all active matters, draft status update emails, identify matters that need client contact, and create a client call preparation sheet.',
+      tags: ['clients', 'communication', 'emails']
+    },
+    {
+      id: 'case-assessment',
+      name: 'Case Assessment',
+      description: 'Generate comprehensive case evaluation and strategy memo',
+      icon: Scale,
+      estimatedTime: '~6 min',
+      complexity: 'high',
+      prompt: 'Prepare a comprehensive case assessment: analyze the facts and evidence, identify legal issues and applicable law, assess strengths and weaknesses, evaluate potential outcomes, and recommend litigation or settlement strategy.',
+      tags: ['litigation', 'strategy', 'analysis']
+    }
+  ]
+  
+  // Simple task suggestions for quick input
   const taskSuggestions = [
     'Review and summarize all documents for [matter name]',
     'Prepare case assessment memo for new personal injury matter',
@@ -94,6 +158,47 @@ export function BackgroundAgentPage() {
     'Analyze contract and identify key terms and risks',
     'Research statute of limitations for [claim type] in NY'
   ]
+  
+  // State for showing templates panel
+  const [showTemplates, setShowTemplates] = useState(false)
+  
+  // History search state
+  const [historySearch, setHistorySearch] = useState('')
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<string>('all')
+  
+  // Estimated time calculation based on task complexity
+  const estimateTaskTime = (goal: string): string => {
+    const wordCount = goal.split(' ').length
+    const hasDocuments = /document|review|analyze|summarize/i.test(goal)
+    const hasBilling = /bill|invoice|time entr/i.test(goal)
+    const hasResearch = /research|statute|case law|precedent/i.test(goal)
+    const hasMultiple = /all|every|each|matters|clients/i.test(goal)
+    
+    let minutes = 2 // Base time
+    
+    if (wordCount > 30) minutes += 2
+    if (hasDocuments) minutes += 2
+    if (hasBilling) minutes += 3
+    if (hasResearch) minutes += 4
+    if (hasMultiple) minutes += 3
+    if (extendedMode) minutes = Math.max(minutes * 2, 10)
+    
+    if (minutes <= 3) return '~2-3 min'
+    if (minutes <= 5) return '~3-5 min'
+    if (minutes <= 8) return '~5-8 min'
+    return '~8-15 min'
+  }
+  
+  // Filter recent tasks based on search and status
+  const filteredRecentTasks = useMemo(() => {
+    return recentTasks.filter(task => {
+      const matchesSearch = !historySearch || 
+        task.goal.toLowerCase().includes(historySearch.toLowerCase())
+      const matchesStatus = historyStatusFilter === 'all' || 
+        task.status === historyStatusFilter
+      return matchesSearch && matchesStatus
+    })
+  }, [recentTasks, historySearch, historyStatusFilter])
   
   // Feedback modal state
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
@@ -561,7 +666,58 @@ export function BackgroundAgentPage() {
       <div className={styles.card}>
         <div className={styles.cardHeader}>
           <h2>Start Background Task</h2>
+          <button 
+            className={styles.templatesToggle}
+            onClick={() => setShowTemplates(!showTemplates)}
+          >
+            <LayoutTemplate size={16} />
+            Templates
+            {showTemplates ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
         </div>
+        
+        {/* Task Templates Panel */}
+        {showTemplates && (
+          <div className={styles.templatesPanel}>
+            <div className={styles.templatesPanelHeader}>
+              <h3>Pre-Built Workflows</h3>
+              <p>Select a template to start a complex task with optimized instructions</p>
+            </div>
+            <div className={styles.templatesGrid}>
+              {taskTemplates.map(template => {
+                const IconComponent = template.icon
+                return (
+                  <button
+                    key={template.id}
+                    className={styles.templateCard}
+                    onClick={() => {
+                      setGoalInput(template.prompt)
+                      setShowTemplates(false)
+                    }}
+                  >
+                    <div className={styles.templateIcon}>
+                      <IconComponent size={20} />
+                    </div>
+                    <div className={styles.templateContent}>
+                      <div className={styles.templateName}>{template.name}</div>
+                      <div className={styles.templateDesc}>{template.description}</div>
+                      <div className={styles.templateMeta}>
+                        <span className={styles.templateTime}>
+                          <Clock size={12} />
+                          {template.estimatedTime}
+                        </span>
+                        <span className={`${styles.templateComplexity} ${styles[template.complexity]}`}>
+                          {template.complexity}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+        
         <div className={styles.taskForm}>
           <textarea
             className={styles.taskInput}
@@ -572,7 +728,7 @@ export function BackgroundAgentPage() {
           />
           {!goalInput && (
             <div className={styles.suggestions}>
-              <span className={styles.suggestionsLabel}>Try:</span>
+              <span className={styles.suggestionsLabel}>Quick suggestions:</span>
               <div className={styles.suggestionChips}>
                 {taskSuggestions.slice(0, 3).map((suggestion, idx) => (
                   <button
@@ -586,6 +742,15 @@ export function BackgroundAgentPage() {
               </div>
             </div>
           )}
+          
+          {/* Estimated Time Display */}
+          {goalInput.trim() && (
+            <div className={styles.estimatedTime}>
+              <Clock size={14} />
+              <span>Estimated completion: <strong>{estimateTaskTime(goalInput)}</strong></span>
+            </div>
+          )}
+          
           <div className={styles.taskOptions}>
             <label className={styles.extendedMode}>
               <input
@@ -808,19 +973,75 @@ export function BackgroundAgentPage() {
         <div className={styles.card}>
           <div className={styles.cardHeader}>
             <h2>Recent Tasks</h2>
+            <span className={styles.taskCount}>{recentTasks.length} tasks</span>
           </div>
+          
+          {/* Search and Filter */}
+          {recentTasks.length > 0 && (
+            <div className={styles.historyFilters}>
+              <div className={styles.historySearch}>
+                <Search size={14} />
+                <input
+                  type="text"
+                  placeholder="Search tasks..."
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                />
+                {historySearch && (
+                  <button 
+                    className={styles.clearSearch}
+                    onClick={() => setHistorySearch('')}
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+              <select
+                className={styles.statusFilter}
+                value={historyStatusFilter}
+                onChange={(e) => setHistoryStatusFilter(e.target.value)}
+              >
+                <option value="all">All Status</option>
+                <option value="completed">Completed</option>
+                <option value="running">Running</option>
+                <option value="failed">Failed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+          )}
+          
           {recentTasks.length === 0 && (
             <div className={styles.emptyState}>No recent background tasks yet.</div>
           )}
-          {recentTasks.length > 0 && (
+          {recentTasks.length > 0 && filteredRecentTasks.length === 0 && (
+            <div className={styles.emptyState}>No tasks match your search.</div>
+          )}
+          {filteredRecentTasks.length > 0 && (
             <div className={styles.taskList}>
-              {recentTasks.map(task => (
+              {filteredRecentTasks.map(task => (
                 <div key={task.id} className={styles.taskRow}>
-                  <div>
-                    <div className={styles.taskGoalSmall}>{task.goal}</div>
-                    <div className={styles.taskMeta}>{task.status}</div>
+                  <div className={styles.taskRowMain}>
+                    <div className={styles.taskStatusIcon}>
+                      {task.status === 'completed' && <CheckCircle size={14} className={styles.complete} />}
+                      {task.status === 'failed' && <AlertCircle size={14} className={styles.error} />}
+                      {task.status === 'cancelled' && <StopCircle size={14} className={styles.cancelled} />}
+                      {task.status === 'running' && <Loader2 size={14} className={styles.spin} />}
+                    </div>
+                    <div className={styles.taskRowContent}>
+                      <div className={styles.taskGoalSmall}>{task.goal}</div>
+                      <div className={styles.taskRowMeta}>
+                        <span className={`${styles.taskStatusBadge} ${styles[task.status]}`}>
+                          {task.status}
+                        </span>
+                        {task.progress?.iterations && (
+                          <span className={styles.taskIterations}>
+                            {task.progress.iterations} steps
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className={styles.taskMeta}>
+                  <div className={styles.taskRowProgress}>
                     {clampPercent(task.progress?.progressPercent, 0)}%
                   </div>
                 </div>
@@ -830,29 +1051,121 @@ export function BackgroundAgentPage() {
         </div>
       </div>
 
-      <div className={styles.card}>
-        <div className={styles.cardHeader}>
-          <h2>Available Tools</h2>
-        </div>
-        {!tools && (
-          <div className={styles.emptyState}>Tool list unavailable.</div>
-        )}
-        {tools?.categories && (
-          <div className={styles.toolGrid}>
-            {tools.categories.map(category => (
-              <div key={category.name} className={styles.toolCategory}>
-                <div className={styles.toolHeader}>
-                  <Wrench size={14} />
-                  <span>{category.name}</span>
-                </div>
-                <ul>
-                  {category.tools.map(toolName => (
-                    <li key={toolName}>{toolName}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+      {/* Agent Capabilities Section - Always visible for discoverability */}
+      <div className={styles.capabilitiesCard}>
+        <div className={styles.capabilitiesHeader}>
+          <div className={styles.capabilitiesTitle}>
+            <Zap size={20} />
+            <div>
+              <h2>What the Agent Can Do</h2>
+              <p>The background agent can autonomously perform these actions on your behalf</p>
+            </div>
           </div>
+        </div>
+        
+        <div className={styles.capabilitiesGrid}>
+          <div className={styles.capabilityCategory}>
+            <div className={styles.capabilityIcon}><Briefcase size={18} /></div>
+            <div className={styles.capabilityInfo}>
+              <h4>Matters & Cases</h4>
+              <ul>
+                <li>Create and update matters</li>
+                <li>Generate case assessments</li>
+                <li>Identify critical deadlines</li>
+                <li>Run conflict checks</li>
+              </ul>
+            </div>
+          </div>
+          
+          <div className={styles.capabilityCategory}>
+            <div className={styles.capabilityIcon}><FileText size={18} /></div>
+            <div className={styles.capabilityInfo}>
+              <h4>Documents</h4>
+              <ul>
+                <li>Analyze and summarize documents</li>
+                <li>Extract key terms and clauses</li>
+                <li>Draft document outlines</li>
+                <li>Create document indexes</li>
+              </ul>
+            </div>
+          </div>
+          
+          <div className={styles.capabilityCategory}>
+            <div className={styles.capabilityIcon}><Clock size={18} /></div>
+            <div className={styles.capabilityInfo}>
+              <h4>Time & Billing</h4>
+              <ul>
+                <li>Review time entries</li>
+                <li>Suggest billing descriptions</li>
+                <li>Prepare invoice summaries</li>
+                <li>Identify unbilled work</li>
+              </ul>
+            </div>
+          </div>
+          
+          <div className={styles.capabilityCategory}>
+            <div className={styles.capabilityIcon}><Users size={18} /></div>
+            <div className={styles.capabilityInfo}>
+              <h4>Clients & Communication</h4>
+              <ul>
+                <li>Prepare client updates</li>
+                <li>Draft correspondence</li>
+                <li>Create intake checklists</li>
+                <li>Generate status reports</li>
+              </ul>
+            </div>
+          </div>
+          
+          <div className={styles.capabilityCategory}>
+            <div className={styles.capabilityIcon}><Calendar size={18} /></div>
+            <div className={styles.capabilityInfo}>
+              <h4>Calendar & Tasks</h4>
+              <ul>
+                <li>Review upcoming deadlines</li>
+                <li>Create task lists</li>
+                <li>Schedule reminders</li>
+                <li>Audit calendar compliance</li>
+              </ul>
+            </div>
+          </div>
+          
+          <div className={styles.capabilityCategory}>
+            <div className={styles.capabilityIcon}><Scale size={18} /></div>
+            <div className={styles.capabilityInfo}>
+              <h4>Legal Research</h4>
+              <ul>
+                <li>Research statute of limitations</li>
+                <li>Identify relevant court rules</li>
+                <li>Check NY CPLR requirements</li>
+                <li>Prepare legal memos</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        
+        {/* Detailed Tool List (Collapsible) */}
+        {tools?.categories && (
+          <details className={styles.toolsDetails}>
+            <summary className={styles.toolsSummary}>
+              <Wrench size={14} />
+              <span>View All {tools.categories.reduce((acc, cat) => acc + cat.tools.length, 0)} Tools</span>
+            </summary>
+            <div className={styles.toolGrid}>
+              {tools.categories.map(category => (
+                <div key={category.name} className={styles.toolCategory}>
+                  <div className={styles.toolHeader}>
+                    <span>{category.name}</span>
+                    <span className={styles.toolCount}>{category.tools.length}</span>
+                  </div>
+                  <ul>
+                    {category.tools.map(toolName => (
+                      <li key={toolName}>{toolName}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </details>
         )}
       </div>
 
