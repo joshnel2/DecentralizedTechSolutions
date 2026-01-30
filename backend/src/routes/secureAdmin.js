@@ -1557,6 +1557,237 @@ router.get('/firms/:firmId/scan-diagnostic', requireSecureAdmin, async (req, res
 });
 
 // ============================================
+// SCAN HISTORY & SETTINGS
+// ============================================
+
+// Get scan history for a firm
+router.get('/firms/:firmId/scan-history', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    const { limit = 20, offset = 0 } = req.query;
+    
+    const result = await query(
+      `SELECT * FROM scan_history 
+       WHERE firm_id = $1 
+       ORDER BY started_at DESC 
+       LIMIT $2 OFFSET $3`,
+      [firmId, parseInt(limit), parseInt(offset)]
+    );
+    
+    const countResult = await query(
+      `SELECT COUNT(*) FROM scan_history WHERE firm_id = $1`,
+      [firmId]
+    );
+    
+    res.json({
+      history: result.rows.map(h => ({
+        id: h.id,
+        status: h.status,
+        scanMode: h.scan_mode,
+        filesProcessed: h.files_processed,
+        filesMatched: h.files_matched,
+        filesCreated: h.files_created,
+        filesSkipped: h.files_skipped,
+        totalFiles: h.total_files,
+        errorsCount: h.errors_count,
+        startedAt: h.started_at,
+        completedAt: h.completed_at,
+        durationSeconds: h.duration_seconds,
+        errorMessage: h.error_message,
+        triggeredBy: h.triggered_by,
+        triggeredByUser: h.triggered_by_user
+      })),
+      total: parseInt(countResult.rows[0].count),
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+  } catch (error) {
+    // Table might not exist yet
+    if (error.code === '42P01') {
+      return res.json({ history: [], total: 0 });
+    }
+    console.error('Get scan history error:', error);
+    res.status(500).json({ error: 'Failed to get scan history' });
+  }
+});
+
+// Get scan settings for a firm
+router.get('/firms/:firmId/scan-settings', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    
+    const result = await query(
+      `SELECT * FROM scan_settings WHERE firm_id = $1`,
+      [firmId]
+    );
+    
+    if (result.rows.length === 0) {
+      // Return defaults
+      return res.json({
+        autoSyncEnabled: false,
+        syncIntervalMinutes: 10,
+        permissionMode: 'matter',
+        defaultPrivacyLevel: 'team',
+        autoAssignToResponsibleAttorney: true,
+        notifyOnCompletion: true,
+        notifyOnError: true,
+        notificationEmails: [],
+        dryRunFirst: false,
+        skipExisting: true
+      });
+    }
+    
+    const s = result.rows[0];
+    res.json({
+      autoSyncEnabled: s.auto_sync_enabled,
+      syncIntervalMinutes: s.sync_interval_minutes,
+      lastAutoSyncAt: s.last_auto_sync_at,
+      permissionMode: s.permission_mode,
+      defaultPrivacyLevel: s.default_privacy_level,
+      autoAssignToResponsibleAttorney: s.auto_assign_to_responsible_attorney,
+      notifyOnCompletion: s.notify_on_completion,
+      notifyOnError: s.notify_on_error,
+      notificationEmails: s.notification_emails || [],
+      dryRunFirst: s.dry_run_first,
+      skipExisting: s.skip_existing
+    });
+  } catch (error) {
+    // Table might not exist yet
+    if (error.code === '42P01') {
+      return res.json({
+        autoSyncEnabled: false,
+        syncIntervalMinutes: 10,
+        permissionMode: 'matter',
+        defaultPrivacyLevel: 'team',
+        autoAssignToResponsibleAttorney: true,
+        notifyOnCompletion: true,
+        notifyOnError: true,
+        notificationEmails: [],
+        dryRunFirst: false,
+        skipExisting: true
+      });
+    }
+    console.error('Get scan settings error:', error);
+    res.status(500).json({ error: 'Failed to get scan settings' });
+  }
+});
+
+// Update scan settings for a firm
+router.put('/firms/:firmId/scan-settings', requireSecureAdmin, async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    const {
+      autoSyncEnabled,
+      syncIntervalMinutes,
+      permissionMode,
+      defaultPrivacyLevel,
+      autoAssignToResponsibleAttorney,
+      notifyOnCompletion,
+      notifyOnError,
+      notificationEmails,
+      dryRunFirst,
+      skipExisting
+    } = req.body;
+    
+    // Upsert settings
+    const result = await query(
+      `INSERT INTO scan_settings (
+        firm_id, auto_sync_enabled, sync_interval_minutes, permission_mode,
+        default_privacy_level, auto_assign_to_responsible_attorney,
+        notify_on_completion, notify_on_error, notification_emails,
+        dry_run_first, skip_existing, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+      ON CONFLICT (firm_id) DO UPDATE SET
+        auto_sync_enabled = COALESCE($2, scan_settings.auto_sync_enabled),
+        sync_interval_minutes = COALESCE($3, scan_settings.sync_interval_minutes),
+        permission_mode = COALESCE($4, scan_settings.permission_mode),
+        default_privacy_level = COALESCE($5, scan_settings.default_privacy_level),
+        auto_assign_to_responsible_attorney = COALESCE($6, scan_settings.auto_assign_to_responsible_attorney),
+        notify_on_completion = COALESCE($7, scan_settings.notify_on_completion),
+        notify_on_error = COALESCE($8, scan_settings.notify_on_error),
+        notification_emails = COALESCE($9, scan_settings.notification_emails),
+        dry_run_first = COALESCE($10, scan_settings.dry_run_first),
+        skip_existing = COALESCE($11, scan_settings.skip_existing),
+        updated_at = NOW()
+      RETURNING *`,
+      [
+        firmId,
+        autoSyncEnabled,
+        syncIntervalMinutes,
+        permissionMode,
+        defaultPrivacyLevel,
+        autoAssignToResponsibleAttorney,
+        notifyOnCompletion,
+        notifyOnError,
+        notificationEmails,
+        dryRunFirst,
+        skipExisting
+      ]
+    );
+    
+    logAudit('UPDATE_SCAN_SETTINGS', `Updated scan settings for firm ${firmId}`, req.ip);
+    
+    const s = result.rows[0];
+    res.json({
+      success: true,
+      settings: {
+        autoSyncEnabled: s.auto_sync_enabled,
+        syncIntervalMinutes: s.sync_interval_minutes,
+        permissionMode: s.permission_mode,
+        defaultPrivacyLevel: s.default_privacy_level,
+        autoAssignToResponsibleAttorney: s.auto_assign_to_responsible_attorney,
+        notifyOnCompletion: s.notify_on_completion,
+        notifyOnError: s.notify_on_error,
+        notificationEmails: s.notification_emails,
+        dryRunFirst: s.dry_run_first,
+        skipExisting: s.skip_existing
+      }
+    });
+  } catch (error) {
+    console.error('Update scan settings error:', error);
+    res.status(500).json({ error: 'Failed to update scan settings' });
+  }
+});
+
+// Helper function to save scan to history
+async function saveScanToHistory(firmId, job, triggeredBy = 'manual', triggeredByUser = null) {
+  try {
+    const startedAt = job.startedAt ? new Date(job.startedAt) : new Date();
+    const completedAt = job.completedAt ? new Date(job.completedAt) : new Date();
+    const durationSeconds = Math.round((completedAt - startedAt) / 1000);
+    
+    await query(
+      `INSERT INTO scan_history (
+        firm_id, status, scan_mode, files_processed, files_matched,
+        files_created, files_skipped, total_files, errors_count,
+        started_at, completed_at, duration_seconds, error_message,
+        scan_results, triggered_by, triggered_by_user
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+      [
+        firmId,
+        job.status,
+        job.scanMode || 'auto',
+        job.progress?.processed || 0,
+        job.progress?.matched || 0,
+        job.progress?.created || 0,
+        job.results?.skipped || 0,
+        job.progress?.total || 0,
+        job.results?.errors?.length || 0,
+        startedAt,
+        completedAt,
+        durationSeconds,
+        job.error || null,
+        job.results ? JSON.stringify(job.results) : null,
+        triggeredBy,
+        triggeredByUser
+      ]
+    );
+  } catch (error) {
+    console.error('Failed to save scan to history:', error);
+  }
+}
+
+// ============================================
 // SCAN JOB STORAGE - Track background scan progress
 // ============================================
 const scanJobs = new Map(); // firmId -> { status, progress, results, startedAt, ... }
@@ -1969,6 +2200,7 @@ async function runFolderBasedScan(firmId, dryRun, job) {
     job.completedAt = new Date().toISOString();
     job.phase = 'done';
     job.progress.percent = 100;
+    job.scanMode = 'folder';
     job.results = {
       success: true,
       message,
@@ -1986,11 +2218,17 @@ async function runFolderBasedScan(firmId, dryRun, job) {
       errors: results.errors.slice(0, 20)
     };
     
+    // Save to history
+    await saveScanToHistory(firmId, job, 'manual');
+    
   } catch (error) {
     console.error('[SCAN] Folder scan error:', error);
     job.status = 'error';
     job.error = error.message;
     job.completedAt = new Date().toISOString();
+    
+    // Save error to history
+    await saveScanToHistory(firmId, job, 'manual');
   }
 }
 
@@ -2535,6 +2773,7 @@ async function runManifestScan(firmId, dryRun, job) {
     job.completedAt = new Date().toISOString();
     job.phase = 'done';
     job.progress.percent = 100;
+    job.scanMode = 'manifest';
     job.results = {
       success: true,
       message,
@@ -2557,6 +2796,9 @@ async function runManifestScan(firmId, dryRun, job) {
       errors: results.errors.slice(0, 20)
     };
     
+    // Save to history
+    await saveScanToHistory(firmId, job, 'manual');
+    
     console.log(`[SCAN] Manifest-based scan completed for firm ${firmId}`);
     
   } catch (error) {
@@ -2564,6 +2806,9 @@ async function runManifestScan(firmId, dryRun, job) {
     job.status = error.message === 'Scan cancelled by user' ? 'cancelled' : 'error';
     job.error = error.message;
     job.completedAt = new Date().toISOString();
+    
+    // Save error to history
+    await saveScanToHistory(firmId, job, 'manual');
     
     // Clean up temp table on error
     try {

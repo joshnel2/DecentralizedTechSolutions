@@ -951,6 +951,196 @@
   background: #E2B100;
 }
 
+/* Settings Modal */
+.settingsModal {
+  background: var(--apex-deep);
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 560px;
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: modalSlide 0.2s ease-out;
+}
+
+.settingsContent {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.settingsSection {
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+}
+
+.settingsSection h4 {
+  margin: 0 0 1rem 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.settingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.settingRow:last-child {
+  margin-bottom: 0;
+}
+
+.settingRow label {
+  font-size: 0.875rem;
+  color: var(--apex-text);
+}
+
+.settingRow select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-md);
+  background: var(--apex-deep);
+  color: var(--apex-white);
+  font-size: 0.875rem;
+  min-width: 180px;
+}
+
+.settingRow select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.checkboxLabel input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--apex-gold);
+}
+
+.settingHint {
+  margin: 0.5rem 0 0 0;
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+  font-style: italic;
+}
+
+/* History Section */
+.historySection {
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+}
+
+.historyHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.historyHeader h4 {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.refreshHistoryBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--apex-subtle);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.refreshHistoryBtn:hover {
+  background: var(--apex-deep);
+  color: var(--apex-gold);
+  border-color: var(--apex-gold);
+}
+
+.noHistory {
+  color: var(--apex-subtle);
+  font-size: 0.875rem;
+  text-align: center;
+  padding: 1rem;
+  margin: 0;
+}
+
+.historyTable {
+  overflow-x: auto;
+}
+
+.historyTable table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.historyTable th {
+  text-align: left;
+  padding: 0.5rem;
+  color: var(--apex-subtle);
+  font-weight: 500;
+  border-bottom: 1px solid var(--apex-border);
+}
+
+.historyTable td {
+  padding: 0.5rem;
+  color: var(--apex-text);
+  border-bottom: 1px solid var(--apex-border);
+}
+
+.historyStatus {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.statusCompleted {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22C55E;
+}
+
+.statusError {
+  background: rgba(239, 68, 68, 0.1);
+  color: #EF4444;
+}
+
+.statusCancelled {
+  background: rgba(245, 158, 11, 0.1);
+  color: #F59E0B;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .sectionHeader {

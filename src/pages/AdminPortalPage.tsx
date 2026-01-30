@@ -401,7 +401,14 @@ export function AdminPortalPage() {
                           title="Scan Documents & Set Permissions"
                           style={{ color: scanningFirmId === firm.id ? '#888' : '#10B981' }}
                         >
-                          {scanningFirmId === firm.id ? <Clock size={16} className="animate-spin" /> : <FolderSync size={16} />}
+                          {scanningFirmId === firm.id ? <Loader2 size={16} className={styles.spinnerSmall} /> : <FolderSync size={16} />}
+                        </button>
+                        <button 
+                          onClick={() => openScanSettings(firm.id)}
+                          title="Scan Settings & History"
+                          style={{ color: '#6366F1' }}
+                        >
+                          <Settings size={16} />
                         </button>
                         <button 
                           className={styles.deleteBtn}
@@ -1060,6 +1067,142 @@ export function AdminPortalPage() {
           </div>
         </div>
       )}
+      
+      {/* Scan Settings & History Modal */}
+      {showScanSettings && selectedFirmId && (
+        <div className={styles.modalOverlay} onClick={() => setShowScanSettings(false)}>
+          <div className={styles.settingsModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.scanModalHeader}>
+              <h3>
+                <Settings size={20} />
+                Scan Settings & History
+              </h3>
+              <button className={styles.modalClose} onClick={() => setShowScanSettings(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div className={styles.settingsContent}>
+              {/* Settings Section */}
+              <div className={styles.settingsSection}>
+                <h4>Auto-Sync Settings</h4>
+                
+                <div className={styles.settingRow}>
+                  <label className={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={scanSettings.autoSyncEnabled}
+                      onChange={(e) => setScanSettings(prev => ({ ...prev, autoSyncEnabled: e.target.checked }))}
+                    />
+                    <span>Enable automatic sync</span>
+                  </label>
+                </div>
+                
+                <div className={styles.settingRow}>
+                  <label>Sync Interval</label>
+                  <select
+                    value={scanSettings.syncInterval}
+                    onChange={(e) => setScanSettings(prev => ({ ...prev, syncInterval: parseInt(e.target.value) }))}
+                    disabled={!scanSettings.autoSyncEnabled}
+                  >
+                    <option value={5}>Every 5 minutes</option>
+                    <option value={10}>Every 10 minutes</option>
+                    <option value={30}>Every 30 minutes</option>
+                    <option value={60}>Every hour</option>
+                    <option value={360}>Every 6 hours</option>
+                    <option value={1440}>Daily</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div className={styles.settingsSection}>
+                <h4>Permission Settings</h4>
+                
+                <div className={styles.settingRow}>
+                  <label>Permission Mode</label>
+                  <select
+                    value={scanSettings.permissionMode}
+                    onChange={(e) => setScanSettings(prev => ({ ...prev, permissionMode: e.target.value as any }))}
+                  >
+                    <option value="inherit">Inherit from folder</option>
+                    <option value="matter">Based on matter assignments</option>
+                    <option value="strict">Strict - owner only</option>
+                  </select>
+                </div>
+                
+                <p className={styles.settingHint}>
+                  {scanSettings.permissionMode === 'inherit' && 'Documents inherit permissions from their parent folder.'}
+                  {scanSettings.permissionMode === 'matter' && 'Documents are accessible by users assigned to the matter.'}
+                  {scanSettings.permissionMode === 'strict' && 'Only the document owner and admins can access.'}
+                </p>
+              </div>
+              
+              {/* History Section */}
+              <div className={styles.historySection}>
+                <div className={styles.historyHeader}>
+                  <h4>
+                    <History size={16} />
+                    Scan History
+                  </h4>
+                  <button 
+                    className={styles.refreshHistoryBtn}
+                    onClick={() => openScanSettings(selectedFirmId)}
+                  >
+                    <RefreshCw size={14} />
+                  </button>
+                </div>
+                
+                {scanHistory.length === 0 ? (
+                  <p className={styles.noHistory}>No scan history available</p>
+                ) : (
+                  <div className={styles.historyTable}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Status</th>
+                          <th>Mode</th>
+                          <th>Processed</th>
+                          <th>Created</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {scanHistory.map(h => (
+                          <tr key={h.id}>
+                            <td>{format(parseISO(h.startedAt), 'MMM d, h:mm a')}</td>
+                            <td>
+                              <span className={clsx(styles.historyStatus, {
+                                [styles.statusCompleted]: h.status === 'completed',
+                                [styles.statusError]: h.status === 'error',
+                                [styles.statusCancelled]: h.status === 'cancelled'
+                              })}>
+                                {h.status}
+                              </span>
+                            </td>
+                            <td>{h.scanMode}</td>
+                            <td>{h.filesProcessed}</td>
+                            <td>{h.filesCreated}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className={styles.scanModalFooter}>
+              <button className={styles.cancelScanBtn} onClick={() => setShowScanSettings(false)}>
+                Cancel
+              </button>
+              <button className={styles.closeScanBtn} onClick={saveScanSettings}>
+                <Save size={14} />
+                Save Settings
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
   
@@ -1193,6 +1336,49 @@ export function AdminPortalPage() {
       setShowScanModal(false)
     } catch (err: any) {
       console.error('Failed to reset scan:', err)
+    }
+  }
+  
+  async function openScanSettings(firmId: string) {
+    setSelectedFirmId(firmId)
+    setShowScanSettings(true)
+    
+    // Load settings and history
+    try {
+      const [settings, historyRes] = await Promise.all([
+        fetchSecureAdmin(`/firms/${firmId}/scan-settings`),
+        fetchSecureAdmin(`/firms/${firmId}/scan-history?limit=10`)
+      ])
+      
+      setScanSettings({
+        autoSyncEnabled: settings.autoSyncEnabled,
+        syncInterval: settings.syncIntervalMinutes,
+        permissionMode: settings.permissionMode
+      })
+      
+      setScanHistory(historyRes.history || [])
+    } catch (err) {
+      console.error('Failed to load scan settings:', err)
+    }
+  }
+  
+  async function saveScanSettings() {
+    if (!selectedFirmId) return
+    
+    try {
+      await fetchSecureAdmin(`/firms/${selectedFirmId}/scan-settings`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          autoSyncEnabled: scanSettings.autoSyncEnabled,
+          syncIntervalMinutes: scanSettings.syncInterval,
+          permissionMode: scanSettings.permissionMode
+        })
+      })
+      
+      setShowScanSettings(false)
+    } catch (err: any) {
+      console.error('Failed to save scan settings:', err)
+      alert('Failed to save settings: ' + err.message)
     }
   }
 
