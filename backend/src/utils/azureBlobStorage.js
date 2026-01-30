@@ -359,6 +359,46 @@ export async function isBlobConfigured() {
 }
 
 /**
+ * Check the access tier of a specific version blob
+ * Used to determine if rehydration is complete
+ * 
+ * @param {string} firmId - Firm ID
+ * @param {string} documentId - Document ID
+ * @param {number} versionNumber - Version number
+ * @returns {Promise<string|null>} - Tier name ('Hot', 'Cool', 'Archive') or null if not found
+ */
+export async function checkVersionTier(firmId, documentId, versionNumber) {
+  try {
+    const container = await getVersionsContainer();
+    const blobName = `versions/${firmId}/${documentId}/v${versionNumber}`;
+    const blockBlobClient = container.getBlockBlobClient(blobName);
+    
+    const properties = await blockBlobClient.getProperties();
+    
+    // The accessTier property indicates current tier
+    // During rehydration, archiveStatus will be 'rehydrate-pending-to-hot' or 'rehydrate-pending-to-cool'
+    const tier = properties.accessTier;
+    const archiveStatus = properties.archiveStatus;
+    
+    console.log(`[AZURE BLOB] Version tier check: ${blobName} - tier=${tier}, archiveStatus=${archiveStatus}`);
+    
+    // If still rehydrating, return 'Archive' to indicate not ready
+    if (archiveStatus && archiveStatus.includes('rehydrate-pending')) {
+      return 'Archive';
+    }
+    
+    return tier || 'Hot';
+  } catch (error) {
+    if (error.statusCode === 404) {
+      console.log(`[AZURE BLOB] Version not found: ${firmId}/${documentId}/v${versionNumber}`);
+      return null;
+    }
+    console.error('[AZURE BLOB] Check version tier failed:', error.message);
+    return null;
+  }
+}
+
+/**
  * Get storage tier statistics for a firm
  * 
  * @param {string} firmId - Firm ID

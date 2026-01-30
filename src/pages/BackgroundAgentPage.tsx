@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { AlertCircle, CheckCircle, Loader2, RefreshCw, Rocket, StopCircle, Wrench, Terminal, ExternalLink, Send, MessageCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle, Loader2, RefreshCw, Rocket, StopCircle, Wrench, Terminal, ExternalLink, Send, MessageCircle, Star, X, ThumbsUp } from 'lucide-react'
 import { aiApi } from '../services/api'
 import styles from './BackgroundAgentPage.module.css'
 
@@ -71,8 +71,12 @@ export function BackgroundAgentPage() {
   // Real-time streaming state
   const [liveEvents, setLiveEvents] = useState<StreamEvent[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected')
+  const [reconnectAttempt, setReconnectAttempt] = useState(0)
   const eventSourceRef = useRef<EventSource | null>(null)
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const liveEventsRef = useRef<HTMLDivElement>(null)
+  const maxReconnectAttempts = 5
   
   // Follow-up state
   const [followUpInput, setFollowUpInput] = useState('')
@@ -81,6 +85,24 @@ export function BackgroundAgentPage() {
   
   // Extended mode for long-running tasks
   const [extendedMode, setExtendedMode] = useState(false)
+  
+  // Suggested task templates
+  const taskSuggestions = [
+    'Review and summarize all documents for [matter name]',
+    'Prepare case assessment memo for new personal injury matter',
+    'Create intake checklist and initial tasks for new client',
+    'Analyze contract and identify key terms and risks',
+    'Research statute of limitations for [claim type] in NY'
+  ]
+  
+  // Feedback modal state
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false)
+  const [feedbackTaskId, setFeedbackTaskId] = useState<string | null>(null)
+  const [feedbackRating, setFeedbackRating] = useState<number>(0)
+  const [feedbackText, setFeedbackText] = useState('')
+  const [feedbackCorrection, setFeedbackCorrection] = useState('')
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false)
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState<Set<string>>(new Set())
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -168,7 +190,7 @@ export function BackgroundAgentPage() {
     return () => clearInterval(interval)
   }, [polling, fetchActiveTask, fetchRecentTasks])
 
-  // Connect to SSE stream when there's an active task
+  // Connect to SSE stream when there's an active task with retry logic
   useEffect(() => {
     if (!activeTask?.id) {
       // No active task, disconnect
@@ -176,114 +198,166 @@ export function BackgroundAgentPage() {
         eventSourceRef.current.close()
         eventSourceRef.current = null
         setIsStreaming(false)
+        setConnectionStatus('disconnected')
       }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
+      setReconnectAttempt(0)
       return
     }
     
-    // Connect to SSE stream
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
-    const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
-    const url = `${apiUrl}/v1/agent-stream/${activeTask.id}?token=${token}`
-    
-    console.log('[BackgroundAgent] Connecting to SSE:', url)
-    
-    const eventSource = new EventSource(url)
-    eventSourceRef.current = eventSource
-    
-    eventSource.onopen = () => {
-      console.log('[BackgroundAgent] SSE connected')
-      setIsStreaming(true)
-    }
-    
-    eventSource.onerror = (e) => {
-      console.log('[BackgroundAgent] SSE error', e)
-      setIsStreaming(false)
-    }
-    
-    // Handle initial connection message
-    eventSource.addEventListener('connected', (e) => {
-      console.log('[BackgroundAgent] SSE connected event:', e.data)
-      setIsStreaming(true)
-    })
-    
-    // Handle history (events that happened before we connected)
-    eventSource.addEventListener('history', (e) => {
-      try {
-        const data = JSON.parse(e.data)
-        if (data.events && Array.isArray(data.events)) {
-          setLiveEvents(prev => [...data.events, ...prev].slice(-50))
+    const connectToSSE = (attempt = 0) => {
+      // Connect to SSE stream
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+      const token = localStorage.getItem('apex-access-token') || localStorage.getItem('token') || ''
+      const reconnectId = attempt > 0 ? `${Date.now()}` : ''
+      const url = `${apiUrl}/v1/agent-stream/${activeTask.id}?token=${token}${reconnectId ? `&reconnectId=${reconnectId}` : ''}`
+      
+      console.log(`[BackgroundAgent] Connecting to SSE (attempt ${attempt + 1}):`, url)
+      setConnectionStatus('connecting')
+      
+      const eventSource = new EventSource(url)
+      eventSourceRef.current = eventSource
+      
+      eventSource.onopen = () => {
+        console.log('[BackgroundAgent] SSE connected')
+        setIsStreaming(true)
+        setConnectionStatus('connected')
+        setReconnectAttempt(0) // Reset on successful connection
+      }
+      
+      eventSource.onerror = (e) => {
+        console.log('[BackgroundAgent] SSE error', e)
+        setIsStreaming(false)
+        
+        // Only try to reconnect if we still have an active task
+        if (activeTask?.id && attempt < maxReconnectAttempts) {
+          setConnectionStatus('error')
+          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000) // Max 30s backoff
+          console.log(`[BackgroundAgent] Reconnecting in ${backoffMs}ms (attempt ${attempt + 1}/${maxReconnectAttempts})`)
+          
+          setReconnectAttempt(attempt + 1)
+          
+          reconnectTimeoutRef.current = setTimeout(() => {
+            if (eventSourceRef.current) {
+              eventSourceRef.current.close()
+            }
+            connectToSSE(attempt + 1)
+          }, backoffMs)
+        } else {
+          setConnectionStatus('disconnected')
         }
-      } catch (err) {
-        console.error('Failed to parse history:', err)
       }
-    })
-    
-    eventSource.addEventListener('event', (e) => {
-      try {
-        const event = JSON.parse(e.data) as StreamEvent
-        setLiveEvents(prev => [...prev.slice(-50), event]) // Keep last 50 events
-      } catch (err) {
-        console.error('Failed to parse event:', err)
-      }
-    })
-    
-    eventSource.addEventListener('progress', (e) => {
-      try {
-        const progress = JSON.parse(e.data)
-        // Update active task progress in real-time
-        setActiveTask(prev => prev ? {
-          ...prev,
-          status: progress.status || prev.status,
-          progress: {
-            progressPercent: progress.progress_percent,
-            currentStep: progress.current_step,
-            iterations: progress.actions_count,
-            totalSteps: progress.total_steps,
-            completedSteps: progress.completed_steps
+      
+      // Handle initial connection message
+      eventSource.addEventListener('connected', (e) => {
+        console.log('[BackgroundAgent] SSE connected event:', e.data)
+        setIsStreaming(true)
+        setConnectionStatus('connected')
+        setReconnectAttempt(0)
+      })
+      
+      // Handle history (events that happened before we connected)
+      eventSource.addEventListener('history', (e) => {
+        try {
+          const data = JSON.parse(e.data)
+          if (data.events && Array.isArray(data.events)) {
+            // For reconnection, merge intelligently
+            if (data.isReconnection) {
+              setLiveEvents(prev => {
+                const existingTimestamps = new Set(prev.map(ev => ev.timestamp))
+                const newEvents = data.events.filter((ev: StreamEvent) => !existingTimestamps.has(ev.timestamp))
+                return [...prev, ...newEvents].slice(-100)
+              })
+            } else {
+              setLiveEvents(prev => [...data.events, ...prev].slice(-50))
+            }
           }
-        } : null)
-      } catch (err) {
-        console.error('Failed to parse progress:', err)
-      }
-    })
+        } catch (err) {
+          console.error('Failed to parse history:', err)
+        }
+      })
+      
+      eventSource.addEventListener('event', (e) => {
+        try {
+          const event = JSON.parse(e.data) as StreamEvent
+          setLiveEvents(prev => [...prev.slice(-100), event]) // Keep last 100 events
+        } catch (err) {
+          console.error('Failed to parse event:', err)
+        }
+      })
+      
+      eventSource.addEventListener('progress', (e) => {
+        try {
+          const progress = JSON.parse(e.data)
+          // Update active task progress in real-time
+          setActiveTask(prev => prev ? {
+            ...prev,
+            status: progress.status || prev.status,
+            progress: {
+              progressPercent: progress.progress_percent,
+              currentStep: progress.current_step,
+              iterations: progress.actions_count,
+              totalSteps: progress.total_steps,
+              completedSteps: progress.completed_steps
+            }
+          } : null)
+        } catch (err) {
+          console.error('Failed to parse progress:', err)
+        }
+      })
+      
+      // Handle task completion event for smooth transition
+      eventSource.addEventListener('task_complete', (e) => {
+        try {
+          const data = JSON.parse(e.data)
+          console.log('[BackgroundAgent] Task completed:', data)
+          // Update to completed state
+          setActiveTask(prev => prev ? {
+            ...prev,
+            status: 'completed',
+            progress: {
+              ...prev.progress,
+              progressPercent: 100,
+              currentStep: data.message || 'Completed successfully'
+            },
+            result: { summary: data.summary || data.message }
+          } : null)
+          // Store as last completed task
+          setLastCompletedTask(prev => activeTask ? {
+            ...activeTask,
+            status: 'completed',
+            progress: { ...activeTask.progress, progressPercent: 100 },
+            result: { summary: data.summary || data.message }
+          } : prev)
+        } catch (err) {
+          console.error('Failed to parse task_complete:', err)
+        }
+      })
+      
+      // Handle heartbeat to keep connection alive - reset any error state
+      eventSource.addEventListener('heartbeat', () => {
+        setConnectionStatus('connected')
+        setReconnectAttempt(0)
+      })
+    }
     
-    // Handle task completion event for smooth transition
-    eventSource.addEventListener('task_complete', (e) => {
-      try {
-        const data = JSON.parse(e.data)
-        console.log('[BackgroundAgent] Task completed:', data)
-        // Update to completed state
-        setActiveTask(prev => prev ? {
-          ...prev,
-          status: 'completed',
-          progress: {
-            ...prev.progress,
-            progressPercent: 100,
-            currentStep: data.message || 'Completed successfully'
-          },
-          result: { summary: data.summary || data.message }
-        } : null)
-        // Store as last completed task
-        setLastCompletedTask(prev => activeTask ? {
-          ...activeTask,
-          status: 'completed',
-          progress: { ...activeTask.progress, progressPercent: 100 },
-          result: { summary: data.summary || data.message }
-        } : prev)
-      } catch (err) {
-        console.error('Failed to parse task_complete:', err)
-      }
-    })
-    
-    // Handle heartbeat to keep connection alive
-    eventSource.addEventListener('heartbeat', () => {
-      // Connection is alive
-    })
+    // Initial connection
+    connectToSSE(0)
     
     return () => {
-      eventSource.close()
-      eventSourceRef.current = null
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
+        eventSourceRef.current = null
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
       setIsStreaming(false)
+      setConnectionStatus('disconnected')
     }
   }, [activeTask?.id])
 
@@ -318,8 +392,17 @@ export function BackgroundAgentPage() {
   const handleStartTask = async () => {
     const goal = goalInput.trim()
     if (!goal || isStarting) return
+    
+    // Client-side validation
+    if (goal.length < 10) {
+      setStartError('Please provide a more detailed description (at least 10 characters)')
+      return
+    }
+    
     setIsStarting(true)
     setStartError(null)
+    setLiveEvents([]) // Clear previous events
+    
     try {
       const response = await backgroundApi.startBackgroundTask(goal, { extended: extendedMode })
       const task = response?.task
@@ -332,13 +415,30 @@ export function BackgroundAgentPage() {
             extended: extendedMode
           }
         }))
+        
+        // Add initial event to show task is starting
+        setLiveEvents([{
+          type: 'task_starting',
+          message: '🚀 Initializing autonomous agent...',
+          timestamp: new Date().toISOString(),
+          color: 'green'
+        }])
       }
       setGoalInput('')
       setExtendedMode(false) // Reset after starting
+      setLastCompletedTask(null) // Clear any previous completed task
       await fetchActiveTask()
       await fetchRecentTasks()
     } catch (error: any) {
-      setStartError(error?.message || 'Failed to start background task')
+      // Handle specific error types
+      const errorData = error?.response?.data || error
+      const errorMessage = errorData?.details || errorData?.error || error?.message || 'Failed to start background task'
+      const isRetryable = errorData?.retryable
+      
+      setStartError(isRetryable 
+        ? `${errorMessage} Please try again.`
+        : errorMessage
+      )
     } finally {
       setIsStarting(false)
     }
@@ -377,6 +477,45 @@ export function BackgroundAgentPage() {
       setFollowUpError(error?.message || 'Failed to send follow-up')
     } finally {
       setIsSendingFollowUp(false)
+    }
+  }
+
+  const openFeedbackModal = (taskId: string) => {
+    setFeedbackTaskId(taskId)
+    setFeedbackRating(0)
+    setFeedbackText('')
+    setFeedbackCorrection('')
+    setShowFeedbackModal(true)
+  }
+
+  const closeFeedbackModal = () => {
+    setShowFeedbackModal(false)
+    setFeedbackTaskId(null)
+    setFeedbackRating(0)
+    setFeedbackText('')
+    setFeedbackCorrection('')
+  }
+
+  const handleSubmitFeedback = async () => {
+    if (!feedbackTaskId || isSubmittingFeedback) return
+    if (feedbackRating === 0 && !feedbackText.trim() && !feedbackCorrection.trim()) return
+    
+    setIsSubmittingFeedback(true)
+    
+    try {
+      await backgroundApi.submitBackgroundTaskFeedback(feedbackTaskId, {
+        rating: feedbackRating > 0 ? feedbackRating : undefined,
+        feedback: feedbackText.trim() || undefined,
+        correction: feedbackCorrection.trim() || undefined,
+      })
+      
+      // Mark as submitted
+      setFeedbackSubmitted(prev => new Set([...prev, feedbackTaskId]))
+      closeFeedbackModal()
+    } catch (error: any) {
+      console.error('Failed to submit feedback:', error)
+    } finally {
+      setIsSubmittingFeedback(false)
     }
   }
 
@@ -431,6 +570,22 @@ export function BackgroundAgentPage() {
             onChange={event => setGoalInput(event.target.value)}
             rows={3}
           />
+          {!goalInput && (
+            <div className={styles.suggestions}>
+              <span className={styles.suggestionsLabel}>Try:</span>
+              <div className={styles.suggestionChips}>
+                {taskSuggestions.slice(0, 3).map((suggestion, idx) => (
+                  <button
+                    key={idx}
+                    className={styles.suggestionChip}
+                    onClick={() => setGoalInput(suggestion)}
+                  >
+                    {suggestion.length > 50 ? suggestion.substring(0, 47) + '...' : suggestion}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className={styles.taskOptions}>
             <label className={styles.extendedMode}>
               <input
@@ -532,7 +687,19 @@ export function BackgroundAgentPage() {
                   <div className={styles.liveActivityHeader}>
                     <Terminal size={14} />
                     <span>Live Activity</span>
-                    {isStreaming && <span className={styles.streamingIndicator}>● Live</span>}
+                    {connectionStatus === 'connected' && (
+                      <span className={styles.streamingIndicator}>● Live</span>
+                    )}
+                    {connectionStatus === 'connecting' && (
+                      <span className={styles.connectingIndicator}>
+                        <Loader2 size={12} className={styles.spin} /> Connecting...
+                      </span>
+                    )}
+                    {connectionStatus === 'error' && reconnectAttempt > 0 && (
+                      <span className={styles.reconnectingIndicator}>
+                        <RefreshCw size={12} className={styles.spin} /> Reconnecting ({reconnectAttempt}/{maxReconnectAttempts})
+                      </span>
+                    )}
                   </div>
                   <div className={styles.liveActivityFeed} ref={liveEventsRef}>
                     {liveEvents.length === 0 && (
@@ -560,11 +727,23 @@ export function BackgroundAgentPage() {
               {/* Show result summary for completed tasks */}
               {displayTask.result?.summary && (
                 <div className={styles.taskSummary}>
-                  <strong>Summary:</strong> {displayTask.result.summary}
+                  <div className={styles.summaryHeader}>
+                    <CheckCircle size={16} className={styles.summaryIcon} />
+                    <strong>Task Completed</strong>
+                  </div>
+                  <div className={styles.summaryContent}>{displayTask.result.summary}</div>
+                  {displayTask.progress?.iterations && (
+                    <div className={styles.summaryMeta}>
+                      Completed in {displayTask.progress.iterations} steps
+                    </div>
+                  )}
                 </div>
               )}
               {displayTask.error && (
-                <div className={styles.taskError}>{displayTask.error}</div>
+                <div className={styles.taskError}>
+                  <AlertCircle size={16} />
+                  <span>{displayTask.error}</span>
+                </div>
               )}
               
               {/* Follow-up Section - Send additional instructions to running agent */}
@@ -603,6 +782,23 @@ export function BackgroundAgentPage() {
                   {isCancelling ? <Loader2 size={14} className={styles.spin} /> : <StopCircle size={14} />}
                   Cancel Task
                 </button>
+              )}
+              
+              {/* Feedback button for completed tasks */}
+              {(displayStatus === 'complete' || displayStatus === 'error') && displayTask.id && !feedbackSubmitted.has(displayTask.id) && (
+                <button 
+                  className={styles.feedbackBtn} 
+                  onClick={() => openFeedbackModal(displayTask.id)}
+                >
+                  <Star size={14} />
+                  Rate This Task
+                </button>
+              )}
+              {displayTask.id && feedbackSubmitted.has(displayTask.id) && (
+                <div className={styles.feedbackThanks}>
+                  <ThumbsUp size={14} />
+                  Thanks for your feedback!
+                </div>
               )}
             </div>
             )
@@ -659,6 +855,94 @@ export function BackgroundAgentPage() {
           </div>
         )}
       </div>
+
+      {/* Feedback Modal */}
+      {showFeedbackModal && (
+        <div className={styles.modalOverlay} onClick={closeFeedbackModal}>
+          <div className={styles.feedbackModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Rate This Task</h3>
+              <button className={styles.modalClose} onClick={closeFeedbackModal}>
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div className={styles.modalBody}>
+              {/* Star Rating */}
+              <div className={styles.ratingSection}>
+                <label>How did the agent perform?</label>
+                <div className={styles.starRating}>
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <button
+                      key={star}
+                      className={`${styles.starBtn} ${feedbackRating >= star ? styles.starActive : ''}`}
+                      onClick={() => setFeedbackRating(star)}
+                      type="button"
+                    >
+                      <Star size={28} fill={feedbackRating >= star ? '#f59e0b' : 'none'} />
+                    </button>
+                  ))}
+                </div>
+                <div className={styles.ratingLabel}>
+                  {feedbackRating === 0 && 'Click to rate'}
+                  {feedbackRating === 1 && 'Poor'}
+                  {feedbackRating === 2 && 'Fair'}
+                  {feedbackRating === 3 && 'Good'}
+                  {feedbackRating === 4 && 'Very Good'}
+                  {feedbackRating === 5 && 'Excellent'}
+                </div>
+              </div>
+
+              {/* Text Feedback */}
+              <div className={styles.feedbackField}>
+                <label>Additional feedback (optional)</label>
+                <textarea
+                  className={styles.feedbackTextarea}
+                  placeholder="What did you like or dislike about the result?"
+                  value={feedbackText}
+                  onChange={e => setFeedbackText(e.target.value)}
+                  rows={3}
+                />
+              </div>
+
+              {/* Correction Input */}
+              <div className={styles.feedbackField}>
+                <label>What should the agent have done differently? (optional)</label>
+                <textarea
+                  className={styles.feedbackTextarea}
+                  placeholder="Describe how you would have preferred the task to be handled..."
+                  value={feedbackCorrection}
+                  onChange={e => setFeedbackCorrection(e.target.value)}
+                  rows={3}
+                />
+                <div className={styles.feedbackHint}>
+                  This helps the agent learn and improve for future tasks.
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.modalFooter}>
+              <button className={styles.modalCancelBtn} onClick={closeFeedbackModal}>
+                Cancel
+              </button>
+              <button 
+                className={styles.modalSubmitBtn} 
+                onClick={handleSubmitFeedback}
+                disabled={isSubmittingFeedback || (feedbackRating === 0 && !feedbackText.trim() && !feedbackCorrection.trim())}
+              >
+                {isSubmittingFeedback ? (
+                  <>
+                    <Loader2 size={14} className={styles.spin} />
+                    Submitting...
+                  </>
+                ) : (
+                  'Submit Feedback'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

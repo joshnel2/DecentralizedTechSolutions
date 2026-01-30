@@ -267,110 +267,275 @@ Billing Summary:
 
 /**
  * Get learning context from stored patterns
- * Enhanced to provide actionable insights to the agent
+ * 
+ * HIERARCHICAL LEARNING - Queries patterns at 3 levels:
+ * 1. USER-SPECIFIC (private) - This user's personal patterns
+ * 2. FIRM-WIDE (shared) - Patterns shared across the firm
+ * 3. GLOBAL (anonymized) - Patterns from all users (no identifying info)
+ * 
+ * ALL CATEGORIES are queried:
+ * - billing: Time entry patterns, rate patterns, activity codes
+ * - tasks: Task title patterns, priority usage, scheduling
+ * - calendar: Event types, durations, lead times
+ * - documents: Naming conventions, folder organization
+ * - matters: Matter naming, billing preferences
+ * - notes: Note structure patterns
+ * - workflow: Action sequences that work
+ * - correction: Things to avoid (from user feedback)
  */
-export async function getLearningContext(query, firmId, userId) {
+export async function getLearningContext(queryFn, firmId, userId) {
   try {
-    // Get high-confidence workflow patterns
-    const workflows = await query(`
-      SELECT pattern_data, occurrences, confidence
-      FROM ai_learning_patterns
-      WHERE firm_id = $1 AND pattern_type = 'workflow' AND confidence >= 0.6
-      ORDER BY occurrences DESC, confidence DESC
-      LIMIT 5
-    `, [firmId]);
+    let context = '\n## LEARNED PATTERNS & PREFERENCES\n\n';
+    let hasContent = false;
     
-    // Get user request patterns (what they commonly ask for)
-    const requests = await query(`
-      SELECT pattern_data, occurrences
+    // =========================================================================
+    // LEVEL 1: USER-SPECIFIC PATTERNS (Private, highest priority)
+    // =========================================================================
+    const userPatterns = await queryFn(`
+      SELECT pattern_type, pattern_category, pattern_data, occurrences, confidence
       FROM ai_learning_patterns
-      WHERE firm_id = $1 AND user_id = $2 AND pattern_type = 'request'
-      ORDER BY occurrences DESC
-      LIMIT 5
+      WHERE firm_id = $1 AND user_id = $2 AND (level = 'user' OR level IS NULL)
+        AND confidence >= 0.4
+      ORDER BY confidence DESC, occurrences DESC
+      LIMIT 20
     `, [firmId, userId]);
     
-    // Get corrections (things to avoid)
-    const corrections = await query(`
+    if (userPatterns.rows.length > 0) {
+      context += '### Your Personal Patterns (Private)\n\n';
+      hasContent = true;
+      context += formatPatternsByCategory(userPatterns.rows);
+    }
+    
+    // =========================================================================
+    // LEVEL 2: FIRM-WIDE PATTERNS (Shared within firm)
+    // =========================================================================
+    const firmPatterns = await queryFn(`
+      SELECT pattern_type, pattern_category, pattern_data, occurrences, confidence
+      FROM ai_learning_patterns
+      WHERE firm_id = $1 AND (user_id IS NULL OR level = 'firm')
+        AND confidence >= 0.5
+      ORDER BY confidence DESC, occurrences DESC
+      LIMIT 15
+    `, [firmId]);
+    
+    if (firmPatterns.rows.length > 0) {
+      context += '### Firm-Wide Best Practices\n\n';
+      hasContent = true;
+      context += formatPatternsByCategory(firmPatterns.rows);
+    }
+    
+    // =========================================================================
+    // LEVEL 3: GLOBAL PATTERNS (Anonymized, from all users)
+    // =========================================================================
+    const globalPatterns = await queryFn(`
+      SELECT pattern_type, pattern_category, pattern_data, occurrences, confidence
+      FROM ai_learning_patterns
+      WHERE level = 'global' AND confidence >= 0.7
+      ORDER BY confidence DESC, occurrences DESC
+      LIMIT 10
+    `, []);
+    
+    if (globalPatterns.rows.length > 0) {
+      context += '### Industry Best Practices\n\n';
+      hasContent = true;
+      context += formatPatternsByCategory(globalPatterns.rows);
+    }
+    
+    // =========================================================================
+    // CORRECTIONS (Things to avoid - from user feedback)
+    // =========================================================================
+    const corrections = await queryFn(`
       SELECT pattern_data
       FROM ai_learning_patterns
       WHERE firm_id = $1 AND pattern_type = 'correction'
       ORDER BY created_at DESC
-      LIMIT 3
-    `, [firmId]);
-    
-    // Get naming patterns
-    const naming = await query(`
-      SELECT pattern_category, pattern_data
-      FROM ai_learning_patterns
-      WHERE firm_id = $1 AND pattern_type = 'naming'
-      ORDER BY occurrences DESC
       LIMIT 5
     `, [firmId]);
     
-    // Get timing preferences
-    const timing = await query(`
-      SELECT pattern_data, occurrences
-      FROM ai_learning_patterns
-      WHERE firm_id = $1 AND user_id = $2 AND pattern_type = 'timing'
-      ORDER BY occurrences DESC
-      LIMIT 3
-    `, [firmId, userId]);
-    
-    let context = '\n## LEARNED FROM THIS USER/FIRM\n\n';
-    
-    if (workflows.rows.length > 0) {
-      context += '### Preferred Workflows (use these approaches when applicable):\n';
-      for (const w of workflows.rows) {
-        const data = w.pattern_data;
-        context += `- For goals like "${(data.goal_keywords || []).join(' ')}": ${data.sequence} (used ${w.occurrences} times, ${Math.round(w.confidence * 100)}% confidence)\n`;
-      }
-      context += '\n';
-    }
-    
-    if (requests.rows.length > 0) {
-      context += '### Common Request Types:\n';
-      for (const r of requests.rows) {
-        const data = r.pattern_data;
-        context += `- ${data.category} requests (${(data.verbs || []).join(', ')}) - asked ${r.occurrences} times\n`;
-      }
-      context += '\n';
-    }
-    
     if (corrections.rows.length > 0) {
-      context += '### IMPORTANT - Avoid These Mistakes:\n';
+      context += '### IMPORTANT - Avoid These Mistakes\n\n';
+      hasContent = true;
       for (const c of corrections.rows) {
         const data = c.pattern_data;
-        context += `- When asked about "${data.original_goal?.substring(0, 50)}...": ${data.what_went_wrong || 'User was not satisfied'}. Instead: ${data.correct_approach || 'Try a different approach'}\n`;
+        if (data.what_went_wrong || data.correct_approach) {
+          context += `- **Avoid:** ${data.what_went_wrong || 'Previous approach was unsatisfactory'}\n`;
+          if (data.correct_approach) {
+            context += `  **Instead:** ${data.correct_approach}\n`;
+          }
+        }
       }
       context += '\n';
     }
     
-    if (naming.rows.length > 0) {
-      context += '### Naming Conventions Used:\n';
-      for (const n of naming.rows) {
-        const data = n.pattern_data;
-        context += `- ${n.pattern_category}: ${data.format} format`;
-        if (data.wordCount) context += `, typically ${data.wordCount} words`;
-        context += '\n';
+    // =========================================================================
+    // WORKFLOW PATTERNS (Successful action sequences)
+    // =========================================================================
+    const workflows = await queryFn(`
+      SELECT pattern_data, occurrences, confidence
+      FROM ai_learning_patterns
+      WHERE firm_id = $1 AND pattern_type IN ('workflow', 'manual_workflow')
+        AND confidence >= 0.6
+      ORDER BY occurrences DESC, confidence DESC
+      LIMIT 5
+    `, [firmId]);
+    
+    if (workflows.rows.length > 0) {
+      context += '### Proven Workflows\n\n';
+      hasContent = true;
+      for (const w of workflows.rows) {
+        const data = w.pattern_data;
+        if (data.sequence) {
+          context += `- **Sequence:** ${data.sequence} (${w.occurrences}x, ${Math.round(w.confidence * 100)}% success)\n`;
+        } else if (data.actions) {
+          const actions = Array.isArray(data.actions) 
+            ? data.actions.map(a => a.action || a).join(' → ')
+            : data.actions;
+          context += `- **Actions:** ${actions} (${w.occurrences}x)\n`;
+        }
       }
       context += '\n';
     }
     
-    if (timing.rows.length > 0) {
-      const mostActive = timing.rows[0]?.pattern_data;
-      if (mostActive) {
-        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        context += `### User Activity Pattern:\n`;
-        context += `- Most active: ${dayNames[mostActive.day_of_week]} ${mostActive.time_slot}\n\n`;
-      }
-    }
-    
-    return context.trim() ? context : '';
+    return hasContent ? context : '';
   } catch (e) {
     // Table may not exist yet - this is fine
     console.log('[Amplifier] Learning context not available:', e.message);
     return '';
   }
+}
+
+/**
+ * Format patterns grouped by category for readability
+ */
+function formatPatternsByCategory(patterns) {
+  const byCategory = {};
+  
+  for (const p of patterns) {
+    const category = p.pattern_category || p.pattern_type || 'general';
+    if (!byCategory[category]) {
+      byCategory[category] = [];
+    }
+    byCategory[category].push(p);
+  }
+  
+  let output = '';
+  
+  for (const [category, categoryPatterns] of Object.entries(byCategory)) {
+    const categoryTitle = category.charAt(0).toUpperCase() + category.slice(1).replace(/_/g, ' ');
+    output += `**${categoryTitle}:**\n`;
+    
+    for (const p of categoryPatterns.slice(0, 4)) {
+      const data = p.pattern_data;
+      const confidence = Math.round((p.confidence || 0.5) * 100);
+      
+      // Format based on pattern type
+      switch (p.pattern_type) {
+        case 'description_template':
+          if (data.sample) {
+            output += `- Time entry style: "${data.sample.substring(0, 60)}${data.sample.length > 60 ? '...' : ''}" (${data.category || 'general'})\n`;
+          }
+          break;
+          
+        case 'rate_pattern':
+          if (data.rate) {
+            output += `- Typical rate for ${data.matter_type || 'matters'}: $${data.rate}/hr\n`;
+          }
+          break;
+          
+        case 'activity_code':
+          if (data.code) {
+            output += `- Activity code "${data.code}": typically ${data.avg_hours?.toFixed(1) || '?'} hours\n`;
+          }
+          break;
+          
+        case 'task_template':
+          if (data.sample_title) {
+            output += `- Task pattern (${data.type || 'general'}): "${data.sample_title.substring(0, 50)}"\n`;
+          }
+          break;
+          
+        case 'priority_usage':
+          if (data.priority && data.task_type) {
+            output += `- ${data.task_type} tasks: typically ${data.priority} priority\n`;
+          }
+          break;
+          
+        case 'scheduling_pattern':
+          if (data.avg_days_ahead !== undefined) {
+            output += `- ${data.priority || 'Medium'} priority tasks: schedule ${Math.round(data.avg_days_ahead)} days ahead\n`;
+          }
+          break;
+          
+        case 'event_template':
+          if (data.type) {
+            output += `- ${data.type} events: typically ${data.typical_duration_hours?.toFixed(1) || '1'} hours\n`;
+          }
+          break;
+          
+        case 'duration_pattern':
+          if (data.event_type && data.avg_hours) {
+            output += `- ${data.event_type}: average ${data.avg_hours.toFixed(1)} hours\n`;
+          }
+          break;
+          
+        case 'event_lead_time':
+          if (data.event_type && data.avg_days_ahead !== undefined) {
+            output += `- ${data.event_type}: schedule ${Math.round(data.avg_days_ahead)} days in advance\n`;
+          }
+          break;
+          
+        case 'document_naming':
+          if (data.pattern) {
+            output += `- Document naming (${data.category || 'general'}): ${data.pattern}\n`;
+          }
+          break;
+          
+        case 'document_type_usage':
+          if (data.document_type) {
+            output += `- Common document type: ${data.document_type} (.${data.extension || 'pdf'})\n`;
+          }
+          break;
+          
+        case 'matter_naming':
+          if (data.pattern) {
+            output += `- Matter naming (${data.matter_type || 'general'}): ${data.pattern}\n`;
+          }
+          break;
+          
+        case 'matter_rate':
+          if (data.rate) {
+            output += `- ${data.matter_type || 'Matter'} billing: $${data.rate}/hr (${data.billing_type || 'hourly'})\n`;
+          }
+          break;
+          
+        case 'note_pattern':
+          if (data.type) {
+            output += `- Notes style: ${data.type}${data.uses_bullets ? ', uses bullets' : ''}${data.uses_headers ? ', uses headers' : ''}\n`;
+          }
+          break;
+          
+        case 'billing_timing':
+          if (data.day_of_week && data.time_slot) {
+            output += `- Active: ${data.day_of_week} ${data.time_slot}\n`;
+          }
+          break;
+          
+        default:
+          // Generic format for unknown types
+          if (data.sample || data.pattern || data.format) {
+            output += `- ${data.sample || data.pattern || data.format}\n`;
+          } else if (typeof data === 'object') {
+            const key = Object.keys(data).find(k => typeof data[k] === 'string');
+            if (key) {
+              output += `- ${key}: ${data[key]}\n`;
+            }
+          }
+      }
+    }
+    output += '\n';
+  }
+  
+  return output;
 }
 
 export default {

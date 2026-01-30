@@ -936,6 +936,18 @@ export const aiApi = {
     return fetchWithAuth(`/v1/background-agent/learnings${query}`);
   },
 
+  // Submit feedback on a completed background task
+  async submitBackgroundTaskFeedback(taskId: string, feedback: {
+    rating?: number;
+    feedback?: string;
+    correction?: string;
+  }) {
+    return fetchWithAuth(`/v1/background-agent/tasks/${taskId}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify(feedback),
+    });
+  },
+
   // Get available tools
   async getBackgroundAgentTools() {
     return fetchWithAuth('/v1/background-agent/tools');

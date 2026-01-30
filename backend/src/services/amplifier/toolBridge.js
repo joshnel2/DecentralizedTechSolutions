@@ -575,6 +575,38 @@ async function loadUserContext(userId, firmId) {
 }
 
 /**
+ * Retry wrapper for transient failures
+ */
+async function withRetry(fn, toolName, maxRetries = 2) {
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      
+      // Only retry on transient errors
+      const isTransient = 
+        error.message?.includes('ECONNRESET') ||
+        error.message?.includes('ETIMEDOUT') ||
+        error.message?.includes('socket hang up') ||
+        error.message?.includes('connection') ||
+        error.code === 'ECONNRESET' ||
+        error.code === 'ETIMEDOUT';
+      
+      if (!isTransient || attempt === maxRetries) {
+        throw error;
+      }
+      
+      const delay = 500 * Math.pow(2, attempt); // 500ms, 1s, 2s
+      console.log(`[Amplifier Tool] Retrying ${toolName} in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
+}
+
+/**
  * Execute a tool call for Amplifier
  * This function routes tool calls to the appropriate handler
  * Legal-specific tools are handled here; others delegate to aiAgent.js
@@ -583,6 +615,7 @@ async function loadUserContext(userId, firmId) {
 export async function executeTool(toolName, params, context) {
   const { userId, firmId, user: providedUser } = context || {};
   
+  const startTime = Date.now();
   console.log(`[Amplifier Tool] Executing: ${toolName}`, JSON.stringify(params).substring(0, 200));
   
   const user = providedUser || await loadUserContext(userId, firmId);
@@ -625,11 +658,32 @@ export async function executeTool(toolName, params, context) {
           console.error(`[Amplifier Tool] executeAgentTool not available - aiAgent.js import may have failed`);
           return { error: `Tool '${toolName}' not available - agent tools not loaded` };
         }
-        return await executeAgentTool(toolName, params, user, null);
+        // Wrap with retry for transient failures
+        return await withRetry(
+          () => executeAgentTool(toolName, params, user, null),
+          toolName
+        );
     }
   } catch (error) {
-    console.error(`[Amplifier Tool] Error executing ${toolName}:`, error);
-    return { error: error.message || 'Tool execution failed' };
+    const elapsed = Date.now() - startTime;
+    console.error(`[Amplifier Tool] Error executing ${toolName} after ${elapsed}ms:`, error.message);
+    
+    // Provide more helpful error messages
+    let errorMessage = error.message || 'Tool execution failed';
+    
+    if (error.message?.includes('not found')) {
+      errorMessage = `Resource not found: ${error.message}`;
+    } else if (error.message?.includes('permission') || error.message?.includes('unauthorized')) {
+      errorMessage = `Permission denied: ${error.message}`;
+    } else if (error.message?.includes('validation') || error.message?.includes('invalid')) {
+      errorMessage = `Invalid input: ${error.message}`;
+    }
+    
+    return { 
+      error: errorMessage,
+      tool: toolName,
+      elapsed_ms: elapsed
+    };
   }
 }
 

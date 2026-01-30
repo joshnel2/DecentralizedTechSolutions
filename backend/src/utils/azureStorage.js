@@ -252,6 +252,207 @@ export async function deleteFile(remotePath, firmId) {
   }
 }
 
+/**
+ * Move a file within Azure File Share (copy + delete)
+ * Azure File Share doesn't support native move, so we copy then delete
+ * 
+ * @param {string} sourcePath - Source path relative to firm folder
+ * @param {string} destPath - Destination path relative to firm folder
+ * @param {string} firmId - Firm ID
+ * @returns {Promise<{success: boolean}>}
+ */
+export async function moveFile(sourcePath, destPath, firmId) {
+  try {
+    const shareClient = await getShareClient();
+    
+    const fullSourcePath = `firm-${firmId}/${sourcePath}`;
+    const fullDestPath = `firm-${firmId}/${destPath}`;
+    
+    // Ensure destination directory exists
+    const destDirPath = path.dirname(fullDestPath);
+    await ensureDirectory(destDirPath);
+    
+    // Get source file client
+    const sourceDirClient = shareClient.getDirectoryClient(path.dirname(fullSourcePath));
+    const sourceFileClient = sourceDirClient.getFileClient(path.basename(fullSourcePath));
+    
+    // Get destination file client
+    const destDirClient = shareClient.getDirectoryClient(destDirPath);
+    const destFileClient = destDirClient.getFileClient(path.basename(fullDestPath));
+    
+    // Download source file content
+    const downloadResponse = await sourceFileClient.download();
+    const chunks = [];
+    for await (const chunk of downloadResponse.readableStreamBody) {
+      chunks.push(chunk);
+    }
+    const content = Buffer.concat(chunks);
+    
+    // Get source file properties for metadata
+    const properties = await sourceFileClient.getProperties();
+    
+    // Create destination file
+    await destFileClient.create(content.length);
+    
+    // Upload content to destination
+    await destFileClient.uploadRange(content, 0, content.length);
+    
+    // Delete source file
+    await sourceFileClient.delete();
+    
+    console.log(`[AZURE] Moved: ${fullSourcePath} -> ${fullDestPath}`);
+    
+    return { success: true };
+  } catch (error) {
+    console.error('[AZURE] Move failed:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Rename a file (move to same directory with new name)
+ * 
+ * @param {string} currentPath - Current path relative to firm folder
+ * @param {string} newName - New file name
+ * @param {string} firmId - Firm ID
+ * @returns {Promise<{success: boolean, newPath: string}>}
+ */
+export async function renameFile(currentPath, newName, firmId) {
+  const dirPath = path.dirname(currentPath);
+  const newPath = dirPath === '.' ? newName : `${dirPath}/${newName}`;
+  await moveFile(currentPath, newPath, firmId);
+  return { success: true, newPath };
+}
+
+/**
+ * Move all files in a folder to a new folder path
+ * Used when renaming folders
+ * 
+ * @param {string} oldFolderPath - Old folder path (full path including firm-)
+ * @param {string} newFolderPath - New folder path (full path including firm-)
+ * @returns {Promise<{success: boolean, movedCount: number, errors: Array}>}
+ */
+export async function moveFolderContents(oldFolderPath, newFolderPath) {
+  try {
+    const shareClient = await getShareClient();
+    const results = { success: true, movedCount: 0, errors: [] };
+    
+    // Ensure new folder exists
+    await ensureDirectory(newFolderPath);
+    
+    // Get all files in the old folder recursively
+    const filesToMove = [];
+    
+    async function collectFiles(dirPath) {
+      try {
+        const dirClient = shareClient.getDirectoryClient(dirPath);
+        
+        for await (const item of dirClient.listFilesAndDirectories()) {
+          const itemPath = `${dirPath}/${item.name}`;
+          
+          if (item.kind === 'directory') {
+            await collectFiles(itemPath);
+          } else {
+            filesToMove.push({
+              sourcePath: itemPath,
+              relativePath: itemPath.replace(oldFolderPath + '/', '')
+            });
+          }
+        }
+      } catch (err) {
+        // Directory might not exist
+        console.log(`[AZURE] Directory not found during folder move: ${dirPath}`);
+      }
+    }
+    
+    await collectFiles(oldFolderPath);
+    
+    console.log(`[AZURE] Moving ${filesToMove.length} files from ${oldFolderPath} to ${newFolderPath}`);
+    
+    // Move each file
+    for (const file of filesToMove) {
+      try {
+        const destPath = `${newFolderPath}/${file.relativePath}`;
+        
+        // Ensure destination subdirectory exists
+        const destDir = path.dirname(destPath);
+        await ensureDirectory(destDir);
+        
+        // Get source and dest clients
+        const sourceDirClient = shareClient.getDirectoryClient(path.dirname(file.sourcePath));
+        const sourceFileClient = sourceDirClient.getFileClient(path.basename(file.sourcePath));
+        
+        const destDirClient = shareClient.getDirectoryClient(destDir);
+        const destFileClient = destDirClient.getFileClient(path.basename(destPath));
+        
+        // Download content
+        const downloadResponse = await sourceFileClient.download();
+        const chunks = [];
+        for await (const chunk of downloadResponse.readableStreamBody) {
+          chunks.push(chunk);
+        }
+        const content = Buffer.concat(chunks);
+        
+        // Create and upload to destination
+        await destFileClient.create(content.length);
+        await destFileClient.uploadRange(content, 0, content.length);
+        
+        // Delete source
+        await sourceFileClient.delete();
+        
+        results.movedCount++;
+      } catch (fileError) {
+        console.error(`[AZURE] Failed to move file ${file.sourcePath}:`, fileError.message);
+        results.errors.push({ file: file.sourcePath, error: fileError.message });
+      }
+    }
+    
+    // Try to delete old empty directories (best effort)
+    try {
+      await deleteEmptyDirectories(oldFolderPath);
+    } catch (err) {
+      // Non-fatal, directories might not be empty or might not exist
+    }
+    
+    console.log(`[AZURE] Folder move complete: ${results.movedCount} files moved, ${results.errors.length} errors`);
+    
+    return results;
+  } catch (error) {
+    console.error('[AZURE] Folder move failed:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Delete empty directories recursively (best effort)
+ */
+async function deleteEmptyDirectories(dirPath) {
+  try {
+    const shareClient = await getShareClient();
+    const dirClient = shareClient.getDirectoryClient(dirPath);
+    
+    // Check if directory is empty
+    let isEmpty = true;
+    for await (const item of dirClient.listFilesAndDirectories()) {
+      if (item.kind === 'directory') {
+        // Try to delete subdirectory first
+        await deleteEmptyDirectories(`${dirPath}/${item.name}`);
+      } else {
+        isEmpty = false;
+        break;
+      }
+    }
+    
+    // If empty, delete the directory
+    if (isEmpty) {
+      await dirClient.delete();
+      console.log(`[AZURE] Deleted empty directory: ${dirPath}`);
+    }
+  } catch (err) {
+    // Ignore errors - directories might not be empty or might not exist
+  }
+}
+
 // List files in a directory
 export async function listFiles(remotePath, firmId) {
   try {
