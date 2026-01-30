@@ -17,6 +17,7 @@ import {
   PieChart, Pie, Cell, BarChart, Bar, CartesianGrid
 } from 'recharts'
 import styles from './DashboardPage.module.css'
+import { useToast } from '../components/Toast'
 
 const COLORS = ['#F59E0B', '#3B82F6', '#10B981', '#8B5CF6', '#EF4444']
 
@@ -25,6 +26,7 @@ export function DashboardPage() {
   const { matters, clients, timeEntries, invoices, events, fetchMatters, fetchClients, fetchTimeEntries, fetchInvoices, fetchEvents, addTimeEntry } = useDataStore()
   const { openChat } = useAIChat()
   const { timer, startTimer: globalStartTimer, pauseTimer, resumeTimer, stopTimer, discardTimer } = useTimer()
+  const toast = useToast()
   
   // Timer selection state
   const [selectedMatterId, setSelectedMatterId] = useState('')

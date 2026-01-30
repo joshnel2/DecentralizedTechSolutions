@@ -5,10 +5,12 @@ import { Clock, Play, Pause, Square, Save, X, ChevronDown, Briefcase, Users } fr
 import { format } from 'date-fns'
 import styles from './FloatingTimer.module.css'
 import { clsx } from 'clsx'
+import { useToast } from './Toast'
 
 export function FloatingTimer() {
   const { timer, pauseTimer, resumeTimer, stopTimer, discardTimer, isTimerActive, startTimer } = useTimer()
   const { matters, clients, addTimeEntry, fetchTimeEntries } = useDataStore()
+  const toast = useToast()
   
   const [showSaveModal, setShowSaveModal] = useState(false)
   const [showStartModal, setShowStartModal] = useState(false)
@@ -69,7 +71,7 @@ export function FloatingTimer() {
       setShowSaveModal(false)
     } catch (error) {
       console.error('Failed to save timer entry:', error)
-      alert('Failed to save time entry. Please try again.')
+      toast.info('Failed to save time entry. Please try again.')
     } finally {
       setIsSaving(false)
     }

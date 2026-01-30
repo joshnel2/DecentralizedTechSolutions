@@ -15,6 +15,7 @@ import { format, parseISO, differenceInDays, startOfMonth, endOfMonth, subMonths
 import { clsx } from 'clsx'
 import styles from './BillingPage.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+import { useToast } from '../components/Toast'
 
 const viewOptions = [
   { value: 'my', label: 'My Billing' },
@@ -26,6 +27,7 @@ export function BillingPage() {
   const { firm, user } = useAuthStore()
   const { emailInvoice } = useEmailCompose()
   const navigate = useNavigate()
+  const toast = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
   
   // Only certain roles can see all firm billing (owner, admin, billing specialist)
@@ -98,7 +100,7 @@ export function BillingPage() {
       fetchInvoices()
     } catch (error) {
       console.error('Failed to update invoice status:', error)
-      alert('Failed to update invoice status')
+      toast.error('Failed to update invoice status')
     }
   }
 
@@ -823,7 +825,7 @@ export function BillingPage() {
                 fetchInvoices()
               } catch (error) {
                 console.error('Failed to delete invoice:', error)
-                alert('Failed to delete invoice')
+                toast.error('Failed to delete invoice')
               }
             }
           }}
@@ -849,7 +851,7 @@ export function BillingPage() {
               fetchInvoices()
             } catch (error) {
               console.error('Failed to create invoice:', error)
-              alert('Failed to create invoice. Please try again.')
+              toast.error('Failed to create invoice', 'Please try again.')
             }
           }}
           clients={clients}
@@ -869,7 +871,7 @@ export function BillingPage() {
               fetchInvoices()
             } catch (error) {
               console.error('Failed to update invoice:', error)
-              alert('Failed to update invoice. Please try again.')
+              toast.error('Failed to update invoice', 'Please try again.')
             }
           }}
           clients={clients}
@@ -928,7 +930,7 @@ export function BillingPage() {
               fetchInvoices()
             } catch (error) {
               console.error('Failed to merge invoices:', error)
-              alert('Failed to merge invoices. Please try again.')
+              toast.error('Failed to merge invoices', 'Please try again.')
             }
           }}
         />
@@ -1086,6 +1088,7 @@ function InvoiceModal({ invoice, onClose, onSave, clients, matters, prefilledCli
   matters: any[]
   prefilledClientId?: string | null
 }) {
+  const toast = useToast()
   const isEditing = !!invoice
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
@@ -1133,11 +1136,11 @@ function InvoiceModal({ invoice, onClose, onSave, clients, matters, prefilledCli
     e.preventDefault()
     if (isSubmitting) return
     if (!formData.clientId) {
-      alert('Please select a client')
+      toast.warning('Please select a client')
       return
     }
     if (totalAmount <= 0) {
-      alert('Please add at least one line item with an amount')
+      toast.warning('Please add at least one line item with an amount')
       return
     }
     setIsSubmitting(true)
@@ -1315,6 +1318,7 @@ function PaymentModal({ invoice, onClose, onSave }: {
   onClose: () => void
   onSave: (invoiceId: string, data: any) => Promise<void>
 }) {
+  const toast = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     amount: invoice.total - invoice.amountPaid,
@@ -1329,7 +1333,7 @@ function PaymentModal({ invoice, onClose, onSave }: {
     e.preventDefault()
     if (isSubmitting) return
     if (formData.amount <= 0) {
-      alert('Please enter a valid payment amount')
+      toast.warning('Please enter a valid payment amount')
       return
     }
     setIsSubmitting(true)
@@ -1338,7 +1342,7 @@ function PaymentModal({ invoice, onClose, onSave }: {
       onClose()
     } catch (error) {
       console.error('Failed to record payment:', error)
-      alert('Failed to record payment')
+      toast.error('Failed to record payment')
     } finally {
       setIsSubmitting(false)
     }

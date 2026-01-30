@@ -10,6 +10,7 @@ import {
   Tags
 } from 'lucide-react'
 import styles from './FirmSettingsPage.module.css'
+import { useToast } from '../components/Toast'
 
 // Users - populated from API/team data
 const demoUsers: Array<{ id: string; firstName: string; lastName: string; email: string; role: string; title: string }> = []
@@ -37,6 +38,7 @@ const groupColors = [
 
 export function FirmSettingsPage() {
   const navigate = useNavigate()
+  const toast = useToast()
   const { firm, updateFirm, user } = useAuthStore()
   const { groups, addGroup, updateGroup, deleteGroup, clients, invoices, matterTypes, addMatterType, updateMatterType, deleteMatterType, toggleMatterTypeActive } = useDataStore()
   const [activeTab, setActiveTab] = useState('accounts')

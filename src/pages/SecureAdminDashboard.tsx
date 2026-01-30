@@ -12,6 +12,7 @@ import {
   HardDrive, FileSearch, ArrowRight
 } from 'lucide-react'
 import styles from './SecureAdminDashboard.module.css'
+import { useToast } from '../components/Toast'
 
 interface Firm {
   id: string
@@ -209,6 +210,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 const getAuthToken = () => sessionStorage.getItem('_sap_auth') || ''
 
 export default function SecureAdminDashboard() {
+  const toast = useToast()
   const [activeTab, setActiveTab] = useState<'overview' | 'quick-onboard' | 'firms' | 'users' | 'account-tools' | 'migration' | 'audit' | 'integrations' | 'storage'>('overview')
   
   // Storage management state
@@ -1655,7 +1657,7 @@ export default function SecureAdminDashboard() {
 
   const handleValidateMigration = async () => {
     if (!migrationData.trim()) {
-      alert('Please enter or upload migration data')
+      toast.warning('Please enter or upload migration data')
       return
     }
 
@@ -1683,7 +1685,7 @@ export default function SecureAdminDashboard() {
         setMigrationStep('validate')
       } else {
         console.error('Validation failed:', error)
-        alert('Validation failed. Please try again.')
+        toast.error('Validation failed', 'Please try again.')
       }
     }
     setIsMigrating(false)

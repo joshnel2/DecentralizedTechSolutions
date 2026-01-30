@@ -5,8 +5,10 @@ import {
   AlertCircle, Settings, ToggleLeft, Eye, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
+import { useToast } from '../components/Toast'
 
 export function AIConfigPage() {
+  const toast = useToast()
   const navigate = useNavigate()
   const [saved, setSaved] = useState(false)
   

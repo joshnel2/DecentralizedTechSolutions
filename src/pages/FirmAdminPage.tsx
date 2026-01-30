@@ -14,6 +14,7 @@ import {
 import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './FirmAdminPage.module.css'
+import { useToast } from '../components/Toast'
 
 // Permission categories for the matrix
 const permissionCategories = [
@@ -128,6 +129,7 @@ const customFieldDefs = [
 
 export function FirmAdminPage() {
   const navigate = useNavigate()
+  const toast = useToast()
   const { user, firm, teamMembers, invitations, getAuditLog, inviteUser, updateTeamMember, removeTeamMember, revokeInvitation, resendInvitation } = useAuthStore()
   const { groups, addGroup, updateGroup, deleteGroup } = useDataStore()
   
@@ -400,7 +402,7 @@ export function FirmAdminPage() {
                         const newName = prompt(`Edit group "${group.name}":`, group.name);
                         if (newName && newName !== group.name) {
                           updateGroup(group.id, { name: newName });
-                          alert(`Group renamed to "${newName}"`);
+                          toast.success('Group renamed', `Renamed to "${newName}"`);
                         }
                       }}><Edit2 size={16} /></button>
                       <button className={styles.iconBtnDanger} onClick={() => deleteGroup(group.id)}><Trash2 size={16} /></button>
@@ -555,7 +557,7 @@ export function FirmAdminPage() {
                     <span>IP: {log.ip}</span>
                   </div>
                 </div>
-                <button className={styles.detailsBtn} onClick={() => alert(`Audit Log Details\n\nUser: ${log.user}\nAction: ${log.action}\nTimestamp: ${log.timestamp}\nIP Address: ${log.ip}\nResource: ${log.resourceId || 'N/A'}`)}>
+                <button className={styles.detailsBtn} onClick={() => toast.info('Audit Log Details', `User: ${log.user} | Action: ${log.action} | IP: ${log.ip}`)}>
                   <Info size={16} />
                 </button>
               </div>
@@ -600,8 +602,8 @@ export function FirmAdminPage() {
                   ))}
                 </div>
                 <div className={styles.templateActions}>
-                  <button className={styles.textBtn} onClick={() => alert(`Editing template: ${template.name}\n\nThis would open the template editor.`)}><Edit2 size={14} /> Edit</button>
-                  <button className={styles.textBtn} onClick={() => alert(`Template "${template.name}" duplicated!\n\nNew template created: ${template.name} (Copy)`)}><Copy size={14} /> Duplicate</button>
+                  <button className={styles.textBtn} onClick={() => toast.info('Edit Template', `Opening editor for: ${template.name}`)}><Edit2 size={14} /> Edit</button>
+                  <button className={styles.textBtn} onClick={() => toast.success('Template Duplicated', `Created: ${template.name} (Copy)`)}><Copy size={14} /> Duplicate</button>
                 </div>
               </div>
             ))}
@@ -614,10 +616,10 @@ export function FirmAdminPage() {
         <div className={styles.tabContent}>
           <div className={styles.toolbar}>
             <div className={styles.entityTabs}>
-              <button className={clsx(styles.entityTab, styles.active)} onClick={() => alert('Showing all custom fields')}>All</button>
-              <button className={styles.entityTab} onClick={() => alert('Filtering to Client fields')}>Client</button>
-              <button className={styles.entityTab} onClick={() => alert('Filtering to Matter fields')}>Matter</button>
-              <button className={styles.entityTab} onClick={() => alert('Filtering to Document fields')}>Document</button>
+              <button className={clsx(styles.entityTab, styles.active)} onClick={() => toast.info('Filter Applied', 'Showing all custom fields')}>All</button>
+              <button className={styles.entityTab} onClick={() => toast.info('Filter Applied', 'Showing Client fields')}>Client</button>
+              <button className={styles.entityTab} onClick={() => toast.info('Filter Applied', 'Showing Matter fields')}>Matter</button>
+              <button className={styles.entityTab} onClick={() => toast.info('Filter Applied', 'Showing Document fields')}>Document</button>
             </div>
             <button className={styles.primaryBtn} onClick={() => setShowCustomFieldModal(true)}>
               <Plus size={18} />
@@ -663,8 +665,8 @@ export function FirmAdminPage() {
                     </td>
                     <td>
                       <div className={styles.actions}>
-                        <button className={styles.iconBtn} onClick={() => alert(`Editing custom field: ${field.name}\n\nType: ${field.type}\nEntity: ${field.entity}`)}><Edit2 size={16} /></button>
-                        <button className={styles.iconBtnDanger} onClick={() => { if (confirm(`Delete custom field "${field.name}"?`)) alert('Field deleted!'); }}><Trash2 size={16} /></button>
+                        <button className={styles.iconBtn} onClick={() => toast.info('Edit Field', `Editing: ${field.name} (${field.type})`)}><Edit2 size={16} /></button>
+                        <button className={styles.iconBtnDanger} onClick={() => { if (confirm(`Delete custom field "${field.name}"?`)) toast.success('Field Deleted', `${field.name} has been removed`); }}><Trash2 size={16} /></button>
                       </div>
                     </td>
                   </tr>
@@ -682,7 +684,7 @@ export function FirmAdminPage() {
             <Workflow size={48} />
             <h3>Workflow Automation</h3>
             <p>Create automated workflows to streamline your practice</p>
-            <button className={styles.primaryBtn} onClick={() => alert('Workflow builder would open here. You can create automated triggers and actions.')}>
+            <button className={styles.primaryBtn} onClick={() => toast.info('Coming Soon', 'Workflow builder is under development')}>
               <Plus size={18} />
               Create Workflow
             </button>

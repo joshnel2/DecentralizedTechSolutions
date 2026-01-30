@@ -9,6 +9,7 @@ import {
 import { clsx } from 'clsx'
 import styles from './DocumentAutomationPage.module.css'
 import { documentsApi } from '../services/api'
+import { useToast } from '../components/Toast'
 
 interface TemplateVariable {
   key: string
@@ -618,6 +619,7 @@ const categories = ['All', 'Client Intake', 'Litigation', 'Business', 'Estate Pl
 
 export function DocumentAutomationPage() {
   const navigate = useNavigate()
+  const toast = useToast()
   const [templates, setTemplates] = useState<DocumentTemplate[]>(preAutomatedTemplates)
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('All')

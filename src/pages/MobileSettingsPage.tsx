@@ -5,8 +5,10 @@ import {
   QrCode, Apple, Play, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
+import { useToast } from '../components/Toast'
 
 export function MobileSettingsPage() {
+  const toast = useToast()
   const navigate = useNavigate()
   const [devices, setDevices] = useState([
     { id: '1', name: 'iPhone 15 Pro', platform: 'iOS', lastActive: '2024-01-15T10:30:00Z', current: true },

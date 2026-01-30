@@ -10,6 +10,7 @@ import {
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './AdminPortalPage.module.css'
+import { useToast } from '../components/Toast'
 
 // API helper for secure admin with auth header
 const getAdminAuth = () => {
@@ -76,6 +77,7 @@ interface Stats {
 
 export function AdminPortalPage() {
   const navigate = useNavigate()
+  const toast = useToast()
   const [activeTab, setActiveTab] = useState<'overview' | 'firms' | 'users' | 'integrations'>('overview')
   const [firms, setFirms] = useState<Firm[]>([])
   const [users, setUsers] = useState<User[]>([])
@@ -1235,7 +1237,7 @@ export function AdminPortalPage() {
       await adminApi.deleteFirm(id)
       loadData()
     } catch (err: any) {
-      alert(err.message || 'Failed to delete firm')
+      toast.error('Failed to delete firm', err.message)
     }
   }
 
@@ -1378,7 +1380,7 @@ export function AdminPortalPage() {
       setShowScanSettings(false)
     } catch (err: any) {
       console.error('Failed to save scan settings:', err)
-      alert('Failed to save settings: ' + err.message)
+      toast.info('Failed to save settings: ' + err.message)
     }
   }
 
@@ -1390,7 +1392,7 @@ export function AdminPortalPage() {
       await adminApi.deleteUser(id)
       loadData()
     } catch (err: any) {
-      alert(err.message || 'Failed to delete user')
+      toast.error('Failed to delete user', err.message)
     }
   }
 }
@@ -1401,6 +1403,7 @@ function FirmModal({ firm, onClose, onSave }: {
   onClose: () => void
   onSave: (data: any) => Promise<void>
 }) {
+  const toast = useToast()
   const [formData, setFormData] = useState({
     name: firm?.name || '',
     email: firm?.email || '',
@@ -1419,7 +1422,7 @@ function FirmModal({ firm, onClose, onSave }: {
     try {
       await onSave(formData)
     } catch (err: any) {
-      alert(err.message || 'Failed to save firm')
+      toast.error('Failed to save firm', err.message)
     } finally {
       setSaving(false)
     }
@@ -1519,6 +1522,7 @@ function UserModal({ user, firms, onClose, onSave }: {
   onClose: () => void
   onSave: (data: any) => Promise<void>
 }) {
+  const toast = useToast()
   const [formData, setFormData] = useState({
     firmId: user?.firmId || '',
     email: user?.email || '',
@@ -1542,7 +1546,7 @@ function UserModal({ user, firms, onClose, onSave }: {
       if (!data.password) delete data.password
       await onSave(data)
     } catch (err: any) {
-      alert(err.message || 'Failed to save user')
+      toast.error('Failed to save user', err.message)
     } finally {
       setSaving(false)
     }

@@ -8,6 +8,7 @@ import { documentTemplatesApi } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 import { format, parseISO } from 'date-fns'
 import styles from './DocumentTemplatesPage.module.css'
+import { useToast } from '../components/Toast'
 
 interface Template {
   id: string
@@ -54,6 +55,7 @@ const PRACTICE_AREAS = [
 
 export function DocumentTemplatesPage() {
   const { user } = useAuthStore()
+  const toast = useToast()
   const isAdmin = user?.role === 'owner' || user?.role === 'admin'
   
   const [templates, setTemplates] = useState<Template[]>([])

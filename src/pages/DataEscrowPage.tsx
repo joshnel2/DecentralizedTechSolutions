@@ -5,8 +5,10 @@ import {
   AlertCircle, RefreshCw, HardDrive, CheckCircle2, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
+import { useToast } from '../components/Toast'
 
 export function DataEscrowPage() {
+  const toast = useToast()
   const navigate = useNavigate()
   const [saved, setSaved] = useState(false)
   

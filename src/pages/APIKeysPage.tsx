@@ -8,8 +8,10 @@ import {
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import styles from './APIKeysPage.module.css'
+import { useToast } from '../components/Toast'
 
 export function APIKeysPage() {
+  const toast = useToast()
   const navigate = useNavigate()
   const { apiKeys, fetchAPIKeys, addAPIKey, deleteAPIKey } = useDataStore()
   const { user } = useAuthStore()

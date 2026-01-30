@@ -12,12 +12,14 @@ import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addDays }
 import { parseAsLocalDate, localDateToISO } from '../utils/dateUtils'
 import { clsx } from 'clsx'
 import styles from './TimeTrackingPage.module.css'
+import { useToast } from '../components/Toast'
 
 export function TimeTrackingPage() {
   const { timeEntries, matters, clients, addTimeEntry, updateTimeEntry, addInvoice, fetchTimeEntries, fetchMatters, fetchClients, fetchInvoices } = useDataStore()
   const { timer, startTimer, pauseTimer, resumeTimer, stopTimer, discardTimer, isTimerActive } = useTimer()
   const navigate = useNavigate()
   const location = useLocation()
+  const toast = useToast()
   
   // Fetch data from API on mount
   // Request a higher limit to ensure older time entries are available for invoicing
@@ -856,7 +858,7 @@ export function TimeTrackingPage() {
               await fetchTimeEntries({})
             } catch (error) {
               console.error('Failed to create time entry:', error)
-              alert('Failed to create time entry. Please try again.')
+              toast.error('Failed to create time entry', 'Please try again.')
             }
           }}
           matters={matters}
@@ -887,7 +889,7 @@ export function TimeTrackingPage() {
               navigate('/app/billing')
             } catch (error) {
               console.error('Failed to create invoice:', error)
-              alert('Failed to create invoice. Please try again.')
+              toast.error('Failed to create invoice', 'Please try again.')
             }
           }}
         />
@@ -906,7 +908,7 @@ export function TimeTrackingPage() {
               await fetchTimeEntries({})
             } catch (error) {
               console.error('Failed to update time entry:', error)
-              alert('Failed to update time entry. Please try again.')
+              toast.error('Failed to update time entry', 'Please try again.')
             }
           }}
         />
@@ -929,7 +931,7 @@ export function TimeTrackingPage() {
               await fetchTimeEntries({})
             } catch (error) {
               console.error('Failed to save time entry:', error)
-              alert('Failed to save time entry. Please try again.')
+              toast.error('Failed to save time entry', 'Please try again.')
             }
           }}
         />

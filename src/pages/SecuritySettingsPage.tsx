@@ -8,9 +8,11 @@ import {
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import styles from './SecuritySettingsPage.module.css'
+import { useToast } from '../components/Toast'
 
 export function SecuritySettingsPage() {
   const navigate = useNavigate()
+  const toast = useToast()
   const { 
     user, 
     twoFactorSetup, 
@@ -448,18 +450,18 @@ export function SecuritySettingsPage() {
                 const newPass = (inputs[1] as HTMLInputElement)?.value;
                 const confirm = (inputs[2] as HTMLInputElement)?.value;
                 if (!current || !newPass || !confirm) {
-                  alert('Please fill in all password fields.');
+                  toast.info('Please fill in all password fields.');
                   return;
                 }
                 if (newPass !== confirm) {
-                  alert('New passwords do not match.');
+                  toast.info('New passwords do not match.');
                   return;
                 }
                 if (newPass.length < 8) {
-                  alert('Password must be at least 8 characters.');
+                  toast.info('Password must be at least 8 characters.');
                   return;
                 }
-                alert('Password updated successfully!');
+                toast.info('Password updated successfully!');
               }}>Update Password</button>
             </div>
           </div>
@@ -481,7 +483,7 @@ export function SecuritySettingsPage() {
                   <p>Export all your data in a portable format</p>
                 </div>
                 <button className={styles.secondaryBtn} onClick={() => {
-                  alert('Your data export has been initiated. You will receive an email with a download link within 24 hours.');
+                  toast.info('Your data export has been initiated. You will receive an email with a download link within 24 hours.');
                 }}>
                   <Download size={16} />
                   Export Data
@@ -496,9 +498,9 @@ export function SecuritySettingsPage() {
                   if (confirm('Are you absolutely sure you want to delete your account? This action cannot be undone.')) {
                     const confirmation = prompt('Type "DELETE" to confirm account deletion:');
                     if (confirmation === 'DELETE') {
-                      alert('Account deletion request submitted. You will receive a confirmation email.');
+                      toast.info('Account deletion request submitted. You will receive a confirmation email.');
                     } else {
-                      alert('Account deletion cancelled.');
+                      toast.info('Account deletion cancelled.');
                     }
                   }
                 }}>

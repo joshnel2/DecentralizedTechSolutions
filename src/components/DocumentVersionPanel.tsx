@@ -10,6 +10,7 @@ import { wordOnlineApi, documentsApi, driveApi } from '../services/api'
 import { format, formatDistanceToNow, parseISO } from 'date-fns'
 import { useWordOnlineSync } from '../hooks/useWordOnlineSync'
 import styles from './DocumentVersionPanel.module.css'
+import { useToast } from './Toast'
 
 interface Version {
   id: string
@@ -68,6 +69,7 @@ export function DocumentVersionPanel({
   onPreview
 }: DocumentVersionPanelProps) {
   const navigate = useNavigate()
+  const toast = useToast()
   const [versions, setVersions] = useState<Version[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -209,9 +211,9 @@ export function DocumentVersionPanel({
       if (err.status === 423) {
         // Lock conflict - refresh status to show who has it
         await fetchLockStatus()
-        alert(`This document is currently being edited by ${lockStatus?.lockedByName || 'another user'}.`)
+        toast.info(`This document is currently being edited by ${lockStatus?.lockedByName || 'another user'}.`)
       } else {
-        alert('Failed to acquire lock: ' + (err.message || 'Unknown error'))
+        toast.info('Failed to acquire lock: ' + (err.message || 'Unknown error'))
       }
     } finally {
       setIsAcquiringLock(false)
@@ -225,7 +227,7 @@ export function DocumentVersionPanel({
       await driveApi.releaseLock(document.id)
       await fetchLockStatus()
     } catch (err: any) {
-      alert('Failed to release lock: ' + (err.message || 'Unknown error'))
+      toast.info('Failed to release lock: ' + (err.message || 'Unknown error'))
     } finally {
       setIsReleasingLock(false)
     }
@@ -484,17 +486,17 @@ export function DocumentVersionPanel({
                     // Valid edit URL - open in new tab
                     window.open(result.editUrl, '_blank')
                   } else if (result.needsMicrosoftAuth) {
-                    alert('Please connect Microsoft 365 in Settings → Integrations first.')
+                    toast.info('Please connect Microsoft 365 in Settings → Integrations first.')
                   } else if (result.downloadUrl) {
                     // No Word Online available - offer download
                     const confirmed = confirm('Word Online is not available. Download the document instead?')
                     if (confirmed) onDownload()
                   } else {
-                    alert(result.message || 'Could not open Word Online. Try downloading instead.')
+                    toast.error('Could not open Word Online', result.message || 'Try downloading instead.')
                   }
                 } catch (err) {
                   console.error('Word Online error:', err)
-                  alert('Could not connect to Word Online. Try downloading instead.')
+                  toast.info('Could not connect to Word Online. Try downloading instead.')
                 }
               }}
             >
@@ -507,21 +509,21 @@ export function DocumentVersionPanel({
                 try {
                   const result = await wordOnlineApi.saveFromWord(document.id)
                   if (result.saved) {
-                    alert(`✓ Synced! Created Version ${result.versionNumber}`)
+                    toast.info(`✓ Synced! Created Version ${result.versionNumber}`)
                     fetchVersions() // Refresh version list
                   } else if (result.reason === 'no_changes') {
-                    alert('No changes detected. The document is already up to date.')
+                    toast.info('No changes detected. The document is already up to date.')
                   } else if (result.needsReauth) {
-                    alert('Please reconnect Microsoft 365 in Settings → Integrations.')
+                    toast.info('Please reconnect Microsoft 365 in Settings → Integrations.')
                   } else {
-                    alert(result.message || 'Could not sync. Make sure you saved in Word Online first.')
+                    toast.error('Could not sync', result.message || 'Make sure you saved in Word Online first.')
                   }
                 } catch (err: any) {
                   console.error('Sync error:', err)
                   if (err.status === 404) {
-                    alert('This document hasn\'t been opened in Word Online yet. Open it first, make changes, then sync.')
+                    toast.info('This document hasn\'t been opened in Word Online yet. Open it first, make changes, then sync.')
                   } else {
-                    alert('Sync failed: ' + (err.message || 'Unknown error'))
+                    toast.info('Sync failed: ' + (err.message || 'Unknown error'))
                   }
                 }
               }}
@@ -753,10 +755,10 @@ export function DocumentVersionPanel({
                     window.document.body.removeChild(a2)
                     
                     // Show instructions
-                    alert(`✓ Downloaded both versions!\n\nTo compare in Word:\n1. Open Microsoft Word\n2. Go to Review → Compare → Compare Documents\n3. Select "v${v1.versionNumber} - ${document.name}" as Original\n4. Select "v${v2.versionNumber} - ${document.name}" as Revised\n5. Click OK to see the redline`)
+                    toast.info(`✓ Downloaded both versions!\n\nTo compare in Word:\n1. Open Microsoft Word\n2. Go to Review → Compare → Compare Documents\n3. Select "v${v1.versionNumber} - ${document.name}" as Original\n4. Select "v${v2.versionNumber} - ${document.name}" as Revised\n5. Click OK to see the redline`)
                   } catch (err) {
                     console.error('Failed to download versions:', err)
-                    alert('Failed to download versions. Please try again.')
+                    toast.info('Failed to download versions. Please try again.')
                   }
                 }}
                 disabled={isComparing}

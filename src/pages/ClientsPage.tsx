@@ -8,6 +8,7 @@ import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './ListPages.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+import { useToast } from '../components/Toast'
 
 // View options - "All Clients" only available to admins
 const getViewOptions = (isAdmin: boolean) => {
@@ -23,6 +24,7 @@ export function ClientsPage() {
   const { user } = useAuthStore()
   const { openChat } = useAIChat()
   const navigate = useNavigate()
+  const toast = useToast()
   const [searchQuery, setSearchQuery] = useState('')
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)

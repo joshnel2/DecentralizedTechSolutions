@@ -6,9 +6,11 @@ import {
   Download, RefreshCw, Shield, ArrowLeft
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
+import { useToast } from '../components/Toast'
 
 export function AccountSettingsPage() {
   const navigate = useNavigate()
+  const toast = useToast()
   const { user } = useAuthStore()
   const [saved, setSaved] = useState(false)
   

@@ -9,9 +9,11 @@ import {
   Tags, Plus, Edit2, Bot, Sparkles
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
+import { useToast } from '../components/Toast'
 
 export function SettingsPage() {
   const navigate = useNavigate()
+  const toast = useToast()
   const { user, updateUser } = useAuthStore()
   const { matterTypes, addMatterType, updateMatterType, deleteMatterType, toggleMatterTypeActive } = useDataStore()
   const [activeTab, setActiveTab] = useState('profile')
@@ -207,10 +209,10 @@ export function SettingsPage() {
                         const file = e.target.files?.[0]
                         if (file) {
                           if (file.size > 2 * 1024 * 1024) {
-                            alert('File size must be less than 2MB')
+                            toast.warning('File size must be less than 2MB')
                             return
                           }
-                          alert('Photo uploaded successfully!')
+                          toast.success('Photo uploaded successfully!')
                         }
                       }}
                     />
@@ -1089,7 +1091,7 @@ export function SettingsPage() {
                   <button 
                     className={styles.secondaryBtn}
                     onClick={() => {
-                      alert('Your data export has been initiated. You will receive an email when the export is ready to download.')
+                      toast.info('Data Export Initiated', 'You will receive an email when the export is ready to download.')
                     }}
                   >
                     <Download size={16} />
@@ -1100,7 +1102,7 @@ export function SettingsPage() {
                     onClick={() => {
                       if (confirm('Are you sure you want to delete your account? This action is irreversible and all your data will be permanently deleted.')) {
                         if (confirm('This is your final confirmation. Type "DELETE" to confirm.')) {
-                          alert('Account deletion has been scheduled. You will be logged out.')
+                          toast.info('Account Deletion Scheduled', 'You will be logged out shortly.')
                         }
                       }
                     }}

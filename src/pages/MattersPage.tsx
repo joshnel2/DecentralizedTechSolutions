@@ -16,6 +16,7 @@ import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './ListPages.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+import { useToast } from '../components/Toast'
 
 const COLUMN_SETTINGS_KEY = 'matters-column-settings'
 
@@ -42,6 +43,7 @@ export function MattersPage() {
   const { user, hasPermission } = useAuthStore()
   const { openChat } = useAIChat()
   const navigate = useNavigate()
+  const toast = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
   const [searchQuery, setSearchQuery] = useState('')
   const [attorneys, setAttorneys] = useState<any[]>([])
@@ -145,7 +147,7 @@ export function MattersPage() {
       fetchMatters()
     } catch (error) {
       console.error('Failed to update matter status:', error)
-      alert('Failed to update matter status')
+      toast.error('Failed to update matter status')
     }
   }
 
@@ -157,7 +159,7 @@ export function MattersPage() {
       fetchMatters()
     } catch (error) {
       console.error('Failed to delete matter:', error)
-      alert('Failed to delete matter')
+      toast.error('Failed to delete matter')
     }
   }
 
@@ -589,7 +591,7 @@ export function MattersPage() {
               fetchMatters()
             } catch (error) {
               console.error('Failed to create matter:', error)
-              alert('Failed to create matter. Please try again.')
+              toast.error('Failed to create matter', 'Please try again.')
             }
           }}
           clients={clients}
@@ -643,6 +645,7 @@ interface TeamAssignment {
 }
 
 function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefilledClientId, typeOptions }: NewMatterModalProps) {
+  const toast = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
@@ -677,7 +680,7 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
     
     // Don't add duplicates
     if (teamAssignments.some(t => t.userId === selectedAttorney)) {
-      alert('This attorney is already assigned')
+      toast.warning('This attorney is already assigned')
       return
     }
     
@@ -706,7 +709,7 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
     const clientName = selectedClient?.name || selectedClient?.displayName || formData.name
     
     if (!clientName && !opposingPartyName) {
-      alert('Please enter a client or matter name to check for conflicts')
+      toast.warning('Please enter a client or matter name to check for conflicts')
       return
     }
     
@@ -724,7 +727,7 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
       setConflictCheckResult(result)
     } catch (error) {
       console.error('Conflict check failed:', error)
-      alert('Failed to run conflict check')
+      toast.error('Failed to run conflict check')
     } finally {
       setIsCheckingConflicts(false)
     }
@@ -736,7 +739,7 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
     
     // If there are high severity conflicts and not acknowledged, prevent submission
     if (conflictCheckResult?.summary?.high > 0 && !conflictAcknowledged) {
-      alert('Please acknowledge the conflict warnings before proceeding')
+      toast.warning('Please acknowledge the conflict warnings before proceeding')
       return
     }
     

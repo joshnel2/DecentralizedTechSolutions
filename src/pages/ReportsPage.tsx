@@ -15,6 +15,7 @@ import {
 } from 'recharts'
 import { format, subDays, subMonths, startOfMonth, endOfMonth } from 'date-fns'
 import styles from './ReportsPage.module.css'
+import { useToast } from '../components/Toast'
 
 const COLORS = ['#F59E0B', '#3B82F6', '#10B981', '#8B5CF6', '#EF4444', '#EC4899', '#14B8A6', '#F97316']
 
@@ -66,6 +67,7 @@ const reportCategories = [
 
 export function ReportsPage() {
   const { matters, clients, timeEntries, invoices, expenses } = useDataStore()
+  const toast = useToast()
   const [activeCategory, setActiveCategory] = useState('overview')
   const [selectedReport, setSelectedReport] = useState<string | null>(null)
   const [dateRange, setDateRange] = useState('this-month')
@@ -475,7 +477,7 @@ export function ReportsPage() {
               </select>
             </div>
             <button className={styles.refreshBtn} onClick={() => {
-              alert('Dashboard data refreshed!');
+              toast.info('Dashboard data refreshed!');
             }}>
               <RefreshCw size={16} />
               Refresh
@@ -830,7 +832,7 @@ export function ReportsPage() {
                 </select>
               </div>
               <button className={styles.applyFilters} onClick={() => {
-                alert('Filters applied! Reports will be generated with the selected criteria.');
+                toast.info('Filters applied! Reports will be generated with the selected criteria.');
                 setShowFilterPanel(false);
               }}>Apply Filters</button>
             </div>
@@ -965,6 +967,7 @@ function CustomReportModal({
   invoices: any[]
   timeEntries: any[]
 }) {
+  const toast = useToast()
   const [reportType, setReportType] = useState<'matters' | 'clients' | 'invoices' | 'timeEntries'>('matters')
   const [selectedColumns, setSelectedColumns] = useState<string[]>(
     customReportColumns.matters.filter(c => c.default).map(c => c.id)
@@ -995,7 +998,7 @@ function CustomReportModal({
 
   const generateReport = () => {
     if (selectedColumns.length === 0) {
-      alert('Please select at least one column')
+      toast.info('Please select at least one column')
       return
     }
 

@@ -8,6 +8,7 @@ import {
 import { format, parseISO, subDays } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './TrustAccountingPage.module.css'
+import { useToast } from '../components/Toast'
 
 interface TrustTransaction {
   id: string
@@ -28,6 +29,7 @@ interface TrustTransaction {
 
 export function TrustAccountingPage() {
   const { clients } = useDataStore()
+  const toast = useToast()
   const [transactions, setTransactions] = useState<TrustTransaction[]>([])
   const [clientBalances, setClientBalances] = useState<{ clientId: string; clientName: string; balance: number; lastActivity: string }[]>([])
   const [activeTab, setActiveTab] = useState<'ledger' | 'balances' | 'reconciliation'>('ledger')
@@ -204,8 +206,8 @@ export function TrustAccountingPage() {
                 </div>
                 <div className={styles.balanceAmount}>${client.balance.toLocaleString()}</div>
                 <div className={styles.balanceActions}>
-                  <button className={styles.smallBtn} onClick={() => alert(`Ledger for ${client.clientName}:\n\nShowing all trust transactions for this client.\nBalance: $${client.balance.toLocaleString()}`)}>View Ledger</button>
-                  <button className={styles.smallBtn} onClick={() => alert(`Statement generated for ${client.clientName}\n\nA PDF statement will be available for download.`)}>Statement</button>
+                  <button className={styles.smallBtn} onClick={() => toast.info(`Ledger for ${client.clientName}:\n\nShowing all trust transactions for this client.\nBalance: $${client.balance.toLocaleString()}`)}>View Ledger</button>
+                  <button className={styles.smallBtn} onClick={() => toast.info(`Statement generated for ${client.clientName}\n\nA PDF statement will be available for download.`)}>Statement</button>
                 </div>
               </div>
             ))
@@ -264,11 +266,11 @@ export function TrustAccountingPage() {
             </div>
             <button className={styles.primaryBtn} onClick={() => {
               if (!bankStatementBalance) {
-                alert('Please enter the bank statement balance first.');
+                toast.info('Please enter the bank statement balance first.');
                 return;
               }
               setLastReconcileDate(new Date().toISOString());
-              alert(`Reconciliation completed!\n\nBank Balance: $${parseFloat(bankStatementBalance).toLocaleString()}\nLedger Balance: $${totalBalance.toLocaleString()}\nDifference: $${Math.abs(parseFloat(bankStatementBalance) - totalBalance).toLocaleString()}`);
+              toast.info(`Reconciliation completed!\n\nBank Balance: $${parseFloat(bankStatementBalance).toLocaleString()}\nLedger Balance: $${totalBalance.toLocaleString()}\nDifference: $${Math.abs(parseFloat(bankStatementBalance) - totalBalance).toLocaleString()}`);
             }}><RefreshCw size={16} /> Complete Reconciliation</button>
           </div>
         </div>
@@ -329,7 +331,7 @@ export function TrustAccountingPage() {
             const clientBal = clientBalances.find(cb => cb.clientId === data.clientId);
             
             if (!clientBal || clientBal.balance < data.amount) {
-              alert('Insufficient funds for this client');
+              toast.info('Insufficient funds for this client');
               return;
             }
             
@@ -370,6 +372,7 @@ function DepositModal({ clients, onClose, onSave }: {
   onClose: () => void; 
   onSave: (data: { clientId: string; amount: number; date: string; method: string; reference: string; description: string }) => void 
 }) {
+  const toast = useToast()
   const [formData, setFormData] = useState({
     clientId: '',
     amount: '',
@@ -382,7 +385,7 @@ function DepositModal({ clients, onClose, onSave }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.clientId || !formData.amount || !formData.description) {
-      alert('Please fill in all required fields');
+      toast.info('Please fill in all required fields');
       return;
     }
     onSave({
@@ -450,6 +453,7 @@ function DisbursementModal({ clients, clientBalances, onClose, onSave }: {
   onClose: () => void; 
   onSave: (data: { clientId: string; amount: number; date: string; method: string; reference: string; description: string }) => void 
 }) {
+  const toast = useToast()
   const [formData, setFormData] = useState({
     clientId: '',
     amount: '',
@@ -464,12 +468,12 @@ function DisbursementModal({ clients, clientBalances, onClose, onSave }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.clientId || !formData.amount || !formData.description) {
-      alert('Please fill in all required fields');
+      toast.info('Please fill in all required fields');
       return;
     }
     const amount = parseFloat(formData.amount);
     if (amount > selectedClientBalance) {
-      alert(`Insufficient funds. Available balance: $${selectedClientBalance.toLocaleString()}`);
+      toast.info(`Insufficient funds. Available balance: $${selectedClientBalance.toLocaleString()}`);
       return;
     }
     onSave({

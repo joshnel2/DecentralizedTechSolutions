@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './TeamPage.module.css'
+import { useToast } from '../components/Toast'
 
 interface TeamMember {
   id: string
@@ -32,6 +33,7 @@ interface Group {
 
 export function TeamPage() {
   const navigate = useNavigate()
+  const toast = useToast()
   const { groups, addGroup, updateGroup, deleteGroup, fetchGroups } = useDataStore()
   const { user } = useAuthStore()
   const [showInviteModal, setShowInviteModal] = useState(false)

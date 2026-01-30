@@ -13,10 +13,12 @@ import {
 } from 'date-fns'
 import { clsx } from 'clsx'
 import styles from './CalendarPage.module.css'
+import { useToast } from '../components/Toast'
 
 export function CalendarPage() {
   const { events, matters, clients, addEvent, updateEvent, deleteEvent, fetchEvents, fetchMatters } = useDataStore()
   const { teamMembers, loadTeamMembers } = useAuthStore()
+  const toast = useToast()
   
   // Fetch data from API on mount
   useEffect(() => {
@@ -54,7 +56,7 @@ export function CalendarPage() {
       fetchEvents()
     } catch (error) {
       console.error('Failed to delete event:', error)
-      alert('Failed to delete event')
+      toast.error('Failed to delete event')
     }
   }
 
@@ -495,7 +497,7 @@ export function CalendarPage() {
               fetchEvents()
             } catch (error) {
               console.error('Failed to create event:', error)
-              alert('Failed to create event. Please try again.')
+              toast.error('Failed to create event', 'Please try again.')
             }
           }}
           matters={matters}
@@ -514,7 +516,7 @@ export function CalendarPage() {
               fetchEvents()
             } catch (error) {
               console.error('Failed to update event:', error)
-              alert('Failed to update event. Please try again.')
+              toast.error('Failed to update event', 'Please try again.')
             }
           }}
           matters={matters}

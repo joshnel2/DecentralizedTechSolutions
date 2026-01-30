@@ -14,6 +14,7 @@ import { parseAsLocalDate, localDateToISO } from '../utils/dateUtils'
 import { clsx } from 'clsx'
 import styles from './DetailPage.module.css'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+import { useToast } from '../components/Toast'
 
 // Client status options
 const clientStatusOptions = [
@@ -24,6 +25,7 @@ const clientStatusOptions = [
 export function ClientDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const toast = useToast()
   const { 
     clients, matters, invoices, documents, timeEntries,
     updateClient, deleteClient, fetchClients,
@@ -202,7 +204,7 @@ export function ClientDetailPage() {
       await fetchTimeEntries({ limit: 500 })
     } catch (error) {
       console.error('Failed to save quick time entry:', error)
-      alert('Failed to save time entry')
+      toast.error('Failed to save time entry')
     } finally {
       setQuickTimeSaving(false)
     }
@@ -236,7 +238,7 @@ export function ClientDetailPage() {
           setConfirmModal(prev => ({ ...prev, isOpen: false }))
         } catch (error) {
           console.error('Failed to delete time entry:', error)
-          alert('Failed to delete time entry')
+          toast.error('Failed to delete time entry')
         }
       }
     })
@@ -377,7 +379,7 @@ export function ClientDetailPage() {
                             navigate('/app/clients')
                           } catch (error) {
                             console.error('Failed to delete client:', error)
-                            alert('Failed to delete client')
+                            toast.error('Failed to delete client')
                           }
                         }
                       })
@@ -992,7 +994,7 @@ export function ClientDetailPage() {
                 input.onchange = (e) => {
                   const files = (e.target as HTMLInputElement).files;
                   if (files && files.length > 0) {
-                    alert(`${files.length} document(s) selected for upload to ${client?.name}'s file.`);
+                    toast.info(`${files.length} document(s) selected`, `Ready to upload to ${client?.name}'s file.`);
                   }
                 };
                 input.click();
@@ -1175,7 +1177,7 @@ export function ClientDetailPage() {
               setShowBillEntriesModal(false)
             } catch (error) {
               console.error('Failed to create invoice:', error)
-              alert('Failed to create invoice. Please try again.')
+              toast.error('Failed to create invoice', 'Please try again.')
             }
           }}
         />
@@ -1351,6 +1353,7 @@ function NewMatterModal({ clientId, clientName, onClose, onSave }: {
   onClose: () => void
   onSave: (data: any) => Promise<void>
 }) {
+  const toast = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
@@ -1368,7 +1371,7 @@ function NewMatterModal({ clientId, clientName, onClose, onSave }: {
     e.preventDefault()
     if (isSubmitting) return
     if (!formData.name.trim()) {
-      alert('Please enter a matter name')
+      toast.warning('Please enter a matter name')
       return
     }
     setIsSubmitting(true)
@@ -1668,6 +1671,7 @@ function TimeEntryModal({ clientName, clientMatters, existingEntry, onClose, onS
   onClose: () => void
   onSave: (data: any) => Promise<void>
 }) {
+  const toast = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     matterId: existingEntry?.matterId || clientMatters[0]?.id || '',
@@ -1699,7 +1703,7 @@ function TimeEntryModal({ clientName, clientMatters, existingEntry, onClose, onS
     e.preventDefault()
     if (isSubmitting) return
     if (!formData.matterId) {
-      alert('Please select a matter')
+      toast.warning('Please select a matter')
       return
     }
     setIsSubmitting(true)
@@ -1825,6 +1829,7 @@ function NewInvoiceModal({ clientId, clientName, clientMatters, onClose, onSave 
   onClose: () => void
   onSave: (data: any) => Promise<void>
 }) {
+  const toast = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     clientId: clientId,
@@ -1869,7 +1874,7 @@ function NewInvoiceModal({ clientId, clientName, clientMatters, onClose, onSave 
     e.preventDefault()
     if (isSubmitting) return
     if (totalAmount <= 0) {
-      alert('Please add at least one line item with an amount')
+      toast.warning('Please add at least one line item with an amount')
       return
     }
     setIsSubmitting(true)
@@ -2019,6 +2024,7 @@ function ClientNotesSection({
   notes: string
   onSave: (notes: string) => Promise<void>
 }) {
+  const toast = useToast()
   const [isEditing, setIsEditing] = useState(false)
   const [editedNotes, setEditedNotes] = useState(notes)
   const [isSaving, setIsSaving] = useState(false)
@@ -2041,7 +2047,7 @@ function ClientNotesSection({
       setTimeout(() => setSaveSuccess(false), 3000)
     } catch (error) {
       console.error('Failed to save notes:', error)
-      alert('Failed to save notes. Please try again.')
+      toast.error('Failed to save notes', 'Please try again.')
     } finally {
       setIsSaving(false)
     }
