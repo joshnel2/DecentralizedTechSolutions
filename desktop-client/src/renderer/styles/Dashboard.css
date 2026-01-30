@@ -240,6 +240,55 @@
   color: var(--color-text);
 }
 
+/* Quick Actions Card */
+.quick-actions-card {
+  grid-column: 1 / -1;
+}
+
+.quick-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.quick-action-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+  cursor: pointer;
+  transition: all var(--transition);
+  text-align: center;
+}
+
+.quick-action-btn:hover {
+  background: white;
+  border-color: var(--color-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.quick-action-btn svg {
+  width: 28px;
+  height: 28px;
+  color: var(--color-primary);
+}
+
+.quick-action-btn span {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.quick-action-btn small {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
 /* Instructions Card */
 .instructions-card {
   grid-column: 1 / -1;
@@ -351,11 +400,16 @@
   .connection-card,
   .matters-card,
   .actions-card,
-  .instructions-card {
+  .instructions-card,
+  .quick-actions-card {
     grid-column: 1;
   }
   
   .quick-actions {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .quick-actions-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 }

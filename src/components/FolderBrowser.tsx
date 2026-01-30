@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { 
   Folder, FolderOpen, FileText, ChevronRight,
   RefreshCw, Home, File, FileSpreadsheet, FileImage, 
-  Loader2, AlertCircle, Download, Briefcase
+  Loader2, AlertCircle, Download, Briefcase, ExternalLink,
+  HardDrive
 } from 'lucide-react'
 import { driveApi } from '../services/api'
 import styles from './FolderBrowser.module.css'
@@ -186,6 +187,45 @@ export function FolderBrowser({
     return () => clearTimeout(timer)
   }, [searchQuery, fetchData])
   
+  // Open document in desktop drive (uses apexdrive:// protocol)
+  const openInDesktop = useCallback((doc: DocumentItem, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
+    
+    // Build the path for the desktop drive
+    // Format: apexdrive://open?matter={matterName}&file={fileName}
+    const matterPath = doc.matterNumber 
+      ? `${doc.matterNumber} - ${doc.matterName}`
+      : doc.matterName || 'Unassigned'
+    
+    const fileName = doc.originalName || doc.name
+    const encodedPath = encodeURIComponent(`${matterPath}/${fileName}`)
+    
+    // Try to open with apexdrive:// protocol
+    const driveUrl = `apexdrive://open?path=${encodedPath}&docId=${doc.id}`
+    
+    // Create a hidden iframe to attempt protocol launch (doesn't show ugly dialog on failure)
+    const iframe = document.createElement('iframe')
+    iframe.style.display = 'none'
+    document.body.appendChild(iframe)
+    
+    // Set a timeout - if the protocol handler isn't installed, we'll show a message
+    const timeout = setTimeout(() => {
+      document.body.removeChild(iframe)
+      // Show install prompt instead of ugly error
+      if (confirm('Apex Drive desktop app is not installed. Would you like to download it?')) {
+        window.open('/installdrive', '_blank')
+      }
+    }, 2000)
+    
+    // If the protocol works, the user will be switched to the app
+    window.addEventListener('blur', () => {
+      clearTimeout(timeout)
+      document.body.removeChild(iframe)
+    }, { once: true })
+    
+    iframe.src = driveUrl
+  }, [])
+
   // Download file from database
   const downloadFile = async (doc: DocumentItem, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
@@ -473,6 +513,13 @@ export function FolderBrowser({
                       <td>{formatSize(doc.size)}</td>
                       <td>
                         <div className={styles.rowActions}>
+                          <button 
+                            className={styles.actionBtn}
+                            onClick={(e) => openInDesktop(doc, e)}
+                            title="Open in Apex Drive desktop app"
+                          >
+                            <HardDrive size={16} />
+                          </button>
                           <button 
                             className={styles.downloadBtn}
                             onClick={(e) => downloadFile(doc, e)}

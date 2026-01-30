@@ -10,7 +10,7 @@ import {
   FileSearch, Scale, AlertTriangle, List, MessageSquare,
   Eye, ExternalLink, Wand2, History, GitCompare, Lock, Edit3,
   HardDrive, Settings, Share2, Shield, Mail, Users, CheckSquare, Square,
-  LayoutGrid, LayoutList, Folder
+  LayoutGrid, LayoutList, Folder, Monitor, ArrowRight
 } from 'lucide-react'
 import { FolderBrowser, invalidateFolderBrowserCache } from '../components/FolderBrowser'
 import { documentsApi, driveApi, wordOnlineApi } from '../services/api'
@@ -43,6 +43,24 @@ export function DocumentsPage() {
   const [isUploading, setIsUploading] = useState(false)
   const [isExtracting, setIsExtracting] = useState(false)
   const [isOpeningWord, setIsOpeningWord] = useState(false)
+  
+  // Desktop drive banner state - show if not dismissed recently
+  const [showDriveBanner, setShowDriveBanner] = useState(() => {
+    const dismissed = localStorage.getItem('apex-drive-banner-dismissed')
+    if (dismissed) {
+      const dismissedTime = parseInt(dismissed)
+      // Show again after 7 days
+      if (Date.now() - dismissedTime < 7 * 24 * 60 * 60 * 1000) {
+        return false
+      }
+    }
+    return true
+  })
+  
+  const dismissDriveBanner = () => {
+    localStorage.setItem('apex-drive-banner-dismissed', Date.now().toString())
+    setShowDriveBanner(false)
+  }
   
   // View mode: 'list' (classic table) or 'folders' (Clio-style folder browser)
   const [viewMode, setViewMode] = useState<'list' | 'folders'>(() => {
@@ -683,6 +701,39 @@ export function DocumentsPage() {
                   {isUploading ? 'Uploading...' : 'Upload'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Desktop Drive Promotion Banner */}
+      {showDriveBanner && (
+        <div className={styles.driveBanner}>
+          <div className={styles.driveBannerContent}>
+            <div className={styles.driveBannerIcon}>
+              <Monitor size={24} />
+            </div>
+            <div className={styles.driveBannerText}>
+              <strong>Access documents like local files</strong>
+              <span>Download Apex Drive to open, edit, and save documents directly in Word, Excel, and other apps — just like files on your computer.</span>
+            </div>
+            <div className={styles.driveBannerActions}>
+              <a 
+                href="/installdrive" 
+                target="_blank"
+                className={styles.driveBannerBtn}
+              >
+                <HardDrive size={16} />
+                Download Apex Drive
+                <ArrowRight size={14} />
+              </a>
+              <button 
+                className={styles.driveBannerDismiss}
+                onClick={dismissDriveBanner}
+                title="Dismiss for 7 days"
+              >
+                <X size={16} />
+              </button>
             </div>
           </div>
         </div>

@@ -508,10 +508,122 @@ function setupIpcHandlers(): void {
   });
 }
 
+// Protocol handler for apexdrive:// URLs
+// This allows the web app to trigger actions in the desktop app
+function handleProtocolUrl(url: string): void {
+  log.info('Protocol URL received:', url);
+  
+  try {
+    const parsedUrl = new URL(url);
+    const action = parsedUrl.hostname || parsedUrl.pathname.replace(/^\/+/, '');
+    
+    switch (action) {
+      case 'open':
+        // Open a specific file or folder in the mounted drive
+        const filePath = parsedUrl.searchParams.get('path');
+        const docId = parsedUrl.searchParams.get('docId');
+        
+        if (filePath && virtualDrive?.isMounted()) {
+          const driveLetter = virtualDrive.getDriveLetter();
+          const fullPath = `${driveLetter}:\\${decodeURIComponent(filePath)}`;
+          log.info('Opening file in Explorer:', fullPath);
+          shell.showItemInFolder(fullPath);
+        } else if (virtualDrive?.isMounted()) {
+          // Just open the drive root
+          virtualDrive.openInExplorer();
+        } else {
+          // Drive not mounted - show window and prompt to mount
+          if (mainWindow) {
+            mainWindow.show();
+            mainWindow.focus();
+          }
+        }
+        break;
+        
+      case 'connect':
+        // Handle connection token from web app
+        const token = parsedUrl.searchParams.get('token');
+        const serverUrl = parsedUrl.searchParams.get('server');
+        if (token && serverUrl && mainWindow) {
+          mainWindow.show();
+          mainWindow.webContents.send('connect-with-token', { token, serverUrl });
+        }
+        break;
+        
+      case 'sync':
+        // Trigger immediate sync
+        syncEngine?.syncNow();
+        if (virtualDrive?.isMounted()) {
+          virtualDrive.refresh();
+        }
+        break;
+        
+      case 'show':
+        // Show the main window
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+        break;
+        
+      default:
+        log.info('Unknown protocol action:', action);
+        // Default: show the window
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+    }
+  } catch (error) {
+    log.error('Failed to parse protocol URL:', error);
+  }
+}
+
+// Register protocol handler (single instance lock)
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  // Another instance is already running - quit this one
+  app.quit();
+} else {
+  app.on('second-instance', (_, commandLine) => {
+    // Someone tried to run a second instance - focus our window and handle URL
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+    
+    // Handle protocol URL from command line
+    const protocolUrl = commandLine.find(arg => arg.startsWith('apexdrive://'));
+    if (protocolUrl) {
+      handleProtocolUrl(protocolUrl);
+    }
+  });
+}
+
+// Set as default protocol handler for apexdrive://
+if (!isDev) {
+  app.setAsDefaultProtocolClient('apexdrive');
+}
+
+// Handle protocol URL when app is opened via URL (macOS)
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleProtocolUrl(url);
+});
+
 // App lifecycle
 app.whenReady().then(async () => {
   setupIpcHandlers();
   await initializeApp();
+
+  // Handle protocol URL from initial launch (Windows/Linux)
+  const protocolUrl = process.argv.find(arg => arg.startsWith('apexdrive://'));
+  if (protocolUrl) {
+    // Delay to ensure window is ready
+    setTimeout(() => handleProtocolUrl(protocolUrl), 500);
+  }
 
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {

@@ -323,6 +323,59 @@ function Dashboard() {
           </div>
         </div>
 
+        {/* Quick Actions Card */}
+        <div className="card quick-actions-card">
+          <div className="card-header">
+            <h2>Quick Actions</h2>
+          </div>
+          <div className="card-content">
+            <div className="quick-actions-grid">
+              <button
+                className="quick-action-btn"
+                onClick={() => window.open('https://strappedai-gpfra9f8gsg9d9hy.canadacentral-01.azurewebsites.net/app/documents', '_blank')}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                </svg>
+                <span>Documents</span>
+                <small>View in browser</small>
+              </button>
+              <button
+                className="quick-action-btn"
+                onClick={() => window.open('https://strappedai-gpfra9f8gsg9d9hy.canadacentral-01.azurewebsites.net/app/matters', '_blank')}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                </svg>
+                <span>Matters</span>
+                <small>Case management</small>
+              </button>
+              <button
+                className="quick-action-btn"
+                onClick={() => window.open('https://strappedai-gpfra9f8gsg9d9hy.canadacentral-01.azurewebsites.net/app/time', '_blank')}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <polyline points="12 6 12 12 16 14"/>
+                </svg>
+                <span>Time Entries</span>
+                <small>Track your time</small>
+              </button>
+              <button
+                className="quick-action-btn"
+                onClick={() => window.open('https://strappedai-gpfra9f8gsg9d9hy.canadacentral-01.azurewebsites.net/app/ai', '_blank')}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                </svg>
+                <span>AI Assistant</span>
+                <small>Legal AI help</small>
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* Instructions Card */}
         <div className="card instructions-card">
           <div className="card-header">
