@@ -340,15 +340,26 @@ export function BackgroundTaskBar() {
         status: taskToShow.status
       }))
     }
-    // Navigate to Background Agent page
-    navigate('/app/background-agent')
+    // Navigate to Background Agent page with task info for highlighting
+    navigate('/app/background-agent', { 
+      state: { 
+        highlightTaskId: taskToShow?.id,
+        fromTaskBar: true,
+        showSummary: true
+      } 
+    })
     // Dismiss the bar
     handleDismiss()
   }
 
   const handleViewProgress = () => {
-    // Navigate to Background Agent page to view progress
-    navigate('/app/background-agent')
+    // Navigate to Background Agent page to view progress, passing task ID for highlighting
+    navigate('/app/background-agent', { 
+      state: { 
+        highlightTaskId: activeTask?.id,
+        fromTaskBar: true 
+      } 
+    })
   }
 
   // Only render when there's an active/running task (not completed/error/cancelled)
@@ -372,36 +383,64 @@ export function BackgroundTaskBar() {
   return (
     <div className={styles.taskBar}>
       <div className={styles.content}>
-        {/* Clickable area - goes to Background Agent page */}
-        <div className={styles.clickableArea} onClick={handleViewProgress} title="Click to view progress">
-          <div className={styles.icon}>
-            {activeTask?.isAmplifier ? (
-              <Rocket size={20} className={isThinking ? styles.pulsing : styles.spinning} />
-            ) : (
-              <Bot size={20} className={isThinking ? styles.pulsing : styles.spinning} />
-            )}
-          </div>
-          
-          <div className={styles.info}>
-            <div className={styles.header}>
-              <div className={styles.title}>
-                {isThinking 
-                  ? (activeTask?.isAmplifier ? 'Background Agent Thinking...' : 'AI Agent Thinking...') 
-                  : (activeTask?.isAmplifier ? 'Background Agent Working' : 'AI Agent Working')
-                }
-              </div>
-              <div className={styles.iterations}>
-                {stepLabel}
-              </div>
-              {/* Activity indicator - shows agent is still alive */}
-              <span className={styles.activityDot} title="Agent is active" />
+        {/* Top Row: Task info and actions */}
+        <div className={styles.topRow}>
+          {/* Clickable area - goes to Background Agent page */}
+          <div className={styles.clickableArea} onClick={handleViewProgress} title="Click to view progress">
+            <div className={styles.icon}>
+              {activeTask?.isAmplifier ? (
+                <Rocket size={20} className={isThinking ? styles.pulsing : styles.spinning} />
+              ) : (
+                <Bot size={20} className={isThinking ? styles.pulsing : styles.spinning} />
+              )}
             </div>
-            <div className={styles.goal}>{activeTask.goal}</div>
-            <div className={styles.step}>
-              {isThinking ? `🧠 ${activeTask.currentStep}` : activeTask.currentStep}
+            
+            <div className={styles.info}>
+              <div className={styles.header}>
+                <div className={styles.title}>
+                  {isThinking 
+                    ? (activeTask?.isAmplifier ? 'Background Agent Thinking...' : 'AI Agent Thinking...') 
+                    : (activeTask?.isAmplifier ? 'Background Agent Working' : 'AI Agent Working')
+                  }
+                </div>
+                <div className={styles.iterations}>
+                  {stepLabel}
+                </div>
+                {/* Activity indicator - shows agent is still alive */}
+                <span className={styles.activityDot} title="Agent is active" />
+              </div>
+              <div className={styles.goal}>{activeTask.goal}</div>
+              <div className={styles.step}>
+                {isThinking ? `🧠 ${activeTask.currentStep}` : activeTask.currentStep}
+              </div>
             </div>
           </div>
 
+          <div className={styles.actions}>
+            <button 
+              onClick={handleViewProgress} 
+              className={styles.viewProgressBtn}
+              title="View progress"
+            >
+              <MessageSquare size={14} />
+              <span>View</span>
+            </button>
+            <button 
+              onClick={handleCancel} 
+              className={styles.cancelBtn}
+              disabled={isCancelling}
+              title="Cancel task"
+            >
+              <StopCircle size={14} />
+            </button>
+            <button onClick={handleDismiss} className={styles.dismissBtn} title="Hide">
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+
+        {/* Bottom Row: Progress bar */}
+        <div className={styles.bottomRow}>
           <div className={styles.progress}>
             <div className={styles.progressBar}>
               <div 
@@ -413,28 +452,6 @@ export function BackgroundTaskBar() {
               {`${activeTask.progressPercent}%`}
             </div>
           </div>
-        </div>
-
-        <div className={styles.actions}>
-          <button 
-            onClick={handleViewProgress} 
-            className={styles.viewProgressBtn}
-            title="View progress"
-          >
-            <MessageSquare size={14} />
-            View
-          </button>
-          <button 
-            onClick={handleCancel} 
-            className={styles.cancelBtn}
-            disabled={isCancelling}
-            title="Cancel task"
-          >
-            <StopCircle size={14} />
-          </button>
-          <button onClick={handleDismiss} className={styles.dismissBtn} title="Hide">
-            <X size={14} />
-          </button>
         </div>
       </div>
     </div>

@@ -86,6 +86,10 @@ export function BackgroundAgentPage() {
   // Extended mode for long-running tasks
   const [extendedMode, setExtendedMode] = useState(false)
   
+  // Highlighted task (from navigation)
+  const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null)
+  const activeTaskRef = useRef<HTMLDivElement>(null)
+  
   // Task templates - pre-built complex workflows
   const taskTemplates = [
     {
@@ -285,6 +289,36 @@ export function BackgroundAgentPage() {
     refreshAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Handle navigation state (when coming from BackgroundTaskBar)
+  useEffect(() => {
+    const navState = location.state as { 
+      highlightTaskId?: string
+      fromTaskBar?: boolean
+      showSummary?: boolean 
+    } | null
+    
+    if (navState?.highlightTaskId) {
+      setHighlightedTaskId(navState.highlightTaskId)
+      
+      // Clear the highlight after 3 seconds
+      const timer = setTimeout(() => {
+        setHighlightedTaskId(null)
+      }, 3000)
+      
+      // Scroll to active task section after a brief delay
+      if (navState.fromTaskBar) {
+        setTimeout(() => {
+          activeTaskRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }, 100)
+      }
+      
+      // Clear navigation state to prevent re-triggering on refresh
+      window.history.replaceState({}, document.title)
+      
+      return () => clearTimeout(timer)
+    }
+  }, [location.state])
 
   useEffect(() => {
     if (!polling) return
@@ -795,7 +829,10 @@ export function BackgroundAgentPage() {
       )}
 
       <div className={styles.grid}>
-        <div className={styles.card}>
+        <div 
+          ref={activeTaskRef}
+          className={`${styles.card} ${highlightedTaskId && (activeTask?.id === highlightedTaskId || lastCompletedTask?.id === highlightedTaskId) ? styles.highlighted : ''}`}
+        >
           <div className={styles.cardHeader}>
             <h2>{activeTask ? 'Active Task' : lastCompletedTask ? 'Last Completed Task' : 'Active Task'}</h2>
             {lastCompletedTask && !activeTask && (
