@@ -323,6 +323,11 @@ export default function SecureAdminDashboard() {
       notes?: number;
       warnings?: string[];
       userCredentials?: { email: string; firstName: string; lastName: string; name: string; password: string; role: string }[];
+      documentsStreamed?: number;
+      documentsFailed?: number;
+      autoScanTriggered?: boolean;
+      firmId?: string;
+      scanJobId?: string;
     };
     logs?: string[];
     error?: string;
@@ -3502,9 +3507,30 @@ Password: ${newPass}`
                                             Successfully imported: {clioProgress.summary.users} users, {clioProgress.summary.contacts} contacts, 
                                             {clioProgress.summary.matters} matters, {clioProgress.summary.activities} time entries,
                                             {clioProgress.summary.bills} bills, {clioProgress.summary.calendar_entries || clioProgress.summary.calendar} calendar events
+                                            {(clioProgress.summary as { documentsStreamed?: number }).documentsStreamed && (clioProgress.summary as { documentsStreamed?: number }).documentsStreamed! > 0 && `, ${(clioProgress.summary as { documentsStreamed?: number }).documentsStreamed} documents`}
                                           </p>
+                                          {(clioProgress.summary as { autoScanTriggered?: boolean }).autoScanTriggered && (
+                                            <p style={{ marginTop: '0.5rem', opacity: 0.8, fontSize: '0.875rem' }}>
+                                              <RefreshCw size={14} style={{ display: 'inline', marginRight: '4px' }} />
+                                              Documents are being automatically linked to matters...
+                                            </p>
+                                          )}
                                         </div>
                                       </div>
+                                      
+                                      {/* Auto-Scan Status */}
+                                      {(clioProgress.summary as { autoScanTriggered?: boolean; firmId?: string }).autoScanTriggered && (clioProgress.summary as { firmId?: string }).firmId && (
+                                        <div style={{ marginBottom: '1rem', padding: '1rem', background: 'rgba(124, 58, 237, 0.1)', borderRadius: '8px', border: '1px solid rgba(124, 58, 237, 0.3)' }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                                            <RefreshCw size={16} className={styles.spinner} style={{ color: '#7C3AED' }} />
+                                            <strong style={{ color: '#7C3AED' }}>Auto-Scan in Progress</strong>
+                                          </div>
+                                          <p style={{ fontSize: '0.875rem', color: '#888', margin: 0 }}>
+                                            Documents are being automatically matched to matters based on folder structure.
+                                            You can view progress in the Firms tab → click on the firm → Document Migration section.
+                                          </p>
+                                        </div>
+                                      )}
                                       
                                       {/* Start New Migration Button */}
                                       <div style={{ marginBottom: '1rem', textAlign: 'right' }}>

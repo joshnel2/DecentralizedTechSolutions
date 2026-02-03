@@ -2593,10 +2593,118 @@ router.get('/clio/diagnose/:connectionId', requireSecureAdmin, async (req, res) 
 // In-memory progress tracking (data saves to DB immediately, this is just for UI updates)
 const migrationProgress = new Map();
 
+// ============================================
+// DATABASE PERSISTENCE FOR MIGRATION JOBS
+// ============================================
+// Persist migration progress to database for resilience across server restarts
+
+async function persistMigrationToDb(connectionId, progress) {
+  try {
+    await query(`
+      INSERT INTO migration_jobs (
+        connection_id, status, started_at, completed_at, error_message,
+        users_status, users_count, contacts_status, contacts_count,
+        matters_status, matters_count, activities_status, activities_count,
+        bills_status, bills_count, calendar_status, calendar_count,
+        result_data, summary, import_options, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW())
+      ON CONFLICT (connection_id) DO UPDATE SET
+        status = EXCLUDED.status,
+        completed_at = EXCLUDED.completed_at,
+        error_message = EXCLUDED.error_message,
+        users_status = EXCLUDED.users_status,
+        users_count = EXCLUDED.users_count,
+        contacts_status = EXCLUDED.contacts_status,
+        contacts_count = EXCLUDED.contacts_count,
+        matters_status = EXCLUDED.matters_status,
+        matters_count = EXCLUDED.matters_count,
+        activities_status = EXCLUDED.activities_status,
+        activities_count = EXCLUDED.activities_count,
+        bills_status = EXCLUDED.bills_status,
+        bills_count = EXCLUDED.bills_count,
+        calendar_status = EXCLUDED.calendar_status,
+        calendar_count = EXCLUDED.calendar_count,
+        result_data = EXCLUDED.result_data,
+        summary = EXCLUDED.summary,
+        import_options = EXCLUDED.import_options,
+        updated_at = NOW()
+    `, [
+      connectionId,
+      progress.status || 'running',
+      progress.startedAt || new Date(),
+      progress.completedAt || null,
+      progress.error || null,
+      progress.steps?.users?.status || 'pending',
+      progress.steps?.users?.count || 0,
+      progress.steps?.contacts?.status || 'pending',
+      progress.steps?.contacts?.count || 0,
+      progress.steps?.matters?.status || 'pending',
+      progress.steps?.matters?.count || 0,
+      progress.steps?.activities?.status || 'pending',
+      progress.steps?.activities?.count || 0,
+      progress.steps?.bills?.status || 'pending',
+      progress.steps?.bills?.count || 0,
+      progress.steps?.calendar?.status || 'pending',
+      progress.steps?.calendar?.count || 0,
+      JSON.stringify(progress.result || {}),
+      JSON.stringify(progress.summary || {}),
+      JSON.stringify(progress.importOptions || {})
+    ]);
+  } catch (err) {
+    // Non-fatal - memory progress still works
+    console.log(`[MIGRATION] DB persist error (non-fatal): ${err.message}`);
+  }
+}
+
+async function loadMigrationFromDb(connectionId) {
+  try {
+    const result = await query(
+      `SELECT * FROM migration_jobs WHERE connection_id = $1`,
+      [connectionId]
+    );
+    
+    if (result.rows.length === 0) return null;
+    
+    const row = result.rows[0];
+    return {
+      status: row.status,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+      error: row.error_message,
+      connectionId: row.connection_id,
+      importOptions: row.import_options || {},
+      logs: [], // Logs are not persisted
+      steps: {
+        users: { status: row.users_status, count: row.users_count },
+        contacts: { status: row.contacts_status, count: row.contacts_count },
+        matters: { status: row.matters_status, count: row.matters_count },
+        activities: { status: row.activities_status, count: row.activities_count },
+        bills: { status: row.bills_status, count: row.bills_count },
+        calendar: { status: row.calendar_status, count: row.calendar_count }
+      },
+      result: row.result_data || {},
+      summary: row.summary || {}
+    };
+  } catch (err) {
+    console.log(`[MIGRATION] DB load error: ${err.message}`);
+    return null;
+  }
+}
+
 // Get migration status/progress
-router.get('/clio/progress/:connectionId', requireSecureAdmin, (req, res) => {
+router.get('/clio/progress/:connectionId', requireSecureAdmin, async (req, res) => {
   const { connectionId } = req.params;
-  const progress = migrationProgress.get(connectionId);
+  let progress = migrationProgress.get(connectionId);
+  
+  // If not in memory, try to load from database (for server restart resilience)
+  if (!progress) {
+    progress = await loadMigrationFromDb(connectionId);
+    if (progress) {
+      // Restore to memory for faster subsequent lookups
+      migrationProgress.set(connectionId, progress);
+      console.log('[CLIO PROGRESS] Restored progress from database for:', connectionId);
+    }
+  }
   
   if (!progress) {
     console.log('[CLIO PROGRESS] No progress found for connection:', connectionId);
@@ -2724,6 +2832,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             if (prog.logs.length > 50) prog.logs.shift();
             
             console.log(`[CLIO IMPORT] Progress: ${step} = ${status} (${count} records)`);
+            
+            // Persist to database (async, non-blocking)
+            persistMigrationToDb(connectionId, prog).catch(() => {});
           }
         };
         
@@ -5382,6 +5493,44 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           };
           console.log('[CLIO IMPORT] ✓ Import completed:', prog.summary);
           console.log(`[CLIO IMPORT] User credentials stored: ${userCredentials.length}`);
+          
+          // Persist final state to database
+          await persistMigrationToDb(connectionId, prog);
+          console.log('[CLIO IMPORT] Progress persisted to database');
+          
+          // ============================================
+          // AUTO-SCAN: Automatically scan documents after migration
+          // ============================================
+          // If documents were streamed, trigger auto-scan to link them to matters
+          if (documentsStreamedCount > 0) {
+            addLog('🔍 Auto-scanning documents to link with matters...');
+            console.log(`[CLIO IMPORT] Auto-triggering document scan for firm ${firmId}`);
+            
+            try {
+              // Import the scan function directly from secureAdmin
+              const { triggerDocumentScan } = await import('./secureAdmin.js');
+              
+              const scanResult = await triggerDocumentScan(firmId, {
+                dryRun: false,
+                mode: 'auto',
+                source: 'clio-migration-auto'
+              });
+              
+              if (scanResult.success) {
+                addLog(`✅ Auto-scan started: ${scanResult.message}`);
+                console.log('[CLIO IMPORT] Auto-scan initiated successfully');
+                prog.summary.autoScanTriggered = true;
+                prog.summary.scanJobId = firmId; // So frontend can poll for scan status
+              } else {
+                addLog(`ℹ️ ${scanResult.message || 'Auto-scan skipped (can be run manually from Firm Details)'}`);
+                console.log('[CLIO IMPORT] Auto-scan not started:', scanResult.message);
+              }
+            } catch (scanErr) {
+              // Don't fail the migration if scan fails - it can be run manually
+              addLog('ℹ️ Auto-scan skipped (can be run manually from Firm Details)');
+              console.log(`[CLIO IMPORT] Auto-scan error (non-fatal): ${scanErr.message}`);
+            }
+          }
         }
         
       } catch (error) {
@@ -5391,6 +5540,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         if (prog) {
           prog.status = 'error';
           prog.error = error.message;
+          // Persist error state to database
+          persistMigrationToDb(connectionId, prog).catch(() => {});
         }
       }
     })();
