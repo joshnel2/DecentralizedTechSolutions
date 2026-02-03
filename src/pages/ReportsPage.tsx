@@ -1091,10 +1091,11 @@ function CustomReportModal({
             switch (col) {
               case 'date': row[col] = t.date?.split('T')[0]; break
               case 'matterName': row[col] = matters.find(m => m.id === t.matterId)?.name || ''; break
-              case 'clientName': 
+              case 'clientName': {
                 const matter = matters.find(m => m.id === t.matterId)
                 row[col] = matter ? clients.find(c => c.id === matter.clientId)?.name || '' : ''
                 break
+              }
               case 'description': row[col] = t.description; break
               case 'hours': row[col] = t.hours; break
               case 'rate': row[col] = t.rate; break

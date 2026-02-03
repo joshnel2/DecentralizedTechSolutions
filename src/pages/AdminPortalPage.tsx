@@ -139,6 +139,46 @@ export function AdminPortalPage() {
     loadData()
   }, [])
 
+  // Poll scan status
+  const pollScanStatus = useCallback(async (firmId: string) => {
+    try {
+      const status = await fetchSecureAdmin(`/firms/${firmId}/scan-status`)
+      setScanProgress(status)
+      
+      // If scan is complete or errored, stop polling
+      if (status.status === 'completed' || status.status === 'error' || status.status === 'cancelled') {
+        if (scanPollRef.current) {
+          clearInterval(scanPollRef.current)
+          scanPollRef.current = null
+        }
+        setScanningFirmId(null)
+        
+        // Update scan result for message display
+        setScanResult({
+          firmId,
+          message: status.status === 'completed' 
+            ? `Scan completed: ${status.progress?.created || 0} files created, ${status.progress?.matched || 0} matched`
+            : status.error || 'Scan failed',
+          success: status.status === 'completed'
+        })
+        
+        // Refresh firm data
+        loadData()
+      }
+    } catch (err) {
+      console.error('Failed to poll scan status:', err)
+    }
+  }, [])
+  
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (scanPollRef.current) {
+        clearInterval(scanPollRef.current)
+      }
+    }
+  }, [])
+
   const loadData = async () => {
     setLoading(true)
     setError(null)
@@ -1240,46 +1280,6 @@ export function AdminPortalPage() {
       toast.error('Failed to delete firm', err.message)
     }
   }
-
-  // Poll scan status
-  const pollScanStatus = useCallback(async (firmId: string) => {
-    try {
-      const status = await fetchSecureAdmin(`/firms/${firmId}/scan-status`)
-      setScanProgress(status)
-      
-      // If scan is complete or errored, stop polling
-      if (status.status === 'completed' || status.status === 'error' || status.status === 'cancelled') {
-        if (scanPollRef.current) {
-          clearInterval(scanPollRef.current)
-          scanPollRef.current = null
-        }
-        setScanningFirmId(null)
-        
-        // Update scan result for message display
-        setScanResult({
-          firmId,
-          message: status.status === 'completed' 
-            ? `Scan completed: ${status.progress?.created || 0} files created, ${status.progress?.matched || 0} matched`
-            : status.error || 'Scan failed',
-          success: status.status === 'completed'
-        })
-        
-        // Refresh firm data
-        loadData()
-      }
-    } catch (err) {
-      console.error('Failed to poll scan status:', err)
-    }
-  }, [])
-  
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (scanPollRef.current) {
-        clearInterval(scanPollRef.current)
-      }
-    }
-  }, [])
 
   async function handleScanDocuments(firmId: string) {
     setScanningFirmId(firmId)

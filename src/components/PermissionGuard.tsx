@@ -308,7 +308,9 @@ export function useIsAdmin(): boolean {
  * Hook to check if user can access billing features
  */
 export function useCanAccessBilling(): boolean {
-  return useHasRole(['owner', 'admin', 'billing']) || usePermission('billing:view')
+  const hasRole = useHasRole(['owner', 'admin', 'billing'])
+  const hasPermission = usePermission('billing:view')
+  return hasRole || hasPermission
 }
 
 /**

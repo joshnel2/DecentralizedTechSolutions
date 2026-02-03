@@ -26,7 +26,7 @@ export interface ParsedDocument {
 }
 
 // PDF.js worker URL - we'll set this dynamically
-let pdfWorkerUrl: string | null = null
+const pdfWorkerUrl: string | null = null
 
 /**
  * Initialize PDF.js worker
@@ -280,6 +280,7 @@ async function extractDocText(arrayBuffer: ArrayBuffer, fileName: string): Promi
       const utf16Text = utf16Decoder.decode(arrayBuffer)
       // Filter to printable characters and clean up
       const cleanUtf16 = utf16Text
+        // eslint-disable-next-line no-control-regex
         .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
@@ -432,7 +433,7 @@ The file may be corrupted or password protected.`,
 function extractRtfText(text: string, fileName: string): ParsedDocument {
   try {
     // RTF parsing - remove control words and extract text
-    let plainText = text
+    const plainText = text
       // Remove RTF header
       .replace(/^\{\\rtf\d+[^}]*\}?/i, '')
       // Remove font tables, color tables, etc.

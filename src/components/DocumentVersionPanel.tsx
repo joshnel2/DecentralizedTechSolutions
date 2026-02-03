@@ -154,11 +154,11 @@ export function DocumentVersionPanel({
       // If we get here, assume it might work
       setTimeout(() => {
         clearTimeout(timeoutId)
-        try { window.document.body.removeChild(iframe) } catch (e) {}
+        try { window.document.body.removeChild(iframe) } catch { /* ignore cleanup errors */ }
       }, 2000)
     } catch (e) {
       clearTimeout(timeoutId)
-      try { window.document.body.removeChild(iframe) } catch (e) {}
+      try { window.document.body.removeChild(iframe) } catch { /* ignore cleanup errors */ }
       setShowExplorerPath(true)
     }
   }

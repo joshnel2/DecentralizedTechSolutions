@@ -286,8 +286,6 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         content: m.content,
       }))
 
-      let response;
-      
       // If there's a file, include its content in the context
       // Also include any additional context (like email draft)
       const fileContext = {
@@ -308,7 +306,7 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
       }
       
       // Use AI Agent with function calling (can take actions immediately!)
-      response = await aiApi.agentChat(
+      const response = await aiApi.agentChat(
         text || `Analyze and summarize this document: ${currentFile?.name}`, 
         conversationHistory, 
         fileContext

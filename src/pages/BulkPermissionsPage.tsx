@@ -135,7 +135,7 @@ export function BulkPermissionsPage() {
       setError(null)
       setSuccess(null)
 
-      let requestData: any = {
+      const requestData: any = {
         matterIds: selectedMatterIds,
       }
 

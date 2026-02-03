@@ -117,13 +117,13 @@ export function DocumentsPage() {
             // If we get here without error, the protocol might be working
             setTimeout(() => {
               clearTimeout(timeoutId)
-              try { document.body.removeChild(iframe) } catch (e) {}
+              try { document.body.removeChild(iframe) } catch { /* ignore cleanup errors */ }
               setIsOpeningWord(false)
             }, 3000)
           } catch (e) {
             // Protocol blocked - clear timeout and offer alternatives immediately
             clearTimeout(timeoutId)
-            try { document.body.removeChild(iframe) } catch (e) {}
+            try { document.body.removeChild(iframe) } catch { /* ignore cleanup errors */ }
             setIsOpeningWord(false)
             if (result.webUrl) {
               window.open(result.webUrl, '_blank')

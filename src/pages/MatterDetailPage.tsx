@@ -576,12 +576,12 @@ export function MatterDetailPage() {
             // Clear timeout after a bit longer to give Word time to launch
             setTimeout(() => {
               clearTimeout(timeoutId)
-              try { document.body.removeChild(iframe) } catch (e) {}
+              try { document.body.removeChild(iframe) } catch { /* ignore cleanup errors */ }
             }, 3000)
           } catch (e) {
             // Protocol blocked - clear timeout and offer alternatives immediately
             clearTimeout(timeoutId)
-            try { document.body.removeChild(iframe) } catch (e) {}
+            try { document.body.removeChild(iframe) } catch { /* ignore cleanup errors */ }
             if (result.webUrl) {
               window.open(result.webUrl, '_blank')
             } else {
