@@ -808,6 +808,74 @@ router.post('/account-tools/transfer-firm', requireSecureAdmin, async (req, res)
   }
 });
 
+// Restrict visibility of a user's matters (useful after migration)
+// This makes matters where the user is responsible attorney visible only to that user
+router.post('/account-tools/restrict-user-matters', requireSecureAdmin, async (req, res) => {
+  try {
+    const { userId, firmId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId required' });
+    }
+
+    // Get user info
+    const userCheck = await query(
+      'SELECT email, firm_id, first_name, last_name FROM users WHERE id = $1', 
+      [userId]
+    );
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const user = userCheck.rows[0];
+    const targetFirmId = firmId || user.firm_id;
+
+    // Count matters that will be affected
+    const countResult = await query(`
+      SELECT COUNT(*) as count FROM matters 
+      WHERE firm_id = $1 
+      AND responsible_attorney = $2 
+      AND visibility = 'firm_wide'
+    `, [targetFirmId, userId]);
+    
+    const mattersCount = parseInt(countResult.rows[0].count);
+    
+    if (mattersCount === 0) {
+      return res.json({
+        success: true,
+        message: 'No firm_wide matters found for this user to restrict',
+        mattersUpdated: 0
+      });
+    }
+
+    // Update matters to restricted visibility
+    const updateResult = await query(`
+      UPDATE matters 
+      SET visibility = 'restricted', updated_at = NOW()
+      WHERE firm_id = $1 
+      AND responsible_attorney = $2 
+      AND visibility = 'firm_wide'
+      RETURNING id
+    `, [targetFirmId, userId]);
+
+    logAudit('RESTRICT_USER_MATTERS', 
+      `Restricted ${updateResult.rowCount} matters for ${user.email} (${user.first_name} ${user.last_name})`, 
+      req.ip, user.email
+    );
+
+    res.json({
+      success: true,
+      message: `Restricted ${updateResult.rowCount} matters for ${user.email}`,
+      mattersUpdated: updateResult.rowCount,
+      userName: `${user.first_name} ${user.last_name}`,
+      userEmail: user.email
+    });
+  } catch (error) {
+    console.error('Restrict user matters error:', error);
+    res.status(500).json({ error: 'Failed to restrict user matters' });
+  }
+});
+
 // Get detailed user info for account lookup
 router.get('/account-tools/lookup/:identifier', requireSecureAdmin, async (req, res) => {
   try {

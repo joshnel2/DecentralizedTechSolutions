@@ -3437,9 +3437,13 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   });
                 }
                 
+                // Set visibility: 'restricted' for user-specific migrations, 'firm_wide' otherwise
+                // This ensures that when migrating a single user's matters, only that user can see them
+                const matterVisibility = filterClioUserId ? 'restricted' : 'firm_wide';
+                
                 const result = await query(
-                  `INSERT INTO matters (firm_id, client_id, number, name, description, type, status, responsible_attorney, originating_attorney, open_date, close_date, billing_type, billing_rate, statute_of_limitations, jurisdiction, custom_fields)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
+                  `INSERT INTO matters (firm_id, client_id, number, name, description, type, status, responsible_attorney, originating_attorney, open_date, close_date, billing_type, billing_rate, statute_of_limitations, jurisdiction, custom_fields, visibility)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
                   [
                     firmId,
                     clientId,
@@ -3456,7 +3460,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     billingRate,
                     m.statute_of_limitations || null,
                     m.location || null,
-                    Object.keys(customFields).length > 0 ? JSON.stringify(customFields) : '{}'
+                    Object.keys(customFields).length > 0 ? JSON.stringify(customFields) : '{}',
+                    matterVisibility
                   ]
                 );
                 
