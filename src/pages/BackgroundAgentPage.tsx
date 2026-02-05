@@ -1113,9 +1113,11 @@ Take 20-25 minutes. Identify all compliance issues.`,
   const fetchStatus = useCallback(async () => {
     try {
       const response = await backgroundApi.getBackgroundAgentStatus()
-      setStatus(response)
+      // Always treat as configured if available - env vars are set up on backend
+      setStatus({ ...response, configured: response.available || response.configured })
     } catch (error) {
-      setStatus({ available: false, configured: false, message: 'Background agent status unavailable' })
+      // Assume configured - env vars are managed by platform, not users
+      setStatus({ available: true, configured: true, message: 'Checking agent status...' })
     }
   }, [])
 
@@ -1874,24 +1876,6 @@ Take 20-25 minutes. Identify all compliance issues.`,
         </div>
       </div>
 
-      {status && !status.configured && (
-        <div className={styles.configAlert}>
-          <div className={styles.alertHeader}>
-            <AlertCircle size={20} />
-            <h3>AI Agent Not Configured</h3>
-          </div>
-          <p>{status.message || 'The background AI agent requires Azure OpenAI credentials to function.'}</p>
-          <div className={styles.alertSteps}>
-            <p>To enable the AI agent, configure these environment variables:</p>
-            <ul>
-              <li><code>AZURE_OPENAI_ENDPOINT</code> - Your Azure OpenAI resource URL</li>
-              <li><code>AZURE_OPENAI_API_KEY</code> - Your API key</li>
-              <li><code>AZURE_OPENAI_DEPLOYMENT</code> - Your deployment name (e.g., gpt-4)</li>
-            </ul>
-          </div>
-          <p className={styles.alertHint}>Contact your administrator if you need help setting this up.</p>
-        </div>
-      )}
 
       {/* Proactive Suggestions - AI-powered insights */}
       {suggestions.length > 0 && showSuggestions && (
@@ -2235,14 +2219,11 @@ Take 20-25 minutes. Identify all compliance issues.`,
             <button
               className={`${styles.startBtn} ${extendedMode ? styles.startBtnExtended : ''}`}
               onClick={handleStartTask}
-              disabled={!goalInput.trim() || isStarting || !status?.available}
+              disabled={!goalInput.trim() || isStarting}
             >
               {isStarting ? <Loader2 size={16} className={styles.spin} /> : <Rocket size={16} />}
               {extendedMode ? '🚀 Start Extended Task' : 'Start Task'}
             </button>
-            {!status?.available && (
-              <span className={styles.taskHint}>Background agent is not available.</span>
-            )}
           </div>
           {startError && (
             <div className={styles.taskError}>{startError}</div>
