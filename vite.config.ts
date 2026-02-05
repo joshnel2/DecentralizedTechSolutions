@@ -53,50 +53,11 @@ export default defineConfig({
     include: ['pdfjs-dist', 'mammoth', 'xlsx']
   },
   build: {
-    chunkSizeWarningLimit: 600, // Suppress warnings for chunks under 600KB
     rollupOptions: {
       output: {
-        manualChunks: (id) => {
-          // PDF parsing
-          if (id.includes('pdfjs-dist')) {
-            return 'pdf-worker'
-          }
-          // Document parsers
-          if (id.includes('mammoth') || id.includes('xlsx')) {
-            return 'doc-parsers'
-          }
-          // Charts library
-          if (id.includes('recharts') || id.includes('d3-') || id.includes('victory-')) {
-            return 'charts'
-          }
-          // Date utilities
-          if (id.includes('date-fns')) {
-            return 'date-utils'
-          }
-          // React core
-          if (id.includes('react-dom')) {
-            return 'react-dom'
-          }
-          // Router
-          if (id.includes('react-router')) {
-            return 'router'
-          }
-          // State management
-          if (id.includes('zustand')) {
-            return 'state'
-          }
-          // Azure storage
-          if (id.includes('@azure')) {
-            return 'azure'
-          }
-          // Icons
-          if (id.includes('lucide-react')) {
-            return 'icons'
-          }
-          // All other vendor chunks
-          if (id.includes('node_modules')) {
-            return 'vendor'
-          }
+        manualChunks: {
+          'pdf-worker': ['pdfjs-dist'],
+          'doc-parsers': ['mammoth', 'xlsx']
         }
       }
     }
