@@ -1,0 +1,259 @@
+/* Dashboard Styles */
+
+.dashboard {
+  padding: 24px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.dashboard-header h1 {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--color-bg-card);
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+
+.refresh-btn:hover {
+  background: white;
+  color: var(--color-text);
+}
+
+.refresh-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+/* Drive Status Card */
+.drive-status-card {
+  grid-column: 1;
+}
+
+.drive-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.drive-icon {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg);
+  border-radius: 12px;
+}
+
+.drive-icon svg {
+  width: 28px;
+  height: 28px;
+  color: var(--color-primary);
+}
+
+.drive-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.drive-letter {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.drive-label {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.drive-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.drive-actions .btn {
+  flex: 1;
+}
+
+/* Connection Card */
+.connection-card {
+  grid-column: 2;
+}
+
+.connection-info {
+  margin-bottom: 20px;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-row span:first-child {
+  color: var(--color-text-secondary);
+}
+
+.sync-btn {
+  width: 100%;
+}
+
+/* Matters Card */
+.matters-card {
+  grid-column: 1 / -1;
+}
+
+.matter-count {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.matters-list {
+  list-style: none;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.matter-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.matter-item:last-child {
+  border-bottom: none;
+}
+
+.matter-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.matter-icon svg {
+  width: 20px;
+  height: 20px;
+  color: var(--color-primary);
+}
+
+.matter-details {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.matter-name {
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.matter-client {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+/* Actions Card */
+.actions-card {
+  grid-column: 1 / -1;
+}
+
+.quick-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.action-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.action-btn:hover:not(:disabled) {
+  background: white;
+  border-color: var(--color-primary);
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-btn svg {
+  width: 32px;
+  height: 32px;
+  color: var(--color-primary);
+}
+
+.action-btn span {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+/* Responsive */
+@media (max-width: 700px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .drive-status-card,
+  .connection-card,
+  .matters-card,
+  .actions-card {
+    grid-column: 1;
+  }
+  
+  .quick-actions {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

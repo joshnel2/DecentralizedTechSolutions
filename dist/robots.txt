@@ -1,0 +1,5 @@
+# Strapped AI - Legal AI Software
+User-agent: *
+Allow: /
+
+Sitemap: https://strappedai.com/sitemap.xml

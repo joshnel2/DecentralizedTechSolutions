@@ -1,0 +1,2959 @@
+/**
+ * Enhanced Amplifier Background Agent Service
+ * 
+ * This service provides a powerful background agent powered by Microsoft Amplifier
+ * with FULL access to all platform tools and learning capabilities.
+ * 
+ * Features:
+ * - Access to all tools the normal AI agent has
+ * - Learning from user interactions
+ * - Long-running autonomous task support
+ * - Workflow templates for common operations
+ * - Progress tracking and checkpointing
+ */
+
+import { EventEmitter } from 'events';
+import { query } from '../db/connection.js';
+import { PLATFORM_CONTEXT, getUserContext, getMatterContext, getLearningContext } from './amplifier/platformContext.js';
+import { AMPLIFIER_TOOLS, AMPLIFIER_OPENAI_TOOLS, executeTool } from './amplifier/toolBridge.js';
+import { pushAgentEvent, updateAgentProgress } from '../routes/agentStream.js';
+import { getCPLRContextForPrompt, getCPLRGuidanceForMatter } from './amplifier/legalKnowledge/nyCPLR.js';
+import { getUserDocumentProfile, formatProfileForPrompt, onDocumentAccessed } from './amplifier/documentLearning.js';
+
+// Store active tasks per user
+const activeTasks = new Map();
+
+// Task status types
+const TaskStatus = {
+  PENDING: 'pending',
+  RUNNING: 'running',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled',
+  WAITING_INPUT: 'waiting_input'
+};
+
+// Azure OpenAI configuration - use SAME API version as normal AI agent (aiAgent.js)
+// This MUST match the version in routes/aiAgent.js for consistency
+// Read at runtime to ensure dotenv has loaded
+const API_VERSION = '2024-12-01-preview';
+
+// Background agent runtime defaults (tuned for EXTENDED legal tasks)
+// Increased for complex matters that require thorough analysis
+const DEFAULT_MAX_ITERATIONS = 200;
+const DEFAULT_MAX_RUNTIME_MINUTES = 180; // 3 hours for comprehensive legal work
+const EXTENDED_MAX_ITERATIONS = 400;
+const EXTENDED_MAX_RUNTIME_MINUTES = 480; // 8 hours for major projects
+const CHECKPOINT_INTERVAL_MS = 15000;
+const MESSAGE_COMPACT_MAX_CHARS = 20000; // Increased for better context retention
+const MESSAGE_COMPACT_MAX_MESSAGES = 32; // Allow more messages before compacting
+const MEMORY_MESSAGE_PREFIX = '## TASK MEMORY';
+
+// Task complexity estimation for better progress tracking
+const TASK_COMPLEXITY = {
+  simple: { estimatedSteps: 5, estimatedMinutes: 2 },
+  moderate: { estimatedSteps: 10, estimatedMinutes: 5 },
+  complex: { estimatedSteps: 20, estimatedMinutes: 15 },
+  major: { estimatedSteps: 40, estimatedMinutes: 30 }
+};
+
+/**
+ * Estimate task complexity based on goal keywords
+ */
+function estimateTaskComplexity(goal) {
+  const goalLower = goal.toLowerCase();
+  
+  // Major complexity indicators
+  const majorKeywords = ['comprehensive', 'full review', 'entire', 'all matters', 'audit', 'overhaul', 'complete analysis', 'deep dive'];
+  if (majorKeywords.some(k => goalLower.includes(k))) {
+    return 'major';
+  }
+  
+  // Complex indicators
+  const complexKeywords = ['research', 'analyze', 'review', 'prepare', 'draft memo', 'legal memo', 'case assessment', 'strategy', 'litigation'];
+  if (complexKeywords.some(k => goalLower.includes(k))) {
+    return 'complex';
+  }
+  
+  // Moderate indicators
+  const moderateKeywords = ['update', 'create document', 'draft letter', 'schedule', 'organize', 'summarize'];
+  if (moderateKeywords.some(k => goalLower.includes(k))) {
+    return 'moderate';
+  }
+  
+  // Default to simple
+  return 'simple';
+}
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+const getRetryAfterMs = (response, errorText) => {
+  if (response?.headers) {
+    const retryAfterHeader = response.headers.get('retry-after');
+    if (retryAfterHeader) {
+      const retryAfterSeconds = Number.parseInt(retryAfterHeader, 10);
+      if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+        return retryAfterSeconds * 1000;
+      }
+    }
+  }
+  
+  if (typeof errorText === 'string') {
+    const match = errorText.match(/retry after (\d+)\s*seconds/i);
+    if (match) {
+      const retryAfterSeconds = Number.parseInt(match[1], 10);
+      if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+        return retryAfterSeconds * 1000;
+      }
+    }
+  }
+  
+  return null;
+};
+
+let persistenceAvailable = true;
+let persistenceWarningLogged = false;
+
+function markPersistenceUnavailable(error) {
+  if (!error?.message) return;
+  if (error.message.includes('ai_background_tasks')) {
+    persistenceAvailable = false;
+    if (!persistenceWarningLogged) {
+      persistenceWarningLogged = true;
+      console.warn('[AmplifierService] Background task persistence disabled (ai_background_tasks missing). Apply migration to enable checkpoints.');
+    }
+  }
+}
+
+/**
+ * Get Azure OpenAI configuration (read at runtime to avoid timing issues)
+ */
+function getAzureConfig() {
+  return {
+    endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+    apiKey: process.env.AZURE_OPENAI_API_KEY,
+    deployment: process.env.AZURE_OPENAI_DEPLOYMENT
+  };
+}
+
+/**
+ * Generate a unique task ID
+ */
+function generateTaskId() {
+  return `amp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+/**
+ * Call Azure OpenAI with function calling
+ * Uses the SAME configuration and request format as the normal AI agent (aiAgent.js)
+ * This ensures the background agent behaves identically to the normal agent
+ */
+async function callAzureOpenAI(messages, tools = [], options = {}) {
+  const config = getAzureConfig();
+  
+  // Validate configuration before making request
+  if (!config.endpoint || !config.apiKey || !config.deployment) {
+    throw new Error('Azure OpenAI not configured: missing endpoint, API key, or deployment');
+  }
+  
+  // Build URL - EXACT same format as aiAgent.js
+  // aiAgent.js uses: `${AZURE_ENDPOINT}openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${API_VERSION}`
+  // The endpoint should include trailing slash, but we handle both cases
+  const baseEndpoint = config.endpoint.endsWith('/') ? config.endpoint : `${config.endpoint}/`;
+  const url = `${baseEndpoint}openai/deployments/${config.deployment}/chat/completions?api-version=${API_VERSION}`;
+  
+  // Match the EXACT request body format as aiAgent.js for consistency
+  const body = {
+    messages,
+    temperature: options.temperature ?? 0.7,
+    max_tokens: options.max_tokens ?? 4000,
+  };
+  
+  // Add tools for function calling (agent mode) - EXACT same as aiAgent.js
+  if (tools.length > 0) {
+    body.tools = tools;
+    body.tool_choice = 'auto';
+    body.parallel_tool_calls = false; // Match aiAgent.js
+  }
+  
+  console.log(`[Amplifier] Calling Azure OpenAI: ${config.deployment} with ${tools.length} tools`);
+  console.log(`[Amplifier] Request URL: ${url}`);
+  
+  const retryableStatuses = new Set([429, 500, 502, 503, 504]);
+  const maxAttempts = 5;
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': config.apiKey,
+      },
+      body: JSON.stringify(body),
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      console.log(`[Amplifier] Azure OpenAI response received, choices: ${data.choices?.length || 0}`);
+      return data;
+    }
+    
+    const errorText = await response.text();
+    const isRetryable = retryableStatuses.has(response.status);
+    const retryAfterMs = response.status === 429 ? getRetryAfterMs(response, errorText) : null;
+    
+    // Enhanced error logging for debugging
+    console.error(`[Amplifier] Azure OpenAI error (attempt ${attempt}/${maxAttempts}):`);
+    console.error('[Amplifier]   Status:', response.status);
+    console.error('[Amplifier]   URL:', url);
+    console.error('[Amplifier]   Deployment:', config.deployment);
+    console.error('[Amplifier]   API Key present:', !!config.apiKey, '(length:', config.apiKey?.length || 0, ')');
+    console.error('[Amplifier]   Error:', errorText.substring(0, 500));
+    
+    if (!isRetryable || attempt === maxAttempts) {
+      let errorMessage = `Azure OpenAI API error: ${response.status}`;
+      try {
+        const errorJson = JSON.parse(errorText);
+        if (errorJson.error?.message) {
+          errorMessage = errorJson.error.message;
+        }
+      } catch {
+        errorMessage = `Azure OpenAI API error: ${response.status} - ${errorText.substring(0, 200)}`;
+      }
+      throw new Error(errorMessage);
+    }
+    
+    const baseDelay = 1000 * Math.pow(2, attempt - 1);
+    const delay = retryAfterMs ? Math.max(baseDelay, retryAfterMs) : baseDelay;
+    const delaySeconds = Math.round(delay / 1000);
+    console.warn(`[Amplifier] Retryable error, retrying in ${delay}ms (attempt ${attempt}/${maxAttempts})`);
+    
+    // Log rate limit specifically for monitoring
+    if (response.status === 429) {
+      console.warn(`[Amplifier] Rate limited by Azure OpenAI, waiting ${delaySeconds}s`);
+    }
+    
+    await sleep(delay);
+  }
+}
+
+/**
+ * Convert our tool definitions to OpenAI function format
+ * Uses the EXACT same tools as aiAgent.js for consistency
+ */
+function getOpenAITools() {
+  // ALWAYS prefer the imported AGENT_TOOLS from aiAgent.js
+  // This ensures background agent uses EXACTLY the same tools as normal AI chat
+  if (Array.isArray(AMPLIFIER_OPENAI_TOOLS) && AMPLIFIER_OPENAI_TOOLS.length > 0) {
+    console.log(`[Amplifier] Using ${AMPLIFIER_OPENAI_TOOLS.length} tools from aiAgent.js`);
+    return AMPLIFIER_OPENAI_TOOLS;
+  }
+  
+  console.warn('[Amplifier] AMPLIFIER_OPENAI_TOOLS not available, falling back to AMPLIFIER_TOOLS conversion');
+  
+  return Object.entries(AMPLIFIER_TOOLS).map(([name, tool]) => ({
+    type: 'function',
+    function: {
+      name,
+      description: tool.description,
+      parameters: {
+        type: 'object',
+        properties: Object.fromEntries(
+          Object.entries(tool.parameters || {}).map(([key, desc]) => {
+            const descStr = String(desc || '');
+            const typePart = descStr.split(' - ')[0] || 'string';
+            const descPart = descStr.split(' - ')[1] || '';
+            
+            // Handle array types - OpenAI requires an "items" schema for arrays
+            if (typePart === 'array') {
+              return [key, {
+                type: 'array',
+                description: descPart,
+                items: {
+                  type: 'object',
+                  properties: {},
+                  additionalProperties: true
+                }
+              }];
+            }
+            
+            return [key, { type: typePart, description: descPart }];
+          })
+        ),
+        required: tool.required || []
+      }
+    }
+  }));
+}
+
+/**
+ * Enhanced Background Task class
+ */
+class BackgroundTask extends EventEmitter {
+  constructor(taskId, userId, firmId, goal, options = {}) {
+    super();
+    this.id = taskId;
+    this.userId = userId;
+    this.firmId = firmId;
+    this.goal = goal;
+    this.options = options;
+    this.status = TaskStatus.PENDING;
+    this.progress = {
+      currentStep: 'Initializing...',
+      progressPercent: 0,
+      iterations: 0,
+      totalSteps: 0,
+      completedSteps: 0
+    };
+    this.messages = [];
+    this.actionsHistory = [];
+    this.result = null;
+    this.error = null;
+    this.startTime = new Date();
+    this.endTime = null;
+    this.cancelled = false;
+    // Support "extended" mode for long-running complex legal projects
+    const isExtended = options.extended || options.mode === 'extended' || options.mode === 'long';
+    const baseIterations = isExtended ? EXTENDED_MAX_ITERATIONS : DEFAULT_MAX_ITERATIONS;
+    const baseRuntimeMinutes = isExtended ? EXTENDED_MAX_RUNTIME_MINUTES : DEFAULT_MAX_RUNTIME_MINUTES;
+    
+    this.maxIterations = options.maxIterations || options.max_iterations || baseIterations;
+    this.maxRuntimeMs = (options.maxRuntimeMinutes || options.max_runtime_minutes || baseRuntimeMinutes) * 60 * 1000;
+    this.isExtendedMode = isExtended;
+    this.lastCheckpointAt = 0;
+    this.plan = null;
+    this.recentTools = [];
+    
+    // User and firm context
+    this.userContext = null;
+    this.learningContext = null;
+    this.systemPrompt = null;
+    this.userRecord = null;
+    
+    // Task complexity estimation for better progress tracking
+    this.complexity = estimateTaskComplexity(goal);
+    this.estimatedSteps = TASK_COMPLEXITY[this.complexity].estimatedSteps;
+    this.estimatedMinutes = TASK_COMPLEXITY[this.complexity].estimatedMinutes;
+    
+    // Track substantive actions for quality assurance
+    this.substantiveActions = {
+      notes: 0,
+      documents: 0,
+      tasks: 0,
+      events: 0,
+      research: 0
+    };
+    
+    // Track failed tools to avoid repeating failures
+    this.failedTools = new Map();
+    
+    // Matter context cache
+    this.matterContext = null;
+  }
+
+  /**
+   * Push real-time event to Glass Cockpit UI via SSE
+   */
+  streamEvent(eventType, message, data = {}) {
+    try {
+      pushAgentEvent(this.id, eventType, {
+        message,
+        timestamp: new Date().toISOString(),
+        ...data
+      });
+    } catch (e) {
+      // Streaming is best-effort, don't fail if it errors
+    }
+  }
+
+  /**
+   * Update progress in Glass Cockpit UI
+   */
+  streamProgress() {
+    try {
+      const elapsedSeconds = (Date.now() - this.startTime.getTime()) / 1000;
+      updateAgentProgress(this.id, {
+        task_id: this.id,
+        status: this.status,
+        current_step: this.progress.currentStep,
+        progress_percent: this.progress.progressPercent,
+        total_steps: this.progress.totalSteps,
+        completed_steps: this.progress.completedSteps,
+        elapsed_seconds: elapsedSeconds,
+        actions_count: this.actionsHistory.length
+      });
+    } catch (e) {
+      // Streaming is best-effort
+    }
+  }
+
+  /**
+   * Initialize context for the task
+   */
+  async initializeContext() {
+    try {
+      // Get user info
+      const userResult = await query(
+        'SELECT u.*, f.name as firm_name FROM users u JOIN firms f ON u.firm_id = f.id WHERE u.id = $1',
+        [this.userId]
+      );
+      const user = userResult.rows[0];
+      const firm = { name: user?.firm_name };
+      
+      this.userRecord = user ? {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role,
+        firmId: user.firm_id,
+        twoFactorEnabled: user.two_factor_enabled,
+      } : null;
+      
+      this.userContext = getUserContext(user, firm);
+      this.learningContext = await getLearningContext(query, this.firmId, this.userId);
+      
+      // Load user's document profile (PRIVATE per-user learnings from their documents)
+      try {
+        this.userDocumentProfile = await getUserDocumentProfile(this.userId, this.firmId);
+        if (this.userDocumentProfile) {
+          console.log(`[Amplifier] Loaded document profile for user ${this.userId}`);
+        }
+      } catch (profileError) {
+        console.log('[Amplifier] Document profile not available (new user or table pending)');
+        this.userDocumentProfile = null;
+      }
+      
+      // Get workflow templates
+      const workflowResult = await query(
+        'SELECT name, description, trigger_phrases, steps FROM ai_workflow_templates WHERE firm_id = $1 AND is_active = true',
+        [this.firmId]
+      );
+      
+      this.workflowTemplates = workflowResult.rows;
+      
+      // Try to extract matter context from goal if mentioned
+      this.matterContext = await this.extractMatterContext();
+      
+    } catch (error) {
+      console.error('[Amplifier] Context initialization error:', error);
+    }
+  }
+  
+  /**
+   * Extract matter context from goal if a matter is mentioned
+   * This pre-loads relevant matter info so the agent starts with context
+   */
+  async extractMatterContext() {
+    try {
+      const goalLower = this.goal.toLowerCase();
+      
+      // Look for matter name patterns in the goal
+      // Common patterns: "for [matter]", "on [matter]", "matter [name]", "[name] matter"
+      const matterPatterns = [
+        /(?:for|on|about|regarding|re:?)\s+(?:the\s+)?(?:matter\s+)?["']?([^"'.,]+)["']?/i,
+        /matter\s+(?:named?\s+)?["']?([^"'.,]+)["']?/i,
+        /["']([^"']+)["']\s+(?:matter|case)/i,
+      ];
+      
+      let potentialMatterName = null;
+      for (const pattern of matterPatterns) {
+        const match = this.goal.match(pattern);
+        if (match && match[1] && match[1].length > 2) {
+          potentialMatterName = match[1].trim();
+          break;
+        }
+      }
+      
+      if (!potentialMatterName) {
+        return null;
+      }
+      
+      // Search for the matter
+      const matterResult = await query(`
+        SELECT m.id, m.name, m.number, m.status, m.type, m.description, m.billing_type,
+               m.created_at, m.open_date, c.display_name as client_name, c.email as client_email,
+               (SELECT COUNT(*) FROM documents d WHERE d.matter_id = m.id) as doc_count,
+               (SELECT COUNT(*) FROM matter_notes mn WHERE mn.matter_id = m.id) as note_count,
+               (SELECT COUNT(*) FROM matter_tasks mt WHERE mt.matter_id = m.id) as task_count
+        FROM matters m
+        LEFT JOIN clients c ON m.client_id = c.id
+        WHERE m.firm_id = $1 
+          AND (LOWER(m.name) LIKE $2 OR LOWER(m.number) LIKE $2)
+        ORDER BY 
+          CASE WHEN LOWER(m.name) = LOWER($3) THEN 0 ELSE 1 END,
+          m.created_at DESC
+        LIMIT 1
+      `, [this.firmId, `%${potentialMatterName.toLowerCase()}%`, potentialMatterName]);
+      
+      if (matterResult.rows.length === 0) {
+        return null;
+      }
+      
+      const matter = matterResult.rows[0];
+      const isEmpty = matter.doc_count === 0 && matter.note_count === 0;
+      
+      let contextStr = `
+## PRE-LOADED MATTER CONTEXT
+
+The goal mentions a matter. Here's what I found:
+
+**Matter:** ${matter.name} (${matter.number || 'No number'})
+**Status:** ${matter.status}
+**Type:** ${matter.type || 'General'}
+**Client:** ${matter.client_name || 'No client assigned'}
+**Created:** ${matter.created_at ? new Date(matter.created_at).toLocaleDateString() : 'Unknown'}
+
+**Current State:**
+- Documents: ${matter.doc_count}
+- Notes: ${matter.note_count}  
+- Tasks: ${matter.task_count}
+`;
+      
+      if (isEmpty) {
+        contextStr += `
+⚠️ **THIS IS AN EMPTY/NEW MATTER** - No documents or notes exist yet.
+Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
+`;
+      }
+      
+      // Add CPLR-specific guidance based on matter type
+      try {
+        const cplrGuidance = getCPLRGuidanceForMatter(matter.type, matter.description || matter.name);
+        if (cplrGuidance && (cplrGuidance.relevantArticles.length > 0 || cplrGuidance.keyDeadlines.length > 0)) {
+          contextStr += `
+### APPLICABLE NY CPLR GUIDANCE FOR THIS MATTER
+
+`;
+          if (cplrGuidance.relevantArticles.length > 0) {
+            contextStr += `**Relevant CPLR Articles:** ${cplrGuidance.relevantArticles.join(', ')}\n\n`;
+          }
+          if (cplrGuidance.keyDeadlines.length > 0) {
+            contextStr += `**Key Deadlines to Track:**\n`;
+            for (const deadline of cplrGuidance.keyDeadlines) {
+              contextStr += `- **${deadline.name}**: ${deadline.period} (${deadline.citation})\n`;
+            }
+            contextStr += '\n';
+          }
+          if (cplrGuidance.warnings.length > 0) {
+            contextStr += `**⚠️ WARNINGS:**\n`;
+            for (const warning of cplrGuidance.warnings) {
+              contextStr += `- ${warning}\n`;
+            }
+            contextStr += '\n';
+          }
+          if (cplrGuidance.discoveryNotes.length > 0) {
+            contextStr += `**Discovery Notes:**\n`;
+            for (const note of cplrGuidance.discoveryNotes) {
+              contextStr += `- ${note}\n`;
+            }
+            contextStr += '\n';
+          }
+          if (cplrGuidance.commonMotions.length > 0) {
+            contextStr += `**Common Motions:** ${cplrGuidance.commonMotions.join('; ')}\n`;
+          }
+        }
+      } catch (cplrError) {
+        console.error('[Amplifier] Error getting CPLR guidance:', cplrError.message);
+      }
+      
+      // Store matter ID for quick reference
+      this.preloadedMatterId = matter.id;
+      
+      console.log(`[Amplifier] Pre-loaded matter context: ${matter.name} (${isEmpty ? 'EMPTY' : 'has content'})`);
+      
+      return contextStr;
+      
+    } catch (error) {
+      console.error('[Amplifier] Error extracting matter context:', error.message);
+      return null;
+    }
+  }
+
+  isMemoryMessage(message) {
+    return message?.role === 'system' && message?.content?.startsWith(MEMORY_MESSAGE_PREFIX);
+  }
+
+  buildMemorySummary() {
+    // Categorize actions by type for better summary
+    const successfulActions = this.actionsHistory.filter(a => !a.result?.error);
+    const failedActions = this.actionsHistory.filter(a => a.result?.error);
+    
+    const actionsByType = {
+      information: successfulActions.filter(a => ['get_matter', 'list_documents', 'read_document_content', 'search_matters', 'list_clients'].includes(a.tool)),
+      creation: successfulActions.filter(a => ['create_document', 'add_matter_note', 'create_task', 'create_calendar_event'].includes(a.tool)),
+      planning: successfulActions.filter(a => ['think_and_plan', 'evaluate_progress', 'log_work'].includes(a.tool)),
+    };
+
+    const planLines = Array.isArray(this.plan?.steps)
+      ? this.plan.steps.map((step, index) => `${index + 1}. ${step}`)
+      : [];
+    
+    // Build key findings from successful information gathering
+    const keyFindings = actionsByType.information.slice(-5).map(a => {
+      if (a.tool === 'get_matter' && a.result?.matter) {
+        return `- Matter: ${a.result.matter.name} (${a.result.matter.status})`;
+      }
+      if (a.tool === 'read_document_content' && a.result?.name) {
+        return `- Read: ${a.result.name} (${a.result.truncated ? 'partial' : 'full'})`;
+      }
+      return null;
+    }).filter(Boolean);
+    
+    // Build created items summary
+    const createdItems = actionsByType.creation.map(a => {
+      if (a.tool === 'create_document') return `- Document: ${a.args?.name || 'untitled'}`;
+      if (a.tool === 'add_matter_note') return `- Note added`;
+      if (a.tool === 'create_task') return `- Task: ${a.args?.title || 'untitled'}`;
+      if (a.tool === 'create_calendar_event') return `- Event: ${a.args?.title || 'untitled'}`;
+      return null;
+    }).filter(Boolean);
+
+    const summaryParts = [
+      `${MEMORY_MESSAGE_PREFIX}`,
+      `Goal: ${this.goal}`,
+      `Complexity: ${this.complexity} | Progress: ${this.progress?.progressPercent || 0}%`,
+      this.progress?.currentStep ? `Current: ${this.progress.currentStep}` : null,
+      planLines.length ? `\nPLAN:\n${planLines.join('\n')}` : null,
+      keyFindings.length ? `\nKEY FINDINGS:\n${keyFindings.join('\n')}` : null,
+      createdItems.length ? `\nCREATED:\n${createdItems.join('\n')}` : null,
+      failedActions.length ? `\nFAILED (avoid repeating): ${failedActions.map(a => a.tool).join(', ')}` : null,
+      `\nTotal actions: ${this.actionsHistory.length} | Notes: ${this.substantiveActions.notes} | Tasks: ${this.substantiveActions.tasks} | Docs: ${this.substantiveActions.documents}`,
+    ].filter(Boolean);
+
+    const summary = summaryParts.join('\n');
+    return summary.length > 5000 ? `${summary.substring(0, 5000)}…` : summary;
+  }
+  
+  /**
+   * Calculate progress percentage based on task complexity and actions taken
+   */
+  calculateProgressPercent() {
+    const actionsCount = this.actionsHistory.length;
+    const hasNote = this.substantiveActions.notes > 0;
+    const hasTask = this.substantiveActions.tasks > 0;
+    const hasDocument = this.substantiveActions.documents > 0;
+    const hasPlan = this.plan !== null;
+    
+    // Base progress from action count vs estimated steps
+    const actionProgress = Math.min(70, (actionsCount / this.estimatedSteps) * 70);
+    
+    // Milestone bonuses
+    let milestoneBonus = 0;
+    if (hasPlan) milestoneBonus += 5;
+    if (hasNote) milestoneBonus += 5;
+    if (hasTask) milestoneBonus += 5;
+    if (hasDocument) milestoneBonus += 10;
+    if (hasNote && hasTask) milestoneBonus += 5; // Both required = bonus
+    
+    // Time-based progress (don't let it sit at 0 for too long)
+    const elapsedMs = Date.now() - this.startTime.getTime();
+    const expectedMs = this.estimatedMinutes * 60 * 1000;
+    const timeProgress = Math.min(10, (elapsedMs / expectedMs) * 10);
+    
+    const total = actionProgress + milestoneBonus + timeProgress;
+    return Math.min(90, Math.max(5, Math.round(total))); // Cap at 90%, minimum 5%
+  }
+
+  compactMessagesIfNeeded() {
+    const totalChars = this.messages.reduce((sum, message) => {
+      const contentSize = message?.content?.length || 0;
+      const toolSize = message?.tool_calls ? JSON.stringify(message.tool_calls).length : 0;
+      return sum + contentSize + toolSize;
+    }, 0);
+
+    if (this.messages.length <= MESSAGE_COMPACT_MAX_MESSAGES && totalChars <= MESSAGE_COMPACT_MAX_CHARS) {
+      return;
+    }
+
+    console.log(`[Amplifier] Compacting messages: ${this.messages.length} messages, ${totalChars} chars`);
+
+    const systemMessage = this.messages.find(message => message.role === 'system' && !this.isMemoryMessage(message));
+    
+    // Keep more recent messages for better context (increased from 12 to 16)
+    const recentMessages = this.messages.slice(-16).filter(message => !this.isMemoryMessage(message));
+    
+    // Also keep any messages that contain important context (e.g., matter details)
+    const importantMessages = this.messages.filter(message => {
+      if (this.isMemoryMessage(message)) return false;
+      if (recentMessages.includes(message)) return false;
+      
+      const content = message?.content || '';
+      // Keep messages that contain key information
+      return content.includes('matter:') || 
+             content.includes('client:') || 
+             content.includes('PRE-LOADED MATTER CONTEXT') ||
+             content.includes('EMPTY MATTER');
+    }).slice(-3); // Keep at most 3 important older messages
+    
+    const memoryMessage = { role: 'system', content: this.buildMemorySummary() };
+
+    this.messages = this.normalizeMessages([
+      systemMessage, 
+      memoryMessage, 
+      ...importantMessages,
+      ...recentMessages
+    ].filter(Boolean));
+    
+    console.log(`[Amplifier] Compacted to ${this.messages.length} messages`);
+  }
+
+  normalizeMessages(messages) {
+    const normalized = [];
+
+    for (let i = 0; i < messages.length; i += 1) {
+      const message = messages[i];
+      if (!message) continue;
+
+      if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+        const toolCallIds = new Set(message.tool_calls.map(toolCall => toolCall?.id).filter(Boolean));
+        const toolMessages = [];
+        let j = i + 1;
+
+        for (; j < messages.length; j += 1) {
+          const next = messages[j];
+          if (!next || next.role !== 'tool') break;
+          if (next.tool_call_id && toolCallIds.has(next.tool_call_id)) {
+            toolMessages.push(next);
+            toolCallIds.delete(next.tool_call_id);
+          } else {
+            // Ignore tool responses that don't match the current tool_call group
+          }
+        }
+
+        if (toolCallIds.size === 0) {
+          normalized.push(message, ...toolMessages);
+        } else {
+          console.warn('[Amplifier] Dropping incomplete tool_call group before model call');
+        }
+
+        i = j - 1;
+        continue;
+      }
+
+      if (message.role === 'tool') {
+        // Skip orphan tool messages to avoid Azure errors
+        continue;
+      }
+
+      normalized.push(message);
+    }
+
+    return normalized;
+  }
+
+  getToolStepLabel(toolName, toolArgs = {}) {
+    switch (toolName) {
+      case 'create_document':
+        return `Drafting document${toolArgs.name ? `: ${toolArgs.name}` : ''}`;
+      case 'read_document_content':
+        return `Reading document${toolArgs.document_id ? ` (${toolArgs.document_id})` : ''}`;
+      case 'search_document_content':
+        return `Searching documents for "${toolArgs.search_term || 'text'}"`;
+      case 'create_invoice':
+        return `Preparing invoice${toolArgs.client_id ? ` for client ${toolArgs.client_id}` : ''}`;
+      case 'send_invoice':
+        return `Sending invoice${toolArgs.invoice_id ? ` ${toolArgs.invoice_id}` : ''}`;
+      case 'log_time':
+        return `Logging time${toolArgs.matter_id ? ` to ${toolArgs.matter_id}` : ''}`;
+      case 'create_task':
+        return `Creating task${toolArgs.title ? `: ${toolArgs.title}` : ''}`;
+      case 'create_calendar_event':
+        return `Scheduling event${toolArgs.title ? `: ${toolArgs.title}` : ''}`;
+      case 'create_matter':
+        return `Creating matter${toolArgs.name ? `: ${toolArgs.name}` : ''}`;
+      case 'update_matter':
+        return `Updating matter${toolArgs.matter_id ? ` ${toolArgs.matter_id}` : ''}`;
+      case 'close_matter':
+        return `Closing matter${toolArgs.matter_id ? ` ${toolArgs.matter_id}` : ''}`;
+      case 'list_clients':
+        return 'Reviewing clients';
+      case 'list_matters':
+      case 'list_my_matters':
+        return 'Reviewing matters';
+      case 'list_documents':
+        return 'Reviewing documents';
+      default:
+        return `Executing: ${toolName}`;
+    }
+  }
+
+  /**
+   * Get detailed, human-readable description of what tool is doing
+   * Used for precise live activity feed updates
+   */
+  getDetailedToolDescription(toolName, toolArgs = {}) {
+    switch (toolName) {
+      case 'create_document':
+        const docName = toolArgs.name || toolArgs.title || 'document';
+        const docType = toolArgs.document_type || 'legal document';
+        return `📄 Creating ${docType}: "${docName}"`;
+      
+      case 'read_document_content':
+        return `📖 Reading document content (ID: ${toolArgs.document_id || 'unknown'})`;
+      
+      case 'search_document_content':
+        return `🔍 Searching documents for: "${toolArgs.search_term || toolArgs.query || 'keywords'}"`;
+      
+      case 'add_matter_note':
+        const notePreview = (toolArgs.content || toolArgs.note || '').substring(0, 50);
+        return `📝 Adding note to matter: "${notePreview}${notePreview.length >= 50 ? '...' : ''}"`;
+      
+      case 'create_task':
+        return `✅ Creating task: "${toolArgs.title || toolArgs.name || 'new task'}"`;
+      
+      case 'create_calendar_event':
+        return `📅 Scheduling: "${toolArgs.title || 'event'}" on ${toolArgs.date || toolArgs.start_date || 'TBD'}`;
+      
+      case 'create_invoice':
+        return `💰 Preparing invoice${toolArgs.amount ? ` for $${toolArgs.amount}` : ''}`;
+      
+      case 'send_invoice':
+        return `📤 Sending invoice to client`;
+      
+      case 'log_time':
+        const hours = toolArgs.hours || toolArgs.duration || '?';
+        return `⏱️ Logging ${hours} hours: "${toolArgs.description || 'billable work'}"`;
+      
+      case 'create_matter':
+        return `📁 Opening new matter: "${toolArgs.name || toolArgs.title || 'new matter'}"`;
+      
+      case 'update_matter':
+        return `📝 Updating matter status/details`;
+      
+      case 'close_matter':
+        return `✔️ Closing matter`;
+      
+      case 'list_clients':
+        return `👥 Fetching client list`;
+      
+      case 'list_matters':
+      case 'list_my_matters':
+        return `📋 Fetching matters list`;
+      
+      case 'list_documents':
+        return `📂 Fetching document list`;
+      
+      case 'get_matter':
+      case 'get_matter_details':
+        return `📋 Loading matter details (ID: ${toolArgs.matter_id || 'unknown'})`;
+      
+      case 'draft_email_for_matter':
+        return `✉️ Drafting email: "${toolArgs.subject || 'communication'}"`;
+      
+      case 'task_complete':
+        return `🎯 Completing task with summary`;
+      
+      case 'request_user_input':
+        return `❓ Requesting user input: "${toolArgs.question || 'feedback needed'}"`;
+      
+      default:
+        // Convert snake_case to readable format
+        const readable = toolName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        return `⚙️ ${readable}`;
+    }
+  }
+
+  /**
+   * Get detailed completion message for tool result
+   */
+  getDetailedCompletionMessage(toolName, toolArgs, result, success) {
+    if (!success) {
+      return `❌ Failed: ${result.error || result.message || toolName}`;
+    }
+    
+    switch (toolName) {
+      case 'create_document':
+        const docName = result.document?.name || result.name || toolArgs.name || 'document';
+        return `✅ Document created: "${docName}"`;
+      
+      case 'add_matter_note':
+        return `✅ Note added to matter successfully`;
+      
+      case 'create_task':
+        const taskTitle = result.task?.title || toolArgs.title || 'task';
+        return `✅ Task created: "${taskTitle}"`;
+      
+      case 'create_calendar_event':
+        return `✅ Event scheduled: "${toolArgs.title || 'event'}"`;
+      
+      case 'log_time':
+        return `✅ Time logged: ${toolArgs.hours || '?'} hours`;
+      
+      case 'create_matter':
+        return `✅ Matter opened: "${result.matter?.name || toolArgs.name || 'new matter'}"`;
+      
+      case 'list_clients':
+        const clientCount = result.clients?.length || 0;
+        return `✅ Found ${clientCount} client${clientCount !== 1 ? 's' : ''}`;
+      
+      case 'list_matters':
+      case 'list_my_matters':
+        const matterCount = result.matters?.length || 0;
+        return `✅ Found ${matterCount} matter${matterCount !== 1 ? 's' : ''}`;
+      
+      case 'list_documents':
+        const docCount = result.documents?.length || 0;
+        return `✅ Found ${docCount} document${docCount !== 1 ? 's' : ''}`;
+      
+      case 'search_document_content':
+        const resultCount = result.results?.length || 0;
+        return `✅ Found ${resultCount} result${resultCount !== 1 ? 's' : ''} for "${toolArgs.search_term || 'query'}"`;
+      
+      case 'read_document_content':
+        return `✅ Document content loaded`;
+      
+      case 'draft_email_for_matter':
+        return `✅ Email draft prepared`;
+      
+      default:
+        return `✅ ${toolName.replace(/_/g, ' ')} completed`;
+    }
+  }
+
+  buildCheckpointPayload() {
+    this.compactMessagesIfNeeded();
+
+    return {
+      messages: JSON.parse(JSON.stringify(this.normalizeMessages(this.messages))),
+      actionsHistory: this.actionsHistory.slice(-200),
+      progress: this.progress,
+      result: this.result,
+      error: this.error,
+      iterations: this.progress.iterations,
+      plan: this.plan,
+      systemPrompt: this.systemPrompt,
+      lastCheckpointAt: new Date().toISOString(), // Track when checkpoint was saved for resume timing
+    };
+  }
+
+  async saveCheckpoint(reason = 'periodic') {
+    if (!persistenceAvailable) return;
+    const now = Date.now();
+    if (now - this.lastCheckpointAt < CHECKPOINT_INTERVAL_MS && reason === 'periodic') {
+      return;
+    }
+    this.lastCheckpointAt = now;
+
+    const checkpoint = this.buildCheckpointPayload();
+
+    try {
+      await query(
+        `INSERT INTO ai_background_tasks (
+          id, firm_id, user_id, goal, status, progress, result, error, started_at, iterations,
+          max_iterations, options, checkpoint, checkpoint_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
+        ON CONFLICT (id) DO UPDATE SET
+          status = EXCLUDED.status,
+          progress = EXCLUDED.progress,
+          result = EXCLUDED.result,
+          error = EXCLUDED.error,
+          iterations = EXCLUDED.iterations,
+          max_iterations = EXCLUDED.max_iterations,
+          options = EXCLUDED.options,
+          checkpoint = EXCLUDED.checkpoint,
+          checkpoint_at = NOW(),
+          updated_at = NOW()`,
+        [
+          this.id,
+          this.firmId,
+          this.userId,
+          this.goal,
+          this.status,
+          this.progress,
+          this.result,
+          this.error,
+          this.startTime,
+          this.progress.iterations,
+          this.maxIterations,
+          this.options || {},
+          checkpoint
+        ]
+      );
+    } catch (error) {
+      markPersistenceUnavailable(error);
+      if (persistenceAvailable) {
+        console.error('[Amplifier] Failed to save checkpoint:', error.message);
+      }
+    }
+  }
+
+  loadCheckpoint(checkpoint) {
+    if (!checkpoint) return;
+    this.messages = Array.isArray(checkpoint.messages) ? checkpoint.messages : this.messages;
+    this.actionsHistory = Array.isArray(checkpoint.actionsHistory) ? checkpoint.actionsHistory : this.actionsHistory;
+    this.progress = checkpoint.progress || this.progress;
+    this.result = checkpoint.result || this.result;
+    this.error = checkpoint.error || this.error;
+    this.plan = checkpoint.plan || this.plan;
+    this.systemPrompt = checkpoint.systemPrompt || this.systemPrompt;
+  }
+
+  async persistCompletion(status, errorMessage = null) {
+    if (!persistenceAvailable) return;
+    try {
+      const storedError = status === TaskStatus.FAILED ? (this.error || errorMessage) : null;
+      await query(
+        `UPDATE ai_background_tasks
+         SET status = $1,
+             progress = $2,
+             result = $3,
+             error = $4,
+             completed_at = $5,
+             updated_at = NOW()
+         WHERE id = $6`,
+        [
+          status,
+          this.progress,
+          this.result,
+          storedError,
+          this.endTime,
+          this.id
+        ]
+      );
+    } catch (error) {
+      markPersistenceUnavailable(error);
+      if (persistenceAvailable) {
+        console.error('[Amplifier] Failed to persist completion:', error.message);
+      }
+    }
+  }
+
+  /**
+   * Build the system prompt with full context
+   * This prompt enables FULLY AUTONOMOUS operation at JUNIOR ATTORNEY level
+   */
+  buildSystemPrompt() {
+    const extendedModeNote = this.isExtendedMode 
+      ? `\n**EXTENDED MODE ACTIVE**: You have ${Math.round(this.maxRuntimeMs/60000)} minutes and ${this.maxIterations} iterations available. Take your time to do thorough, comprehensive work.\n`
+      : '';
+    
+    const complexityNote = `\n**TASK COMPLEXITY**: ${this.complexity.toUpperCase()} - Estimated ${this.estimatedSteps} steps, ~${this.estimatedMinutes} minutes.\n`;
+      
+    let prompt = `You are the APEX LEGAL BACKGROUND AGENT - a FULLY AUTONOMOUS AI operating as a **JUNIOR ATTORNEY** (2-4 years experience) with COMPLETE ACCESS to the legal practice management platform.
+
+${extendedModeNote}${complexityNote}
+${PLATFORM_CONTEXT}
+
+${this.userContext || ''}
+
+${this.learningContext || ''}
+
+${this.matterContext || ''}
+
+## YOUR ROLE: JUNIOR ATTORNEY
+
+You are a **JUNIOR ATTORNEY** - smart, eager, thorough, and detail-oriented. You have 2-4 years of legal experience and work under partner supervision. You are:
+
+- **Thorough**: You check everything twice and document your work
+- **Eager to Learn**: You research when unsure rather than guessing
+- **Detail-Oriented**: You catch the small things others miss
+- **Proactive**: You anticipate what the partner will need next
+- **Professional**: Your work product is clean and ready for review
+
+**Your mindset:**
+- "What would a thorough junior associate do here?"
+- "What would the supervising partner want to see?"
+- "Did I document everything properly?"
+- "What follow-up items should I flag?"
+
+## TOOL SELECTION GUIDE - CRITICAL
+
+Choose the RIGHT tool for each situation. Here's your decision tree:
+
+### WHEN TO USE EACH TOOL:
+
+**GATHERING INFORMATION:**
+| Goal | Tool to Use | Why |
+|------|-------------|-----|
+| Find a matter by name | \`get_matter\` or \`search_matters\` | Flexible name matching |
+| Get matter details + docs | \`get_matter\` | Returns comprehensive info |
+| Find a client | \`list_clients\` with search | Search by name |
+| Read a document's content | \`read_document_content\` | Pass document_id |
+| Search across all documents | \`search_document_content\` | Full-text search |
+| Get upcoming calendar | \`get_calendar_events\` | Shows next 7 days default |
+| Get my tasks | \`list_tasks\` | Filter by status/matter |
+
+**CREATING CONTENT:**
+| Goal | Tool to Use | Why |
+|------|-------------|-----|
+| Formal document (letter, memo, brief) | \`create_document\` | Creates .docx file |
+| Quick case note or update | \`add_matter_note\` | Goes to Notes tab |
+| Follow-up action item | \`create_task\` | Assigns to attorney |
+| Schedule meeting/deadline | \`create_calendar_event\` | Adds to calendar |
+| Professional legal document | \`draft_legal_document\` | Uses templates |
+
+**WHEN DOCUMENT vs NOTE:**
+- **create_document**: Contracts, letters, memos, briefs, legal analysis, reports, anything client-facing or formal
+- **add_matter_note**: Internal updates, research notes, meeting notes, observations, status updates, quick findings
+
+### COMMON MISTAKES TO AVOID:
+❌ Using \`list_documents\` when you need document content (use \`read_document_content\`)
+❌ Using \`create_document\` for quick notes (use \`add_matter_note\`)
+❌ Calling \`get_matter\` repeatedly - cache the result!
+❌ Searching when you already have the ID
+❌ Using \`log_time\` - NEVER log time, that's for humans
+
+## HANDLING EMPTY MATTERS - YOUR SPECIALTY
+
+When a matter has NO documents, NO notes, or sparse information, this is your chance to shine. An empty matter means OPPORTUNITY, not failure.
+
+**EMPTY MATTER PROTOCOL:**
+
+1. **Don't Panic** - Empty matters are common for new cases
+2. **Create Foundation** - Build what SHOULD be there:
+
+   a. **Initial Case Assessment Note** (use \`add_matter_note\`):
+      - Document what you know from the matter name/description
+      - List initial observations and potential issues
+      - Note what information is missing/needed
+   
+   b. **Case Intake Checklist** (use \`create_task\` for each):
+      - "Obtain signed engagement letter"
+      - "Collect relevant documents from client"
+      - "Identify key parties and contacts"
+      - "Research applicable deadlines/statutes"
+      - "Set up matter folder structure"
+   
+   c. **Initial Assessment Document** (use \`create_document\`):
+      - Matter overview based on available info
+      - Preliminary legal issues to investigate
+      - Recommended next steps
+      - Information needed from client
+   
+   d. **Calendar Critical Dates** (use \`create_calendar_event\`):
+      - "Review new matter status - [30 days out]"
+      - Any deadlines apparent from matter type
+
+3. **Flag for Attorney** - Create task: "Partner review needed - new matter setup complete"
+
+## AUTONOMOUS OPERATION MODE
+
+You are running as a BACKGROUND AGENT with NO HUMAN SUPERVISION:
+
+1. **WORK AUTONOMOUSLY** - Do NOT wait for human input
+2. **EXECUTE IMMEDIATELY** - When you know what to do, DO IT
+3. **CHAIN ACTIONS** - Complete multi-step workflows in sequence
+4. **VERIFY RESULTS** - Check each action's result before proceeding
+5. **RECOVER FROM ERRORS** - If something fails, try alternatives
+6. **COMPLETE THE GOAL** - Keep working until done
+
+## WORKFLOW PATTERN
+
+For each task, follow this EXACT pattern:
+
+**PHASE 1: DISCOVERY (First 2-3 actions)**
+1. Call \`think_and_plan\` to analyze the goal and create a plan
+2. Call \`get_matter\` or \`search_matters\` to load context
+3. If matter has documents, use \`read_document_content\` on key ones
+
+**PHASE 2: ANALYSIS (Variable based on complexity)**
+4. Review what you found
+5. Identify gaps, issues, or opportunities
+6. Document your findings with \`add_matter_note\`
+
+**PHASE 3: ACTION (Create deliverables)**
+7. Create any needed documents with \`create_document\`
+8. Create follow-up tasks with \`create_task\`
+9. Schedule any events/deadlines with \`create_calendar_event\`
+
+**PHASE 4: WRAP-UP**
+10. Use \`evaluate_progress\` to confirm completion
+11. Call \`task_complete\` with comprehensive summary
+
+## DOCUMENT READING BEST PRACTICES
+
+When reading documents:
+1. **Check format first** - PDFs, DOCX, TXT work best
+2. **Handle failures gracefully** - If read fails, note it and continue
+3. **Summarize key points** - Don't try to include entire documents
+4. **Note what you reviewed** - Document which files you analyzed
+
+If \`read_document_content\` returns an error:
+- The file may be scanned/image-based
+- The file may be in an unsupported format
+- Note this limitation and proceed with available information
+
+## LEGAL ANALYSIS FRAMEWORKS
+
+### THE IRAC METHOD (Use for every legal issue)
+1. **I**ssue - What is the specific legal question?
+2. **R**ule - What law governs this issue?
+3. **A**pplication - How do the facts apply to the rule?
+4. **C**onclusion - What is your conclusion?
+
+### RISK ANALYSIS (Always consider)
+1. **Legal Risks** - Liability exposure?
+2. **Timeline Risks** - Deadlines, limitations?
+3. **Financial Risks** - Costs, damages?
+4. **Next Steps** - What must happen?
+
+${getCPLRContextForPrompt()}
+
+## WORK PRODUCT STANDARDS
+
+### QUALITY REQUIREMENTS
+- **COMPLETE**: Full content, NO placeholders like "[INSERT]" or "TODO"
+- **SPECIFIC**: Use actual facts from the matter
+- **PROFESSIONAL**: Clean formatting, no typos
+- **ACTIONABLE**: Clear next steps
+
+### WHAT JUNIOR ATTORNEYS ALWAYS DO
+1. Document everything they reviewed
+2. Create task lists for follow-up
+3. Flag issues for partner review
+4. Err on the side of more documentation
+5. Note limitations and assumptions
+
+## ANTI-PATTERNS TO AVOID
+
+❌ Creating documents with "[insert here]" or "TODO"
+❌ Doing only 1-2 actions and calling it done
+❌ Giving generic advice not specific to the matter
+❌ Stopping because a matter is "empty"
+❌ Using \`log_time\` - NEVER (time entries are for humans)
+❌ Repeating failed tool calls without trying alternatives
+❌ Calling task_complete without substantive work
+
+## MINIMUM REQUIREMENTS (ENFORCED)
+
+Before calling \`task_complete\`, you MUST have:
+- ✅ At least 5 total tool calls
+- ✅ At least 1 note (via \`add_matter_note\`)
+- ✅ At least 1 task (via \`create_task\`)
+- ✅ At least 60 seconds of work time
+- ✅ Substantive content specific to this matter
+
+## CURRENT TASK
+
+**Goal:** ${this.goal}
+**Complexity:** ${this.complexity} (~${this.estimatedSteps} steps expected)
+
+START WORKING NOW. Begin with \`think_and_plan\`, then gather information, then create deliverables. You are a capable junior attorney - be thorough, be professional, be proactive.
+`;
+
+    // Add user's document style profile (PRIVATE per-user learning)
+    if (this.userDocumentProfile) {
+      prompt += formatProfileForPrompt(this.userDocumentProfile);
+    }
+
+    // Add workflow templates if relevant
+    if (this.workflowTemplates && this.workflowTemplates.length > 0) {
+      prompt += '\n## AVAILABLE WORKFLOW TEMPLATES\n\n';
+      for (const wf of this.workflowTemplates) {
+        const triggers = wf.trigger_phrases?.join(', ') || '';
+        prompt += `- **${wf.name}**: ${wf.description} (triggers: ${triggers})\n`;
+      }
+    }
+
+    return prompt;
+  }
+
+  /**
+   * Start the background task
+   * This begins AUTONOMOUS execution without human intervention
+   */
+  async start({ resumeFromCheckpoint = false } = {}) {
+    this.status = TaskStatus.RUNNING;
+    this.progress.currentStep = resumeFromCheckpoint ? 'Resuming autonomous agent...' : 'Initializing autonomous agent...';
+    this.emit('progress', this.getStatus());
+
+    try {
+      console.log(`[Amplifier] Starting autonomous task ${this.id}: ${this.goal}`);
+      
+      // Stream task start event to Glass Cockpit UI
+      this.streamEvent('task_start', `🚀 Task started: "${this.goal.substring(0, 80)}${this.goal.length > 80 ? '...' : ''}"`, {
+        goal: this.goal,
+        icon: 'rocket',
+        color: 'green'
+      });
+      this.streamProgress();
+      
+      if (!resumeFromCheckpoint) {
+        // Initialize context (user info, firm data, learnings)
+        this.streamEvent('context_init', '🔧 Loading user context, firm data, and historical learnings...', {
+          icon: 'settings',
+          color: 'gray'
+        });
+        await this.initializeContext();
+        
+        // Build initial messages with a STRONG action prompt
+        // The user message must clearly instruct the AI to take action immediately
+        this.systemPrompt = this.buildSystemPrompt();
+        this.messages = [
+          { role: 'system', content: this.systemPrompt },
+          { 
+            role: 'user', 
+            content: `EXECUTE THIS TASK NOW: ${this.goal}
+
+Begin by calling think_and_plan to create your execution plan, then immediately start calling tools to complete each step. Do NOT respond with just text - you MUST call tools to take action.`
+          }
+        ];
+      }
+
+      await this.saveCheckpoint('start');
+      
+      console.log(`[Amplifier] Task ${this.id} context initialized, starting agent loop`);
+      
+      this.streamEvent('context_ready', '✅ Context loaded. Beginning autonomous execution...', {
+        icon: 'check-circle',
+        color: 'green'
+      });
+      
+      // Run the agentic loop (autonomous execution)
+      await this.runAgentLoop();
+      
+    } catch (error) {
+      this.status = TaskStatus.FAILED;
+      this.error = error.message;
+      this.endTime = new Date();
+      console.error(`[Amplifier] Task ${this.id} failed:`, error);
+      console.error(`[Amplifier] Error stack:`, error.stack);
+      await this.saveTaskHistory();
+      await this.persistCompletion(TaskStatus.FAILED, error.message);
+      this.emit('error', error);
+    }
+  }
+
+  /**
+   * Run the autonomous agent loop
+   * This loop executes tools repeatedly until the task is complete
+   * The agent works WITHOUT human intervention
+   */
+  async runAgentLoop() {
+    const MAX_ITERATIONS = this.maxIterations;
+    const MAX_TEXT_ONLY_RESPONSES = 3; // Max times AI can respond with only text before we re-prompt
+    const tools = getOpenAITools();
+    let textOnlyCount = 0;
+    
+    console.log(`[Amplifier] Starting agent loop with ${tools.length} tools available`);
+    
+    while (this.progress.iterations < MAX_ITERATIONS && !this.cancelled) {
+      const elapsedMs = Date.now() - this.startTime.getTime();
+      if (elapsedMs > this.maxRuntimeMs) {
+        console.warn(`[Amplifier] Task ${this.id} reached max runtime (${this.maxRuntimeMs}ms)`);
+        
+        // SMOOTH COMPLETION SEQUENCE
+        this.progress.progressPercent = 95;
+        this.progress.currentStep = 'Wrapping up (time limit)...';
+        this.streamEvent('finishing', `🎯 Reached time limit (${Math.round(elapsedMs / 60000)}min), finalizing...`, { icon: 'clock', color: 'yellow' });
+        this.streamProgress();
+        await sleep(600);
+        
+        this.progress.progressPercent = 98;
+        this.progress.currentStep = 'Saving results...';
+        this.streamProgress();
+        
+        await this.saveTaskHistory();
+        await this.persistCompletion(TaskStatus.COMPLETED);
+        await sleep(400);
+        
+        this.status = TaskStatus.COMPLETED;
+        this.progress.progressPercent = 100;
+        this.progress.currentStep = 'Completed (time limit reached)';
+        this.result = {
+          summary: `Time limit reached after ${Math.round(elapsedMs / 60000)} minutes. Partial results saved.`,
+          actions: this.actionsHistory.map(a => a.tool)
+        };
+        this.endTime = new Date();
+        
+        this.streamEvent('task_complete', `✅ Task completed (time limit: ${Math.round(elapsedMs / 60000)}min)`, { 
+          actions_count: this.actionsHistory.length,
+          icon: 'check-circle', 
+          color: 'green' 
+        });
+        this.streamProgress();
+        await sleep(300);
+        
+        this.emit('complete', this.getStatus());
+        return;
+      }
+
+      this.progress.iterations++;
+      this.progress.currentStep = `Working... (step ${this.progress.iterations})`;
+      this.emit('progress', this.getStatus());
+      
+      try {
+        console.log(`[Amplifier] Iteration ${this.progress.iterations}: calling Azure OpenAI`);
+        
+        // Stream thinking event to Glass Cockpit UI with context
+        const thinkingContext = this.actionsHistory.length === 0 
+          ? 'Analyzing task and creating plan...'
+          : this.plan 
+            ? `Step ${this.progress.completedSteps + 1}: Planning next action...`
+            : 'Evaluating progress and deciding next steps...';
+        
+        this.streamEvent('thought_start', `🧠 ${thinkingContext}`, {
+          iteration: this.progress.iterations,
+          actions_so_far: this.actionsHistory.length,
+          icon: 'brain',
+          color: 'blue'
+        });
+
+        this.messages = this.normalizeMessages(this.messages);
+        this.compactMessagesIfNeeded();
+        
+        // Call Azure OpenAI with tools
+        const response = await callAzureOpenAI(this.messages, tools, {
+          temperature: this.options?.temperature ?? 0.3,
+          max_tokens: this.options?.max_tokens ?? 4000
+        });
+        const choice = response.choices[0];
+        const message = choice.message;
+        
+        // Add assistant message to history
+        this.messages.push(message);
+        
+        // Check for tool calls (this is what makes it an AGENT)
+        if (message.tool_calls && message.tool_calls.length > 0) {
+          textOnlyCount = 0; // Reset text-only counter
+          
+          const toolNames = message.tool_calls.map(tc => tc.function?.name || 'unknown');
+          console.log(`[Amplifier] Iteration ${this.progress.iterations}: ${message.tool_calls.length} tool(s) to execute: ${toolNames.join(', ')}`);
+          
+          // Stream what we're about to do
+          this.streamEvent('planning', `📋 Planned ${message.tool_calls.length} action${message.tool_calls.length > 1 ? 's' : ''}: ${toolNames.join(', ')}`, {
+            tools_planned: toolNames,
+            icon: 'clipboard-list',
+            color: 'purple'
+          });
+          
+          // Execute all tool calls
+          for (const toolCall of message.tool_calls) {
+            if (this.cancelled) break;
+            
+            const toolName = toolCall.function.name;
+            let toolArgs = {};
+            
+            try {
+              toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+            } catch (parseError) {
+              console.error(`[Amplifier] Failed to parse tool arguments for ${toolName}:`, toolCall.function.arguments);
+              toolArgs = {};
+            }
+            
+            console.log(`[Amplifier] Executing tool: ${toolName}`);
+            this.progress.currentStep = this.getToolStepLabel(toolName, toolArgs);
+            this.emit('progress', this.getStatus());
+            
+            // Stream tool start event to Glass Cockpit UI with PRECISE details
+            const toolDescription = this.getDetailedToolDescription(toolName, toolArgs);
+            this.streamEvent('tool_start', toolDescription, { 
+              tool: toolName, 
+              args: toolArgs,
+              icon: 'tool',
+              color: 'blue'
+            });
+            this.streamProgress();
+            
+            // Execute the tool with timeout protection (60 seconds max per tool)
+            const TOOL_TIMEOUT_MS = 60000;
+            let result;
+            try {
+              const toolPromise = executeTool(toolName, toolArgs, {
+                userId: this.userId,
+                firmId: this.firmId,
+                user: this.userRecord
+              });
+              
+              const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error(`Tool ${toolName} timed out after ${TOOL_TIMEOUT_MS/1000}s`)), TOOL_TIMEOUT_MS)
+              );
+              
+              result = await Promise.race([toolPromise, timeoutPromise]);
+            } catch (toolError) {
+              console.error(`[Amplifier] Tool ${toolName} execution failed:`, toolError);
+              result = { error: toolError?.message || 'Tool execution failed' };
+              
+              // Stream error event
+              this.streamEvent('tool_error', `❌ Error in ${toolName}: ${toolError?.message}`, {
+                tool: toolName,
+                icon: 'x-circle',
+                color: 'red'
+              });
+            }
+            
+            const toolSuccess = result.success !== undefined ? result.success : !result.error;
+            console.log(`[Amplifier] Tool ${toolName} result:`, toolSuccess ? 'success' : 'failed');
+            
+            // Stream tool completion event with detailed result
+            const completionMessage = this.getDetailedCompletionMessage(toolName, toolArgs, result, toolSuccess);
+            this.streamEvent('tool_end', completionMessage, {
+              tool: toolName,
+              success: toolSuccess,
+              icon: toolSuccess ? 'check-circle' : 'x-circle',
+              color: toolSuccess ? 'green' : 'red',
+              result_preview: result.message || (toolSuccess ? 'Success' : 'Failed')
+            });
+            
+            // Track action in history
+            this.actionsHistory.push({
+              tool: toolName,
+              args: toolArgs,
+              result: result,
+              timestamp: new Date(),
+              success: toolSuccess
+            });
+            
+            // Track substantive actions for quality assurance
+            if (toolSuccess) {
+              if (toolName === 'add_matter_note' || toolName === 'create_note') {
+                this.substantiveActions.notes++;
+              } else if (toolName === 'create_document' || toolName === 'draft_legal_document') {
+                this.substantiveActions.documents++;
+              } else if (toolName === 'create_task') {
+                this.substantiveActions.tasks++;
+              } else if (toolName === 'create_calendar_event') {
+                this.substantiveActions.events++;
+              } else if (toolName === 'read_document_content' || toolName === 'search_document_content') {
+                this.substantiveActions.research++;
+              }
+            } else {
+              // Track failed tools to avoid repeating
+              const failCount = this.failedTools.get(toolName) || 0;
+              this.failedTools.set(toolName, failCount + 1);
+            }
+            
+            // Update progress using new calculation
+            this.progress.progressPercent = this.calculateProgressPercent();
+            
+            // Add tool result to messages so AI knows what happened
+            this.messages.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: JSON.stringify(result)
+            });
+
+            this.recentTools.push(toolName);
+            if (this.recentTools.length > 6) this.recentTools.shift();
+            
+            // If a tool has failed 3+ times, add guidance to avoid it
+            if (this.failedTools.get(toolName) >= 3) {
+              this.messages.push({
+                role: 'user',
+                content: `Note: The tool "${toolName}" has failed multiple times. Try an alternative approach or skip this step if possible.`
+              });
+            }
+            
+            // Check for explicit task completion
+            if (toolName === 'task_complete') {
+              // QUALITY GATE: Enforce minimum work requirements
+              const elapsedSeconds = (Date.now() - this.startTime.getTime()) / 1000;
+              const actionCount = this.actionsHistory.length;
+              const substantiveActions = this.actionsHistory.filter(a => 
+                ['create_document', 'create_note', 'add_matter_note', 'create_task', 
+                 'create_calendar_event', 'update_matter', 'draft_email_for_matter',
+                 'search_case_law', 'summarize_document'].includes(a.tool)
+              ).length;
+              
+              // Check for specific required actions
+              const hasNote = this.actionsHistory.some(a => a.tool === 'add_matter_note');
+              const hasTask = this.actionsHistory.some(a => a.tool === 'create_task');
+              const hasDocument = this.actionsHistory.some(a => a.tool === 'create_document');
+              
+              // Minimum requirements
+              const MIN_SECONDS = 60;
+              const MIN_ACTIONS = 5;
+              const MIN_SUBSTANTIVE = 2;
+              
+              // Build missing requirements message
+              const missing = [];
+              if (elapsedSeconds < MIN_SECONDS) missing.push(`Time: ${elapsedSeconds.toFixed(0)}s / ${MIN_SECONDS}s minimum`);
+              if (actionCount < MIN_ACTIONS) missing.push(`Actions: ${actionCount} / ${MIN_ACTIONS} minimum`);
+              if (substantiveActions < MIN_SUBSTANTIVE) missing.push(`Substantive work: ${substantiveActions} / ${MIN_SUBSTANTIVE} minimum`);
+              if (!hasNote) missing.push('MISSING: You must add at least 1 note using add_matter_note');
+              if (!hasTask) missing.push('MISSING: You must create at least 1 task using create_task');
+              
+              if (missing.length > 0) {
+                console.log(`[Amplifier] Task ${this.id} attempted early completion: ${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive, hasNote=${hasNote}, hasTask=${hasTask}`);
+                
+                // Reject early completion - push message to continue
+                toolCallResults.push({
+                  role: 'tool',
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify({
+                    rejected: true,
+                    reason: `Task completion rejected. Requirements not met:
+${missing.map(m => '- ' + m).join('\n')}
+
+You MUST do the following before completing:
+1. Use add_matter_note to add notes about your findings to the matter's Notes tab
+2. Use create_task to create follow-up tasks for the attorney
+3. Use create_document if you need to create formal work product
+4. Spend adequate time on thorough analysis
+
+Keep working on: "${this.goal}"`
+                  })
+                });
+                
+                // Don't mark complete - continue the loop
+                continue;
+              }
+              
+              console.log(`[Amplifier] Task ${this.id} marked as complete (${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive)`);
+              
+              // SMOOTH COMPLETION SEQUENCE
+              // Step 1: Show wrapping up (95%)
+              this.progress.progressPercent = 95;
+              this.progress.currentStep = 'Wrapping up...';
+              this.streamEvent('finishing', '🎯 Finalizing work product...', {
+                icon: 'loader',
+                color: 'purple'
+              });
+              this.streamProgress();
+              await sleep(800);
+              
+              // Step 2: Show saving (97%)
+              this.progress.progressPercent = 97;
+              this.progress.currentStep = 'Saving results...';
+              this.streamEvent('saving', '💾 Saving task results...', {
+                icon: 'save',
+                color: 'blue'
+              });
+              this.streamProgress();
+              
+              // Save to history and extract learnings
+              await this.saveTaskHistory();
+              await this.persistCompletion(TaskStatus.COMPLETED);
+              await sleep(500);
+              
+              // Step 3: Show complete (100%)
+              this.status = TaskStatus.COMPLETED;
+              this.progress.progressPercent = 100;
+              this.progress.currentStep = 'Completed successfully';
+              this.result = {
+                summary: toolArgs.summary || 'Task completed',
+                actions: toolArgs.actions_taken || this.actionsHistory.map(a => a.tool),
+                recommendations: toolArgs.recommendations || [],
+                stats: {
+                  duration_seconds: elapsedSeconds,
+                  total_actions: actionCount,
+                  substantive_actions: substantiveActions
+                }
+              };
+              this.endTime = new Date();
+              
+              // Stream completion event to Glass Cockpit UI
+              this.streamEvent('task_complete', `✅ ${toolArgs.summary || 'Task completed successfully'}`, {
+                actions_count: actionCount,
+                duration_seconds: elapsedSeconds,
+                summary: toolArgs.summary,
+                icon: 'check-circle',
+                color: 'green'
+              });
+              this.streamProgress();
+              
+              // Small delay so UI can show the completion state
+              await sleep(300);
+              
+              this.emit('complete', this.getStatus());
+              return;
+            }
+            
+            // Update progress based on planning tools
+            if (toolName === 'think_and_plan') {
+              this.plan = toolArgs;
+              this.progress.totalSteps = (toolArgs.steps || []).length;
+              this.progress.progressPercent = Math.min(15, this.progress.progressPercent + 10);
+            }
+            
+            if (toolName === 'evaluate_progress') {
+              const completed = (toolArgs.completed_steps || []).length;
+              const total = completed + (toolArgs.remaining_steps || []).length;
+              if (total > 0) {
+                this.progress.completedSteps = completed;
+                this.progress.progressPercent = Math.min(90, 15 + (75 * completed / total));
+              }
+              if (toolArgs.remaining_steps && toolArgs.remaining_steps.length > 0) {
+                this.progress.currentStep = `Next: ${toolArgs.remaining_steps[0]}`;
+              }
+            }
+            
+            if (toolName === 'log_work') {
+              // Increment progress for each logged work item
+              this.progress.progressPercent = Math.min(90, this.progress.progressPercent + 5);
+              if (this.progress.totalSteps > 0) {
+                this.progress.completedSteps = Math.min(
+                  this.progress.totalSteps,
+                  (this.progress.completedSteps || 0) + 1
+                );
+              }
+              if (toolArgs.next_step) {
+                this.progress.currentStep = toolArgs.next_step;
+              }
+            }
+
+            if (this.recentTools.length === 6 && this.recentTools.every(t => t === toolName)) {
+              this.messages.push({
+                role: 'user',
+                content: `You have used ${toolName} repeatedly without progress. Try a different tool or a new approach to complete: "${this.goal}".`
+              });
+            }
+
+            await this.saveCheckpoint('periodic');
+          }
+        } else {
+          // No tool calls - AI just responded with text
+          textOnlyCount++;
+          console.log(`[Amplifier] Iteration ${this.progress.iterations}: text-only response (count: ${textOnlyCount})`);
+          
+          // Stream that we got a thinking/text response
+          const responsePreview = message.content ? message.content.substring(0, 80) : '';
+          this.streamEvent('thought_response', `💭 Thinking: "${responsePreview}${responsePreview.length >= 80 ? '...' : ''}"`, {
+            iteration: this.progress.iterations,
+            icon: 'message-square',
+            color: 'gray'
+          });
+          
+          // Check if finish_reason indicates completion
+          if (choice.finish_reason === 'stop') {
+            // If we've done some work and the AI seems done, complete the task
+            if (this.actionsHistory.length > 0) {
+              console.log(`[Amplifier] Task ${this.id} completed after ${this.actionsHistory.length} actions`);
+              
+              // SMOOTH COMPLETION SEQUENCE
+              this.progress.progressPercent = 95;
+              this.progress.currentStep = 'Wrapping up...';
+              this.streamEvent('finishing', '🎯 Finalizing...', { icon: 'loader', color: 'purple' });
+              this.streamProgress();
+              await sleep(600);
+              
+              this.progress.progressPercent = 98;
+              this.progress.currentStep = 'Saving results...';
+              this.streamProgress();
+              
+              await this.saveTaskHistory();
+              await this.persistCompletion(TaskStatus.COMPLETED);
+              await sleep(400);
+              
+              this.status = TaskStatus.COMPLETED;
+              this.progress.progressPercent = 100;
+              this.progress.currentStep = 'Completed';
+              this.result = {
+                summary: message.content || `Completed: ${this.goal}`,
+                actions: this.actionsHistory.map(a => a.tool)
+              };
+              this.endTime = new Date();
+              
+              this.streamEvent('task_complete', `✅ Task completed`, { 
+                actions_count: this.actionsHistory.length,
+                icon: 'check-circle', 
+                color: 'green' 
+              });
+              this.streamProgress();
+              await sleep(300);
+              
+              this.emit('complete', this.getStatus());
+              return;
+            }
+            
+            // If no actions were taken and AI just responded with text, prompt it to take action
+            if (textOnlyCount < MAX_TEXT_ONLY_RESPONSES) {
+              console.log(`[Amplifier] Re-prompting AI to take action`);
+              this.messages.push({
+                role: 'user',
+                content: 'You must call tools to complete this task. Do NOT just respond with text. Start by calling think_and_plan, then execute the necessary tools. Call tools NOW.'
+              });
+            } else {
+              // AI keeps responding with text only - something is wrong
+              console.error(`[Amplifier] Task ${this.id} failed: AI not calling tools`);
+              this.status = TaskStatus.FAILED;
+              this.error = 'Agent did not execute any actions. The AI model may not support function calling.';
+              this.endTime = new Date();
+              await this.saveTaskHistory();
+              await this.persistCompletion(TaskStatus.FAILED);
+              this.emit('error', new Error(this.error));
+              return;
+            }
+          }
+        }
+        
+        // Gradual progress update
+        if (this.progress.progressPercent < 90) {
+          const increment = Math.max(1, Math.round(60 / Math.max(1, MAX_ITERATIONS)));
+          this.progress.progressPercent = Math.min(90, this.progress.progressPercent + increment);
+        }
+
+        await this.saveCheckpoint('periodic');
+        
+      } catch (error) {
+        console.error(`[Amplifier] Iteration ${this.progress.iterations} error:`, error);
+
+        const rateLimitMatch = typeof error.message === 'string'
+          ? error.message.match(/retry after (\d+)\s*seconds/i)
+          : null;
+        if (error.message?.includes('RateLimitReached') || error.message?.includes('rate limit') || rateLimitMatch) {
+          const retryAfterMs = rateLimitMatch ? Number.parseInt(rateLimitMatch[1], 10) * 1000 : 30000;
+          const safeDelay = Number.isFinite(retryAfterMs) ? Math.max(5000, retryAfterMs) : 30000;
+          const waitSeconds = Math.round(safeDelay / 1000);
+          this.progress.currentStep = `Rate limited - retrying in ${waitSeconds}s`;
+          
+          this.streamEvent('rate_limit', `⏳ Rate limited - waiting ${waitSeconds}s before retry...`, {
+            wait_seconds: waitSeconds,
+            icon: 'clock',
+            color: 'yellow'
+          });
+          
+          // Send heartbeats during long waits so frontend knows we're still alive
+          const heartbeatInterval = 5000; // Every 5 seconds
+          let waited = 0;
+          while (waited < safeDelay && !this.cancelled) {
+            const waitChunk = Math.min(heartbeatInterval, safeDelay - waited);
+            await sleep(waitChunk);
+            waited += waitChunk;
+            
+            if (waited < safeDelay && !this.cancelled) {
+              const remaining = Math.round((safeDelay - waited) / 1000);
+              this.progress.currentStep = `Rate limited - retrying in ${remaining}s`;
+              this.streamEvent('heartbeat', `⏳ Waiting... ${remaining}s remaining`, {
+                remaining_seconds: remaining,
+                icon: 'clock',
+                color: 'yellow'
+              });
+              this.streamProgress();
+            }
+          }
+          
+          if (!this.cancelled) {
+            this.streamEvent('recovery', `✅ Rate limit cleared, resuming work...`, {
+              icon: 'check-circle',
+              color: 'green'
+            });
+          }
+          continue;
+        }
+        
+        // If it's a configuration error, fail immediately
+        if (error.message.includes('not configured') || error.message.includes('401') || error.message.includes('403')) {
+          this.status = TaskStatus.FAILED;
+          this.error = error.message;
+          this.endTime = new Date();
+          await this.saveTaskHistory();
+          await this.persistCompletion(TaskStatus.FAILED, error.message);
+          this.emit('error', error);
+          return;
+        }
+        
+        // For other errors, add to messages and let AI recover
+        this.streamEvent('recovery', `⚠️ Recovering from error: ${error.message.substring(0, 80)}...`, {
+          error: error.message,
+          icon: 'alert-triangle',
+          color: 'yellow'
+        });
+        
+        this.messages.push({
+          role: 'user',
+          content: `An error occurred: ${error.message}. Please continue with an alternative approach or call task_complete if the goal has been achieved.`
+        });
+
+        await this.saveCheckpoint('periodic');
+      }
+    }
+    
+    // Max iterations reached
+    if (!this.cancelled) {
+      console.log(`[Amplifier] Task ${this.id} reached max iterations (${MAX_ITERATIONS})`);
+      
+      // SMOOTH COMPLETION SEQUENCE
+      this.progress.progressPercent = 95;
+      this.progress.currentStep = 'Wrapping up (iteration limit)...';
+      this.streamEvent('finishing', '🎯 Reached iteration limit, finalizing...', { icon: 'loader', color: 'yellow' });
+      this.streamProgress();
+      await sleep(600);
+      
+      this.progress.progressPercent = 98;
+      this.progress.currentStep = 'Saving results...';
+      this.streamProgress();
+      
+      await this.saveTaskHistory();
+      await this.persistCompletion(TaskStatus.COMPLETED);
+      await sleep(400);
+      
+      this.status = TaskStatus.COMPLETED;
+      this.progress.progressPercent = 100;
+      this.progress.currentStep = 'Completed (max iterations)';
+      this.result = {
+        summary: `Task processed over ${this.progress.iterations} iterations. Actions: ${this.actionsHistory.map(a => a.tool).join(', ')}`,
+        actions: this.actionsHistory.map(a => a.tool)
+      };
+      this.endTime = new Date();
+      
+      this.streamEvent('task_complete', `✅ Task completed (${this.progress.iterations} iterations)`, { 
+        actions_count: this.actionsHistory.length,
+        icon: 'check-circle', 
+        color: 'green' 
+      });
+      this.streamProgress();
+      await sleep(300);
+      
+      this.emit('complete', this.getStatus());
+    }
+  }
+
+  /**
+   * Save task to history and extract learnings
+   */
+  async saveTaskHistory() {
+    try {
+      // Save to task history
+      await query(`
+        INSERT INTO ai_task_history (
+          firm_id, user_id, task_id, goal, status, started_at, completed_at, duration_seconds,
+          iterations, summary, actions_taken, result, error
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      `, [
+        this.firmId,
+        this.userId,
+        this.id,
+        this.goal,
+        this.status,
+        this.startTime,
+        this.endTime,
+        Math.round((this.endTime - this.startTime) / 1000),
+        this.progress.iterations,
+        this.result?.summary,
+        JSON.stringify(this.actionsHistory.map(a => ({ tool: a.tool, args: a.args }))),
+        JSON.stringify(this.result),
+        this.error
+      ]);
+      
+      // Extract and save learnings
+      await this.extractLearnings();
+      
+    } catch (error) {
+      console.error('[Amplifier] Error saving task history:', error);
+    }
+  }
+
+  /**
+   * Extract learning patterns from the task
+   * Enhanced to learn from ANY task, not just complex ones
+   */
+  async extractLearnings() {
+    try {
+      console.log(`[Amplifier] Extracting learnings from task with ${this.actionsHistory.length} actions`);
+      
+      // 1. Learn from ANY task with actions (lowered from 3 to 1)
+      if (this.actionsHistory.length >= 1) {
+        const toolSequence = this.actionsHistory.map(a => a.tool).join(' -> ');
+        
+        // Check if this pattern exists
+        const existing = await query(`
+          SELECT id, occurrences FROM ai_learning_patterns
+          WHERE firm_id = $1 AND pattern_type = 'workflow' AND pattern_data->>'sequence' = $2
+        `, [this.firmId, toolSequence]);
+        
+        if (existing.rows.length > 0) {
+          // Update occurrence count
+          await query(`
+            UPDATE ai_learning_patterns SET occurrences = occurrences + 1, last_used_at = NOW()
+            WHERE id = $1
+          `, [existing.rows[0].id]);
+          console.log(`[Amplifier] Updated existing workflow pattern: ${toolSequence}`);
+        } else {
+          // Create new pattern
+          await query(`
+            INSERT INTO ai_learning_patterns (firm_id, user_id, pattern_type, pattern_category, pattern_data)
+            VALUES ($1, $2, 'workflow', 'task_execution', $3)
+          `, [this.firmId, this.userId, JSON.stringify({
+            sequence: toolSequence,
+            goal_keywords: this.goal.toLowerCase().split(' ').slice(0, 10),
+            tools_used: [...new Set(this.actionsHistory.map(a => a.tool))],
+            duration_seconds: Math.round((this.endTime - this.startTime) / 1000),
+            success: this.status === 'completed'
+          })]);
+          console.log(`[Amplifier] Created new workflow pattern: ${toolSequence}`);
+        }
+      }
+      
+      // 2. Learn user request patterns (what kind of things they ask for)
+      await this.learnRequestPattern();
+      
+      // 3. Learn naming patterns from created entities
+      for (const action of this.actionsHistory) {
+        if (action.tool === 'create_matter' && action.args?.name) {
+          await this.learnNamingPattern('matter', action.args.name);
+        }
+        if (action.tool === 'create_client' && action.args?.display_name) {
+          await this.learnNamingPattern('client', action.args.display_name);
+        }
+        if (action.tool === 'create_document' && action.args?.name) {
+          await this.learnNamingPattern('document', action.args.name);
+        }
+        if (action.tool === 'create_calendar_event' && action.args?.title) {
+          await this.learnNamingPattern('event', action.args.title);
+        }
+      }
+      
+      // 4. Learn timing preferences (when user submits tasks)
+      await this.learnTimingPattern();
+      
+      // 5. Learn billing preferences
+      await this.learnBillingPatterns();
+      
+      console.log(`[Amplifier] Learning extraction complete for task ${this.id}`);
+      
+    } catch (error) {
+      console.error('[Amplifier] Error extracting learnings:', error);
+    }
+  }
+  
+  /**
+   * Learn what kinds of requests users make
+   */
+  async learnRequestPattern() {
+    try {
+      const goalLower = this.goal.toLowerCase();
+      
+      // Categorize the request
+      let category = 'general';
+      if (goalLower.match(/invoice|bill|payment|charge/)) category = 'billing';
+      else if (goalLower.match(/time|hour|log|track/)) category = 'time_tracking';
+      else if (goalLower.match(/document|file|upload|draft/)) category = 'documents';
+      else if (goalLower.match(/client|customer|contact/)) category = 'clients';
+      else if (goalLower.match(/matter|case|project/)) category = 'matters';
+      else if (goalLower.match(/calendar|event|meeting|schedule/)) category = 'scheduling';
+      else if (goalLower.match(/task|todo|reminder/)) category = 'tasks';
+      else if (goalLower.match(/report|analytics|summary/)) category = 'reporting';
+      
+      // Extract key verbs
+      const verbs = [];
+      if (goalLower.match(/create|add|new|make/)) verbs.push('create');
+      if (goalLower.match(/update|change|modify|edit/)) verbs.push('update');
+      if (goalLower.match(/delete|remove|cancel/)) verbs.push('delete');
+      if (goalLower.match(/find|search|look|get|show|list/)) verbs.push('query');
+      if (goalLower.match(/send|email|notify/)) verbs.push('communicate');
+      
+      const patternKey = `${category}:${verbs.sort().join(',')}`;
+      
+      // Check if pattern exists
+      const existing = await query(`
+        SELECT id, occurrences FROM ai_learning_patterns
+        WHERE firm_id = $1 AND user_id = $2 AND pattern_type = 'request' AND pattern_data->>'key' = $3
+      `, [this.firmId, this.userId, patternKey]);
+      
+      if (existing.rows.length > 0) {
+        await query(`
+          UPDATE ai_learning_patterns SET occurrences = occurrences + 1, last_used_at = NOW()
+          WHERE id = $1
+        `, [existing.rows[0].id]);
+      } else {
+        await query(`
+          INSERT INTO ai_learning_patterns (firm_id, user_id, pattern_type, pattern_category, pattern_data)
+          VALUES ($1, $2, 'request', $3, $4)
+        `, [this.firmId, this.userId, category, JSON.stringify({
+          key: patternKey,
+          category,
+          verbs,
+          sample_goal: this.goal.substring(0, 200)
+        })]);
+      }
+    } catch (error) {
+      console.error('[Amplifier] Error learning request pattern:', error);
+    }
+  }
+  
+  /**
+   * Learn when users typically submit tasks
+   */
+  async learnTimingPattern() {
+    try {
+      const hour = this.startTime.getHours();
+      const dayOfWeek = this.startTime.getDay();
+      const timeSlot = hour < 9 ? 'early_morning' : 
+                       hour < 12 ? 'morning' : 
+                       hour < 14 ? 'midday' : 
+                       hour < 17 ? 'afternoon' : 
+                       hour < 20 ? 'evening' : 'night';
+      
+      const patternKey = `${dayOfWeek}:${timeSlot}`;
+      
+      const existing = await query(`
+        SELECT id, occurrences FROM ai_learning_patterns
+        WHERE firm_id = $1 AND user_id = $2 AND pattern_type = 'timing' AND pattern_data->>'key' = $3
+      `, [this.firmId, this.userId, patternKey]);
+      
+      if (existing.rows.length > 0) {
+        await query(`
+          UPDATE ai_learning_patterns SET occurrences = occurrences + 1, last_used_at = NOW()
+          WHERE id = $1
+        `, [existing.rows[0].id]);
+      } else {
+        await query(`
+          INSERT INTO ai_learning_patterns (firm_id, user_id, pattern_type, pattern_category, pattern_data)
+          VALUES ($1, $2, 'timing', 'usage', $3)
+        `, [this.firmId, this.userId, JSON.stringify({
+          key: patternKey,
+          day_of_week: dayOfWeek,
+          time_slot: timeSlot,
+          hour
+        })]);
+      }
+    } catch (error) {
+      console.error('[Amplifier] Error learning timing pattern:', error);
+    }
+  }
+  
+  /**
+   * Learn billing patterns from time entries and invoices
+   */
+  async learnBillingPatterns() {
+    try {
+      for (const action of this.actionsHistory) {
+        if (action.tool === 'log_time' && action.args) {
+          const { hours, billable } = action.args;
+          const patternKey = `time:${billable ? 'billable' : 'non_billable'}`;
+          
+          const existing = await query(`
+            SELECT id, occurrences, pattern_data FROM ai_learning_patterns
+            WHERE firm_id = $1 AND user_id = $2 AND pattern_type = 'billing' AND pattern_data->>'key' = $3
+          `, [this.firmId, this.userId, patternKey]);
+          
+          if (existing.rows.length > 0) {
+            // Update with running average
+            const data = existing.rows[0].pattern_data;
+            const newAvg = ((data.avg_hours || 0) * existing.rows[0].occurrences + hours) / (existing.rows[0].occurrences + 1);
+            
+            await query(`
+              UPDATE ai_learning_patterns 
+              SET occurrences = occurrences + 1, 
+                  last_used_at = NOW(),
+                  pattern_data = pattern_data || $2::jsonb
+              WHERE id = $1
+            `, [existing.rows[0].id, JSON.stringify({ avg_hours: newAvg })]);
+          } else {
+            await query(`
+              INSERT INTO ai_learning_patterns (firm_id, user_id, pattern_type, pattern_category, pattern_data)
+              VALUES ($1, $2, 'billing', 'time_entry', $3)
+            `, [this.firmId, this.userId, JSON.stringify({
+              key: patternKey,
+              billable,
+              avg_hours: hours
+            })]);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[Amplifier] Error learning billing pattern:', error);
+    }
+  }
+
+  /**
+   * Learn naming patterns
+   */
+  async learnNamingPattern(entityType, name) {
+    try {
+      // Simple pattern extraction (first word, format hints)
+      const words = name.split(/[\s\-_]+/);
+      const pattern = {
+        entity: entityType,
+        wordCount: words.length,
+        startsWithArticle: ['the', 'a', 'an'].includes(words[0]?.toLowerCase()),
+        containsNumbers: /\d/.test(name),
+        format: name.includes(' - ') ? 'hyphenated' : name.includes('v.') ? 'legal_case' : 'simple'
+      };
+      
+      await query(`
+        INSERT INTO ai_learning_patterns (firm_id, user_id, pattern_type, pattern_category, pattern_data)
+        VALUES ($1, $2, 'naming', $3, $4)
+        ON CONFLICT DO NOTHING
+      `, [this.firmId, this.userId, entityType, JSON.stringify(pattern)]);
+      
+    } catch (error) {
+      // Ignore naming pattern errors
+    }
+  }
+
+  /**
+   * Cancel the task
+   */
+  cancel() {
+    if (this.status !== TaskStatus.RUNNING && this.status !== TaskStatus.WAITING_INPUT) {
+      return false;
+    }
+    
+    this.cancelled = true;
+    this.status = TaskStatus.CANCELLED;
+    this.progress.currentStep = 'Cancelled';
+    this.endTime = new Date();
+    
+    console.log(`[Amplifier] Task ${this.id} cancelled`);
+    this.persistCompletion(TaskStatus.CANCELLED);
+    this.emit('cancelled', this.getStatus());
+    return true;
+  }
+
+  /**
+   * Add follow-up instructions to the task
+   * These will be processed in the next iteration of the agent loop
+   */
+  addFollowUp(message) {
+    if (!message || typeof message !== 'string') {
+      throw new Error('Follow-up message must be a non-empty string');
+    }
+    
+    // Add a user message with the follow-up instructions
+    // This will be picked up in the next iteration of the agent loop
+    this.messages.push({
+      role: 'user',
+      content: `[FOLLOW-UP INSTRUCTION FROM USER]: ${message}
+
+Please acknowledge this follow-up and adjust your approach accordingly. Continue with the task while incorporating this new guidance.`
+    });
+    
+    // Store for tracking
+    if (!this.followUps) {
+      this.followUps = [];
+    }
+    this.followUps.push({
+      message,
+      timestamp: new Date().toISOString()
+    });
+    
+    console.log(`[Amplifier] Follow-up added to task ${this.id}: ${message.substring(0, 50)}...`);
+    
+    // Emit event for real-time updates
+    this.emit('followup', { message, timestamp: new Date().toISOString() });
+  }
+
+  /**
+   * Get current status
+   */
+  getStatus() {
+    return {
+      id: this.id,
+      userId: this.userId,
+      firmId: this.firmId,
+      goal: this.goal,
+      status: this.status,
+      progress: this.progress,
+      actionsCount: this.actionsHistory.length,
+      result: this.result,
+      error: this.error,
+      startTime: this.startTime,
+      endTime: this.endTime,
+      duration: this.endTime 
+        ? (this.endTime - this.startTime) / 1000 
+        : (new Date() - this.startTime) / 1000
+    };
+  }
+}
+
+/**
+ * AmplifierService - Main service class
+ */
+class AmplifierService {
+  constructor() {
+    this.tasks = new Map();
+    this.configured = false;
+  }
+
+  /**
+   * Check if service is available
+   * Uses the SAME environment variables as the normal AI chat (aiAgent.js)
+   */
+  async checkAvailability() {
+    // Check if Azure OpenAI is configured (read at runtime)
+    // These are the EXACT same env vars used by aiAgent.js
+    const config = getAzureConfig();
+    const available = !!(config.endpoint && config.apiKey && config.deployment);
+    
+    // Don't count placeholder values as valid
+    if (config.apiKey === 'PASTE_YOUR_KEY_HERE' || config.apiKey === 'your-azure-openai-api-key') {
+      console.warn('[AmplifierService] API key contains placeholder value');
+      return false;
+    }
+    
+    return available;
+  }
+
+  /**
+   * Configure the service
+   * Uses the SAME Azure OpenAI configuration as the normal AI chat
+   */
+  async configure() {
+    if (this.configured) return true;
+    
+    const available = await this.checkAvailability();
+    if (!available) {
+      const config = getAzureConfig();
+      console.warn('[AmplifierService] Azure OpenAI credentials not configured');
+      console.warn('[AmplifierService] AZURE_OPENAI_ENDPOINT:', config.endpoint ? `set (${config.endpoint})` : 'MISSING');
+      console.warn('[AmplifierService] AZURE_OPENAI_API_KEY:', config.apiKey ? `set (length: ${config.apiKey.length})` : 'MISSING');
+      console.warn('[AmplifierService] AZURE_OPENAI_DEPLOYMENT:', config.deployment ? `set (${config.deployment})` : 'MISSING');
+      return false;
+    }
+
+    const config = getAzureConfig();
+    
+    // Verify tools are loaded correctly
+    const tools = getOpenAITools();
+    if (!tools || tools.length === 0) {
+      console.error('[AmplifierService] No tools available - check import from aiAgent.js');
+      return false;
+    }
+    
+    this.configured = true;
+    console.log('[AmplifierService] Configured with Azure OpenAI (same as aiAgent.js)');
+    console.log('[AmplifierService] Using API version:', API_VERSION);
+    console.log('[AmplifierService] Endpoint:', config.endpoint);
+    console.log('[AmplifierService] Deployment:', config.deployment);
+    console.log('[AmplifierService] Tools available:', tools.length);
+    
+    // Automatically resume any pending tasks after server restart
+    this.resumePendingTasks().catch(err => {
+      console.error('[AmplifierService] Error resuming pending tasks:', err.message);
+    });
+    
+    return true;
+  }
+
+  /**
+   * Resume background tasks from checkpoints after restart
+   * 
+   * This is called at server startup to resume any tasks that were
+   * interrupted by a server restart. Tasks are resumed from their
+   * last checkpoint and continue where they left off.
+   */
+  async resumePendingTasks() {
+    if (!persistenceAvailable) return;
+    try {
+      const result = await query(
+        `SELECT id, firm_id, user_id, goal, status, progress, result, error, iterations, max_iterations, options, checkpoint, started_at
+         FROM ai_background_tasks
+         WHERE status IN ('running', 'pending') AND checkpoint IS NOT NULL
+         ORDER BY started_at DESC`
+      );
+
+      if (result.rows.length === 0) {
+        console.log('[AmplifierService] No interrupted tasks to resume');
+        return;
+      }
+
+      console.log(`[AmplifierService] Found ${result.rows.length} interrupted task(s) to resume`);
+
+      for (const row of result.rows) {
+        if (this.tasks.has(row.id)) {
+          console.log(`[AmplifierService] Task ${row.id} already active, skipping`);
+          continue;
+        }
+        
+        // Calculate how long the task was interrupted
+        const interruptedAt = row.checkpoint?.lastCheckpointAt 
+          ? new Date(row.checkpoint.lastCheckpointAt) 
+          : row.started_at ? new Date(row.started_at) : new Date();
+        const interruptedMinutes = Math.round((Date.now() - interruptedAt.getTime()) / 60000);
+        
+        console.log(`[AmplifierService] Resuming task ${row.id}: "${row.goal.substring(0, 50)}..." (interrupted ${interruptedMinutes} min ago)`);
+        
+        const task = new BackgroundTask(row.id, row.user_id, row.firm_id, row.goal, row.options || {});
+        task.progress = row.progress || task.progress;
+        task.result = row.result || null;
+        task.error = row.error || null;
+        task.startTime = row.started_at ? new Date(row.started_at) : task.startTime;
+        task.progress.iterations = row.iterations || task.progress.iterations;
+        task.maxIterations = row.max_iterations || task.maxIterations;
+        task.status = TaskStatus.RUNNING;
+        task.loadCheckpoint(row.checkpoint);
+
+        this.tasks.set(task.id, task);
+        activeTasks.set(task.userId, task.id);
+
+        task.on('complete', () => activeTasks.delete(task.userId));
+        task.on('error', () => activeTasks.delete(task.userId));
+        task.on('cancelled', () => activeTasks.delete(task.userId));
+
+        // Create notification for the user that their task is resuming
+        try {
+          await query(
+            `INSERT INTO notifications (
+              firm_id, user_id, type, title, message, priority,
+              entity_type, entity_id, action_url, metadata
+            ) VALUES ($1, $2, 'ai_agent', $3, $4, 'normal', 'background_task', $5, $6, $7)`,
+            [
+              row.firm_id,
+              row.user_id,
+              'Background Task Resumed',
+              `Your task "${row.goal.substring(0, 50)}${row.goal.length > 50 ? '...' : ''}" is resuming after a server restart.`,
+              row.id,
+              '/app/background-agent',
+              JSON.stringify({
+                taskId: row.id,
+                resumedAt: new Date().toISOString(),
+                interruptedMinutes,
+                iteration: row.iterations || 0
+              })
+            ]
+          );
+        } catch (notifError) {
+          // Non-fatal - notification creation failed
+          console.warn(`[AmplifierService] Failed to create resume notification for task ${row.id}:`, notifError.message);
+        }
+
+        task.start({ resumeFromCheckpoint: true }).catch(err => {
+          console.error(`[AmplifierService] Resumed task ${row.id} failed:`, err);
+        });
+        
+        console.log(`[AmplifierService] Task ${row.id} resumed successfully`);
+      }
+      
+      console.log(`[AmplifierService] Finished resuming ${result.rows.length} task(s)`);
+    } catch (error) {
+      markPersistenceUnavailable(error);
+      if (persistenceAvailable) {
+        console.error('[AmplifierService] Failed to resume background tasks:', error.message);
+      }
+    }
+  }
+
+  /**
+   * Start a new background task
+   */
+  async startTask(userId, firmId, goal, options = {}) {
+    // Check if user already has an active task
+    const existingTask = await this.getActiveTask(userId);
+    if (existingTask) {
+      throw new Error('User already has an active background task');
+    }
+
+    const taskId = generateTaskId();
+    const task = new BackgroundTask(taskId, userId, firmId, goal, options);
+    
+    // Store task
+    this.tasks.set(taskId, task);
+    activeTasks.set(userId, taskId);
+    
+    // Set up event handlers
+    task.on('complete', () => {
+      activeTasks.delete(userId);
+    });
+    
+    task.on('error', () => {
+      activeTasks.delete(userId);
+    });
+    
+    task.on('cancelled', () => {
+      activeTasks.delete(userId);
+    });
+    
+    // Start the task (async)
+    task.start().catch(err => {
+      console.error(`[AmplifierService] Task ${taskId} failed:`, err);
+    });
+    
+    return task.getStatus();
+  }
+
+  /**
+   * Get task by ID
+   */
+  async getTask(taskId) {
+    const task = this.tasks.get(taskId);
+    if (task) return task.getStatus();
+    if (!persistenceAvailable) return null;
+    
+    try {
+      const result = await query(
+        `SELECT id, firm_id, user_id, goal, status, progress, result, error, iterations, max_iterations, options,
+                started_at, completed_at, checkpoint
+         FROM ai_background_tasks WHERE id = $1`,
+        [taskId]
+      );
+      if (!result.rows.length) return null;
+      const row = result.rows[0];
+      return {
+        id: row.id,
+        userId: row.user_id,
+        firmId: row.firm_id,
+        goal: row.goal,
+        status: row.status,
+        progress: row.progress,
+        actionsCount: Array.isArray(row.checkpoint?.actionsHistory) ? row.checkpoint.actionsHistory.length : 0,
+        result: row.result,
+        error: row.error,
+        startTime: row.started_at,
+        endTime: row.completed_at,
+        duration: row.started_at ? (new Date(row.completed_at || Date.now()) - new Date(row.started_at)) / 1000 : null
+      };
+    } catch (error) {
+      markPersistenceUnavailable(error);
+      if (persistenceAvailable) {
+        console.error('[AmplifierService] Error fetching task from storage:', error.message);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Get active task for user
+   */
+  async getActiveTask(userId) {
+    const taskId = activeTasks.get(userId);
+    if (taskId) {
+      const task = this.tasks.get(taskId);
+      if (task) return task.getStatus();
+      activeTasks.delete(userId);
+    }
+    
+    if (!persistenceAvailable) return null;
+    
+    try {
+      const result = await query(
+        `SELECT id, firm_id, user_id, goal, status, progress, result, error, iterations, max_iterations, options, checkpoint, started_at
+         FROM ai_background_tasks
+         WHERE user_id = $1 AND status IN ('running', 'pending')
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [userId]
+      );
+      
+      if (!result.rows.length) return null;
+      const row = result.rows[0];
+      
+      if (!this.tasks.has(row.id)) {
+        const task = new BackgroundTask(row.id, row.user_id, row.firm_id, row.goal, row.options || {});
+        task.progress = row.progress || task.progress;
+        task.result = row.result || null;
+        task.error = row.error || null;
+        task.startTime = row.started_at ? new Date(row.started_at) : task.startTime;
+        task.progress.iterations = row.iterations || task.progress.iterations;
+        task.maxIterations = row.max_iterations || task.maxIterations;
+        task.status = TaskStatus.RUNNING;
+        task.loadCheckpoint(row.checkpoint);
+
+        this.tasks.set(task.id, task);
+        activeTasks.set(task.userId, task.id);
+
+        task.on('complete', () => activeTasks.delete(task.userId));
+        task.on('error', () => activeTasks.delete(task.userId));
+        task.on('cancelled', () => activeTasks.delete(task.userId));
+
+        task.start({ resumeFromCheckpoint: true }).catch(err => {
+          console.error(`[AmplifierService] On-demand resume failed for ${task.id}:`, err);
+        });
+
+        return task.getStatus();
+      }
+      
+      return this.tasks.get(row.id)?.getStatus() || null;
+    } catch (error) {
+      markPersistenceUnavailable(error);
+      if (persistenceAvailable) {
+        console.error('[AmplifierService] Error checking active task:', error.message);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Get all tasks for user
+   */
+  async getUserTasks(userId, limit = 10) {
+    const inMemoryTasks = [];
+    
+    for (const task of this.tasks.values()) {
+      if (task.userId === userId) {
+        inMemoryTasks.push(task.getStatus());
+      }
+    }
+    
+    if (!persistenceAvailable) {
+      return inMemoryTasks.slice(0, limit);
+    }
+    
+    try {
+      const result = await query(
+        `SELECT id, firm_id, user_id, goal, status, progress, result, error, started_at, completed_at, iterations
+         FROM ai_background_tasks
+         WHERE user_id = $1
+         ORDER BY COALESCE(completed_at, started_at) DESC
+         LIMIT $2`,
+        [userId, limit]
+      );
+      
+      const storedTasks = result.rows.map(row => ({
+        id: row.id,
+        userId: row.user_id,
+        firmId: row.firm_id,
+        goal: row.goal,
+        status: row.status,
+        progress: row.progress,
+        iterations: row.iterations,
+        result: row.result,
+        error: row.error,
+        startTime: row.started_at,
+        endTime: row.completed_at,
+        duration: row.started_at ? (new Date(row.completed_at || Date.now()) - new Date(row.started_at)) / 1000 : null
+      }));
+      
+      const merged = new Map();
+      for (const task of storedTasks) merged.set(task.id, task);
+      for (const task of inMemoryTasks) merged.set(task.id, task);
+      
+      return Array.from(merged.values()).sort((a, b) => new Date(b.startTime) - new Date(a.startTime)).slice(0, limit);
+    } catch (error) {
+      markPersistenceUnavailable(error);
+      if (persistenceAvailable) {
+        console.error('[AmplifierService] Error loading stored tasks:', error.message);
+      }
+      return inMemoryTasks.slice(0, limit);
+    }
+  }
+
+  /**
+   * Cancel a task
+   */
+  cancelTask(taskId, userId) {
+    const task = this.tasks.get(taskId);
+    
+    if (!task) {
+      // Attempt to cancel stored task that isn't loaded in memory
+      if (persistenceAvailable) {
+        query(
+          `UPDATE ai_background_tasks
+           SET status = 'cancelled', completed_at = NOW(), updated_at = NOW()
+           WHERE id = $1 AND user_id = $2`,
+          [taskId, userId]
+        ).catch(error => {
+          markPersistenceUnavailable(error);
+          if (persistenceAvailable) {
+            console.error('[AmplifierService] Failed to cancel stored task:', error.message);
+          }
+        });
+      }
+      return true;
+    }
+    
+    if (task.userId !== userId) {
+      throw new Error('Not authorized to cancel this task');
+    }
+    
+    return task.cancel();
+  }
+
+  /**
+   * Send follow-up instructions to a running task
+   */
+  async sendFollowUp(taskId, message, userId) {
+    const task = this.tasks.get(taskId);
+    
+    if (!task) {
+      return { success: false, error: 'Task not found or not running' };
+    }
+    
+    if (task.userId !== userId) {
+      return { success: false, error: 'Not authorized to send follow-up to this task' };
+    }
+    
+    if (task.status !== 'running' && task.status !== 'thinking' && task.status !== 'executing') {
+      return { success: false, error: 'Task is not currently running' };
+    }
+    
+    try {
+      // Add the follow-up as a user message that will be processed in the next iteration
+      task.addFollowUp(message);
+      
+      // Stream event to show the follow-up was received
+      task.streamEvent('followup_received', `Follow-up received: "${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"`, {
+        icon: 'message-circle',
+        color: 'purple'
+      });
+      
+      console.log(`[AmplifierService] Follow-up added to task ${taskId}: ${message.substring(0, 50)}...`);
+      
+      return { success: true, task: task.getStatus() };
+    } catch (error) {
+      console.error(`[AmplifierService] Failed to send follow-up to task ${taskId}:`, error);
+      return { success: false, error: error.message || 'Failed to send follow-up' };
+    }
+  }
+
+  /**
+   * Get task history from database
+   */
+  async getTaskHistory(userId, firmId, limit = 20) {
+    try {
+      const result = await query(`
+        SELECT * FROM ai_task_history
+        WHERE firm_id = $1 AND user_id = $2
+        ORDER BY created_at DESC
+        LIMIT $3
+      `, [firmId, userId, limit]);
+      
+      return result.rows;
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * Get learned patterns
+   */
+  async getLearnedPatterns(firmId, userId, limit = 50) {
+    try {
+      const result = await query(`
+        SELECT * FROM ai_learning_patterns
+        WHERE firm_id = $1 AND (user_id = $2 OR user_id IS NULL)
+        ORDER BY confidence DESC, occurrences DESC
+        LIMIT $3
+      `, [firmId, userId, limit]);
+      
+      return result.rows;
+    } catch (error) {
+      console.error('[AmplifierService] Error getting learned patterns:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Record user feedback on a completed task
+   * This is crucial for learning from user satisfaction
+   */
+  async recordFeedback(taskId, userId, firmId, feedback) {
+    try {
+      const { rating, feedback: feedbackText, correction } = feedback;
+      
+      console.log(`[AmplifierService] Recording feedback for task ${taskId}: rating=${rating}`);
+      
+      // Update task history with feedback
+      const updateResult = await query(`
+        UPDATE ai_task_history
+        SET 
+          learnings = COALESCE(learnings, '{}'::jsonb) || $4::jsonb
+        WHERE task_id = $1 AND user_id = $2 AND firm_id = $3
+        RETURNING *
+      `, [taskId, userId, firmId, JSON.stringify({
+        user_rating: rating,
+        user_feedback: feedbackText,
+        user_correction: correction,
+        feedback_at: new Date().toISOString()
+      })]);
+      
+      if (updateResult.rows.length === 0) {
+        return { success: false, error: 'Task not found in history' };
+      }
+      
+      const taskHistory = updateResult.rows[0];
+      
+      // Learn from the feedback
+      if (rating) {
+        // Learn satisfaction pattern
+        const satisfactionLevel = rating >= 4 ? 'positive' : rating <= 2 ? 'negative' : 'neutral';
+        
+        // If positive, reinforce the workflow pattern
+        if (satisfactionLevel === 'positive' && taskHistory.actions_taken) {
+          const actions = typeof taskHistory.actions_taken === 'string' 
+            ? JSON.parse(taskHistory.actions_taken) 
+            : taskHistory.actions_taken;
+          
+          if (actions.length > 0) {
+            const sequence = actions.map(a => a.tool).join(' -> ');
+            
+            // Boost confidence for this workflow
+            await query(`
+              UPDATE ai_learning_patterns
+              SET confidence = LEAST(0.99, confidence + 0.05),
+                  occurrences = occurrences + 1,
+                  last_used_at = NOW()
+              WHERE firm_id = $1 AND pattern_type = 'workflow' AND pattern_data->>'sequence' = $2
+            `, [firmId, sequence]);
+            
+            console.log(`[AmplifierService] Boosted confidence for workflow: ${sequence}`);
+          }
+        }
+        
+        // If negative, reduce confidence and learn what went wrong
+        if (satisfactionLevel === 'negative') {
+          const actions = typeof taskHistory.actions_taken === 'string' 
+            ? JSON.parse(taskHistory.actions_taken) 
+            : taskHistory.actions_taken;
+          
+          if (actions && actions.length > 0) {
+            const sequence = actions.map(a => a.tool).join(' -> ');
+            
+            // Reduce confidence for this workflow
+            await query(`
+              UPDATE ai_learning_patterns
+              SET confidence = GREATEST(0.10, confidence - 0.1),
+                  last_used_at = NOW()
+              WHERE firm_id = $1 AND pattern_type = 'workflow' AND pattern_data->>'sequence' = $2
+            `, [firmId, sequence]);
+            
+            console.log(`[AmplifierService] Reduced confidence for workflow: ${sequence}`);
+          }
+          
+          // Store the negative feedback as a learning pattern to avoid
+          if (correction) {
+            await query(`
+              INSERT INTO ai_learning_patterns (firm_id, user_id, pattern_type, pattern_category, pattern_data, confidence)
+              VALUES ($1, $2, 'correction', 'user_feedback', $3, 0.80)
+            `, [firmId, userId, JSON.stringify({
+              original_goal: taskHistory.goal,
+              what_went_wrong: feedbackText,
+              correct_approach: correction,
+              task_id: taskId
+            })]);
+            
+            console.log(`[AmplifierService] Stored correction pattern from user feedback`);
+          }
+        }
+      }
+      
+      return { 
+        success: true, 
+        task: {
+          id: taskHistory.task_id,
+          goal: taskHistory.goal,
+          feedback_recorded: true
+        }
+      };
+    } catch (error) {
+      console.error('[AmplifierService] Error recording feedback:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get learning statistics for a user/firm
+   */
+  async getLearningStats(firmId, userId) {
+    try {
+      // Get pattern counts by type
+      const patternCounts = await query(`
+        SELECT pattern_type, COUNT(*) as count, AVG(confidence) as avg_confidence
+        FROM ai_learning_patterns
+        WHERE firm_id = $1 AND (user_id = $2 OR user_id IS NULL)
+        GROUP BY pattern_type
+      `, [firmId, userId]);
+      
+      // Get task completion stats
+      const taskStats = await query(`
+        SELECT 
+          COUNT(*) as total_tasks,
+          COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_tasks,
+          COUNT(CASE WHEN learnings->>'user_rating' IS NOT NULL THEN 1 END) as rated_tasks,
+          AVG((learnings->>'user_rating')::numeric) as avg_rating
+        FROM ai_task_history
+        WHERE firm_id = $1 AND user_id = $2
+      `, [firmId, userId]);
+      
+      // Get top learned workflows
+      const topWorkflows = await query(`
+        SELECT pattern_data, occurrences, confidence
+        FROM ai_learning_patterns
+        WHERE firm_id = $1 AND pattern_type = 'workflow'
+        ORDER BY occurrences DESC, confidence DESC
+        LIMIT 5
+      `, [firmId]);
+      
+      // Get recent learning activity
+      const recentLearning = await query(`
+        SELECT pattern_type, pattern_data, created_at
+        FROM ai_learning_patterns
+        WHERE firm_id = $1 AND (user_id = $2 OR user_id IS NULL)
+        ORDER BY created_at DESC
+        LIMIT 10
+      `, [firmId, userId]);
+      
+      return {
+        patterns: {
+          byType: patternCounts.rows.reduce((acc, row) => {
+            acc[row.pattern_type] = {
+              count: parseInt(row.count),
+              avgConfidence: parseFloat(row.avg_confidence || 0).toFixed(2)
+            };
+            return acc;
+          }, {}),
+          total: patternCounts.rows.reduce((sum, row) => sum + parseInt(row.count), 0)
+        },
+        tasks: {
+          total: parseInt(taskStats.rows[0]?.total_tasks || 0),
+          completed: parseInt(taskStats.rows[0]?.completed_tasks || 0),
+          rated: parseInt(taskStats.rows[0]?.rated_tasks || 0),
+          avgRating: parseFloat(taskStats.rows[0]?.avg_rating || 0).toFixed(1)
+        },
+        topWorkflows: topWorkflows.rows.map(row => ({
+          ...row.pattern_data,
+          occurrences: row.occurrences,
+          confidence: parseFloat(row.confidence).toFixed(2)
+        })),
+        recentLearning: recentLearning.rows.map(row => ({
+          type: row.pattern_type,
+          data: row.pattern_data,
+          learnedAt: row.created_at
+        }))
+      };
+    } catch (error) {
+      console.error('[AmplifierService] Error getting learning stats:', error);
+      return {
+        patterns: { byType: {}, total: 0 },
+        tasks: { total: 0, completed: 0, rated: 0, avgRating: 0 },
+        topWorkflows: [],
+        recentLearning: []
+      };
+    }
+  }
+
+  /**
+   * Clean up old completed tasks from memory
+   */
+  cleanup(maxAge = 24 * 60 * 60 * 1000) {
+    const now = new Date();
+    
+    for (const [taskId, task] of this.tasks.entries()) {
+      if (task.endTime && (now - task.endTime) > maxAge) {
+        this.tasks.delete(taskId);
+      }
+    }
+  }
+}
+
+// Singleton instance
+const amplifierService = new AmplifierService();
+
+// Clean up old tasks periodically
+setInterval(() => {
+  amplifierService.cleanup();
+}, 60 * 60 * 1000); // Every hour
+
+// Graceful shutdown handler - save all running task checkpoints
+async function gracefulShutdown(signal) {
+  console.log(`[AmplifierService] Received ${signal}, saving task checkpoints...`);
+  
+  const runningTasks = Array.from(amplifierService.tasks.values()).filter(
+    task => task.status === TaskStatus.RUNNING
+  );
+  
+  if (runningTasks.length === 0) {
+    console.log('[AmplifierService] No running tasks to checkpoint');
+    return;
+  }
+  
+  console.log(`[AmplifierService] Saving ${runningTasks.length} running task(s)...`);
+  
+  // Save checkpoints in parallel
+  await Promise.allSettled(
+    runningTasks.map(async (task) => {
+      try {
+        task.streamEvent('shutdown', '⚠️ Server shutting down, saving progress...', {
+          icon: 'alert-triangle',
+          color: 'yellow'
+        });
+        await task.saveCheckpoint('shutdown');
+        console.log(`[AmplifierService] Saved checkpoint for task ${task.id}`);
+      } catch (error) {
+        console.error(`[AmplifierService] Failed to save checkpoint for ${task.id}:`, error.message);
+      }
+    })
+  );
+  
+  console.log('[AmplifierService] All checkpoints saved');
+}
+
+// Register shutdown handlers
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+export default amplifierService;
+export { AmplifierService, BackgroundTask, TaskStatus };

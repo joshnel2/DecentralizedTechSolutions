@@ -1,0 +1,1971 @@
+.timeTrackingPage {
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-xl);
+}
+
+.headerLeft h1 {
+  font-family: var(--font-serif);
+  font-size: 1.75rem;
+  font-weight: 400;
+  color: var(--apex-white);
+}
+
+.headerActions {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.aiBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(139, 92, 246, 0.05) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: var(--radius-md);
+  color: #A78BFA;
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.aiBtn:hover {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25) 0%, rgba(139, 92, 246, 0.1) 100%);
+}
+
+.primaryBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.primaryBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+/* Stats */
+.statsRow {
+  display: flex;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-xl);
+}
+
+.statCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  color: var(--apex-gold-bright);
+}
+
+.statCard > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.statValue {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.statLabel {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
+/* Timer Section */
+.timerSection {
+  margin-bottom: var(--space-xl);
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.startTimer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg);
+  gap: var(--space-lg);
+}
+
+.startTimerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  color: var(--apex-text);
+  font-weight: 500;
+}
+
+.startTimerLeft svg {
+  color: var(--apex-gold);
+}
+
+.startTimerRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.matterSelect {
+  min-width: 200px;
+  padding: 0.625rem 2.5rem 0.625rem 1rem;
+  background-color: var(--apex-slate);
+  background-image: 
+    linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23F59E0B' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: auto, 14px;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  box-shadow: 
+    0 1px 3px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.matterSelect:hover {
+  border-color: rgba(245, 158, 11, 0.4);
+  background-color: rgba(30, 41, 59, 0.95);
+  box-shadow: 
+    0 2px 8px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(245, 158, 11, 0.15);
+}
+
+.matterSelect:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+  box-shadow: 
+    0 0 0 3px rgba(245, 158, 11, 0.15),
+    0 2px 8px rgba(0, 0, 0, 0.3);
+  background-image: 
+    linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23FBBF24' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
+
+.matterSelect option {
+  background-color: var(--apex-deep);
+  color: var(--apex-white);
+  padding: 10px 14px;
+}
+
+.startBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.startBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+.activeTimer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border-top: 3px solid #10B981;
+}
+
+.timerInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.timerPulse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #10B981;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.8; }
+}
+
+.timerDetails {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.timerMatter {
+  font-weight: 500;
+  color: var(--apex-white);
+}
+
+.timerClient {
+  font-weight: 400;
+  color: var(--apex-text);
+}
+
+.timerElapsed {
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: #10B981;
+}
+
+.timerControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.pauseBtn,
+.resumeBtn,
+.stopBtn,
+.discardBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.pauseBtn {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--apex-gold);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.pauseBtn:hover {
+  background: rgba(245, 158, 11, 0.25);
+}
+
+.resumeBtn {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10B981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.resumeBtn:hover {
+  background: rgba(16, 185, 129, 0.25);
+}
+
+.stopBtn {
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  color: var(--apex-midnight);
+}
+
+.stopBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+.discardBtn {
+  background: rgba(239, 68, 68, 0.1);
+  color: #EF4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  padding: var(--space-sm);
+}
+
+.discardBtn:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+/* Timer Summary in Modal */
+.timerSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-lg);
+}
+
+.timerSummaryItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: #10B981;
+  font-weight: 500;
+}
+
+/* Weekly Chart */
+.weeklyChart {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-xl);
+}
+
+.weeklyChart h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: var(--space-lg);
+}
+
+.chartBars {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-md);
+  height: 160px;
+}
+
+.chartBar {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.barContainer {
+  flex: 1;
+  width: 100%;
+  max-width: 40px;
+  background: var(--apex-slate);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.bar {
+  width: 100%;
+  background: linear-gradient(180deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border-radius: var(--radius-sm);
+  min-height: 4px;
+  transition: height var(--transition-base);
+}
+
+.barLabel {
+  margin-top: var(--space-sm);
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
+.barValue {
+  font-size: 0.6875rem;
+  color: var(--apex-subtle);
+}
+
+.timerInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.timerIcon {
+  color: var(--apex-success);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.timerMatter {
+  display: block;
+  font-weight: 600;
+  color: var(--apex-white);
+}
+
+.timerTime {
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  color: var(--apex-success);
+}
+
+.stopBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--apex-gold);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.discardBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  border-radius: var(--radius-md);
+  color: #ef4444;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.discardBtn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #ef4444;
+}
+
+/* Quick Timer */
+.quickTimer {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-xl);
+}
+
+.quickTimer h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: var(--space-lg);
+}
+
+.matterButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.matterBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.matterBtn:hover {
+  background: var(--apex-muted);
+  border-color: var(--apex-gold);
+  color: var(--apex-gold-bright);
+}
+
+/* Recent Section */
+.recentSection {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin-bottom: var(--space-xl);
+}
+
+.recentSection:last-of-type {
+  margin-bottom: 0;
+}
+
+.recentSection h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  padding: var(--space-lg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.entriesTable table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.entriesTable th {
+  text-align: left;
+  padding: var(--space-md) var(--space-lg);
+  background: var(--apex-slate);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--apex-text);
+  text-transform: uppercase;
+}
+
+.entriesTable td {
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 0.875rem;
+  color: var(--apex-light);
+}
+
+.entriesTable a {
+  color: var(--apex-gold-bright);
+}
+
+.matterCell {
+  display: flex;
+  flex-direction: column;
+}
+
+.matterNum {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
+.descCell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.aiTag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: rgba(139, 92, 246, 0.1);
+  border-radius: var(--radius-full);
+  color: var(--apex-ai);
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+}
+
+.statusBadge.clickable {
+  cursor: pointer;
+}
+
+.statusBadge.clickable:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+}
+
+.statusBadge.billed {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--apex-success);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.statusBadge.billed.clickable:hover {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+.statusBadge.unbilled {
+  background: rgba(245, 158, 11, 0.2);
+  color: #D97706;
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.statusBadge.unbilled.clickable:hover {
+  background: rgba(245, 158, 11, 0.3);
+  border-color: rgba(245, 158, 11, 0.6);
+}
+
+/* Invoice Link Styling */
+.billingStatusCell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.statusBadge.invoiceLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 4px 12px;
+  font-size: 0.6875rem;
+}
+
+.statusBadge.invoiceLink:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+  text-decoration: none;
+}
+
+.statusBadge.invoiceLink svg {
+  flex-shrink: 0;
+}
+
+/* Edit Button */
+.editBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.editBtn:hover {
+  background: var(--apex-muted);
+  border-color: var(--apex-gold);
+  color: var(--apex-gold);
+}
+
+/* Modal */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  width: 100%;
+  max-width: 400px;
+  max-height: 85vh;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  overflow-y: auto;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.modalHeader h2 {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 400;
+  color: var(--apex-white);
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--apex-text);
+  cursor: pointer;
+}
+
+.modalForm {
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.formGroup label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--apex-light);
+}
+
+.formGroup input,
+.formGroup textarea {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.formGroup select {
+  width: 100%;
+  padding: 0.625rem 2.5rem 0.625rem 1rem;
+  background-color: var(--apex-slate);
+  background-image: 
+    linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23F59E0B' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: auto, 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  box-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.formGroup select:hover {
+  border-color: rgba(245, 158, 11, 0.35);
+  background-color: rgba(30, 41, 59, 0.95);
+  box-shadow: 
+    0 2px 6px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(245, 158, 11, 0.1);
+}
+
+.formGroup input:focus,
+.formGroup textarea:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+}
+
+.formGroup select:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+  box-shadow: 
+    0 0 0 3px rgba(245, 158, 11, 0.15),
+    0 2px 8px rgba(0, 0, 0, 0.25);
+  background-image: 
+    linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23FBBF24' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
+
+.formGroup select option {
+  background-color: var(--apex-deep);
+  color: var(--apex-white);
+  padding: 10px 14px;
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-lg);
+}
+
+.entryTotal {
+  text-align: right;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-gold-bright);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.cancelBtn {
+  padding: var(--space-sm) var(--space-lg);
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.saveBtn {
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Unbilled Card */
+.unbilledCard {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.05) 100%);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.unbilledCard svg {
+  color: var(--apex-warning);
+}
+
+/* Bill Bar - STICKY at bottom */
+.billBar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xl);
+  padding: var(--space-lg) var(--space-xl);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.95) 0%, rgba(5, 150, 105, 0.95) 100%);
+  border-top: 2px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Add padding to page when bill bar is visible */
+.timeTrackingPage.hasBillBar {
+  padding-bottom: 100px;
+}
+
+.billBarInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  color: white;
+}
+
+.billBarInfo svg {
+  color: white;
+}
+
+.billBarInfo span {
+  font-size: 1rem;
+  font-weight: 500;
+  color: white;
+}
+
+.billBarAmount {
+  font-weight: 700;
+  font-size: 1.5rem;
+  color: white;
+  background: rgba(255, 255, 255, 0.2);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-md);
+}
+
+.billBarActions {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.clearSelectionBtn {
+  padding: var(--space-sm) var(--space-lg);
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius-md);
+  color: white;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.clearSelectionBtn:hover {
+  background: rgba(0, 0, 0, 0.3);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.billSelectedBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-xl);
+  background: white;
+  border: none;
+  border-radius: var(--radius-md);
+  color: #059669;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.billSelectedBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Filter Bar */
+.filterBar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--apex-slate);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.searchInputWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 12px;
+  color: var(--apex-text);
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 0.625rem 2.5rem 0.625rem 2.5rem;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.searchInput::placeholder {
+  color: var(--apex-subtle);
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+}
+
+.clearSearchBtn {
+  position: absolute;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clearSearchBtn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--apex-white);
+}
+
+.filterControls {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.filterSelect {
+  min-width: 140px;
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  background-color: var(--apex-deep);
+  background-image: 
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23F59E0B' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+
+.filterSelect:hover {
+  border-color: rgba(245, 158, 11, 0.3);
+  background-color: rgba(30, 41, 59, 0.8);
+}
+
+.filterSelect:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.1);
+}
+
+.filterSelect option {
+  background-color: var(--apex-deep);
+  color: var(--apex-white);
+}
+
+.clearFiltersBtn {
+  padding: 0.5rem 0.75rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  color: #f87171;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clearFiltersBtn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+/* Recent Section Header */
+.recentHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.recentHeader h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.sectionTitleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sectionSubtitle {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  font-weight: 400;
+}
+
+/* Empty State */
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl) var(--space-lg);
+  text-align: center;
+  color: var(--apex-text);
+}
+
+.emptyState svg {
+  color: var(--apex-subtle);
+  margin-bottom: var(--space-md);
+}
+
+.emptyState p {
+  font-size: 0.9375rem;
+  margin: 0 0 var(--space-lg) 0;
+}
+
+.addEntryBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-light);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.addEntryBtn:hover {
+  background: var(--apex-muted);
+  border-color: var(--apex-gold);
+  color: var(--apex-gold);
+}
+
+/* No Matter/Description Styling */
+.noMatter,
+.noDesc {
+  color: var(--apex-subtle);
+  font-style: italic;
+}
+
+.selectAllBtn {
+  padding: var(--space-xs) var(--space-md);
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--apex-gold-bright);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.selectAllBtn:hover {
+  background: rgba(245, 158, 11, 0.2);
+}
+
+/* Entry Checkbox */
+.entryCheckbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--apex-gold);
+}
+
+.entryCheckbox.checkboxDisabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Bill Unbilled Button */
+.billUnbilledBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  border-radius: var(--radius-md);
+  color: #10B981;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.billUnbilledBtn:hover {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(16, 185, 129, 0.1) 100%);
+  border-color: rgba(16, 185, 129, 0.6);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+}
+
+/* Clickable Stat Card */
+.clickableCard {
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.clickableCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
+/* Selected Row */
+.selectedRow {
+  background: rgba(16, 185, 129, 0.05) !important;
+}
+
+.selectedRow td {
+  border-color: rgba(16, 185, 129, 0.2) !important;
+}
+
+/* Bill Modal - Compact Design */
+.billModal {
+  width: 100%;
+  max-width: 420px;
+  max-height: 80vh;
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.billModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+}
+
+.billModalTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.billModalTitle svg {
+  color: var(--apex-gold);
+}
+
+.billModalTitle h2 {
+  font-family: var(--font-serif);
+  font-size: 1.125rem;
+  font-weight: 400;
+  color: var(--apex-white);
+  margin: 0;
+}
+
+.billModalContent {
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  overflow-y: auto;
+  flex: 1;
+}
+
+.billModalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--apex-slate);
+  flex-shrink: 0;
+}
+
+/* Compact Summary Stats */
+.billSummaryCompact {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-lg);
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+}
+
+.billStatItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.billStatValue {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--apex-gold-bright);
+}
+
+.billStatLabel {
+  font-size: 0.6875rem;
+  color: var(--apex-text);
+  text-transform: uppercase;
+}
+
+.billStatDivider {
+  width: 1px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Grouping Toggle */
+.groupingToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.groupingLabel {
+  font-size: 0.8125rem;
+  color: var(--apex-text);
+}
+
+.toggleGroup {
+  display: flex;
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  flex: 1;
+}
+
+.toggleBtn {
+  flex: 1;
+  padding: var(--space-xs) var(--space-md);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--apex-text);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.toggleBtn:hover {
+  color: var(--apex-light);
+}
+
+.toggleBtn.active {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--apex-gold-bright);
+}
+
+/* Compact Invoice Preview */
+.invoicePreviewCompact {
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.invoicePreviewCompact .previewHeader {
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.previewListCompact {
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.previewItemCompact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.previewItemCompact:last-child {
+  border-bottom: none;
+}
+
+.previewItemLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.previewClientName {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--apex-white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.previewMatterName {
+  font-size: 0.6875rem;
+  color: var(--apex-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.previewItemRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-shrink: 0;
+}
+
+.previewItemHours {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
+.previewItemAmount {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--apex-gold-bright);
+}
+
+/* Bill Note */
+.billNote {
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(59, 130, 246, 0.08);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
+.billNote span {
+  font-size: 0.75rem;
+  color: rgba(147, 197, 253, 0.9);
+}
+
+/* Footer Buttons */
+.cancelBtnSecondary {
+  padding: var(--space-sm) var(--space-lg);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.cancelBtnSecondary:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--apex-light);
+}
+
+.createInvoiceBtn {
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-midnight);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.createInvoiceBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+.createInvoiceBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Legacy Bill Summary (keep for backward compatibility) */
+.billSummary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-md);
+}
+
+.billSummaryItem {
+  text-align: center;
+  padding: var(--space-md);
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+}
+
+.billSummaryItem span {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--apex-gold-bright);
+  margin-bottom: var(--space-xs);
+}
+
+.billSummaryItem label {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  text-transform: uppercase;
+}
+
+/* Grouping Option */
+.groupingOption {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.groupingOption > label {
+  font-size: 0.875rem;
+  color: var(--apex-text);
+}
+
+.groupingBtns {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.groupBtn {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.groupBtn:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--apex-light);
+}
+
+.groupBtn.active {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: var(--apex-gold);
+  color: var(--apex-gold-bright);
+}
+
+/* Invoice Preview */
+.invoicePreview {
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+}
+
+.invoicePreview h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: var(--space-md);
+}
+
+.previewList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.previewItem {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--apex-muted);
+  border-radius: var(--radius-sm);
+}
+
+.previewMatter {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--apex-text);
+}
+
+.previewAmount {
+  font-weight: 600;
+  color: var(--apex-gold-bright);
+}
+
+.previewDetails {
+  font-size: 0.75rem;
+  color: var(--apex-text);
+  margin-top: var(--space-xs);
+}
+
+/* Bill Info */
+.billInfo {
+  padding: var(--space-md);
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.billInfo p {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--apex-light);
+  line-height: 1.5;
+}
+
+.billInfo strong {
+  color: var(--apex-white);
+}
+
+.billModalBody {
+  padding: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+/* Timer Summary */
+.timerSummary {
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+
+.timerSummaryItem {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-xs) 0;
+  font-size: 0.875rem;
+}
+
+.timerSummaryItem span {
+  color: var(--apex-text);
+}
+
+.timerSummaryItem strong {
+  color: var(--apex-white);
+}
+
+.timerSummaryItem:not(:last-child) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ===== MOBILE RESPONSIVE STYLES ===== */
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-md);
+  }
+
+  .headerLeft h1 {
+    font-size: 1.5rem;
+  }
+
+  .headerActions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .aiBtn,
+  .primaryBtn {
+    flex: 1;
+    justify-content: center;
+    min-width: 140px;
+  }
+
+  .statsRow {
+    flex-direction: column;
+    gap: var(--space-md);
+  }
+
+  .statCard {
+    padding: var(--space-md);
+  }
+
+  .statValue {
+    font-size: 1.25rem;
+  }
+
+  .weeklyChart {
+    padding: var(--space-md);
+  }
+
+  .chartBars {
+    height: 120px;
+    gap: var(--space-sm);
+  }
+
+  .barContainer {
+    max-width: 30px;
+  }
+
+  .barLabel {
+    font-size: 0.6875rem;
+  }
+
+  .timerSection {
+    margin-bottom: var(--space-lg);
+  }
+
+  .startTimer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-md);
+    padding: var(--space-md);
+  }
+
+  .startTimerLeft {
+    justify-content: center;
+  }
+
+  .startTimerRight {
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .matterSelect {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .startBtn {
+    width: 100%;
+    justify-content: center;
+    padding: var(--space-md);
+  }
+
+  .activeTimer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-md);
+    padding: var(--space-md);
+  }
+
+  .timerInfo {
+    flex-direction: column;
+    text-align: center;
+    gap: var(--space-sm);
+  }
+
+  .timerDetails {
+    align-items: center;
+  }
+
+  .timerElapsed {
+    font-size: 1.25rem;
+  }
+
+  .timerControls {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-sm);
+  }
+
+  .pauseBtn,
+  .resumeBtn,
+  .stopBtn {
+    flex: 1;
+    min-width: 80px;
+    justify-content: center;
+  }
+
+  .discardBtn {
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  .timerTime {
+    font-size: 1.25rem;
+  }
+
+  .stopBtn,
+  .discardBtn {
+    justify-content: center;
+  }
+
+  .quickTimer {
+    padding: var(--space-md);
+  }
+
+  .matterButtons {
+    gap: var(--space-xs);
+  }
+
+  .matterBtn {
+    padding: var(--space-xs) var(--space-sm);
+    font-size: 0.8125rem;
+  }
+
+  .recentSection {
+    overflow-x: auto;
+  }
+
+  .filterBar {
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  .searchInputWrapper {
+    width: 100%;
+  }
+
+  .filterControls {
+    width: 100%;
+  }
+
+  .filterSelect {
+    flex: 1;
+    min-width: 100px;
+  }
+
+  .clearFiltersBtn {
+    width: 100%;
+  }
+
+  .entriesTable {
+    overflow-x: auto;
+  }
+
+  .entriesTable table {
+    min-width: 600px;
+  }
+
+  .entriesTable th,
+  .entriesTable td {
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  /* Modal adjustments */
+  .modalOverlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal,
+  .billModal {
+    max-width: 100%;
+    max-height: 90vh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+
+  .modalHeader {
+    padding: var(--space-md) var(--space-lg);
+  }
+
+  .modalForm {
+    padding: var(--space-lg);
+  }
+
+  .formRow {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  .modalActions {
+    flex-direction: column-reverse;
+    gap: var(--space-sm);
+  }
+
+  .cancelBtn,
+  .saveBtn {
+    width: 100%;
+    padding: var(--space-md);
+  }
+
+  .billBar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-md);
+    padding: var(--space-md);
+  }
+
+  .billBarInfo {
+    justify-content: center;
+  }
+
+  .billBarActions {
+    flex-direction: column;
+  }
+
+  .clearSelectionBtn,
+  .billSelectedBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .billSummary {
+    grid-template-columns: 1fr;
+    gap: var(--space-sm);
+  }
+
+  .groupingBtns {
+    flex-wrap: wrap;
+  }
+
+  /* Bill Modal Mobile */
+  .billModal {
+    max-width: 100%;
+    max-height: 85vh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+
+  .billSummaryCompact {
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  .billStatValue {
+    font-size: 1rem;
+  }
+
+  .groupingToggle {
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .previewListCompact {
+    max-height: 140px;
+  }
+
+  .billModalFooter {
+    flex-direction: column-reverse;
+    gap: var(--space-sm);
+  }
+
+  .cancelBtnSecondary,
+  .createInvoiceBtn {
+    width: 100%;
+    padding: var(--space-md);
+  }
+}
+
+@media (max-width: 480px) {
+  .headerLeft h1 {
+    font-size: 1.25rem;
+  }
+
+  .statCard {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .chartBars {
+    height: 100px;
+  }
+
+  .barLabel {
+    font-size: 0.5rem;
+  }
+
+  .barValue {
+    font-size: 0.5rem;
+  }
+
+  .statusBadge {
+    font-size: 0.625rem;
+    padding: 3px 8px;
+  }
+}

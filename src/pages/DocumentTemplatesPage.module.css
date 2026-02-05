@@ -1,0 +1,680 @@
+.page {
+  padding: var(--space-2xl);
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.loading, .error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  gap: 1rem;
+  color: var(--apex-text);
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.headerIcon {
+  color: var(--apex-gold);
+}
+
+.headerLeft h1 {
+  font-family: var(--font-serif);
+  font-size: 1.75rem;
+  font-weight: 400;
+  color: var(--apex-white);
+  margin: 0;
+}
+
+.headerLeft p {
+  color: var(--apex-subtle);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.createBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: linear-gradient(135deg, var(--apex-gold) 0%, #E2B100 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-deep);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.createBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(212, 175, 55, 0.3);
+}
+
+/* Filters */
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 1rem;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  flex: 1;
+  min-width: 200px;
+  max-width: 400px;
+}
+
+.searchBox svg {
+  color: var(--apex-subtle);
+}
+
+.searchBox input {
+  flex: 1;
+  padding: 0.75rem 0;
+  background: transparent;
+  border: none;
+  color: var(--apex-text);
+  font-size: 0.9375rem;
+  outline: none;
+}
+
+.searchBox input::placeholder {
+  color: var(--apex-subtle);
+}
+
+.filterSelect {
+  padding: 0.75rem 1rem;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  outline: none;
+  min-width: 150px;
+}
+
+.filterSelect:focus {
+  border-color: var(--apex-gold);
+}
+
+.resultCount {
+  color: var(--apex-subtle);
+  font-size: 0.875rem;
+  margin-left: auto;
+}
+
+/* Empty State */
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  text-align: center;
+  color: var(--apex-subtle);
+}
+
+.emptyState h3 {
+  color: var(--apex-white);
+  margin: 1rem 0 0.5rem;
+}
+
+.emptyState p {
+  margin: 0 0 1.5rem;
+}
+
+.emptyCreateBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--apex-gold);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-deep);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Templates Grid */
+.templatesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.5rem;
+}
+
+.templateCard {
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  transition: all var(--transition-fast);
+}
+
+.templateCard:hover {
+  border-color: rgba(212, 175, 55, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.cardIcon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--apex-deep);
+  border-radius: var(--radius-md);
+  color: var(--apex-gold);
+}
+
+.cardBadges {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.aiBadge {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(59, 130, 246, 0.2) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 4px;
+  color: #A78BFA;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.categoryBadge {
+  padding: 0.25rem 0.5rem;
+  background: rgba(212, 175, 55, 0.15);
+  border-radius: 4px;
+  color: var(--apex-gold);
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.cardTitle {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin: 0 0 0.5rem;
+}
+
+.cardDescription {
+  font-size: 0.875rem;
+  color: var(--apex-subtle);
+  margin: 0 0 1rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.cardMeta {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.metaItem {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--apex-subtle);
+}
+
+.variablesList {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.variablesLabel {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.variableTag {
+  padding: 0.2rem 0.5rem;
+  background: var(--apex-deep);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-family: monospace;
+  color: var(--apex-text);
+}
+
+.moreVariables {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.cardActions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.useBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  background: var(--apex-gold);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-deep);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.useBtn:hover {
+  background: #E2B100;
+}
+
+.secondaryActions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.iconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-subtle);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.iconBtn:hover {
+  background: var(--apex-deep);
+  border-color: var(--apex-gold);
+  color: var(--apex-gold);
+}
+
+.iconBtn.deleteBtn:hover {
+  border-color: #EF4444;
+  color: #EF4444;
+}
+
+/* Modal Overlay */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+  backdrop-filter: blur(4px);
+}
+
+/* Preview Modal */
+.previewModal {
+  background: var(--apex-deep);
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 700px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.previewHeader, .editorHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--apex-border);
+}
+
+.previewHeader h3, .editorHeader h3 {
+  margin: 0;
+  font-size: 1.125rem;
+  color: var(--apex-white);
+}
+
+.closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  color: var(--apex-subtle);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.closeBtn:hover {
+  background: var(--apex-slate);
+  color: var(--apex-white);
+}
+
+.previewBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem;
+}
+
+.previewMeta {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  color: var(--apex-subtle);
+  font-size: 0.875rem;
+}
+
+.previewMeta span {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.previewDescription {
+  color: var(--apex-text);
+  margin: 0 0 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--apex-border);
+}
+
+.previewContent {
+  background: var(--apex-slate);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.previewContent pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--apex-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.previewFooter {
+  display: flex;
+  justify-content: flex-end;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--apex-border);
+  background: var(--apex-slate);
+}
+
+.previewUseBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--apex-gold);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-deep);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Editor Modal */
+.editorModal {
+  background: var(--apex-deep);
+  border: 1px solid var(--apex-border);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 800px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editorBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem;
+}
+
+.formError {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  color: #EF4444;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.formRow {
+  margin-bottom: 1rem;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.formGroup label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--apex-text);
+}
+
+.formGroup input,
+.formGroup select,
+.formGroup textarea {
+  padding: 0.75rem;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-size: 0.9375rem;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.formGroup input:focus,
+.formGroup select:focus,
+.formGroup textarea:focus {
+  border-color: var(--apex-gold);
+}
+
+.formGroup textarea {
+  resize: vertical;
+  font-family: inherit;
+}
+
+.contentEditor {
+  font-family: var(--font-mono) !important;
+  font-size: 0.875rem !important;
+}
+
+.formHint {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.formCheckboxes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--apex-text);
+  cursor: pointer;
+}
+
+.checkboxLabel input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--apex-gold);
+}
+
+.editorFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--apex-border);
+  background: var(--apex-slate);
+}
+
+.cancelBtn, .saveBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.cancelBtn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--apex-text);
+}
+
+.cancelBtn:hover:not(:disabled) {
+  background: var(--apex-deep);
+  border-color: var(--apex-gold);
+}
+
+.saveBtn {
+  background: var(--apex-gold);
+  border: none;
+  color: var(--apex-deep);
+}
+
+.saveBtn:hover:not(:disabled) {
+  background: #E2B100;
+}
+
+.saveBtn:disabled,
+.cancelBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .page {
+    padding: var(--space-lg);
+  }
+  
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  
+  .filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .searchBox {
+    max-width: none;
+  }
+  
+  .filterSelect {
+    width: 100%;
+  }
+  
+  .resultCount {
+    margin-left: 0;
+  }
+  
+  .templatesGrid {
+    grid-template-columns: 1fr;
+  }
+  
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+  
+  .editorModal {
+    max-height: 95vh;
+  }
+}

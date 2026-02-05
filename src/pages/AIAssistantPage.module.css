@@ -1,0 +1,2439 @@
+.aiPage {
+  display: flex;
+  height: calc(100vh - 128px);
+  height: calc(100dvh - 128px); /* Dynamic viewport height */
+  margin: calc(var(--space-xl) * -1);
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+/* Left Panel */
+.leftPanel {
+  width: 320px;
+  background: var(--apex-deep);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem;
+}
+
+.modeSection {
+  margin-bottom: 2rem;
+}
+
+.modeSection h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.modeButtons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.modeBtn {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+  width: 100%;
+}
+
+.modeBtn:hover {
+  border-color: var(--mode-color, var(--apex-ai));
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.modeBtn.active {
+  border-color: var(--mode-color, var(--apex-ai));
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
+  box-shadow: 0 0 20px rgba(var(--mode-color), 0.1);
+}
+
+.modeBtnIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mode-color, var(--apex-ai));
+  flex-shrink: 0;
+}
+
+.modeBtn.active .modeBtnIcon {
+  background: var(--mode-color, var(--apex-ai));
+  color: white;
+}
+
+/* Agent History Button - always purple */
+.agentHistoryModeBtn {
+  background: linear-gradient(135deg, #A855F7 0%, #7C3AED 100%);
+  border-color: #A855F7;
+  margin-top: 1rem;
+}
+
+.agentHistoryModeBtn .modeBtnIcon {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.agentHistoryModeBtn .modeBtnName,
+.agentHistoryModeBtn .modeBtnDesc {
+  color: white;
+}
+
+.agentHistoryModeBtn:hover {
+  background: linear-gradient(135deg, #9333EA 0%, #6D28D9 100%);
+  border-color: #9333EA;
+}
+
+.agentHistoryModeBtn.active {
+  background: linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%);
+  box-shadow: 0 0 20px rgba(168, 85, 247, 0.4);
+}
+
+.modeBtnText {
+  flex: 1;
+  min-width: 0;
+}
+
+.modeBtnName {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: 0.25rem;
+}
+
+.modeBtnDesc {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--apex-subtle);
+  line-height: 1.4;
+}
+
+/* History Section */
+.historySection {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.historyToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  transition: all var(--transition-fast);
+}
+
+.historyToggle:hover {
+  background: var(--apex-muted);
+  color: var(--apex-white);
+}
+
+.chevron {
+  margin-left: auto;
+  transition: transform var(--transition-fast);
+}
+
+.chevron.open {
+  transform: rotate(90deg);
+}
+
+.historyList {
+  margin-top: 0.75rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.noHistory {
+  padding: 1rem;
+  text-align: center;
+  color: var(--apex-subtle);
+  font-size: 0.85rem;
+}
+
+.historyItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.historyItem:hover {
+  background: var(--apex-slate);
+  color: var(--apex-light);
+}
+
+.historyItem.active {
+  background: rgba(139, 92, 246, 0.15);
+  color: #A78BFA;
+}
+
+.historyTitle {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.historyDate {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.historyDelete {
+  opacity: 0;
+  background: none;
+  border: none;
+  padding: 4px;
+  color: var(--apex-subtle);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.historyItem:hover .historyDelete {
+  opacity: 1;
+}
+
+.historyDelete:hover {
+  color: var(--apex-error);
+  background: rgba(239, 68, 68, 0.15);
+}
+
+/* Agent History Items */
+.agentHistoryItem {
+  padding: 0.75rem;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: 1px solid transparent;
+  margin-bottom: 0.5rem;
+}
+
+.agentHistoryItem:hover {
+  background: var(--apex-slate);
+}
+
+.agentHistoryItem.active {
+  background: rgba(147, 51, 234, 0.1);
+  border-color: rgba(147, 51, 234, 0.3);
+}
+
+.agentItemHeader {
+  margin-bottom: 0.375rem;
+}
+
+.agentGoal {
+  font-size: 0.85rem;
+  color: var(--apex-light);
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.agentItemMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.agentDate {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.agentDuration {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #A855F7;
+  background: rgba(147, 51, 234, 0.15);
+  padding: 0.125rem 0.5rem;
+  border-radius: 10px;
+}
+
+/* Star Rating */
+.agentRating {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 0.5rem;
+}
+
+.starBtn {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: #64748B;
+  transition: all 0.15s;
+  border-radius: 2px;
+}
+
+.starBtn:hover {
+  color: #F59E0B;
+  transform: scale(1.2);
+}
+
+.starBtn.filled {
+  color: #F59E0B;
+}
+
+/* Agent Summary */
+.agentSummary {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.agentSummaryTitle {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #22C55E;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
+}
+
+.agentSummaryContent {
+  font-size: 0.8rem;
+  color: var(--apex-light);
+  line-height: 1.6;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.agentSummaryContent p {
+  margin: 0 0 0.25rem 0;
+}
+
+.agentError {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: var(--radius-md);
+  font-size: 0.8rem;
+  color: #EF4444;
+}
+
+/* Agent History Button (in left panel) */
+.agentHistoryBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 1rem;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-lg);
+  color: var(--apex-light);
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-bottom: 1rem;
+}
+
+.agentHistoryBtn:hover {
+  background: rgba(147, 51, 234, 0.1);
+  border-color: rgba(147, 51, 234, 0.3);
+}
+
+.agentHistoryBtn.active {
+  background: rgba(147, 51, 234, 0.2);
+  border-color: rgba(147, 51, 234, 0.5);
+  color: #A855F7;
+}
+
+.agentHistoryBtn svg {
+  color: #A855F7;
+}
+
+/* Agent History View (Main Area) */
+.agentHistoryView {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 2rem;
+  overflow: hidden;
+}
+
+.agentHistoryHeader {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.agentHistoryHeader svg {
+  color: #A855F7;
+}
+
+.agentHistoryHeader h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--apex-white);
+  flex: 1;
+}
+
+.closeHistoryBtn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  color: var(--apex-subtle);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.closeHistoryBtn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #EF4444;
+}
+
+.backToHistoryBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(147, 51, 234, 0.15);
+  border: 1px solid rgba(147, 51, 234, 0.3);
+  border-radius: var(--radius-md);
+  color: #A855F7;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.backToHistoryBtn:hover {
+  background: rgba(147, 51, 234, 0.25);
+  border-color: rgba(147, 51, 234, 0.5);
+}
+
+/* Live Progress Section */
+.liveProgressSection {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+.liveProgressCard {
+  background: var(--apex-slate);
+  border: 1px solid rgba(147, 51, 234, 0.3);
+  border-radius: var(--radius-xl);
+  padding: 1.5rem;
+}
+
+.liveProgressCard.running {
+  border-color: rgba(147, 51, 234, 0.5);
+  box-shadow: 0 0 30px rgba(147, 51, 234, 0.15);
+}
+
+.liveProgressCard.completed {
+  border-color: rgba(34, 197, 94, 0.5);
+  box-shadow: 0 0 30px rgba(34, 197, 94, 0.15);
+}
+
+.liveProgressCard.failed {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.liveProgressHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.liveProgressStatus {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #A855F7;
+}
+
+.stopAgentBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: #EF4444;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.stopAgentBtn:hover {
+  background: #DC2626;
+}
+
+.liveProgressCard.completed .liveProgressStatus {
+  color: #22C55E;
+}
+
+.liveProgressCard.failed .liveProgressStatus {
+  color: #EF4444;
+}
+
+.pulsingIcon {
+  animation: pulsing 1.5s ease-in-out infinite;
+}
+
+@keyframes pulsing {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.95); }
+}
+
+.liveProgressMeta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.liveProgressIterations {
+  font-size: 0.85rem;
+  color: var(--apex-subtle);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--radius-md);
+}
+
+.liveProgressGoal {
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: var(--apex-white);
+  line-height: 1.4;
+  margin-bottom: 1.25rem;
+}
+
+.liveProgressBarContainer {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.liveProgressBar {
+  flex: 1;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.liveProgressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #A855F7, #7C3AED);
+  border-radius: 5px;
+  transition: width 0.5s ease;
+}
+
+.liveProgressCard.completed .liveProgressFill {
+  background: linear-gradient(90deg, #22C55E, #16A34A);
+}
+
+.liveProgressPercent {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #A855F7;
+  min-width: 50px;
+  text-align: right;
+}
+
+.liveProgressCard.completed .liveProgressPercent {
+  color: #22C55E;
+}
+
+/* Plan Section */
+.liveProgressPlan {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: rgba(147, 51, 234, 0.08);
+  border: 1px solid rgba(147, 51, 234, 0.2);
+  border-radius: var(--radius-lg);
+}
+
+.liveProgressPlan h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #A855F7;
+  margin-bottom: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.planSteps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.planStep {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0.875rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-md);
+  color: var(--apex-subtle);
+  font-size: 0.9rem;
+  transition: all var(--transition-fast);
+}
+
+.planStep.completed {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--apex-light);
+}
+
+.planStep.completed .planStepIcon {
+  color: #22C55E;
+}
+
+.planStep.current {
+  background: rgba(147, 51, 234, 0.15);
+  color: var(--apex-white);
+  border: 1px solid rgba(147, 51, 234, 0.3);
+}
+
+.planStep.current .planStepIcon {
+  color: #A855F7;
+}
+
+.planStepIcon {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.stepNumber {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--apex-subtle);
+}
+
+.planStepText {
+  flex: 1;
+}
+
+/* Activity Log */
+.liveProgressActivity {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+}
+
+.liveProgressActivity h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--apex-text);
+  margin-bottom: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.activityLog {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.activityItem {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.625rem;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+}
+
+.activityIcon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #A855F7;
+  flex-shrink: 0;
+}
+
+.activityContent {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.activityTool {
+  color: var(--apex-light);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activityTime {
+  color: var(--apex-subtle);
+  font-size: 0.7rem;
+  flex-shrink: 0;
+  margin-left: 0.5rem;
+}
+
+/* Result Section */
+.liveProgressResult {
+  padding: 1rem;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: var(--radius-lg);
+}
+
+.liveProgressResult h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #22C55E;
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.resultText {
+  font-size: 0.9rem;
+  color: var(--apex-light);
+  line-height: 1.7;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.resultText p {
+  margin: 0 0 0.375rem 0;
+}
+
+/* Error Section */
+.liveProgressError {
+  padding: 1rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-lg);
+}
+
+.liveProgressError h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #EF4444;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.liveProgressError p {
+  font-size: 0.9rem;
+  color: #FCA5A5;
+}
+
+/* Task Progress Bar in Cards */
+.taskProgressBar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 0.75rem;
+}
+
+.taskProgressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #A855F7, #7C3AED);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* Running task card */
+.agentTaskCard.running {
+  border-left: 3px solid #A855F7;
+  animation: glowPulse 2s ease-in-out infinite;
+}
+
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(147, 51, 234, 0); }
+  50% { box-shadow: 0 0 20px rgba(147, 51, 234, 0.2); }
+}
+
+.agentHistoryLoading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  color: var(--apex-subtle);
+}
+
+.agentHistoryEmpty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--apex-subtle);
+}
+
+.agentHistoryEmpty svg {
+  color: #A855F7;
+  opacity: 0.5;
+  margin-bottom: 1rem;
+}
+
+.agentHistoryEmpty h3 {
+  font-size: 1.25rem;
+  color: var(--apex-light);
+  margin-bottom: 0.5rem;
+}
+
+.agentHistoryEmpty p {
+  max-width: 400px;
+  line-height: 1.5;
+}
+
+/* Agent Tasks Grid */
+.agentTasksGrid {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 1.5rem;
+  align-content: start;
+}
+
+.agentTaskCard {
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.agentTaskCard:hover {
+  border-color: rgba(147, 51, 234, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.agentTaskCard.expanded {
+  border-color: rgba(147, 51, 234, 0.5);
+  background: rgba(147, 51, 234, 0.05);
+}
+
+.agentTaskCard.completed {
+  border-left: 3px solid #22C55E;
+}
+
+.agentTaskCard.failed {
+  border-left: 3px solid #EF4444;
+}
+
+.taskCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.taskStatus {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.statusComplete {
+  color: #22C55E;
+}
+
+.statusFailed {
+  color: #EF4444;
+}
+
+.statusRunning {
+  color: #A855F7;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.statusText {
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--apex-subtle);
+}
+
+.taskDate {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.taskGoal {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--apex-white);
+  line-height: 1.4;
+  margin-bottom: 0.75rem;
+}
+
+.taskMeta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.taskDuration {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8rem;
+  color: #A855F7;
+  background: rgba(147, 51, 234, 0.15);
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+}
+
+.taskIterations {
+  font-size: 0.8rem;
+  color: var(--apex-subtle);
+}
+
+.taskRating {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ratingLabel {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.starsContainer {
+  display: flex;
+  gap: 4px;
+}
+
+.starButton {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: #64748B;
+  transition: all 0.15s;
+  border-radius: 4px;
+}
+
+.starButton:hover {
+  color: #F59E0B;
+  transform: scale(1.2);
+}
+
+.starButton.filled {
+  color: #F59E0B;
+}
+
+.taskExpandedContent {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.taskSummarySection {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+}
+
+.taskSummarySection h4 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #22C55E;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.75rem;
+}
+
+.taskSummaryText {
+  font-size: 0.875rem;
+  color: var(--apex-light);
+  line-height: 1.6;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.taskSummaryText p {
+  margin: 0 0 0.375rem 0;
+}
+
+.taskErrorSection {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  margin-top: 0.75rem;
+}
+
+.taskErrorSection h4 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #EF4444;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
+}
+
+.taskErrorSection p {
+  font-size: 0.875rem;
+  color: #FCA5A5;
+}
+
+.taskCardFooter {
+  text-align: center;
+  margin-top: 0.75rem;
+}
+
+.expandHint {
+  font-size: 0.7rem;
+  color: var(--apex-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Background Agent History */
+.historySection {
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.historySectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.75rem;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--apex-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.historySectionHeader:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--apex-white);
+}
+
+.historyList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 0.5rem 0;
+}
+
+.historyLoading,
+.historyEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.5rem 1rem;
+  color: var(--apex-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.historyEmptyHint {
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+}
+
+.historyItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.historyItem:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.historyItemIcon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.2);
+  color: var(--apex-muted);
+  flex-shrink: 0;
+}
+
+.historyItem.completed .historyItemIcon {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22C55E;
+}
+
+.historyItem.failed .historyItemIcon {
+  background: rgba(239, 68, 68, 0.2);
+  color: #EF4444;
+}
+
+.historyItem.running .historyItemIcon {
+  background: rgba(147, 51, 234, 0.2);
+  color: #A855F7;
+}
+
+.historyItemContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.historyItemGoal {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--apex-white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 0.25rem;
+}
+
+.historyItemMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--apex-muted);
+}
+
+.historyItemStatus {
+  text-transform: capitalize;
+}
+
+.historyItemMeta .running {
+  color: #A855F7;
+}
+
+.historyItemTime {
+  color: var(--apex-subtle);
+}
+
+.poweredBy {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 1rem;
+  margin-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.8rem;
+  color: var(--apex-subtle);
+}
+
+/* Main Area */
+.mainArea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--apex-midnight);
+}
+
+/* Chat Header */
+.chatHeader {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: var(--apex-deep);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.chatHeaderMode {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.documentIndicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-full);
+  font-size: 0.8rem;
+  color: #10B981;
+}
+
+.newChatBtn {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.newChatBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--apex-white);
+}
+
+/* Messages Container */
+.messagesContainer {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2rem;
+}
+
+.message {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  max-width: 900px;
+}
+
+.userMessage {
+  flex-direction: row-reverse;
+  margin-left: auto;
+}
+
+.aiAvatar {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  flex-shrink: 0;
+}
+
+.messageContent {
+  max-width: 700px;
+}
+
+.userMessage .messageContent {
+  background: linear-gradient(135deg, var(--apex-gold) 0%, var(--apex-gold-dark) 100%);
+  color: var(--apex-midnight);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 var(--radius-lg);
+  padding: 1rem 1.25rem;
+}
+
+.aiMessage .messageContent {
+  background: var(--apex-deep);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) 0;
+  padding: 1rem 1.25rem;
+}
+
+.messageText {
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--apex-light);
+}
+
+.userMessage .messageText {
+  color: var(--apex-midnight);
+}
+
+.messageText code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+.messageText pre {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 1rem;
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+
+.messageTime {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--apex-subtle);
+  margin-top: 0.5rem;
+}
+
+.userMessage .messageTime {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.typingIndicator {
+  display: flex;
+  gap: 6px;
+  padding: 0.75rem;
+}
+
+.typingIndicator span {
+  width: 8px;
+  height: 8px;
+  background: var(--apex-ai);
+  border-radius: 50%;
+  animation: bounce 1.4s ease-in-out infinite;
+}
+
+.typingIndicator span:nth-child(2) { animation-delay: 0.2s; }
+.typingIndicator span:nth-child(3) { animation-delay: 0.4s; }
+
+/* Input Area */
+.inputArea {
+  padding: 1.25rem 2rem;
+  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  background: var(--apex-deep);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.inputRow {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.attachBtn {
+  padding: 0.75rem;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.attachBtn:hover {
+  background: var(--apex-muted);
+  color: #10B981;
+  border-color: #10B981;
+}
+
+.inputRow input[type="text"] {
+  flex: 1;
+  padding: 1rem 1.25rem;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  color: var(--apex-white);
+  font-size: 0.95rem;
+}
+
+.inputRow input[type="text"]:focus {
+  outline: none;
+  border-color: var(--apex-ai);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+
+.inputRow input[type="text"]::placeholder {
+  color: var(--apex-subtle);
+}
+
+.inputRow button[type="submit"] {
+  padding: 1rem 1.25rem;
+  background: linear-gradient(135deg, var(--apex-ai) 0%, #7C3AED 100%);
+  border: none;
+  border-radius: var(--radius-lg);
+  color: white;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.inputRow button[type="submit"]:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+}
+
+.inputRow button[type="submit"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Setup View */
+.setupView {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+}
+
+.documentSetup,
+.redlineSetup,
+.standardSetup {
+  max-width: 500px;
+  text-align: center;
+}
+
+.setupIcon {
+  width: 100px;
+  height: 100px;
+  border-radius: var(--radius-xl);
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.5rem;
+}
+
+.setupIcon svg {
+  opacity: 0.9;
+}
+
+.documentSetup h2,
+.redlineSetup h2,
+.standardSetup h2 {
+  font-family: var(--font-serif);
+  font-size: 1.75rem;
+  font-weight: 400;
+  color: var(--apex-white);
+  margin-bottom: 0.75rem;
+}
+
+.documentSetup p,
+.redlineSetup p,
+.standardSetup p {
+  font-size: 1rem;
+  color: var(--apex-text);
+  line-height: 1.6;
+  margin-bottom: 2rem;
+}
+
+.uploadBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 2rem;
+  background: var(--apex-slate);
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-lg);
+  color: var(--apex-text);
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.uploadBtn:hover {
+  border-color: #10B981;
+  color: #10B981;
+  background: rgba(16, 185, 129, 0.05);
+}
+
+.uploadedDoc {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-lg);
+  margin-bottom: 1.5rem;
+}
+
+.uploadedDoc svg:first-child {
+  color: #10B981;
+}
+
+.uploadedDocInfo {
+  flex: 1;
+  text-align: left;
+}
+
+.uploadedDocName {
+  display: block;
+  font-weight: 600;
+  color: var(--apex-white);
+  margin-bottom: 0.25rem;
+}
+
+.uploadedDocMeta {
+  font-size: 0.85rem;
+  color: var(--apex-subtle);
+}
+
+.removeDoc {
+  background: none;
+  border: none;
+  padding: 6px;
+  color: var(--apex-subtle);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.removeDoc:hover {
+  color: var(--apex-error);
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.startBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 2rem;
+  border: none;
+  border-radius: var(--radius-lg);
+  color: white;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-top: 1rem;
+}
+
+.startBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Redline Uploads */
+.redlineUploads {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.redlineUpload {
+  flex: 1;
+}
+
+.redlineLabel {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--apex-text);
+  margin-bottom: 0.75rem;
+}
+
+.redlineUploadBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 1.5rem;
+  background: var(--apex-slate);
+  border: 2px dashed rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-lg);
+  color: var(--apex-text);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.redlineUploadBtn:hover {
+  border-color: #EF4444;
+  color: #EF4444;
+}
+
+.redlineUpload .uploadedDoc {
+  margin-bottom: 0;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.redlineUpload .uploadedDoc svg:first-child {
+  color: #EF4444;
+}
+
+.redlineVs {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--apex-subtle);
+  padding: 1rem;
+}
+
+/* Standard Suggestions */
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.suggestions button {
+  padding: 1rem 1.25rem;
+  background: var(--apex-slate);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  color: var(--apex-text);
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.suggestions button:hover {
+  background: var(--apex-muted);
+  border-color: var(--apex-ai);
+  color: var(--apex-white);
+}
+
+/* Animations */
+@keyframes bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+  color: #10B981;
+}
+
+/* Responsive - Tablet */
+@media (max-width: 1024px) {
+  .leftPanel {
+    width: 280px;
+  }
+  
+  .redlineUploads {
+    flex-direction: column;
+  }
+  
+  .redlineVs {
+    padding: 0.5rem;
+  }
+}
+
+/* Mobile styles */
+@media (max-width: 768px) {
+  .aiPage {
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    height: -webkit-fill-available;
+    margin: -1rem;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  /* Mode selector - prominent header on mobile */
+  .leftPanel {
+    width: 100%;
+    height: auto;
+    flex-shrink: 0;
+    border-right: none;
+    border-bottom: none;
+    padding: 1rem;
+    padding-top: 0.75rem;
+    overflow: visible;
+    background: linear-gradient(180deg, var(--apex-deep) 0%, var(--apex-midnight) 100%);
+    z-index: 10;
+  }
+
+  .modeSection {
+    margin-bottom: 0;
+  }
+
+  .modeSection h3 {
+    display: flex;
+    font-size: 1.125rem;
+    margin-bottom: 0.875rem;
+    color: var(--apex-white);
+    justify-content: center;
+  }
+  
+  .modeButtons {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.625rem;
+  }
+  
+  .modeBtn {
+    flex-direction: column;
+    padding: 0.875rem 0.5rem;
+    text-align: center;
+    gap: 0.5rem;
+    min-height: 76px;
+    justify-content: center;
+    border-radius: var(--radius-lg);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  
+  .modeBtn.active {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.04) 100%);
+    border-color: var(--mode-color, var(--apex-ai));
+    box-shadow: 0 0 16px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+
+  .modeBtnIcon {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-md);
+  }
+
+  .modeBtnIcon svg {
+    width: 18px;
+    height: 18px;
+  }
+  
+  .modeBtnText {
+    text-align: center;
+  }
+
+  .modeBtnName {
+    font-size: 0.75rem;
+    line-height: 1.3;
+    font-weight: 600;
+  }
+
+  .modeBtnDesc {
+    display: none;
+  }
+
+  .historySection {
+    display: none;
+  }
+
+  .poweredBy {
+    display: none;
+  }
+
+  /* Main content area */
+  .mainArea {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    background: var(--apex-midnight);
+  }
+
+  /* Chat header */
+  .chatHeader {
+    padding: 0.625rem 1rem;
+    flex-shrink: 0;
+    gap: 0.625rem;
+    min-height: 48px;
+    background: var(--apex-deep);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .chatHeaderMode {
+    font-size: 0.875rem;
+    gap: 0.5rem;
+    font-weight: 600;
+  }
+
+  .chatHeaderMode svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .documentIndicator {
+    font-size: 0.7rem;
+    padding: 0.25rem 0.625rem;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .documentIndicator svg {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+  }
+
+  .newChatBtn {
+    padding: 0.5rem 0.875rem;
+    font-size: 0.8rem;
+    gap: 0.375rem;
+    min-height: 36px;
+    white-space: nowrap;
+  }
+
+  .newChatBtn svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* Messages area - takes remaining space */
+  .messagesContainer {
+    flex: 1;
+    min-height: 0;
+    padding: 1rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  .message {
+    margin-bottom: 1rem;
+    gap: 0.625rem;
+    max-width: 100%;
+  }
+
+  .aiAvatar {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+  }
+
+  .aiAvatar svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .messageContent {
+    max-width: calc(100% - 40px);
+    min-width: 0;
+  }
+
+  .userMessage .messageContent,
+  .aiMessage .messageContent {
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-lg);
+  }
+
+  .messageText {
+    font-size: 0.9rem;
+    line-height: 1.55;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  .messageText code {
+    font-size: 0.8rem;
+    padding: 2px 6px;
+  }
+
+  .messageText pre {
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+    font-size: 0.75rem;
+    overflow-x: auto;
+  }
+
+  .messageTime {
+    font-size: 0.7rem;
+    margin-top: 0.375rem;
+  }
+
+  /* Input area - fixed at bottom */
+  .inputArea {
+    padding: 0.75rem 1rem;
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    flex-shrink: 0;
+    background: var(--apex-deep);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    position: relative;
+    z-index: 50;
+  }
+
+  .inputRow {
+    gap: 0.625rem;
+    position: relative;
+  }
+
+  .attachBtn {
+    padding: 0;
+    min-width: 46px;
+    min-height: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: var(--radius-lg);
+  }
+
+  .attachBtn svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .inputRow input[type="text"] {
+    padding: 0.875rem 1rem;
+    font-size: 16px; /* Prevents zoom on iOS */
+    min-height: 46px;
+    border-radius: var(--radius-lg);
+    flex: 1;
+    min-width: 0;
+  }
+
+  .inputRow button[type="submit"] {
+    padding: 0;
+    min-height: 46px;
+    min-width: 46px;
+    border-radius: var(--radius-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .inputRow button[type="submit"] svg {
+    width: 20px;
+    height: 20px;
+  }
+  
+  /* Setup View Mobile - Full screen engaging layout */
+  .setupView {
+    padding: 1.5rem 1.25rem;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .documentSetup,
+  .redlineSetup,
+  .standardSetup {
+    max-width: 100%;
+    width: 100%;
+    text-align: center;
+  }
+
+  .setupIcon {
+    width: 72px;
+    height: 72px;
+    margin: 0 auto 1.25rem;
+    border-radius: var(--radius-xl);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.04) 100%);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  }
+
+  .setupIcon svg {
+    width: 32px;
+    height: 32px;
+  }
+
+  .documentSetup h2,
+  .redlineSetup h2,
+  .standardSetup h2 {
+    font-size: 1.5rem;
+    margin-bottom: 0.625rem;
+    font-weight: 500;
+  }
+
+  .documentSetup p,
+  .redlineSetup p,
+  .standardSetup p {
+    font-size: 0.9rem;
+    margin-bottom: 1.5rem;
+    line-height: 1.6;
+    padding: 0 0.25rem;
+    color: var(--apex-text);
+  }
+
+  .uploadBtn {
+    padding: 1rem 1.5rem;
+    font-size: 1rem;
+    width: 100%;
+    justify-content: center;
+    min-height: 52px;
+    border-radius: var(--radius-lg);
+  }
+
+  .uploadedDoc {
+    padding: 1rem 1.125rem;
+    margin-bottom: 1.25rem;
+    gap: 0.75rem;
+    flex-wrap: nowrap;
+    border-radius: var(--radius-lg);
+  }
+
+  .uploadedDoc svg:first-child {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+  }
+
+  .uploadedDocInfo {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .uploadedDocName {
+    font-size: 0.9rem;
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+
+  .uploadedDocMeta {
+    font-size: 0.75rem;
+  }
+
+  .removeDoc {
+    flex-shrink: 0;
+    min-width: 36px;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .startBtn {
+    padding: 1rem 1.5rem;
+    font-size: 1rem;
+    width: 100%;
+    justify-content: center;
+    margin-top: 0.75rem;
+    min-height: 52px;
+    border-radius: var(--radius-lg);
+    font-weight: 600;
+  }
+
+  /* Redline Mobile */
+  .redlineUploads {
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+    width: 100%;
+  }
+
+  .redlineUpload {
+    width: 100%;
+  }
+
+  .redlineLabel {
+    font-size: 0.8rem;
+    margin-bottom: 0.625rem;
+    text-align: left;
+    font-weight: 600;
+  }
+
+  .redlineUploadBtn {
+    padding: 1.125rem;
+    font-size: 0.9rem;
+    min-height: 52px;
+    border-radius: var(--radius-lg);
+  }
+
+  .redlineVs {
+    padding: 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--apex-text);
+  }
+
+  .redlineUpload .uploadedDoc {
+    padding: 0.875rem 1rem;
+    margin-bottom: 0;
+  }
+
+  .redlineUpload .uploadedDoc span {
+    font-size: 0.85rem;
+    word-break: break-word;
+  }
+
+  .redlineUpload .uploadedDoc svg {
+    flex-shrink: 0;
+  }
+
+  .redlineUpload .uploadedDoc button {
+    min-width: 32px;
+    min-height: 32px;
+    flex-shrink: 0;
+  }
+
+  /* Suggestions Mobile */
+  .suggestions {
+    gap: 0.625rem;
+    margin-bottom: 1.25rem;
+    width: 100%;
+  }
+
+  .suggestions button {
+    padding: 1rem 1.125rem;
+    font-size: 0.9rem;
+    min-height: 48px;
+    text-align: left;
+    border-radius: var(--radius-lg);
+  }
+
+  /* Typing indicator */
+  .typingIndicator {
+    padding: 0.625rem;
+    gap: 5px;
+  }
+
+  .typingIndicator span {
+    width: 7px;
+    height: 7px;
+  }
+
+  /* Spinner */
+  .spinner {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+/* Extra small screens (iPhone SE, etc.) */
+@media (max-width: 380px) {
+  .aiPage {
+    margin: -0.75rem;
+  }
+
+  .leftPanel {
+    padding: 0.75rem;
+    padding-top: 0.625rem;
+  }
+
+  .modeSection h3 {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .modeButtons {
+    gap: 0.5rem;
+  }
+
+  .modeBtn {
+    padding: 0.625rem 0.375rem;
+    min-height: 68px;
+    gap: 0.375rem;
+  }
+
+  .modeBtnIcon {
+    width: 30px;
+    height: 30px;
+  }
+
+  .modeBtnIcon svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .modeBtnName {
+    font-size: 0.65rem;
+  }
+
+  .chatHeader {
+    padding: 0.5rem 0.75rem;
+    min-height: 44px;
+  }
+
+  .chatHeaderMode {
+    font-size: 0.8rem;
+  }
+
+  .newChatBtn {
+    padding: 0.375rem 0.625rem;
+    font-size: 0.75rem;
+  }
+
+  .documentIndicator {
+    max-width: 80px;
+    font-size: 0.65rem;
+  }
+
+  .messagesContainer {
+    padding: 0.75rem;
+  }
+
+  .message {
+    gap: 0.5rem;
+  }
+
+  .aiAvatar {
+    width: 28px;
+    height: 28px;
+  }
+
+  .aiAvatar svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .messageContent {
+    max-width: calc(100% - 36px);
+  }
+
+  .userMessage .messageContent,
+  .aiMessage .messageContent {
+    padding: 0.625rem 0.875rem;
+  }
+
+  .messageText {
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+
+  .inputArea {
+    padding: 0.625rem 0.75rem;
+    padding-bottom: calc(0.625rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .inputRow {
+    gap: 0.5rem;
+  }
+
+  .attachBtn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .inputRow input[type="text"] {
+    padding: 0.75rem 0.875rem;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .inputRow button[type="submit"] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .setupView {
+    padding: 1.25rem 1rem;
+  }
+
+  .setupIcon {
+    width: 60px;
+    height: 60px;
+    margin-bottom: 1rem;
+  }
+
+  .setupIcon svg {
+    width: 28px;
+    height: 28px;
+  }
+
+  .documentSetup h2,
+  .redlineSetup h2,
+  .standardSetup h2 {
+    font-size: 1.25rem;
+  }
+
+  .documentSetup p,
+  .redlineSetup p,
+  .standardSetup p {
+    font-size: 0.85rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .uploadBtn,
+  .startBtn {
+    padding: 0.875rem 1rem;
+    font-size: 0.9rem;
+    min-height: 48px;
+  }
+
+  .suggestions button {
+    padding: 0.875rem 1rem;
+    font-size: 0.85rem;
+    min-height: 44px;
+  }
+}
+
+/* Landscape mode on mobile */
+@media (max-width: 768px) and (orientation: landscape) {
+  .aiPage {
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  .leftPanel {
+    padding: 0.5rem 1rem;
+    padding-top: 0.375rem;
+  }
+
+  .modeSection h3 {
+    display: none;
+  }
+
+  .modeBtn {
+    min-height: 56px;
+    padding: 0.5rem;
+  }
+
+  .modeBtnIcon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .modeBtnName {
+    font-size: 0.7rem;
+  }
+
+  .setupView {
+    padding: 1rem 1.5rem;
+    justify-content: center;
+  }
+
+  .setupIcon {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 0.75rem;
+  }
+
+  .setupIcon svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .documentSetup h2,
+  .redlineSetup h2,
+  .standardSetup h2 {
+    font-size: 1.125rem;
+    margin-bottom: 0.375rem;
+  }
+
+  .documentSetup p,
+  .redlineSetup p,
+  .standardSetup p {
+    font-size: 0.8rem;
+    margin-bottom: 1rem;
+  }
+
+  .messagesContainer {
+    padding: 0.625rem 1rem;
+  }
+
+  .uploadBtn,
+  .startBtn {
+    min-height: 44px;
+  }
+
+  .suggestions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .suggestions button {
+    flex: 0 1 auto;
+    min-height: 40px;
+    padding: 0.625rem 1rem;
+  }
+}

@@ -1,0 +1,559 @@
+:root {
+  /* Apex Brand Colors - Midnight & Gold */
+  --apex-midnight: #0B0F1A;
+  --apex-deep: #0F172A;
+  --apex-slate: #1E293B;
+  --apex-muted: #94A3B8;
+  --apex-subtle: #64748B;
+  --apex-text: #CBD5E1;
+  --apex-light: #E2E8F0;
+  --apex-white: #F8FAFC;
+  
+  /* Gold Accent Spectrum */
+  --apex-gold-dark: #B45309;
+  --apex-gold: #D97706;
+  --apex-gold-bright: #F59E0B;
+  --apex-gold-light: #FBBF24;
+  --apex-gold-pale: #FDE68A;
+  
+  /* Semantic Colors */
+  --apex-success: #10B981;
+  --apex-success-muted: #065F46;
+  --apex-warning: #F59E0B;
+  --apex-warning-muted: #78350F;
+  --apex-error: #EF4444;
+  --apex-error-muted: #7F1D1D;
+  --apex-info: #3B82F6;
+  --apex-info-muted: #1E3A8A;
+  
+  /* AI Accent */
+  --apex-ai: #8B5CF6;
+  --apex-ai-glow: rgba(139, 92, 246, 0.3);
+  
+  /* Legacy Compatibility Variables for Settings Pages */
+  --bg-primary: var(--apex-midnight);
+  --bg-secondary: var(--apex-deep);
+  --bg-tertiary: var(--apex-slate);
+  --text-primary: #FFFFFF;
+  --text-secondary: #CBD5E1;
+  --text-tertiary: #94A3B8;
+  --border-primary: rgba(255, 255, 255, 0.08);
+  --border-secondary: rgba(255, 255, 255, 0.12);
+  --gold-primary: var(--apex-gold-bright);
+  --gold-secondary: var(--apex-gold-light);
+  --success: var(--apex-success);
+  --warning: var(--apex-warning);
+  --ai-purple: var(--apex-ai);
+  
+  /* Legacy Spacing */
+  --spacing-xs: 0.375rem;
+  --spacing-sm: 0.625rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  
+  /* Typography */
+  --font-serif: 'Instrument Serif', Georgia, serif;
+  --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  
+  /* Spacing */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+  --space-3xl: 4rem;
+  
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 20px rgba(245, 158, 11, 0.15);
+  --shadow-ai: 0 0 30px var(--apex-ai-glow);
+  
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-base: 250ms ease;
+  --transition-slow: 400ms ease;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--apex-midnight);
+  color: var(--apex-light);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--apex-deep);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--apex-muted);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--apex-subtle);
+}
+
+/* Selection */
+::selection {
+  background: var(--apex-gold);
+  color: var(--apex-midnight);
+}
+
+/* Focus Styles */
+:focus-visible {
+  outline: 2px solid var(--apex-gold);
+  outline-offset: 2px;
+}
+
+/* ===== GLOBAL DROPDOWN/SELECT STYLING ===== */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-color: var(--apex-slate);
+  background-image: 
+    linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23F59E0B' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center, right 12px center;
+  background-size: auto, 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--apex-white);
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  padding: 0.75rem 2.75rem 0.75rem 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+select:hover {
+  border-color: rgba(245, 158, 11, 0.4);
+  background-color: rgba(30, 41, 59, 0.9);
+  box-shadow: 
+    0 2px 8px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(245, 158, 11, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+select:focus {
+  outline: none;
+  border-color: var(--apex-gold);
+  box-shadow: 
+    0 0 0 3px rgba(245, 158, 11, 0.15),
+    0 2px 8px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  background-image: 
+    linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23FBBF24' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
+
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: rgba(30, 41, 59, 0.5);
+}
+
+/* Style the dropdown options */
+select option {
+  background-color: var(--apex-deep);
+  color: var(--apex-white);
+  padding: 12px 16px;
+  font-weight: 500;
+}
+
+select option:hover,
+select option:focus,
+select option:checked {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(245, 158, 11, 0.1) 100%);
+  color: var(--apex-gold-light);
+}
+
+/* Small variant for inline/compact dropdowns */
+select.select-sm {
+  padding: 0.5rem 2.25rem 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  background-position: right 8px center, right 8px center;
+  background-size: auto, 14px;
+}
+
+/* Large variant for prominent dropdowns */
+select.select-lg {
+  padding: 1rem 3rem 1rem 1.25rem;
+  font-size: 1rem;
+  background-position: right 16px center, right 16px center;
+  background-size: auto, 18px;
+}
+
+/* Gold accent variant */
+select.select-gold {
+  border-color: rgba(245, 158, 11, 0.3);
+  background-image: 
+    linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23F59E0B' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
+
+select.select-gold:hover {
+  border-color: rgba(245, 158, 11, 0.5);
+  box-shadow: 
+    0 0 0 1px rgba(245, 158, 11, 0.2),
+    0 4px 12px rgba(245, 158, 11, 0.15);
+}
+
+/* Dark/subtle variant */
+select.select-dark {
+  background-color: var(--apex-midnight);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Transparent variant for use in headers/controls */
+select.select-transparent {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+select.select-transparent:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Links */
+a {
+  color: var(--apex-gold-bright);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--apex-gold-light);
+}
+
+/* Typography Classes */
+.heading-display {
+  font-family: var(--font-serif);
+  font-size: 3.5rem;
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.heading-1 {
+  font-family: var(--font-serif);
+  font-size: 2.5rem;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.heading-2 {
+  font-family: var(--font-sans);
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.heading-3 {
+  font-family: var(--font-sans);
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.text-large {
+  font-size: 1.125rem;
+  line-height: 1.6;
+}
+
+.text-base {
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.text-small {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.text-tiny {
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.text-mono {
+  font-family: var(--font-mono);
+}
+
+/* Utility Classes */
+.text-gold {
+  color: var(--apex-gold-bright);
+}
+
+.text-muted {
+  color: var(--apex-text);
+}
+
+.text-white {
+  color: var(--apex-white);
+}
+
+.bg-glass {
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Animation Keyframes */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { 
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from { 
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to { 
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes glow {
+  0%, 100% { 
+    box-shadow: 0 0 20px var(--apex-ai-glow);
+  }
+  50% { 
+    box-shadow: 0 0 40px var(--apex-ai-glow), 0 0 60px var(--apex-ai-glow);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn var(--transition-base) ease forwards;
+}
+
+.animate-slide-up {
+  animation: slideUp var(--transition-slow) ease forwards;
+}
+
+.animate-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Stagger animations */
+.stagger-1 { animation-delay: 50ms; }
+.stagger-2 { animation-delay: 100ms; }
+.stagger-3 { animation-delay: 150ms; }
+.stagger-4 { animation-delay: 200ms; }
+.stagger-5 { animation-delay: 250ms; }
+.stagger-6 { animation-delay: 300ms; }
+.stagger-7 { animation-delay: 350ms; }
+.stagger-8 { animation-delay: 400ms; }
+
+/* ===== MOBILE RESPONSIVE STYLES ===== */
+
+/* Touch-friendly tap targets */
+@media (max-width: 768px) {
+  button,
+  a,
+  input[type="submit"],
+  input[type="button"],
+  .btn,
+  [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Improve form inputs for mobile */
+  input,
+  select,
+  textarea {
+    font-size: 16px; /* Prevents zoom on iOS */
+    padding: 12px 14px;
+  }
+
+  /* Better touch scrolling */
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Typography responsive adjustments */
+@media (max-width: 768px) {
+  .heading-display {
+    font-size: 2.25rem;
+  }
+
+  .heading-1 {
+    font-size: 1.75rem;
+  }
+
+  .heading-2 {
+    font-size: 1.25rem;
+  }
+
+  .heading-3 {
+    font-size: 1rem;
+  }
+
+  .text-large {
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .heading-display {
+    font-size: 1.875rem;
+  }
+
+  .heading-1 {
+    font-size: 1.5rem;
+  }
+}
+
+/* Hide scrollbar on mobile for cleaner look */
+@media (max-width: 768px) {
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+  }
+}
+
+/* Safe area padding for iOS devices with notch */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Prevent horizontal overflow on mobile */
+html, body {
+  overflow-x: hidden;
+}
+
+/* Better text selection on mobile */
+@media (max-width: 768px) {
+  p, h1, h2, h3, h4, h5, h6, span, a {
+    -webkit-user-select: auto;
+    user-select: auto;
+  }
+}
+
+/* Mobile-specific utility classes */
+.mobile-only {
+  display: none;
+}
+
+.desktop-only {
+  display: block;
+}
+
+@media (max-width: 768px) {
+  .mobile-only {
+    display: block;
+  }
+
+  .desktop-only {
+    display: none;
+  }
+}
+
+/* Grid utilities for mobile */
+.mobile-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 769px) {
+  .mobile-stack {
+    flex-direction: row;
+  }
+}
+
+/* Text truncation helper */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

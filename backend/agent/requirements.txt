@@ -1,0 +1,17 @@
+# Requirements for Amplifier Legal Agent
+# Install with: pip install -r requirements.txt
+
+# Environment variables (optional, for loading .env files)
+python-dotenv>=1.0.0
+
+# PDF reading (optional, for reading PDF files)
+PyPDF2>=3.0.0
+
+# Alternative PDF reader (optional, more accurate but heavier)
+# pdfplumber>=0.9.0
+
+# DOCX reading (optional, for reading Word documents)
+python-docx>=0.8.11
+
+# Typing extensions for older Python versions
+typing-extensions>=4.0.0

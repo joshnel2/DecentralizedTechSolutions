@@ -1,0 +1,429 @@
+/* Audit Log Viewer */
+.container {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.container.compact {
+  border-radius: 8px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.title svg {
+  color: #f59e0b;
+}
+
+.count {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.5);
+  padding: 0.2rem 0.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filterToggle,
+.refreshBtn,
+.exportBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filterToggle:hover,
+.refreshBtn:hover,
+.exportBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.refreshBtn {
+  padding: 0.5rem;
+}
+
+.exportBtn {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #f59e0b;
+}
+
+.exportBtn:hover {
+  background: rgba(245, 158, 11, 0.2);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Filters */
+.filters {
+  padding: 1rem 1.25rem;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.filterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 200px;
+  padding: 0.5rem 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.searchBox input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 0.9rem;
+}
+
+.searchBox input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.searchBox input:focus {
+  outline: none;
+}
+
+.filterSelect {
+  padding: 0.5rem 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.filterSelect:focus {
+  outline: none;
+  border-color: #f59e0b;
+}
+
+/* States */
+.loading,
+.empty,
+.error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 3rem 1rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.loading svg,
+.empty svg {
+  opacity: 0.5;
+}
+
+.error {
+  flex-direction: row;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  padding: 1rem;
+  margin: 1rem 1.25rem;
+  border-radius: 8px;
+}
+
+/* Log List */
+.logList {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.logList::-webkit-scrollbar {
+  width: 6px;
+}
+
+.logList::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+/* Log Entry */
+.logEntry {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.2s;
+}
+
+.logEntry:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.logEntry.expanded {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.logMain {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1.25rem;
+  cursor: pointer;
+}
+
+.logIcon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.iconCreate { color: #22c55e; }
+.iconUpdate { color: #3b82f6; }
+.iconDelete { color: #ef4444; }
+.iconView { color: #8b5cf6; }
+.iconDownload { color: #06b6d4; }
+.iconLogin { color: #22c55e; }
+.iconLogout { color: #f59e0b; }
+
+.logContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.logAction {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.userName {
+  font-weight: 600;
+  color: #fff;
+}
+
+.actionText {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.resourceBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.5rem;
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.resourceName {
+  color: rgba(255, 255, 255, 0.9);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.logMeta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.timestamp {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.ip {
+  font-family: 'SF Mono', 'Monaco', monospace;
+  font-size: 0.75rem;
+}
+
+.expandIcon {
+  color: rgba(255, 255, 255, 0.3);
+  padding: 0.25rem;
+}
+
+/* Expanded Details */
+.logDetails {
+  padding: 0 1.25rem 1rem 3.75rem;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 200px;
+  }
+}
+
+.detailsHeader {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 0.5rem;
+}
+
+.detailsContent {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.detailItem {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.35rem;
+}
+
+.detailItem:last-child {
+  margin-bottom: 0;
+}
+
+.detailKey {
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+}
+
+.detailValue {
+  color: rgba(255, 255, 255, 0.9);
+  word-break: break-word;
+}
+
+.userAgent {
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.4);
+  word-break: break-all;
+}
+
+.userAgent strong {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Compact Mode */
+.compact .header {
+  padding: 0.75rem 1rem;
+}
+
+.compact .filters {
+  padding: 0.75rem 1rem;
+}
+
+.compact .logMain {
+  padding: 0.625rem 1rem;
+}
+
+.compact .logIcon {
+  width: 28px;
+  height: 28px;
+}
+
+.compact .logDetails {
+  padding: 0 1rem 0.75rem 3.25rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    gap: 0.75rem;
+    align-items: stretch;
+  }
+  
+  .headerActions {
+    justify-content: flex-end;
+  }
+  
+  .filterRow {
+    flex-direction: column;
+  }
+  
+  .searchBox {
+    min-width: 100%;
+  }
+  
+  .filterSelect {
+    width: 100%;
+  }
+  
+  .logAction {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+  
+  .resourceName {
+    max-width: 100%;
+  }
+  
+  .logMeta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+}

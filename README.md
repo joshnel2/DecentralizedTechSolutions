@@ -1,64 +1,111 @@
-# Decentralized Tech Solutions Project
+# Apex - AI-Native Legal Practice Management
 
-## Overview
-This project focuses on building decentralized technology solutions including:
-- Document management system
-- Admin portal
-- Azure scan functionality
-- Migration metadata handling
+<p align="center">
+  <img src="public/favicon.svg" width="80" height="80" alt="Apex Logo" />
+</p>
 
-## Architecture
-- Frontend: Web-based interface
-- Backend: Node.js/Express API
-- Database: MongoDB or PostgreSQL
-- Storage: IPFS or decentralized storage
-- Authentication: JWT or decentralized identity
+Apex is a modern, AI-native legal practice management platform designed for forward-thinking law firms. Built with React, TypeScript, and Azure OpenAI integration, it provides comprehensive tools for managing matters, clients, billing, and more.
 
-## Key Features
-1. Document Section
-   - Upload and manage documents
-   - Version control
-   - Access permissions
-   - Decentralized storage integration
+## ✨ Features
 
-2. Admin Portal
-   - User management
-   - System monitoring
-   - Configuration management
-   - Analytics dashboard
+### Core Practice Management
+- **Matters Management** - Track cases, litigation, corporate work, and more with rich metadata
+- **Client Management** - Comprehensive client profiles for individuals and organizations
+- **Calendar & Scheduling** - Deadlines, court dates, meetings, and reminders
+- **Time Tracking** - Quick timers, manual entry, and AI-powered suggestions
+- **Billing & Invoicing** - Hourly, flat fee, contingency, and retainer billing
+- **Document Management** - File storage with AI-powered summaries
 
-3. Azure Scan
-   - Azure resource scanning
-   - Security assessment
-   - Compliance checking
-   - Resource optimization
+### AI-Native Features
+- **AI Assistant** - Chat-based interface for legal research, drafting, and analysis
+- **Azure OpenAI Integration** - Secure, enterprise-grade AI capabilities
+- **Document Analysis** - Automatic summarization and key point extraction
+- **Time Entry Suggestions** - AI-generated billable time recommendations
+- **Matter Insights** - Intelligent case analysis and risk assessment
 
-4. Migration Metadata
-   - Data migration tracking
-   - Version control for schema changes
-   - Rollback capabilities
-   - Audit trails
+### Administration
+- **Team & Groups** - User management with role-based permissions
+- **Firm Settings** - Configure billing rates, prefixes, and preferences
+- **API Keys** - Secure integrations with external systems
+- **Audit Logging** - Track all platform activity
 
-## Technology Stack
-- Frontend: React/Vue.js
-- Backend: Node.js, Express
-- Database: MongoDB/PostgreSQL
-- Storage: IPFS/Filecoin
-- Authentication: JWT/SIWE (Sign In With Ethereum)
-- Hosting: Vercel/Netlify + decentralized backup
+## 🚀 Getting Started
 
-## Development Phases
-1. Phase 1: Core API and database setup
-2. Phase 2: Document management implementation
-3. Phase 3: Admin portal development
-4. Phase 4: Azure scan integration
-5. Phase 5: Migration metadata system
-6. Phase 6: Security audit and deployment
+### Prerequisites
+- Node.js 18+
+- npm or yarn
 
-## Next Steps
-- Set up project structure
-- Initialize repositories
-- Configure development environment
-- Begin core API development
-- Design database schema
-- Implement authentication system
+### Installation
+
+```bash
+# Clone the repository
+git clone <repository-url>
+
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+```
+
+### Demo Account
+Use these credentials to explore the platform:
+- **Email:** admin@apex.law
+- **Password:** apex2024
+
+## 🛠️ Technology Stack
+
+- **Frontend:** React 18, TypeScript, React Router
+- **State Management:** Zustand
+- **Styling:** CSS Modules with CSS Variables
+- **Charts:** Recharts
+- **Icons:** Lucide React
+- **Date Handling:** date-fns
+- **Build Tool:** Vite
+
+## 📁 Project Structure
+
+```
+src/
+├── components/       # Reusable UI components
+├── pages/           # Page components
+├── stores/          # Zustand state stores
+├── styles/          # Global styles
+└── types/           # TypeScript type definitions
+```
+
+## 🎨 Design System
+
+Apex uses a distinctive midnight & gold color palette with:
+- **Font Families:** Instrument Serif (headings), DM Sans (body), JetBrains Mono (code)
+- **Dark Theme:** Optimized for long working sessions
+- **AI Accent:** Purple tones for AI-related features
+
+### Key CSS Variables
+```css
+--apex-gold: #D97706;
+--apex-deep: #0F172A;
+--apex-ai: #8B5CF6;
+```
+
+## 🔧 Configuration
+
+### Azure OpenAI Setup
+
+1. Navigate to Settings > Firm Settings
+2. Enter your Azure OpenAI credentials:
+   - Endpoint URL
+   - API Key
+   - Deployment Name
+
+## 📄 License
+
+This project is proprietary software for Apex Legal Technologies.
+
+## 🤝 Support
+
+For support, please contact support@apex.law
+
+---
+
+Built with ❤️ for modern law firms
