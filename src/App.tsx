@@ -149,7 +149,7 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" />
 }
 
-function PublicOnlyRoute({ children }: { children: React.ReactNode }) {
+function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuthStore()
   if (isAuthenticated) {
     return <Navigate to={user?.firmId ? '/app/dashboard' : '/setup'} />
@@ -186,10 +186,10 @@ function AppContent() {
     <Routes>
       {/* Public Routes */}
       <Route path="/" element={<LandingPage />} />
-      <Route path="/login" element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} />
-      <Route path="/register" element={<PublicOnlyRoute><RegisterPage /></PublicOnlyRoute>} />
-      <Route path="/forgot-password" element={<PublicOnlyRoute><ForgotPasswordPage /></PublicOnlyRoute>} />
-      <Route path="/reset-password" element={<PublicOnlyRoute><ResetPasswordPage /></PublicOnlyRoute>} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       {/* Public Footer Pages */}
       <Route path="/about" element={<AboutPage />} />
       <Route path="/security" element={<SecurityPage />} />
@@ -295,7 +295,7 @@ function AppContent() {
         
         {/* Firm Administration */}
         <Route path="admin" element={<FirmAdminPage />} />
-          <Route path="admin/permissions" element={<PermissionsAdminPage />} />
+        <Route path="admin/permissions" element={<PermissionsAdminPage />} />
         
         {/* Platform Admin Portal */}
         <Route path="platform-admin" element={<AdminPortalPage />} />
