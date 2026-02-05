@@ -29,12 +29,23 @@ jobs:
 
       - name: Install dependencies
         working-directory: ./backend
-        run: npm ci --production
+        run: npm ci --omit=dev
+
+      - name: Verify node_modules
+        working-directory: ./backend
+        run: |
+          echo "Node modules size:"
+          du -sh node_modules
+          echo "Express check:"
+          ls node_modules/express/package.json
 
       - name: Create deployment package
         working-directory: ./backend
         run: |
-          zip -r ../deploy.zip . -x "*.git*" -x "node_modules/.cache/*"
+          # Ensure node_modules is included in the zip
+          zip -r ../deploy.zip . -x "*.git*" -x "*.md" -x "node_modules/.cache/*" -x "node_modules/.package-lock.json"
+          echo "Zip file size:"
+          ls -lh ../deploy.zip
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v2
@@ -42,3 +53,9 @@ jobs:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: ./deploy.zip
+          
+      - name: Verify deployment
+        run: |
+          echo "Waiting for app to restart..."
+          sleep 30
+          curl -s -o /dev/null -w "%{http_code}" https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health || echo "Health check pending..."
