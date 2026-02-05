@@ -33,9 +33,11 @@ const TaskStatus = {
   WAITING_INPUT: 'waiting_input'
 };
 
-// Azure OpenAI configuration - use SAME API version as normal AI agent (aiAgent.js)
-// This MUST match the version in routes/aiAgent.js for consistency
-// Read at runtime to ensure dotenv has loaded
+// Azure OpenAI configuration - SAME as aiAgent.js
+// Read at top level just like aiAgent.js does
+const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
+const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
+const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
 const API_VERSION = '2024-12-01-preview';
 
 // Background agent runtime defaults (tuned for EXTENDED legal tasks)
@@ -126,13 +128,13 @@ function markPersistenceUnavailable(error) {
 }
 
 /**
- * Get Azure OpenAI configuration (read at runtime to avoid timing issues)
+ * Get Azure OpenAI configuration - uses constants read at module load
  */
 function getAzureConfig() {
   return {
-    endpoint: process.env.AZURE_OPENAI_ENDPOINT,
-    apiKey: process.env.AZURE_OPENAI_API_KEY,
-    deployment: process.env.AZURE_OPENAI_DEPLOYMENT
+    endpoint: AZURE_ENDPOINT,
+    apiKey: AZURE_API_KEY,
+    deployment: AZURE_DEPLOYMENT
   };
 }
 

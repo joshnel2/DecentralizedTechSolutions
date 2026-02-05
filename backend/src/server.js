@@ -1,6 +1,5 @@
-import dotenv from 'dotenv';
-// Load environment variables FIRST before any other imports
-dotenv.config();
+// Load environment variables FIRST - this side-effect import runs immediately
+import 'dotenv/config';
 
 import express from 'express';
 import cors from 'cors';
