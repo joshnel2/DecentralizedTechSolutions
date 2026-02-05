@@ -148,27 +148,10 @@ router.post('/tasks', authenticate, async (req, res) => {
     
     console.log(`[BackgroundAgent] Task start request from user ${req.user.id}: ${goal?.substring(0, 100)} (extended: ${taskOptions.extended})`);
     
-    // Check if service is available (Azure OpenAI credentials are set)
-    const available = await amplifierService.checkAvailability();
-    if (!available) {
-      console.error('[BackgroundAgent] Service not available - Azure OpenAI not configured');
-      return res.status(503).json({ 
-        error: 'Background agent is not available',
-        details: 'Azure OpenAI credentials are not configured. Please set AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT environment variables.'
-      });
-    }
-    
-    // Configure service if not already done
+    // Auto-configure service if needed - env vars are set at platform level
     if (!amplifierService.configured) {
-      console.log('[BackgroundAgent] Configuring service...');
-      const configured = await amplifierService.configure();
-      if (!configured) {
-        console.error('[BackgroundAgent] Failed to configure service');
-        return res.status(503).json({ 
-          error: 'Background agent could not be configured',
-          details: 'Failed to initialize Azure OpenAI connection. Check your credentials.'
-        });
-      }
+      console.log('[BackgroundAgent] Auto-configuring service...');
+      await amplifierService.configure();
     }
     
     // Check for existing active task (only one task per user at a time)
