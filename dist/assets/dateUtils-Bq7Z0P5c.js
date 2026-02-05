@@ -1,1 +1,0 @@
-const s=t=>{const a=t.split("T")[0],[e,n,o]=a.split("-").map(Number);return new Date(e,n-1,o)},r=t=>{const[a,e,n]=t.split("-").map(Number);return new Date(a,e-1,n,12,0,0).toISOString()};export{r as l,s as p};
