@@ -2113,16 +2113,44 @@ You have your brief above. Follow the approach order and time budget. Call think
               const success = res.success !== undefined ? res.success : !res.error;
               
               this.actionsHistory.push({ tool: tn, args: ta, result: res, timestamp: new Date(), success });
+              
+              // ===== REWIND SYSTEM: Record tool call for loop detection (parallel path) =====
+              this.rewindManager.recordToolCall(tn, ta, success);
+              
+              // ===== DECISION REINFORCER: Real-time learning (parallel path) =====
+              try {
+                const taskType = this.workType?.id || this.complexity || 'general';
+                this.decisionReinforcer.recordOutcome(taskType, tn, success, {
+                  timeRatio: 1.0,
+                  qualityScore: success ? 0.7 : 0.2,
+                });
+              } catch (_) {}
+              
               if (success && (tn === 'read_document_content' || tn === 'search_document_content')) {
                 this.substantiveActions.research++;
+                // ===== DOCUMENT LEARNING: Feed access event (parallel path) =====
+                try {
+                  if (tn === 'read_document_content' && res?.id) {
+                    onDocumentAccessed(this.userId, this.firmId, {
+                      documentId: res.id,
+                      documentName: res.name || 'unknown',
+                      documentType: res.document_type || res.type || 'general',
+                      accessType: 'read',
+                      matterId: ta.matter_id || this.preloadedMatterId || null,
+                    });
+                  }
+                } catch (_) {}
               }
               
               // Add key findings from reads
               if (success && tn === 'get_matter' && res?.matter) {
                 this.addKeyFinding(`Matter: ${res.matter.name} (${res.matter.status})`);
+                // ===== RECURSIVE SUMMARIZER: Extract key facts (parallel path) =====
+                this.agentMemory?.addKeyFact(`Matter: "${res.matter.name}" (ID: ${res.matter?.id || 'unknown'})`);
               }
               if (success && tn === 'read_document_content' && res?.name) {
                 this.addKeyFinding(`Read: ${res.name}`);
+                this.agentMemory?.addKeyFact(`Document: "${res.name}"`);
                 // Progressive context: extract key info from document
                 if (res.content) {
                   const preview = res.content.substring(0, 500).replace(/\n+/g, ' ');
@@ -2130,7 +2158,11 @@ You have your brief above. Follow the approach order and time budget. Call think
                 }
               }
               
-              if (success) this.markPlanStepProgress(tn);
+              if (success) {
+                this.markPlanStepProgress(tn);
+                // ===== REWIND SYSTEM: Take checkpoint after success (parallel path) =====
+                this.rewindManager.takeCheckpoint(this, `success:${tn}`);
+              }
               
               this.messages.push({
                 role: 'tool',
