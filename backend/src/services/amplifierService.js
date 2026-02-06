@@ -1863,7 +1863,7 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             }
             
             console.log(`[Amplifier] Executing tool: ${toolName}`);
-            this.progress.currentStep = this.getToolStepLabel(toolName, toolArgs);
+            this.progress.currentStep = `[${this.executionPhase.toUpperCase()}] ${this.getToolStepLabel(toolName, toolArgs)}`;
             this.emit('progress', this.getStatus());
             
             const toolDescription = this.getDetailedToolDescription(toolName, toolArgs);
@@ -1939,8 +1939,9 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
               this.failedTools.set(toolName, failCount + 1);
             }
             
-            // Update progress using new calculation
+            // Update progress and push to UI
             this.progress.progressPercent = this.calculateProgressPercent();
+            this.streamProgress();
             
             // Add TRIMMED tool result to messages (prevents context window bloat)
             this.messages.push({
