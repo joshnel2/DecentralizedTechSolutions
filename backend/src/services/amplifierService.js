@@ -195,6 +195,11 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
   
   // Validate configuration before making request
   if (!config.endpoint || !config.apiKey || !config.deployment) {
+    console.error('[Amplifier] FATAL: Azure OpenAI config missing at call time:');
+    console.error('[Amplifier]   AZURE_OPENAI_ENDPOINT:', config.endpoint ? 'SET' : 'MISSING');
+    console.error('[Amplifier]   AZURE_OPENAI_API_KEY:', config.apiKey ? `SET (len=${config.apiKey.length})` : 'MISSING');
+    console.error('[Amplifier]   AZURE_OPENAI_DEPLOYMENT:', config.deployment ? 'SET' : 'MISSING');
+    console.error('[Amplifier]   All env keys:', Object.keys(process.env).filter(k => k.includes('AZURE')).join(', '));
     throw new Error('Azure OpenAI not configured: missing endpoint, API key, or deployment');
   }
   
