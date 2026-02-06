@@ -282,10 +282,10 @@ class SuperLawyerAgent:
         data = json.dumps(body).encode("utf-8")
         request = urllib.request.Request(url, data=data, headers=headers, method="POST")
         
-        max_retries = 3
+        max_retries = 6  # Up from 3: push through transient failures
         for attempt in range(max_retries):
             try:
-                with urllib.request.urlopen(request, context=self._ssl_context, timeout=120) as response:
+                with urllib.request.urlopen(request, context=self._ssl_context, timeout=180) as response:
                     return json.loads(response.read().decode("utf-8"))
             except urllib.error.HTTPError as e:
                 error_body = e.read().decode("utf-8") if e.fp else str(e)
@@ -601,11 +601,11 @@ class SuperLawyerAgent:
     def _get_time_budget_for_complexity(self, complexity: str) -> int:
         """Get time budget in seconds based on complexity"""
         budgets = {
-            'simple': self.config.fast_task_max_runtime,  # 15 minutes
-            'moderate': 1800,  # 30 minutes
-            'complex': self.config.max_runtime_seconds    # 45 minutes
+            'simple': self.config.fast_task_max_runtime,  # 30 minutes
+            'moderate': 3600,  # 60 minutes
+            'complex': self.config.max_runtime_seconds    # 90 minutes
         }
-        return budgets.get(complexity, 1800)  # Default 30 minutes
+        return budgets.get(complexity, 3600)  # Default 60 minutes
     
     def _check_time_warnings(self, elapsed: float, budget: int) -> bool:
         """Check if time warnings should be issued, return True if should continue"""
@@ -905,13 +905,13 @@ Work efficiently. Focus on delivering a quality result within the time budget.
 BEGIN NOW. Start with identify_legal_issue."""}
         ]
         
-        # Set limits based on complexity
+        # Set limits based on complexity - generous to encourage thoroughness
         if self.task_complexity == 'simple':
-            max_iterations = self.config.fast_task_max_iterations  # 30
+            max_iterations = self.config.fast_task_max_iterations  # 60
         elif self.task_complexity == 'moderate':
-            max_iterations = 40  # Between simple and complex
+            max_iterations = 90  # Between simple and complex
         else:
-            max_iterations = self.config.max_iterations  # 50
+            max_iterations = self.config.max_iterations  # 120
         
         max_runtime = self.time_budget  # Use calculated time budget
         
@@ -993,8 +993,8 @@ BEGIN NOW. Start with identify_legal_issue."""}
                         "content": "Use the IRAC tools to complete this task. Call the appropriate tool now."
                     })
                 
-                # Compact messages if too long
-                if len(self.messages) > 40:
+                # Compact messages if too long (increased threshold for more context)
+                if len(self.messages) > 60:
                     self._compact_messages()
             
             # Max iterations reached
@@ -1019,11 +1019,11 @@ BEGIN NOW. Start with identify_legal_issue."""}
             }
     
     def _compact_messages(self):
-        """Compact message history"""
-        if len(self.messages) > 35:
+        """Compact message history - keep more context for thorough work"""
+        if len(self.messages) > 50:
             system_msg = self.messages[0]
             first_user = self.messages[1]
-            recent = self.messages[-25:]
+            recent = self.messages[-40:]
             
             # Summary of IRAC progress
             irac_status = ", ".join(self.irac_analysis.keys()) or "none"

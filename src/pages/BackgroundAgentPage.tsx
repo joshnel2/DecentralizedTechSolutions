@@ -1063,15 +1063,16 @@ Take 20-25 minutes. Identify all compliance issues.`,
     if (hasExtendedKeywords) minutes += 15
     
     if (extendedMode) {
-      minutes = Math.max(minutes * 2, 20)
+      minutes = Math.max(minutes * 4, 30)
     }
     
-    if (minutes <= 3) return '~2-3 min'
     if (minutes <= 5) return '~3-5 min'
-    if (minutes <= 8) return '~5-8 min'
-    if (minutes <= 15) return '~10-15 min'
-    if (minutes <= 25) return '~15-25 min'
-    return '~25-30 min'
+    if (minutes <= 10) return '~5-10 min'
+    if (minutes <= 20) return '~10-20 min'
+    if (minutes <= 40) return '~20-40 min'
+    if (minutes <= 60) return '~40-60 min'
+    if (minutes <= 120) return '~1-2 hours'
+    return '~2+ hours'
   }
   
   // Filter recent tasks based on search and status
@@ -1395,7 +1396,7 @@ Take 20-25 minutes. Identify all compliance issues.`,
         potentialIssues.push('Contains sensitive information - handle with care')
       }
       if (complexity === 'complex' && !extendedMode) {
-        potentialIssues.push('Consider enabling Extended Mode for better results')
+        potentialIssues.push('Consider enabling Deep Work Mode for more thorough results')
       }
       
       // Suggested approach
@@ -2221,10 +2222,10 @@ Take 20-25 minutes. Identify all compliance issues.`,
             >
               <Zap size={16} />
               <span className={styles.extendedModeLabel}>
-                {extendedMode ? 'Extended Mode ON' : 'Extended Mode'}
+                {extendedMode ? 'Deep Work Mode ON' : 'Deep Work Mode'}
               </span>
               <span className={styles.extendedModeTime}>
-                {extendedMode ? 'Up to 30 min' : 'Enable for 15-30 min tasks'}
+                {extendedMode ? 'Up to 8 hours' : 'Enable for thorough, long-running tasks'}
               </span>
             </button>
           </div>
@@ -2233,8 +2234,9 @@ Take 20-25 minutes. Identify all compliance issues.`,
             <div className={styles.extendedModeInfo}>
               <Sparkles size={14} />
               <span>
-                Extended mode allows the agent to work for up to <strong>30 minutes</strong> on complex legal tasks. 
-                Perfect for matter audits, billing reviews, litigation prep, and contract analysis. 
+                Deep Work mode allows the agent to work for up to <strong>8 hours</strong> on complex legal projects with <strong>800 iterations</strong>. 
+                The agent will push through rate limits, self-correct errors, and produce thorough, partner-quality deliverables. 
+                Perfect for comprehensive matter audits, deep research, litigation prep, and full contract analysis. 
                 You can close this tab - you'll be notified when done.
               </span>
             </div>
@@ -2247,7 +2249,7 @@ Take 20-25 minutes. Identify all compliance issues.`,
               disabled={!goalInput.trim() || isStarting}
             >
               {isStarting ? <Loader2 size={16} className={styles.spin} /> : <Rocket size={16} />}
-              {extendedMode ? '🚀 Start Extended Task' : 'Start Task'}
+              {extendedMode ? '🚀 Start Deep Work Task' : 'Start Task'}
             </button>
           </div>
           {startError && (

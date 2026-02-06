@@ -88,14 +88,16 @@ const TaskStatus = {
 // GPT-4o, GPT-4o-mini, GPT-4.1, o1, o3, or any future Azure-hosted model
 const API_VERSION = process.env.AZURE_OPENAI_API_VERSION || '2024-12-01-preview';
 
-// Background agent runtime defaults (tuned for 30-MINUTE legal tasks)
-const DEFAULT_MAX_ITERATIONS = 200;
-const DEFAULT_MAX_RUNTIME_MINUTES = 45; // 30 min target + 15 min buffer
-const EXTENDED_MAX_ITERATIONS = 400;
-const EXTENDED_MAX_RUNTIME_MINUTES = 120; // 2 hours for major projects
-const CHECKPOINT_INTERVAL_MS = 15000;
-const MESSAGE_COMPACT_MAX_CHARS = 16000; // Tighter to compact sooner and preserve plan
-const MESSAGE_COMPACT_MAX_MESSAGES = 24; // Compact sooner to keep messages focused
+// Background agent runtime defaults (tuned for DEEP, THOROUGH legal work)
+// The agent should NEVER give up early - push through rate limits, errors, and complexity.
+// A junior attorney wouldn't stop after 15 minutes; neither should the agent.
+const DEFAULT_MAX_ITERATIONS = 350;       // Up from 200: more room to be thorough
+const DEFAULT_MAX_RUNTIME_MINUTES = 90;   // Up from 45: 60 min target + 30 min buffer
+const EXTENDED_MAX_ITERATIONS = 800;      // Up from 400: deep-dive complex projects
+const EXTENDED_MAX_RUNTIME_MINUTES = 480; // Up from 120: 8 hours for major projects
+const CHECKPOINT_INTERVAL_MS = 10000;     // Down from 15s: save progress more often
+const MESSAGE_COMPACT_MAX_CHARS = 24000;  // Up from 16000: keep more context in memory
+const MESSAGE_COMPACT_MAX_MESSAGES = 36;  // Up from 24: preserve more conversation history
 const MEMORY_MESSAGE_PREFIX = '## TASK MEMORY';
 const PLAN_MESSAGE_PREFIX = '## EXECUTION PLAN';
 
@@ -110,14 +112,14 @@ const ExecutionPhase = {
 const PHASE_CONFIG = {
   [ExecutionPhase.DISCOVERY]: {
     maxIterationPercent: 25,  // spend at most 25% of iterations here
-    tokenBudget: 2000,       // shorter responses for info gathering
+    tokenBudget: 3000,       // Up from 2000: richer context gathering
     temperature: 0.3,
     description: 'Gathering information and understanding context',
     requiredBefore: null,
   },
   [ExecutionPhase.ANALYSIS]: {
     maxIterationPercent: 25,
-    tokenBudget: 3000,
+    tokenBudget: 4000,       // Up from 3000: deeper analysis responses
     temperature: 0.4,
     description: 'Analyzing findings and identifying issues',
     requiredBefore: ExecutionPhase.DISCOVERY,
@@ -131,7 +133,7 @@ const PHASE_CONFIG = {
   },
   [ExecutionPhase.REVIEW]: {
     maxIterationPercent: 15,
-    tokenBudget: 3000,
+    tokenBudget: 4000,       // Up from 3000: thorough review responses
     temperature: 0.3,
     description: 'Reviewing work, creating follow-ups, finalizing',
     requiredBefore: ExecutionPhase.ACTION,
@@ -139,11 +141,12 @@ const PHASE_CONFIG = {
 };
 
 // Task complexity estimation for better progress tracking
+// Increased step counts and time estimates to encourage thoroughness
 const TASK_COMPLEXITY = {
-  simple: { estimatedSteps: 8, estimatedMinutes: 5 },
-  moderate: { estimatedSteps: 15, estimatedMinutes: 15 },
-  complex: { estimatedSteps: 30, estimatedMinutes: 25 },
-  major: { estimatedSteps: 50, estimatedMinutes: 35 }
+  simple: { estimatedSteps: 15, estimatedMinutes: 10 },
+  moderate: { estimatedSteps: 30, estimatedMinutes: 25 },
+  complex: { estimatedSteps: 60, estimatedMinutes: 50 },
+  major: { estimatedSteps: 120, estimatedMinutes: 80 }
 };
 
 /**
@@ -279,7 +282,7 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
   }
   
   const retryableStatuses = new Set([429, 500, 502, 503, 504]);
-  const maxAttempts = 5;
+  const maxAttempts = 8; // Up from 5: push through transient failures harder
   
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const response = await fetch(url, {
@@ -1769,8 +1772,12 @@ ${this.learningContext || ''}
 - You are FULLY AUTONOMOUS. Call tools immediately. NEVER just respond with text.
 - NEVER use log_time or log_billable_work. Time entries are for humans.
 - NO placeholders like [INSERT], [TODO] in documents. Write REAL content.
-- Before task_complete: you MUST have ≥5 tool calls, ≥1 note, ≥1 task, ≥60s of work.
+- Before task_complete: you MUST have ≥8 tool calls, ≥1 note, ≥1 task, ≥120s of work.
 - Use IRAC for legal analysis: Issue → Rule → Application → Conclusion.
+- BE THOROUGH. A real attorney would not cut corners. Dig deeper, analyze more, create comprehensive deliverables.
+- NEVER give up early. If an approach fails, try a different one. You have plenty of time and iterations.
+- PUSH THROUGH difficulty. If a tool fails, try alternatives. If research is thin, search harder.
+- STAY ON TASK. Do not call task_complete until you have produced HIGH-QUALITY, SUBSTANTIVE work product.
 
 ## TOOL QUICK REFERENCE
 **Read:** get_matter, search_matters, list_clients, read_document_content, search_document_content, list_documents, get_calendar_events, list_tasks
@@ -1944,8 +1951,8 @@ You have your brief above. Follow the approach order and time budget. Call think
    */
   async runAgentLoop() {
     const MAX_ITERATIONS = this.maxIterations;
-    const MAX_TEXT_ONLY_STREAK = 2; // Only 2 text-only responses before aggressive re-prompt
-    const PLAN_REINJECTION_INTERVAL = 8; // Re-inject plan every 8 iterations
+    const MAX_TEXT_ONLY_STREAK = 4; // Up from 2: give model more chances before escalating
+    const PLAN_REINJECTION_INTERVAL = 6; // Down from 8: keep plan fresher in context
     const tools = getOpenAITools();
     
     console.log(`[Amplifier] Starting agent loop with ${tools.length} tools, phase: ${this.executionPhase}`);
@@ -2340,7 +2347,7 @@ You have your brief above. Follow the approach order and time budget. Call think
             });
 
             this.recentTools.push(toolName);
-            if (this.recentTools.length > 6) this.recentTools.shift();
+            if (this.recentTools.length > 8) this.recentTools.shift();
             
             // If a tool has failed 3+ times, add guidance to avoid it
             if (this.failedTools.get(toolName) >= 3) {
@@ -2366,10 +2373,10 @@ You have your brief above. Follow the approach order and time budget. Call think
               const hasTask = this.actionsHistory.some(a => a.tool === 'create_task');
               const hasDocument = this.actionsHistory.some(a => a.tool === 'create_document');
               
-              // Minimum requirements
-              const MIN_SECONDS = 60;
-              const MIN_ACTIONS = 5;
-              const MIN_SUBSTANTIVE = 2;
+              // Minimum requirements (raised to ensure thorough work)
+              const MIN_SECONDS = 120;    // Up from 60: at least 2 minutes of work
+              const MIN_ACTIONS = 8;      // Up from 5: more steps for thorough work
+              const MIN_SUBSTANTIVE = 3;  // Up from 2: create more deliverables
               
               // Build missing requirements message
               const missing = [];
@@ -2420,8 +2427,9 @@ Keep working on: "${this.goal}"`
               
               // If evaluation says revision needed AND we have time, go back for fixes
               const timeLeftMs = this.maxRuntimeMs - (Date.now() - this.startTime.getTime());
-              if (evaluation.revisionNeeded && timeLeftMs > 60000 && !this._revisionAttempted) {
-                this._revisionAttempted = true; // Only one revision pass
+              this._revisionAttempts = (this._revisionAttempts || 0);
+              if (evaluation.revisionNeeded && timeLeftMs > 60000 && this._revisionAttempts < 3) {
+                this._revisionAttempts++; // Allow up to 3 revision passes (up from 1)
                 console.log(`[Amplifier] Task ${this.id} needs revision (score: ${evaluation.overallScore}/100)`);
                 
                 this.streamEvent('revision', `⚠️ Self-evaluation score: ${evaluation.overallScore}/100 - revising...`, {
@@ -2569,7 +2577,7 @@ Keep working on: "${this.goal}"`
               }
             }
 
-            if (this.recentTools.length === 6 && this.recentTools.every(t => t === toolName)) {
+            if (this.recentTools.length === 8 && this.recentTools.every(t => t === toolName)) {
               this.messages.push({
                 role: 'user',
                 content: `You have used ${toolName} repeatedly without progress. Try a different tool or a new approach to complete: "${this.goal}".`
@@ -2676,7 +2684,7 @@ Keep working on: "${this.goal}"`
               role: 'user',
               content: `STOP writing text. You MUST call a tool NOW. ${phaseHint[this.executionPhase] || 'Call a tool immediately.'} Your goal: "${this.goal}"`
             });
-          } else if (this.textOnlyStreak <= MAX_TEXT_ONLY_STREAK + 3) {
+          } else if (this.textOnlyStreak <= MAX_TEXT_ONLY_STREAK + 5) {
             // Strong intervention - re-inject plan and force tool use
             console.warn(`[Amplifier] Text-only streak ${this.textOnlyStreak} - forcing plan re-injection`);
             const planMsg = this.buildPlanMessage();
@@ -2687,8 +2695,28 @@ Keep working on: "${this.goal}"`
               role: 'user',
               content: `⚠️ CRITICAL: You have responded ${this.textOnlyStreak} times without calling any tool. This is UNACCEPTABLE. You are a tool-calling agent. Call think_and_plan RIGHT NOW if you're unsure what to do, then call action tools. DO NOT RESPOND WITH TEXT.`
             });
+          } else if (this.textOnlyStreak <= MAX_TEXT_ONLY_STREAK + 8) {
+            // Last resort - try rewinding to a known-good state before giving up
+            console.warn(`[Amplifier] Text-only streak ${this.textOnlyStreak} - attempting rewind recovery`);
+            if (this.rewindManager.getStatus().canRewind) {
+              const rewindResult = this.rewindManager.rewind(this, `Text-only streak: ${this.textOnlyStreak}`);
+              if (rewindResult.success) {
+                this.textOnlyStreak = 0; // Reset after rewind
+                this.agentMemory.addFailedPath(`Text-only loop at iteration ${this.progress.iterations}`);
+                this.agentMemory.addConstraint('You MUST call tools. Do NOT respond with text only.');
+                this.streamEvent('rewind_success', `⏪ Recovered from text loop via rewind`, {
+                  icon: 'rotate-ccw', color: 'blue'
+                });
+                continue;
+              }
+            }
+            // If rewind failed, try one more aggressive push
+            this.messages.push({
+              role: 'user',
+              content: `FINAL WARNING: Call a tool NOW or the task will fail. You MUST use tools. Call think_and_plan if stuck. Goal: "${this.goal}"`
+            });
           } else {
-            // Terminal failure after many text-only responses
+            // Terminal failure after many text-only responses (now requires 12+ consecutive)
             console.error(`[Amplifier] Task ${this.id} failed: ${this.textOnlyStreak} consecutive text-only responses`);
             this.status = TaskStatus.FAILED;
             this.error = `Agent stopped using tools after ${this.textOnlyStreak} text-only responses.`;
@@ -2806,8 +2834,8 @@ Keep working on: "${this.goal}"`
           }
         }
         
-        if (this.consecutiveErrors >= 5) {
-          // 5 consecutive errors = something is fundamentally broken, stop gracefully
+        if (this.consecutiveErrors >= 8) {
+          // 8 consecutive errors (up from 5) = something is fundamentally broken, stop gracefully
           console.error(`[Amplifier] Task ${this.id} failed: ${this.consecutiveErrors} consecutive errors`);
           this.status = TaskStatus.COMPLETED; // Complete with partial results, don't lose work
           this.progress.progressPercent = 100;

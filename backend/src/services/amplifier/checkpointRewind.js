@@ -24,11 +24,11 @@
  *    "don't try X again, try Y instead."
  */
 
-const MAX_CHECKPOINT_STACK_SIZE = 10;
-const LOOP_DETECTION_WINDOW = 8; // Look at last N actions for loops
-const TOOL_REPEAT_THRESHOLD = 3; // Same tool+args 3 times = loop
-const RESPONSE_SIMILARITY_THRESHOLD = 0.85; // 85% similar text = loop
-const MAX_REWINDS_PER_TASK = 5; // Don't rewind forever
+const MAX_CHECKPOINT_STACK_SIZE = 20;          // Up from 10: keep more restore points
+const LOOP_DETECTION_WINDOW = 10;              // Up from 8: wider window for better detection
+const TOOL_REPEAT_THRESHOLD = 4;               // Up from 3: slightly more tolerant before declaring loop
+const RESPONSE_SIMILARITY_THRESHOLD = 0.80;    // Down from 0.85: catch more subtle loops
+const MAX_REWINDS_PER_TASK = 12;               // Up from 5: allow more recovery attempts
 
 /**
  * Represents a single checkpoint snapshot
