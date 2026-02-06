@@ -192,36 +192,21 @@ class MetacognitiveAgent:
     breaking them into steps and self-correcting as needed.
     """
     
-    # System prompt for the agent
-    SYSTEM_PROMPT = """You are an autonomous legal AI agent. You work WITHOUT human supervision on legal document processing tasks.
+    # System prompt for the agent - concise for context efficiency
+    SYSTEM_PROMPT = """You are an autonomous legal AI agent for document processing tasks.
 
-Your capabilities:
-- Read files from the case_data directory (PDFs, text files, documents)
-- Write legal documents, memos, and summaries
-- List and navigate directory structures
-- Extract and analyze legal information
+Capabilities: Read/write files (PDF, DOCX, TXT, MD), navigate directories, create documents.
 
-AUTONOMOUS OPERATION RULES:
-1. NEVER ask for user input or clarification
-2. Make reasonable assumptions when information is ambiguous
-3. If a step fails, try an alternative approach
-4. Log all significant actions and decisions
-5. Complete the entire task before stopping
+Rules:
+- Work autonomously - do NOT wait for user input
+- Flag uncertainties with [NEEDS REVIEW: reason] in output
+- Make reasonable assumptions and document them
+- If a step fails, try an alternative approach
+- Complete the entire task before stopping
 
-When planning, break complex tasks into specific, actionable steps.
-When executing, call the appropriate tools to complete each step.
-When critiquing, evaluate if the step achieved its goal.
-When refining, adjust your approach if the critique found issues.
+Tools: list_directory, list_directory_recursive, read_file, write_file, file_exists, create_directory
 
-You have access to these file system tools:
-- list_directory: List files in a directory
-- list_directory_recursive: Find all files in a directory tree
-- read_file: Read file contents (supports .txt, .md, .pdf, .docx)
-- write_file: Create or update files
-- file_exists: Check if a file exists
-- create_directory: Create a new directory
-
-Always respond with structured JSON when asked to plan or critique."""
+Workflow: create_plan → execute steps → report_step_result → critique_step → complete_task"""
 
     def __init__(
         self,
@@ -652,8 +637,8 @@ BEGIN NOW. Start by calling create_plan."""}
                         "content": "Continue executing the task. Use the tools to make progress. Do not just describe what to do - actually call the tools."
                     })
                 
-                # Compact message history if too long (raised threshold)
-                if len(self.messages) > 70:
+                # Compact messages proactively
+                if len(self.messages) > 45:
                     self._compact_messages()
             
             # Reached limits without completing
@@ -676,21 +661,33 @@ BEGIN NOW. Start by calling create_plan."""}
             }
     
     def _compact_messages(self):
-        """Compact message history to prevent context overflow - keep more context"""
-        # Keep system message, first user message, and last 50 messages
-        if len(self.messages) > 55:
-            system_msg = self.messages[0]
-            first_user = self.messages[1]
-            recent = self.messages[-50:]
-            
-            # Create a summary message
-            summary = {
-                "role": "system",
-                "content": f"[Previous conversation compacted. {len(self.messages) - 32} messages removed. Current progress: iteration {self.iteration_count}, plan status: {self.plan.status if self.plan else 'unknown'}]"
-            }
-            
-            self.messages = [system_msg, first_user, summary] + recent
-            self._log("Compacted message history")
+        """Smart compaction preserving plan progress context"""
+        if len(self.messages) <= 40:
+            return
+        
+        system_msg = self.messages[0]
+        first_user = self.messages[1]
+        
+        # Build progress summary
+        plan_summary = ""
+        if self.plan:
+            completed = [s for s in self.plan.steps if s.status == StepStatus.COMPLETED]
+            pending = [s for s in self.plan.steps if s.status == StepStatus.PENDING]
+            plan_summary = (
+                f"Plan: {len(completed)}/{len(self.plan.steps)} steps completed. "
+                f"Completed: {'; '.join(s.description[:50] for s in completed[:5])}. "
+                f"Remaining: {'; '.join(s.description[:50] for s in pending[:5])}"
+            )
+        
+        elapsed = time.time() - self.start_time if self.start_time else 0
+        summary = {
+            "role": "system",
+            "content": f"[COMPACTED] Iteration {self.iteration_count} | {elapsed:.0f}s elapsed\n{plan_summary}\nContinue with next step."
+        }
+        
+        recent = self.messages[-30:]
+        self.messages = [system_msg, first_user, summary] + recent
+        self._log("Compacted message history")
 
 
 def run_legal_task(goal: str, config: Optional[AgentConfig] = None) -> Dict[str, Any]:

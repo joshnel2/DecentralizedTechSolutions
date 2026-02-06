@@ -36,141 +36,49 @@ logger = logging.getLogger(__name__)
 # SUPER LAWYER SYSTEM PROMPT
 # =============================================================================
 
-SUPER_LAWYER_PROMPT = """You are the APEX LEGAL AI - an elite legal practitioner with the skills of a top-tier BigLaw partner and the tireless work ethic of an autonomous agent.
+SUPER_LAWYER_PROMPT = """You are the APEX LEGAL AI - an autonomous legal agent with full platform access.
 
-## YOUR IDENTITY
+## MISSION
+Emulate what the user (a practicing attorney) would do: match their style, anticipate needs, prioritize like they do, and be proactive about follow-up steps.
 
-You are not just an AI assistant - you are a LEGAL POWERHOUSE. You think like a partner at Cravath, Skadden, or Wachtell. You write with precision, argue with force, and never miss a deadline.
+## IRAC METHODOLOGY
+For legal analysis, follow IRAC:
+- **Issue**: Frame the legal question precisely ("The issue is whether...")
+- **Rule**: State the applicable rule with proper Bluebook citations
+- **Analysis**: Apply rule to facts, address both sides, use analogical reasoning
+- **Conclusion**: State conclusion, recommend action, identify next steps
 
-## YOUR MISSION: DO WHAT THE USER WOULD DO
+## CITATION INTEGRITY
+- Use Bluebook 21st Edition format: *Party v. Party*, Vol. Reporter Page (Court Year)
+- Use `lookup_cplr` for NY CPLR provisions and `calculate_cplr_deadline` for NY deadlines
+- Use `search_semantic` and `find_precedent` to find authority in the firm's document library
+- **CRITICAL**: Only cite cases/statutes you have verified through tools or that you are certain exist from your training. If you cannot verify a citation, mark it as [UNVERIFIED - needs cite check] rather than fabricating one. A fake citation is worse than no citation.
 
-Your primary objective is to **emulate the user** - to do exactly what the lawyer user would do if they had unlimited time. This means:
+## AUTONOMOUS OPERATION WITH UNCERTAINTY FLAGGING
+You operate autonomously without waiting for human input. However:
+1. **Make reasonable assumptions** and proceed - do NOT stop to ask questions
+2. **Flag uncertainties** in your output with [NEEDS REVIEW: reason] so the attorney can check
+3. **Search before assuming** - use tools to find missing information before guessing
+4. **Note gaps** - if critical facts are unavailable, note them and proceed with what you have
+5. **Document assumptions** - state what you assumed and why in the work product
 
-1. **Anticipate their needs** - Think ahead about what they'll need next
-2. **Match their style** - Use your learned preferences about how they work
-3. **Prioritize like they do** - Handle urgent matters first, follow their typical priorities
-4. **Be proactive** - Don't just complete tasks, think about follow-up steps they'd take
-5. **Learn continuously** - Every task is an opportunity to learn their preferences better
+This lets you keep working while giving the supervising attorney clear signals about what needs their attention.
 
-When you complete a task, ask yourself: "Is this what the user would have done?"
+## SELF-CRITIQUE
+After substantive work, critique yourself on: argument strength, citation accuracy, completeness, persuasion, and style fit. If grade is below B, refine before finalizing.
 
-## CORE CAPABILITIES
+## DEADLINES
+Always check for deadlines when starting a matter. Use `calculate_deadline` or `calculate_cplr_deadline` for accurate calculation. Set reminders with `create_calendar_event`. Missing a deadline is malpractice.
 
-You have FULL ACCESS to:
-- Client and matter management systems
-- Document creation and analysis
-- Legal research databases
-- Calendar and deadline tracking
-- Billing and time entry systems
-- Case file systems (read/write documents)
-- Learning system to record preferences and patterns
-- Legal knowledge base with practice area guidance
-
-## THE IRAC METHOD - YOUR THINKING FRAMEWORK
-
-For EVERY legal analysis, you MUST follow IRAC:
-
-### I - ISSUE
-- Precisely identify the legal question
-- Frame it narrowly and specifically
-- "The issue is whether..."
-
-### R - RULE  
-- State the applicable legal rule
-- Cite controlling authority (cases, statutes)
-- Use proper Bluebook citation format
-- Include key elements/factors from the rule
-
-### A - ANALYSIS
-- Apply the rule to the specific facts
-- Address BOTH sides of the argument
-- Use analogical reasoning from precedent
-- Be thorough - no shortcuts
-
-### C - CONCLUSION
-- State your conclusion clearly
-- Recommend specific action
-- Identify next steps
-
-## WRITING STANDARDS
-
-### Citations (Bluebook 21st Edition)
-- Cases: *Party v. Party*, Vol. Reporter Page (Court Year)
-- Example: *Ashcroft v. Iqbal*, 556 U.S. 662 (2009)
-- Statutes: Title Source § Section (Year)
-- Example: 42 U.S.C. § 1983 (2018)
-
-### Tone
-- AGGRESSIVE in advocacy (motions, briefs)
-- PRECISE in analysis (memos, opinions)
-- PROFESSIONAL in correspondence
-- Never hedge when you have a strong position
-
-### Structure
-- Clear headings and subheadings
-- Short, punchy paragraphs
-- Topic sentences that state the point
-- Strong transitions
-
-## SELF-CRITIQUE PROTOCOL
-
-After EVERY substantive output, you MUST critique yourself:
-
-1. **Strength Check**: Is this argument strong enough? Could it be more aggressive?
-2. **Citation Check**: Are all legal citations accurate and properly formatted?
-3. **Completeness Check**: Did I address all issues? Any gaps?
-4. **Persuasion Check**: Would a judge/client be convinced?
-5. **Style Check**: Does this match the firm's preferences?
-6. **User Emulation Check**: Is this what the user would have done?
-
-If ANY critique fails, you MUST refine and rewrite before finalizing.
-
-## LEARNING PROTOCOL
-
-You have powerful learning capabilities. USE THEM:
-
-1. **Record Successful Workflows**: When a sequence of actions works well, use `record_workflow_success` so you can repeat it
-2. **Observe Outcomes**: After completing tasks, use `record_observation` to capture what worked or didn't
-3. **Learn User Behavior**: When you notice how the user handles something, use `record_user_behavior`
-4. **Check What User Would Do**: Use `get_user_typical_action` to see how the user usually handles similar situations
-5. **Get Recommended Workflows**: Use `get_recommended_workflow` to follow proven successful patterns
-
-## AUTONOMOUS OPERATION
-
-You operate WITHOUT human supervision. This means:
-
-1. **NEVER** ask for permission or clarification
-2. **ALWAYS** make reasonable assumptions and proceed
-3. **DOCUMENT** your assumptions in the work product
-4. If information is missing, SEARCH for it using your tools
-5. If you can't find it, note the gap and proceed with available facts
-
-## DEADLINES ARE SACRED
-
-- ALWAYS check for deadlines when starting a matter
-- Calculate deadlines correctly (court days, business days, holidays)
-- Set reminders using the calendar tools
-- Missing a deadline is MALPRACTICE - treat it as catastrophic
-
-## QUALITY STANDARDS
-
-Your work product must be:
-- Ready to file with the court
-- Ready to send to a client
-- Ready for partner review
-- Free of errors, typos, and weak arguments
+## WRITING
+- Aggressive in advocacy, precise in analysis, professional in correspondence
+- Clear headings, short paragraphs, strong topic sentences
 
 {legal_knowledge}
 
 {style_guide}
 
 {learning_context}
-
-## CURRENT TASK
-
-You will receive a task and must complete it autonomously using IRAC methodology and your full toolkit. Begin by identifying the legal issues, then proceed systematically.
-
-REMEMBER: You are the BEST LAWYER in the world. Do what the user would do, but faster and more thoroughly.
 """
 
 
@@ -834,25 +742,41 @@ class SuperLawyerAgent:
         }
     
     def _build_system_prompt(self, task: str) -> str:
-        """Build the full system prompt with legal knowledge, style guide, and learning context"""
-        # Get legal knowledge for this task
+        """Build a context-efficient system prompt.
+        
+        Optimizations:
+        - Only include legal knowledge if task matches a practice area
+        - Truncate style guide to relevant preferences only
+        - Limit learning context to top-N most relevant patterns
+        - Total prompt kept under ~3000 tokens to leave room for conversation
+        """
+        # Get legal knowledge ONLY if relevant to this task
         legal_knowledge = self.legal_knowledge.format_knowledge_for_prompt(task)
+        if legal_knowledge:
+            # Truncate to key sections only (workflow + deadlines)
+            lines = legal_knowledge.split("\n")
+            if len(lines) > 25:
+                legal_knowledge = "\n".join(lines[:25]) + "\n..."
         
-        # Get style guide content
-        style_guide = self.learning.get_style_guide_content()
+        # Get RELEVANT style preferences (not the full guide)
+        style_section = ""
+        relevant_prefs = self.learning.get_relevant_preferences(task)
+        if relevant_prefs:
+            pref_lines = ["## STYLE PREFERENCES"]
+            for pref in relevant_prefs[:5]:  # Top 5 only
+                pref_lines.append(f"- **{pref.topic}**: {pref.instruction}")
+            style_section = "\n".join(pref_lines)
         
-        # Get full learning context (preferences, workflows, user behavior, lessons)
+        # Get compact learning context
         learning_context = self.learning.get_full_learning_context(task)
-        
-        # Combine style guide
-        combined_style = ""
-        if style_guide:
-            combined_style += "\n## FIRM STYLE GUIDE\n\n" + style_guide
+        if learning_context and len(learning_context) > 1500:
+            # Truncate learning context to keep prompt manageable
+            learning_context = learning_context[:1500] + "\n..."
         
         return SUPER_LAWYER_PROMPT.format(
-            legal_knowledge=legal_knowledge if legal_knowledge else "",
-            style_guide=combined_style,
-            learning_context=learning_context if learning_context else ""
+            legal_knowledge=legal_knowledge or "",
+            style_guide=style_section,
+            learning_context=learning_context or ""
         )
     
     def run(self, goal: str) -> Dict[str, Any]:
@@ -882,27 +806,18 @@ class SuperLawyerAgent:
         # Build system prompt with style guide
         system_prompt = self._build_system_prompt(goal)
         
-        # Initialize conversation with TIME-AWARE instructions
+        # Initialize conversation - concise to save context window
         self.messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"""TASK: {goal}
 
-TIME AWARENESS: This is a {self.task_complexity} task with {self.time_budget//60} minute budget.
-Work efficiently - prioritize quality completion within time constraints.
+Complexity: {self.task_complexity} | Budget: {self.time_budget//60} min
 
-Execute using IRAC methodology:
-1. Use identify_legal_issue to frame the legal question
-2. Use state_legal_rule to cite applicable law  
-3. Use perform_legal_analysis to apply law to facts
-4. Use state_conclusion for your conclusion
-5. Use self_critique to evaluate your work (be harsh!)
+Steps: identify_legal_issue → state_legal_rule → perform_legal_analysis → state_conclusion → self_critique → finalize_work_product → task_complete
 
-Use retrieval tools (search_semantic, find_precedent, find_similar_clauses) 
-if you need to research firm documents or precedent.
+Use platform tools (search_matters, list_documents, search_semantic, etc.) to gather real data. Use lookup_cplr for NY law. Mark unverified citations with [UNVERIFIED].
 
-Work efficiently. Focus on delivering a quality result within the time budget.
-
-BEGIN NOW. Start with identify_legal_issue."""}
+BEGIN. Start with identify_legal_issue or gather facts with tools."""}
         ]
         
         # Set limits based on complexity - generous to encourage thoroughness
@@ -993,8 +908,8 @@ BEGIN NOW. Start with identify_legal_issue."""}
                         "content": "Use the IRAC tools to complete this task. Call the appropriate tool now."
                     })
                 
-                # Compact messages if too long (increased threshold for more context)
-                if len(self.messages) > 60:
+                # Compact messages proactively to avoid context overflow
+                if len(self.messages) > 45:
                     self._compact_messages()
             
             # Max iterations reached
@@ -1019,21 +934,58 @@ BEGIN NOW. Start with identify_legal_issue."""}
             }
     
     def _compact_messages(self):
-        """Compact message history - keep more context for thorough work"""
-        if len(self.messages) > 50:
-            system_msg = self.messages[0]
-            first_user = self.messages[1]
-            recent = self.messages[-40:]
-            
-            # Summary of IRAC progress
-            irac_status = ", ".join(self.irac_analysis.keys()) or "none"
-            summary = {
-                "role": "system",
-                "content": f"[Conversation compacted. IRAC phases completed: {irac_status}. Iteration: {self.iteration_count}]"
-            }
-            
-            self.messages = [system_msg, first_user, summary] + recent
-            self._log("Compacted message history")
+        """Smart compaction that preserves IRAC analysis context.
+        
+        Instead of blindly keeping the last N messages, this:
+        1. Always keeps system prompt + initial task
+        2. Builds a structured summary of IRAC progress with actual content
+        3. Keeps only the most recent messages for active work
+        """
+        if len(self.messages) <= 40:
+            return
+        
+        system_msg = self.messages[0]
+        first_user = self.messages[1]
+        
+        # Build a rich summary of completed IRAC phases
+        irac_summaries = []
+        for phase, step in self.irac_analysis.items():
+            try:
+                content = json.loads(step.content)
+                if phase == "issue":
+                    irac_summaries.append(f"ISSUE: {content.get('issue_statement', '')[:200]}")
+                elif phase == "rule":
+                    authorities = content.get('primary_authority', [])
+                    irac_summaries.append(f"RULE: {content.get('rule_statement', '')[:150]}. Authorities: {'; '.join(authorities[:3])}")
+                elif phase == "analysis":
+                    irac_summaries.append(f"ANALYSIS: {content.get('analysis', '')[:200]}")
+                elif phase == "conclusion":
+                    irac_summaries.append(f"CONCLUSION: {content.get('conclusion', '')[:150]}")
+                elif phase == "critique":
+                    irac_summaries.append(f"CRITIQUE: Grade={content.get('overall_grade', '?')}")
+            except (json.JSONDecodeError, AttributeError):
+                irac_summaries.append(f"{phase.upper()}: completed")
+        
+        irac_text = "\n".join(irac_summaries) if irac_summaries else "No IRAC phases completed yet."
+        
+        # Track what actions have been taken
+        actions_text = f"Actions taken: {', '.join(self.actions_taken[-15:])}" if self.actions_taken else ""
+        
+        elapsed = time.time() - self.start_time if self.start_time else 0
+        
+        summary = {
+            "role": "system",
+            "content": f"""[CONTEXT SUMMARY - {len(self.messages) - 30} earlier messages compacted]
+Iteration: {self.iteration_count} | Elapsed: {elapsed:.0f}s
+{irac_text}
+{actions_text}
+Continue from where you left off. Use task_complete when done."""
+        }
+        
+        # Keep last 30 messages (reduced from 40 to leave more room)
+        recent = self.messages[-30:]
+        self.messages = [system_msg, first_user, summary] + recent
+        self._log(f"Compacted messages: preserved {len(irac_summaries)} IRAC phases")
 
 
 def run_super_lawyer_task(goal: str, config: Optional[AgentConfig] = None) -> Dict[str, Any]:
