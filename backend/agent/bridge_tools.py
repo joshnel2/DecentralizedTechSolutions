@@ -464,13 +464,14 @@ LEGAL_TOOLS_OPENAI = [
         "type": "function",
         "function": {
             "name": "list_documents",
-            "description": "Get list of documents, optionally filtered by matter or client.",
+            "description": "Get list of documents, optionally filtered by matter or client. Includes files synced from integrations.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "matter_id": {"type": "string", "description": "Filter by matter"},
                     "client_id": {"type": "string", "description": "Filter by client"},
                     "search": {"type": "string", "description": "Search by name"},
+                    "source": {"type": "string", "description": "Filter by source: 'local', 'onedrive', 'googledrive', 'dropbox'"},
                     "limit": {"type": "integer", "description": "Number to return"}
                 },
                 "required": []
@@ -480,13 +481,12 @@ LEGAL_TOOLS_OPENAI = [
     {
         "type": "function",
         "function": {
-            "name": "read_document_content",
-            "description": "Read the text content of a document. Extracts text from PDF, DOCX, and other formats.",
+            "name": "get_document",
+            "description": "Get information about a specific document by ID.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "document_id": {"type": "string", "description": "UUID of the document"},
-                    "max_length": {"type": "integer", "description": "Max characters to return"}
+                    "document_id": {"type": "string", "description": "UUID of the document"}
                 },
                 "required": ["document_id"]
             }
@@ -495,15 +495,62 @@ LEGAL_TOOLS_OPENAI = [
     {
         "type": "function",
         "function": {
-            "name": "create_document",
-            "description": "Create a formal Word document (.docx) and save it to the platform. Use markdown for formatting (# headers, - bullets, **bold**). ALWAYS include matter_id.",
+            "name": "read_document_content",
+            "description": "Read the text content of a document by ID. Extracts text from PDF, DOCX, and other formats. Use this to see what's inside documents.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "Document name"},
-                    "content": {"type": "string", "description": "Document content (markdown)"},
-                    "matter_id": {"type": "string", "description": "Attach to matter (always include)"},
-                    "client_id": {"type": "string", "description": "Attach to client"}
+                    "document_id": {"type": "string", "description": "UUID of the document"},
+                    "max_length": {"type": "integer", "description": "Max characters to return (default 10000, max 50000)"}
+                },
+                "required": ["document_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_and_read_document",
+            "description": "Find a document by name and read its content. Searches flexibly - use partial names, keywords, or descriptions. Case-insensitive.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "document_name": {"type": "string", "description": "Search term - partial name, keyword, or any part of document name"},
+                    "matter_id": {"type": "string", "description": "Optional: limit search to specific matter"},
+                    "max_length": {"type": "integer", "description": "Max characters to return (default 10000)"}
+                },
+                "required": ["document_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_matter_documents_content",
+            "description": "Get a summary of all documents attached to a matter, including content previews. Useful for understanding the full picture of a case.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "matter_id": {"type": "string", "description": "UUID of the matter"},
+                    "include_content": {"type": "boolean", "description": "Include document content previews (default true)"}
+                },
+                "required": ["matter_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_document",
+            "description": "Create a formal Word document (.docx) saved to the platform. Use markdown formatting (# headers, - bullets, **bold**). ALWAYS include matter_id.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Document name without extension"},
+                    "content": {"type": "string", "description": "Full text content with markdown formatting. Write COMPLETE professional legal content."},
+                    "matter_id": {"type": "string", "description": "Matter UUID - ALWAYS INCLUDE. Use search_matters to find it."},
+                    "client_id": {"type": "string", "description": "Client UUID (only if not attaching to a matter)"},
+                    "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional tags"}
                 },
                 "required": ["name", "content"]
             }
@@ -512,16 +559,146 @@ LEGAL_TOOLS_OPENAI = [
     {
         "type": "function",
         "function": {
-            "name": "search_document_content",
-            "description": "Search within all document contents for specific text.",
+            "name": "update_document",
+            "description": "Create an edited version of an existing document. CLONES the original and applies changes to the new copy, preserving the original. New doc named 'Original Name (AI)'.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "search_term": {"type": "string", "description": "Text to search for"},
+                    "document_id": {"type": "string", "description": "ID of the document to create an edited version of"},
+                    "new_content": {"type": "string", "description": "The new/updated content for the edited version"},
+                    "new_name": {"type": "string", "description": "Optional: custom name for the new document"}
+                },
+                "required": ["document_id", "new_content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_document",
+            "description": "Permanently delete a document. WARNING: Cannot be undone.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string", "description": "UUID of the document to delete"},
+                    "confirm": {"type": "boolean", "description": "Must be true to confirm deletion"}
+                },
+                "required": ["document_id", "confirm"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "move_document",
+            "description": "Move a document to a different matter or client.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string", "description": "UUID of the document to move"},
+                    "new_matter_id": {"type": "string", "description": "UUID of the new matter"},
+                    "new_client_id": {"type": "string", "description": "UUID of the new client"}
+                },
+                "required": ["document_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "rename_document",
+            "description": "Rename a document.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string", "description": "UUID of the document to rename"},
+                    "new_name": {"type": "string", "description": "New name for the document"}
+                },
+                "required": ["document_id", "new_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "share_document",
+            "description": "Share a document with a specific user, granting them view or edit access.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string", "description": "UUID of the document to share"},
+                    "user_id": {"type": "string", "description": "UUID of the user to share with"},
+                    "permission_level": {"type": "string", "enum": ["view", "edit"], "description": "Access level (default: view)"}
+                },
+                "required": ["document_id", "user_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_document_versions",
+            "description": "Get the version history of a document.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string", "description": "UUID of the document"}
+                },
+                "required": ["document_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_document_content",
+            "description": "Search within document contents across all documents in the firm. Find specific clauses, terms, or information.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "search_term": {"type": "string", "description": "Text to search for within documents"},
                     "matter_id": {"type": "string", "description": "Limit to matter"},
                     "client_id": {"type": "string", "description": "Limit to client"}
                 },
                 "required": ["search_term"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "draft_email_for_matter",
+            "description": "Draft a professional email related to a matter. Can save to Outlook drafts and link to matter for record keeping.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "matter_id": {"type": "string", "description": "UUID of the matter this email relates to"},
+                    "to": {"type": "string", "description": "Recipient email address(es), comma-separated"},
+                    "subject": {"type": "string", "description": "Email subject line"},
+                    "body": {"type": "string", "description": "Email body - write a complete professional email"},
+                    "email_type": {"type": "string", "enum": ["client_update", "demand_letter", "settlement_proposal", "scheduling", "follow_up", "case_status", "document_request", "general"]},
+                    "cc": {"type": "string", "description": "CC recipients, comma-separated"},
+                    "save_to_outlook": {"type": "boolean", "description": "Save as draft in Outlook (default true if connected)"},
+                    "link_to_matter": {"type": "boolean", "description": "Link email to matter for records (default true)"}
+                },
+                "required": ["matter_id", "subject", "body"]
+            }
+        }
+    },
+    # ============== MATTER NOTES ==============
+    {
+        "type": "function",
+        "function": {
+            "name": "add_matter_note",
+            "description": "Add a quick note to a matter's Notes tab. Use for: case updates, meeting summaries, research findings, status updates, observations. For formal documents, use create_document instead.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "matter_id": {"type": "string", "description": "Matter UUID or name"},
+                    "content": {"type": "string", "description": "Note content - use markdown for formatting"},
+                    "note_type": {"type": "string", "enum": ["general", "case_note", "meeting_note", "research", "status_update", "client_communication", "court_filing", "discovery"]}
+                },
+                "required": ["matter_id", "content"]
             }
         }
     },
