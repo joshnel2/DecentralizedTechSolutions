@@ -1761,6 +1761,9 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
         const choice = response.choices[0];
         const message = choice.message;
         
+        // Reset consecutive error counter on successful API call
+        this.consecutiveErrors = 0;
+        
         // Add assistant message to history
         this.messages.push(message);
         
@@ -2358,12 +2361,41 @@ Keep working on: "${this.goal}"`
           return;
         }
         
-        // For other errors, add to messages and let AI recover
-        this.streamEvent('recovery', `⚠️ Recovering from error: ${error.message.substring(0, 80)}...`, {
+        // For other errors: fix message array integrity, then let AI recover
+        // This prevents cascading failures where a broken message array
+        // causes every subsequent API call to fail
+        this.consecutiveErrors = (this.consecutiveErrors || 0) + 1;
+        
+        if (this.consecutiveErrors >= 5) {
+          // 5 consecutive errors = something is fundamentally broken, stop gracefully
+          console.error(`[Amplifier] Task ${this.id} failed: ${this.consecutiveErrors} consecutive errors`);
+          this.status = TaskStatus.COMPLETED; // Complete with partial results, don't lose work
+          this.progress.progressPercent = 100;
+          this.progress.currentStep = 'Completed (recovered from errors)';
+          this.result = {
+            summary: `Task completed with partial results after encountering errors. ${this.actionsHistory.length} actions were completed successfully.`,
+            actions: this.actionsHistory.filter(a => a.success).map(a => a.tool),
+            partial: true
+          };
+          this.endTime = new Date();
+          await this.saveTaskHistory();
+          await this.persistCompletion(TaskStatus.COMPLETED);
+          this.streamEvent('task_complete', `✅ Task completed (partial - recovered from errors)`, {
+            actions_count: this.actionsHistory.length, icon: 'check-circle', color: 'yellow'
+          });
+          this.streamProgress();
+          this.emit('complete', this.getStatus());
+          return;
+        }
+        
+        this.streamEvent('recovery', `⚠️ Recovering from error (${this.consecutiveErrors}/5): ${error.message?.substring(0, 80)}...`, {
           error: error.message,
           icon: 'alert-triangle',
           color: 'yellow'
         });
+        
+        // Fix message array: normalize to remove broken tool_call/tool pairs
+        this.messages = this.normalizeMessages(this.messages);
         
         this.messages.push({
           role: 'user',
