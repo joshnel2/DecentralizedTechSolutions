@@ -179,6 +179,77 @@ function estimateTaskComplexity(goal) {
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+/**
+ * Scan document content for hallucination patterns BEFORE saving.
+ * 
+ * This catches the most dangerous LLM failure mode for legal work:
+ * fabricated case citations that look real but don't exist. A partner
+ * who files a brief with a hallucinated citation faces ethics sanctions.
+ * 
+ * Returns an array of issue strings (empty = no issues detected).
+ * 
+ * IMPORTANT: This is intentionally conservative. It flags potential
+ * issues for the agent to address (mark [UNVERIFIED] or remove), 
+ * rather than blocking all citations. CPLR citations from lookup_cplr
+ * are not flagged because they come from a verified source.
+ */
+function _scanForHallucinations(content, documentName) {
+  const issues = [];
+  if (!content || content.length < 100) return issues;
+  
+  // 1. Detect suspicious case citations that follow "v." pattern
+  //    with specific reporter citations (e.g., "Smith v. Jones, 123 F.3d 456 (2d Cir. 2019)")
+  //    These are the highest-risk hallucinations because they look authoritative.
+  const fullCaseCitations = content.match(
+    /[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+v\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?,?\s+\d+\s+(?:F\.(?:2d|3d|4th|Supp\.(?:2d|3d)?)|U\.S\.|S\.Ct\.|L\.Ed\.(?:2d)?|N\.Y\.(?:2d|3d)?|A\.D\.(?:2d|3d)?|Misc\.(?:2d|3d)?|N\.Y\.S\.(?:2d|3d)?)\s+\d+/g
+  ) || [];
+  
+  // Check each citation: if it's not marked as [UNVERIFIED] in surrounding context, flag it
+  for (const citation of fullCaseCitations) {
+    const idx = content.indexOf(citation);
+    if (idx === -1) continue;
+    const surroundingContext = content.substring(
+      Math.max(0, idx - 50), 
+      Math.min(content.length, idx + citation.length + 50)
+    );
+    
+    // Skip if already flagged
+    if (/\[UNVERIFIED|NEEDS? (?:CITE )?CHECK|NOT VERIFIED|VERIFY BEFORE|CITATION NEEDED\]/i.test(surroundingContext)) {
+      continue;
+    }
+    
+    // Skip if it's referencing a CPLR section (those come from verified lookup)
+    if (/CPLR\s*§?\s*\d/i.test(surroundingContext)) {
+      continue;
+    }
+    
+    issues.push(`Unverified case citation: "${citation.substring(0, 80)}". Mark with [UNVERIFIED - VERIFY BEFORE FILING] or remove`);
+    
+    // Cap at 3 issues to keep the error message manageable
+    if (issues.length >= 3) break;
+  }
+  
+  // 2. Detect fabricated statute citations (non-CPLR)
+  //    e.g., "42 U.S.C. § 1983" is real, but "42 U.S.C. § 99999" is suspicious
+  const federalStatuteCitations = content.match(/\d+\s+U\.S\.C\.?\s*§+\s*\d+/g) || [];
+  for (const statute of federalStatuteCitations) {
+    const sectionNum = parseInt((statute.match(/§+\s*(\d+)/) || [])[1] || '0');
+    // Very high section numbers are suspicious (most titles don't go above ~20000)
+    if (sectionNum > 50000) {
+      issues.push(`Suspicious federal statute citation: "${statute}". Section number is unusually high.`);
+    }
+  }
+  
+  // 3. Detect completely fabricated-looking legal Latin or boilerplate
+  //    that LLMs sometimes generate to sound authoritative
+  const fabricatedPatterns = [
+    /(?:pursuant to|under)\s+the\s+doctrine\s+of\s+[a-z]+\s+[a-z]+\s+[a-z]+\s+[a-z]+\s+[a-z]+/i,
+  ];
+  // (Intentionally minimal to avoid false positives)
+  
+  return issues;
+}
+
 const getRetryAfterMs = (response, errorText) => {
   if (response?.headers) {
     const retryAfterHeader = response.headers.get('retry-after');
@@ -1052,11 +1123,28 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
       if (content.includes('[INSERT') || content.includes('[TODO') || content.includes('[PLACEHOLDER')) {
         return 'Document content contains placeholders like [INSERT]. Write the actual content based on your analysis. Do NOT use placeholders.';
       }
+      
+      // ===== HALLUCINATION GUARDRAIL =====
+      // Scan document content for known-bad patterns BEFORE saving to database.
+      // It's cheaper to catch fabricated content here than after it's in Azure Storage.
+      const hallucinationIssues = _scanForHallucinations(content, args.name || '');
+      if (hallucinationIssues.length > 0) {
+        return `HALLUCINATION GUARDRAIL: The document content has ${hallucinationIssues.length} potential issue(s): ${hallucinationIssues.join('; ')}. Fix these before creating the document. Mark any uncertain citations with [UNVERIFIED - VERIFY BEFORE FILING].`;
+      }
     }
     
     if (toolName === 'add_matter_note') {
       if (!args.matter_id) return 'add_matter_note requires "matter_id". Use get_matter or search_matters first to find the matter ID.';
       if (!args.content && !args.note) return 'add_matter_note requires "content" with the note text.';
+      
+      // Hallucination check for notes with legal citations
+      const noteContent = args.content || args.note || '';
+      if (noteContent.length > 200) {
+        const hallucinationIssues = _scanForHallucinations(noteContent, 'matter note');
+        if (hallucinationIssues.length > 0) {
+          return `HALLUCINATION GUARDRAIL: Note content has potential issue(s): ${hallucinationIssues.join('; ')}. Mark uncertain citations with [UNVERIFIED - VERIFY BEFORE FILING].`;
+        }
+      }
     }
     
     if (toolName === 'create_task') {
@@ -1951,7 +2039,7 @@ You have your brief above. Follow the approach order and time budget. Call think
    */
   async runAgentLoop() {
     const MAX_ITERATIONS = this.maxIterations;
-    const MAX_TEXT_ONLY_STREAK = 4; // Up from 2: give model more chances before escalating
+    const MAX_TEXT_ONLY_STREAK = 3; // Tightened: 3 text-only responses before mild intervention
     const PLAN_REINJECTION_INTERVAL = 6; // Down from 8: keep plan fresher in context
     const tools = getOpenAITools();
     
@@ -1963,11 +2051,25 @@ You have your brief above. Follow the approach order and time budget. Call think
         console.warn(`[Amplifier] Task ${this.id} reached max runtime (${this.maxRuntimeMs}ms)`);
         
         // SMART COMPLETION SEQUENCE (time limit reached)
-        // Build a useful summary of what was accomplished and what remains
-        this.progress.progressPercent = 95;
-        this.progress.currentStep = 'Wrapping up (time limit)...';
-        this.streamEvent('finishing', `🎯 Reached time limit (${Math.round(elapsedMs / 60000)}min), building summary...`, { icon: 'clock', color: 'yellow' });
+        // Unlike before, we now run a REAL quality evaluation even at timeout.
+        // This ensures the supervising attorney gets an honest assessment.
+        this.progress.progressPercent = 90;
+        this.progress.currentStep = 'Time limit reached - evaluating work quality...';
+        this.streamEvent('finishing', `🎯 Reached time limit (${Math.round(elapsedMs / 60000)}min), running quality evaluation...`, { icon: 'clock', color: 'yellow' });
         this.streamProgress();
+        
+        // ===== RUN REAL EVALUATION AT TIMEOUT =====
+        // Don't just dump whatever we have. Run the same evaluator that normal
+        // completion uses so the supervising attorney knows the quality level.
+        let timeoutEvaluation = null;
+        try {
+          this.endTime = new Date(); // Set endTime before evaluateTask needs it
+          timeoutEvaluation = await evaluateTask(this);
+          await storeEvaluation(this.id, timeoutEvaluation);
+          console.log(`[Amplifier] Timeout evaluation score: ${timeoutEvaluation.overallScore}/100`);
+        } catch (evalErr) {
+          console.warn('[Amplifier] Timeout evaluation failed (non-fatal):', evalErr.message);
+        }
         
         // Build detailed completion summary
         const elapsedMin = Math.round(elapsedMs / 60000);
@@ -1986,19 +2088,47 @@ You have your brief above. Follow the approach order and time budget. Call think
         if (createdEvents.length > 0) summaryParts.push(`Events scheduled: ${createdEvents.join(', ')}`);
         if (keyFindings.length > 0) summaryParts.push(`Key findings: ${keyFindings.join('; ')}`);
         
-        // Identify what phases were NOT completed
+        // ===== STRUCTURED WHAT-DONE / WHAT-REMAINS =====
+        // Identify what phases were NOT completed and what the next attorney should do
         const phases = ['discovery', 'analysis', 'action', 'review'];
         const currentPhaseIdx = phases.indexOf(this.executionPhase);
-        if (currentPhaseIdx < phases.length - 1) {
-          const remaining = phases.slice(currentPhaseIdx + 1).join(', ');
-          summaryParts.push(`Note: Time ran out during ${this.executionPhase} phase. Phases not completed: ${remaining}. Consider running a follow-up task to finish.`);
+        const completedPhases = phases.slice(0, currentPhaseIdx + 1);
+        const remainingPhases = currentPhaseIdx < phases.length - 1 
+          ? phases.slice(currentPhaseIdx + 1) 
+          : [];
+        
+        // Build structured remaining work assessment
+        const remainingWork = [];
+        if (!this.actionsHistory.some(a => a.tool === 'review_created_documents' && a.success !== false)) {
+          remainingWork.push('Self-review of created documents not completed - review all deliverables for quality');
+        }
+        if (this.substantiveActions.documents === 0 && ['document_drafting', 'legal_research', 'client_communication'].includes(this.workType?.id)) {
+          remainingWork.push(`No formal document created yet - ${this.workType.name} requires a document deliverable`);
+        }
+        if (this.substantiveActions.tasks === 0) {
+          remainingWork.push('No follow-up tasks created - create action items for next steps');
+        }
+        if (timeoutEvaluation?.issues?.length > 0) {
+          remainingWork.push(...timeoutEvaluation.issues.slice(0, 3));
         }
         
-        await sleep(400);
+        if (remainingPhases.length > 0) {
+          summaryParts.push(`Phases completed: ${completedPhases.join(', ')}. Phases remaining: ${remainingPhases.join(', ')}.`);
+        }
+        if (remainingWork.length > 0) {
+          summaryParts.push(`Outstanding items: ${remainingWork.join('; ')}`);
+        }
+        summaryParts.push('Consider running a follow-up task to complete outstanding work.');
+        
+        // Add quality score to summary so the attorney sees it immediately
+        if (timeoutEvaluation?.overallScore >= 0) {
+          summaryParts.push(`Quality evaluation score: ${timeoutEvaluation.overallScore}/100.`);
+        }
         
         this.progress.progressPercent = 98;
         this.progress.currentStep = 'Saving results...';
         this.streamProgress();
+        await sleep(400);
         
         this.status = TaskStatus.COMPLETED;
         this.progress.progressPercent = 100;
@@ -2013,7 +2143,16 @@ You have your brief above. Follow the approach order and time budget. Call think
             events: createdEvents,
           },
           phase_reached: this.executionPhase,
+          phases_completed: completedPhases,
+          phases_remaining: remainingPhases,
+          remaining_work: remainingWork,
           key_findings: keyFindings,
+          evaluation: timeoutEvaluation ? {
+            score: timeoutEvaluation.overallScore,
+            dimensions: timeoutEvaluation.dimensions,
+            issues: timeoutEvaluation.issues,
+            strengths: timeoutEvaluation.strengths,
+          } : null,
           stats: {
             duration_minutes: elapsedMin,
             total_actions: this.actionsHistory.length,
@@ -2021,14 +2160,14 @@ You have your brief above. Follow the approach order and time budget. Call think
             iterations: this.progress.iterations,
           }
         };
-        this.endTime = new Date();
         
         await this.saveTaskHistory();
         await this.persistCompletion(TaskStatus.COMPLETED);
         await sleep(400);
         
-        this.streamEvent('task_complete', `✅ ${summaryParts[0]} ${createdDocs.length + createdNotes + createdTasks.length} deliverable(s) created.`, { 
+        this.streamEvent('task_complete', `✅ ${summaryParts[0]} ${createdDocs.length + createdNotes + createdTasks.length} deliverable(s) created. Quality: ${timeoutEvaluation?.overallScore ?? '?'}/100.`, { 
           actions_count: this.actionsHistory.length,
+          evaluation_score: timeoutEvaluation?.overallScore,
           icon: 'check-circle', 
           color: 'green' 
         });
@@ -2801,21 +2940,23 @@ Keep working on: "${this.goal}"`
             return;
           }
           
-          // Text-only streak handling - escalating intervention
+          // Text-only streak handling - TIGHTENED escalating intervention
+          // The key insight: every text-only response wastes an iteration and produces nothing.
+          // Rewind EARLIER (at streak 5 instead of 9+) and fail SOONER (at streak 8 instead of 12+).
           if (this.textOnlyStreak <= MAX_TEXT_ONLY_STREAK) {
-            // Mild re-prompt
+            // Mild re-prompt (streaks 1-3)
             const phaseHint = {
               [ExecutionPhase.DISCOVERY]: 'Call get_matter or search_matters to gather information.',
               [ExecutionPhase.ANALYSIS]: 'Call add_matter_note to document your analysis.',
               [ExecutionPhase.ACTION]: 'Call create_document or create_task to create deliverables.',
-              [ExecutionPhase.REVIEW]: 'Call evaluate_progress or task_complete to finalize.',
+              [ExecutionPhase.REVIEW]: 'Call review_created_documents to verify your work, then task_complete.',
             };
             this.messages.push({
               role: 'user',
               content: `STOP writing text. You MUST call a tool NOW. ${phaseHint[this.executionPhase] || 'Call a tool immediately.'} Your goal: "${this.goal}"`
             });
-          } else if (this.textOnlyStreak <= MAX_TEXT_ONLY_STREAK + 5) {
-            // Strong intervention - re-inject plan and force tool use
+          } else if (this.textOnlyStreak <= MAX_TEXT_ONLY_STREAK + 2) {
+            // Strong intervention at streak 4-5 - re-inject plan and force tool use
             console.warn(`[Amplifier] Text-only streak ${this.textOnlyStreak} - forcing plan re-injection`);
             const planMsg = this.buildPlanMessage();
             if (planMsg) {
@@ -2825,8 +2966,8 @@ Keep working on: "${this.goal}"`
               role: 'user',
               content: `⚠️ CRITICAL: You have responded ${this.textOnlyStreak} times without calling any tool. This is UNACCEPTABLE. You are a tool-calling agent. Call think_and_plan RIGHT NOW if you're unsure what to do, then call action tools. DO NOT RESPOND WITH TEXT.`
             });
-          } else if (this.textOnlyStreak <= MAX_TEXT_ONLY_STREAK + 8) {
-            // Last resort - try rewinding to a known-good state before giving up
+          } else if (this.textOnlyStreak <= MAX_TEXT_ONLY_STREAK + 4) {
+            // Rewind attempt at streak 5-7 (earlier than before)
             console.warn(`[Amplifier] Text-only streak ${this.textOnlyStreak} - attempting rewind recovery`);
             if (this.rewindManager.getStatus().canRewind) {
               const rewindResult = this.rewindManager.rewind(this, `Text-only streak: ${this.textOnlyStreak}`);
@@ -2846,7 +2987,7 @@ Keep working on: "${this.goal}"`
               content: `FINAL WARNING: Call a tool NOW or the task will fail. You MUST use tools. Call think_and_plan if stuck. Goal: "${this.goal}"`
             });
           } else {
-            // Terminal failure after many text-only responses (now requires 12+ consecutive)
+            // Terminal failure at streak 8 (tightened from 12+)
             console.error(`[Amplifier] Task ${this.id} failed: ${this.textOnlyStreak} consecutive text-only responses`);
             this.status = TaskStatus.FAILED;
             this.error = `Agent stopped using tools after ${this.textOnlyStreak} text-only responses.`;
