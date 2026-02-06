@@ -14,7 +14,7 @@ const router = Router();
 // Azure OpenAI configuration
 const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
 const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
-const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
+const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
 const API_VERSION = '2024-02-15-preview';
 
 // System prompt for the AI

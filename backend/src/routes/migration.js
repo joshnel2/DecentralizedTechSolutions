@@ -708,7 +708,7 @@ async function clioGetPaginated(accessToken, endpoint, params = {}, onProgress =
 // Azure OpenAI configuration (same as ai.js)
 const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
 const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
-const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
+const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
 const API_VERSION = '2024-02-15-preview';
 
 // Helper to call Azure OpenAI (same as ai.js)
