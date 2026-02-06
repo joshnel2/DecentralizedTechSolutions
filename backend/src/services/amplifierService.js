@@ -25,6 +25,50 @@ import { createCheckpointRewindManager } from './amplifier/checkpointRewind.js';
 import { createAgentMemory, recursiveCompact, AgentMemory } from './amplifier/recursiveSummarizer.js';
 import { generateBrief, classifyWork, getTimeBudget } from './amplifier/juniorAttorneyBrief.js';
 
+// ===== NEWLY CONNECTED: Previously-dormant Amplifier harness modules =====
+// Decision Reinforcer: real-time learning from every tool outcome
+import { DecisionReinforcer } from './amplifier/decisionReinforcer.js';
+// Module System: pre-built workflow templates for legal task types
+import { detectModule, formatModuleForPrompt } from './amplifier/modules/index.js';
+// Amplifier hooks: rate limiting + learning extraction on API calls
+// Uses dedicated amplifierHooks.js to avoid circular dependency chain
+import { hooks as enhancedAmplifierHooks } from './amplifier/amplifierHooks.js';
+// Learning Optimizer: cross-task pattern refinement (periodic)
+import { LearningOptimizer } from './amplifier/learningOptimizer.js';
+
+// ===== SINGLETON INSTANCES for cross-task learning =====
+// These persist across tasks so learnings accumulate over the service lifetime
+const globalDecisionReinforcer = new DecisionReinforcer();
+const globalLearningOptimizer = new LearningOptimizer();
+
+// Schedule periodic learning optimization (every hour)
+let _learningOptimizerInterval = null;
+function startLearningOptimizerSchedule() {
+  if (_learningOptimizerInterval) return;
+  _learningOptimizerInterval = setInterval(async () => {
+    try {
+      // Get distinct firm IDs from recent tasks
+      const result = await query(
+        `SELECT DISTINCT firm_id FROM ai_background_tasks 
+         WHERE completed_at > NOW() - INTERVAL '24 hours' LIMIT 10`
+      );
+      for (const row of (result?.rows || [])) {
+        await globalLearningOptimizer.optimize(row.firm_id).catch(e => 
+          console.warn('[LearningOptimizer] Optimization cycle skipped:', e.message)
+        );
+      }
+    } catch (e) {
+      // Non-fatal: table may not exist yet
+      if (!e.message?.includes('ai_background_tasks')) {
+        console.warn('[LearningOptimizer] Schedule error:', e.message);
+      }
+    }
+  }, 3600000); // Every hour
+  console.log('[AmplifierService] Learning optimizer scheduled (hourly)');
+}
+// Start the scheduler on module load (non-blocking)
+try { startLearningOptimizerSchedule(); } catch (_) {}
+
 // Store active tasks per user
 const activeTasks = new Map();
 
@@ -224,6 +268,16 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
   console.log(`[Amplifier] Calling Azure OpenAI: ${config.deployment} with ${tools.length} tools`);
   console.log(`[Amplifier] Request URL: ${url}`);
   
+  // ===== ENHANCED AMPLIFIER HOOK: Pre-API rate limiting =====
+  // Wait for rate limiter capacity before making the request
+  const estimatedTokens = (options.max_tokens || 4000) + messages.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
+  try {
+    await enhancedAmplifierHooks.beforeApiCall(Math.round(estimatedTokens));
+  } catch (rateLimitErr) {
+    // If rate limiter says to wait, respect it but don't fail the whole call
+    console.warn(`[Amplifier] Rate limiter pre-check: ${rateLimitErr.message}`);
+  }
+  
   const retryableStatuses = new Set([429, 500, 502, 503, 504]);
   const maxAttempts = 5;
   
@@ -240,6 +294,8 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
     if (response.ok) {
       const data = await response.json();
       console.log(`[Amplifier] Azure OpenAI response received, choices: ${data.choices?.length || 0}`);
+      // ===== ENHANCED AMPLIFIER HOOK: Record successful API call =====
+      try { enhancedAmplifierHooks.afterApiSuccess(); } catch (_) {}
       return data;
     }
     
@@ -276,6 +332,8 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
     // Log rate limit specifically for monitoring
     if (response.status === 429) {
       console.warn(`[Amplifier] Rate limited by Azure OpenAI, waiting ${delaySeconds}s`);
+      // ===== ENHANCED AMPLIFIER HOOK: Record rate limit for adaptive backoff =====
+      try { enhancedAmplifierHooks.afterRateLimit(delay); } catch (_) {}
     }
     
     await sleep(delay);
@@ -444,6 +502,26 @@ class BackgroundTask extends EventEmitter {
       'get_calendar_events', 'list_tasks', 'list_invoices', 'get_firm_analytics',
       'list_team_members', 'get_upcoming_deadlines', 'lookup_cplr',
     ]);
+    
+    // ===== DECISION REINFORCER (real-time learning per tool outcome) =====
+    // Uses the global singleton so learnings persist across tasks
+    this.decisionReinforcer = globalDecisionReinforcer;
+    
+    // ===== MODULE SYSTEM (pre-built workflow guidance) =====
+    // Detect applicable module from goal keywords and store it for prompt injection
+    this.detectedModule = null;
+    try {
+      this.detectedModule = detectModule(goal);
+      if (this.detectedModule) {
+        console.log(`[Amplifier] Module detected: ${this.detectedModule.metadata?.name || 'unknown'}`);
+      }
+    } catch (e) {
+      console.warn('[Amplifier] Module detection skipped:', e.message);
+    }
+    
+    // ===== MID-TASK EVALUATION tracking =====
+    // Track whether we've run mid-task quality checks at phase transitions
+    this.phaseEvaluationsDone = new Set();
   }
 
   /**
@@ -550,6 +628,28 @@ class BackgroundTask extends EventEmitter {
       color: 'purple'
     });
     
+    // ===== MID-TASK EVALUATION at phase transition =====
+    // Run a lightweight quality check when transitioning out of ANALYSIS or ACTION
+    // so we can catch issues BEFORE the final review
+    if ((oldPhase === ExecutionPhase.ANALYSIS || oldPhase === ExecutionPhase.ACTION) && 
+        !this.phaseEvaluationsDone.has(oldPhase)) {
+      this.phaseEvaluationsDone.add(oldPhase);
+      try {
+        const midEval = this._quickPhaseEvaluation(oldPhase);
+        if (midEval.issues.length > 0) {
+          console.log(`[Amplifier] Mid-task evaluation found ${midEval.issues.length} issues at ${oldPhase} transition`);
+          this.streamEvent('mid_evaluation', `🔍 Phase quality check: ${midEval.issues.length} issue(s) to address`, {
+            phase: oldPhase,
+            issues: midEval.issues,
+            icon: 'alert-circle',
+            color: 'yellow'
+          });
+        }
+      } catch (evalError) {
+        // Non-fatal
+      }
+    }
+    
     // ===== RECURSIVE SUMMARIZATION: Record phase reflection in mid-term memory =====
     if (this.agentMemory) {
       const completedActions = this.actionsHistory
@@ -570,6 +670,43 @@ class BackgroundTask extends EventEmitter {
     });
   }
   
+  /**
+   * Quick phase evaluation - lightweight quality check at phase transitions.
+   * Unlike the full evaluateTask() which runs at completion, this is fast
+   * and catches obvious issues early (e.g., no notes after ANALYSIS).
+   */
+  _quickPhaseEvaluation(completedPhase) {
+    const issues = [];
+    const suggestions = [];
+    
+    if (completedPhase === ExecutionPhase.DISCOVERY) {
+      if (this.substantiveActions.research < 1) {
+        issues.push('No documents or data read during DISCOVERY - the agent may lack context');
+        suggestions.push('Read at least one matter or document before proceeding');
+      }
+    }
+    
+    if (completedPhase === ExecutionPhase.ANALYSIS) {
+      if (this.substantiveActions.notes < 1) {
+        issues.push('No notes created during ANALYSIS - findings are not documented');
+        suggestions.push('Add at least one matter note before moving to ACTION');
+      }
+      if (!this.structuredPlan) {
+        issues.push('No structured plan created - the agent may lack direction');
+        suggestions.push('Call think_and_plan to create an execution plan');
+      }
+    }
+    
+    if (completedPhase === ExecutionPhase.ACTION) {
+      if (this.substantiveActions.documents < 1 && this.substantiveActions.tasks < 1) {
+        issues.push('No deliverables created during ACTION phase');
+        suggestions.push('Create at least one document or task before review');
+      }
+    }
+    
+    return { phase: completedPhase, issues, suggestions, timestamp: new Date() };
+  }
+
   /**
    * Build a reflection/self-critique prompt for the phase transition.
    * Forces the model to evaluate its own work before proceeding.
@@ -1640,6 +1777,8 @@ ${getCPLRContextForPrompt()}
 
 ${this.rewindManager && this.rewindManager.failedPaths.length > 0 ? this.rewindManager.getFailedPathsSummary() : ''}
 
+${this.detectedModule ? formatModuleForPrompt(this.detectedModule) : ''}
+
 BEGIN NOW. Call \`think_and_plan\` first, then execute tools for each step. Be thorough, specific, and professional.
 `;
 
@@ -1660,6 +1799,26 @@ BEGIN NOW. Call \`think_and_plan\` first, then execute tools for each step. Be t
         const triggers = wf.trigger_phrases?.join(', ') || '';
         prompt += `- **${wf.name}**: ${wf.description} (triggers: ${triggers})\n`;
       }
+    }
+    
+    // ===== DECISION REINFORCER: Inject cross-task learned strategy insights =====
+    try {
+      const taskType = this.workType?.id || this.complexity || 'general';
+      const metrics = this.decisionReinforcer.getDecisionMetrics(taskType);
+      if (metrics.strategies.length > 0) {
+        const topStrategies = metrics.strategies
+          .filter(s => s.attempts >= 3 && s.confidence > 0.5)
+          .slice(0, 3);
+        if (topStrategies.length > 0) {
+          prompt += '\n## LEARNED TOOL PREFERENCES (from past tasks)\n';
+          for (const s of topStrategies) {
+            prompt += `- **${s.strategy}**: ${Math.round(s.confidence * 100)}% confidence (${s.attempts} uses, ${Math.round(s.successRate * 100)}% success)\n`;
+          }
+          prompt += '\n';
+        }
+      }
+    } catch (reinforcerErr) {
+      // Non-fatal: reinforcer insights are supplementary
     }
 
     return prompt;
@@ -1955,16 +2114,44 @@ You have your brief above. Follow the approach order and time budget. Call think
               const success = res.success !== undefined ? res.success : !res.error;
               
               this.actionsHistory.push({ tool: tn, args: ta, result: res, timestamp: new Date(), success });
+              
+              // ===== REWIND SYSTEM: Record tool call for loop detection (parallel path) =====
+              this.rewindManager.recordToolCall(tn, ta, success);
+              
+              // ===== DECISION REINFORCER: Real-time learning (parallel path) =====
+              try {
+                const taskType = this.workType?.id || this.complexity || 'general';
+                this.decisionReinforcer.recordOutcome(taskType, tn, success, {
+                  timeRatio: 1.0,
+                  qualityScore: success ? 0.7 : 0.2,
+                });
+              } catch (_) {}
+              
               if (success && (tn === 'read_document_content' || tn === 'search_document_content')) {
                 this.substantiveActions.research++;
+                // ===== DOCUMENT LEARNING: Feed access event (parallel path) =====
+                try {
+                  if (tn === 'read_document_content' && res?.id) {
+                    onDocumentAccessed(this.userId, this.firmId, {
+                      documentId: res.id,
+                      documentName: res.name || 'unknown',
+                      documentType: res.document_type || res.type || 'general',
+                      accessType: 'read',
+                      matterId: ta.matter_id || this.preloadedMatterId || null,
+                    });
+                  }
+                } catch (_) {}
               }
               
               // Add key findings from reads
               if (success && tn === 'get_matter' && res?.matter) {
                 this.addKeyFinding(`Matter: ${res.matter.name} (${res.matter.status})`);
+                // ===== RECURSIVE SUMMARIZER: Extract key facts (parallel path) =====
+                this.agentMemory?.addKeyFact(`Matter: "${res.matter.name}" (ID: ${res.matter?.id || 'unknown'})`);
               }
               if (success && tn === 'read_document_content' && res?.name) {
                 this.addKeyFinding(`Read: ${res.name}`);
+                this.agentMemory?.addKeyFact(`Document: "${res.name}"`);
                 // Progressive context: extract key info from document
                 if (res.content) {
                   const preview = res.content.substring(0, 500).replace(/\n+/g, ' ');
@@ -1972,7 +2159,11 @@ You have your brief above. Follow the approach order and time budget. Call think
                 }
               }
               
-              if (success) this.markPlanStepProgress(tn);
+              if (success) {
+                this.markPlanStepProgress(tn);
+                // ===== REWIND SYSTEM: Take checkpoint after success (parallel path) =====
+                this.rewindManager.takeCheckpoint(this, `success:${tn}`);
+              }
               
               this.messages.push({
                 role: 'tool',
@@ -2068,6 +2259,23 @@ You have your brief above. Follow the approach order and time budget. Call think
             // ===== REWIND SYSTEM: Record tool call for loop detection =====
             this.rewindManager.recordToolCall(toolName, toolArgs, toolSuccess);
             
+            // ===== DECISION REINFORCER: Real-time learning from tool outcome =====
+            try {
+              const taskType = this.workType?.id || this.complexity || 'general';
+              this.decisionReinforcer.recordOutcome(taskType, toolName, toolSuccess, {
+                timeRatio: 1.0, // Could track actual vs expected per tool
+                qualityScore: toolSuccess ? 0.7 : 0.2,
+              });
+              // Also learn decision rules: "in this phase, using this tool" → outcome
+              this.decisionReinforcer.learnDecisionRule(
+                { phase: this.executionPhase, taskType, iteration: this.progress.iterations },
+                toolName,
+                { success: toolSuccess }
+              );
+            } catch (reinforcerError) {
+              // Non-fatal: reinforcer is best-effort
+            }
+            
             // Track substantive actions for quality assurance
             if (toolSuccess) {
               if (toolName === 'add_matter_note' || toolName === 'create_note') {
@@ -2080,6 +2288,20 @@ You have your brief above. Follow the approach order and time budget. Call think
                 this.substantiveActions.events++;
               } else if (toolName === 'read_document_content' || toolName === 'search_document_content') {
                 this.substantiveActions.research++;
+                // ===== DOCUMENT LEARNING: Feed access event so profile learns =====
+                try {
+                  if (toolName === 'read_document_content' && result?.id) {
+                    onDocumentAccessed(this.userId, this.firmId, {
+                      documentId: result.id,
+                      documentName: result.name || 'unknown',
+                      documentType: result.document_type || result.type || 'general',
+                      accessType: 'read',
+                      matterId: toolArgs.matter_id || this.preloadedMatterId || null,
+                    });
+                  }
+                } catch (docLearnErr) {
+                  // Non-fatal: document learning is best-effort
+                }
               }
             } else {
               // Track failed tools to avoid repeating
@@ -2681,6 +2903,14 @@ Keep working on: "${this.goal}"`
       // Extract and save learnings
       await this.extractLearnings();
       
+      // ===== ENHANCED AMPLIFIER HOOK: Notify learning system of task completion =====
+      try {
+        await enhancedAmplifierHooks.onTaskComplete(this);
+      } catch (hookError) {
+        // Non-fatal: learning extraction from enhanced amplifier is best-effort
+        console.warn('[Amplifier] Enhanced learning hook skipped:', hookError.message);
+      }
+      
     } catch (error) {
       console.error('[Amplifier] Error saving task history:', error);
     }
@@ -2963,6 +3193,13 @@ Keep working on: "${this.goal}"`
 
 Please acknowledge this follow-up and adjust your approach accordingly. Continue with the task while incorporating this new guidance.`
     });
+    
+    // ===== RECURSIVE SUMMARIZER: Persist follow-up in long-term memory =====
+    // Follow-ups represent important user intent that should survive compaction
+    if (this.agentMemory) {
+      this.agentMemory.addKeyFact(`User follow-up: "${message.substring(0, 150)}"`);
+      this.agentMemory.addFinding(`User redirected task: ${message.substring(0, 100)}`);
+    }
     
     // Store for tracking
     if (!this.followUps) {
