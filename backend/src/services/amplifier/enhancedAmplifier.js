@@ -6,6 +6,7 @@
  * - Self-reinforcement learning
  * - Module system
  * - Core amplifierService
+ * - Cursor-like task orchestration (NEW)
  * 
  * Import this instead of amplifierService for full functionality.
  */
@@ -23,6 +24,13 @@ import {
   getAllModules 
 } from './modules/index.js';
 
+// Import enhanced orchestrator for Cursor-like intelligence
+import { 
+  startEnhancedTask as startCursorEnhancedTask,
+  getEnhancedTaskStatus,
+  cancelEnhancedTask
+} from './enhancedOrchestrator.js';
+
 // Re-export core amplifier functions
 export { 
   startBackgroundTask,
@@ -36,6 +44,7 @@ export {
 
 /**
  * Enhanced task starter with module detection and learning integration
+ * NOW WITH CURSOR-LIKE INTELLIGENCE
  */
 export async function startEnhancedTask(userId, firmId, goal, options = {}) {
   const rateLimiter = getRateLimiter();
@@ -63,9 +72,26 @@ export async function startEnhancedTask(userId, firmId, goal, options = {}) {
     rateLimiter,
   };
   
-  // Import and call the core start function
-  const { startBackgroundTask } = await import('../amplifierService.js');
-  return startBackgroundTask(userId, firmId, goal, enhancedOptions);
+  // NEW: Check if we should use Cursor-like enhanced orchestrator
+  const shouldUseEnhancedOrchestrator = options.useEnhancedOrchestrator !== false;
+  
+  if (shouldUseEnhancedOrchestrator) {
+    console.log('[EnhancedAmplifier] Using Cursor-like enhanced orchestrator');
+    
+    // Add module and learnings to options for enhanced orchestrator
+    enhancedOptions.originalModule = module;
+    enhancedOptions.originalLearnings = learnings;
+    
+    // Start task with enhanced orchestrator
+    return startCursorEnhancedTask(userId, firmId, goal, enhancedOptions);
+  } else {
+    // Fall back to original enhanced task starter
+    console.log('[EnhancedAmplifier] Using original enhanced task starter');
+    
+    // Import and call the core start function
+    const { startBackgroundTask } = await import('../amplifierService.js');
+    return startBackgroundTask(userId, firmId, goal, enhancedOptions);
+  }
 }
 
 /**
@@ -102,6 +128,27 @@ export function getModules() {
 export function getRateLimitStatus() {
   const rateLimiter = getRateLimiter();
   return rateLimiter.getStatus();
+}
+
+/**
+ * Get enhanced task status (for Cursor-like orchestrated tasks)
+ */
+export function getEnhancedTaskStatusWrapper(taskId) {
+  return getEnhancedTaskStatus(taskId);
+}
+
+/**
+ * Cancel enhanced task (for Cursor-like orchestrated tasks)
+ */
+export function cancelEnhancedTaskWrapper(taskId) {
+  return cancelEnhancedTask(taskId);
+}
+
+/**
+ * Check if enhanced orchestrator is available
+ */
+export function hasEnhancedOrchestrator() {
+  return true;
 }
 
 /**

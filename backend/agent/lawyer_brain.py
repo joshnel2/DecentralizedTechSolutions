@@ -222,6 +222,11 @@ class SuperLawyerAgent:
         self.fs_tool = FileSystemTool(config.sandbox_directory)
         self.tool_executor = get_tool_executor()
         
+        # Task time management for 30-minute optimization
+        self.task_complexity = None
+        self.time_budget = None
+        self.time_warnings_given = set()
+        
         # Azure OpenAI client (same as legal_workflow.py)
         self._init_azure_client()
         
@@ -235,6 +240,7 @@ class SuperLawyerAgent:
         self.start_time: Optional[float] = None
         self.actions_taken: List[str] = []  # Track actions for observation learning
         self.current_task: str = ""  # Current task description
+        self.estimated_completion_time: Optional[float] = None
         
         self._log(f"SuperLawyerAgent initialized for user={user_id}, firm={firm_id}")
     
@@ -321,6 +327,15 @@ class SuperLawyerAgent:
         
         # IRAC-specific tools
         tools.extend(self._get_irac_tools())
+        
+        # Retrieval tools for semantic search and document lookup
+        try:
+            from retrieval_tools import get_retrieval_tools_in_openai_format
+            retrieval_tools = get_retrieval_tools_in_openai_format()
+            tools.extend(retrieval_tools)
+            self._log(f"Added {len(retrieval_tools)} retrieval tools")
+        except ImportError as e:
+            self._log(f"Retrieval tools not available: {e}")
         
         return tools
     
@@ -555,6 +570,66 @@ class SuperLawyerAgent:
         self.log_callback(formatted)
         logger.info(message)
     
+    def _estimate_task_complexity(self, goal: str) -> str:
+        """Estimate task complexity for time budgeting"""
+        goal_lower = goal.lower()
+        
+        # Simple tasks (5-15 minutes)
+        simple_keywords = ['simple', 'quick', 'check', 'review', 'verify', 'look up', 
+                          'find', 'search', 'read', 'summarize brief', 'check status']
+        if any(k in goal_lower for k in simple_keywords):
+            return 'simple'
+        
+        # Moderate tasks (15-30 minutes)  
+        moderate_keywords = ['draft', 'create', 'update', 'summarize', 'analyze',
+                           'prepare', 'organize', 'compile', 'review and comment',
+                           'brief analysis', 'memo', 'letter', 'email draft']
+        if any(k in goal_lower for k in moderate_keywords):
+            return 'moderate'
+        
+        # Complex tasks (30-45 minutes)
+        complex_keywords = ['comprehensive', 'full review', 'deep analysis', 
+                          'strategic assessment', 'draft motion', 'draft brief',
+                          'legal research', 'case strategy', 'negotiation prep',
+                          'discovery plan', 'trial prep']
+        if any(k in goal_lower for k in complex_keywords):
+            return 'complex'
+        
+        # Default to moderate for legal tasks
+        return 'moderate'
+    
+    def _get_time_budget_for_complexity(self, complexity: str) -> int:
+        """Get time budget in seconds based on complexity"""
+        budgets = {
+            'simple': self.config.fast_task_max_runtime,  # 15 minutes
+            'moderate': 1800,  # 30 minutes
+            'complex': self.config.max_runtime_seconds    # 45 minutes
+        }
+        return budgets.get(complexity, 1800)  # Default 30 minutes
+    
+    def _check_time_warnings(self, elapsed: float, budget: int) -> bool:
+        """Check if time warnings should be issued, return True if should continue"""
+        remaining = budget - elapsed
+        
+        # Critical: Less than 1 minute remaining
+        if remaining < 60 and 'critical' not in self.time_warnings_given:
+            self._log(f"⏰ CRITICAL: Less than 1 minute remaining! Starting finalization.")
+            self.time_warnings_given.add('critical')
+            # Signal to wrap up quickly
+            return False  # Time to finish
+        
+        # Warning: Less than 5 minutes remaining  
+        elif remaining < 300 and 'warning' not in self.time_warnings_given:
+            self._log(f"⚠️  WARNING: Less than 5 minutes remaining. Consider wrapping up.")
+            self.time_warnings_given.add('warning')
+        
+        # Notice: Less than 10 minutes remaining
+        elif remaining < 600 and 'notice' not in self.time_warnings_given:
+            self._log(f"ℹ️  NOTICE: Less than 10 minutes remaining. On track for 30-minute task.")
+            self.time_warnings_given.add('notice')
+            
+        return True  # Continue working
+    
     def _execute_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a tool call"""
         self._log(f"Executing tool: {tool_name}")
@@ -594,6 +669,20 @@ class SuperLawyerAgent:
             return self._handle_finalize(args)
         elif tool_name == "task_complete":
             return self._handle_task_complete(args)
+        
+        # Retrieval tools
+        try:
+            from retrieval_tools import RETRIEVAL_TOOLS, execute_retrieval_tool
+            retrieval_tool_names = [tool.name for tool in RETRIEVAL_TOOLS]
+            if tool_name in retrieval_tool_names:
+                context = {
+                    'firm_id': self.firm_id,
+                    'user_id': self.user_id,
+                    'backend_bridge': self.tool_executor.backend_bridge if hasattr(self.tool_executor, 'backend_bridge') else None
+                }
+                return execute_retrieval_tool(tool_name, args, context)
+        except ImportError:
+            pass
         
         # Legal/platform tools
         return self.tool_executor.execute(tool_name, args)
@@ -768,7 +857,7 @@ class SuperLawyerAgent:
     
     def run(self, goal: str) -> Dict[str, Any]:
         """
-        Run the Super Lawyer agent on a task.
+        Run the Super Lawyer agent on a task - OPTIMIZED FOR 30-MINUTE TASKS
         
         Args:
             goal: The legal task to complete
@@ -781,36 +870,61 @@ class SuperLawyerAgent:
         self.irac_analysis = {}
         self.actions_taken = []  # Reset actions tracking
         self.current_task = goal  # Track current task for observation learning
+        self.time_warnings_given = set()  # Reset time warnings
         
-        self._log(f"Super Lawyer starting task: {goal}")
+        # ESTIMATE COMPLEXITY AND SET TIME BUDGET
+        self.task_complexity = self._estimate_task_complexity(goal)
+        self.time_budget = self._get_time_budget_for_complexity(self.task_complexity)
+        
+        self._log(f"Super Lawyer starting {self.task_complexity} task: {goal}")
+        self._log(f"⏱️  Time budget: {self.time_budget//60} minutes")
         
         # Build system prompt with style guide
         system_prompt = self._build_system_prompt(goal)
         
-        # Initialize conversation
+        # Initialize conversation with TIME-AWARE instructions
         self.messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"""TASK: {goal}
 
-Execute this task using the IRAC methodology:
-1. First, use identify_legal_issue to frame the legal question
-2. Use state_legal_rule to cite applicable law
-3. Use perform_legal_analysis to apply law to facts  
+TIME AWARENESS: This is a {self.task_complexity} task with {self.time_budget//60} minute budget.
+Work efficiently - prioritize quality completion within time constraints.
+
+Execute using IRAC methodology:
+1. Use identify_legal_issue to frame the legal question
+2. Use state_legal_rule to cite applicable law  
+3. Use perform_legal_analysis to apply law to facts
 4. Use state_conclusion for your conclusion
 5. Use self_critique to evaluate your work (be harsh!)
-6. If critique finds weaknesses, refine and critique again
-7. Use finalize_work_product to save the final document
-8. Use task_complete when done
+
+Use retrieval tools (search_semantic, find_precedent, find_similar_clauses) 
+if you need to research firm documents or precedent.
+
+Work efficiently. Focus on delivering a quality result within the time budget.
 
 BEGIN NOW. Start with identify_legal_issue."""}
         ]
         
-        max_iterations = self.config.max_iterations
-        max_runtime = self.config.max_runtime_seconds
+        # Set limits based on complexity
+        if self.task_complexity == 'simple':
+            max_iterations = self.config.fast_task_max_iterations  # 30
+        elif self.task_complexity == 'moderate':
+            max_iterations = 40  # Between simple and complex
+        else:
+            max_iterations = self.config.max_iterations  # 50
+        
+        max_runtime = self.time_budget  # Use calculated time budget
         
         try:
             while self.iteration_count < max_iterations:
                 elapsed = time.time() - self.start_time
+                
+                # Check time warnings and early termination
+                if not self._check_time_warnings(elapsed, max_runtime):
+                    self._log("⏰ Time critical - starting finalization sequence")
+                    # Force completion within final minute
+                    break
+                
                 if elapsed >= max_runtime:
                     self._log(f"Max runtime reached ({max_runtime}s)")
                     break

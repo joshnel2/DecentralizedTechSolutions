@@ -67,10 +67,12 @@ class AgentConfig:
     # Azure OpenAI
     azure_config: AzureOpenAIConfig
     
-    # Agent behavior
+    # Agent behavior - OPTIMIZED FOR 30-MINUTE TASKS
     max_iterations: int = 50  # Maximum steps per task
-    max_runtime_seconds: int = 3600  # 1 hour max per task
+    max_runtime_seconds: int = 2700  # 45 minutes max per task (30 min + 15 buffer)
     checkpoint_interval_seconds: int = 30
+    fast_task_max_iterations: int = 30  # For simple 5-15 minute tasks
+    fast_task_max_runtime: int = 900   # 15 minutes max for fast tasks
     
     # File system sandbox
     sandbox_directory: str = "./case_data"
@@ -92,7 +94,9 @@ class AgentConfig:
         return cls(
             azure_config=AzureOpenAIConfig.from_environment(),
             max_iterations=int(os.environ.get("AGENT_MAX_ITERATIONS", "50")),
-            max_runtime_seconds=int(os.environ.get("AGENT_MAX_RUNTIME_SECONDS", "3600")),
+            max_runtime_seconds=int(os.environ.get("AGENT_MAX_RUNTIME_SECONDS", "2700")),  # 45 minutes
+            fast_task_max_iterations=int(os.environ.get("AGENT_FAST_MAX_ITERATIONS", "30")),
+            fast_task_max_runtime=int(os.environ.get("AGENT_FAST_MAX_RUNTIME", "900")),  # 15 minutes
             sandbox_directory=os.environ.get("AGENT_SANDBOX_DIR", "./case_data"),
             log_file=os.environ.get("AGENT_LOG_FILE", "./logs/agent_logs.txt"),
             task_queue_file=os.environ.get("AGENT_TASK_QUEUE", "./pending_tasks.json"),

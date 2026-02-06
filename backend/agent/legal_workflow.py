@@ -233,8 +233,17 @@ Always respond with structured JSON when asked to plan or critique."""
         self.fs_tool = FileSystemTool(config.sandbox_directory)
         self.log_callback = log_callback or (lambda msg: logger.info(msg))
         
-        # Combined tools (filesystem + planning/critique)
+        # Combined tools (filesystem + planning/critique + optional retrieval)
         self.tools = FILESYSTEM_TOOLS + self._get_metacognitive_tools()
+        
+        # Add retrieval tools if available
+        try:
+            from retrieval_tools import get_retrieval_tools_in_openai_format
+            retrieval_tools = get_retrieval_tools_in_openai_format()
+            self.tools.extend(retrieval_tools)
+            self.log_callback(f"MetacognitiveAgent: Added {len(retrieval_tools)} retrieval tools")
+        except ImportError as e:
+            self.log_callback(f"MetacognitiveAgent: Retrieval tools not available: {e}")
         
         # Current workflow state
         self.plan: Optional[WorkflowPlan] = None
@@ -398,6 +407,23 @@ Always respond with structured JSON when asked to plan or critique."""
             return self._handle_critique_step(args)
         elif tool_name == "complete_task":
             return self._handle_complete_task(args)
+        
+        # Retrieval tools
+        try:
+            from retrieval_tools import RETRIEVAL_TOOLS, execute_retrieval_tool
+            retrieval_tool_names = [tool.name for tool in RETRIEVAL_TOOLS]
+            if tool_name in retrieval_tool_names:
+                # MetacognitiveAgent doesn't have firm/user context by default
+                # Use sandbox context for testing
+                context = {
+                    'firm_id': 'test-firm',
+                    'user_id': 'test-user',
+                    'backend_bridge': None
+                }
+                self._log(f"Executing retrieval tool: {tool_name}")
+                return execute_retrieval_tool(tool_name, args, context)
+        except ImportError:
+            pass
         
         return {"success": False, "error": f"Unknown tool: {tool_name}"}
     

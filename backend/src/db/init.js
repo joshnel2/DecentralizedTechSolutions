@@ -56,6 +56,126 @@ async function runMigrations(client) {
     // Create unique constraint for deduplication
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_time_entries_clio_unique ON time_entries(firm_id, clio_id) WHERE clio_id IS NOT NULL;`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_clio_unique ON expenses(firm_id, clio_id) WHERE clio_id IS NOT NULL;`,
+    
+    // Vector embedding support for semantic search
+    `CREATE EXTENSION IF NOT EXISTS vector;`,
+    `CREATE TABLE IF NOT EXISTS document_embeddings (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+        document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        chunk_index INTEGER NOT NULL DEFAULT 0,
+        chunk_text TEXT NOT NULL,
+        chunk_hash VARCHAR(64) NOT NULL,
+        embedding VECTOR(1536),
+        encrypted_embedding BYTEA,
+        metadata JSONB DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(firm_id, document_id, chunk_index),
+        CONSTRAINT chunk_index_nonnegative CHECK (chunk_index >= 0)
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_document_embeddings_firm_embedding ON document_embeddings USING ivfflat (embedding vector_cosine_ops) WHERE firm_id IS NOT NULL;`,
+    `CREATE INDEX IF NOT EXISTS idx_document_embeddings_chunk_hash ON document_embeddings(firm_id, chunk_hash);`,
+    `ALTER TABLE document_embeddings ENABLE ROW LEVEL SECURITY;`,
+    `DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_policies 
+            WHERE tablename = 'document_embeddings' 
+            AND policyname = 'firm_isolation_policy'
+        ) THEN
+            CREATE POLICY firm_isolation_policy ON document_embeddings
+                USING (firm_id = current_setting('app.current_firm_id')::UUID);
+        END IF;
+    END
+    $$;`,
+    `CREATE TABLE IF NOT EXISTS document_relationships (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+        source_document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        target_document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        relationship_type VARCHAR(50) NOT NULL CHECK (
+            relationship_type IN ('cites', 'references', 'amends', 'depends_on', 'similar_to', 'contradicts', 'supersedes')
+        ),
+        confidence FLOAT DEFAULT 1.0,
+        context TEXT,
+        metadata JSONB DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        CHECK (source_document_id != target_document_id),
+        UNIQUE(firm_id, source_document_id, target_document_id, relationship_type)
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_document_relationships_source ON document_relationships(firm_id, source_document_id, relationship_type);`,
+    `CREATE INDEX IF NOT EXISTS idx_document_relationships_target ON document_relationships(firm_id, target_document_id, relationship_type);`,
+    `CREATE TABLE IF NOT EXISTS lawyer_preferences (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+        lawyer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        preference_type VARCHAR(50) NOT NULL,
+        preference_key VARCHAR(100) NOT NULL,
+        preference_value JSONB NOT NULL,
+        confidence FLOAT DEFAULT 0.5,
+        source VARCHAR(50) NOT NULL DEFAULT 'explicit' CHECK (
+            source IN ('explicit', 'inferred', 'imported', 'default')
+        ),
+        occurrences INTEGER DEFAULT 1,
+        context VARCHAR(100),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(firm_id, lawyer_id, preference_type, preference_key)
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_lawyer_preferences_lookup ON lawyer_preferences(firm_id, lawyer_id, preference_type);`,
+    `CREATE TABLE IF NOT EXISTS retrieval_feedback (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+        lawyer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        query_hash VARCHAR(64) NOT NULL,
+        query_text TEXT NOT NULL,
+        retrieved_document_ids UUID[] NOT NULL,
+        selected_document_id UUID,
+        selected_chunk_index INTEGER,
+        rating INTEGER CHECK (rating >= 1 AND rating <= 5),
+        session_id UUID,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_retrieval_feedback_lookup ON retrieval_feedback(firm_id, lawyer_id, query_hash);`,
+    `CREATE TABLE IF NOT EXISTS edit_patterns (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+        lawyer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        original_text_hash VARCHAR(64) NOT NULL,
+        edited_text_hash VARCHAR(64) NOT NULL,
+        original_text_prefix TEXT,
+        edited_text_prefix TEXT,
+        context VARCHAR(100) NOT NULL,
+        occurrences INTEGER DEFAULT 1,
+        first_seen TIMESTAMPTZ DEFAULT NOW(),
+        last_seen TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(firm_id, lawyer_id, original_text_hash, edited_text_hash, context)
+    );`,
+    `DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'document_ai_insights' 
+            AND column_name = 'embedding_vector'
+        ) THEN
+            ALTER TABLE document_ai_insights ADD COLUMN embedding_vector VECTOR(1536);
+        END IF;
+    END
+    $$;`,
+    `CREATE INDEX IF NOT EXISTS idx_document_ai_insights_embedding ON document_ai_insights USING ivfflat (embedding_vector vector_cosine_ops) WHERE embedding_vector IS NOT NULL;`,
+    `DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'document_ai_insights' 
+            AND column_name = 'encrypted_embedding'
+        ) THEN
+            ALTER TABLE document_ai_insights ADD COLUMN encrypted_embedding BYTEA;
+        END IF;
+    END
+    $$;`,
+    `CREATE INDEX IF NOT EXISTS idx_document_ai_insights_firm_embedding ON document_ai_insights(firm_id) WHERE embedding_vector IS NOT NULL;`,
   ];
 
   for (const migration of migrations) {
