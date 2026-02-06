@@ -30,6 +30,8 @@ interface BackgroundTask {
   progress?: BackgroundTaskProgress
   result?: { summary?: string }
   error?: string
+  followUps?: Array<{ message: string; timestamp: string }>
+  pendingFollowUps?: number
 }
 
 interface AgentStatus {
@@ -115,6 +117,8 @@ export function BackgroundAgentPage() {
   const [followUpInput, setFollowUpInput] = useState('')
   const [isSendingFollowUp, setIsSendingFollowUp] = useState(false)
   const [followUpError, setFollowUpError] = useState<string | null>(null)
+  const [sentFollowUps, setSentFollowUps] = useState<Array<{message: string, timestamp: string}>>([])
+  const lastFollowUpSentRef = useRef<number>(0)
   
   // Extended mode for long-running tasks
   const [extendedMode, setExtendedMode] = useState(false)
@@ -1488,6 +1492,14 @@ Take 20-25 minutes. Identify all compliance issues.`,
     return () => clearInterval(interval)
   }, [polling, fetchActiveTask, fetchRecentTasks])
 
+  // Reset follow-up state when the active task changes
+  useEffect(() => {
+    setFollowUpInput('')
+    setFollowUpError(null)
+    setIsSendingFollowUp(false)
+    setSentFollowUps(activeTask?.followUps || [])
+  }, [activeTask?.id])
+
   // Connect to SSE stream when there's an active task with retry logic
   useEffect(() => {
     if (!activeTask?.id) {
@@ -1772,12 +1784,25 @@ Take 20-25 minutes. Identify all compliance issues.`,
     const message = followUpInput.trim()
     if (!message || !activeTask || isSendingFollowUp) return
     
+    // Debounce: prevent sending more than once per 2 seconds
+    const now = Date.now()
+    if (now - lastFollowUpSentRef.current < 2000) {
+      setFollowUpError('Please wait a moment before sending another follow-up')
+      return
+    }
+    
     setIsSendingFollowUp(true)
     setFollowUpError(null)
     
     try {
       await backgroundApi.sendBackgroundTaskFollowUp(activeTask.id, message)
+      lastFollowUpSentRef.current = Date.now()
       setFollowUpInput('')
+      
+      // Track sent follow-up locally
+      const followUp = { message, timestamp: new Date().toISOString() }
+      setSentFollowUps(prev => [...prev, followUp])
+      
       // Add to live events immediately for feedback
       setLiveEvents(prev => [...prev, {
         type: 'followup_sent',
@@ -2414,7 +2439,23 @@ Take 20-25 minutes. Identify all compliance issues.`,
                   <div className={styles.followUpHeader}>
                     <MessageCircle size={14} />
                     <span>Send Follow-up Instructions</span>
+                    {sentFollowUps.length > 0 && (
+                      <span className={styles.followUpCount}>{sentFollowUps.length} sent</span>
+                    )}
                   </div>
+                  {/* Show history of sent follow-ups */}
+                  {sentFollowUps.length > 0 && (
+                    <div className={styles.followUpHistory}>
+                      {sentFollowUps.slice(-3).map((fu, i) => (
+                        <div key={i} className={styles.followUpHistoryItem}>
+                          <span className={styles.followUpHistoryMessage}>{fu.message}</span>
+                          <span className={styles.followUpHistoryTime}>
+                            {new Date(fu.timestamp).toLocaleTimeString()}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className={styles.followUpForm}>
                     <input
                       type="text"
