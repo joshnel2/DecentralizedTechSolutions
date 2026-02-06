@@ -35,9 +35,6 @@
     "pdfkit": "^0.17.2",
     "pg": "^8.11.3",
     "uuid": "^9.0.1",
-    "word-extractor": "^1.0.4",
-    "@azure/openai": "^1.0.0",
-    "@azure/keyvault-keys": "^4.9.0",
-    "crypto-js": "^4.2.0"
+    "word-extractor": "^1.0.4"
   }
 }
