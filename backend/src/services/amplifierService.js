@@ -2643,7 +2643,7 @@ Keep working on: "${this.goal}"`
               const total = completed + (toolArgs.remaining_steps || []).length;
               if (total > 0) {
                 this.progress.completedSteps = completed;
-                this.progress.progressPercent = Math.min(90, 15 + (75 * completed / total));
+                this.progress.progressPercent = Math.min(90, Math.round(15 + (75 * completed / total)));
               }
               if (toolArgs.remaining_steps && toolArgs.remaining_steps.length > 0) {
                 this.progress.currentStep = `Next: ${toolArgs.remaining_steps[0]}`;
@@ -2652,7 +2652,7 @@ Keep working on: "${this.goal}"`
             
             if (toolName === 'log_work') {
               // Increment progress for each logged work item
-              this.progress.progressPercent = Math.min(90, this.progress.progressPercent + 5);
+              this.progress.progressPercent = Math.min(90, Math.round(this.progress.progressPercent + 5));
               if (this.progress.totalSteps > 0) {
                 this.progress.completedSteps = Math.min(
                   this.progress.totalSteps,
@@ -2818,7 +2818,7 @@ Keep working on: "${this.goal}"`
         // Gradual progress update
         if (this.progress.progressPercent < 90) {
           const increment = Math.max(1, Math.round(60 / Math.max(1, MAX_ITERATIONS)));
-          this.progress.progressPercent = Math.min(90, this.progress.progressPercent + increment);
+          this.progress.progressPercent = Math.min(90, Math.round(this.progress.progressPercent + increment));
         }
 
         await this.saveCheckpoint('periodic');

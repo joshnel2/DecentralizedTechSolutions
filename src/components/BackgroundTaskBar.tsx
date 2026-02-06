@@ -21,7 +21,7 @@ interface ActiveTask {
 
 const clampPercent = (value: number | null | undefined, fallback = 0) => {
   const resolved = typeof value === 'number' && Number.isFinite(value) ? value : fallback
-  return Math.min(100, Math.max(0, resolved))
+  return Math.round(Math.min(100, Math.max(0, resolved)))
 }
 
 export function BackgroundTaskBar() {
@@ -37,14 +37,28 @@ export function BackgroundTaskBar() {
   // Use ref to track isAmplifier immediately (avoids race condition with state updates)
   const isAmplifierRef = useRef(false)
   
+  // Use ref to track activeTask for polling callback (avoids dependency churn that causes flicker)
+  const activeTaskRef = useRef<ActiveTask | null>(null)
+  
   // Track last progress update to detect activity
   const lastProgressRef = useRef<{ step: string; percent: number; timestamp: number }>({ step: '', percent: 0, timestamp: Date.now() })
   const [isThinking, setIsThinking] = useState(false)
 
+  // Keep activeTaskRef in sync with state (for use in polling callback)
+  useEffect(() => {
+    activeTaskRef.current = activeTask
+  }, [activeTask])
+
   // Check task status - supports both regular AI Agent and Amplifier background tasks
+  // IMPORTANT: Uses activeTaskRef instead of activeTask to avoid dependency churn.
+  // Without refs, every poll cycle recreates this callback → tears down the polling
+  // interval → causes the task bar to briefly unmount → flicker.
   const checkActiveTask = useCallback(async () => {
     // Don't poll if we've cancelled or already complete
     if (isCancelling || isCancelled) return
+    
+    // Read from ref (stable across renders, no dependency churn)
+    const currentTask = activeTaskRef.current
     
     try {
       // Use ref to check if current task is Amplifier-based (avoids race condition with state)
@@ -94,19 +108,19 @@ export function BackgroundTaskBar() {
           })
           setIsComplete(false)
           setHasError(task.status === 'error' || task.status === 'failed')
-        } else if (activeTask && !response.active) {
+        } else if (currentTask && !response.active) {
           // Task completed
           try {
-            const taskDetails = await aiApi.getBackgroundTask(activeTask.id)
+            const taskDetails = await aiApi.getBackgroundTask(currentTask.id)
             if (taskDetails?.task) {
-              const finalStatus = taskDetails.task.status || activeTask.status
+              const finalStatus = taskDetails.task.status || currentTask.status
               const finalProgress = clampPercent(
                 taskDetails.task.progress?.progressPercent,
-                activeTask.progressPercent
+                currentTask.progressPercent
               )
-              const finalStep = taskDetails.task.progress?.currentStep || activeTask.currentStep || 'Completed'
+              const finalStep = taskDetails.task.progress?.currentStep || currentTask.currentStep || 'Completed'
               setCompletedTask({
-                ...activeTask,
+                ...currentTask,
                 status: finalStatus,
                 progressPercent: finalProgress,
                 currentStep: finalStep,
@@ -126,12 +140,12 @@ export function BackgroundTaskBar() {
               setHasError(finalStatus === 'error' || finalStatus === 'failed')
             }
           } catch (e) {
-            setCompletedTask(activeTask)
-            setHasError(activeTask.status === 'error' || activeTask.status === 'failed')
+            setCompletedTask(currentTask)
+            setHasError(currentTask.status === 'error' || currentTask.status === 'failed')
           }
           setIsComplete(true)
           setPolling(false)
-        } else {
+        } else if (!currentTask) {
           setPolling(false)
         }
         return
@@ -155,7 +169,7 @@ export function BackgroundTaskBar() {
           id: task.id,
           goal: task.goal,
           status: task.status,
-          progressPercent: task.progress?.progressPercent || task.progressPercent || 5,
+          progressPercent: clampPercent(task.progress?.progressPercent || task.progressPercent, 5),
           iterations: task.iterations || 0,
           totalSteps: task.progress?.totalSteps,
           completedSteps: task.progress?.completedSteps,
@@ -166,32 +180,32 @@ export function BackgroundTaskBar() {
         })
         setIsComplete(false)
         setHasError(task.status === 'error' || task.status === 'failed')
-      } else if (activeTask && !response.active) {
+      } else if (currentTask && !response.active) {
         // Task just completed - fetch the final details
         try {
-          const taskDetails = await aiApi.getTask(activeTask.id)
+          const taskDetails = await aiApi.getTask(currentTask.id)
           if (taskDetails) {
             setCompletedTask({
-              ...activeTask,
+              ...currentTask,
               summary: taskDetails.summary,
               result: taskDetails.result,
               status: taskDetails.status
             })
           }
         } catch (e) {
-          setCompletedTask(activeTask)
+          setCompletedTask(currentTask)
         }
         setIsComplete(true)
         setPolling(false)
         // Don't auto-dismiss - let user click View Summary or dismiss manually
-      } else {
+      } else if (!currentTask) {
         // No active task
         setPolling(false)
       }
     } catch (error) {
       console.error('Error checking active task:', error)
     }
-  }, [activeTask, isCancelling, isCancelled])
+  }, [isCancelling, isCancelled])
 
   // Check for existing Amplifier task on mount (handles page refresh)
   useEffect(() => {
@@ -445,11 +459,11 @@ export function BackgroundTaskBar() {
             <div className={styles.progressBar}>
               <div 
                 className={styles.progressFill} 
-                style={{ width: `${activeTask.progressPercent}%` }}
+                style={{ width: `${Math.round(activeTask.progressPercent)}%` }}
               />
             </div>
             <div className={styles.progressText}>
-              {`${activeTask.progressPercent}%`}
+              {`${Math.round(activeTask.progressPercent)}%`}
             </div>
           </div>
         </div>

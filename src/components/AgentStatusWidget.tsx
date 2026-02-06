@@ -177,7 +177,7 @@ export function AgentStatusWidget() {
         </div>
         <div 
           className={`${styles.miniProgress} ${isFailed ? styles.failed : isComplete ? styles.complete : ''}`}
-          style={{ width: `${progress?.progress_percent || 0}%` }}
+          style={{ width: `${Math.round(progress?.progress_percent || 0)}%` }}
         />
         <button 
           className={styles.expandBtn}
@@ -225,12 +225,12 @@ export function AgentStatusWidget() {
       <div className={styles.progressBar}>
         <div 
           className={`${styles.progressFill} ${isFailed ? styles.failed : isComplete ? styles.complete : ''}`}
-          style={{ width: `${progress?.progress_percent || 0}%` }}
+          style={{ width: `${Math.round(progress?.progress_percent || 0)}%` }}
         />
       </div>
       
       <div className={styles.footer}>
-        <span className={styles.percent}>{progress?.progress_percent || 0}%</span>
+        <span className={styles.percent}>{Math.round(progress?.progress_percent || 0)}%</span>
         <span className={styles.viewMore}>
           View Details <ChevronRight size={14} />
         </span>
