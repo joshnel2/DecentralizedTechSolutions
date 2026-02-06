@@ -535,6 +535,32 @@ export const AMPLIFIER_OPENAI_TOOLS = AGENT_TOOLS.filter(
   tool => !BACKGROUND_AGENT_EXCLUDED_TOOLS.includes(tool.function?.name)
 );
 
+// ===== BACKGROUND-AGENT-ONLY TOOLS =====
+// These tools are unique to the background agent (not available in normal AI chat).
+// They support quality assurance, self-review, and long-running task management.
+
+const BACKGROUND_AGENT_ONLY_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'review_created_documents',
+      description: 'Review documents and notes you created during this task. Re-reads your work product from the database so you can verify quality, catch placeholder text, check citation integrity, and fix issues before completing. ALWAYS call this in the REVIEW phase before task_complete.',
+      parameters: {
+        type: 'object',
+        properties: {
+          matter_id: { type: 'string', description: 'Optional: limit review to documents for a specific matter' },
+          minutes_ago: { type: 'integer', description: 'How far back to look (default: 60 minutes)' },
+          include_content: { type: 'boolean', description: 'Include document/note content for review (default: true)' },
+        },
+        required: []
+      }
+    }
+  },
+];
+
+// Add background-agent-only tools to the OpenAI tool list
+AMPLIFIER_OPENAI_TOOLS.push(...BACKGROUND_AGENT_ONLY_TOOLS);
+
 // AMPLIFIER_TOOLS = merged tool definitions for backwards compatibility
 const filteredAgentTools = AGENT_TOOLS.filter(
   tool => !BACKGROUND_AGENT_EXCLUDED_TOOLS.includes(tool.function?.name)
@@ -542,7 +568,7 @@ const filteredAgentTools = AGENT_TOOLS.filter(
 export const AMPLIFIER_TOOLS = { ...BASE_AMPLIFIER_TOOLS, ...buildToolMapFromAgent(filteredAgentTools) };
 
 // Log tool availability for debugging
-console.log(`[ToolBridge] AMPLIFIER_OPENAI_TOOLS: ${AMPLIFIER_OPENAI_TOOLS.length} tools available`);
+console.log(`[ToolBridge] AMPLIFIER_OPENAI_TOOLS: ${AMPLIFIER_OPENAI_TOOLS.length} tools available (${BACKGROUND_AGENT_ONLY_TOOLS.length} background-agent-only)`);
 console.log(`[ToolBridge] AMPLIFIER_TOOLS: ${Object.keys(AMPLIFIER_TOOLS).length} tool definitions`);
 
 async function loadUserContext(userId, firmId) {
@@ -651,6 +677,10 @@ export async function executeTool(toolName, params, context) {
       
       case 'calculate_cplr_deadline':
         return await calculateCPLRDeadline(params);
+      
+      // Quality assurance: let the agent review what it created
+      case 'review_created_documents':
+        return await reviewCreatedDocuments(params, userId, firmId);
       
       default:
         // Delegate to the standard AI agent tool executor (same as normal AI chat)
@@ -3294,6 +3324,141 @@ async function calculateCPLRDeadline(params) {
   } catch (error) {
     console.error('[CPLR Deadline] Error:', error);
     return { error: 'Failed to calculate deadline: ' + error.message };
+  }
+}
+
+/**
+ * Review documents and notes created by the agent during the current task.
+ * 
+ * This tool allows the agent to re-read its own work product and self-correct.
+ * It queries the database for documents and notes created in the recent window
+ * (by the AI user) and returns their content for review.
+ * 
+ * This closes the "blind spot" where the agent creates a document but can't
+ * verify what was actually saved.
+ */
+async function reviewCreatedDocuments(params, userId, firmId) {
+  const { matter_id, minutes_ago = 60, include_content = true } = params;
+  
+  try {
+    const results = { documents: [], notes: [], summary: '' };
+    
+    // Find recently created documents
+    const docQuery = matter_id
+      ? `SELECT id, original_name as name, created_at, content_text, file_size 
+         FROM documents 
+         WHERE firm_id = $1 AND uploaded_by = $2 AND matter_id = $3
+           AND created_at > NOW() - INTERVAL '${parseInt(minutes_ago)} minutes'
+         ORDER BY created_at DESC LIMIT 10`
+      : `SELECT id, original_name as name, created_at, content_text, file_size 
+         FROM documents 
+         WHERE firm_id = $1 AND uploaded_by = $2
+           AND created_at > NOW() - INTERVAL '${parseInt(minutes_ago)} minutes'
+         ORDER BY created_at DESC LIMIT 10`;
+    
+    const docParams = matter_id ? [firmId, userId, matter_id] : [firmId, userId];
+    const docResult = await query(docQuery, docParams);
+    
+    for (const doc of docResult.rows) {
+      const docEntry = {
+        id: doc.id,
+        name: doc.name,
+        created_at: doc.created_at,
+        size: doc.file_size,
+      };
+      
+      if (include_content && doc.content_text) {
+        // Return content for review (cap at 3000 chars per doc)
+        docEntry.content = doc.content_text.substring(0, 3000);
+        if (doc.content_text.length > 3000) {
+          docEntry.content += `\n\n[... truncated, full document is ${doc.content_text.length} chars]`;
+        }
+        docEntry.content_length = doc.content_text.length;
+        
+        // Flag potential issues in the content
+        docEntry.issues = [];
+        if (/\[INSERT|TODO|PLACEHOLDER|TBD\]/i.test(doc.content_text)) {
+          docEntry.issues.push('Contains placeholder text ([INSERT], [TODO], etc.)');
+        }
+        if (doc.content_text.length < 200) {
+          docEntry.issues.push('Document is very short (< 200 chars)');
+        }
+        
+        // Check for unverified citations
+        const citationMatches = doc.content_text.match(
+          /\d+\s+(?:F\.(?:2d|3d|4th|Supp\.(?:2d|3d)?)|U\.S\.|S\.Ct\.|L\.Ed\.(?:2d)?|N\.Y\.(?:2d|3d)?|A\.D\.(?:2d|3d)?)\s+\d+/g
+        );
+        if (citationMatches && citationMatches.length > 0) {
+          const unverified = citationMatches.filter(c => {
+            // Check if marked as unverified in surrounding context
+            const idx = doc.content_text.indexOf(c);
+            const context = doc.content_text.substring(Math.max(0, idx - 30), Math.min(doc.content_text.length, idx + c.length + 30));
+            return !/\[UNVERIFIED|NEEDS? (?:CITE )?CHECK\]/i.test(context);
+          });
+          if (unverified.length > 0) {
+            docEntry.issues.push(`${unverified.length} legal citation(s) may need verification: ${unverified.slice(0, 3).join('; ')}`);
+          }
+        }
+      }
+      
+      results.documents.push(docEntry);
+    }
+    
+    // Find recently created notes
+    const noteQuery = matter_id
+      ? `SELECT id, content, note_type, created_at 
+         FROM matter_notes 
+         WHERE matter_id = $1 AND created_by = $2
+           AND created_at > NOW() - INTERVAL '${parseInt(minutes_ago)} minutes'
+         ORDER BY created_at DESC LIMIT 10`
+      : `SELECT mn.id, mn.content, mn.note_type, mn.created_at, m.name as matter_name
+         FROM matter_notes mn
+         JOIN matters m ON mn.matter_id = m.id
+         WHERE m.firm_id = $1 AND mn.created_by = $2
+           AND mn.created_at > NOW() - INTERVAL '${parseInt(minutes_ago)} minutes'
+         ORDER BY mn.created_at DESC LIMIT 10`;
+    
+    const noteParams = matter_id ? [matter_id, userId] : [firmId, userId];
+    const noteResult = await query(noteQuery, noteParams);
+    
+    for (const note of noteResult.rows) {
+      const noteEntry = {
+        id: note.id,
+        type: note.note_type || 'general',
+        created_at: note.created_at,
+        matter_name: note.matter_name || null,
+      };
+      
+      if (include_content && note.content) {
+        noteEntry.content = note.content.substring(0, 2000);
+        noteEntry.content_length = note.content.length;
+        
+        noteEntry.issues = [];
+        if (note.content.length < 100) {
+          noteEntry.issues.push('Note is very short (< 100 chars)');
+        }
+      }
+      
+      results.notes.push(noteEntry);
+    }
+    
+    results.summary = `Created in last ${minutes_ago} minutes: ${results.documents.length} document(s), ${results.notes.length} note(s)`;
+    
+    // Count total issues
+    const totalIssues = [...results.documents, ...results.notes]
+      .reduce((sum, item) => sum + (item.issues?.length || 0), 0);
+    
+    if (totalIssues > 0) {
+      results.summary += `. ⚠️ ${totalIssues} issue(s) found - review and fix before completing.`;
+    } else if (results.documents.length > 0 || results.notes.length > 0) {
+      results.summary += '. ✅ No issues detected.';
+    }
+    
+    return { success: true, ...results };
+    
+  } catch (error) {
+    console.error('[ToolBridge] reviewCreatedDocuments error:', error.message);
+    return { error: 'Failed to review created documents: ' + error.message };
   }
 }
 
