@@ -23,6 +23,7 @@ import { getCPLRContextForPrompt, getCPLRGuidanceForMatter } from './amplifier/l
 import { getUserDocumentProfile, formatProfileForPrompt, onDocumentAccessed } from './amplifier/documentLearning.js';
 import { createCheckpointRewindManager } from './amplifier/checkpointRewind.js';
 import { createAgentMemory, recursiveCompact, AgentMemory } from './amplifier/recursiveSummarizer.js';
+import { generateBrief, classifyWork, getTimeBudget } from './amplifier/juniorAttorneyBrief.js';
 
 // Store active tasks per user
 const activeTasks = new Map();
@@ -581,6 +582,14 @@ class BackgroundTask extends EventEmitter {
     
     const findings = (this.structuredPlan?.keyFindings || []).slice(-5).map(f => `- ${f}`).join('\n');
     
+    // Reference the brief's expected deliverables so the agent knows what's still needed
+    const briefDeliverables = this.workType?.expectedDeliverables 
+      ? this.workType.expectedDeliverables.map(d => `- ${d}`).join('\n')
+      : '';
+    const briefReminder = briefDeliverables 
+      ? `\n**From your brief, expected deliverables:**\n${briefDeliverables}\n`
+      : '';
+    
     const reflectionPrompts = {
       [ExecutionPhase.DISCOVERY]: `
 == SELF-CRITIQUE: DISCOVERY phase complete (${elapsedMin}min elapsed, ${remainingMin}min left) ==
@@ -590,11 +599,12 @@ ${recentActions}
 
 **Key findings:**
 ${findings || '(none recorded)'}
-
+${briefReminder}
 **REFLECT before moving to ANALYSIS:**
 - Did I gather enough information to analyze this matter thoroughly?
 - What key documents or data did I NOT read that I should have?
 - Are there any gaps in my understanding?
+- Did I follow the approach order from my brief?
 
 If critical info is missing, call one more tool to get it. Then proceed to ANALYSIS: use add_matter_note to document your findings and analysis using IRAC methodology.`,
 
@@ -603,12 +613,13 @@ If critical info is missing, call one more tool to get it. Then proceed to ANALY
 
 **What you documented:**
 Notes: ${this.substantiveActions.notes} | Research actions: ${this.substantiveActions.research}
-
+${briefReminder}
 **REFLECT before moving to ACTION:**
 - Is my analysis specific to THIS matter (not generic)?
 - Did I identify all key legal issues?
 - Did I note risks and deadlines?
 - Is my analysis thorough enough for a supervising partner to rely on?
+- Am I on track to produce all the deliverables from my brief?
 
 If your analysis is thin, add one more note with deeper analysis. Then proceed to ACTION: create formal deliverables (documents, tasks, calendar events).`,
 
@@ -1462,6 +1473,8 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
       rewindState: this.rewindManager ? this.rewindManager.getSerializableState() : null,
       // Persist recursive summarization memory
       agentMemoryState: this.agentMemory ? this.agentMemory.serialize() : null,
+      // Persist work type classification from the brief
+      workTypeId: this.workType?.id || null,
     };
   }
 
@@ -1538,6 +1551,11 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
     // Restore recursive summarization memory
     if (checkpoint.agentMemoryState) {
       this.agentMemory = AgentMemory.deserialize(checkpoint.agentMemoryState, this.goal);
+    }
+    
+    // Restore work type classification using already-imported classifyWork
+    if (checkpoint.workTypeId) {
+      this.workType = classifyWork(this.goal);
     }
   }
 
@@ -1675,6 +1693,25 @@ BEGIN NOW. Call \`think_and_plan\` first, then execute tools for each step. Be t
         // The user message must clearly instruct the AI to take action immediately
         this.systemPrompt = this.buildSystemPrompt();
         
+        // ===== JUNIOR ATTORNEY BRIEF =====
+        // Before the agent starts working, inject a structured brief that tells it
+        // HOW a competent junior attorney would approach this specific type of work.
+        // This is the reasoning step between "receive assignment" and "start executing."
+        const workType = classifyWork(this.goal);
+        const totalMinutes = Math.round(this.maxRuntimeMs / 60000);
+        const brief = generateBrief(this.goal, this.matterContext, { totalMinutes });
+        
+        this.streamEvent('brief_generated', `📋 Assignment classified as: ${workType.name}`, {
+          work_type: workType.id,
+          icon: 'book-open',
+          color: 'blue'
+        });
+        
+        console.log(`[Amplifier] Task classified as "${workType.name}" - brief generated (${brief.length} chars)`);
+        
+        // Store work type for phase budget adjustments
+        this.workType = workType;
+        
         // ===== RECURSIVE SUMMARIZATION: Inject Long-Term Memory header =====
         // The mission goal header persists through the entire session, ensuring
         // the agent never loses sight of its 30-minute objective even after
@@ -1688,9 +1725,13 @@ BEGIN NOW. Call \`think_and_plan\` first, then execute tools for each step. Be t
           longTermHeader, // Long-Term Memory: mission goal + key facts
           { 
             role: 'user', 
+            content: brief  // Junior Attorney Brief: how to approach this work
+          },
+          { 
+            role: 'user', 
             content: `EXECUTE THIS TASK NOW: ${this.goal}
 
-Begin by calling think_and_plan to create your execution plan, then immediately start calling tools to complete each step. Do NOT respond with just text - you MUST call tools to take action.`
+You have your brief above. Follow the approach order and time budget. Call think_and_plan to create your execution plan based on the brief, then immediately start calling tools. Do NOT respond with just text - you MUST call tools to take action.`
           }
         ].filter(Boolean);
       }
@@ -2947,6 +2988,8 @@ Please acknowledge this follow-up and adjust your approach accordingly. Continue
       duration: this.endTime 
         ? (this.endTime - this.startTime) / 1000 
         : (new Date() - this.startTime) / 1000,
+      // Work type classification from Junior Attorney Brief
+      workType: this.workType ? { id: this.workType.id, name: this.workType.name } : null,
       // Rewind system status
       rewind: this.rewindManager ? this.rewindManager.getStatus() : null,
       // Memory system status
