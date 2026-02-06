@@ -30,8 +30,9 @@ import { generateBrief, classifyWork, getTimeBudget } from './amplifier/juniorAt
 import { DecisionReinforcer } from './amplifier/decisionReinforcer.js';
 // Module System: pre-built workflow templates for legal task types
 import { detectModule, formatModuleForPrompt } from './amplifier/modules/index.js';
-// Enhanced Amplifier hooks: rate limiting + learning extraction on API calls
-import { hooks as enhancedAmplifierHooks } from './amplifier/enhancedAmplifier.js';
+// Amplifier hooks: rate limiting + learning extraction on API calls
+// Uses dedicated amplifierHooks.js to avoid circular dependency chain
+import { hooks as enhancedAmplifierHooks } from './amplifier/amplifierHooks.js';
 // Learning Optimizer: cross-task pattern refinement (periodic)
 import { LearningOptimizer } from './amplifier/learningOptimizer.js';
 
