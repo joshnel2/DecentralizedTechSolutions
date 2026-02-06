@@ -27,7 +27,7 @@ const router = Router();
 // Azure OpenAI configuration (works with Azure AI Foundry deployed models)
 const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
 const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
-const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
+const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT || process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
 const API_VERSION = '2024-12-01-preview'; // Latest API version for newer models
 
 // =============================================================================

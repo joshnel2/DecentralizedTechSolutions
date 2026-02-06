@@ -94,7 +94,7 @@ function getAzureConfig() {
   return {
     endpoint: process.env.AZURE_OPENAI_ENDPOINT,
     apiKey: process.env.AZURE_OPENAI_API_KEY,
-    deployment: process.env.AZURE_OPENAI_DEPLOYMENT
+    deployment: process.env.AZURE_OPENAI_DEPLOYMENT || process.env.AZURE_OPENAI_DEPLOYMENT_NAME
   };
 }
 
